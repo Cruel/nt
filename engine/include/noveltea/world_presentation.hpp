@@ -126,6 +126,20 @@ struct WorldPresentationDraw {
     std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
     std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
     std::optional<assets::AssetLease<assets::HotspotMaskAsset>> hotspot_mask_lease;
+    struct ActorAnimationFrame {
+        std::uint64_t duration_ms = 0;
+        std::optional<QuadCommand> command;
+        std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
+        std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
+    };
+    struct ActorAnimationClip {
+        core::CharacterAnimationClipId id;
+        core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
+        std::vector<ActorAnimationFrame> frames;
+    };
+    std::vector<ActorAnimationClip> actor_animation_clips;
+    core::compiled::CharacterAutomaticAnimations actor_automatic_animations;
+    bool actor_speaking = false;
 };
 
 struct WorldPreparedHotspotSurface {

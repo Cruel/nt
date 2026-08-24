@@ -44,6 +44,11 @@ public:
         assert_owner_thread();
         return core::PresentationOperationId::from_number(m_next_presentation_id++);
     }
+    [[nodiscard]] core::AudioOperationId allocate_audio_operation_id() noexcept
+    {
+        assert_owner_thread();
+        return core::AudioOperationId::from_number(m_next_audio_id++);
+    }
     [[nodiscard]] const core::SessionState& presentation_state() const noexcept;
     [[nodiscard]] const RuntimeCheckpointService& checkpoint_service() const noexcept
     {

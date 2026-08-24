@@ -130,6 +130,8 @@ function representativeWireFixture() {
               id: 'stage',
               layers: [{ id: 'body', role: 'body' }],
               defaultPoseId: 'default',
+              animationClips: [],
+              automaticAnimations: { blink: null, speaking: null },
               poses: [
                 {
                   id: 'default',
@@ -150,6 +152,7 @@ function representativeWireFixture() {
           ],
           expressions: [{ id: 'neutral', profiles: [] }],
           appearances: [],
+          gestures: [],
           inventories: [{ id: 'pockets', label: 'Pockets' }],
           initialWorldState: {
             location: { kind: 'room', room: { kind: 'room', id: 'foyer' } },

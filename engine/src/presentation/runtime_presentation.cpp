@@ -255,6 +255,7 @@ struct ActorSource {
     bool enabled = true;
     bool visible = true;
     bool presentation_complete = true;
+    bool speaking = false;
     bool desired_override = false;
     std::optional<PresentationOwner> desired_owner;
 };
@@ -368,6 +369,12 @@ void append_actor(const CompiledProject& project, const runtime::RuntimeWorld& w
                                        actor.expression, actor.appearance, diagnostics);
     if (!layers)
         return;
+    const auto profile = std::ranges::find_if(
+        character->profiles, [&](const auto& candidate) { return candidate.id == actor.profile; });
+    if (profile == character->profiles.end()) {
+        diagnostics.push_back(unresolved("Character presentation profile", actor.profile.text()));
+        return;
+    }
     std::optional<compiled::CharacterIdle> idle;
     if (actor.idle) {
         const auto found = std::find_if(character->idles.begin(), character->idles.end(),
@@ -378,11 +385,26 @@ void append_actor(const CompiledProject& project, const runtime::RuntimeWorld& w
         }
         idle = *found;
     }
-    result.actors.push_back(PresentationActor{
-        actor.key, actor.desired_owner, actor.character, actor.profile, actor.pose,
-        actor.expression, actor.appearance, std::move(idle), std::move(*layers), actor.placement,
-        actor.room_placement, actor.room_bounds, PresentationPlane::WorldContent, actor.order,
-        actor.enabled, actor.visible, actor.presentation_complete});
+    result.actors.push_back(PresentationActor{actor.key,
+                                              actor.desired_owner,
+                                              actor.character,
+                                              actor.profile,
+                                              actor.pose,
+                                              actor.expression,
+                                              actor.appearance,
+                                              std::move(idle),
+                                              profile->animation_clips,
+                                              profile->automatic_animations,
+                                              std::move(*layers),
+                                              actor.placement,
+                                              actor.room_placement,
+                                              actor.room_bounds,
+                                              PresentationPlane::WorldContent,
+                                              actor.order,
+                                              actor.enabled,
+                                              actor.visible,
+                                              actor.presentation_complete,
+                                              actor.speaking});
 }
 
 Result<PresentationEnvironmentInstanceId, Diagnostics>
@@ -434,6 +456,7 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
                                      actor.enabled,
                                      actor.visible,
                                      true,
+                                     false,
                                      false,
                                      std::nullopt});
     }
@@ -665,6 +688,8 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
              actor.expression,
              actor.appearance,
              visual->idle,
+             {},
+             {},
              visual->layers,
              {},
              compiled::RoomPlacementRef{passive.presentation.visit.room, actor.placement},
@@ -757,6 +782,18 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             actor.id);
         const compiled::RoomPlacementRef room_placement{resolution.presentation.visit.room,
                                                         actor.placement};
+        std::vector<compiled::CharacterAnimationClip> animation_clips;
+        compiled::CharacterAutomaticAnimations automatic_animations;
+        if (const auto* character = project.find_character(actor.character)) {
+            const auto profile =
+                std::ranges::find_if(character->profiles, [&](const auto& candidate) {
+                    return candidate.id == actor.profile;
+                });
+            if (profile != character->profiles.end()) {
+                animation_clips = profile->animation_clips;
+                automatic_animations = profile->automatic_animations;
+            }
+        }
         result.actors.push_back(PresentationActor{key,
                                                   std::nullopt,
                                                   actor.character,
@@ -765,6 +802,8 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
                                                   actor.expression,
                                                   actor.appearance,
                                                   visual->idle,
+                                                  std::move(animation_clips),
+                                                  std::move(automatic_animations),
                                                   visual->layers,
                                                   {},
                                                   room_placement,
@@ -949,6 +988,7 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             existing->placement = desired.placement;
             existing->visible = desired.visible;
             existing->presentation_complete = desired.presentation_complete;
+            existing->speaking = desired.speaking;
             existing->desired_override = true;
             existing->desired_owner = desired.owner;
             continue;
@@ -956,14 +996,18 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         if (std::holds_alternative<CharacterActorKey>(desired.key) ||
             std::holds_alternative<RoomCastActorKey>(desired.key))
             continue;
-        actors.push_back(ActorSource{desired.key, desired.character, desired.profile, desired.pose,
-                                     desired.expression, desired.appearance, desired.idle,
-                                     desired.placement, std::nullopt, std::nullopt,
-                                     actor_order(project, desired.key), true, desired.visible,
-                                     desired.presentation_complete, true, desired.owner});
+        actors.push_back(ActorSource{
+            desired.key, desired.character, desired.profile, desired.pose, desired.expression,
+            desired.appearance, desired.idle, desired.placement, std::nullopt, std::nullopt,
+            actor_order(project, desired.key), true, desired.visible, desired.presentation_complete,
+            desired.speaking, true, desired.owner});
     }
     for (const auto& actor : actors)
         append_actor(project, world, actor, result, diagnostics);
+    if (state.presented_text() && state.presented_text()->speaker) {
+        for (auto& actor : result.actors)
+            actor.speaking = actor.speaking || actor.character == *state.presented_text()->speaker;
+    }
 
     for (const auto& desired : state.presentation_props()) {
         if (!state.presentation_owner_is_active(desired.owner))

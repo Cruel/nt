@@ -268,6 +268,10 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     set_actor_presentation_complete(const CompiledProject& project, const ActorPresentationKey& key,
                                     const PresentationOwner& owner, bool complete);
+    [[nodiscard]] Result<void, Diagnostics> set_actor_speaking(const CompiledProject& project,
+                                                               const ActorPresentationKey& key,
+                                                               const PresentationOwner& owner,
+                                                               bool speaking);
     [[nodiscard]] const std::vector<DesiredPresentationProp>& presentation_props() const noexcept
     {
         return m_presentation_props;

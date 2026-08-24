@@ -458,6 +458,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         }
         m_runtime_presentation.bind_presentation_id_allocator(
             [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
+        m_runtime_presentation.bind_audio_id_allocator(
+            [this]() { return m_running_game->session().allocate_audio_operation_id(); });
         if (m_running_game_presentation_port) {
             auto restored = m_running_game_presentation_port->activate(m_runtime_presentation);
             if (!restored)
@@ -490,6 +492,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     }
     m_runtime_presentation.bind_presentation_id_allocator(
         [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
+    m_runtime_presentation.bind_audio_id_allocator(
+        [this]() { return m_running_game->session().allocate_audio_operation_id(); });
 
     auto activated = m_running_game_presentation_port->activate(m_runtime_presentation);
     if (!activated)
@@ -577,6 +581,8 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
     m_running_game_presentation_port = std::move(candidate_presentation);
     m_runtime_presentation.bind_presentation_id_allocator(
         [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
+    m_runtime_presentation.bind_audio_id_allocator(
+        [this]() { return m_running_game->session().allocate_audio_operation_id(); });
 
     auto activated = m_running_game_presentation_port->activate(m_runtime_presentation);
     if (!activated) {
@@ -592,6 +598,8 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
         m_running_game_presentation_port = std::move(previous_presentation);
         m_runtime_presentation.bind_presentation_id_allocator(
             [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
+        m_runtime_presentation.bind_audio_id_allocator(
+            [this]() { return m_running_game->session().allocate_audio_operation_id(); });
         if (m_running_game_presentation_port) {
             auto restored = m_running_game_presentation_port->activate(m_runtime_presentation);
             if (!restored)

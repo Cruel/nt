@@ -1132,6 +1132,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
     const auto detach_resources = [this]() {
         (void)m_game_host.runtime_presentation().bind_snapshot_backend({});
         m_game_host.runtime_presentation().bind_presentation_id_allocator({});
+        m_game_host.runtime_presentation().bind_audio_id_allocator({});
         m_mandatory_assets.clear_package_on_owner();
         m_world_presentation.reset();
         m_world_hotspots.cancel();

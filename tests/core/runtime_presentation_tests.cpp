@@ -301,6 +301,7 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(snapshot.background->color == "#112233");
 
     REQUIRE(snapshot.actors.size() == 2);
+    CHECK(std::ranges::all_of(snapshot.actors, [](const auto& actor) { return actor.speaking; }));
     const auto world_actor =
         std::find_if(snapshot.actors.begin(), snapshot.actors.end(), [](const auto& actor) {
             return std::holds_alternative<RoomCastActorKey>(actor.key);

@@ -162,6 +162,8 @@ PresentationActor actor(ActorPresentationKey key, std::int32_t order = 0)
                              id<CharacterExpressionId>("neutral"),
                              std::nullopt,
                              std::nullopt,
+                             {},
+                             {},
                              {{id<CharacterPresentationLayerId>("body"),
                                std::string{"body"},
                                id<AssetId>("pose"),
@@ -185,7 +187,8 @@ PresentationActor actor(ActorPresentationKey key, std::int32_t order = 0)
                              order,
                              true,
                              true,
-                             true};
+                             true,
+                             false};
 }
 
 RuntimePresentationSnapshot base_snapshot(std::uint64_t revision = 1)
@@ -473,6 +476,80 @@ TEST_CASE("reconstructible environment loops restart from phase zero after backe
     REQUIRE(backend.frame());
     CHECK(backend.frame()->batch.commands().front().uv.x == Catch::Approx(0.0f));
     CHECK(*backend.frame()->batch.commands().front().time_seconds == Catch::Approx(0.0f));
+}
+
+TEST_CASE("automatic speaking and blink animation phase is disposable and reconstructible")
+{
+    FakeWorldResources resources;
+    resources.add_texture("pose", 1, 640, 960);
+    resources.add_texture("expression", 2, 640, 960);
+    WorldPresentationBackend backend(resources);
+    auto snapshot = base_snapshot(1);
+    auto value = actor(ActorPresentationKey{CharacterActorKey{id<CharacterId>("hero")}});
+    value.animation_clips = {
+        {id<CharacterAnimationClipId>("speaking"),
+         LayoutClockDomain::Gameplay,
+         {{50,
+           {{id<CharacterPresentationLayerId>("face"),
+             {},
+             {true, id<core::MaterialId>("mouth-open")},
+             std::nullopt,
+             std::nullopt,
+             std::nullopt,
+             std::nullopt}}},
+          {50,
+           {{id<CharacterPresentationLayerId>("face"),
+             {},
+             {true, id<core::MaterialId>("mouth-closed")},
+             std::nullopt,
+             std::nullopt,
+             std::nullopt,
+             std::nullopt}}}}},
+        {id<CharacterAnimationClipId>("blink"),
+         LayoutClockDomain::Gameplay,
+         {{50,
+           {{id<CharacterPresentationLayerId>("face"),
+             {},
+             {true, id<core::MaterialId>("eyes-closed")},
+             std::nullopt,
+             std::nullopt,
+             std::nullopt,
+             std::nullopt}}}}},
+    };
+    value.automatic_animations.speaking =
+        compiled::CharacterAutomaticSpeaking{id<CharacterAnimationClipId>("speaking"), "face"};
+    value.automatic_animations.blink =
+        compiled::CharacterAutomaticBlink{id<CharacterAnimationClipId>("blink"), "face", 100};
+    value.speaking = true;
+    snapshot.actors.push_back(value);
+
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    RuntimeClockUpdate clock;
+    clock.gameplay_time = std::chrono::milliseconds{1000};
+    backend.realize(clock);
+    REQUIRE(backend.frame());
+    REQUIRE(backend.frame()->batch.commands().size() == 2);
+    CHECK(backend.frame()->batch.commands()[1].material.value() == "mouth-open");
+
+    clock.gameplay_time += std::chrono::milliseconds{60};
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[1].material.value() == "mouth-closed");
+
+    backend.reset();
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    clock.gameplay_time += std::chrono::seconds{10};
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[1].material.value() == "mouth-open");
+
+    snapshot.actors.front().speaking = false;
+    backend.reset();
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    clock.gameplay_time += std::chrono::seconds{10};
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[1].material.value() == "expression-material");
+    clock.gameplay_time += std::chrono::milliseconds{100};
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[1].material.value() == "eyes-closed");
 }
 
 TEST_CASE("world transition composition contains only world presentation draws")

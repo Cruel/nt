@@ -196,6 +196,14 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
         if (layer.material) materialIds.add(layer.material.$ref.id);
       }
     }
+    for (const clip of profile.animationClips) {
+      for (const frame of clip.frames) {
+        for (const layer of frame.layers) {
+          if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
+          if (layer.material) materialIds.add(layer.material.$ref.id);
+        }
+      }
+    }
   }
   for (const entry of [...data.expressions, ...data.appearances]) {
     for (const profile of entry.profiles) {
@@ -205,6 +213,9 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
       }
     }
   }
+  for (const gesture of data.gestures)
+    for (const profile of gesture.profiles)
+      for (const cue of profile.cues) if (cue.kind === 'audio') assetIds.add(cue.asset.$ref.id);
   const assets = [...assetIds].sort().map((id) => {
     const asset = project.assets[id];
     const assetData = parseAssetData(asset?.data);
@@ -280,8 +291,11 @@ export function buildCharacterPreviewDocumentData(
           id: profile.id,
           label: profile.label,
           layers: profile.layers,
+          animationClips: profile.animationClips,
+          automaticAnimations: profile.automaticAnimations,
         }
       : null,
+    gestures: data.gestures,
     pose: posePayload(pose),
     expression: expressionPayload(project, expression),
     resolvedLayers,

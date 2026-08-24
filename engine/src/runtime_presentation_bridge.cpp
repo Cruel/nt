@@ -21,6 +21,10 @@ void append_dispatch_result(RuntimePresentationDispatchResult& destination,
     destination.inputs.insert(destination.inputs.end(),
                               std::make_move_iterator(source.inputs.begin()),
                               std::make_move_iterator(source.inputs.end()));
+    destination.character_presentation_cues.insert(
+        destination.character_presentation_cues.end(),
+        std::make_move_iterator(source.character_presentation_cues.begin()),
+        std::make_move_iterator(source.character_presentation_cues.end()));
     core::append_diagnostics(destination.diagnostics, std::move(source.diagnostics));
 }
 } // namespace
@@ -137,6 +141,62 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
         auto facts = m_world_transition_backend->take_acknowledgements();
         m_backend_facts.insert(m_backend_facts.end(), std::make_move_iterator(facts.begin()),
                                std::make_move_iterator(facts.end()));
+        auto cues = m_world_transition_backend->take_gesture_cues();
+        bool queued_audio = false;
+        for (auto& crossing : cues) {
+            const auto lifecycle = std::find_if(
+                m_coordinator.lifecycles().begin(), m_coordinator.lifecycles().end(),
+                [&](const auto& value) { return value.metadata.operation == crossing.operation; });
+            if (lifecycle == m_coordinator.lifecycles().end() || !live_lifecycle(*lifecycle))
+                continue;
+            std::visit(
+                [&](const auto& cue) {
+                    using T = std::decay_t<decltype(cue)>;
+                    if constexpr (std::is_same_v<T,
+                                                 core::compiled::CharacterPresentationGestureCue>) {
+                        result.character_presentation_cues.push_back(
+                            {crossing.operation, cue.id, cue.event});
+                    } else {
+                        if (!m_allocate_audio_id) {
+                            result.diagnostics.push_back(
+                                {.code = "presentation.gesture_audio_allocator_unavailable",
+                                 .message = "Character Gesture audio cue has no runtime Audio "
+                                            "operation allocator"});
+                            return;
+                        }
+                        core::AudioOperation audio{
+                            .id = m_allocate_audio_id(),
+                            .action = core::compiled::AudioAction::Play,
+                            .purpose = core::compiled::AudioPurpose::SoundEffect,
+                            .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+                            .audio_owner = std::nullopt,
+                            .asset = cue.asset,
+                            .fade = std::chrono::milliseconds{0},
+                            .gain = cue.gain,
+                            .pan = cue.pan,
+                            .pan_source = std::nullopt,
+                            .completion_owner = std::nullopt,
+                            .completion = std::nullopt,
+                            .target = core::NewAudioPlaybackTarget{},
+                            .causality = core::compiled::AudioCausality::Disposable,
+                            .synchronized = true,
+                            .skip_behavior = core::compiled::AudioSkipBehavior::Suppress,
+                        };
+                        auto accepted = accept(audio);
+                        if (!accepted)
+                            core::append_diagnostics(result.diagnostics,
+                                                     std::move(accepted).error());
+                        else
+                            queued_audio = true;
+                    }
+                },
+                crossing.payload);
+        }
+        if (queued_audio) {
+            auto cue_delivery = m_coordinator.deliver_pending();
+            if (!cue_delivery)
+                core::append_diagnostics(result.diagnostics, std::move(cue_delivery).error());
+        }
     }
     append_dispatch_result(result, drain_backend_facts());
     if (m_mandatory_asset_gate && !m_pending_mandatory_snapshot &&
@@ -188,6 +248,7 @@ RuntimePresentationBridge::realize(const core::CoordinatedOperationDelivery& del
         std::holds_alternative<core::CameraPunchOperation>(delivery.operation) ||
         std::holds_alternative<core::CameraFlashOperation>(delivery.operation) ||
         std::holds_alternative<core::ActorPresentationOperation>(delivery.operation) ||
+        std::holds_alternative<core::CharacterGestureOperation>(delivery.operation) ||
         std::holds_alternative<core::LayoutFinitePresentationOperation>(delivery.operation)) {
         if (m_world_transition_backend)
             return m_world_transition_backend->realize(delivery);
@@ -589,6 +650,12 @@ void RuntimePresentationBridge::bind_presentation_id_allocator(
     std::function<core::PresentationOperationId()> allocator)
 {
     m_allocate_presentation_id = std::move(allocator);
+}
+
+void RuntimePresentationBridge::bind_audio_id_allocator(
+    std::function<core::AudioOperationId()> allocator)
+{
+    m_allocate_audio_id = std::move(allocator);
 }
 
 core::Result<void, core::Diagnostics> RuntimePresentationBridge::bind_snapshot_backend(

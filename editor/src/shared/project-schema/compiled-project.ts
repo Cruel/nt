@@ -318,11 +318,41 @@ const characterPoseSchema = strict({
   id,
   layers: z.array(characterLayerCompositionSchema),
 });
+const characterAnimationLayerFrameSchema = strict({
+  layerId: id,
+  material: materialReferenceSchema.nullable().optional(),
+  sprite: assetReferenceSchema.nullable().optional(),
+  offset: vector2Schema.optional(),
+  scale: finiteNumber.positive().optional(),
+  anchor: vector2Schema.optional(),
+  visible: z.boolean().optional(),
+});
+const characterAnimationClipSchema = strict({
+  id,
+  clock: z.enum(['gameplay', 'unscaled-presentation']),
+  frames: z
+    .array(
+      strict({
+        durationMs: z.number().int().positive(),
+        layers: z.array(characterAnimationLayerFrameSchema),
+      }),
+    )
+    .min(1),
+});
 const characterPresentationProfileSchema = strict({
   id,
   layers: z.array(characterPresentationLayerSchema),
   defaultPoseId: id,
   poses: z.array(characterPoseSchema),
+  animationClips: z.array(characterAnimationClipSchema).optional(),
+  automaticAnimations: strict({
+    blink: strict({
+      clipId: id,
+      role: z.string().min(1),
+      intervalMs: z.number().int().positive(),
+    }).nullable(),
+    speaking: strict({ clipId: id, role: z.string().min(1) }).nullable(),
+  }).optional(),
 });
 const characterLayerOverrideSchema = strict({
   layerId: id,
@@ -350,6 +380,32 @@ const characterIdleSchema = strict({
   periodMs: z.number().int().positive(),
   clock: z.enum(['gameplay', 'unscaled-presentation']),
 });
+const characterGestureCueSchema = z.discriminatedUnion('kind', [
+  strict({
+    kind: z.literal('presentation'),
+    id,
+    atMs: z.number().int().nonnegative(),
+    event: id,
+  }),
+  strict({
+    kind: z.literal('audio'),
+    id,
+    atMs: z.number().int().nonnegative(),
+    asset: assetReferenceSchema,
+    gain: finiteNumber.min(0).max(1),
+    pan: finiteNumber.min(-1).max(1),
+  }),
+]);
+const characterGestureSchema = strict({
+  id,
+  profiles: z.array(
+    strict({
+      profileId: id,
+      clipId: id,
+      cues: z.array(characterGestureCueSchema),
+    }),
+  ),
+});
 
 const characterDefinitionSchema = strict({
   ...propertyBearingDefinition,
@@ -368,6 +424,7 @@ const characterDefinitionSchema = strict({
   displayName: z.string(),
   expressions: z.array(characterExpressionSchema),
   appearances: z.array(characterAppearanceSchema),
+  gestures: z.array(characterGestureSchema).optional(),
   idles: z.array(characterIdleSchema).optional(),
   profiles: z.array(characterPresentationProfileSchema),
   inventories: z.array(inventoryDefinitionSchema),

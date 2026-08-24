@@ -293,8 +293,8 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                                                     std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"appearances", "defaults", "dialogue", "displayName", "expressions", "id",
-                         "idles", "initialWorldState", "inventories", "profiles",
+                        {"appearances", "defaults", "dialogue", "displayName", "expressions",
+                         "gestures", "id", "idles", "initialWorldState", "inventories", "profiles",
                          "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<CharacterId>(decoder, value, pointer);
@@ -304,6 +304,7 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
     const auto* profiles_value = decoder.member(value, "profiles", pointer);
     const auto* expressions_value = decoder.member(value, "expressions", pointer);
     const auto* appearances_value = decoder.member(value, "appearances", pointer);
+    const auto* gestures_value = json_access::member(value, "gestures");
     const auto* idles_value = json_access::member(value, "idles");
     const auto* inventories_value = decoder.member(value, "inventories", pointer);
     const auto* initial_world_value = decoder.member(value, "initialWorldState", pointer);
@@ -440,6 +441,76 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                                          std::move(*anchor),
                                          *visible};
     };
+    const auto decode_animation_layer =
+        [&](const nlohmann::json& layer,
+            const std::string& layer_pointer) -> std::optional<CharacterAnimationLayerFrame> {
+        if (!decoder.object(
+                layer, layer_pointer,
+                {"anchor", "layerId", "material", "offset", "scale", "sprite", "visible"}))
+            return std::nullopt;
+        const auto* layer_id_value = decoder.member(layer, "layerId", layer_pointer);
+        auto layer_id = layer_id_value
+                            ? decoder.id<CharacterPresentationLayerId>(
+                                  *layer_id_value, pointer_child(layer_pointer, "layerId"))
+                            : std::nullopt;
+        CharacterOptionalOverride<AssetId> sprite;
+        if (const auto* sprite_value = json_access::member(layer, "sprite")) {
+            sprite.specified = true;
+            if (!sprite_value->is_null()) {
+                sprite.value = decode_reference<AssetId>(
+                    decoder, *sprite_value, pointer_child(layer_pointer, "sprite"), "asset");
+                if (!sprite.value)
+                    return std::nullopt;
+            }
+        }
+        CharacterOptionalOverride<MaterialId> material;
+        if (const auto* material_value = json_access::member(layer, "material")) {
+            material.specified = true;
+            if (!material_value->is_null()) {
+                material.value = decode_reference<MaterialId>(
+                    decoder, *material_value, pointer_child(layer_pointer, "material"), "material");
+                if (!material.value)
+                    return std::nullopt;
+            }
+        }
+        std::optional<Vector2> offset;
+        if (const auto* offset_value = json_access::member(layer, "offset")) {
+            offset = decode_vector2(decoder, *offset_value, pointer_child(layer_pointer, "offset"));
+            if (!offset)
+                return std::nullopt;
+        }
+        std::optional<double> scale;
+        if (const auto* scale_value = json_access::member(layer, "scale")) {
+            scale = decoder.finite_number(*scale_value, pointer_child(layer_pointer, "scale"));
+            if (!scale || *scale <= 0.0) {
+                if (scale)
+                    decoder.error(k_code_number, "Scale must be positive.",
+                                  pointer_child(layer_pointer, "scale"));
+                return std::nullopt;
+            }
+        }
+        std::optional<Vector2> anchor;
+        if (const auto* anchor_value = json_access::member(layer, "anchor")) {
+            anchor = decode_vector2(decoder, *anchor_value, pointer_child(layer_pointer, "anchor"));
+            if (!anchor)
+                return std::nullopt;
+        }
+        std::optional<bool> visible;
+        if (const auto* visible_value = json_access::member(layer, "visible")) {
+            visible = decoder.boolean(*visible_value, pointer_child(layer_pointer, "visible"));
+            if (!visible)
+                return std::nullopt;
+        }
+        if (!layer_id)
+            return std::nullopt;
+        return CharacterAnimationLayerFrame{std::move(*layer_id),
+                                            std::move(sprite),
+                                            std::move(material),
+                                            std::move(offset),
+                                            scale,
+                                            std::move(anchor),
+                                            visible};
+    };
     auto profiles =
         profiles_value
             ? decoder.array<CharacterPresentationProfile>(
@@ -447,13 +518,17 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                   [&](const nlohmann::json& profile, const std::string& profile_pointer)
                       -> std::optional<CharacterPresentationProfile> {
                       if (!decoder.object(profile, profile_pointer,
-                                          {"defaultPoseId", "id", "layers", "poses"}))
+                                          {"animationClips", "automaticAnimations", "defaultPoseId",
+                                           "id", "layers", "poses"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(profile, "id", profile_pointer);
                       const auto* layers_value = decoder.member(profile, "layers", profile_pointer);
                       const auto* default_pose_value =
                           decoder.member(profile, "defaultPoseId", profile_pointer);
                       const auto* poses_value = decoder.member(profile, "poses", profile_pointer);
+                      const auto* clips_value = json_access::member(profile, "animationClips");
+                      const auto* automatic_value =
+                          json_access::member(profile, "automaticAnimations");
                       auto id = id_value ? decoder.id<CharacterPresentationProfileId>(
                                                *id_value, pointer_child(profile_pointer, "id"))
                                          : std::nullopt;
@@ -530,7 +605,239 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                                                              std::move(*pose_layers)};
                                     })
                               : std::nullopt;
-                      if (!id || !layers || !default_pose || !poses)
+                      auto clips = clips_value ? decoder.array<CharacterAnimationClip>(
+                                                     *clips_value,
+                                                     pointer_child(profile_pointer,
+                                                                   "animationClips"),
+                                                     [&](const nlohmann::json& clip,
+                                                         const std::string& clip_pointer)
+                                                         -> std::optional<CharacterAnimationClip> {
+                                                         if (!decoder.object(
+                                                                 clip, clip_pointer,
+                                                                 {"clock", "frames", "id"}))
+                                                             return std::nullopt;
+                                                         const auto* clip_id_value = decoder.member(
+                                                             clip, "id", clip_pointer);
+                                                         const auto* clock_value = decoder.member(
+                                                             clip, "clock", clip_pointer);
+                                                         const auto* frames_value = decoder.member(
+                                                             clip, "frames", clip_pointer);
+                                                         auto clip_id =
+                                                             clip_id_value
+                                                                 ? decoder.id<
+                                                                       CharacterAnimationClipId>(
+                                                                       *clip_id_value,
+                                                                       pointer_child(clip_pointer,
+                                                                                     "id"))
+                                                                 : std::nullopt;
+                                                         auto clock =
+                                                             clock_value
+                                                                 ? decode_presentation_clock(
+                                                                       decoder, *clock_value,
+                                                                       pointer_child(clip_pointer,
+                                                                                     "clock"))
+                                                                 : std::nullopt;
+                                                         auto
+                                                             frames =
+                                                                 frames_value ? decoder
+                                                                                    .array<
+                                                                                        CharacterAnimationFrame>(
+                                                                                        *frames_value,
+                                                                                        pointer_child(
+                                                                                            clip_pointer,
+                                                                                            "frame"
+                                                                                            "s"),
+                                                                                        [&](const nlohmann::
+                                                                                                json&
+                                                                                                    frame,
+                                                                                            const std::
+                                                                                                string&
+                                                                                                    frame_pointer)
+                                                                                            -> std::
+                                                                                                optional<CharacterAnimationFrame> {
+                                                                                                    if (!decoder
+                                                                                                             .object(
+                                                                                                                 frame,
+                                                                                                                 frame_pointer,
+                                                                                                                 {"durationMs",
+                                                                                                                  "layers"}))
+                                                                                                        return std::
+                                                                                                            nullopt;
+                                                                                                    const auto* duration_value =
+                                                                                                        decoder
+                                                                                                            .member(
+                                                                                                                frame,
+                                                                                                                "durationMs",
+                                                                                                                frame_pointer);
+                                                                                                    const auto* frame_layers_value =
+                                                                                                        decoder
+                                                                                                            .member(
+                                                                                                                frame,
+                                                                                                                "layers",
+                                                                                                                frame_pointer);
+                                                                                                    auto duration =
+                                                                                                        duration_value
+                                                                                                            ? decoder
+                                                                                                                  .unsigned_integer<
+                                                                                                                      std::
+                                                                                                                          uint64_t>(
+                                                                                                                      *duration_value,
+                                                                                                                      pointer_child(
+                                                                                                                          frame_pointer,
+                                                                                                                          "durationMs"))
+                                                                                                            : std::
+                                                                                                                  nullopt;
+                                                                                                    if (duration &&
+                                                                                                        *duration ==
+                                                                                                            0) {
+                                                                                                        decoder
+                                                                                                            .error(
+                                                                                                                k_code_number,
+                                                                                                                "Animation frame duration must be "
+                                                                                                                "positive.",
+                                                                                                                pointer_child(
+                                                                                                                    frame_pointer,
+                                                                                                                    "durationMs"));
+                                                                                                        duration
+                                                                                                            .reset();
+                                                                                                    }
+                                                                                                    auto frame_layers =
+                                                                                                        frame_layers_value
+                                                                                                            ? decoder
+                                                                                                                  .array<
+                                                                                                                      CharacterAnimationLayerFrame>(
+                                                                                                                      *frame_layers_value,
+                                                                                                                      pointer_child(
+                                                                                                                          frame_pointer,
+                                                                                                                          "layers"),
+                                                                                                                      decode_animation_layer)
+                                                                                                            : std::
+                                                                                                                  nullopt;
+                                                                                                    if (!duration ||
+                                                                                                        !frame_layers)
+                                                                                                        return std::
+                                                                                                            nullopt;
+                                                                                                    decoder
+                                                                                                        .duplicate_ids(
+                                                                                                            *frame_layers,
+                                                                                                            pointer_child(
+                                                                                                                frame_pointer,
+                                                                                                                "layers"),
+                                                                                                            [](const CharacterAnimationLayerFrame&
+                                                                                                                   item)
+                                                                                                                -> const CharacterPresentationLayerId& {
+                                                                                                                return item
+                                                                                                                    .layer_id;
+                                                                                                            });
+                                                                                                    return CharacterAnimationFrame{
+                                                                                                        *duration,
+                                                                                                        std::move(
+                                                                                                            *frame_layers)};
+                                                                                                })
+                                                                              : std::nullopt;
+                                                         if (!clip_id || !clock || !frames ||
+                                                             frames->empty())
+                                                             return std::nullopt;
+                                                         return CharacterAnimationClip{
+                                                             std::move(*clip_id), *clock,
+                                                             std::move(*frames)};
+                                                     })
+                                               : std::optional<std::vector<CharacterAnimationClip>>{
+                                                     std::in_place};
+                      std::optional<CharacterAutomaticAnimations> automatic{
+                          CharacterAutomaticAnimations{}};
+                      if (automatic_value &&
+                          decoder.object(*automatic_value,
+                                         pointer_child(profile_pointer, "automaticAnimations"),
+                                         {"blink", "speaking"})) {
+                          automatic.reset();
+                          const auto automatic_pointer =
+                              pointer_child(profile_pointer, "automaticAnimations");
+                          const auto* blink_value =
+                              decoder.member(*automatic_value, "blink", automatic_pointer);
+                          const auto* speaking_value =
+                              decoder.member(*automatic_value, "speaking", automatic_pointer);
+                          std::optional<CharacterAutomaticBlink> blink;
+                          bool blink_ok = blink_value != nullptr;
+                          if (blink_value && !blink_value->is_null()) {
+                              if (!decoder.object(*blink_value,
+                                                  pointer_child(automatic_pointer, "blink"),
+                                                  {"clipId", "intervalMs", "role"})) {
+                                  blink_ok = false;
+                              } else {
+                                  const auto blink_pointer =
+                                      pointer_child(automatic_pointer, "blink");
+                                  const auto* clip_value =
+                                      decoder.member(*blink_value, "clipId", blink_pointer);
+                                  const auto* role_value =
+                                      decoder.member(*blink_value, "role", blink_pointer);
+                                  const auto* interval_value =
+                                      decoder.member(*blink_value, "intervalMs", blink_pointer);
+                                  auto clip_id =
+                                      clip_value
+                                          ? decoder.id<CharacterAnimationClipId>(
+                                                *clip_value, pointer_child(blink_pointer, "clipId"))
+                                          : std::nullopt;
+                                  auto role =
+                                      role_value
+                                          ? decoder.string(*role_value,
+                                                           pointer_child(blink_pointer, "role"))
+                                          : std::nullopt;
+                                  auto interval =
+                                      interval_value
+                                          ? decoder.unsigned_integer<std::uint64_t>(
+                                                *interval_value,
+                                                pointer_child(blink_pointer, "intervalMs"))
+                                          : std::nullopt;
+                                  if (interval && *interval == 0) {
+                                      decoder.error(k_code_number,
+                                                    "Blink interval must be positive.",
+                                                    pointer_child(blink_pointer, "intervalMs"));
+                                      interval.reset();
+                                  }
+                                  if (clip_id && role && !role->empty() && interval)
+                                      blink = CharacterAutomaticBlink{std::move(*clip_id),
+                                                                      std::move(*role), *interval};
+                                  else
+                                      blink_ok = false;
+                              }
+                          }
+                          std::optional<CharacterAutomaticSpeaking> speaking;
+                          bool speaking_ok = speaking_value != nullptr;
+                          if (speaking_value && !speaking_value->is_null()) {
+                              if (!decoder.object(*speaking_value,
+                                                  pointer_child(automatic_pointer, "speaking"),
+                                                  {"clipId", "role"})) {
+                                  speaking_ok = false;
+                              } else {
+                                  const auto speaking_pointer =
+                                      pointer_child(automatic_pointer, "speaking");
+                                  const auto* clip_value =
+                                      decoder.member(*speaking_value, "clipId", speaking_pointer);
+                                  const auto* role_value =
+                                      decoder.member(*speaking_value, "role", speaking_pointer);
+                                  auto clip_id =
+                                      clip_value ? decoder.id<CharacterAnimationClipId>(
+                                                       *clip_value,
+                                                       pointer_child(speaking_pointer, "clipId"))
+                                                 : std::nullopt;
+                                  auto role =
+                                      role_value
+                                          ? decoder.string(*role_value,
+                                                           pointer_child(speaking_pointer, "role"))
+                                          : std::nullopt;
+                                  if (clip_id && role && !role->empty())
+                                      speaking = CharacterAutomaticSpeaking{std::move(*clip_id),
+                                                                            std::move(*role)};
+                                  else
+                                      speaking_ok = false;
+                              }
+                          }
+                          if (blink_ok && speaking_ok)
+                              automatic = CharacterAutomaticAnimations{std::move(blink),
+                                                                       std::move(speaking)};
+                      }
+                      if (!id || !layers || !default_pose || !poses || !clips || !automatic)
                           return std::nullopt;
                       decoder.duplicate_ids(
                           *layers, pointer_child(profile_pointer, "layers"),
@@ -541,9 +848,13 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                           [](const CharacterPose& item) -> const CharacterPoseId& {
                               return item.id;
                           });
-                      return CharacterPresentationProfile{std::move(*id), std::move(*layers),
-                                                          std::move(*default_pose),
-                                                          std::move(*poses)};
+                      decoder.duplicate_ids(
+                          *clips, pointer_child(profile_pointer, "animationClips"),
+                          [](const CharacterAnimationClip& item)
+                              -> const CharacterAnimationClipId& { return item.id; });
+                      return CharacterPresentationProfile{
+                          std::move(*id),    std::move(*layers), std::move(*default_pose),
+                          std::move(*poses), std::move(*clips),  std::move(*automatic)};
                   })
             : std::nullopt;
     const auto decode_profile_overrides =
@@ -675,6 +986,244 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                       return CharacterAppearance{std::move(*id), std::move(*profile_overrides)};
                   })
             : std::nullopt;
+    auto gestures =
+        gestures_value
+            ? decoder.array<CharacterGesture>(
+                  *gestures_value, pointer_child(pointer, "gestures"),
+                  [&](const nlohmann::json& gesture,
+                      const std::string& gesture_pointer) -> std::optional<CharacterGesture> {
+                      if (!decoder.object(gesture, gesture_pointer, {"id", "profiles"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(gesture, "id", gesture_pointer);
+                      const auto* profiles_value =
+                          decoder.member(gesture, "profiles", gesture_pointer);
+                      auto id = id_value ? decoder.id<CharacterGestureId>(
+                                               *id_value, pointer_child(gesture_pointer, "id"))
+                                         : std::nullopt;
+                      auto gesture_profiles =
+                          profiles_value
+                              ? decoder.array<CharacterGestureProfile>(
+                                    *profiles_value, pointer_child(gesture_pointer, "profiles"),
+                                    [&](const nlohmann::json& profile,
+                                        const std::string& profile_pointer)
+                                        -> std::optional<CharacterGestureProfile> {
+                                        if (!decoder.object(profile, profile_pointer,
+                                                            {"clipId", "cues", "profileId"}))
+                                            return std::nullopt;
+                                        const auto* profile_id_value =
+                                            decoder.member(profile, "profileId", profile_pointer);
+                                        const auto* clip_id_value =
+                                            decoder.member(profile, "clipId", profile_pointer);
+                                        const auto* cues_value =
+                                            decoder.member(profile, "cues", profile_pointer);
+                                        auto profile_id =
+                                            profile_id_value
+                                                ? decoder.id<CharacterPresentationProfileId>(
+                                                      *profile_id_value,
+                                                      pointer_child(profile_pointer, "profileId"))
+                                                : std::nullopt;
+                                        auto clip_id =
+                                            clip_id_value
+                                                ? decoder.id<CharacterAnimationClipId>(
+                                                      *clip_id_value,
+                                                      pointer_child(profile_pointer, "clipId"))
+                                                : std::nullopt;
+                                        auto cues =
+                                            cues_value
+                                                ? decoder.array<CharacterGestureCue>(
+                                                      *cues_value,
+                                                      pointer_child(profile_pointer, "cues"),
+                                                      [&](const nlohmann::json& cue,
+                                                          const std::string& cue_pointer)
+                                                          -> std::optional<CharacterGestureCue> {
+                                                          if (!cue.is_object()) {
+                                                              decoder.error(
+                                                                  k_code_type,
+                                                                  "Expected a gesture cue object.",
+                                                                  cue_pointer);
+                                                              return std::nullopt;
+                                                          }
+                                                          const auto* kind_value = decoder.member(
+                                                              cue, "kind", cue_pointer);
+                                                          auto kind =
+                                                              kind_value
+                                                                  ? decoder.string(
+                                                                        *kind_value,
+                                                                        pointer_child(cue_pointer,
+                                                                                      "kind"))
+                                                                  : std::nullopt;
+                                                          if (!kind)
+                                                              return std::nullopt;
+                                                          if (*kind == "presentation") {
+                                                              if (!decoder.object(cue, cue_pointer,
+                                                                                  {"atMs", "event",
+                                                                                   "id", "kind"}))
+                                                                  return std::nullopt;
+                                                              const auto* cue_id_value =
+                                                                  decoder.member(cue, "id",
+                                                                                 cue_pointer);
+                                                              const auto* at_value = decoder.member(
+                                                                  cue, "atMs", cue_pointer);
+                                                              const auto* event_value =
+                                                                  decoder.member(cue, "event",
+                                                                                 cue_pointer);
+                                                              auto cue_id =
+                                                                  cue_id_value
+                                                                      ? decoder.id<
+                                                                            CharacterGestureCueId>(
+                                                                            *cue_id_value,
+                                                                            pointer_child(
+                                                                                cue_pointer, "id"))
+                                                                      : std::nullopt;
+                                                              auto at =
+                                                                  at_value
+                                                                      ? decoder.unsigned_integer<
+                                                                            std::uint64_t>(
+                                                                            *at_value,
+                                                                            pointer_child(
+                                                                                cue_pointer,
+                                                                                "atMs"))
+                                                                      : std::nullopt;
+                                                              auto event =
+                                                                  event_value
+                                                                      ? decoder.id<
+                                                                            CharacterGestureEventId>(
+                                                                            *event_value,
+                                                                            pointer_child(
+                                                                                cue_pointer,
+                                                                                "event"))
+                                                                      : std::nullopt;
+                                                              if (!cue_id || !at || !event)
+                                                                  return std::nullopt;
+                                                              return CharacterPresentationGestureCue{
+                                                                  std::move(*cue_id), *at,
+                                                                  std::move(*event)};
+                                                          }
+                                                          if (*kind == "audio") {
+                                                              if (!decoder.object(cue, cue_pointer,
+                                                                                  {"asset", "atMs",
+                                                                                   "gain", "id",
+                                                                                   "kind", "pan"}))
+                                                                  return std::nullopt;
+                                                              const auto* cue_id_value =
+                                                                  decoder.member(cue, "id",
+                                                                                 cue_pointer);
+                                                              const auto* at_value = decoder.member(
+                                                                  cue, "atMs", cue_pointer);
+                                                              const auto* asset_value =
+                                                                  decoder.member(cue, "asset",
+                                                                                 cue_pointer);
+                                                              const auto* gain_value =
+                                                                  decoder.member(cue, "gain",
+                                                                                 cue_pointer);
+                                                              const auto* pan_value =
+                                                                  decoder.member(cue, "pan",
+                                                                                 cue_pointer);
+                                                              auto cue_id =
+                                                                  cue_id_value
+                                                                      ? decoder.id<
+                                                                            CharacterGestureCueId>(
+                                                                            *cue_id_value,
+                                                                            pointer_child(
+                                                                                cue_pointer, "id"))
+                                                                      : std::nullopt;
+                                                              auto at =
+                                                                  at_value
+                                                                      ? decoder.unsigned_integer<
+                                                                            std::uint64_t>(
+                                                                            *at_value,
+                                                                            pointer_child(
+                                                                                cue_pointer,
+                                                                                "atMs"))
+                                                                      : std::nullopt;
+                                                              auto asset =
+                                                                  asset_value
+                                                                      ? decode_reference<AssetId>(
+                                                                            decoder, *asset_value,
+                                                                            pointer_child(
+                                                                                cue_pointer,
+                                                                                "asset"),
+                                                                            "asset")
+                                                                      : std::nullopt;
+                                                              auto gain =
+                                                                  gain_value
+                                                                      ? decoder.finite_number(
+                                                                            *gain_value,
+                                                                            pointer_child(
+                                                                                cue_pointer,
+                                                                                "gain"))
+                                                                      : std::nullopt;
+                                                              auto pan =
+                                                                  pan_value
+                                                                      ? decoder.finite_number(
+                                                                            *pan_value,
+                                                                            pointer_child(
+                                                                                cue_pointer, "pan"))
+                                                                      : std::nullopt;
+                                                              if (gain &&
+                                                                  (*gain < 0.0 || *gain > 1.0)) {
+                                                                  decoder.error(
+                                                                      k_code_number,
+                                                                      "Gesture audio gain must be "
+                                                                      "in "
+                                                                      "[0, 1].",
+                                                                      pointer_child(cue_pointer,
+                                                                                    "gain"));
+                                                                  gain.reset();
+                                                              }
+                                                              if (pan &&
+                                                                  (*pan < -1.0 || *pan > 1.0)) {
+                                                                  decoder.error(
+                                                                      k_code_number,
+                                                                      "Gesture audio pan must be "
+                                                                      "in "
+                                                                      "[-1, 1].",
+                                                                      pointer_child(cue_pointer,
+                                                                                    "pan"));
+                                                                  pan.reset();
+                                                              }
+                                                              if (!cue_id || !at || !asset ||
+                                                                  !gain || !pan)
+                                                                  return std::nullopt;
+                                                              return CharacterAudioGestureCue{
+                                                                  std::move(*cue_id), *at,
+                                                                  std::move(*asset), *gain, *pan};
+                                                          }
+                                                          decoder.error(
+                                                              k_code_variant,
+                                                              "Unknown gesture cue variant '" +
+                                                                  *kind + "'.",
+                                                              pointer_child(cue_pointer, "kind"));
+                                                          return std::nullopt;
+                                                      })
+                                                : std::nullopt;
+                                        if (!profile_id || !clip_id || !cues)
+                                            return std::nullopt;
+                                        decoder.duplicate_ids(
+                                            *cues, pointer_child(profile_pointer, "cues"),
+                                            [](const CharacterGestureCue& cue)
+                                                -> const CharacterGestureCueId& {
+                                                return std::visit(
+                                                    [](const auto& value)
+                                                        -> const CharacterGestureCueId& {
+                                                        return value.id;
+                                                    },
+                                                    cue);
+                                            });
+                                        return CharacterGestureProfile{std::move(*profile_id),
+                                                                       std::move(*clip_id),
+                                                                       std::move(*cues)};
+                                    })
+                              : std::nullopt;
+                      if (!id || !gesture_profiles)
+                          return std::nullopt;
+                      decoder.duplicate_ids(
+                          *gesture_profiles, pointer_child(gesture_pointer, "profiles"),
+                          [](const CharacterGestureProfile& item)
+                              -> const CharacterPresentationProfileId& { return item.profile_id; });
+                      return CharacterGesture{std::move(*id), std::move(*gesture_profiles)};
+                  })
+            : std::optional<std::vector<CharacterGesture>>{std::in_place};
     auto idles =
         idles_value
             ? decoder.array<CharacterIdle>(
@@ -743,6 +1292,11 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             [](const CharacterAppearance& appearance) -> const CharacterAppearanceId& {
                 return appearance.id;
             });
+    if (gestures)
+        decoder.duplicate_ids(*gestures, pointer_child(pointer, "gestures"),
+                              [](const CharacterGesture& gesture) -> const CharacterGestureId& {
+                                  return gesture.id;
+                              });
     if (idles)
         decoder.duplicate_ids(
             *idles, pointer_child(pointer, "idles"),
@@ -801,13 +1355,13 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             initial_world = CharacterInitialWorldState{std::move(*location), *enabled, *visible};
     }
     if (!identity || !display || !dialogue || !defaults || !profiles || !expressions ||
-        !appearances || !idles || !inventories || !initial_world)
+        !appearances || !gestures || !idles || !inventories || !initial_world)
         return std::nullopt;
-    return CharacterDefinition{std::move(*identity),    std::move(*display),
-                               std::move(*dialogue),    std::move(*defaults),
-                               std::move(*profiles),    std::move(*expressions),
-                               std::move(*appearances), std::move(*idles),
-                               std::move(*inventories), std::move(*initial_world)};
+    return CharacterDefinition{
+        std::move(*identity),    std::move(*display),      std::move(*dialogue),
+        std::move(*defaults),    std::move(*profiles),     std::move(*expressions),
+        std::move(*appearances), std::move(*gestures),     std::move(*idles),
+        std::move(*inventories), std::move(*initial_world)};
 }
 
 std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json& value,

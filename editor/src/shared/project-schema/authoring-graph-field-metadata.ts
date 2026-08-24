@@ -187,6 +187,10 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/characters\/\*\/data\/profiles\//, OWNER],
   [/^\/characters\/\*\/data\/expressions\/\*\/profiles\//, OWNER],
   [/^\/characters\/\*\/data\/appearances\//, OWNER],
+  // #92 adds transient Gesture definitions and restricted cue events at the preserved authoring
+  // schema version. Gesture profile mappings, clip references, and presentation/audio cue fields
+  // contribute to the Character's compiled presentation and asset dependency surface.
+  [/^\/characters\/\*\/data\/gestures\//, OWNER],
   [/^\/rooms\/\*\/data\/cast\/\*\/(?:profileId|appearanceId)$/, OWNER],
   [/^\/scenes\/\*\/data\/steps\/\*\/(?:profileId|appearanceId)$/, OWNER],
   [/^\/scenes\/\*\/data\/steps\/\*\/children\/\*\/(?:profileId|appearanceId)$/, OWNER],
@@ -602,7 +606,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
-    characters: '30383541',
+    characters: 'ea350f01',
     dialogues: 'bfadec81',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',

@@ -25,6 +25,7 @@ import {
   type CharacterData,
   type CharacterAppearanceData,
   type CharacterExpressionData,
+  type CharacterGestureData,
   type CharacterIdleData,
   type CharacterLayerCompositionData,
   type CharacterLayerOverrideData,
@@ -164,6 +165,11 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const imageAssets = project
     ? Object.entries(project.assets)
         .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
+        .map(([id, asset]) => ({ id, label: asset.label }))
+    : [];
+  const audioAssets = project
+    ? Object.entries(project.assets)
+        .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'audio')
         .map(([id, asset]) => ({ id, label: asset.label }))
     : [];
   const materials = project
@@ -328,6 +334,235 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
+  function replaceGesture(gestureId: string, patch: Partial<CharacterGestureData>) {
+    commit(
+      {
+        ...data,
+        gestures: data.gestures.map((gesture) =>
+          gesture.id === gestureId ? { ...gesture, ...patch } : gesture,
+        ),
+      },
+      'Update character gesture',
+    );
+  }
+
+  function addAnimationClip(profileId: string) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    const id = nextUniqueId(
+      profile.animationClips.map((clip) => clip.id),
+      'animation',
+    );
+    replaceProfile(profileId, {
+      animationClips: [
+        ...profile.animationClips,
+        {
+          id,
+          label: 'Animation',
+          clock: 'gameplay',
+          frames: [{ durationMs: 120, layers: [] }],
+        },
+      ],
+    });
+  }
+
+  function deleteAnimationClip(profileId: string, clipId: string) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    const nextProfile = {
+      ...profile,
+      animationClips: profile.animationClips.filter((clip) => clip.id !== clipId),
+      automaticAnimations: {
+        blink:
+          profile.automaticAnimations.blink?.clipId === clipId
+            ? null
+            : profile.automaticAnimations.blink,
+        speaking:
+          profile.automaticAnimations.speaking?.clipId === clipId
+            ? null
+            : profile.automaticAnimations.speaking,
+      },
+    };
+    commit(
+      {
+        ...data,
+        profiles: data.profiles.map((candidate) =>
+          candidate.id === profileId ? nextProfile : candidate,
+        ),
+        gestures: data.gestures.map((gesture) => ({
+          ...gesture,
+          profiles: gesture.profiles.filter(
+            (candidate) => !(candidate.profileId === profileId && candidate.clipId === clipId),
+          ),
+        })),
+      },
+      'Delete character animation clip',
+    );
+  }
+
+  function replaceAnimationClip(
+    profileId: string,
+    clipId: string,
+    patch: Partial<CharacterPresentationProfileData['animationClips'][number]>,
+  ) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    replaceProfile(profileId, {
+      animationClips: profile.animationClips.map((clip) =>
+        clip.id === clipId ? { ...clip, ...patch } : clip,
+      ),
+    });
+  }
+
+  function replaceAnimationFrame(
+    profileId: string,
+    clipId: string,
+    frameIndex: number,
+    patch: Partial<CharacterPresentationProfileData['animationClips'][number]['frames'][number]>,
+  ) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    const clip = profile?.animationClips.find((item) => item.id === clipId);
+    if (!clip) return;
+    replaceAnimationClip(profileId, clipId, {
+      frames: clip.frames.map((frame, index) =>
+        index === frameIndex ? { ...frame, ...patch } : frame,
+      ),
+    });
+  }
+
+  function setAnimationFrameLayer(
+    profileId: string,
+    clipId: string,
+    frameIndex: number,
+    layerId: string,
+    enabled: boolean,
+  ) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    const clip = profile?.animationClips.find((item) => item.id === clipId);
+    const frame = clip?.frames[frameIndex];
+    if (!frame) return;
+    replaceAnimationFrame(profileId, clipId, frameIndex, {
+      layers: enabled
+        ? frame.layers.some((layer) => layer.layerId === layerId)
+          ? frame.layers
+          : [...frame.layers, { layerId }]
+        : frame.layers.filter((layer) => layer.layerId !== layerId),
+    });
+  }
+
+  function replaceAnimationFrameLayer(
+    profileId: string,
+    clipId: string,
+    frameIndex: number,
+    layerId: string,
+    patch: Partial<
+      CharacterPresentationProfileData['animationClips'][number]['frames'][number]['layers'][number]
+    >,
+  ) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    const clip = profile?.animationClips.find((item) => item.id === clipId);
+    const frame = clip?.frames[frameIndex];
+    if (!frame) return;
+    replaceAnimationFrame(profileId, clipId, frameIndex, {
+      layers: frame.layers.map((layer) =>
+        layer.layerId === layerId ? { ...layer, ...patch } : layer,
+      ),
+    });
+  }
+
+  function addGesture() {
+    const id = nextUniqueId(
+      data.gestures.map((gesture) => gesture.id),
+      'gesture',
+    );
+    commit(
+      { ...data, gestures: [...data.gestures, { id, label: 'Gesture', profiles: [] }] },
+      'Add character gesture',
+    );
+  }
+
+  function deleteGesture(gestureId: string) {
+    commit(
+      { ...data, gestures: data.gestures.filter((gesture) => gesture.id !== gestureId) },
+      'Delete character gesture',
+    );
+  }
+
+  function setGestureProfile(gestureId: string, profileId: string, clipId: string | null) {
+    const gesture = data.gestures.find((item) => item.id === gestureId);
+    if (!gesture) return;
+    const existing = gesture.profiles.find((item) => item.profileId === profileId);
+    replaceGesture(gestureId, {
+      profiles:
+        clipId === null
+          ? gesture.profiles.filter((item) => item.profileId !== profileId)
+          : existing
+            ? gesture.profiles.map((item) =>
+                item.profileId === profileId ? { ...item, clipId } : item,
+              )
+            : [...gesture.profiles, { profileId, clipId, cues: [] }],
+    });
+  }
+
+  function addGestureCue(
+    gestureId: string,
+    profileId: string,
+    kind: CharacterGestureData['profiles'][number]['cues'][number]['kind'],
+  ) {
+    const gesture = data.gestures.find((item) => item.id === gestureId);
+    const profile = gesture?.profiles.find((item) => item.profileId === profileId);
+    if (!gesture || !profile) return;
+    const id = nextUniqueId(
+      profile.cues.map((cue) => cue.id),
+      'cue',
+    );
+    const cue =
+      kind === 'presentation'
+        ? ({ kind, id, atMs: 0, event: 'accent' } as const)
+        : ({
+            kind,
+            id,
+            atMs: 0,
+            asset: characterAssetRef(audioAssets[0]?.id ?? 'missing-audio'),
+            gain: 1,
+            pan: 0,
+          } as const);
+    replaceGesture(gestureId, {
+      profiles: gesture.profiles.map((item) =>
+        item.profileId === profileId ? { ...item, cues: [...item.cues, cue] } : item,
+      ),
+    });
+  }
+
+  function replaceGestureCue(gestureId: string, profileId: string, cueId: string, patch: object) {
+    const gesture = data.gestures.find((item) => item.id === gestureId);
+    if (!gesture) return;
+    replaceGesture(gestureId, {
+      profiles: gesture.profiles.map((item) =>
+        item.profileId === profileId
+          ? {
+              ...item,
+              cues: item.cues.map((cue) =>
+                cue.id === cueId ? ({ ...cue, ...patch } as typeof cue) : cue,
+              ),
+            }
+          : item,
+      ),
+    });
+  }
+
+  function deleteGestureCue(gestureId: string, profileId: string, cueId: string) {
+    const gesture = data.gestures.find((item) => item.id === gestureId);
+    if (!gesture) return;
+    replaceGesture(gestureId, {
+      profiles: gesture.profiles.map((item) =>
+        item.profileId === profileId
+          ? { ...item, cues: item.cues.filter((cue) => cue.id !== cueId) }
+          : item,
+      ),
+    });
+  }
+
   function addProfile() {
     const id = nextUniqueId(
       data.profiles.map((profile) => profile.id),
@@ -343,6 +578,8 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             label: 'Profile',
             layers: [{ id: 'body', label: 'Body', role: 'body' }],
             defaultPoseId: 'default',
+            animationClips: [],
+            automaticAnimations: { blink: null, speaking: null },
             poses: [
               {
                 id: 'default',
@@ -387,6 +624,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
         },
         expressions: data.expressions.map(removeProfileOverrides),
         appearances: data.appearances.map(removeProfileOverrides),
+        gestures: data.gestures.map(removeProfileOverrides),
       },
       'Delete character presentation profile',
     );
@@ -446,6 +684,27 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                   ...pose,
                   layers: pose.layers.filter((layer) => layer.layerId !== layerId),
                 })),
+                animationClips: candidate.animationClips.map((clip) => ({
+                  ...clip,
+                  frames: clip.frames.map((frame) => ({
+                    ...frame,
+                    layers: frame.layers.filter((layer) => layer.layerId !== layerId),
+                  })),
+                })),
+                automaticAnimations: {
+                  blink:
+                    candidate.automaticAnimations.blink &&
+                    candidate.layers.find((layer) => layer.id === layerId)?.role ===
+                      candidate.automaticAnimations.blink.role
+                      ? null
+                      : candidate.automaticAnimations.blink,
+                  speaking:
+                    candidate.automaticAnimations.speaking &&
+                    candidate.layers.find((layer) => layer.id === layerId)?.role ===
+                      candidate.automaticAnimations.speaking.role
+                      ? null
+                      : candidate.automaticAnimations.speaking,
+                },
               }
             : candidate,
         ),
@@ -1075,6 +1334,357 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                   ))}
                 </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-medium">Animation clips</h4>
+                      <p className="text-xs text-muted-foreground">
+                        Named finite frame sequences can override any subset of this profile's
+                        layers. Unmentioned layers keep the underlying pose and expression.
+                      </p>
+                    </div>
+                    <Button size="sm" variant="ghost" onClick={() => addAnimationClip(profile.id)}>
+                      Add Clip
+                    </Button>
+                  </div>
+                  {profile.animationClips.map((clip) => (
+                    <div key={clip.id} className="space-y-2 rounded border p-2">
+                      <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+                        <div className="space-y-1">
+                          <Label>ID</Label>
+                          <Input value={clip.id} readOnly />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Label</Label>
+                          <Input
+                            value={clip.label}
+                            onChange={(event) =>
+                              replaceAnimationClip(profile.id, clip.id, {
+                                label: event.currentTarget.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Clock</Label>
+                          <Select
+                            value={clip.clock}
+                            onValueChange={(value) =>
+                              replaceAnimationClip(profile.id, clip.id, {
+                                clock:
+                                  value as CharacterPresentationProfileData['animationClips'][number]['clock'],
+                              })
+                            }
+                          >
+                            {presentationClockValues.map((clock) => (
+                              <SelectItem key={clock} value={clock}>
+                                {clock}
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => deleteAnimationClip(profile.id, clip.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                      {clip.frames.map((frame, frameIndex) => (
+                        <div key={frameIndex} className="space-y-2 rounded bg-muted/20 p-2">
+                          <div className="flex items-end justify-between gap-2">
+                            <div className="space-y-1">
+                              <Label>Frame {frameIndex + 1} duration (ms)</Label>
+                              <Input
+                                value={String(frame.durationMs)}
+                                onChange={(event) =>
+                                  replaceAnimationFrame(profile.id, clip.id, frameIndex, {
+                                    durationMs: Math.max(
+                                      1,
+                                      Math.round(
+                                        toNumber(event.currentTarget.value, frame.durationMs),
+                                      ),
+                                    ),
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  replaceAnimationClip(profile.id, clip.id, {
+                                    frames: [
+                                      ...clip.frames.slice(0, frameIndex + 1),
+                                      { durationMs: frame.durationMs, layers: [] },
+                                      ...clip.frames.slice(frameIndex + 1),
+                                    ],
+                                  })
+                                }
+                              >
+                                Add Frame
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={clip.frames.length <= 1}
+                                onClick={() =>
+                                  replaceAnimationClip(profile.id, clip.id, {
+                                    frames: clip.frames.filter((_, index) => index !== frameIndex),
+                                  })
+                                }
+                              >
+                                Delete Frame
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            {profile.layers.map((layerDefinition) => {
+                              const override = frame.layers.find(
+                                (layer) => layer.layerId === layerDefinition.id,
+                              );
+                              return (
+                                <div
+                                  key={layerDefinition.id}
+                                  className="grid gap-2 rounded border/50 border p-2 md:grid-cols-[auto_1fr_1fr_auto]"
+                                >
+                                  <label className="flex items-center gap-2 text-xs">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(override)}
+                                      onChange={(event) =>
+                                        setAnimationFrameLayer(
+                                          profile.id,
+                                          clip.id,
+                                          frameIndex,
+                                          layerDefinition.id,
+                                          event.currentTarget.checked,
+                                        )
+                                      }
+                                    />
+                                    {layerDefinition.label}
+                                  </label>
+                                  <div className="space-y-1">
+                                    <Label>Sprite override</Label>
+                                    <Select
+                                      disabled={!override}
+                                      value={refValue(override?.sprite)}
+                                      onValueChange={(value) =>
+                                        replaceAnimationFrameLayer(
+                                          profile.id,
+                                          clip.id,
+                                          frameIndex,
+                                          layerDefinition.id,
+                                          {
+                                            sprite:
+                                              value === '__none__'
+                                                ? null
+                                                : characterAssetRef(String(value)),
+                                          },
+                                        )
+                                      }
+                                    >
+                                      <SelectItem value="__none__">Keep / clear sprite</SelectItem>
+                                      {imageAssets.map((asset) => (
+                                        <SelectItem key={asset.id} value={asset.id}>
+                                          {asset.label} ({asset.id})
+                                        </SelectItem>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label>Material override</Label>
+                                    <Select
+                                      disabled={!override}
+                                      value={refValue(override?.material)}
+                                      onValueChange={(value) =>
+                                        replaceAnimationFrameLayer(
+                                          profile.id,
+                                          clip.id,
+                                          frameIndex,
+                                          layerDefinition.id,
+                                          {
+                                            material:
+                                              value === '__none__'
+                                                ? null
+                                                : characterMaterialRef(String(value)),
+                                          },
+                                        )
+                                      }
+                                    >
+                                      <SelectItem value="__none__">
+                                        Keep / clear material
+                                      </SelectItem>
+                                      {materials.map((material) => (
+                                        <SelectItem key={material.id} value={material.id}>
+                                          {material.label} ({material.id})
+                                        </SelectItem>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <label className="flex items-end gap-2 pb-2 text-xs">
+                                    <input
+                                      type="checkbox"
+                                      disabled={!override}
+                                      checked={override?.visible ?? true}
+                                      onChange={(event) =>
+                                        replaceAnimationFrameLayer(
+                                          profile.id,
+                                          clip.id,
+                                          frameIndex,
+                                          layerDefinition.id,
+                                          { visible: event.currentTarget.checked },
+                                        )
+                                      }
+                                    />
+                                    Visible
+                                  </label>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2 rounded bg-muted/20 p-2">
+                  <div>
+                    <h4 className="text-xs font-medium">Automatic animation behavior</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Blink and speaking are disposable presentation phase. Semantic roles identify
+                      the intended layer contract; the selected clip may animate multiple layers.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 lg:grid-cols-3">
+                    <div className="space-y-1">
+                      <Label>Blink clip</Label>
+                      <Select
+                        value={profile.automaticAnimations.blink?.clipId ?? '__none__'}
+                        onValueChange={(value) => {
+                          const role =
+                            profile.automaticAnimations.blink?.role ??
+                            profile.layers.find((layer) => layer.role)?.role ??
+                            '';
+                          replaceProfile(profile.id, {
+                            automaticAnimations: {
+                              ...profile.automaticAnimations,
+                              blink:
+                                value === '__none__'
+                                  ? null
+                                  : {
+                                      clipId: String(value),
+                                      role,
+                                      intervalMs:
+                                        profile.automaticAnimations.blink?.intervalMs ?? 3000,
+                                    },
+                            },
+                          });
+                        }}
+                      >
+                        <SelectItem value="__none__">Disabled</SelectItem>
+                        {profile.animationClips.map((clip) => (
+                          <SelectItem key={clip.id} value={clip.id}>
+                            {clip.label} ({clip.id})
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Blink semantic role</Label>
+                      <Input
+                        disabled={!profile.automaticAnimations.blink}
+                        value={profile.automaticAnimations.blink?.role ?? ''}
+                        placeholder="face"
+                        onChange={(event) => {
+                          const blink = profile.automaticAnimations.blink;
+                          if (!blink) return;
+                          replaceProfile(profile.id, {
+                            automaticAnimations: {
+                              ...profile.automaticAnimations,
+                              blink: { ...blink, role: event.currentTarget.value },
+                            },
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Blink interval (ms)</Label>
+                      <Input
+                        disabled={!profile.automaticAnimations.blink}
+                        value={String(profile.automaticAnimations.blink?.intervalMs ?? 3000)}
+                        onChange={(event) => {
+                          const blink = profile.automaticAnimations.blink;
+                          if (!blink) return;
+                          replaceProfile(profile.id, {
+                            automaticAnimations: {
+                              ...profile.automaticAnimations,
+                              blink: {
+                                ...blink,
+                                intervalMs: Math.max(
+                                  1,
+                                  Math.round(toNumber(event.currentTarget.value, blink.intervalMs)),
+                                ),
+                              },
+                            },
+                          });
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label>Speaking clip</Label>
+                      <Select
+                        value={profile.automaticAnimations.speaking?.clipId ?? '__none__'}
+                        onValueChange={(value) => {
+                          const role =
+                            profile.automaticAnimations.speaking?.role ??
+                            profile.layers.find((layer) => layer.role)?.role ??
+                            '';
+                          replaceProfile(profile.id, {
+                            automaticAnimations: {
+                              ...profile.automaticAnimations,
+                              speaking:
+                                value === '__none__' ? null : { clipId: String(value), role },
+                            },
+                          });
+                        }}
+                      >
+                        <SelectItem value="__none__">Disabled</SelectItem>
+                        {profile.animationClips.map((clip) => (
+                          <SelectItem key={clip.id} value={clip.id}>
+                            {clip.label} ({clip.id})
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Speaking semantic role</Label>
+                      <Input
+                        disabled={!profile.automaticAnimations.speaking}
+                        value={profile.automaticAnimations.speaking?.role ?? ''}
+                        placeholder="mouth"
+                        onChange={(event) => {
+                          const speaking = profile.automaticAnimations.speaking;
+                          if (!speaking) return;
+                          replaceProfile(profile.id, {
+                            automaticAnimations: {
+                              ...profile.automaticAnimations,
+                              speaking: { ...speaking, role: event.currentTarget.value },
+                            },
+                          });
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             ))}
           </section>
@@ -1391,6 +2001,215 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                     Delete
                   </Button>
                 </div>
+              </div>
+            ))}
+          </section>
+
+          <section
+            className="space-y-3 rounded border p-3"
+            data-workbench-anchor="character.gestures"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-medium">Gestures</h3>
+                <p className="text-xs text-muted-foreground">
+                  Semantic finite actions map to one animation clip per profile, then return to the
+                  underlying pose and expression. Cues are restricted to presentation events and
+                  semantic sound effects.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={addGesture}>
+                Add Gesture
+              </Button>
+            </div>
+            {data.gestures.map((gesture, gestureIndex) => (
+              <div
+                key={gesture.id}
+                className="space-y-3 rounded border p-3"
+                data-workbench-anchor={`character.gesture.${gesture.id || gestureIndex}`}
+              >
+                <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                  <div className="space-y-1">
+                    <Label>ID</Label>
+                    <Input value={gesture.id} readOnly />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Label</Label>
+                    <Input
+                      value={gesture.label}
+                      onChange={(event) =>
+                        replaceGesture(gesture.id, { label: event.currentTarget.value })
+                      }
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button size="sm" variant="outline" onClick={() => deleteGesture(gesture.id)}>
+                      Delete Gesture
+                    </Button>
+                  </div>
+                </div>
+                {data.profiles.map((profile) => {
+                  const mapping = gesture.profiles.find(
+                    (candidate) => candidate.profileId === profile.id,
+                  );
+                  return (
+                    <div key={profile.id} className="space-y-2 rounded bg-muted/20 p-2">
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label>Profile</Label>
+                          <Input value={`${profile.label} (${profile.id})`} readOnly />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Animation clip</Label>
+                          <Select
+                            value={mapping?.clipId ?? '__none__'}
+                            onValueChange={(value) =>
+                              setGestureProfile(
+                                gesture.id,
+                                profile.id,
+                                value === '__none__' ? null : String(value),
+                              )
+                            }
+                          >
+                            <SelectItem value="__none__">Not available for this profile</SelectItem>
+                            {profile.animationClips.map((clip) => (
+                              <SelectItem key={clip.id} value={clip.id}>
+                                {clip.label} ({clip.id})
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </div>
+                      </div>
+                      {mapping ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="text-xs font-medium">Synchronized cue events</h4>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  addGestureCue(gesture.id, profile.id, 'presentation')
+                                }
+                              >
+                                Add Presentation Cue
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={audioAssets.length === 0}
+                                onClick={() => addGestureCue(gesture.id, profile.id, 'audio')}
+                              >
+                                Add Audio Cue
+                              </Button>
+                            </div>
+                          </div>
+                          {mapping.cues.map((cue) => (
+                            <div
+                              key={cue.id}
+                              className="grid gap-2 rounded border p-2 md:grid-cols-[1fr_1fr_2fr_auto]"
+                            >
+                              <div className="space-y-1">
+                                <Label>Cue</Label>
+                                <Input value={`${cue.kind} (${cue.id})`} readOnly />
+                              </div>
+                              <div className="space-y-1">
+                                <Label>At (ms)</Label>
+                                <Input
+                                  value={String(cue.atMs)}
+                                  onChange={(event) =>
+                                    replaceGestureCue(gesture.id, profile.id, cue.id, {
+                                      atMs: Math.max(
+                                        0,
+                                        Math.round(toNumber(event.currentTarget.value, cue.atMs)),
+                                      ),
+                                    })
+                                  }
+                                />
+                              </div>
+                              {cue.kind === 'presentation' ? (
+                                <div className="space-y-1">
+                                  <Label>Presentation event</Label>
+                                  <Input
+                                    value={cue.event}
+                                    onChange={(event) =>
+                                      replaceGestureCue(gesture.id, profile.id, cue.id, {
+                                        event: event.currentTarget.value,
+                                      })
+                                    }
+                                  />
+                                </div>
+                              ) : (
+                                <div className="grid gap-2 sm:grid-cols-3">
+                                  <div className="space-y-1">
+                                    <Label>Audio asset</Label>
+                                    <Select
+                                      value={refValue(cue.asset)}
+                                      onValueChange={(value) =>
+                                        replaceGestureCue(gesture.id, profile.id, cue.id, {
+                                          asset: characterAssetRef(String(value)),
+                                        })
+                                      }
+                                    >
+                                      {audioAssets.map((asset) => (
+                                        <SelectItem key={asset.id} value={asset.id}>
+                                          {asset.label} ({asset.id})
+                                        </SelectItem>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label>Gain</Label>
+                                    <Input
+                                      value={String(cue.gain)}
+                                      onChange={(event) =>
+                                        replaceGestureCue(gesture.id, profile.id, cue.id, {
+                                          gain: Math.min(
+                                            1,
+                                            Math.max(
+                                              0,
+                                              toNumber(event.currentTarget.value, cue.gain),
+                                            ),
+                                          ),
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label>Pan</Label>
+                                    <Input
+                                      value={String(cue.pan)}
+                                      onChange={(event) =>
+                                        replaceGestureCue(gesture.id, profile.id, cue.id, {
+                                          pan: Math.min(
+                                            1,
+                                            Math.max(
+                                              -1,
+                                              toNumber(event.currentTarget.value, cue.pan),
+                                            ),
+                                          ),
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                              <div className="flex items-end">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => deleteGestureCue(gesture.id, profile.id, cue.id)}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </section>

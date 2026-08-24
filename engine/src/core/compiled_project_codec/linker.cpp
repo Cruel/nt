@@ -291,8 +291,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         (compiled::CharacterDefinition{
             std::move(*identity), std::move(value.display_name), std::move(value.dialogue),
             std::move(value.defaults), std::move(value.profiles), std::move(value.expressions),
-            std::move(value.appearances), std::move(value.idles), std::move(value.inventories),
-            std::move(value.initial_world_state)}));
+            std::move(value.appearances), std::move(value.gestures), std::move(value.idles),
+            std::move(value.inventories), std::move(value.initial_world_state)}));
     LINK_PROPERTY_DEFINITIONS(
         rooms, rooms, RoomDefinition, PropertyOwnerKind::Room, "/definitions/rooms",
         (compiled::RoomDefinition{
@@ -367,6 +367,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                                   std::move(character->profiles),
                                                   std::move(character->expressions),
                                                   std::move(character->appearances),
+                                                  std::move(character->gestures),
                                                   std::move(character->idles),
                                                   std::move(character->inventories),
                                                   std::move(character->initial_world_state)};

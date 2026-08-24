@@ -245,6 +245,22 @@ validate_targeted(const WorldPresentationBackend& world,
                                     "Actor slide requires resolved source or target actor bounds"));
                     }
                 }
+            } else if constexpr (std::is_same_v<T, core::CharacterGestureOperation>) {
+                const auto* source_actor = find_actor(*source_snapshot, value.target.actor);
+                const auto* target_actor = find_actor(*target_snapshot, value.target.actor);
+                if (!actor_is_drawn(source_actor) || !actor_is_drawn(target_actor) ||
+                    source_actor->character != value.character || *source_actor != *target_actor) {
+                    return core::Result<void, core::Diagnostic>::failure(
+                        failure("presentation.character_gesture_target_changed",
+                                "Character Gesture requires one stable visible Actor occurrence "
+                                "across its exact revisions"));
+                }
+                if (std::ranges::none_of(source_actor->animation_clips,
+                                         [&](const auto& clip) { return clip.id == value.clip; })) {
+                    return core::Result<void, core::Diagnostic>::failure(
+                        failure("presentation.character_gesture_clip_missing",
+                                "Character Gesture clip is unavailable on the selected Profile"));
+                }
             } else {
                 if (value.kind != core::LayoutOperationKind::Fade) {
                     return core::Result<void, core::Diagnostic>::failure(
@@ -448,6 +464,7 @@ WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delive
                           std::is_same_v<T, core::CameraPunchOperation> ||
                           std::is_same_v<T, core::CameraFlashOperation> ||
                           std::is_same_v<T, core::ActorPresentationOperation> ||
+                          std::is_same_v<T, core::CharacterGestureOperation> ||
                           std::is_same_v<T, core::LayoutFinitePresentationOperation>)
                 return TargetedPresentationOperation{value};
             return std::nullopt;
@@ -488,7 +505,18 @@ WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delive
         cancel_tween(targeted_common(it->request), it->tween);
         it = m_targeted.erase(it);
     }
-    m_targeted.push_back({delivery.metadata, *targeted, *started.value_if()});
+    m_targeted.push_back({delivery.metadata, *targeted, *started.value_if(), {}});
+    if (const auto* gesture = std::get_if<core::CharacterGestureOperation>(&*targeted)) {
+        auto& active = m_targeted.back();
+        for (const auto& cue : gesture->cues) {
+            const auto at_ms = std::visit([](const auto& value) { return value.at_ms; }, cue);
+            if (at_ms != 0)
+                continue;
+            const auto cue_id = std::visit([](const auto& value) { return value.id; }, cue);
+            active.emitted_gesture_cues.push_back(cue_id);
+            m_gesture_cues.push_back({delivery.metadata.operation, cue_id, cue});
+        }
+    }
     publish_running(delivery.metadata);
     return core::Result<void, core::Diagnostics>::success();
 }
@@ -527,13 +555,32 @@ void WorldTransitionBackend::advance(const core::RuntimeClockUpdate& clocks)
                      failure("presentation.targeted_tween_missing",
                              "Targeted finite realization lost its backend-local interpolation "
                              "track")}});
-        } else if (sample->completed) {
-            const auto metadata = it->metadata;
-            release_tween(common, it->tween);
-            it = m_targeted.erase(it);
-            publish_completed(metadata);
         } else {
-            ++it;
+            if (const auto* gesture = std::get_if<core::CharacterGestureOperation>(&it->request)) {
+                const auto elapsed_ms =
+                    sample->completed
+                        ? static_cast<std::uint64_t>(common.duration.count())
+                        : static_cast<std::uint64_t>(static_cast<double>(common.duration.count()) *
+                                                     sample->value);
+                for (const auto& cue : gesture->cues) {
+                    const auto cue_id = std::visit([](const auto& value) { return value.id; }, cue);
+                    const auto at_ms =
+                        std::visit([](const auto& value) { return value.at_ms; }, cue);
+                    if (at_ms > elapsed_ms || std::ranges::find(it->emitted_gesture_cues, cue_id) !=
+                                                  it->emitted_gesture_cues.end())
+                        continue;
+                    it->emitted_gesture_cues.push_back(cue_id);
+                    m_gesture_cues.push_back({it->metadata.operation, cue_id, cue});
+                }
+            }
+            if (sample->completed) {
+                const auto metadata = it->metadata;
+                release_tween(common, it->tween);
+                it = m_targeted.erase(it);
+                publish_completed(metadata);
+            } else {
+                ++it;
+            }
         }
     }
 }
@@ -597,6 +644,7 @@ void WorldTransitionBackend::reset(core::PresentationCancellationReason reason)
     m_targeted.clear();
     m_render_state.reset();
     m_acknowledgements.clear();
+    m_gesture_cues.clear();
     m_gameplay_tweens.reset();
     m_unscaled_tweens.reset();
 }
@@ -605,6 +653,13 @@ std::vector<core::BackendOperationAcknowledgement> WorldTransitionBackend::take_
 {
     auto result = std::move(m_acknowledgements);
     m_acknowledgements.clear();
+    return result;
+}
+
+std::vector<CharacterGestureCueCrossing> WorldTransitionBackend::take_gesture_cues()
+{
+    auto result = std::move(m_gesture_cues);
+    m_gesture_cues.clear();
     return result;
 }
 
@@ -805,6 +860,49 @@ WorldTransitionBackend::compose_targeted_world_batch() const
             for (const auto& draw : target->draws)
                 if (draw.family == WorldDrawFamily::Background)
                     append_with_opacity(draws, draw, progress, 1);
+            continue;
+        }
+
+        if (const auto* gesture = std::get_if<core::CharacterGestureOperation>(&active.request)) {
+            const std::string identity = world_actor_identity(gesture->target.actor);
+            draws.erase(std::remove_if(draws.begin(), draws.end(),
+                                       [&](const auto& item) {
+                                           return item.draw.family == WorldDrawFamily::Actor &&
+                                                  item.draw.stable_identity == identity;
+                                       }),
+                        draws.end());
+            const auto target_draws = actor_draws(*target, gesture->target.actor);
+            const auto elapsed_ms = static_cast<std::uint64_t>(
+                static_cast<double>(gesture->common.duration.count()) * progress);
+            for (const auto* target_draw : target_draws) {
+                const auto clip = std::ranges::find_if(
+                    target_draw->actor_animation_clips,
+                    [&](const auto& candidate) { return candidate.id == gesture->clip; });
+                if (clip == target_draw->actor_animation_clips.end() || clip->frames.empty()) {
+                    return core::Result<QuadBatch, core::Diagnostics>::failure(
+                        {failure("presentation.character_gesture_clip_unprepared",
+                                 "Character Gesture clip is not prepared for an Actor layer")});
+                }
+                std::uint64_t clip_duration_ms = 0;
+                for (const auto& frame : clip->frames)
+                    clip_duration_ms += frame.duration_ms;
+                if (clip_duration_ms == 0)
+                    continue;
+                std::uint64_t frame_phase = std::min(elapsed_ms, clip_duration_ms - 1);
+                const WorldPresentationDraw::ActorAnimationFrame* selected = nullptr;
+                for (const auto& frame : clip->frames) {
+                    if (frame_phase < frame.duration_ms) {
+                        selected = &frame;
+                        break;
+                    }
+                    frame_phase -= frame.duration_ms;
+                }
+                if (selected && selected->command) {
+                    LayeredDraw animated{*target_draw, 1};
+                    animated.draw.command = *selected->command;
+                    draws.push_back(std::move(animated));
+                }
+            }
             continue;
         }
 

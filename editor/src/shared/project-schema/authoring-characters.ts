@@ -70,6 +70,99 @@ export const characterPresentationProfileDataSchema = z
     layers: z.array(characterPresentationLayerDataSchema).default([]),
     defaultPoseId: entityIdSchema,
     poses: z.array(characterPoseDataSchema).default([]),
+    animationClips: z
+      .array(
+        z
+          .object({
+            id: entityIdSchema,
+            label: z.string().min(1, 'Animation clip label is required.'),
+            clock: z.enum(presentationClockValues),
+            frames: z
+              .array(
+                z
+                  .object({
+                    durationMs: z.number().int().positive(),
+                    layers: z
+                      .array(
+                        z
+                          .object({
+                            layerId: entityIdSchema,
+                            sprite: characterAssetRefSchema.nullable().optional(),
+                            material: characterMaterialRefSchema.nullable().optional(),
+                            offset: characterVector2Schema.optional(),
+                            scale: z.number().finite().positive().optional(),
+                            anchor: characterVector2Schema.optional(),
+                            visible: z.boolean().optional(),
+                          })
+                          .strict(),
+                      )
+                      .default([]),
+                  })
+                  .strict(),
+              )
+              .min(1),
+          })
+          .strict(),
+      )
+      .default([]),
+    automaticAnimations: z
+      .object({
+        blink: z
+          .object({
+            clipId: entityIdSchema,
+            role: z.string().min(1),
+            intervalMs: z.number().int().positive(),
+          })
+          .strict()
+          .nullable()
+          .default(null),
+        speaking: z
+          .object({ clipId: entityIdSchema, role: z.string().min(1) })
+          .strict()
+          .nullable()
+          .default(null),
+      })
+      .strict()
+      .default({ blink: null, speaking: null }),
+  })
+  .strict();
+
+export const characterGestureCueDataSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('presentation'),
+      id: entityIdSchema,
+      atMs: z.number().int().nonnegative(),
+      event: entityIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('audio'),
+      id: entityIdSchema,
+      atMs: z.number().int().nonnegative(),
+      asset: characterAssetRefSchema,
+      gain: z.number().finite().min(0).max(1).default(1),
+      pan: z.number().finite().min(-1).max(1).default(0),
+    })
+    .strict(),
+]);
+
+export const characterGestureDataSchema = z
+  .object({
+    id: entityIdSchema,
+    label: z.string().min(1, 'Gesture label is required.'),
+    profiles: z
+      .array(
+        z
+          .object({
+            profileId: entityIdSchema,
+            clipId: entityIdSchema,
+            cues: z.array(characterGestureCueDataSchema).default([]),
+          })
+          .strict(),
+      )
+      .default([]),
   })
   .strict();
 
@@ -157,6 +250,7 @@ export const characterDataSchema = z
     profiles: z.array(characterPresentationProfileDataSchema).default([]),
     expressions: z.array(characterExpressionDataSchema).default([]),
     appearances: z.array(characterAppearanceDataSchema).default([]),
+    gestures: z.array(characterGestureDataSchema).default([]),
     idles: z.array(characterIdleDataSchema).default([]),
     inventories: z.array(inventoryDefinitionSchema),
     initialWorldState: z
@@ -184,6 +278,8 @@ export type CharacterProfileLayerOverridesData = z.infer<
 >;
 export type CharacterExpressionData = z.infer<typeof characterExpressionDataSchema>;
 export type CharacterAppearanceData = z.infer<typeof characterAppearanceDataSchema>;
+export type CharacterGestureCueData = z.infer<typeof characterGestureCueDataSchema>;
+export type CharacterGestureData = z.infer<typeof characterGestureDataSchema>;
 export type CharacterIdleData = z.infer<typeof characterIdleDataSchema>;
 export type CharacterDialogueStyle = z.infer<typeof characterDialogueStyleSchema>;
 export type CharacterData = z.infer<typeof characterDataSchema>;
@@ -230,6 +326,8 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
         label: 'Stage',
         layers: [{ id: 'body', label: 'Body', role: 'body' }],
         defaultPoseId: 'default',
+        animationClips: [],
+        automaticAnimations: { blink: null, speaking: null },
         poses: [
           {
             id: 'default',
@@ -257,6 +355,7 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
       },
     ],
     appearances: [],
+    gestures: [],
     idles: [],
     inventories: [],
     initialWorldState: { location: { kind: 'unplaced' }, enabled: true, visible: true },
@@ -330,6 +429,30 @@ function validateMaterialRef(
     );
 }
 
+function validateAudioRef(
+  project: AuthoringProject,
+  ref: CharacterAssetRef,
+  path: string,
+  diagnostics: CharacterSchemaDiagnostic[],
+) {
+  const id = refId(ref);
+  if (!id) return;
+  const asset = project.assets[id];
+  if (!asset) {
+    diagnostics.push(diagnostic(`${path}/$ref`, `Missing audio asset '${id}'.`));
+    return;
+  }
+  const data = parseAssetData(asset.data);
+  if (!data)
+    diagnostics.push(
+      diagnostic(`${path}/$ref`, `Asset '${id}' has invalid asset data.`, 'warning'),
+    );
+  else if (data.kind !== 'audio')
+    diagnostics.push(
+      diagnostic(`${path}/$ref`, `Audio cue asset '${id}' is ${data.kind}, not audio.`, 'warning'),
+    );
+}
+
 export function validateCharacterData(
   project: AuthoringProject,
   characterId: string,
@@ -355,6 +478,7 @@ export function validateCharacterData(
   validateUniqueIds(data.profiles, `${base}/profiles`, 'profile', diagnostics);
   validateUniqueIds(data.expressions, `${base}/expressions`, 'expression', diagnostics);
   validateUniqueIds(data.appearances, `${base}/appearances`, 'appearance', diagnostics);
+  validateUniqueIds(data.gestures, `${base}/gestures`, 'gesture', diagnostics);
   validateUniqueIds(data.idles, `${base}/idles`, 'idle', diagnostics);
 
   const profiles = new Set(data.profiles.map((profile) => profile.id));
@@ -443,8 +567,18 @@ export function validateCharacterData(
       diagnostics.push(diagnostic(`${profilePath}/poses`, 'Profile requires at least one pose.'));
     validateUniqueIds(profile.layers, `${profilePath}/layers`, 'layer', diagnostics);
     validateUniqueIds(profile.poses, `${profilePath}/poses`, 'pose', diagnostics);
+    validateUniqueIds(
+      profile.animationClips,
+      `${profilePath}/animationClips`,
+      'animation clip',
+      diagnostics,
+    );
     const layerIds = new Set(profile.layers.map((layer) => layer.id));
     const poseIds = new Set(profile.poses.map((pose) => pose.id));
+    const clipIds = new Set(profile.animationClips.map((clip) => clip.id));
+    const roles = new Set(
+      profile.layers.map((layer) => layer.role).filter((role): role is string => role !== null),
+    );
     if (!poseIds.has(profile.defaultPoseId))
       diagnostics.push(
         diagnostic(
@@ -468,9 +602,93 @@ export function validateCharacterData(
         validateMaterialRef(project, layer.material, `${path}/material`, diagnostics);
       });
     });
+    profile.animationClips.forEach((clip, clipIndex) => {
+      const clipPath = `${profilePath}/animationClips/${clipIndex}`;
+      clip.frames.forEach((frame, frameIndex) => {
+        const framePath = `${clipPath}/frames/${frameIndex}`;
+        validateUniqueIds(
+          frame.layers.map((layer) => ({ id: layer.layerId })),
+          `${framePath}/layers`,
+          'animation layer',
+          diagnostics,
+        );
+        frame.layers.forEach((layer, layerIndex) => {
+          const path = `${framePath}/layers/${layerIndex}`;
+          if (!layerIds.has(layer.layerId))
+            diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
+          if (layer.sprite !== undefined)
+            validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
+          if (layer.material !== undefined)
+            validateMaterialRef(project, layer.material, `${path}/material`, diagnostics);
+        });
+      });
+    });
+    const validateAutomatic = (
+      automatic: { clipId: string; role: string } | null,
+      name: 'blink' | 'speaking',
+    ) => {
+      if (!automatic) return;
+      if (!clipIds.has(automatic.clipId))
+        diagnostics.push(
+          diagnostic(
+            `${profilePath}/automaticAnimations/${name}/clipId`,
+            `Missing animation clip '${automatic.clipId}'.`,
+          ),
+        );
+      if (!roles.has(automatic.role))
+        diagnostics.push(
+          diagnostic(
+            `${profilePath}/automaticAnimations/${name}/role`,
+            `No layer uses semantic role '${automatic.role}'.`,
+          ),
+        );
+    };
+    validateAutomatic(profile.automaticAnimations.blink, 'blink');
+    validateAutomatic(profile.automaticAnimations.speaking, 'speaking');
   });
   validateOverrides(data.expressions, 'expressions');
   validateOverrides(data.appearances, 'appearances');
+
+  data.gestures.forEach((gesture, gestureIndex) => {
+    const gesturePath = `${base}/gestures/${gestureIndex}`;
+    validateUniqueIds(
+      gesture.profiles.map((profile) => ({ id: profile.profileId })),
+      `${gesturePath}/profiles`,
+      'gesture profile',
+      diagnostics,
+    );
+    gesture.profiles.forEach((profileGesture, profileIndex) => {
+      const path = `${gesturePath}/profiles/${profileIndex}`;
+      const profile = data.profiles.find((candidate) => candidate.id === profileGesture.profileId);
+      if (!profile) {
+        diagnostics.push(
+          diagnostic(`${path}/profileId`, `Missing profile '${profileGesture.profileId}'.`),
+        );
+        return;
+      }
+      if (!profile.animationClips.some((clip) => clip.id === profileGesture.clipId))
+        diagnostics.push(
+          diagnostic(`${path}/clipId`, `Missing animation clip '${profileGesture.clipId}'.`),
+        );
+      validateUniqueIds(profileGesture.cues, `${path}/cues`, 'gesture cue', diagnostics);
+      const clip = profile.animationClips.find(
+        (candidate) => candidate.id === profileGesture.clipId,
+      );
+      const duration =
+        clip?.frames.reduce((sum, frame) => sum + frame.durationMs, 0) ?? Number.MAX_SAFE_INTEGER;
+      profileGesture.cues.forEach((cue, cueIndex) => {
+        if (cue.atMs > duration)
+          diagnostics.push(
+            diagnostic(
+              `${path}/cues/${cueIndex}/atMs`,
+              `Gesture cue occurs after animation clip '${profileGesture.clipId}' ends.`,
+            ),
+          );
+        if (cue.kind === 'audio')
+          validateAudioRef(project, cue.asset, `${path}/cues/${cueIndex}/asset`, diagnostics);
+      });
+    });
+  });
 
   const selectedProfile = data.profiles.find((profile) => profile.id === data.defaults.profileId);
   const selectedPose = selectedProfile?.poses.find(

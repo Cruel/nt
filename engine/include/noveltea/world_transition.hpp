@@ -49,7 +49,14 @@ using TargetedPresentationOperation =
                  core::CameraZoomOperation, core::CameraRotationOperation,
                  core::CameraFocusOperation, core::CameraShakeOperation, core::CameraPunchOperation,
                  core::CameraFlashOperation, core::ActorPresentationOperation,
-                 core::LayoutFinitePresentationOperation>;
+                 core::CharacterGestureOperation, core::LayoutFinitePresentationOperation>;
+
+struct CharacterGestureCueCrossing {
+    core::PresentationOperationRef operation;
+    core::CharacterGestureCueId cue;
+    core::compiled::CharacterGestureCue payload;
+    bool operator==(const CharacterGestureCueCrossing&) const = default;
+};
 
 struct TargetedPresentationRenderState {
     core::PresentationOperationRef operation;
@@ -79,6 +86,7 @@ public:
     void reset(core::PresentationCancellationReason reason) override;
 
     [[nodiscard]] std::vector<core::BackendOperationAcknowledgement> take_acknowledgements();
+    [[nodiscard]] std::vector<CharacterGestureCueCrossing> take_gesture_cues();
     [[nodiscard]] const std::optional<WorldTransitionRenderState>& render_state() const noexcept
     {
         return m_render_state;
@@ -102,6 +110,7 @@ private:
         core::PresentationOperationMetadata metadata;
         TargetedPresentationOperation request;
         animation::TweenHandle tween;
+        std::vector<core::CharacterGestureCueId> emitted_gesture_cues;
     };
 
     [[nodiscard]] animation::TweenService& tween_service(core::LayoutClockDomain clock) noexcept;
@@ -127,6 +136,7 @@ private:
     std::vector<ActiveTargetedOperation> m_targeted;
     std::optional<WorldTransitionRenderState> m_render_state;
     std::vector<core::BackendOperationAcknowledgement> m_acknowledgements;
+    std::vector<CharacterGestureCueCrossing> m_gesture_cues;
     animation::TweenService m_gameplay_tweens;
     animation::TweenService m_unscaled_tweens;
 };

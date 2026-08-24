@@ -53,6 +53,8 @@ struct PresentationActor {
     CharacterExpressionId expression;
     std::optional<CharacterAppearanceId> appearance;
     std::optional<compiled::CharacterIdle> idle;
+    std::vector<compiled::CharacterAnimationClip> animation_clips;
+    compiled::CharacterAutomaticAnimations automatic_animations;
     std::vector<PresentationActorLayer> layers;
     ActorLogicalPlacement placement;
     std::optional<compiled::RoomPlacementRef> room_placement;
@@ -62,6 +64,7 @@ struct PresentationActor {
     bool enabled = true;
     bool visible = false;
     bool presentation_complete = true;
+    bool speaking = false;
     bool operator==(const PresentationActor&) const = default;
 };
 

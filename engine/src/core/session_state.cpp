@@ -1327,6 +1327,23 @@ SessionState::set_actor_presentation_complete(const CompiledProject& project,
     return Result<void, Diagnostics>::success();
 }
 
+Result<void, Diagnostics> SessionState::set_actor_speaking(const CompiledProject& project,
+                                                           const ActorPresentationKey& key,
+                                                           const PresentationOwner& owner,
+                                                           bool speaking)
+{
+    (void)project;
+    const auto found = std::find_if(m_actors.begin(), m_actors.end(),
+                                    [&key, &owner](const DesiredActorPresentation& value) {
+                                        return value.key == key && value.owner == owner;
+                                    });
+    if (found == m_actors.end())
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.unknown_actor", "Actor slot has no live state"));
+    found->speaking = speaking;
+    return Result<void, Diagnostics>::success();
+}
+
 Result<void, Diagnostics> SessionState::upsert_presentation_prop(const CompiledProject& project,
                                                                  DesiredPresentationProp value)
 {

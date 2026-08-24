@@ -464,6 +464,30 @@ struct StructuredAssetDependencyIndex::Impl {
             if (material)
                 append_material(output, *material, collection_diagnostics, context);
         }
+        for (const auto& clip : profile->animation_clips) {
+            for (const auto& frame : clip.frames) {
+                for (const auto& layer : frame.layers) {
+                    if (layer.sprite.specified && layer.sprite.value)
+                        append_asset(output, *layer.sprite.value, core::compiled::AssetKind::Image,
+                                     collection_diagnostics, context);
+                    if (layer.material.specified && layer.material.value)
+                        append_material(output, *layer.material.value, collection_diagnostics,
+                                        context);
+                }
+            }
+        }
+        for (const auto& gesture : character.gestures) {
+            const auto gesture_profile = std::find_if(
+                gesture.profiles.begin(), gesture.profiles.end(),
+                [&](const auto& candidate) { return candidate.profile_id == profile_id; });
+            if (gesture_profile == gesture.profiles.end())
+                continue;
+            for (const auto& cue : gesture_profile->cues) {
+                if (const auto* audio = std::get_if<core::compiled::CharacterAudioGestureCue>(&cue))
+                    append_asset(output, audio->asset, core::compiled::AssetKind::Audio,
+                                 collection_diagnostics, context);
+            }
+        }
     }
 
     void append_flow_target(DescriptorAccumulator& output, const core::FlowTarget& target,
