@@ -901,6 +901,67 @@ TEST_CASE("presentation target application preserves compatible Layout Mount occ
     CHECK(state.mounted_layouts().front().policy.local_order == 17);
 }
 
+TEST_CASE("occurrence Material Parameters enforce binding authority and bounded postprocess state")
+{
+    const auto compiled_project = load_fixture("scene-program.json");
+    auto state_result = SessionState::create(compiled_project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    const PresentationOwner owner{state.session_presentation_owner()};
+    const auto sprite_material = id<MaterialId>("sprite-material");
+    const auto postprocess_material = id<MaterialId>("scene-postprocess-material");
+
+    REQUIRE(state.upsert_background_override(
+        compiled_project,
+        DesiredBackgroundOverride{owner, compiled::BackgroundPresentation{
+                                             std::nullopt, std::string{"#ffffff"},
+                                             compiled::BackgroundFit::Cover, sprite_material}}));
+
+    const MaterialOccurrence background = BackgroundMaterialOccurrence{};
+    REQUIRE(state.upsert_material_parameter(
+        compiled_project, DesiredMaterialParameter{owner, background, sprite_material, "u_tint",
+                                                   compiled::MaterialColorValue{0.1, 0.2, 0.3, 1.0},
+                                                   std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.material_parameter(background, owner, sprite_material, "u_tint") != nullptr);
+
+    REQUIRE(state.remove_material_parameter(background, owner, sprite_material, "u_tint"));
+
+    for (std::size_t index = 0; index < max_postprocess_effects_per_scope; ++index) {
+        const auto instance = id<PostprocessEffectInstanceId>("fx-" + std::to_string(index));
+        REQUIRE(state.upsert_postprocess_effect(
+            compiled_project,
+            DesiredPostprocessEffect{
+                instance, owner, postprocess_material, compiled::MaterialPostprocessScope::World,
+                static_cast<std::int32_t>(max_postprocess_effects_per_scope - index),
+                MaterialClockPolicy::Gameplay, true}));
+    }
+    const auto bound_instance = id<PostprocessEffectInstanceId>("fx-0");
+    const MaterialOccurrence postprocess = PostprocessMaterialOccurrence{bound_instance};
+    REQUIRE(state.upsert_material_parameter(
+        compiled_project, DesiredMaterialParameter{
+                              owner, postprocess, postprocess_material, "u_strength", std::nullopt,
+                              MaterialStandardFacetBinding{MaterialStandardFacet::OccurrenceTime},
+                              MaterialClockPolicy::UnscaledPresentation}));
+    CHECK_FALSE(state.upsert_material_parameter(
+        compiled_project,
+        DesiredMaterialParameter{owner, postprocess, postprocess_material, "u_strength", 0.75,
+                                 std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(
+        state.remove_material_parameter(postprocess, owner, postprocess_material, "u_strength"));
+    CHECK(state.postprocess_effects().size() == max_postprocess_effects_per_scope);
+    CHECK(std::is_sorted(state.postprocess_effects().begin(), state.postprocess_effects().end(),
+                         [](const auto& left, const auto& right) {
+                             if (left.order != right.order)
+                                 return left.order < right.order;
+                             return left.instance.text() < right.instance.text();
+                         }));
+    CHECK_FALSE(state.upsert_postprocess_effect(
+        compiled_project,
+        DesiredPostprocessEffect{id<PostprocessEffectInstanceId>("fx-overflow"), owner,
+                                 postprocess_material, compiled::MaterialPostprocessScope::World,
+                                 99, MaterialClockPolicy::Gameplay, true}));
+}
+
 TEST_CASE("feature views are a closed typed vocabulary without mutable state ownership")
 {
     STATIC_REQUIRE(std::variant_size_v<FeatureView> == 6);

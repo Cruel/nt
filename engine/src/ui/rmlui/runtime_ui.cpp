@@ -833,8 +833,8 @@ void RuntimeUI::State::refresh_text_log_map()
         return;
     for_each_component<ui::rmlui::NtMapViewElement>(
         *document, "nt-map-view", [&](ui::rmlui::NtMapViewElement& map_view) {
-            map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(
-                *action_gateway->view(), map_view.requested_map()));
+            map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(*action_gateway->view(),
+                                                                    map_view.requested_map()));
         });
 }
 
@@ -845,8 +845,8 @@ void RuntimeUI::State::refresh_game_hud_map()
         return;
     for_each_component<ui::rmlui::NtMapViewElement>(
         *doc, "nt-map-view", [&](ui::rmlui::NtMapViewElement& map_view) {
-            map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(
-                *action_gateway->view(), map_view.requested_map()));
+            map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(*action_gateway->view(),
+                                                                    map_view.requested_map()));
         });
     refresh_mounted_maps();
 }
@@ -862,8 +862,8 @@ void RuntimeUI::State::refresh_mounted_maps()
             continue;
         for_each_component<ui::rmlui::NtMapViewElement>(
             *doc, "nt-map-view", [&](ui::rmlui::NtMapViewElement& map_view) {
-                map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(
-                    *action_gateway->view(), map_view.requested_map()));
+                map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(*action_gateway->view(),
+                                                                        map_view.requested_map()));
             });
     }
 }
@@ -1349,10 +1349,20 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
 {
     if (!m_state)
         return;
-    if (context)
+    if (context) {
+        if (m_state->host && m_state->document_registry) {
+            m_state->host->set_context_material_parameters(
+                m_state->document_registry->document_context(id), context->material_parameters,
+                context->material_camera_zoom);
+        }
         m_state->layout_mount_contexts.insert_or_assign(id, std::move(*context));
-    else
+    } else {
+        if (m_state->host && m_state->document_registry) {
+            m_state->host->set_context_material_parameters(
+                m_state->document_registry->document_context(id), {}, 1.0);
+        }
         m_state->layout_mount_contexts.erase(id);
+    }
     m_state->refresh_mounted_maps();
 }
 

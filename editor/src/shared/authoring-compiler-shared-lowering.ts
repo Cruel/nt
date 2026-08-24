@@ -28,6 +28,7 @@ import {
   type LayoutStateShapeData,
 } from './project-schema/authoring-layouts';
 import { parseMapData } from './project-schema/authoring-maps';
+import { resolveMaterialData } from './project-schema/authoring-materials';
 import {
   parseInteractableData,
   type InteractableData,
@@ -46,6 +47,7 @@ import { parseInteractionData } from './project-schema/authoring-interactions';
 import { parseScriptModuleData } from './project-schema/authoring-script-modules';
 import { parseVariableData } from './project-schema/authoring-variables';
 import { parseVerbData, type SubjectSelector } from './project-schema/authoring-verbs';
+import { parseShaderData } from './project-schema/authoring-shaders';
 
 type WireDefinitions = CompiledProjectWireV4['definitions'];
 type WireResources = CompiledProjectWireV4['resources'];
@@ -1102,6 +1104,41 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }),
   );
 
+  const materialInterfaces: WireResources['materialInterfaces'] = [];
+  for (const [id] of sortedEntries(project.materials)) {
+    const resolved = resolveMaterialData(project, id);
+    if (!resolved.data?.shader) {
+      diagnostics.push({
+        code: 'authoring.compile.material-interface-missing-shader',
+        path: `/materials/${id}/data/shader`,
+        message: `Material '${id}' cannot publish a runtime interface without a Shader.`,
+      });
+      continue;
+    }
+    const shaderId = resolved.data.shader.$ref.id;
+    const shader = parseShaderData(project.shaders[shaderId]?.data);
+    if (!shader) {
+      diagnostics.push({
+        code: 'authoring.compile.material-interface-invalid-shader',
+        path: `/materials/${id}/data/shader`,
+        message: `Material '${id}' references invalid Shader '${shaderId}'.`,
+      });
+      continue;
+    }
+    materialInterfaces.push({
+      id,
+      role: resolved.data.role,
+      postprocessScope: resolved.data.postprocessScope,
+      parameters: [...shader.uniforms]
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((uniform) => ({
+          name: uniform.name,
+          type: uniform.type,
+          rendererBinding: uniform.binding ?? null,
+        })),
+    });
+  }
+
   const traits: CompiledProjectWireV4['traits'] = sortedEntries(project.traits).map(
     ([id, trait]) => ({
       id,
@@ -1197,7 +1234,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         entries: sortedEntries(entries).map(([key, value]) => ({ key, value })),
       })),
     },
-    resources: { assets, layouts, scripts },
+    resources: { assets, layouts, materialInterfaces, scripts },
     definitions: {
       characters,
       rooms,

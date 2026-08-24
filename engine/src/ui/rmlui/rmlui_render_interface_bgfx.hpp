@@ -2,6 +2,8 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
+#include "noveltea/core/runtime_clock.hpp"
+#include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/surface.hpp"
 #include <rmlui_bgfx/config.hpp>
 #include <rmlui_bgfx/render_interface.hpp>
@@ -10,6 +12,7 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_set>
 
 namespace noveltea {
@@ -51,6 +54,8 @@ public:
     void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_output_framebuffer(bgfx::FrameBufferHandle framebuffer,
                                 const PresentationMetrics& presentation, bool local_viewport);
+    void set_material_parameters(std::span<const core::PresentationMaterialParameter> parameters,
+                                 const core::RuntimeClockUpdate& clocks, double camera_zoom);
 
     Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                 Rml::Span<const int> indices) override;

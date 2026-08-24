@@ -8,6 +8,8 @@ import type {
 } from './project-schema/compiled-project';
 import type { Condition, Effect, FlowTarget, TextContent } from './project-schema/authoring-flow';
 import type { AuthoringProject } from './project-schema/authoring-project';
+import { resolveMaterialData } from './project-schema/authoring-materials';
+import { parseShaderData, type ShaderUniformValue } from './project-schema/authoring-shaders';
 import {
   parseSceneData,
   type SceneStepData,
@@ -117,6 +119,39 @@ function common(step: Exclude<SceneStepData, { type: 'comment' }>) {
   };
 }
 
+function compileMaterialParameterValue(
+  project: AuthoringProject,
+  materialId: string,
+  parameter: string,
+  value: ShaderUniformValue,
+): Extract<SceneProgram['instructions'][number], { kind: 'material-parameter' }>['value'] {
+  const material = resolveMaterialData(project, materialId).data;
+  const shaderId = material?.shader?.$ref.id;
+  const uniform = shaderId
+    ? parseShaderData(project.shaders[shaderId]?.data)?.uniforms.find(
+        (item) => item.name === parameter,
+      )
+    : undefined;
+  if (!uniform || value === null)
+    throw new Error(`Validated Material Parameter '${materialId}.${parameter}' cannot be lowered.`);
+  switch (uniform.type) {
+    case 'float':
+      return { type: 'float', value: value as number };
+    case 'vec2':
+      return { type: 'vec2', value: value as [number, number] };
+    case 'vec3':
+      return { type: 'vec3', value: value as [number, number, number] };
+    case 'vec4':
+      return { type: 'vec4', value: value as [number, number, number, number] };
+    case 'color':
+      return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+    case 'int':
+      return { type: 'int', value: value as number };
+    case 'bool':
+      return { type: 'bool', value: value as boolean };
+  }
+}
+
 function compileTransitionGroupChild(
   child: SceneTransitionGroupChildData,
 ): Extract<SceneProgram['instructions'][number], { kind: 'transition-group' }>['children'][number] {
@@ -159,6 +194,7 @@ function compileTransitionGroupChild(
 }
 
 function compileSceneStep(
+  project: AuthoringProject,
   step: Exclude<SceneStepData, { type: 'comment' }>,
 ): SceneProgram['instructions'][number] {
   const base = common(step);
@@ -297,6 +333,46 @@ function compileSceneStep(
         durationMs: step.durationMs,
         waitForCompletion: step.waitForCompletion,
         skippable: step.skippable,
+      };
+    case 'material-parameter':
+      return {
+        ...base,
+        kind: 'material-parameter',
+        target: { ...step.target },
+        material: materialRef(step.material)!,
+        parameter: step.parameter,
+        value: compileMaterialParameterValue(
+          project,
+          step.material.$ref.id,
+          step.parameter,
+          step.value,
+        ),
+        transition: step.transition,
+        durationMs: step.durationMs,
+        easing: step.easing,
+        clock: step.clock,
+        waitForCompletion: step.waitForCompletion,
+        skippable: step.skippable,
+      };
+    case 'postprocess-effect':
+      return {
+        ...base,
+        kind: 'postprocess-effect',
+        action: step.action,
+        instanceId: step.instanceId,
+        material: materialRef(step.material),
+        scope: step.scope,
+        order: step.order,
+        clock: step.clock,
+        parameters: step.parameters.map((parameter) => ({
+          name: parameter.name,
+          value: compileMaterialParameterValue(
+            project,
+            step.material!.$ref.id,
+            parameter.name,
+            parameter.value,
+          ),
+        })),
       };
     case 'transition-group':
       return {
@@ -477,7 +553,7 @@ export function lowerSceneAndRoomPrograms(
             (step): step is Exclude<SceneStepData, { type: 'comment' }> =>
               step.type !== 'comment' && step.enabled,
           )
-          .map(compileSceneStep),
+          .map((step) => compileSceneStep(project, step)),
       },
       continuation: compileFlowTarget(data.continuation),
     });

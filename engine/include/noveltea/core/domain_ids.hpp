@@ -53,6 +53,7 @@ NOVELTEA_DOMAIN_ID(RoomCastEntryId);
 NOVELTEA_DOMAIN_ID(RoomInteractableEntryId);
 NOVELTEA_DOMAIN_ID(RoomPropId);
 NOVELTEA_DOMAIN_ID(RoomEnvironmentId);
+NOVELTEA_DOMAIN_ID(PostprocessEffectInstanceId);
 NOVELTEA_DOMAIN_ID(SceneBranchId);
 NOVELTEA_DOMAIN_ID(SceneChoiceOptionId);
 NOVELTEA_DOMAIN_ID(InteractionRuleId);

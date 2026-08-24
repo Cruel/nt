@@ -38,10 +38,17 @@ struct LayoutOperationTarget {
     PresentationOwner owner;
     bool operator==(const LayoutOperationTarget&) const = default;
 };
+struct MaterialParameterOperationTarget {
+    PresentationOwner owner;
+    MaterialOccurrence occurrence;
+    MaterialId material;
+    std::string parameter;
+    bool operator==(const MaterialParameterOperationTarget&) const = default;
+};
 using FinitePresentationOperationTarget =
     std::variant<WorldCompositionOperationTarget, RoomNavigationOperationTarget,
                  BackgroundOperationTarget, CameraOperationTarget, ActorOperationTarget,
-                 LayoutOperationTarget>;
+                 LayoutOperationTarget, MaterialParameterOperationTarget>;
 
 enum class PresentationEasing : std::uint8_t {
     Linear,
@@ -181,12 +188,21 @@ struct LayoutFinitePresentationOperation {
     bool operator==(const LayoutFinitePresentationOperation&) const = default;
 };
 
+struct MaterialParameterTransitionOperation {
+    FinitePresentationOperationCommon common;
+    MaterialParameterOperationTarget target;
+    compiled::MaterialParameterValue source_value;
+    compiled::MaterialParameterValue target_value;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const MaterialParameterTransitionOperation&) const = default;
+};
+
 using FinitePresentationOperation =
     std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
                  BackgroundPresentationOperation, CameraPanOperation, CameraZoomOperation,
                  CameraRotationOperation, CameraFocusOperation, CameraShakeOperation,
                  CameraPunchOperation, CameraFlashOperation, ActorPresentationOperation,
-                 LayoutFinitePresentationOperation>;
+                 LayoutFinitePresentationOperation, MaterialParameterTransitionOperation>;
 
 struct PresentationTargetDraft {
     std::vector<DesiredBackgroundOverride> background_overrides;

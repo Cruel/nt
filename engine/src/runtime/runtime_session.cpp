@@ -128,11 +128,20 @@ core::PresentationOperation materialize_operation(const PendingPresentationOpera
             } else if constexpr (std::is_same_v<T, PendingActorOperation>) {
                 return core::ActorPresentationOperation{
                     common, {value.target}, value.kind, value.completion};
-            } else {
+            } else if constexpr (std::is_same_v<T, PendingLayoutOperation>) {
                 return core::LayoutFinitePresentationOperation{common,
                                                                {value.target, value.owner},
                                                                core::LayoutOperationKind::Fade,
                                                                value.completion};
+            } else {
+                auto material_common = common;
+                material_common.clock = value.clock == core::MaterialClockPolicy::Gameplay
+                                            ? core::LayoutClockDomain::Gameplay
+                                            : core::LayoutClockDomain::UnscaledPresentation;
+                material_common.easing = value.easing;
+                return core::MaterialParameterTransitionOperation{
+                    material_common, value.target, value.source_value, value.target_value,
+                    value.completion};
             }
         },
         pending);
@@ -807,6 +816,26 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                                      T, runtime::RemovePresentationEnvironmentsByStopKeyCommand>) {
                 auto changed = m_kernel->state().remove_presentation_environments(payload.stop_key,
                                                                                   payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::UpsertMaterialParameterCommand>) {
+                auto changed =
+                    m_kernel->state().upsert_material_parameter(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemoveMaterialParameterCommand>) {
+                auto changed = m_kernel->state().remove_material_parameter(
+                    payload.occurrence, payload.owner, payload.material, payload.parameter);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::UpsertPostprocessEffectCommand>) {
+                auto changed =
+                    m_kernel->state().upsert_postprocess_effect(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemovePostprocessEffectCommand>) {
+                auto changed =
+                    m_kernel->state().remove_postprocess_effect(payload.instance, payload.owner);
                 if (!changed)
                     diagnostics = std::move(changed).error();
             } else if constexpr (std::is_same_v<T, runtime::UpsertDesiredAudioCommand>) {

@@ -651,6 +651,104 @@ std::string saved_mount_key_text(const MountedLayoutPresentationKey& key)
         key);
 }
 
+std::string saved_material_occurrence_key(const SavedMaterialOccurrence& occurrence)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SavedBackgroundMaterialOccurrence>)
+                return std::string{"background"};
+            else if constexpr (std::is_same_v<T, SavedActorMaterialOccurrence>)
+                return std::string{"actor:"} + saved_actor_key_text(value.key) + ":" +
+                       (value.layer == ActorMaterialLayer::Pose ? "pose" : "expression");
+            else if constexpr (std::is_same_v<T, SavedPropMaterialOccurrence>)
+                return std::string{"prop:"} + value.instance.text();
+            else if constexpr (std::is_same_v<T, SavedEnvironmentMaterialOccurrence>)
+                return std::string{"environment:"} + value.instance.text();
+            else if constexpr (std::is_same_v<T, SavedLayoutMaterialOccurrence>)
+                return std::string{"layout:"} + saved_mount_key_text(value.key) + ":" +
+                       value.material.text();
+            else
+                return std::string{"postprocess:"} + value.instance.text();
+        },
+        occurrence);
+}
+
+bool material_parameter_value_matches(compiled::MaterialParameterType type,
+                                      const compiled::MaterialParameterValue& value) noexcept
+{
+    switch (type) {
+    case compiled::MaterialParameterType::Float:
+        return std::holds_alternative<double>(value);
+    case compiled::MaterialParameterType::Vec2:
+        return std::holds_alternative<std::array<double, 2>>(value);
+    case compiled::MaterialParameterType::Vec3:
+        return std::holds_alternative<std::array<double, 3>>(value);
+    case compiled::MaterialParameterType::Vec4:
+        return std::holds_alternative<std::array<double, 4>>(value);
+    case compiled::MaterialParameterType::Color:
+        return std::holds_alternative<compiled::MaterialColorValue>(value);
+    case compiled::MaterialParameterType::Int:
+        return std::holds_alternative<std::int64_t>(value);
+    case compiled::MaterialParameterType::Bool:
+        return std::holds_alternative<bool>(value);
+    }
+    return false;
+}
+
+bool material_parameter_value_finite(const compiled::MaterialParameterValue& value) noexcept
+{
+    return std::visit(
+        [](const auto& item) {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, double>)
+                return std::isfinite(item);
+            else if constexpr (std::is_same_v<T, std::array<double, 2>> ||
+                               std::is_same_v<T, std::array<double, 3>> ||
+                               std::is_same_v<T, std::array<double, 4>>)
+                return std::all_of(item.begin(), item.end(),
+                                   [](double component) { return std::isfinite(component); });
+            else if constexpr (std::is_same_v<T, compiled::MaterialColorValue>)
+                return std::isfinite(item.r) && std::isfinite(item.g) && std::isfinite(item.b) &&
+                       std::isfinite(item.a);
+            else
+                return true;
+        },
+        value);
+}
+
+bool valid_saved_material_parameter(const CompiledProject& project, const SaveState& save,
+                                    const SavedMaterialParameter& parameter) noexcept
+{
+    if (!valid_saved_owner(project, save, parameter.owner) || parameter.parameter.empty() ||
+        parameter.clock > MaterialClockPolicy::UnscaledPresentation)
+        return false;
+    const auto* interface = project.find_material_interface(parameter.material);
+    if (interface == nullptr)
+        return false;
+    const auto declaration =
+        std::find_if(interface->parameters.begin(), interface->parameters.end(),
+                     [&](const auto& item) { return item.name == parameter.parameter; });
+    if (declaration == interface->parameters.end() || declaration->renderer_binding)
+        return false;
+    if (parameter.value &&
+        (!material_parameter_value_matches(declaration->type, *parameter.value) ||
+         !material_parameter_value_finite(*parameter.value)))
+        return false;
+    return parameter.value.has_value() || parameter.binding.has_value();
+}
+
+bool valid_saved_postprocess_effect(const CompiledProject& project, const SaveState& save,
+                                    const SavedPostprocessEffect& effect) noexcept
+{
+    const auto* interface = project.find_material_interface(effect.material);
+    return valid_saved_owner(project, save, effect.owner) && interface != nullptr &&
+           interface->role == compiled::MaterialRole::Postprocess &&
+           interface->postprocess_scope == effect.scope &&
+           effect.scope <= compiled::MaterialPostprocessScope::FullGameViewport &&
+           effect.clock <= MaterialClockPolicy::UnscaledPresentation;
+}
+
 bool valid_background_record(const CompiledProject& project,
                              const compiled::BackgroundPresentation& value) noexcept
 {
@@ -1578,6 +1676,40 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
             error("save_codec.invalid_presentation_record",
                   "Presentation environment has an invalid owner or policy.");
     }
+
+    std::unordered_set<std::string> material_parameter_keys;
+    for (const auto& parameter : save.material_parameters) {
+        const auto key = saved_owner_key(parameter.owner) + "|" +
+                         saved_material_occurrence_key(parameter.occurrence) + "|" +
+                         parameter.material.text() + "|" + parameter.parameter;
+        if (!material_parameter_keys.insert(key).second)
+            error("save_codec.duplicate_presentation_record",
+                  "Material Parameter identity appears more than once.");
+        if (!valid_saved_material_parameter(project, save, parameter))
+            error("save_codec.invalid_presentation_record",
+                  "Material Parameter has an invalid owner, Material, type, binding, or clock.");
+    }
+
+    std::unordered_set<std::string> postprocess_ids;
+    std::size_t world_postprocess_count = 0;
+    std::size_t viewport_postprocess_count = 0;
+    for (const auto& effect : save.postprocess_effects) {
+        const auto key = effect.instance.text() + "|" + saved_owner_key(effect.owner);
+        if (!postprocess_ids.insert(key).second)
+            error("save_codec.duplicate_presentation_record",
+                  "Postprocess Effect identity appears more than once.");
+        if (!valid_saved_postprocess_effect(project, save, effect))
+            error("save_codec.invalid_presentation_record",
+                  "Postprocess Effect has an invalid owner, Material, scope, or clock.");
+        if (effect.scope == compiled::MaterialPostprocessScope::World)
+            ++world_postprocess_count;
+        else
+            ++viewport_postprocess_count;
+    }
+    if (world_postprocess_count > max_postprocess_effects_per_scope ||
+        viewport_postprocess_count > max_postprocess_effects_per_scope)
+        error("save_codec.invalid_presentation_record",
+              "Postprocess Effect stack exceeds the bounded per-scope limit.");
 
     std::unordered_set<std::string> layout_keys;
     for (const auto& layout : save.mounted_layouts) {

@@ -749,6 +749,28 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   const project = comprehensiveGoldenProject();
   renameProject(project, 'golden-scene-program', 'Golden Scene Program');
 
+  const postprocessShader = defaultShaderData('Scene Postprocess Shader');
+  postprocessShader.roles = ['postprocess'];
+  postprocessShader.uniforms = [
+    { name: 'u_strength', type: 'float', default: 0.25, label: 'Strength' },
+  ];
+  project.shaders['scene-postprocess-shader'] = {
+    id: 'scene-postprocess-shader',
+    label: 'Scene Postprocess Shader',
+    data: postprocessShader,
+  };
+  const postprocessMaterial = defaultMaterialData(
+    'Scene Postprocess Material',
+    'scene-postprocess-shader',
+  );
+  postprocessMaterial.role = 'postprocess';
+  postprocessMaterial.postprocessScope = 'world';
+  project.materials['scene-postprocess-material'] = {
+    id: 'scene-postprocess-material',
+    label: 'Scene Postprocess Material',
+    data: postprocessMaterial,
+  };
+
   const opening = defaultSceneData('Opening');
   opening.defaultBackground = {
     asset: sceneAssetRef('image-main'),
@@ -917,6 +939,56 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       slot: 'custom',
       transition: 'none',
       durationMs: 0,
+    },
+    {
+      ...defaultSceneStep('postprocess-effect'),
+      id: 'postprocess-add',
+      action: 'upsert',
+      instanceId: 'scene-grade',
+      material: sceneMaterialRef('scene-postprocess-material'),
+      scope: 'world',
+      order: 2,
+      clock: 'unscaled-presentation',
+      parameters: [{ name: 'u_strength', value: 0.4 }],
+    },
+    {
+      ...defaultSceneStep('material-parameter'),
+      id: 'background-material',
+      target: { kind: 'background' },
+      material: sceneMaterialRef('sprite-material'),
+      parameter: 'u_tint',
+      value: { r: 0.9, g: 0.8, b: 0.7, a: 1 },
+      transition: 'none',
+      durationMs: 0,
+      easing: 'linear',
+      clock: 'gameplay',
+      waitForCompletion: false,
+      skippable: true,
+    },
+    {
+      ...defaultSceneStep('material-parameter'),
+      id: 'postprocess-material',
+      target: { kind: 'postprocess', instanceId: 'scene-grade' },
+      material: sceneMaterialRef('scene-postprocess-material'),
+      parameter: 'u_strength',
+      value: 0.75,
+      transition: 'tween',
+      durationMs: 350,
+      easing: 'ease-in-out',
+      clock: 'unscaled-presentation',
+      waitForCompletion: true,
+      skippable: true,
+    },
+    {
+      ...defaultSceneStep('postprocess-effect'),
+      id: 'postprocess-remove',
+      action: 'remove',
+      instanceId: 'scene-grade',
+      material: null,
+      scope: 'world',
+      order: 0,
+      clock: 'gameplay',
+      parameters: [],
     },
     {
       ...defaultSceneStep('transition-group'),

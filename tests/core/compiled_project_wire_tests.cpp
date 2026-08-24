@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:3aadc322eb84b974a3db04321dbe5ae0");
+    CHECK(project.save_contract == "sc1:cabf1d69501dd15329fbd939ff333ecf");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -178,7 +178,7 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         const auto& project = result.value();
         REQUIRE(project.scenes.size() == 2);
         const auto& opening = project.scenes[1];
-        REQUIRE(opening.program.instructions.size() == 15);
+        REQUIRE(opening.program.instructions.size() == 19);
         const auto& background =
             std::get<SetBackgroundInstruction>(opening.program.instructions[0]);
         CHECK(background.transition == BackgroundTransition::Cut);
@@ -216,10 +216,31 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         REQUIRE(layout.scale_overrides.text.has_value());
         CHECK(*layout.scale_overrides.ui == LayoutScaleInheritance::Inherit);
         CHECK(*layout.scale_overrides.text == LayoutScaleInheritance::Ignore);
+        const auto& postprocess_add =
+            std::get<PostprocessEffectInstruction>(opening.program.instructions[14]);
+        CHECK(postprocess_add.instance.text() == "scene-grade");
+        CHECK(postprocess_add.action == PostprocessEffectAction::Upsert);
+        CHECK(postprocess_add.order == 2);
+        CHECK(postprocess_add.parameters.size() == 1);
+        const auto& background_material =
+            std::get<MaterialParameterInstruction>(opening.program.instructions[15]);
+        CHECK(background_material.parameter == "u_tint");
+        CHECK(background_material.transition == MaterialParameterTransition::None);
+        CHECK(background_material.duration_ms == 0);
+        CHECK(background_material.clock == MaterialClock::Gameplay);
+        const auto& postprocess_material =
+            std::get<MaterialParameterInstruction>(opening.program.instructions[16]);
+        CHECK(postprocess_material.parameter == "u_strength");
+        CHECK(postprocess_material.transition == MaterialParameterTransition::Tween);
+        CHECK(postprocess_material.duration_ms == 350);
+        CHECK(postprocess_material.clock == MaterialClock::UnscaledPresentation);
+        const auto& postprocess_remove =
+            std::get<PostprocessEffectInstruction>(opening.program.instructions[17]);
+        CHECK(postprocess_remove.action == PostprocessEffectAction::Remove);
         REQUIRE(
-            std::holds_alternative<TransitionGroupInstruction>(opening.program.instructions[14]));
+            std::holds_alternative<TransitionGroupInstruction>(opening.program.instructions[18]));
         const auto& transition =
-            std::get<TransitionGroupInstruction>(opening.program.instructions[14]);
+            std::get<TransitionGroupInstruction>(opening.program.instructions[18]);
         CHECK(transition.children.size() == 1);
         CHECK(std::holds_alternative<TransitionGroupSetBackgroundMutation>(
             transition.children.front()));
@@ -364,7 +385,7 @@ TEST_CASE("compiled project decoder rejects specialized discriminants and incomp
 TEST_CASE("compiled project decoder rejects stale and malformed TransitionGroup contracts")
 {
     const std::initializer_list<std::string_view> instruction_path = {
-        "definitions", "scenes", "1", "program", "instructions", "14"};
+        "definitions", "scenes", "1", "program", "instructions", "18"};
 
     SECTION("stale standalone transition")
     {
@@ -772,7 +793,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     auto scene = noveltea::core::decode_compiled_project(fixture("scene-program"), "scene.json");
     REQUIRE(scene);
     REQUIRE(scene.value().scenes().size() == 2);
-    CHECK(scene.value().scenes()[1].program.instructions.size() == 15);
+    CHECK(scene.value().scenes()[1].program.instructions.size() == 19);
 
     auto dialogue =
         noveltea::core::decode_compiled_project(fixture("dialogue-program"), "dialogue.json");

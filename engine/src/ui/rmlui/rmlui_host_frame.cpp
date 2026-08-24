@@ -259,6 +259,8 @@ void RmlUiHost::render_contexts(bool world_source_only, bool world_target_only,
                                            });
         if (renderer != m_plane_renderers.end() && renderer->bgfx) {
             renderer->bgfx->configure_context(m_presentation, record.metrics);
+            renderer->bgfx->set_material_parameters(record.material_parameters, m_clocks,
+                                                    record.material_camera_zoom);
             renderer->bgfx->begin_frame(renderer->view_range_started);
             renderer->view_range_started = true;
         }

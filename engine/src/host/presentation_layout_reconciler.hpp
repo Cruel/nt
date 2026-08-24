@@ -63,6 +63,8 @@ private:
         std::vector<core::LayoutSignalId> connected_signals;
         std::optional<core::LayoutStateShape> state_shape;
         std::vector<core::PresentationLayoutStateValue> state_values;
+        std::vector<core::PresentationMaterialParameter> material_parameters;
+        std::optional<double> material_camera_zoom;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
         core::PresentationSnapshotRevision revision =

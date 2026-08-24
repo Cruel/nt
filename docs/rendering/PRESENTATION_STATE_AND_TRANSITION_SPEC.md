@@ -37,7 +37,8 @@ This specification covers:
 - Scene, current-Room, Room, session, and shell ownership;
 - complete effective presentation assembly;
 - immutable `RuntimePresentationSnapshot` publication;
-- background, actor, prop, environment, Layout, Map-underlay, text/choice, and desired-audio intent;
+- background, actor, prop, environment, occurrence-local Material Parameters, postprocess effects,
+  Layout, Map-underlay, text/choice, and desired-audio intent;
 - ordinary presentation mutations and atomic grouped mutations;
 - Room-navigation source-to-target transitions;
 - Scene-authored `TransitionGroup` semantics;
@@ -137,6 +138,22 @@ Focus captures, shake phase, punch envelope, flash opacity phase, and backend in
 `Disposable` realization data and are never encoded in save state. Loading or resetting the backend
 therefore reconstructs the saved desired View directly without replaying camera emphasis.
 
+Material mutation follows the same desired-state/operation split. A `DesiredMaterialParameter` is
+keyed by owner, semantic presentation occurrence, immutable Material ID, and uniform name. It contains
+either one typed literal value or one explicit Property/standard-facet binding plus a gameplay or
+unscaled-presentation clock policy. Bindings remain authoritative until explicitly removed or
+replaced. `MaterialParameterTransitionOperation` is finite realization between two already-typed
+occurrence-local literal values; the target desired value is committed first, and the operation owns
+only duration, easing, clock, skip/completion behavior, and source/target values needed for temporary
+realization.
+
+Postprocess is reconstructible desired state rather than a finite render-graph object. Each
+`DesiredPostprocessEffect` has stable owner-qualified identity, immutable postprocess Material, world
+or full-game viewport scope, deterministic order, clock policy, visibility, and occurrence-local
+Material Parameters. Each scope is bounded to four effects. World passes composite before Game UI;
+full-game passes composite after Game UI. Renderer framebuffers, ping-pong targets, program handles,
+and occurrence-time epochs are disposable realization.
+
 ### Presentation owner
 
 The typed identity that determines when a desired record is active, when it is automatically removed,
@@ -168,7 +185,8 @@ The final system must preserve all of these invariants.
 5. Presentation backends consume snapshots and typed operations; they do not inspect Flow frames,
    `SessionState`, arbitrary scripts, or source JSON.
 6. Desired state always describes the final target even while a finite operation is active.
-7. Finite operation progress, captures, voices, and GPU resources never enter save data.
+7. Finite operation progress, captures, voices, Material tween phase/epochs, and GPU resources never
+   enter save data.
 8. A settled runtime transaction publishes at most one coherent target revision unless an authored
    finite operation deliberately establishes an operation boundary.
 9. Desired-state lifetime, family policy, checkpoint class, and operation lifecycle are independent

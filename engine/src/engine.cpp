@@ -50,6 +50,116 @@ using presentation::RuntimeLayoutBuiltinSource;
 using presentation::RuntimeLayoutMountRequest;
 using presentation::RuntimeLayoutProjectSource;
 
+namespace {
+
+ShaderUniformValue runtime_material_value(const core::compiled::MaterialParameterValue& value)
+{
+    return std::visit(
+        [](const auto& item) -> ShaderUniformValue {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, double>)
+                return static_cast<float>(item);
+            else if constexpr (std::is_same_v<T, std::array<double, 2>>)
+                return std::array<float, 2>{static_cast<float>(item[0]),
+                                            static_cast<float>(item[1])};
+            else if constexpr (std::is_same_v<T, std::array<double, 3>>)
+                return std::array<float, 3>{static_cast<float>(item[0]),
+                                            static_cast<float>(item[1]),
+                                            static_cast<float>(item[2])};
+            else if constexpr (std::is_same_v<T, std::array<double, 4>>)
+                return std::array<float, 4>{
+                    static_cast<float>(item[0]), static_cast<float>(item[1]),
+                    static_cast<float>(item[2]), static_cast<float>(item[3])};
+            else if constexpr (std::is_same_v<T, core::compiled::MaterialColorValue>)
+                return ShaderColor{static_cast<float>(item.r), static_cast<float>(item.g),
+                                   static_cast<float>(item.b), static_cast<float>(item.a)};
+            else if constexpr (std::is_same_v<T, std::int64_t>)
+                return static_cast<int>(item);
+            else
+                return item;
+        },
+        value);
+}
+
+RuntimeMaterialFacet runtime_material_facet(core::MaterialStandardFacet facet)
+{
+    switch (facet) {
+    case core::MaterialStandardFacet::OccurrenceTime:
+        return RuntimeMaterialFacet::OccurrenceTime;
+    case core::MaterialStandardFacet::PaintWidth:
+        return RuntimeMaterialFacet::PaintWidth;
+    case core::MaterialStandardFacet::PaintHeight:
+        return RuntimeMaterialFacet::PaintHeight;
+    case core::MaterialStandardFacet::ViewportWidth:
+        return RuntimeMaterialFacet::ViewportWidth;
+    case core::MaterialStandardFacet::ViewportHeight:
+        return RuntimeMaterialFacet::ViewportHeight;
+    case core::MaterialStandardFacet::CameraZoom:
+        return RuntimeMaterialFacet::CameraZoom;
+    }
+    return RuntimeMaterialFacet::OccurrenceTime;
+}
+
+RuntimeMaterialClock runtime_material_clock(core::MaterialClockPolicy clock)
+{
+    return clock == core::MaterialClockPolicy::Gameplay
+               ? RuntimeMaterialClock::Gameplay
+               : RuntimeMaterialClock::UnscaledPresentation;
+}
+
+std::string presentation_owner_key(const core::PresentationOwner& owner)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::ScenePresentationOwner>)
+                return std::string{"scene/"} + std::to_string(value.invocation.number());
+            else if constexpr (std::is_same_v<T, core::CurrentRoomPresentationOwner>)
+                return std::string{"visit/"} + std::to_string(value.visit.number());
+            else if constexpr (std::is_same_v<T, core::RoomPresentationOwner>)
+                return std::string{"room/"} + value.room.text();
+            else if constexpr (std::is_same_v<T, core::SessionPresentationOwner>)
+                return std::string{"session/"} + std::to_string(value.session.number());
+            else
+                return std::string{"shell/"} + std::to_string(value.scope.number());
+        },
+        owner);
+}
+
+std::vector<RuntimePostprocessPass>
+runtime_postprocess_stack(const core::RuntimePresentationSnapshot& snapshot)
+{
+    std::vector<RuntimePostprocessPass> result;
+    result.reserve(snapshot.postprocess_effects.size());
+    for (const auto& effect : snapshot.postprocess_effects) {
+        RuntimePostprocessPass pass;
+        pass.stable_identity = presentation_owner_key(effect.owner) + "/" + effect.instance.text();
+        pass.material = MaterialId(effect.material.text());
+        pass.scope = effect.scope == core::compiled::MaterialPostprocessScope::World
+                         ? PostprocessScope::World
+                         : PostprocessScope::FullGameViewport;
+        for (const auto& parameter : snapshot.material_parameters) {
+            const auto* occurrence =
+                std::get_if<core::PostprocessMaterialOccurrence>(&parameter.occurrence);
+            if (occurrence == nullptr || occurrence->instance != effect.instance ||
+                parameter.owner != effect.owner || parameter.material != effect.material)
+                continue;
+            RuntimeMaterialUniform uniform;
+            uniform.name = parameter.parameter;
+            if (parameter.value)
+                uniform.value = runtime_material_value(*parameter.value);
+            if (parameter.standard_facet)
+                uniform.facet = runtime_material_facet(*parameter.standard_facet);
+            uniform.clock = runtime_material_clock(parameter.clock);
+            pass.uniforms.push_back(std::move(uniform));
+        }
+        result.push_back(std::move(pass));
+    }
+    return result;
+}
+
+} // namespace
+
 Engine::Impl::Impl()
     : m_world_presentation_resources(m_assets),
       m_world_presentation(m_world_presentation_resources), m_world_hotspots(m_world_presentation),
@@ -964,8 +1074,10 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                     m_world_hotspots.presentation_changed();
 
                 auto layouts = m_presentation_layouts.reconcile(snapshot);
-                if (layouts)
+                if (layouts) {
+                    m_renderer.set_runtime_postprocess_stack(runtime_postprocess_stack(snapshot));
                     return layouts;
+                }
 
                 m_world_presentation.discard_revision(snapshot.revision);
                 if (previous_revision) {
@@ -2302,6 +2414,12 @@ void Engine::Impl::render()
     shader_inputs.pointer_position = m_pointer_position;
     shader_inputs.pointer_valid = m_pointer_valid;
     m_renderer.set_shader_standard_inputs(shader_inputs);
+    const float gameplay_time_seconds = std::chrono::duration<float>(clocks.gameplay_time).count();
+    const double camera_zoom = m_world_presentation.frame() && m_world_presentation.frame()->camera
+                                   ? m_world_presentation.frame()->camera->view.zoom
+                                   : 1.0;
+    m_renderer.set_runtime_material_times(gameplay_time_seconds, unscaled_time_seconds,
+                                          static_cast<float>(camera_zoom));
 
     m_renderer.begin_frame();
     bool transition_surfaces_ready = false;
@@ -2331,13 +2449,10 @@ void Engine::Impl::render()
         m_renderer.prepare_postprocess_surface(rendering_full_world_transition);
     if (!postprocess_surface_ready)
         m_renderer.retire_postprocess_surface();
-    const auto postprocess_scope = m_renderer.active_postprocess_scope();
-    const std::uint16_t postprocess_framebuffer = m_renderer.postprocess_framebuffer();
     m_runtime_ui.set_final_output_framebuffer(m_renderer.screenshot_output_framebuffer());
     m_runtime_ui.set_postprocess_framebuffers(
-        postprocess_scope == PostprocessScope::World ? postprocess_framebuffer : UINT16_MAX,
-        postprocess_scope == PostprocessScope::FullGameViewport ? postprocess_framebuffer
-                                                                : UINT16_MAX);
+        m_renderer.postprocess_framebuffer(PostprocessScope::World),
+        m_renderer.postprocess_framebuffer(PostprocessScope::FullGameViewport));
     m_runtime_ui.set_world_overlay_framebuffers(
         m_renderer.world_transition_framebuffer(WorldCompositionPass::Source),
         m_renderer.world_transition_framebuffer(WorldCompositionPass::Target),
@@ -2427,8 +2542,7 @@ void Engine::Impl::render()
         transition_color.a *= transition_opacity;
         m_renderer.draw_fullscreen_color(transition_color);
     }
-    if (postprocess_scope == PostprocessScope::World)
-        m_renderer.composite_postprocess_surface();
+    m_renderer.composite_postprocess_surface(PostprocessScope::World);
     if (const auto* frame = m_world_presentation.frame()) {
         m_renderer.draw_world_2d(frame->game_ui_underlay_batch,
                                  WorldCompositionPass::GameUiUnderlay);
@@ -2438,8 +2552,7 @@ void Engine::Impl::render()
     if (m_runtime_ui.active_text_direct_render_enabled()) {
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
     }
-    if (postprocess_scope == PostprocessScope::FullGameViewport)
-        m_renderer.composite_postprocess_surface();
+    m_renderer.composite_postprocess_surface(PostprocessScope::FullGameViewport);
     if (m_game_host.runtime_presentation().mandatory_asset_overlay_visible()) {
         m_renderer.draw_fullscreen_color(Color{0.0f, 0.0f, 0.0f, 0.78f});
         if (const auto* progress = m_game_host.runtime_presentation().mandatory_asset_progress()) {

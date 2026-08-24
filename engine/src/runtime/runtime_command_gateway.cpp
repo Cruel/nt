@@ -924,6 +924,61 @@ RuntimeCommandGateway::presentation_environment(
 }
 
 core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_material_parameter(core::DesiredMaterialParameter value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertMaterialParameterCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_material_parameter(core::MaterialOccurrence occurrence,
+                                                 core::PresentationOwner owner,
+                                                 core::MaterialId material, std::string parameter)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid
+               ? enqueue(RemoveMaterialParameterCommand{std::move(occurrence), std::move(owner),
+                                                        std::move(material), std::move(parameter)})
+               : valid;
+}
+
+core::Result<std::optional<core::DesiredMaterialParameter>, core::Diagnostics>
+RuntimeCommandGateway::material_parameter(const core::MaterialOccurrence& occurrence,
+                                          const core::PresentationOwner& owner,
+                                          const core::MaterialId& material,
+                                          std::string_view parameter) const
+{
+    const auto* value = m_state.material_parameter(occurrence, owner, material, parameter);
+    return core::Result<std::optional<core::DesiredMaterialParameter>, core::Diagnostics>::success(
+        value == nullptr ? std::nullopt : std::optional<core::DesiredMaterialParameter>{*value});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_postprocess_effect(core::DesiredPostprocessEffect value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertPostprocessEffectCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_postprocess_effect(core::PostprocessEffectInstanceId instance,
+                                                 core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemovePostprocessEffectCommand{std::move(instance), std::move(owner)})
+                 : valid;
+}
+
+core::Result<std::optional<core::DesiredPostprocessEffect>, core::Diagnostics>
+RuntimeCommandGateway::postprocess_effect(const core::PostprocessEffectInstanceId& instance,
+                                          const core::PresentationOwner& owner) const
+{
+    const auto* value = m_state.postprocess_effect(instance, owner);
+    return core::Result<std::optional<core::DesiredPostprocessEffect>, core::Diagnostics>::success(
+        value == nullptr ? std::nullopt : std::optional<core::DesiredPostprocessEffect>{*value});
+}
+
+core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::upsert_desired_audio(core::DesiredAudioInstance value)
 {
     auto owner = require_gameplay_owner(m_project, m_state, value.owner);

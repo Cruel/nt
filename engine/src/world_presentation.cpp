@@ -106,7 +106,9 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
                         const WorldPreparedVisual& visual,
                         std::optional<core::compiled::CharacterIdle> actor_idle = std::nullopt,
                         std::optional<core::LayoutClockDomain> environment_clock = std::nullopt,
-                        core::compiled::Vector2 environment_scroll_per_second = {0.0, 0.0})
+                        core::compiled::Vector2 environment_scroll_per_second = {0.0, 0.0},
+                        std::optional<core::PresentationOwner> material_owner = std::nullopt,
+                        std::optional<core::MaterialOccurrence> material_occurrence = std::nullopt)
 {
     if (!visual.texture && !visual.material)
         return;
@@ -121,7 +123,8 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
     }
     if (visual.material)
         command.material = *visual.material;
-    draws.push_back({plane, family, order, std::move(stable_identity), sublayer, std::move(command),
+    draws.push_back({plane, family, order, std::move(stable_identity), sublayer,
+                     std::move(material_owner), std::move(material_occurrence), std::move(command),
                      std::move(actor_idle), environment_clock, environment_scroll_per_second,
                      visual.texture_lease, visual.material_lease, std::nullopt});
 }
@@ -138,6 +141,44 @@ Size visual_size(const WorldPreparedVisual& visual) noexcept
     return visual.texture ? Size{static_cast<float>(visual.texture->width),
                                  static_cast<float>(visual.texture->height)}
                           : Size{};
+}
+
+std::optional<ShaderUniformValue>
+render_material_parameter_value(const core::compiled::MaterialParameterValue& value) noexcept
+{
+    return std::visit(
+        [](const auto& item) -> std::optional<ShaderUniformValue> {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, double>) {
+                if (!std::isfinite(item) || item < -std::numeric_limits<float>::max() ||
+                    item > std::numeric_limits<float>::max())
+                    return std::nullopt;
+                return ShaderUniformValue{static_cast<float>(item)};
+            } else if constexpr (std::is_same_v<T, std::array<double, 2>>) {
+                return ShaderUniformValue{
+                    std::array<float, 2>{static_cast<float>(item[0]), static_cast<float>(item[1])}};
+            } else if constexpr (std::is_same_v<T, std::array<double, 3>>) {
+                return ShaderUniformValue{std::array<float, 3>{static_cast<float>(item[0]),
+                                                               static_cast<float>(item[1]),
+                                                               static_cast<float>(item[2])}};
+            } else if constexpr (std::is_same_v<T, std::array<double, 4>>) {
+                return ShaderUniformValue{
+                    std::array<float, 4>{static_cast<float>(item[0]), static_cast<float>(item[1]),
+                                         static_cast<float>(item[2]), static_cast<float>(item[3])}};
+            } else if constexpr (std::is_same_v<T, core::compiled::MaterialColorValue>) {
+                return ShaderUniformValue{
+                    ShaderColor{static_cast<float>(item.r), static_cast<float>(item.g),
+                                static_cast<float>(item.b), static_cast<float>(item.a)}};
+            } else if constexpr (std::is_same_v<T, std::int64_t>) {
+                if (item < std::numeric_limits<int>::min() ||
+                    item > std::numeric_limits<int>::max())
+                    return std::nullopt;
+                return ShaderUniformValue{static_cast<int>(item)};
+            } else {
+                return ShaderUniformValue{item};
+            }
+        },
+        value);
 }
 
 bool valid_viewport(Size viewport) noexcept
@@ -530,6 +571,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
 
     WorldPresentationFrame candidate;
     candidate.revision = snapshot.revision;
+    candidate.material_parameters = snapshot.material_parameters;
     if (snapshot.camera)
         candidate.camera = resolved_camera(*snapshot.camera);
     core::Diagnostics diagnostics;
@@ -555,6 +597,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                                            0,
                                            "background",
                                            0,
+                                           std::nullopt,
+                                           std::nullopt,
                                            std::move(command),
                                            std::nullopt,
                                            std::nullopt,
@@ -570,9 +614,13 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         } else if (const auto* visual = resolved.value_if(); visual->texture || visual->material) {
             const WorldFittedRect fitted = WorldPresentationLayoutPolicy::fit_background(
                 viewport, visual_size(*visual), background.fit);
-            append_visual_draw(candidate.draws, core::PresentationPlane::WorldBackground,
-                               WorldDrawFamily::Background, 0, "background", 1, fitted.rect,
-                               fitted.uv, *visual);
+            append_visual_draw(
+                candidate.draws, core::PresentationPlane::WorldBackground,
+                WorldDrawFamily::Background, 0, "background", 1, fitted.rect, fitted.uv, *visual,
+                std::nullopt, std::nullopt, {0.0, 0.0}, background.material_owner,
+                background.material_owner
+                    ? std::optional<core::MaterialOccurrence>{core::BackgroundMaterialOccurrence{}}
+                    : std::nullopt);
         }
     }
 
@@ -597,7 +645,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 candidate.draws, environment.plane, WorldDrawFamily::Environment, environment.order,
                 environment_identity(environment), 0,
                 WorldPresentationLayoutPolicy::normalized_rect(environment.bounds, viewport),
-                full_uv, visual, std::nullopt, environment.clock, environment.scroll_per_second);
+                full_uv, visual, std::nullopt, environment.clock, environment.scroll_per_second,
+                environment.owner,
+                core::MaterialOccurrence{
+                    core::EnvironmentMaterialOccurrence{environment.instance}});
         }
     }
 
@@ -617,9 +668,14 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             continue;
         }
         const auto* visual = resolved.value_if();
-        append_visual_draw(candidate.draws, prop.plane, WorldDrawFamily::Prop, prop.order, identity,
-                           0, WorldPresentationLayoutPolicy::normalized_rect(prop.bounds, viewport),
-                           full_uv, *visual);
+        append_visual_draw(
+            candidate.draws, prop.plane, WorldDrawFamily::Prop, prop.order, identity, 0,
+            WorldPresentationLayoutPolicy::normalized_rect(prop.bounds, viewport), full_uv, *visual,
+            std::nullopt, std::nullopt, {0.0, 0.0}, prop.owner,
+            std::holds_alternative<core::ScopedPropPresentationKey>(prop.key)
+                ? std::optional<core::MaterialOccurrence>{core::PropMaterialOccurrence{
+                      std::get<core::ScopedPropPresentationKey>(prop.key).instance}}
+                : std::nullopt);
     }
 
     for (const auto& interactable : snapshot.interactables) {
@@ -666,8 +722,14 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             pose_visual = pose.value_if();
             const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, viewport,
                                                                         visual_size(*pose_visual));
-            append_visual_draw(candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order,
-                               identity, 0, rect, full_uv, *pose_visual, actor.idle);
+            append_visual_draw(
+                candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order, identity, 0,
+                rect, full_uv, *pose_visual, actor.idle, std::nullopt, {0.0, 0.0},
+                actor.material_owner,
+                actor.material_owner
+                    ? std::optional<core::MaterialOccurrence>{core::ActorMaterialOccurrence{
+                          actor.key, core::ActorMaterialLayer::Pose}}
+                    : std::nullopt);
         }
 
         auto expression = m_resources.resolve(actor.expression_sprite, actor.expression_material,
@@ -680,8 +742,13 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             if (size.width <= 0.0f || size.height <= 0.0f)
                 size = pose_visual ? visual_size(*pose_visual) : Size{};
             const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, viewport, size);
-            append_visual_draw(candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order,
-                               identity, 1, rect, full_uv, *visual, actor.idle);
+            append_visual_draw(
+                candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order, identity, 1,
+                rect, full_uv, *visual, actor.idle, std::nullopt, {0.0, 0.0}, actor.material_owner,
+                actor.material_owner
+                    ? std::optional<core::MaterialOccurrence>{core::ActorMaterialOccurrence{
+                          actor.key, core::ActorMaterialLayer::Expression}}
+                    : std::nullopt);
         }
     }
 
@@ -1060,6 +1127,67 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
             command.uv.y +=
                 static_cast<float>(draw.environment_scroll_per_second.y * elapsed_seconds);
             command.time_seconds = static_cast<float>(elapsed_seconds);
+        }
+
+        if (draw.material_owner && draw.material_occurrence && command.material.valid()) {
+            for (const auto& parameter : frame.material_parameters) {
+                if (parameter.owner != *draw.material_owner ||
+                    parameter.occurrence != *draw.material_occurrence ||
+                    parameter.material.text() != command.material.string())
+                    continue;
+                std::optional<ShaderUniformValue> resolved;
+                if (parameter.value) {
+                    resolved = render_material_parameter_value(*parameter.value);
+                } else if (parameter.standard_facet) {
+                    float facet_value = 0.0f;
+                    switch (*parameter.standard_facet) {
+                    case core::MaterialStandardFacet::OccurrenceTime: {
+                        if (clock) {
+                            const auto domain =
+                                parameter.clock == core::MaterialClockPolicy::Gameplay
+                                    ? core::LayoutClockDomain::Gameplay
+                                    : core::LayoutClockDomain::UnscaledPresentation;
+                            const auto now = clock_time(*clock, domain);
+                            const auto key = std::string{"material/"} +
+                                             presentation_owner_identity(*draw.material_owner) +
+                                             "/" + draw.stable_identity + "/" +
+                                             std::to_string(draw.sublayer) + "/" +
+                                             command.material.string() + "/" + parameter.parameter;
+                            auto [epoch, inserted] =
+                                m_loop_epochs.try_emplace(key, LoopEpoch{domain, now});
+                            if (!inserted && epoch->second.clock != domain)
+                                epoch->second = LoopEpoch{domain, now};
+                            const auto elapsed = now >= epoch->second.started_at
+                                                     ? now - epoch->second.started_at
+                                                     : std::chrono::microseconds{0};
+                            facet_value =
+                                static_cast<float>(std::chrono::duration<double>(elapsed).count());
+                        }
+                        break;
+                    }
+                    case core::MaterialStandardFacet::PaintWidth:
+                        facet_value = command.rect.width;
+                        break;
+                    case core::MaterialStandardFacet::PaintHeight:
+                        facet_value = command.rect.height;
+                        break;
+                    case core::MaterialStandardFacet::ViewportWidth:
+                        facet_value = m_viewport.width;
+                        break;
+                    case core::MaterialStandardFacet::ViewportHeight:
+                        facet_value = m_viewport.height;
+                        break;
+                    case core::MaterialStandardFacet::CameraZoom:
+                        facet_value =
+                            frame.camera ? static_cast<float>(frame.camera->view.zoom) : 1.0f;
+                        break;
+                    }
+                    resolved = ShaderUniformValue{facet_value};
+                }
+                if (resolved)
+                    command.material_uniform_overrides.push_back(
+                        MaterialUniformOverride{parameter.parameter, std::move(*resolved)});
+            }
         }
 
         frame.base_batch.draw(command);

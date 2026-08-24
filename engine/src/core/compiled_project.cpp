@@ -336,6 +336,23 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
             return false;
         }
     }
+    for (const auto& material : input.material_interfaces) {
+        if (!enum_at_most(material.role, compiled::MaterialRole::HotspotOverlay) ||
+            !enum_at_most(material.postprocess_scope,
+                          compiled::MaterialPostprocessScope::FullGameViewport) ||
+            (material.role != compiled::MaterialRole::Postprocess &&
+             material.postprocess_scope != compiled::MaterialPostprocessScope::World) ||
+            std::any_of(
+                material.parameters.begin(), material.parameters.end(),
+                [](const compiled::MaterialParameterDeclaration& parameter) {
+                    return parameter.name.empty() ||
+                           !enum_at_most(parameter.type, compiled::MaterialParameterType::Bool) ||
+                           (parameter.renderer_binding && parameter.renderer_binding->empty());
+                })) {
+            diagnostics = invalid_model("Material runtime interface is invalid");
+            return false;
+        }
+    }
     for (const auto& character : input.characters) {
         for (const auto& pose : character.poses) {
             if (!valid_vector(pose.anchor) || !valid_vector(pose.offset) || !finite(pose.scale) ||
@@ -505,6 +522,12 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
         [](const compiled::LayoutResource& value) -> const LayoutId& { return value.id; },
         "layout");
     BUILD_INDEX(
+        MaterialId, material_interfaces,
+        [](const compiled::MaterialInterfaceResource& value) -> const MaterialId& {
+            return value.id;
+        },
+        "material interface");
+    BUILD_INDEX(
         ScriptId, scripts,
         [](const compiled::ScriptResource& value) -> const ScriptId& { return value.id; },
         "script");
@@ -543,9 +566,10 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
       m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),
       m_traits(std::move(input.traits)), m_archetypes(std::move(input.archetypes)),
       m_inventories(std::move(input.inventories)), m_assets(std::move(input.assets)),
-      m_layouts(std::move(input.layouts)), m_scripts(std::move(input.scripts)),
-      m_characters(std::move(input.characters)), m_rooms(std::move(input.rooms)),
-      m_interactables(std::move(input.interactables)),
+      m_layouts(std::move(input.layouts)),
+      m_material_interfaces(std::move(input.material_interfaces)),
+      m_scripts(std::move(input.scripts)), m_characters(std::move(input.characters)),
+      m_rooms(std::move(input.rooms)), m_interactables(std::move(input.interactables)),
       m_item_definitions(std::move(input.item_definitions)),
       m_item_stacks(std::move(input.item_stacks)), m_verbs(std::move(input.verbs)),
       m_interactions(std::move(input.interactions)),
@@ -574,6 +598,12 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
         LayoutId, layout, layouts,
         [](const compiled::LayoutResource& value) -> const LayoutId& { return value.id; },
         "layout");
+    INDEX(
+        MaterialId, material_interface, material_interfaces,
+        [](const compiled::MaterialInterfaceResource& value) -> const MaterialId& {
+            return value.id;
+        },
+        "material interface");
     INDEX(
         ScriptId, script, scripts,
         [](const compiled::ScriptResource& value) -> const ScriptId& { return value.id; },
@@ -612,6 +642,7 @@ FIND(trait, traits, TraitId, compiled::TraitDefinition)
 FIND(archetype, archetypes, ArchetypeId, compiled::ArchetypeDefinition)
 FIND(asset, assets, AssetId, compiled::AssetResource)
 FIND(layout, layouts, LayoutId, compiled::LayoutResource)
+FIND(material_interface, material_interfaces, MaterialId, compiled::MaterialInterfaceResource)
 FIND(script, scripts, ScriptId, compiled::ScriptResource)
 FIND(character, characters, CharacterId, compiled::CharacterDefinition)
 FIND(room, rooms, RoomId, compiled::RoomDefinition)

@@ -22,6 +22,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace noveltea {
@@ -56,6 +57,36 @@ struct PostprocessSurfaceDiagnostics {
     std::uint64_t reuses = 0;
     std::uint64_t retirements = 0;
     bool active = false;
+};
+
+enum class RuntimeMaterialFacet : std::uint8_t {
+    OccurrenceTime,
+    PaintWidth,
+    PaintHeight,
+    ViewportWidth,
+    ViewportHeight,
+    CameraZoom,
+};
+
+enum class RuntimeMaterialClock : std::uint8_t {
+    Gameplay,
+    UnscaledPresentation,
+};
+
+struct RuntimeMaterialUniform {
+    std::string name;
+    std::optional<ShaderUniformValue> value;
+    std::optional<RuntimeMaterialFacet> facet;
+    RuntimeMaterialClock clock = RuntimeMaterialClock::Gameplay;
+    bool operator==(const RuntimeMaterialUniform&) const = default;
+};
+
+struct RuntimePostprocessPass {
+    std::string stable_identity;
+    MaterialId material;
+    PostprocessScope scope = PostprocessScope::World;
+    std::vector<RuntimeMaterialUniform> uniforms;
+    bool operator==(const RuntimePostprocessPass&) const = default;
 };
 
 namespace bgfx_backend {
@@ -140,11 +171,16 @@ public:
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
     void composite_ordinary_world_surface();
     void set_postprocess_material(std::optional<MaterialId> material);
+    void set_runtime_postprocess_stack(std::vector<RuntimePostprocessPass> passes);
+    void set_runtime_material_times(float gameplay_seconds, float unscaled_seconds,
+                                    float camera_zoom) noexcept;
     [[nodiscard]] bool prepare_postprocess_surface(bool full_world_transition);
+    void composite_postprocess_surface(PostprocessScope scope);
     void composite_postprocess_surface();
     void retire_postprocess_surface();
     [[nodiscard]] std::optional<PostprocessScope> active_postprocess_scope() const noexcept;
     [[nodiscard]] std::uint16_t postprocess_framebuffer() const noexcept;
+    [[nodiscard]] std::uint16_t postprocess_framebuffer(PostprocessScope scope) const noexcept;
     [[nodiscard]] const PostprocessSurfaceDiagnostics&
     postprocess_surface_diagnostics() const noexcept
     {
@@ -283,11 +319,17 @@ private:
     WorldTransitionSceneMode m_world_transition_scene_mode = WorldTransitionSceneMode::SourceOnly;
     std::uint8_t m_world_transition_scene_count = 0;
     WorldTransitionSurfaceDiagnostics m_world_transition_surface_diagnostics{};
-    RenderTargetHandles m_postprocess_scene_target{};
+    std::array<RenderTargetHandles, 2> m_postprocess_scene_targets{};
+    std::array<RenderTargetHandles, 2> m_postprocess_pingpong_targets{};
     uint16_t m_postprocess_scene_width = 0;
     uint16_t m_postprocess_scene_height = 0;
     std::optional<MaterialId> m_postprocess_material;
     std::optional<PostprocessScope> m_active_postprocess_scope;
+    std::vector<RuntimePostprocessPass> m_runtime_postprocess_stack;
+    float m_runtime_gameplay_seconds = 0.0f;
+    float m_runtime_unscaled_seconds = 0.0f;
+    float m_runtime_camera_zoom = 1.0f;
+    std::unordered_map<std::string, float> m_postprocess_epochs;
     PostprocessSurfaceDiagnostics m_postprocess_surface_diagnostics{};
     RenderTargetHandles m_screenshot_scene_target{};
     RenderTargetHandles m_screenshot_output_target{};

@@ -175,6 +175,8 @@ describe('compiled project cross-language golden corpus', () => {
         'conditional-branch',
         'choice',
         'set-layout',
+        'material-parameter',
+        'postprocess-effect',
         'transition-group',
       ]),
     );

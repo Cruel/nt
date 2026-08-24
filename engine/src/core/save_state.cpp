@@ -109,6 +109,37 @@ Result<SavedActorPresentationKey, Diagnostics> save_actor_key(const SessionState
         key);
 }
 
+Result<SavedMaterialOccurrence, Diagnostics>
+save_material_occurrence(const SessionState& session, const MaterialOccurrence& occurrence)
+{
+    return std::visit(
+        [&](const auto& value) -> Result<SavedMaterialOccurrence, Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, BackgroundMaterialOccurrence>)
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedBackgroundMaterialOccurrence{});
+            else if constexpr (std::is_same_v<T, ActorMaterialOccurrence>) {
+                auto key = save_actor_key(session, value.key);
+                if (!key)
+                    return Result<SavedMaterialOccurrence, Diagnostics>::failure(key.error());
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedActorMaterialOccurrence{std::move(*key.value_if()), value.layer});
+            } else if constexpr (std::is_same_v<T, PropMaterialOccurrence>)
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedPropMaterialOccurrence{value.instance});
+            else if constexpr (std::is_same_v<T, EnvironmentMaterialOccurrence>)
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedEnvironmentMaterialOccurrence{value.instance});
+            else if constexpr (std::is_same_v<T, LayoutMaterialOccurrence>)
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedLayoutMaterialOccurrence{value.key, value.material});
+            else
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedPostprocessMaterialOccurrence{value.instance});
+        },
+        occurrence);
+}
+
 bool is_authored_room_overlay_default(const CompiledProject& project,
                                       const DesiredMountedLayout& layout) noexcept
 {
@@ -183,6 +214,8 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .actors = {},
         .presentation_props = {},
         .presentation_environments = {},
+        .material_parameters = {},
+        .postprocess_effects = {},
         .mounted_layouts = {},
         .layout_state_slots = {},
         .desired_audio = {},
@@ -284,6 +317,28 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 environment.material, environment.bounds, environment.plane, environment.order,
                 environment.clock, environment.scroll_per_second, environment.opacity,
                 environment.visible});
+    }
+    for (const auto& parameter : session.m_material_parameters) {
+        auto owner = save_presentation_owner(session, parameter.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (!*owner.value_if())
+            continue;
+        auto occurrence = save_material_occurrence(session, parameter.occurrence);
+        if (!occurrence)
+            return Result<SaveState, Diagnostics>::failure(occurrence.error());
+        save.material_parameters.push_back(SavedMaterialParameter{
+            **owner.value_if(), std::move(*occurrence.value_if()), parameter.material,
+            parameter.parameter, parameter.value, parameter.binding, parameter.clock});
+    }
+    for (const auto& effect : session.m_postprocess_effects) {
+        auto owner = save_presentation_owner(session, effect.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.postprocess_effects.push_back(
+                SavedPostprocessEffect{effect.instance, **owner.value_if(), effect.material,
+                                       effect.scope, effect.order, effect.clock, effect.visible});
     }
     for (const auto& layout : session.m_mounted_layouts) {
         if (is_authored_room_overlay_default(project, layout))

@@ -1062,6 +1062,140 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                          core::FlowPresentationBoundaryOutcome{}};
                     }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::MaterialParameterInstruction>) {
+                    const core::ScenePresentationOwner scene_owner{frame->frame_id, frame->scene};
+                    const core::PresentationOwner owner{scene_owner};
+                    const auto occurrence = std::visit(
+                        [&](const auto& target) -> core::MaterialOccurrence {
+                            using Target = std::decay_t<decltype(target)>;
+                            if constexpr (std::is_same_v<Target,
+                                                         core::compiled::
+                                                             BackgroundMaterialInstructionTarget>) {
+                                return core::BackgroundMaterialOccurrence{};
+                            } else if constexpr (std::is_same_v<
+                                                     Target, core::compiled::
+                                                                 ActorMaterialInstructionTarget>) {
+                                return core::ActorMaterialOccurrence{
+                                    core::ActorPresentationKey{
+                                        core::SceneActorKey{scene_owner, target.slot}},
+                                    target.layer == core::compiled::MaterialActorLayer::Pose
+                                        ? core::ActorMaterialLayer::Pose
+                                        : core::ActorMaterialLayer::Expression};
+                            } else if constexpr (std::is_same_v<
+                                                     Target, core::compiled::
+                                                                 LayoutMaterialInstructionTarget>) {
+                                return core::LayoutMaterialOccurrence{
+                                    core::MountedLayoutPresentationKey{
+                                        core::ReservedLayoutMountKey{target.slot}},
+                                    value.material};
+                            } else {
+                                return core::PostprocessMaterialOccurrence{target.instance};
+                            }
+                        },
+                        value.target);
+                    const auto clock = value.clock == core::compiled::MaterialClock::Gameplay
+                                           ? core::MaterialClockPolicy::Gameplay
+                                           : core::MaterialClockPolicy::UnscaledPresentation;
+                    const auto* current = m_state.material_parameter(
+                        occurrence, owner, value.material, value.parameter);
+                    if (current && current->binding)
+                        return fault(
+                            execution_error("execution.material_parameter_binding_authoritative",
+                                            "A bound Material Parameter must be unbound before "
+                                            "direct assignment or transition"));
+                    if (current && current->value == std::optional{value.value} &&
+                        current->clock == clock)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+
+                    const core::SessionState source_state = m_state;
+                    const auto source_room = m_room_presentation;
+                    std::optional<core::compiled::MaterialParameterValue> source_value;
+                    if (current)
+                        source_value = current->value;
+                    auto changed = m_state.upsert_material_parameter(
+                        m_project, core::DesiredMaterialParameter{owner, occurrence, value.material,
+                                                                  value.parameter, value.value,
+                                                                  std::nullopt, clock});
+                    if (!changed)
+                        return fault(changed.error());
+                    if (value.transition == core::compiled::MaterialParameterTransition::Tween) {
+                        if (!source_value) {
+                            m_state = source_state;
+                            return fault(execution_error(
+                                "execution.material_parameter_transition_source_missing",
+                                "A finite Material Parameter transition requires an existing "
+                                "occurrence-local source value"));
+                        }
+                        auto completion = advance_scene_for_presentation(frame->scene, step,
+                                                                         sequential, value.wait);
+                        if (!completion) {
+                            m_state = source_state;
+                            return fault(completion.error());
+                        }
+                        const auto easing =
+                            value.easing == core::compiled::MaterialEasing::Linear
+                                ? core::PresentationEasing::Linear
+                            : value.easing == core::compiled::MaterialEasing::EaseIn
+                                ? core::PresentationEasing::EaseIn
+                            : value.easing == core::compiled::MaterialEasing::EaseOut
+                                ? core::PresentationEasing::EaseOut
+                                : core::PresentationEasing::EaseInOut;
+                        stage_pending_presentation(
+                            PendingMaterialParameterOperation{
+                                core::MaterialParameterOperationTarget{
+                                    owner, occurrence, value.material, value.parameter},
+                                std::move(*source_value), value.value,
+                                std::chrono::milliseconds{value.duration_ms}, value.skippable,
+                                clock, easing, *completion.value_if()},
+                            source_state, source_room);
+                        return completion.value_if()->has_value()
+                                   ? std::optional<core::FlowRunOutcome>{core::FlowBlockedOutcome{
+                                         *m_state.blocker()}}
+                                   : std::optional<core::FlowRunOutcome>{
+                                         core::FlowPresentationBoundaryOutcome{}};
+                    }
+                    return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::PostprocessEffectInstruction>) {
+                    const core::PresentationOwner owner =
+                        core::ScenePresentationOwner{frame->frame_id, frame->scene};
+                    if (value.action == core::compiled::PostprocessEffectAction::Remove) {
+                        auto removed = m_state.remove_postprocess_effect(value.instance, owner);
+                        if (!removed)
+                            return fault(removed.error());
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    }
+                    if (!value.material)
+                        return fault(
+                            execution_error("execution.postprocess_material_missing",
+                                            "Postprocess Effect upsert requires a Material"));
+                    const core::SessionState source_state = m_state;
+                    auto changed = m_state.upsert_postprocess_effect(
+                        m_project,
+                        core::DesiredPostprocessEffect{
+                            value.instance, owner, *value.material, value.scope, value.order,
+                            value.clock == core::compiled::MaterialClock::Gameplay
+                                ? core::MaterialClockPolicy::Gameplay
+                                : core::MaterialClockPolicy::UnscaledPresentation,
+                            true});
+                    if (!changed)
+                        return fault(changed.error());
+                    for (const auto& parameter : value.parameters) {
+                        auto assigned = m_state.upsert_material_parameter(
+                            m_project,
+                            core::DesiredMaterialParameter{
+                                owner, core::PostprocessMaterialOccurrence{value.instance},
+                                *value.material, parameter.name, parameter.value, std::nullopt,
+                                value.clock == core::compiled::MaterialClock::Gameplay
+                                    ? core::MaterialClockPolicy::Gameplay
+                                    : core::MaterialClockPolicy::UnscaledPresentation});
+                        if (!assigned) {
+                            m_state = source_state;
+                            return fault(assigned.error());
+                        }
+                    }
+                    return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else {
                     const core::PresentationOwner owner =
                         core::ScenePresentationOwner{frame->frame_id, frame->scene};

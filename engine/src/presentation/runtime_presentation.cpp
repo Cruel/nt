@@ -1,6 +1,7 @@
 #include "noveltea/presentation/runtime_presentation.hpp"
 
 #include "noveltea/presentation/room_presentation.hpp"
+#include "noveltea/core/property_resolver.hpp"
 #include "noveltea/core/session_state.hpp"
 
 #include <algorithm>
@@ -140,18 +141,23 @@ std::optional<std::uint64_t> background_precedence(const SessionState& state,
         owner);
 }
 
-std::optional<compiled::BackgroundPresentation>
-effective_background(const SessionState& state, const ResolvedRoomPresentation* room)
+struct EffectiveBackground {
+    compiled::BackgroundPresentation background;
+    std::optional<PresentationOwner> owner;
+};
+
+std::optional<EffectiveBackground> effective_background(const SessionState& state,
+                                                        const ResolvedRoomPresentation* room)
 {
-    std::optional<compiled::BackgroundPresentation> result;
+    std::optional<EffectiveBackground> result;
     if (room != nullptr)
-        result = room->background;
+        result = EffectiveBackground{room->background, std::nullopt};
     std::uint64_t selected_precedence = 0;
     for (const auto& override : state.background_overrides()) {
         const auto precedence = background_precedence(state, override.owner);
         if (precedence && *precedence > selected_precedence) {
             selected_precedence = *precedence;
-            result = override.background;
+            result = EffectiveBackground{override.background, override.owner};
         }
     }
     return result;
@@ -248,6 +254,7 @@ struct ActorSource {
     bool visible = true;
     bool presentation_complete = true;
     bool desired_override = false;
+    std::optional<PresentationOwner> desired_owner;
 };
 
 void append_actor(const CompiledProject& project, const runtime::RuntimeWorld& world,
@@ -288,12 +295,27 @@ void append_actor(const CompiledProject& project, const runtime::RuntimeWorld& w
         }
         idle = *found;
     }
-    result.actors.push_back(PresentationActor{
-        actor.key,       actor.character,      resolved_pose,      actor.expression,
-        std::move(idle), pose->sprite,         pose->material,     pose->anchor,
-        pose->offset,    pose->scale,          expression->sprite, expression->material,
-        actor.placement, actor.room_placement, actor.room_bounds,  PresentationPlane::WorldContent,
-        actor.order,     actor.enabled,        actor.visible,      actor.presentation_complete});
+    result.actors.push_back(PresentationActor{actor.key,
+                                              actor.desired_owner,
+                                              actor.character,
+                                              resolved_pose,
+                                              actor.expression,
+                                              std::move(idle),
+                                              pose->sprite,
+                                              pose->material,
+                                              pose->anchor,
+                                              pose->offset,
+                                              pose->scale,
+                                              expression->sprite,
+                                              expression->material,
+                                              actor.placement,
+                                              actor.room_placement,
+                                              actor.room_bounds,
+                                              PresentationPlane::WorldContent,
+                                              actor.order,
+                                              actor.enabled,
+                                              actor.visible,
+                                              actor.presentation_complete});
 }
 
 Result<PresentationEnvironmentInstanceId, Diagnostics>
@@ -343,7 +365,8 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
                                      actor.enabled,
                                      actor.visible,
                                      true,
-                                     false});
+                                     false,
+                                     std::nullopt});
     }
 
     for (const auto& interactable : room.interactables) {
@@ -426,6 +449,16 @@ void canonicalize(RuntimePresentationSnapshot& result)
         result.environments.begin(), result.environments.end(), [](const auto& a, const auto& b) {
             return std::tie(a.plane, a.order, a.instance) < std::tie(b.plane, b.order, b.instance);
         });
+    std::sort(result.material_parameters.begin(), result.material_parameters.end(),
+              [](const auto& a, const auto& b) {
+                  return std::tie(a.owner, a.occurrence, a.material, a.parameter) <
+                         std::tie(b.owner, b.occurrence, b.material, b.parameter);
+              });
+    std::sort(result.postprocess_effects.begin(), result.postprocess_effects.end(),
+              [](const auto& a, const auto& b) {
+                  return std::tie(a.scope, a.order, a.instance, a.owner) <
+                         std::tie(b.scope, b.order, b.instance, b.owner);
+              });
     std::sort(result.layouts.begin(), result.layouts.end(), [](const auto& a, const auto& b) {
         return std::tie(a.policy.plane, a.policy.local_order, a.key) <
                std::tie(b.policy.plane, b.policy.local_order, b.key);
@@ -506,8 +539,9 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
     if (passive.presentation.background.asset || passive.presentation.background.color ||
         passive.presentation.background.material)
         result.background = PresentationBackground{
-            passive.presentation.background.asset, passive.presentation.background.color,
-            passive.presentation.background.fit, passive.presentation.background.material};
+            std::nullopt, passive.presentation.background.asset,
+            passive.presentation.background.color, passive.presentation.background.fit,
+            passive.presentation.background.material};
 
     const auto placement =
         [&](const RoomPlacementId& id) -> const RoomPresentationVisualCatalog::Placement* {
@@ -561,6 +595,7 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
             actor.id);
         result.actors.push_back(
             {key,
+             std::nullopt,
              actor.character,
              actor.pose,
              actor.expression,
@@ -628,8 +663,9 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
     if (resolution.presentation.background.asset || resolution.presentation.background.color ||
         resolution.presentation.background.material)
         result.background = PresentationBackground{
-            resolution.presentation.background.asset, resolution.presentation.background.color,
-            resolution.presentation.background.fit, resolution.presentation.background.material};
+            std::nullopt, resolution.presentation.background.asset,
+            resolution.presentation.background.color, resolution.presentation.background.fit,
+            resolution.presentation.background.material};
 
     const auto placement =
         [&](const RoomPlacementId& id) -> const RoomPresentationVisualCatalog::Placement* {
@@ -662,6 +698,7 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
         const compiled::RoomPlacementRef room_placement{resolution.presentation.visit.room,
                                                         actor.placement};
         result.actors.push_back(PresentationActor{key,
+                                                  std::nullopt,
                                                   actor.character,
                                                   actor.pose,
                                                   actor.expression,
@@ -826,10 +863,11 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
 
     const auto background = effective_background(state, room_presentation);
     if (background) {
-        validate_asset(project, background->asset, compiled::AssetKind::Image,
+        validate_asset(project, background->background.asset, compiled::AssetKind::Image,
                        "background image asset", diagnostics);
-        result.background = PresentationBackground{background->asset, background->color,
-                                                   background->fit, background->material};
+        result.background = PresentationBackground{
+            background->owner, background->background.asset, background->background.color,
+            background->background.fit, background->background.material};
     }
     result.camera = effective_camera(world, state, room_presentation);
 
@@ -854,15 +892,16 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             existing->visible = desired.visible;
             existing->presentation_complete = desired.presentation_complete;
             existing->desired_override = true;
+            existing->desired_owner = desired.owner;
             continue;
         }
         if (std::holds_alternative<CharacterActorKey>(desired.key) ||
             std::holds_alternative<RoomCastActorKey>(desired.key))
             continue;
-        actors.push_back(ActorSource{desired.key, desired.character, desired.pose,
-                                     desired.expression, desired.idle, desired.placement,
-                                     std::nullopt, std::nullopt, actor_order(project, desired.key),
-                                     true, desired.visible, desired.presentation_complete, true});
+        actors.push_back(ActorSource{
+            desired.key, desired.character, desired.pose, desired.expression, desired.idle,
+            desired.placement, std::nullopt, std::nullopt, actor_order(project, desired.key), true,
+            desired.visible, desired.presentation_complete, true, desired.owner});
     }
     for (const auto& actor : actors)
         append_actor(project, world, actor, result, diagnostics);
@@ -914,6 +953,98 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             desired.instance, desired.owner, desired.stop_key, desired.asset, desired.material,
             desired.bounds, desired.plane, desired.order, desired.clock, desired.scroll_per_second,
             desired.opacity, desired.visible});
+    }
+
+    for (const auto& desired : state.material_parameters()) {
+        if (!state.presentation_owner_is_active(desired.owner))
+            continue;
+        PresentationMaterialParameter projected{
+            desired.owner, desired.occurrence, desired.material, desired.parameter,
+            desired.value, std::nullopt,       desired.clock};
+        if (desired.binding) {
+            const bool resolved = std::visit(
+                [&](const auto& binding) {
+                    using B = std::decay_t<decltype(binding)>;
+                    if constexpr (std::is_same_v<B, MaterialStandardFacetBinding>) {
+                        projected.standard_facet = binding.facet;
+                        return true;
+                    } else {
+                        PropertyResolver resolver(project, const_cast<SessionState&>(state));
+                        Result<PropertyLookupResult, Diagnostics> lookup =
+                            std::holds_alternative<GlobalPropertyTarget>(binding.target)
+                                ? resolver.get_global(binding.property)
+                                : std::visit(
+                                      [&](const auto& target)
+                                          -> Result<PropertyLookupResult, Diagnostics> {
+                                          using T = std::decay_t<decltype(target)>;
+                                          if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
+                                              return resolver.get_global(binding.property);
+                                          else
+                                              return resolver.get(PropertyOwnerRef{target},
+                                                                  binding.property);
+                                      },
+                                      binding.target);
+                        if (!lookup) {
+                            append_diagnostics(diagnostics, lookup.error());
+                            return false;
+                        }
+                        const auto* value = std::get_if<RuntimeValue>(lookup.value_if());
+                        if (value == nullptr) {
+                            diagnostics.push_back(invalid(
+                                "presentation.material_parameter_binding_unresolved",
+                                "Material Parameter Property binding resolved without a value"));
+                            return false;
+                        }
+                        if (const auto* number = std::get_if<double>(value))
+                            projected.value = compiled::MaterialParameterValue{*number};
+                        else if (const auto* integer = std::get_if<std::int64_t>(value)) {
+                            const auto* interface =
+                                project.find_material_interface(desired.material);
+                            const auto declaration =
+                                interface == nullptr
+                                    ? decltype(interface->parameters.begin()){}
+                                    : std::find_if(interface->parameters.begin(),
+                                                   interface->parameters.end(),
+                                                   [&](const auto& item) {
+                                                       return item.name == desired.parameter;
+                                                   });
+                            if (interface != nullptr &&
+                                declaration != interface->parameters.end() &&
+                                declaration->type == compiled::MaterialParameterType::Float)
+                                projected.value =
+                                    compiled::MaterialParameterValue{static_cast<double>(*integer)};
+                            else
+                                projected.value = compiled::MaterialParameterValue{*integer};
+                        } else if (const auto* flag = std::get_if<bool>(value))
+                            projected.value = compiled::MaterialParameterValue{*flag};
+                        else {
+                            diagnostics.push_back(
+                                invalid("presentation.material_parameter_binding_type",
+                                        "Material Parameter Property binding resolved to a "
+                                        "non-scalar value"));
+                            return false;
+                        }
+                        return true;
+                    }
+                },
+                *desired.binding);
+            if (!resolved)
+                continue;
+        }
+        result.material_parameters.push_back(std::move(projected));
+    }
+
+    for (const auto& desired : state.postprocess_effects()) {
+        if (state.presentation_owner_is_active(desired.owner) && desired.visible)
+            result.postprocess_effects.push_back(desired);
+    }
+    for (const auto scope : {compiled::MaterialPostprocessScope::World,
+                             compiled::MaterialPostprocessScope::FullGameViewport}) {
+        if (std::ranges::count_if(result.postprocess_effects, [&](const auto& effect) {
+                return effect.scope == scope;
+            }) > static_cast<std::ptrdiff_t>(max_postprocess_effects_per_scope))
+            diagnostics.push_back(invalid("presentation.postprocess_stack_limit",
+                                          "Effective postprocess stack exceeds its bounded scope"));
     }
 
     for (const auto& mount : state.mounted_layouts()) {

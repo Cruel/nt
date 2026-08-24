@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -495,6 +496,345 @@ parse_presentation_clock(const std::string& value)
     return Result::failure(
         invalid("runtime.invalid_presentation_clock",
                 "Presentation clock must be 'gameplay' or 'unscaled-presentation'"));
+}
+
+core::Result<core::MaterialClockPolicy, core::Diagnostics>
+parse_material_clock(const std::string& value)
+{
+    using Result = core::Result<core::MaterialClockPolicy, core::Diagnostics>;
+    if (value == "gameplay")
+        return Result::success(core::MaterialClockPolicy::Gameplay);
+    if (value == "unscaled-presentation")
+        return Result::success(core::MaterialClockPolicy::UnscaledPresentation);
+    return Result::failure(invalid("runtime.invalid_material_clock",
+                                   "Material clock must be 'gameplay' or 'unscaled-presentation'"));
+}
+
+core::Result<core::MaterialStandardFacet, core::Diagnostics>
+parse_material_standard_facet(const std::string& value)
+{
+    using Result = core::Result<core::MaterialStandardFacet, core::Diagnostics>;
+    if (value == "occurrence-time")
+        return Result::success(core::MaterialStandardFacet::OccurrenceTime);
+    if (value == "paint-width")
+        return Result::success(core::MaterialStandardFacet::PaintWidth);
+    if (value == "paint-height")
+        return Result::success(core::MaterialStandardFacet::PaintHeight);
+    if (value == "viewport-width")
+        return Result::success(core::MaterialStandardFacet::ViewportWidth);
+    if (value == "viewport-height")
+        return Result::success(core::MaterialStandardFacet::ViewportHeight);
+    if (value == "camera-zoom")
+        return Result::success(core::MaterialStandardFacet::CameraZoom);
+    return Result::failure(
+        invalid("runtime.invalid_material_standard_facet",
+                "Material standard facet must be 'occurrence-time', 'paint-width', 'paint-height', "
+                "'viewport-width', 'viewport-height', or 'camera-zoom'"));
+}
+
+core::Result<core::compiled::MaterialPostprocessScope, core::Diagnostics>
+parse_postprocess_scope(const std::string& value)
+{
+    using Result = core::Result<core::compiled::MaterialPostprocessScope, core::Diagnostics>;
+    if (value == "world")
+        return Result::success(core::compiled::MaterialPostprocessScope::World);
+    if (value == "full-game-viewport")
+        return Result::success(core::compiled::MaterialPostprocessScope::FullGameViewport);
+    return Result::failure(invalid("runtime.invalid_postprocess_scope",
+                                   "Postprocess scope must be 'world' or 'full-game-viewport'"));
+}
+
+core::Result<core::ActorMaterialLayer, core::Diagnostics>
+parse_actor_material_layer(const std::string& value)
+{
+    using Result = core::Result<core::ActorMaterialLayer, core::Diagnostics>;
+    if (value == "pose")
+        return Result::success(core::ActorMaterialLayer::Pose);
+    if (value == "expression")
+        return Result::success(core::ActorMaterialLayer::Expression);
+    return Result::failure(invalid("runtime.invalid_material_actor_layer",
+                                   "Material Actor layer must be 'pose' or 'expression'"));
+}
+
+core::Result<MaterialOccurrenceCommand, core::Diagnostics>
+parse_material_occurrence(const sol::table& target)
+{
+    using Result = core::Result<MaterialOccurrenceCommand, core::Diagnostics>;
+    const auto kind = table_option<std::string>(target, "kind");
+    if (!kind)
+        return Result::failure(
+            invalid("runtime.invalid_material_occurrence", "Material occurrence requires kind"));
+    if (*kind == "background")
+        return Result::success(MaterialBackgroundOccurrenceCommand{});
+    if (*kind == "scene-actor" || *kind == "scoped-actor") {
+        const auto layer_name = table_option<std::string>(target, "layer").value_or("pose");
+        auto layer = parse_actor_material_layer(layer_name);
+        if (!layer)
+            return Result::failure(layer.error());
+        if (*kind == "scene-actor") {
+            const auto slot_name = table_option<std::string>(target, "slot_id");
+            if (!slot_name)
+                return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                               "Scene Actor occurrence requires slot_id"));
+            auto slot = parse_id<core::ActorSlotId>(*slot_name);
+            return slot ? Result::success(MaterialSceneActorOccurrenceCommand{*slot.value_if(),
+                                                                              *layer.value_if()})
+                        : Result::failure(slot.error());
+        }
+        const auto instance_name = table_option<std::string>(target, "instance_id");
+        if (!instance_name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Scoped Actor occurrence requires instance_id"));
+        auto instance = parse_id<decltype(core::ScopedActorKey::instance)>(*instance_name);
+        return instance ? Result::success(MaterialScopedActorOccurrenceCommand{
+                              core::ScopedActorKey{*instance.value_if()}, *layer.value_if()})
+                        : Result::failure(instance.error());
+    }
+    if (*kind == "prop") {
+        const auto name = table_option<std::string>(target, "instance_id");
+        if (!name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Prop occurrence requires instance_id"));
+        auto id = parse_id<core::PresentationPropInstanceId>(*name);
+        return id ? Result::success(MaterialPropOccurrenceCommand{*id.value_if()})
+                  : Result::failure(id.error());
+    }
+    if (*kind == "environment") {
+        const auto name = table_option<std::string>(target, "instance_id");
+        if (!name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Environment occurrence requires instance_id"));
+        auto id = parse_id<core::PresentationEnvironmentInstanceId>(*name);
+        return id ? Result::success(MaterialEnvironmentOccurrenceCommand{*id.value_if()})
+                  : Result::failure(id.error());
+    }
+    if (*kind == "reserved-layout") {
+        const auto slot_name = table_option<std::string>(target, "slot");
+        if (!slot_name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Reserved Layout occurrence requires slot"));
+        auto slot = parse_layout_slot(*slot_name);
+        return slot ? Result::success(MaterialReservedLayoutOccurrenceCommand{*slot.value_if()})
+                    : Result::failure(slot.error());
+    }
+    if (*kind == "scoped-layout") {
+        const auto name = table_option<std::string>(target, "instance_id");
+        if (!name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Scoped Layout occurrence requires instance_id"));
+        auto id = parse_id<core::ScopedLayoutInstanceId>(*name);
+        return id ? Result::success(MaterialScopedLayoutOccurrenceCommand{*id.value_if()})
+                  : Result::failure(id.error());
+    }
+    if (*kind == "room-overlay") {
+        const auto room_name = table_option<std::string>(target, "room");
+        const auto overlay_name = table_option<std::string>(target, "overlay_id");
+        if (!room_name || !overlay_name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Room Overlay occurrence requires room and overlay_id"));
+        auto room = parse_id<core::RoomId>(*room_name);
+        auto overlay = parse_id<core::RoomOverlayId>(*overlay_name);
+        if (!room)
+            return Result::failure(room.error());
+        if (!overlay)
+            return Result::failure(overlay.error());
+        return Result::success(
+            MaterialRoomOverlayOccurrenceCommand{*room.value_if(), *overlay.value_if()});
+    }
+    if (*kind == "postprocess") {
+        const auto name = table_option<std::string>(target, "instance_id");
+        if (!name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Postprocess occurrence requires instance_id"));
+        auto id = parse_id<core::PostprocessEffectInstanceId>(*name);
+        return id ? Result::success(MaterialPostprocessOccurrenceCommand{*id.value_if()})
+                  : Result::failure(id.error());
+    }
+    return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                   "Unknown Material occurrence kind '" + *kind + "'"));
+}
+
+core::Result<core::compiled::MaterialParameterValue, core::Diagnostics>
+parse_material_parameter_value(const sol::object& object)
+{
+    using Result = core::Result<core::compiled::MaterialParameterValue, core::Diagnostics>;
+    if (!object.valid() || object == sol::lua_nil)
+        return Result::failure(invalid("runtime.invalid_material_parameter_value",
+                                       "Material Parameter value cannot be nil"));
+    if (object.get_type() == sol::type::boolean)
+        return Result::success(object.as<bool>());
+    if (object.get_type() == sol::type::number) {
+        if (object.is<std::int64_t>())
+            return Result::success(object.as<std::int64_t>());
+        const double value = object.as<double>();
+        return std::isfinite(value)
+                   ? Result::success(value)
+                   : Result::failure(invalid("runtime.invalid_material_parameter_value",
+                                             "Material Parameter number must be finite"));
+    }
+    if (object.get_type() != sol::type::table)
+        return Result::failure(invalid(
+            "runtime.invalid_material_parameter_value",
+            "Material Parameter value must be boolean, number, vector table, or color table"));
+    const auto table = object.as<sol::table>();
+    const auto r = table_option<double>(table, "r");
+    const auto g = table_option<double>(table, "g");
+    const auto b = table_option<double>(table, "b");
+    const auto a = table_option<double>(table, "a");
+    if (r || g || b || a) {
+        if (!r || !g || !b || !a || !std::isfinite(*r) || !std::isfinite(*g) ||
+            !std::isfinite(*b) || !std::isfinite(*a))
+            return Result::failure(invalid("runtime.invalid_material_parameter_value",
+                                           "Material color requires finite r, g, b, and a"));
+        return Result::success(core::compiled::MaterialColorValue{*r, *g, *b, *a});
+    }
+    std::vector<double> components;
+    for (std::size_t index = 1; index <= 4; ++index) {
+        const auto value = table.raw_get<sol::optional<double>>(index);
+        if (!value)
+            break;
+        if (!std::isfinite(*value))
+            return Result::failure(invalid("runtime.invalid_material_parameter_value",
+                                           "Material vector components must be finite"));
+        components.push_back(*value);
+    }
+    if (components.size() == 2)
+        return Result::success(std::array<double, 2>{components[0], components[1]});
+    if (components.size() == 3)
+        return Result::success(std::array<double, 3>{components[0], components[1], components[2]});
+    if (components.size() == 4)
+        return Result::success(
+            std::array<double, 4>{components[0], components[1], components[2], components[3]});
+    return Result::failure(invalid("runtime.invalid_material_parameter_value",
+                                   "Material vector must have exactly 2, 3, or 4 components"));
+}
+
+core::Result<core::MaterialParameterBinding, core::Diagnostics>
+parse_material_parameter_binding(const sol::table& binding)
+{
+    using Result = core::Result<core::MaterialParameterBinding, core::Diagnostics>;
+    const auto kind = table_option<std::string>(binding, "kind");
+    if (!kind)
+        return Result::failure(invalid("runtime.invalid_material_parameter_binding",
+                                       "Material Parameter binding requires kind"));
+    if (*kind == "standard-facet") {
+        const auto facet_name = table_option<std::string>(binding, "facet");
+        if (!facet_name)
+            return Result::failure(invalid("runtime.invalid_material_parameter_binding",
+                                           "Standard-facet binding requires facet"));
+        auto facet = parse_material_standard_facet(*facet_name);
+        return facet ? Result::success(core::MaterialStandardFacetBinding{*facet.value_if()})
+                     : Result::failure(facet.error());
+    }
+    if (*kind == "property") {
+        const auto property_name = table_option<std::string>(binding, "property");
+        const auto target = binding.raw_get<sol::optional<sol::table>>("target");
+        if (!property_name || !target)
+            return Result::failure(invalid("runtime.invalid_material_parameter_binding",
+                                           "Property binding requires property and target"));
+        auto property = parse_id<core::PropertyId>(*property_name);
+        auto parsed_target = parse_layout_property_target(*target);
+        if (!property)
+            return Result::failure(property.error());
+        if (!parsed_target)
+            return Result::failure(parsed_target.error());
+        return Result::success(core::MaterialPropertyBinding{std::move(*parsed_target.value_if()),
+                                                             std::move(*property.value_if())});
+    }
+    return Result::failure(invalid("runtime.invalid_material_parameter_binding",
+                                   "Material Parameter binding kind must be 'property' or "
+                                   "'standard-facet'"));
+}
+
+const char* material_clock_name(core::MaterialClockPolicy value) noexcept
+{
+    return value == core::MaterialClockPolicy::Gameplay ? "gameplay" : "unscaled-presentation";
+}
+
+const char* material_standard_facet_name(core::MaterialStandardFacet value) noexcept
+{
+    switch (value) {
+    case core::MaterialStandardFacet::OccurrenceTime:
+        return "occurrence-time";
+    case core::MaterialStandardFacet::PaintWidth:
+        return "paint-width";
+    case core::MaterialStandardFacet::PaintHeight:
+        return "paint-height";
+    case core::MaterialStandardFacet::ViewportWidth:
+        return "viewport-width";
+    case core::MaterialStandardFacet::ViewportHeight:
+        return "viewport-height";
+    case core::MaterialStandardFacet::CameraZoom:
+        return "camera-zoom";
+    }
+    return "invalid";
+}
+
+const char* material_postprocess_scope_name(core::compiled::MaterialPostprocessScope value) noexcept
+{
+    return value == core::compiled::MaterialPostprocessScope::World ? "world"
+                                                                    : "full-game-viewport";
+}
+
+sol::object material_parameter_value_object(sol::state_view lua,
+                                            const core::compiled::MaterialParameterValue& value)
+{
+    return std::visit(
+        [&lua](const auto& typed) -> sol::object {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, std::int64_t> ||
+                          std::is_same_v<T, double>) {
+                return sol::make_object(lua, typed);
+            } else if constexpr (std::is_same_v<T, core::compiled::MaterialColorValue>) {
+                sol::table table = lua.create_table();
+                table["r"] = typed.r;
+                table["g"] = typed.g;
+                table["b"] = typed.b;
+                table["a"] = typed.a;
+                return sol::make_object(lua, table);
+            } else {
+                sol::table table = lua.create_table(static_cast<int>(typed.size()), 0);
+                for (std::size_t index = 0; index < typed.size(); ++index)
+                    table[index + 1] = typed[index];
+                return sol::make_object(lua, table);
+            }
+        },
+        value);
+}
+
+sol::table material_property_target_table(sol::state_view lua,
+                                          const core::PropertyTargetRef& target)
+{
+    sol::table table = lua.create_table();
+    std::visit(
+        [&table](const auto& typed) {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, core::GlobalPropertyTarget>) {
+                table["kind"] = "global";
+            } else if constexpr (std::is_same_v<T, core::RoomId>) {
+                table["kind"] = "room";
+                table["id"] = typed.text();
+            } else if constexpr (std::is_same_v<T, core::CharacterId>) {
+                table["kind"] = "character";
+                table["id"] = typed.text();
+            } else if constexpr (std::is_same_v<T, core::InteractableId>) {
+                table["kind"] = "interactable";
+                table["id"] = typed.text();
+            } else if constexpr (std::is_same_v<T, core::ItemStackId>) {
+                table["kind"] = "item-stack";
+                table["id"] = typed.text();
+            } else if constexpr (std::is_same_v<T, core::RoomFeatureRef>) {
+                table["kind"] = "room-feature";
+                table["id"] = typed.room.text();
+                table["feature"] = typed.feature_id.text();
+            } else if constexpr (std::is_same_v<T, core::InteractableFeatureRef>) {
+                table["kind"] = "interactable-feature";
+                table["id"] = typed.interactable.text();
+                table["feature"] = typed.feature_id.text();
+            }
+        },
+        target);
+    return table;
 }
 
 const char* layout_plane_name(core::PresentationPlane value) noexcept
@@ -1685,6 +2025,234 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             return mutation(view,
                             api->stop_environments(std::move(*stop_key_value), owner_value->scope,
                                                    std::move(owner_value->room)));
+        });
+    presentation.set_function(
+        "set_material_parameter",
+        [api](sol::table target, std::string material_name, std::string parameter,
+              sol::object value, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto occurrence = parse_material_occurrence(target);
+            auto material = parse_id<core::MaterialId>(std::move(material_name));
+            auto parsed_value = parse_material_parameter_value(value);
+            auto owner = parse_presentation_owner_options(options);
+            const std::string clock_name =
+                options ? table_option<std::string>(*options, "clock").value_or("gameplay")
+                        : "gameplay";
+            auto clock = parse_material_clock(clock_name);
+            if (!occurrence)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(occurrence.error()));
+            if (!material)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(material.error()));
+            if (!parsed_value)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(parsed_value.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            if (!clock)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(clock.error()));
+            MaterialParameterCommandOptions command_options{
+                owner.value_if()->scope, std::move(owner.value_if()->room), *clock.value_if()};
+            return mutation(view, api->set_material_parameter(std::move(*occurrence.value_if()),
+                                                              std::move(*material.value_if()),
+                                                              std::move(parameter),
+                                                              std::move(*parsed_value.value_if()),
+                                                              std::move(command_options)));
+        });
+    presentation.set_function(
+        "bind_material_parameter",
+        [api](sol::table target, std::string material_name, std::string parameter,
+              sol::table binding, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto occurrence = parse_material_occurrence(target);
+            auto material = parse_id<core::MaterialId>(std::move(material_name));
+            auto parsed_binding = parse_material_parameter_binding(binding);
+            auto owner = parse_presentation_owner_options(options);
+            const std::string clock_name =
+                options ? table_option<std::string>(*options, "clock").value_or("gameplay")
+                        : "gameplay";
+            auto clock = parse_material_clock(clock_name);
+            if (!occurrence)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(occurrence.error()));
+            if (!material)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(material.error()));
+            if (!parsed_binding)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(parsed_binding.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            if (!clock)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(clock.error()));
+            MaterialParameterCommandOptions command_options{
+                owner.value_if()->scope, std::move(owner.value_if()->room), *clock.value_if()};
+            return mutation(view,
+                            api->bind_material_parameter(
+                                std::move(*occurrence.value_if()), std::move(*material.value_if()),
+                                std::move(parameter), std::move(*parsed_binding.value_if()),
+                                std::move(command_options)));
+        });
+    presentation.set_function(
+        "clear_material_parameter",
+        [api](sol::table target, std::string material_name, std::string parameter,
+              sol::optional<sol::table> options, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto occurrence = parse_material_occurrence(target);
+            auto material = parse_id<core::MaterialId>(std::move(material_name));
+            auto owner = parse_presentation_owner_options(options);
+            if (!occurrence)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(occurrence.error()));
+            if (!material)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(material.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view, api->clear_material_parameter(
+                                      std::move(*occurrence.value_if()),
+                                      std::move(*material.value_if()), std::move(parameter),
+                                      owner.value_if()->scope, std::move(owner.value_if()->room)));
+        });
+    presentation.set_function(
+        "material_parameter",
+        [api](sol::table target, std::string material_name, std::string parameter,
+              sol::optional<sol::table> options, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto occurrence = parse_material_occurrence(target);
+            auto material = parse_id<core::MaterialId>(std::move(material_name));
+            auto owner = parse_presentation_owner_options(options);
+            if (!occurrence)
+                return failure(view, occurrence.error());
+            if (!material)
+                return failure(view, material.error());
+            if (!owner)
+                return failure(view, owner.error());
+            auto result =
+                api->material_parameter(*occurrence.value_if(), *material.value_if(), parameter,
+                                        owner.value_if()->scope, std::move(owner.value_if()->room));
+            const auto* resolved = result.value_if();
+            if (!resolved)
+                return failure(view, result.error());
+            if (!*resolved)
+                return {nil(view), nil(view)};
+            sol::table object = view.create_table();
+            object["material"] = (*resolved)->material.text();
+            object["parameter"] = (*resolved)->parameter;
+            object["clock"] = material_clock_name((*resolved)->clock);
+            if ((*resolved)->value)
+                object["value"] = material_parameter_value_object(view, *(*resolved)->value);
+            if ((*resolved)->binding) {
+                sol::table binding = view.create_table();
+                std::visit(
+                    [&view, &binding](const auto& typed) {
+                        using T = std::decay_t<decltype(typed)>;
+                        if constexpr (std::is_same_v<T, core::MaterialPropertyBinding>) {
+                            binding["kind"] = "property";
+                            binding["property"] = typed.property.text();
+                            binding["target"] = material_property_target_table(view, typed.target);
+                        } else {
+                            binding["kind"] = "standard-facet";
+                            binding["facet"] = material_standard_facet_name(typed.facet);
+                        }
+                    },
+                    *(*resolved)->binding);
+                object["binding"] = binding;
+            }
+            return {sol::make_object(view, object), nil(view)};
+        });
+    presentation.set_function(
+        "set_postprocess",
+        [api](std::string instance_name, std::string material_name,
+              sol::optional<sol::table> options, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = parse_id<core::PostprocessEffectInstanceId>(std::move(instance_name));
+            auto material = parse_id<core::MaterialId>(std::move(material_name));
+            auto owner = parse_presentation_owner_options(options);
+            const std::string scope_name =
+                options ? table_option<std::string>(*options, "scope").value_or("world") : "world";
+            const std::string clock_name =
+                options ? table_option<std::string>(*options, "clock").value_or("gameplay")
+                        : "gameplay";
+            auto scope = parse_postprocess_scope(scope_name);
+            auto clock = parse_material_clock(clock_name);
+            if (!instance)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(instance.error()));
+            if (!material)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(material.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            if (!scope)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(scope.error()));
+            if (!clock)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(clock.error()));
+            PostprocessEffectCommandOptions command_options{
+                owner.value_if()->scope,
+                std::move(owner.value_if()->room),
+                *scope.value_if(),
+                options ? table_option<std::int32_t>(*options, "order").value_or(0) : 0,
+                *clock.value_if(),
+                options ? table_option<bool>(*options, "visible").value_or(true) : true};
+            return mutation(view, api->set_postprocess_effect(std::move(*instance.value_if()),
+                                                              std::move(*material.value_if()),
+                                                              std::move(command_options)));
+        });
+    presentation.set_function(
+        "clear_postprocess",
+        [api](std::string instance_name, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = parse_id<core::PostprocessEffectInstanceId>(std::move(instance_name));
+            auto owner = parse_presentation_owner_options(options);
+            if (!instance)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(instance.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view, api->clear_postprocess_effect(std::move(*instance.value_if()),
+                                                                owner.value_if()->scope,
+                                                                std::move(owner.value_if()->room)));
+        });
+    presentation.set_function(
+        "postprocess",
+        [api](std::string instance_name, sol::optional<sol::table> options,
+              sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto instance = parse_id<core::PostprocessEffectInstanceId>(std::move(instance_name));
+            auto owner = parse_presentation_owner_options(options);
+            if (!instance)
+                return failure(view, instance.error());
+            if (!owner)
+                return failure(view, owner.error());
+            auto result =
+                api->postprocess_effect(std::move(*instance.value_if()), owner.value_if()->scope,
+                                        std::move(owner.value_if()->room));
+            const auto* resolved = result.value_if();
+            if (!resolved)
+                return failure(view, result.error());
+            if (!*resolved)
+                return {nil(view), nil(view)};
+            sol::table object = view.create_table();
+            object["material"] = (*resolved)->material.text();
+            object["scope"] = material_postprocess_scope_name((*resolved)->scope);
+            object["order"] = (*resolved)->order;
+            object["clock"] = material_clock_name((*resolved)->clock);
+            object["visible"] = (*resolved)->visible;
+            return {sol::make_object(view, object), nil(view)};
         });
     noveltea["presentation"] = presentation;
 

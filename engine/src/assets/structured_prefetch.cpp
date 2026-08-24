@@ -867,6 +867,12 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
         for (const auto& layout : snapshot->layouts)
             m_index.m_impl->append_layout(current, layout.layout, current_diagnostics,
                                           "current mounted Layout");
+        for (const auto& effect : snapshot->postprocess_effects) {
+            if (!effect.visible)
+                continue;
+            m_index.m_impl->append_material(current, effect.material, current_diagnostics,
+                                            "current postprocess effect");
+        }
         for (const auto& audio : snapshot->desired_audio)
             m_index.m_impl->append_audio(current, audio.asset, audio.purpose, current_diagnostics,
                                          "current desired audio");

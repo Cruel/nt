@@ -14,6 +14,7 @@
 #include <compare>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <unordered_map>
 #include <variant>
@@ -123,6 +124,8 @@ protected:
     std::vector<DesiredActorPresentation> m_actors;
     std::vector<DesiredPresentationProp> m_presentation_props;
     std::vector<DesiredPresentationEnvironment> m_presentation_environments;
+    std::vector<DesiredMaterialParameter> m_material_parameters;
+    std::vector<DesiredPostprocessEffect> m_postprocess_effects;
     std::vector<DesiredMountedLayout> m_mounted_layouts;
     std::vector<LayoutStateSlot> m_layout_state_slots;
     std::uint64_t m_next_layout_mount_occurrence = 1;
@@ -288,6 +291,30 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     remove_presentation_environments(const PresentationEnvironmentStopKey& stop_key,
                                      const PresentationOwner& owner);
+    [[nodiscard]] const std::vector<DesiredMaterialParameter>& material_parameters() const noexcept
+    {
+        return m_material_parameters;
+    }
+    [[nodiscard]] const DesiredMaterialParameter*
+    material_parameter(const MaterialOccurrence& occurrence, const PresentationOwner& owner,
+                       const MaterialId& material, std::string_view parameter) const noexcept;
+    [[nodiscard]] Result<void, Diagnostics>
+    upsert_material_parameter(const CompiledProject& project, DesiredMaterialParameter value);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_material_parameter(const MaterialOccurrence& occurrence, const PresentationOwner& owner,
+                              const MaterialId& material, std::string_view parameter);
+    [[nodiscard]] const std::vector<DesiredPostprocessEffect>& postprocess_effects() const noexcept
+    {
+        return m_postprocess_effects;
+    }
+    [[nodiscard]] const DesiredPostprocessEffect*
+    postprocess_effect(const PostprocessEffectInstanceId& instance,
+                       const PresentationOwner& owner) const noexcept;
+    [[nodiscard]] Result<void, Diagnostics>
+    upsert_postprocess_effect(const CompiledProject& project, DesiredPostprocessEffect value);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_postprocess_effect(const PostprocessEffectInstanceId& instance,
+                              const PresentationOwner& owner);
 
     [[nodiscard]] const std::vector<RuntimeRoomConfiguration>& runtime_rooms() const noexcept
     {

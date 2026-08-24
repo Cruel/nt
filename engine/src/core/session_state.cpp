@@ -34,6 +34,65 @@ Diagnostics feature_error(std::string code, std::string message)
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
+bool material_parameter_value_matches(compiled::MaterialParameterType type,
+                                      const compiled::MaterialParameterValue& value) noexcept
+{
+    switch (type) {
+    case compiled::MaterialParameterType::Float:
+        return std::holds_alternative<double>(value);
+    case compiled::MaterialParameterType::Vec2:
+        return std::holds_alternative<std::array<double, 2>>(value);
+    case compiled::MaterialParameterType::Vec3:
+        return std::holds_alternative<std::array<double, 3>>(value);
+    case compiled::MaterialParameterType::Vec4:
+        return std::holds_alternative<std::array<double, 4>>(value);
+    case compiled::MaterialParameterType::Color:
+        return std::holds_alternative<compiled::MaterialColorValue>(value);
+    case compiled::MaterialParameterType::Int:
+        return std::holds_alternative<std::int64_t>(value);
+    case compiled::MaterialParameterType::Bool:
+        return std::holds_alternative<bool>(value);
+    }
+    return false;
+}
+
+bool material_parameter_value_finite(const compiled::MaterialParameterValue& value) noexcept
+{
+    return std::visit(
+        [](const auto& item) {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, double>)
+                return std::isfinite(item);
+            else if constexpr (std::is_same_v<T, std::array<double, 2>> ||
+                               std::is_same_v<T, std::array<double, 3>> ||
+                               std::is_same_v<T, std::array<double, 4>>)
+                return std::all_of(item.begin(), item.end(),
+                                   [](double component) { return std::isfinite(component); });
+            else if constexpr (std::is_same_v<T, compiled::MaterialColorValue>)
+                return std::isfinite(item.r) && std::isfinite(item.g) && std::isfinite(item.b) &&
+                       std::isfinite(item.a);
+            else
+                return true;
+        },
+        value);
+}
+
+bool property_can_drive_material_parameter(const PropertyDefinition& property,
+                                           compiled::MaterialParameterType type) noexcept
+{
+    switch (type) {
+    case compiled::MaterialParameterType::Float:
+        return std::holds_alternative<NumberPropertyType>(property.value_type()) ||
+               std::holds_alternative<IntegerPropertyType>(property.value_type());
+    case compiled::MaterialParameterType::Int:
+        return std::holds_alternative<IntegerPropertyType>(property.value_type());
+    case compiled::MaterialParameterType::Bool:
+        return std::holds_alternative<BooleanPropertyType>(property.value_type());
+    default:
+        return false;
+    }
+}
+
 std::string runtime_mode_text(const RuntimeMode& mode)
 {
     if (std::holds_alternative<RoomMode>(mode))
@@ -996,6 +1055,10 @@ void SessionState::remove_presentation_owned_by(const PresentationOwner& owner) 
                   [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_presentation_environments,
                   [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_material_parameters,
+                  [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_postprocess_effects,
+                  [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_mounted_layouts, [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_layout_state_slots, [&owner](const LayoutStateSlot& slot) {
         return std::visit(
@@ -1273,6 +1336,259 @@ SessionState::remove_presentation_environments(const PresentationEnvironmentStop
                   [&stop_key, &owner](const DesiredPresentationEnvironment& value) {
                       return value.stop_key == stop_key && value.owner == owner;
                   });
+    return Result<void, Diagnostics>::success();
+}
+
+const DesiredMaterialParameter*
+SessionState::material_parameter(const MaterialOccurrence& occurrence,
+                                 const PresentationOwner& owner, const MaterialId& material,
+                                 std::string_view parameter) const noexcept
+{
+    const auto found = std::find_if(m_material_parameters.begin(), m_material_parameters.end(),
+                                    [&](const DesiredMaterialParameter& value) {
+                                        return value.occurrence == occurrence &&
+                                               value.owner == owner && value.material == material &&
+                                               value.parameter == parameter;
+                                    });
+    return found == m_material_parameters.end() ? nullptr : &*found;
+}
+
+Result<void, Diagnostics> SessionState::upsert_material_parameter(const CompiledProject& project,
+                                                                  DesiredMaterialParameter value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    if (!owner)
+        return owner;
+    const auto* material = project.find_material_interface(value.material);
+    if (material == nullptr)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.material_parameter_unknown_material",
+            "Material Parameter references a Material without a compiled runtime interface"));
+    const auto declaration = std::find_if(material->parameters.begin(), material->parameters.end(),
+                                          [&](const compiled::MaterialParameterDeclaration& item) {
+                                              return item.name == value.parameter;
+                                          });
+    if (declaration == material->parameters.end())
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.material_parameter_unknown_uniform",
+                          "Material Parameter does not name a declared Shader uniform"));
+    if (declaration->renderer_binding)
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.material_parameter_renderer_bound",
+                          "Renderer-bound Shader uniforms cannot be controlled by occurrence "
+                          "Material Parameters"));
+    if (value.value.has_value() == value.binding.has_value())
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.material_parameter_invalid_source",
+            "Material Parameter must have exactly one literal value or binding authority"));
+    if (value.value && (!material_parameter_value_matches(declaration->type, *value.value) ||
+                        !material_parameter_value_finite(*value.value)))
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.material_parameter_type_mismatch",
+            "Material Parameter value does not match the declared Shader uniform type"));
+    if (value.binding) {
+        const bool binding_valid = std::visit(
+            [&](const auto& binding) {
+                using B = std::decay_t<decltype(binding)>;
+                if constexpr (std::is_same_v<B, MaterialPropertyBinding>) {
+                    const auto* property = project.find_property(binding.property);
+                    if (property == nullptr || property->nullable() ||
+                        !property_can_drive_material_parameter(*property, declaration->type))
+                        return false;
+                    if (std::holds_alternative<GlobalPropertyTarget>(binding.target))
+                        return property->is_global();
+                    const auto target_kind = property_target_owner_kind(binding.target);
+                    return !property->is_global() && target_kind &&
+                           std::binary_search(property->allowed_owners().begin(),
+                                              property->allowed_owners().end(), *target_kind);
+                } else {
+                    return declaration->type == compiled::MaterialParameterType::Float &&
+                           binding.facet <= MaterialStandardFacet::CameraZoom;
+                }
+            },
+            *value.binding);
+        if (!binding_valid)
+            return Result<void, Diagnostics>::failure(feature_error(
+                "runtime.material_parameter_invalid_binding",
+                "Material Parameter binding is incompatible with the declared uniform type"));
+    }
+
+    const bool occurrence_valid = std::visit(
+        [&](const auto& occurrence) {
+            using O = std::decay_t<decltype(occurrence)>;
+            if constexpr (std::is_same_v<O, BackgroundMaterialOccurrence>) {
+                const auto background =
+                    std::find_if(m_background_overrides.begin(), m_background_overrides.end(),
+                                 [&](const DesiredBackgroundOverride& item) {
+                                     return item.owner == value.owner;
+                                 });
+                if (background == m_background_overrides.end() ||
+                    background->background.material != std::optional<MaterialId>{value.material})
+                    return false;
+                return material->role == compiled::MaterialRole::Engine2D;
+            } else if constexpr (std::is_same_v<O, ActorMaterialOccurrence>) {
+                const auto* desired_actor = actor(occurrence.key, value.owner);
+                if (desired_actor == nullptr)
+                    return false;
+                const auto* character = runtime_character(*this, desired_actor->character);
+                if (character == nullptr)
+                    return false;
+                std::optional<MaterialId> selected;
+                if (occurrence.layer == ActorMaterialLayer::Pose) {
+                    const auto found = std::ranges::find_if(
+                        character->poses, [&](const compiled::CharacterPose& pose) {
+                            return pose.id == desired_actor->pose;
+                        });
+                    if (found != character->poses.end())
+                        selected = found->material;
+                } else {
+                    const auto found =
+                        std::ranges::find_if(character->expressions,
+                                             [&](const compiled::CharacterExpression& expression) {
+                                                 return expression.id == desired_actor->expression;
+                                             });
+                    if (found != character->expressions.end())
+                        selected = found->material;
+                }
+                return selected == std::optional<MaterialId>{value.material} &&
+                       material->role == compiled::MaterialRole::Engine2D;
+            } else if constexpr (std::is_same_v<O, PropMaterialOccurrence>) {
+                const auto found = std::ranges::find_if(
+                    m_presentation_props, [&](const DesiredPresentationProp& item) {
+                        return item.instance == occurrence.instance && item.owner == value.owner;
+                    });
+                return found != m_presentation_props.end() &&
+                       found->material == std::optional<MaterialId>{value.material} &&
+                       material->role == compiled::MaterialRole::Engine2D;
+            } else if constexpr (std::is_same_v<O, EnvironmentMaterialOccurrence>) {
+                const auto found = std::ranges::find_if(
+                    m_presentation_environments, [&](const DesiredPresentationEnvironment& item) {
+                        return item.instance == occurrence.instance && item.owner == value.owner;
+                    });
+                return found != m_presentation_environments.end() &&
+                       found->material == value.material &&
+                       material->role == compiled::MaterialRole::Engine2D;
+            } else if constexpr (std::is_same_v<O, LayoutMaterialOccurrence>) {
+                const auto found =
+                    std::ranges::find_if(m_mounted_layouts, [&](const DesiredMountedLayout& item) {
+                        return item.key == occurrence.key && item.owner == value.owner;
+                    });
+                if (found == m_mounted_layouts.end() || occurrence.material != value.material)
+                    return false;
+                const auto* layout = project.find_layout(found->layout);
+                return layout != nullptr &&
+                       std::ranges::find(layout->dependencies.materials, value.material) !=
+                           layout->dependencies.materials.end() &&
+                       material->role == compiled::MaterialRole::RmlUiDecorator;
+            } else {
+                const auto found = std::ranges::find_if(
+                    m_postprocess_effects, [&](const DesiredPostprocessEffect& item) {
+                        return item.instance == occurrence.instance && item.owner == value.owner;
+                    });
+                return found != m_postprocess_effects.end() && found->material == value.material &&
+                       material->role == compiled::MaterialRole::Postprocess;
+            }
+        },
+        value.occurrence);
+    if (!occurrence_valid)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.material_parameter_invalid_occurrence",
+            "Material Parameter target does not own the selected Material with a compatible role"));
+
+    const auto found = std::find_if(m_material_parameters.begin(), m_material_parameters.end(),
+                                    [&](const DesiredMaterialParameter& current) {
+                                        return current.occurrence == value.occurrence &&
+                                               current.owner == value.owner &&
+                                               current.material == value.material &&
+                                               current.parameter == value.parameter;
+                                    });
+    if (found != m_material_parameters.end() && found->binding && value.value)
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.material_parameter_binding_authoritative",
+                          "Remove the Material Parameter binding before assigning a direct value"));
+    if (found == m_material_parameters.end())
+        m_material_parameters.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+SessionState::remove_material_parameter(const MaterialOccurrence& occurrence,
+                                        const PresentationOwner& owner, const MaterialId& material,
+                                        std::string_view parameter)
+{
+    std::erase_if(m_material_parameters, [&](const DesiredMaterialParameter& value) {
+        return value.occurrence == occurrence && value.owner == owner &&
+               value.material == material && value.parameter == parameter;
+    });
+    return Result<void, Diagnostics>::success();
+}
+
+const DesiredPostprocessEffect*
+SessionState::postprocess_effect(const PostprocessEffectInstanceId& instance,
+                                 const PresentationOwner& owner) const noexcept
+{
+    const auto found =
+        std::ranges::find_if(m_postprocess_effects, [&](const DesiredPostprocessEffect& value) {
+            return value.instance == instance && value.owner == owner;
+        });
+    return found == m_postprocess_effects.end() ? nullptr : &*found;
+}
+
+Result<void, Diagnostics> SessionState::upsert_postprocess_effect(const CompiledProject& project,
+                                                                  DesiredPostprocessEffect value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    if (!owner)
+        return owner;
+    const auto* material = project.find_material_interface(value.material);
+    if (material == nullptr || material->role != compiled::MaterialRole::Postprocess ||
+        material->postprocess_scope != value.scope ||
+        value.clock > MaterialClockPolicy::UnscaledPresentation)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_postprocess_effect", "Postprocess Effect requires a postprocess "
+                                                  "Material with matching scope and valid clock"));
+    const auto existing =
+        std::ranges::find_if(m_postprocess_effects, [&](const DesiredPostprocessEffect& item) {
+            return item.instance == value.instance && item.owner == value.owner;
+        });
+    const auto count =
+        std::ranges::count_if(m_postprocess_effects, [&](const DesiredPostprocessEffect& item) {
+            return item.scope == value.scope &&
+                   (existing == m_postprocess_effects.end() || &item != &*existing);
+        });
+    if (count >= static_cast<std::ptrdiff_t>(max_postprocess_effects_per_scope))
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.postprocess_stack_limit",
+                          "Postprocess Effect exceeds the bounded stack for this scope"));
+    if (existing == m_postprocess_effects.end())
+        m_postprocess_effects.push_back(std::move(value));
+    else
+        *existing = std::move(value);
+    std::stable_sort(
+        m_postprocess_effects.begin(), m_postprocess_effects.end(),
+        [](const DesiredPostprocessEffect& left, const DesiredPostprocessEffect& right) {
+            if (left.scope != right.scope)
+                return left.scope < right.scope;
+            if (left.order != right.order)
+                return left.order < right.order;
+            return left.instance.text() < right.instance.text();
+        });
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+SessionState::remove_postprocess_effect(const PostprocessEffectInstanceId& instance,
+                                        const PresentationOwner& owner)
+{
+    std::erase_if(m_postprocess_effects, [&](const DesiredPostprocessEffect& value) {
+        return value.instance == instance && value.owner == owner;
+    });
+    std::erase_if(m_material_parameters, [&](const DesiredMaterialParameter& value) {
+        const auto* target = std::get_if<PostprocessMaterialOccurrence>(&value.occurrence);
+        return target != nullptr && target->instance == instance && value.owner == owner;
+    });
     return Result<void, Diagnostics>::success();
 }
 

@@ -133,6 +133,26 @@ struct RemovePresentationEnvironmentsByStopKeyCommand {
     core::PresentationOwner owner;
     bool operator==(const RemovePresentationEnvironmentsByStopKeyCommand&) const = default;
 };
+struct UpsertMaterialParameterCommand {
+    core::DesiredMaterialParameter value;
+    bool operator==(const UpsertMaterialParameterCommand&) const = default;
+};
+struct RemoveMaterialParameterCommand {
+    core::MaterialOccurrence occurrence;
+    core::PresentationOwner owner;
+    core::MaterialId material;
+    std::string parameter;
+    bool operator==(const RemoveMaterialParameterCommand&) const = default;
+};
+struct UpsertPostprocessEffectCommand {
+    core::DesiredPostprocessEffect value;
+    bool operator==(const UpsertPostprocessEffectCommand&) const = default;
+};
+struct RemovePostprocessEffectCommand {
+    core::PostprocessEffectInstanceId instance;
+    core::PresentationOwner owner;
+    bool operator==(const RemovePostprocessEffectCommand&) const = default;
+};
 struct UpsertDesiredAudioCommand {
     core::DesiredAudioInstance value;
     bool operator==(const UpsertDesiredAudioCommand&) const = default;
@@ -178,8 +198,10 @@ using DeferredRuntimeCommandPayload = std::variant<
     UpsertActorPresentationCommand, RemoveActorPresentationCommand, UpsertPresentationPropCommand,
     RemovePresentationPropCommand, UpsertPresentationEnvironmentCommand,
     RemovePresentationEnvironmentCommand, RemovePresentationEnvironmentsByStopKeyCommand,
-    UpsertDesiredAudioCommand, RemoveDesiredAudioCommand, RemoveDesiredAudioPurposeCommand,
-    UpsertMountedLayoutCommand, RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
+    UpsertMaterialParameterCommand, RemoveMaterialParameterCommand, UpsertPostprocessEffectCommand,
+    RemovePostprocessEffectCommand, UpsertDesiredAudioCommand, RemoveDesiredAudioCommand,
+    RemoveDesiredAudioPurposeCommand, UpsertMountedLayoutCommand, RemoveMountedLayoutCommand,
+    SetReservedLayoutCommand>;
 
 struct DeferredRuntimeCommand {
     RuntimeCommandSequence sequence;

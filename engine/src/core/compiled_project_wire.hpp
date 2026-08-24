@@ -169,6 +169,7 @@ struct SharedProject {
     std::vector<InventoryDefinition> inventories;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;
+    std::vector<MaterialInterfaceResource> material_interfaces;
     std::vector<ScriptResource> scripts;
     std::vector<CharacterDefinition> characters;
     std::vector<RoomDefinition> rooms;

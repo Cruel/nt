@@ -108,6 +108,7 @@ function representativeWireFixture() {
           dependencies: { images: [], fonts: [], stylesheets: [], materials: [], scripts: [] },
         },
       ],
+      materialInterfaces: [],
       scripts: [{ id: 'bootstrap', source: { kind: 'inline-lua', source: 'return {}' } }],
     },
     definitions: {
