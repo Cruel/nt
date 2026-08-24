@@ -201,19 +201,23 @@ nlohmann::json encode_scene_position(const SceneFramePosition& position)
         },
         position.substate);
     return {{"nextStep", encode_optional_id(position.next_step)},
+            {"stageInitialized", position.stage_initialized},
             {"substate", std::move(substate)}};
 }
 
 std::optional<SceneFramePosition> decode_scene_position(Decoder& d, const nlohmann::json& value,
                                                         std::string_view pointer)
 {
-    if (!d.object(value, pointer, {"nextStep", "substate"}))
+    if (!d.object(value, pointer, {"nextStep", "stageInitialized", "substate"}))
         return std::nullopt;
     const auto* next = d.member(value, "nextStep", pointer);
+    const auto* initialized = d.member(value, "stageInitialized", pointer);
     const auto* substate = d.member(value, "substate", pointer);
     auto next_id = next ? d.optional_id<SceneStepId>(*next, child(pointer, "nextStep"))
                         : Decoder::OptionalId<SceneStepId>{};
-    if (!next_id || !substate || !substate->is_object()) {
+    auto stage_initialized =
+        initialized ? d.boolean(*initialized, child(pointer, "stageInitialized")) : std::nullopt;
+    if (!next_id || !stage_initialized || !substate || !substate->is_object()) {
         if (substate && !substate->is_object())
             d.error(k_type, "Expected a substate object.", child(pointer, "substate"));
         return std::nullopt;
@@ -270,7 +274,7 @@ std::optional<SceneFramePosition> decode_scene_position(Decoder& d, const nlohma
         d.error(k_variant, "Unknown Scene substate '" + *name + "'.", child(sub, "kind"));
         return std::nullopt;
     }
-    return SceneFramePosition{std::move(next_id.value), std::move(decoded)};
+    return SceneFramePosition{std::move(next_id.value), std::move(decoded), *stage_initialized};
 }
 
 nlohmann::json encode_dialogue_position(const DialogueFramePosition& value)

@@ -75,13 +75,18 @@ compiled::SceneDefinition make_scene(SceneId scene_id, std::string first, std::s
     instructions.emplace_back(compiled::SetGlobalPropertySceneInstruction{
         id<SceneStepId>(std::move(second)), std::nullopt, id<PropertyId>("flag"),
         RuntimeValue{true}});
+    std::vector<compiled::SceneEventMetadata> events;
+    for (const auto& instruction : instructions) {
+        const auto event_id = std::visit([](const auto& value) { return value.id; }, instruction);
+        events.push_back({event_id, {"main", 0, 0}, {}});
+    }
     return compiled::SceneDefinition{
         .identity = {std::move(scene_id)},
         .display_name = "Scene",
-        .default_background = {std::nullopt, std::nullopt, compiled::BackgroundFit::Cover,
-                               std::nullopt},
-        .default_layout = std::nullopt,
-        .program = {std::move(instructions)},
+        .stage = compiled::BlankSceneStage{{std::nullopt, std::nullopt,
+                                            compiled::BackgroundFit::Cover, std::nullopt},
+                                           std::nullopt},
+        .program = {std::move(instructions), std::move(events)},
         .continuation = EndFlow{},
     };
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -160,17 +160,46 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const sceneId = tab.resource?.entityId;
   const record = sceneId && project ? project.scenes[sceneId] : null;
   const data = parseSceneData(record?.data) ?? defaultSceneData(record?.label ?? 'Scene');
-  const [selectedId, setSelectedId] = useState<string | null>(data.steps[0]?.id ?? null);
-  const selected = data.steps.find((step) => step.id === selectedId) ?? data.steps[0] ?? null;
+  const [selectedId, setSelectedId] = useState<string | null>(data.events[0]?.id ?? null);
+  const [scrubMs, setScrubMs] = useState(0);
+  const [timelinePlaying, setTimelinePlaying] = useState(false);
+  const selected = data.events.find((step) => step.id === selectedId) ?? data.events[0] ?? null;
   const diagnostics = useMemo(
     () => (project && record && sceneId ? validateSceneData(project, sceneId, record) : []),
     [project, record, sceneId],
   );
 
+  const blankStage = data.stage.kind === 'blank' ? data.stage : null;
+  const timelineEndMs = Math.max(
+    1000,
+    ...data.events.map((event) => event.timeline.startMs + Math.max(event.timeline.durationMs, 1)),
+  );
+  const timelineTracks = [...new Set(data.events.map((event) => event.timeline.trackId))];
+  useEffect(() => {
+    if (!timelinePlaying) return;
+    const timer = window.setInterval(() => {
+      setScrubMs((current) => {
+        const next = current + 50;
+        return next > timelineEndMs ? 0 : next;
+      });
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [timelinePlaying, timelineEndMs]);
+  useEffect(() => {
+    if (!timelinePlaying) return;
+    const active = [...data.events]
+      .reverse()
+      .find(
+        (event) =>
+          scrubMs >= event.timeline.startMs &&
+          scrubMs <= event.timeline.startMs + Math.max(event.timeline.durationMs, 1),
+      );
+    if (active && active.id !== selectedId) setSelectedId(active.id);
+  }, [data.events, scrubMs, selectedId, timelinePlaying]);
   if (!project || !record || !sceneId)
     return <div className="p-4 text-sm text-muted-foreground">Scene not found.</div>;
   const sceneActorSlots = [
-    ...new Set(data.steps.flatMap((step) => (step.type === 'actor-cue' ? [step.slotId] : []))),
+    ...new Set(data.events.flatMap((step) => (step.type === 'actor-cue' ? [step.slotId] : []))),
   ];
   const roomAnchorOptions = Object.entries(project.rooms).flatMap(([roomId, room]) => {
     const roomData = parseRoomData(room.data);
@@ -183,7 +212,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const commit = (next: SceneData, label = 'Update scene') => commitScene(sceneId, next, label);
   const replaceStep = (next: SceneStepData) =>
     commit(
-      { ...data, steps: data.steps.map((step) => (step.id === next.id ? next : step)) },
+      { ...data, events: data.events.map((step) => (step.id === next.id ? next : step)) },
       'Update scene step',
     );
   const stepForProject = (type: SceneStepType, label?: string): SceneStepData | null => {
@@ -246,45 +275,45 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const addStep = (type: SceneStepType) => {
     const created = stepForProject(type, title(type));
     if (!created) return;
-    const step = { ...created, id: uniqueId(data.steps, type) } as SceneStepData;
-    commit({ ...data, steps: [...data.steps, step] }, 'Add scene step');
+    const step = { ...created, id: uniqueId(data.events, type) } as SceneStepData;
+    commit({ ...data, events: [...data.events, step] }, 'Add scene event');
     setSelectedId(step.id);
   };
   const duplicate = () => {
     if (!selected) return;
-    const id = uniqueId(data.steps, selected.id);
+    const id = uniqueId(data.events, selected.id);
     const step = structuredClone({
       ...selected,
       id,
       label: `${selected.label} Copy`,
     }) as SceneStepData;
-    const index = data.steps.findIndex((item) => item.id === selected.id);
-    const steps = [...data.steps];
+    const index = data.events.findIndex((item) => item.id === selected.id);
+    const steps = [...data.events];
     steps.splice(index + 1, 0, step);
-    commit({ ...data, steps }, 'Duplicate scene step');
+    commit({ ...data, events: steps }, 'Duplicate scene event');
     setSelectedId(id);
   };
   const remove = () => {
-    if (!selected || data.steps.length === 1) return;
-    const index = data.steps.findIndex((item) => item.id === selected.id);
-    const steps = data.steps.filter((item) => item.id !== selected.id);
-    commit({ ...data, steps }, 'Delete scene step');
+    if (!selected || data.events.length === 1) return;
+    const index = data.events.findIndex((item) => item.id === selected.id);
+    const steps = data.events.filter((item) => item.id !== selected.id);
+    commit({ ...data, events: steps }, 'Delete scene event');
     setSelectedId(steps[Math.min(index, steps.length - 1)]?.id ?? null);
   };
   const move = (delta: number) => {
     if (!selected) return;
-    const index = data.steps.findIndex((item) => item.id === selected.id);
+    const index = data.events.findIndex((item) => item.id === selected.id);
     const target = index + delta;
-    if (target < 0 || target >= data.steps.length) return;
-    const steps = [...data.steps];
+    if (target < 0 || target >= data.events.length) return;
+    const steps = [...data.events];
     [steps[index], steps[target]] = [steps[target]!, steps[index]!];
-    commit({ ...data, steps }, 'Reorder scene steps');
+    commit({ ...data, events: steps }, 'Reorder scene events');
   };
   const renameStep = (nextId: string) => {
-    if (!selected || nextId === selected.id || data.steps.some((step) => step.id === nextId))
+    if (!selected || nextId === selected.id || data.events.some((step) => step.id === nextId))
       return;
     const previousId = selected.id;
-    const steps = data.steps.map((step): SceneStepData => {
+    const steps = data.events.map((step): SceneStepData => {
       const renamed = step.id === previousId ? ({ ...step, id: nextId } as SceneStepData) : step;
       if (renamed.type === 'conditional-branch')
         return {
@@ -305,7 +334,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
         };
       return renamed;
     });
-    commit({ ...data, steps }, 'Rename scene step');
+    commit({ ...data, events: steps }, 'Rename scene event');
     setSelectedId(nextId);
   };
 
@@ -527,8 +556,92 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
             ))}
           </Select>
         </div>
+        <div className="mb-4 rounded border bg-muted/20 p-2">
+          <div className="mb-2 flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setTimelinePlaying((playing) => !playing)}
+            >
+              {timelinePlaying ? 'Pause' : 'Play'}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setTimelinePlaying(false);
+                setScrubMs(0);
+              }}
+            >
+              Reset
+            </Button>
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+              {(scrubMs / 1000).toFixed(2)}s / {(timelineEndMs / 1000).toFixed(2)}s
+            </span>
+          </div>
+          <input
+            className="mb-2 w-full"
+            type="range"
+            min={0}
+            max={timelineEndMs}
+            step={10}
+            value={Math.min(scrubMs, timelineEndMs)}
+            onChange={(event) => {
+              setTimelinePlaying(false);
+              const next = Number(event.target.value);
+              setScrubMs(next);
+              const active = [...data.events]
+                .reverse()
+                .find(
+                  (item) =>
+                    next >= item.timeline.startMs &&
+                    next <= item.timeline.startMs + Math.max(item.timeline.durationMs, 1),
+                );
+              if (active) setSelectedId(active.id);
+            }}
+          />
+          <div className="space-y-1">
+            {timelineTracks.map((trackId) => (
+              <div key={trackId} className="grid grid-cols-[72px_1fr] items-center gap-2">
+                <span className="truncate text-xs text-muted-foreground" title={trackId}>
+                  {trackId}
+                </span>
+                <div className="relative h-8 overflow-hidden rounded bg-background">
+                  <div
+                    className="pointer-events-none absolute inset-y-0 w-px bg-foreground/60"
+                    style={{ left: `${(Math.min(scrubMs, timelineEndMs) / timelineEndMs) * 100}%` }}
+                  />
+                  {data.events
+                    .filter((event) => event.timeline.trackId === trackId)
+                    .map((event) => {
+                      const left = (event.timeline.startMs / timelineEndMs) * 100;
+                      const width = Math.max(
+                        1.5,
+                        (Math.max(event.timeline.durationMs, 1) / timelineEndMs) * 100,
+                      );
+                      return (
+                        <button
+                          key={event.id}
+                          type="button"
+                          title={`${event.label} · ${event.timeline.startMs}–${event.timeline.startMs + event.timeline.durationMs} ms`}
+                          className={`absolute top-1 h-6 overflow-hidden rounded border px-1 text-left text-[10px] ${event.id === selected?.id ? 'bg-accent' : 'bg-muted hover:bg-accent/60'}`}
+                          style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
+                          onClick={() => {
+                            setSelectedId(event.id);
+                            setScrubMs(event.timeline.startMs);
+                          }}
+                        >
+                          <span className="block truncate">{event.label}</span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="space-y-1">
-          {data.steps.map((step, index) => (
+          {data.events.map((step, index) => (
             <button
               key={step.id}
               className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm ${step.id === selected?.id ? 'bg-accent' : 'hover:bg-muted'}`}
@@ -574,104 +687,185 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
             </Select>
           </Label>
           <Label>
-            Default background asset
+            Stage
             <Select
-              value={refId(data.defaultBackground.asset)}
-              onValueChange={(id) => {
-                if (id)
+              value={data.stage.kind}
+              onValueChange={(kind) => {
+                if (kind === 'inherited') commit({ ...data, stage: { kind: 'inherited' } });
+                else if (kind === 'staged-room')
                   commit({
                     ...data,
-                    defaultBackground: {
-                      ...data.defaultBackground,
-                      asset: id === '__none__' ? null : sceneAssetRef(id),
+                    stage: {
+                      kind: 'staged-room',
+                      room: sceneRoomRef(Object.keys(project.rooms)[0] ?? 'room'),
+                    },
+                  });
+                else
+                  commit({
+                    ...data,
+                    stage: {
+                      kind: 'blank',
+                      background: {
+                        asset: null,
+                        material: null,
+                        color: '#0f172a',
+                        fit: 'cover',
+                      },
+                      layout: null,
                     },
                   });
               }}
             >
-              <SelectItem value="__none__">None</SelectItem>
-              {Object.entries(project.assets).map(([id, item]) => (
-                <SelectItem key={id} value={id}>
-                  {item.label}
-                </SelectItem>
-              ))}
+              <SelectItem value="inherited">Inherited</SelectItem>
+              <SelectItem value="staged-room">Staged Room</SelectItem>
+              <SelectItem value="blank">Blank</SelectItem>
             </Select>
           </Label>
-          <Label>
-            Default background material
-            <Select
-              value={refId(data.defaultBackground.material)}
-              onValueChange={(id) => {
-                if (id)
+          {data.stage.kind === 'staged-room' ? (
+            <Label>
+              Staged Room
+              <Select
+                value={data.stage.room.$ref.id}
+                onValueChange={(id) => {
+                  if (id)
+                    commit({ ...data, stage: { kind: 'staged-room', room: sceneRoomRef(id) } });
+                }}
+              >
+                {Object.entries(project.rooms).map(([id, item]) => (
+                  <SelectItem key={id} value={id}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </Select>
+            </Label>
+          ) : null}
+          {blankStage ? (
+            <Label>
+              Stage background asset
+              <Select
+                value={refId(blankStage.background.asset)}
+                onValueChange={(id) => {
+                  if (id)
+                    commit({
+                      ...data,
+                      stage: {
+                        ...blankStage,
+                        background: {
+                          ...blankStage.background,
+                          asset: id === '__none__' ? null : sceneAssetRef(id),
+                        },
+                      },
+                    });
+                }}
+              >
+                <SelectItem value="__none__">None</SelectItem>
+                {Object.entries(project.assets).map(([id, item]) => (
+                  <SelectItem key={id} value={id}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </Select>
+            </Label>
+          ) : null}
+          {blankStage ? (
+            <Label>
+              Stage background material
+              <Select
+                value={refId(blankStage.background.material)}
+                onValueChange={(id) => {
+                  if (id)
+                    commit({
+                      ...data,
+                      stage: {
+                        ...blankStage,
+                        background: {
+                          ...blankStage.background,
+                          material: id === '__none__' ? null : sceneMaterialRef(id),
+                        },
+                      },
+                    });
+                }}
+              >
+                <SelectItem value="__none__">None</SelectItem>
+                {Object.entries(project.materials).map(([id, item]) => (
+                  <SelectItem key={id} value={id}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </Select>
+            </Label>
+          ) : null}
+          {blankStage ? (
+            <Label>
+              Stage background color
+              <Input
+                value={blankStage.background.color ?? ''}
+                onChange={(event) =>
                   commit({
                     ...data,
-                    defaultBackground: {
-                      ...data.defaultBackground,
-                      material: id === '__none__' ? null : sceneMaterialRef(id),
+                    stage: {
+                      ...blankStage,
+                      background: {
+                        ...blankStage.background,
+                        color: event.target.value || null,
+                      },
                     },
-                  });
-              }}
-            >
-              <SelectItem value="__none__">None</SelectItem>
-              {Object.entries(project.materials).map(([id, item]) => (
-                <SelectItem key={id} value={id}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </Select>
-          </Label>
-          <Label>
-            Default background color
-            <Input
-              value={data.defaultBackground.color ?? ''}
-              onChange={(event) =>
-                commit({
-                  ...data,
-                  defaultBackground: {
-                    ...data.defaultBackground,
-                    color: event.target.value || null,
-                  },
-                })
-              }
-            />
-          </Label>
-          <Label>
-            Default background fit
-            <Select
-              value={data.defaultBackground.fit}
-              onValueChange={(fit) =>
-                commit({
-                  ...data,
-                  defaultBackground: {
-                    ...data.defaultBackground,
-                    fit: fit as typeof data.defaultBackground.fit,
-                  },
-                })
-              }
-            >
-              {['cover', 'contain', 'stretch', 'center'].map((value) => (
-                <SelectItem key={value} value={value}>
-                  {title(value)}
-                </SelectItem>
-              ))}
-            </Select>
-          </Label>
-          <Label>
-            Default layout
-            <Select
-              value={refId(data.defaultLayout)}
-              onValueChange={(id) => {
-                if (id)
-                  commit({ ...data, defaultLayout: id === '__none__' ? null : sceneLayoutRef(id) });
-              }}
-            >
-              <SelectItem value="__none__">None</SelectItem>
-              {Object.entries(project.layouts).map(([id, item]) => (
-                <SelectItem key={id} value={id}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </Select>
-          </Label>
+                  })
+                }
+              />
+            </Label>
+          ) : null}
+          {blankStage ? (
+            <Label>
+              Stage background fit
+              <Select
+                value={blankStage.background.fit}
+                onValueChange={(fit) =>
+                  commit({
+                    ...data,
+                    stage: {
+                      ...blankStage,
+                      background: {
+                        ...blankStage.background,
+                        fit: fit as typeof blankStage.background.fit,
+                      },
+                    },
+                  })
+                }
+              >
+                {['cover', 'contain', 'stretch', 'center'].map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {title(value)}
+                  </SelectItem>
+                ))}
+              </Select>
+            </Label>
+          ) : null}
+          {blankStage ? (
+            <Label>
+              Stage layout
+              <Select
+                value={refId(blankStage.layout)}
+                onValueChange={(id) => {
+                  if (id)
+                    commit({
+                      ...data,
+                      stage: {
+                        ...blankStage,
+                        layout: id === '__none__' ? null : sceneLayoutRef(id),
+                      },
+                    });
+                }}
+              >
+                <SelectItem value="__none__">None</SelectItem>
+                {Object.entries(project.layouts).map(([id, item]) => (
+                  <SelectItem key={id} value={id}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </Select>
+            </Label>
+          ) : null}
         </div>
         {!selected ? null : (
           <div className="space-y-4">
@@ -688,7 +882,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
               <Button
                 size="sm"
                 variant="destructive"
-                disabled={data.steps.length === 1}
+                disabled={data.events.length === 1}
                 onClick={remove}
               >
                 Delete
@@ -708,7 +902,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
               </Select>
             </Label>
             <Label>
-              Step ID
+              Event ID
               <Input value={selected.id} onChange={(event) => renameStep(event.target.value)} />
             </Label>
             <Label>
@@ -720,6 +914,72 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 }
               />
             </Label>
+            <div className="grid grid-cols-3 gap-3">
+              <Label>
+                Timeline track
+                <Input
+                  value={selected.timeline.trackId}
+                  onChange={(event) =>
+                    replaceStep({
+                      ...selected,
+                      timeline: { ...selected.timeline, trackId: event.target.value },
+                    } as SceneStepData)
+                  }
+                />
+              </Label>
+              <Label>
+                Start (ms)
+                <Input
+                  type="number"
+                  min={0}
+                  value={selected.timeline.startMs}
+                  onChange={(event) =>
+                    replaceStep({
+                      ...selected,
+                      timeline: {
+                        ...selected.timeline,
+                        startMs: Math.max(0, Number(event.target.value) || 0),
+                      },
+                    } as SceneStepData)
+                  }
+                />
+              </Label>
+              <Label>
+                Duration (ms)
+                <Input
+                  type="number"
+                  min={0}
+                  value={selected.timeline.durationMs}
+                  onChange={(event) =>
+                    replaceStep({
+                      ...selected,
+                      timeline: {
+                        ...selected.timeline,
+                        durationMs: Math.max(0, Number(event.target.value) || 0),
+                      },
+                    } as SceneStepData)
+                  }
+                />
+              </Label>
+            </div>
+            {'completionDependencies' in selected && (
+              <Label>
+                Completion dependencies
+                <Input
+                  value={selected.completionDependencies.join(', ')}
+                  placeholder="Earlier Event IDs, comma-separated"
+                  onChange={(event) =>
+                    replaceStep({
+                      ...selected,
+                      completionDependencies: event.target.value
+                        .split(',')
+                        .map((value) => value.trim())
+                        .filter(Boolean),
+                    } as SceneStepData)
+                  }
+                />
+              </Label>
+            )}
             {'enabled' in selected && (
               <Label className="flex items-center gap-2">
                 Enabled
@@ -1528,6 +1788,8 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                               type: 'wait',
                               enabled: selected.enabled,
                               condition: selected.condition,
+                              timeline: selected.timeline,
+                              completionDependencies: selected.completionDependencies,
                               waitKind: 'input',
                               skippable: selected.skippable,
                             }
@@ -1537,6 +1799,8 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                               type: 'wait',
                               enabled: selected.enabled,
                               condition: selected.condition,
+                              timeline: selected.timeline,
+                              completionDependencies: selected.completionDependencies,
                               waitKind: 'duration',
                               durationMs: 1000,
                               skippable: selected.skippable,
@@ -1573,7 +1837,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                       if (fallbackStepId) replaceStep({ ...selected, fallbackStepId });
                     }}
                   >
-                    {data.steps.map((step) => (
+                    {data.events.map((step) => (
                       <SelectItem key={step.id} value={step.id}>
                         {step.label}
                       </SelectItem>
@@ -1593,7 +1857,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             'branch',
                           ),
                           condition: { kind: 'always' },
-                          targetStepId: data.steps[0]!.id,
+                          targetStepId: data.events[0]!.id,
                         },
                       ],
                     })
@@ -1642,7 +1906,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             });
                         }}
                       >
-                        {data.steps.map((step) => (
+                        {data.events.map((step) => (
                           <SelectItem key={step.id} value={step.id}>
                             {step.label}
                           </SelectItem>
@@ -1672,7 +1936,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             markup: 'active-text',
                           },
                           effects: [],
-                          targetStepId: data.steps[0]!.id,
+                          targetStepId: data.events[0]!.id,
                         },
                       ],
                     })
@@ -1735,7 +1999,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                           });
                       }}
                     >
-                      {data.steps.map((step) => (
+                      {data.events.map((step) => (
                         <SelectItem key={step.id} value={step.id}>
                           {step.label}
                         </SelectItem>
@@ -1989,7 +2253,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             Layout / {title(slot)}
                           </SelectItem>
                         ))}
-                        {data.steps
+                        {data.events
                           .filter((step) => step.type === 'postprocess-effect')
                           .map((step) => (
                             <SelectItem

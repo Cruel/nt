@@ -41,6 +41,19 @@ RuntimePresentationBridge::reconcile_snapshot(const core::RuntimePresentationSna
     return m_coordinator.reconcile_snapshot(snapshot);
 }
 
+bool RuntimePresentationBridge::presentation_operation_active(
+    core::PresentationOperationId operation) const noexcept
+{
+    const auto found =
+        std::find_if(m_coordinator.lifecycles().begin(), m_coordinator.lifecycles().end(),
+                     [operation](const core::PresentationOperationLifecycle& lifecycle) {
+                         const auto* id = std::get_if<core::PresentationOperationId>(
+                             &lifecycle.metadata.operation);
+                         return id != nullptr && *id == operation;
+                     });
+    return found != m_coordinator.lifecycles().end() && live_lifecycle(*found);
+}
+
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
 RuntimePresentationBridge::accept(const core::PresentationOperation& operation)
 {

@@ -125,7 +125,7 @@ function compileMaterialParameterValue(
   materialId: string,
   parameter: string,
   value: ShaderUniformValue,
-): Extract<SceneProgram['instructions'][number], { kind: 'material-parameter' }>['value'] {
+): Extract<SceneProgram['events'][number]['instruction'], { kind: 'material-parameter' }>['value'] {
   const material = resolveMaterialData(project, materialId).data;
   const shaderId = material?.shader?.$ref.id;
   const uniform = shaderId
@@ -155,7 +155,10 @@ function compileMaterialParameterValue(
 
 function compileTransitionGroupChild(
   child: SceneTransitionGroupChildData,
-): Extract<SceneProgram['instructions'][number], { kind: 'transition-group' }>['children'][number] {
+): Extract<
+  SceneProgram['events'][number]['instruction'],
+  { kind: 'transition-group' }
+>['children'][number] {
   switch (child.type) {
     case 'set-background':
       return {
@@ -199,7 +202,7 @@ function compileTransitionGroupChild(
 function compileSceneStep(
   project: AuthoringProject,
   step: Exclude<SceneStepData, { type: 'comment' }>,
-): SceneProgram['instructions'][number] {
+): SceneProgram['events'][number]['instruction'] {
   const base = common(step);
   switch (step.type) {
     case 'set-background':
@@ -410,9 +413,9 @@ export function lowerSceneAndRoomPrograms(
       continue;
     }
     const executableIds = new Set(
-      data.steps.filter((step) => step.type !== 'comment' && step.enabled).map((step) => step.id),
+      data.events.filter((step) => step.type !== 'comment' && step.enabled).map((step) => step.id),
     );
-    data.steps.forEach((step, index) => {
+    data.events.forEach((step, index) => {
       if (step.type === 'comment' || !step.enabled) return;
       const targets =
         step.type === 'conditional-branch'
@@ -424,7 +427,7 @@ export function lowerSceneAndRoomPrograms(
         if (!executableIds.has(target))
           diagnostics.push({
             code: 'COMPILER_SCENE_TARGET_NOT_EXECUTABLE',
-            path: `/scenes/${scene.id}/data/steps/${index}`,
+            path: `/scenes/${scene.id}/data/events/${index}`,
             message: `Scene target '${target}' does not name an enabled runtime instruction.`,
           });
       });
@@ -444,7 +447,7 @@ export function lowerSceneAndRoomPrograms(
         )
           diagnostics.push({
             code: 'COMPILER_SCENE_POSE_MISSING',
-            path: `/scenes/${scene.id}/data/steps/${index}/poseId`,
+            path: `/scenes/${scene.id}/data/events/${index}/poseId`,
             message: `Pose '${step.poseId}' does not exist on Character '${step.character.$ref.id}'.`,
           });
         if (
@@ -459,7 +462,7 @@ export function lowerSceneAndRoomPrograms(
         )
           diagnostics.push({
             code: 'COMPILER_SCENE_EXPRESSION_MISSING',
-            path: `/scenes/${scene.id}/data/steps/${index}/expressionId`,
+            path: `/scenes/${scene.id}/data/events/${index}/expressionId`,
             message: `Expression '${step.expressionId}' does not exist on Character '${step.character.$ref.id}'.`,
           });
       }
@@ -484,7 +487,7 @@ export function lowerSceneAndRoomPrograms(
           )
             diagnostics.push({
               code: 'COMPILER_SCENE_TRANSITION_GROUP_POSE_MISSING',
-              path: `/scenes/${scene.id}/data/steps/${index}/children/${childIndex}/poseId`,
+              path: `/scenes/${scene.id}/data/events/${index}/children/${childIndex}/poseId`,
               message: `Pose '${child.poseId}' does not exist on Character '${child.character.$ref.id}'.`,
             });
           if (
@@ -499,7 +502,7 @@ export function lowerSceneAndRoomPrograms(
           )
             diagnostics.push({
               code: 'COMPILER_SCENE_TRANSITION_GROUP_EXPRESSION_MISSING',
-              path: `/scenes/${scene.id}/data/steps/${index}/children/${childIndex}/expressionId`,
+              path: `/scenes/${scene.id}/data/events/${index}/children/${childIndex}/expressionId`,
               message: `Expression '${child.expressionId}' does not exist on Character '${child.character.$ref.id}'.`,
             });
         });
@@ -525,7 +528,7 @@ export function lowerSceneAndRoomPrograms(
         )
           diagnostics.push({
             code: 'COMPILER_SCENE_DIALOGUE_BLOCK_MISSING',
-            path: `/scenes/${scene.id}/data/steps/${index}/startBlockId`,
+            path: `/scenes/${scene.id}/data/events/${index}/startBlockId`,
             message: `Dialogue block '${step.startBlockId}' does not exist in Dialogue '${step.dialogue.$ref.id}'.`,
           });
       }
@@ -533,12 +536,17 @@ export function lowerSceneAndRoomPrograms(
     scenes.push({
       ...scene,
       program: {
-        instructions: data.steps
+        events: data.events
           .filter(
             (step): step is Exclude<SceneStepData, { type: 'comment' }> =>
               step.type !== 'comment' && step.enabled,
           )
-          .map((step) => compileSceneStep(project, step)),
+          .map((step) => ({
+            id: step.id,
+            timeline: { ...step.timeline },
+            completionDependencies: [...step.completionDependencies],
+            instruction: compileSceneStep(project, step),
+          })),
       },
       continuation: compileFlowTarget(data.continuation),
     });

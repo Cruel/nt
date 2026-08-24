@@ -280,7 +280,9 @@ enum class SystemLayoutRole : std::uint8_t {
     DebugOverlay,
     SaveMenu,
     TextLog,
-    CommandBuilder
+    CommandBuilder,
+    SceneText,
+    SceneChoice
 };
 struct SystemLayout {
     SystemLayoutRole role;
@@ -1277,14 +1279,33 @@ using SceneInstruction =
                  ConditionalBranchInstruction, ChoiceSceneInstruction, SetLayoutInstruction,
                  MaterialParameterInstruction, PostprocessEffectInstruction,
                  TransitionGroupInstruction>;
+struct SceneEventTimeline {
+    std::string track_id;
+    std::uint64_t start_ms = 0;
+    std::uint64_t duration_ms = 0;
+};
+struct SceneEventMetadata {
+    SceneStepId id;
+    SceneEventTimeline timeline;
+    std::vector<SceneStepId> completion_dependencies;
+};
 struct SceneProgram {
     std::vector<SceneInstruction> instructions;
+    std::vector<SceneEventMetadata> events;
 };
+struct InheritedSceneStage {};
+struct StagedRoomSceneStage {
+    RoomId room;
+};
+struct BlankSceneStage {
+    BackgroundPresentation background;
+    std::optional<LayoutId> layout;
+};
+using SceneStage = std::variant<InheritedSceneStage, StagedRoomSceneStage, BlankSceneStage>;
 struct SceneDefinition {
     DefinitionIdentity<SceneId> identity;
     std::string display_name;
-    BackgroundPresentation default_background;
-    std::optional<LayoutId> default_layout;
+    SceneStage stage;
     SceneProgram program;
     FlowTarget continuation;
 };

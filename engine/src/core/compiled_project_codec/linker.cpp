@@ -399,10 +399,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         interactions, interactions, InteractionDefinition, InteractionId,
         (compiled::InteractionDefinition{std::move(identity), std::move(value.rules)}));
     LINK_DEFINITIONS(scenes, scenes, SceneDefinition, SceneId,
-                     (compiled::SceneDefinition{
-                         std::move(identity), std::move(value.display_name),
-                         std::move(value.default_background), std::move(value.default_layout),
-                         std::move(value.program), std::move(value.continuation)}));
+                     (compiled::SceneDefinition{std::move(identity), std::move(value.display_name),
+                                                std::move(value.stage), std::move(value.program),
+                                                std::move(value.continuation)}));
     LINK_DEFINITIONS(
         dialogues, dialogues, DialogueDefinition, DialogueId,
         (compiled::DialogueDefinition{

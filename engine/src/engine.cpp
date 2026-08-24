@@ -299,6 +299,10 @@ const char* system_layout_role_key(core::compiled::SystemLayoutRole role)
         return "text-log";
     case core::compiled::SystemLayoutRole::CommandBuilder:
         return "command-builder";
+    case core::compiled::SystemLayoutRole::SceneText:
+        return "scene-text";
+    case core::compiled::SystemLayoutRole::SceneChoice:
+        return "scene-choice";
     }
     return "unknown";
 }
@@ -325,6 +329,10 @@ system_layout_builtin(core::compiled::SystemLayoutRole role)
         return RuntimeLayoutBuiltinDocument::Modal;
     case core::compiled::SystemLayoutRole::CommandBuilder:
         return RuntimeLayoutBuiltinDocument::CommandBuilder;
+    case core::compiled::SystemLayoutRole::SceneText:
+        return RuntimeLayoutBuiltinDocument::SceneText;
+    case core::compiled::SystemLayoutRole::SceneChoice:
+        return RuntimeLayoutBuiltinDocument::SceneChoice;
     case core::compiled::SystemLayoutRole::DebugOverlay:
         return std::nullopt;
     }
@@ -1244,7 +1252,9 @@ Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
     RuntimeLayoutMountRequest request;
     request.layout_id = std::string("system-") + system_layout_role_key(role);
     const bool gameplay_owned = role == core::compiled::SystemLayoutRole::GameHud ||
-                                role == core::compiled::SystemLayoutRole::CommandBuilder;
+                                role == core::compiled::SystemLayoutRole::CommandBuilder ||
+                                role == core::compiled::SystemLayoutRole::SceneText ||
+                                role == core::compiled::SystemLayoutRole::SceneChoice;
     request.owner =
         gameplay_owned ? core::MountedLayoutOwner::Gameplay : core::MountedLayoutOwner::Shell;
     request.policy = policy;

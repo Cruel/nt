@@ -1422,6 +1422,10 @@ std::string LayoutRealizer::builtin_document_id(RuntimeLayoutBuiltinDocument doc
         return "runtime_modal";
     case RuntimeLayoutBuiltinDocument::CommandBuilder:
         return "runtime_command_builder";
+    case RuntimeLayoutBuiltinDocument::SceneText:
+        return "runtime_scene_text";
+    case RuntimeLayoutBuiltinDocument::SceneChoice:
+        return "runtime_scene_choice";
     case RuntimeLayoutBuiltinDocument::None:
         return {};
     }

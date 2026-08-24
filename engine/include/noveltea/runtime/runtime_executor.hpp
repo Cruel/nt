@@ -9,6 +9,7 @@
 #include "noveltea/runtime/runtime_world.hpp"
 
 #include <iterator>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -145,6 +146,13 @@ public:
 
     [[nodiscard]] core::FlowRunOutcome run_until_blocked(std::size_t instruction_budget,
                                                          std::string_view runtime_locale = {});
+    void bind_scene_event_dependency_checker(
+        std::function<bool(const core::FlowFrameId&, const core::SceneId&,
+                           const core::SceneStepId&)>
+            checker)
+    {
+        m_scene_event_dependency_checker = std::move(checker);
+    }
     [[nodiscard]] core::Result<void, core::Diagnostics>
     choose_scene_option(const core::FlowFrameId& owner, const core::InputFlowBlockerHandle& handle,
                         const core::SceneChoiceOptionId& option);
@@ -180,9 +188,16 @@ public:
     runtime_ui_view(std::string_view runtime_locale);
     [[nodiscard]] core::Result<void, RuntimeExecutionError>
     refresh_room_presentation(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<void, RuntimeExecutionError>
+    refresh_scene_stage_presentations(std::string_view runtime_locale);
     [[nodiscard]] const core::RoomPresentationResolution* room_presentation() const noexcept
     {
         return m_room_presentation ? &*m_room_presentation : nullptr;
+    }
+    [[nodiscard]] const std::vector<core::SceneStageRoomPresentation>&
+    scene_stage_presentations() const noexcept
+    {
+        return m_scene_stage_presentations;
     }
     void invalidate_room_presentation() noexcept { m_room_presentation_dirty = true; }
     [[nodiscard]] core::Diagnostics take_room_presentation_diagnostics() noexcept
@@ -259,7 +274,10 @@ private:
     RuntimeCapabilitySet m_gameplay_capabilities;
     RuntimeCapabilitySet m_expression_capabilities;
     RuntimeCapabilitySet m_room_lifecycle_capabilities;
+    std::function<bool(const core::FlowFrameId&, const core::SceneId&, const core::SceneStepId&)>
+        m_scene_event_dependency_checker;
     std::optional<core::RoomPresentationResolution> m_room_presentation;
+    std::vector<core::SceneStageRoomPresentation> m_scene_stage_presentations;
     core::Diagnostics m_room_lifecycle_diagnostics;
     core::Diagnostics m_room_presentation_diagnostics;
     std::string m_room_presentation_locale;

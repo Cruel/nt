@@ -73,6 +73,8 @@ private:
     std::optional<core::MountedLayoutInstanceId> m_title;
     std::optional<core::MountedLayoutInstanceId> m_game_hud;
     std::optional<core::MountedLayoutInstanceId> m_command_builder;
+    std::optional<core::MountedLayoutInstanceId> m_scene_text;
+    std::optional<core::MountedLayoutInstanceId> m_scene_choice;
     std::vector<StackEntry> m_stack;
     std::optional<core::RuntimeShellConfirmation> m_confirmation;
     bool m_game_active = false;

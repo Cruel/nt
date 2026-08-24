@@ -92,7 +92,8 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
 Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolve(
     const CompiledProject& project, const runtime::RuntimeWorld& world, const SessionState& state,
     const RoomVisitContext& visit, RoomPresentationConditionEvaluator evaluate,
-    RoomPresentationTextResolver resolve_text, RoomCompositionCallback* composition) const
+    RoomPresentationTextResolver resolve_text, RoomCompositionCallback* composition,
+    RoomPresentationResolveMode mode) const
 {
     const auto* room = world.resolved_configuration(visit.room);
     if (room == nullptr || visit.visit_index == 0)
@@ -179,29 +180,32 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     RoomPresentationStateView state_view;
     for (const auto& character : state.character_world()) {
         const auto* location = std::get_if<compiled::RoomLocation>(&character.location);
-        if (location != nullptr && location->room == visit.room)
+        if (mode == RoomPresentationResolveMode::StagedScene ||
+            (location != nullptr && location->room == visit.room))
             state_view.characters.push_back(
                 {character.character, character.enabled, character.visible});
     }
     for (const auto& interactable : state.interactables()) {
         const auto* location = std::get_if<compiled::RoomLocation>(&interactable.location);
-        if (location != nullptr && location->room == visit.room)
+        if (mode == RoomPresentationResolveMode::StagedScene ||
+            (location != nullptr && location->room == visit.room))
             state_view.interactables.push_back(
                 {interactable.interactable, interactable.enabled, interactable.visible});
     }
-    for (const auto& overlay : room->overlays) {
-        const MountedLayoutPresentationKey mount_key =
-            RoomOverlayLayoutMountKey{visit.room, overlay.id};
-        const auto mounted = std::find_if(
-            state.mounted_layouts().begin(), state.mounted_layouts().end(),
-            [&mount_key](const DesiredMountedLayout& candidate) {
-                return candidate.key == mount_key &&
-                       presentation_authority(candidate.owner) == PresentationAuthority::Gameplay;
-            });
-        if (mounted != state.mounted_layouts().end())
-            state_view.overlay_visibility.push_back(
-                {overlay.id, mounted->policy.visibility == LayoutVisibility::Visible});
-    }
+    if (mode == RoomPresentationResolveMode::ActiveVisit)
+        for (const auto& overlay : room->overlays) {
+            const MountedLayoutPresentationKey mount_key =
+                RoomOverlayLayoutMountKey{visit.room, overlay.id};
+            const auto mounted = std::find_if(
+                state.mounted_layouts().begin(), state.mounted_layouts().end(),
+                [&mount_key](const DesiredMountedLayout& candidate) {
+                    return candidate.key == mount_key && presentation_authority(candidate.owner) ==
+                                                             PresentationAuthority::Gameplay;
+                });
+            if (mounted != state.mounted_layouts().end())
+                state_view.overlay_visibility.push_back(
+                    {overlay.id, mounted->policy.visibility == LayoutVisibility::Visible});
+        }
 
     RoomPresentationResolverCore core;
     auto resolved = core.resolve(
@@ -220,12 +224,19 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                           "Room text token is outside the definition view"));
             return resolve_text(*texts[token]);
         },
-        composition);
+        mode == RoomPresentationResolveMode::StagedScene ? nullptr : composition);
     if (!resolved)
         return resolved;
 
     auto& resolution = *resolved.value_if();
     auto& presentation = resolution.presentation;
+    if (mode == RoomPresentationResolveMode::StagedScene) {
+        // A staged Room is a visual composition template, not an active exploration context.
+        // Keep its resolved visual occurrences but expose no semantic subjects or input hotspots.
+        resolution.eligible_subjects.clear();
+        presentation.hotspots.clear();
+        return resolved;
+    }
     const auto append_subject = [&](compiled::InteractionSubject subject) {
         if (std::find(resolution.eligible_subjects.begin(), resolution.eligible_subjects.end(),
                       subject) == resolution.eligible_subjects.end())

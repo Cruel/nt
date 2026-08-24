@@ -17,6 +17,8 @@ constexpr const char* kBuiltinSettingsMenuLayoutId = "builtin-settings-menu";
 constexpr const char* kBuiltinTextLogLayoutId = "builtin-text-log";
 constexpr const char* kBuiltinModalLayoutId = "builtin-modal";
 constexpr const char* kBuiltinCommandBuilderLayoutId = "builtin-command-builder";
+constexpr const char* kBuiltinSceneTextLayoutId = "builtin-scene-text";
+constexpr const char* kBuiltinSceneChoiceLayoutId = "builtin-scene-choice";
 
 core::Diagnostics failure(std::string code, std::string message)
 {
@@ -57,6 +59,10 @@ system_role_for_builtin(RuntimeLayoutBuiltinDocument document) noexcept
         return core::compiled::SystemLayoutRole::Modal;
     case RuntimeLayoutBuiltinDocument::CommandBuilder:
         return core::compiled::SystemLayoutRole::CommandBuilder;
+    case RuntimeLayoutBuiltinDocument::SceneText:
+        return core::compiled::SystemLayoutRole::SceneText;
+    case RuntimeLayoutBuiltinDocument::SceneChoice:
+        return core::compiled::SystemLayoutRole::SceneChoice;
     case RuntimeLayoutBuiltinDocument::None:
         return std::nullopt;
     }
@@ -174,6 +180,32 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request,
         request.owner = core::MountedLayoutOwner::Gameplay;
         request.policy = {.plane = core::PresentationPlane::GameUi,
                           .local_order = 20,
+                          .clock = core::LayoutClockDomain::Gameplay,
+                          .input = core::LayoutInputMode::Normal,
+                          .gameplay_pause = core::GameplayPausePolicy::Continue,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::SceneText:
+        request.layout_id = kBuiltinSceneTextLayoutId;
+        request.owner = core::MountedLayoutOwner::Gameplay;
+        request.policy = {.plane = core::PresentationPlane::GameUi,
+                          .local_order = 30,
+                          .clock = core::LayoutClockDomain::Gameplay,
+                          .input = core::LayoutInputMode::Normal,
+                          .gameplay_pause = core::GameplayPausePolicy::Continue,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::SceneChoice:
+        request.layout_id = kBuiltinSceneChoiceLayoutId;
+        request.owner = core::MountedLayoutOwner::Gameplay;
+        request.policy = {.plane = core::PresentationPlane::GameUi,
+                          .local_order = 40,
                           .clock = core::LayoutClockDomain::Gameplay,
                           .input = core::LayoutInputMode::Normal,
                           .gameplay_pause = core::GameplayPausePolicy::Continue,

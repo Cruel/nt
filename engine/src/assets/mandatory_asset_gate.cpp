@@ -536,6 +536,9 @@ struct MandatoryAssetGate::Impl {
             context.required_system_layouts.push_back(core::compiled::SystemLayoutRole::GameHud);
             context.required_system_layouts.push_back(
                 core::compiled::SystemLayoutRole::CommandBuilder);
+            context.required_system_layouts.push_back(core::compiled::SystemLayoutRole::SceneText);
+            context.required_system_layouts.push_back(
+                core::compiled::SystemLayoutRole::SceneChoice);
         }
         if (package != nullptr && snapshot.current_room) {
             if (const auto* room = package->project().find_room(*snapshot.current_room)) {

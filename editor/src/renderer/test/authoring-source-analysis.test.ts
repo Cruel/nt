@@ -332,7 +332,7 @@ describe('typed source registry and graph evidence', () => {
       },
     ];
     const scene = defaultSceneData('Scene');
-    scene.steps = [defaultSceneStep('run-lua', 'scene-step')];
+    scene.events = [defaultSceneStep('run-lua', 'scene-step')];
     const dialogue = defaultDialogueData('Dialogue');
     if (dialogue.blocks[0]?.type === 'sequence')
       dialogue.blocks[0].segments = [defaultDialogueSegment('run-lua', 'dialogue-segment')];
@@ -1297,7 +1297,7 @@ describe('typed source registry and graph evidence', () => {
         targets: [{ kind: 'record', collection: 'rooms', id: 'target' }],
       },
     };
-    unsupported.steps = [step];
+    unsupported.events = [step];
     project.scenes.unsupported = {
       id: 'unsupported',
       label: 'Unsupported',

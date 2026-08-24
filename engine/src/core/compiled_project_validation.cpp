@@ -1546,16 +1546,42 @@ private:
         for (std::size_t scene_index = 0; scene_index < m_input.scenes.size(); ++scene_index) {
             const auto& scene = m_input.scenes[scene_index];
             const auto path = item("/definitions/scenes", scene_index);
-            validate_background(scene.default_background, path + "/defaultBackground");
-            if (scene.default_layout)
-                require(m_layouts, *scene.default_layout, "layout", path + "/defaultLayout");
+            std::visit(
+                [&](const auto& stage) {
+                    using Stage = std::decay_t<decltype(stage)>;
+                    if constexpr (std::is_same_v<Stage, StagedRoomSceneStage>)
+                        require(m_rooms, stage.room, "room", path + "/stage/room");
+                    else if constexpr (std::is_same_v<Stage, BlankSceneStage>) {
+                        validate_background(stage.background, path + "/stage/background");
+                        if (stage.layout)
+                            require(m_layouts, *stage.layout, "layout", path + "/stage/layout");
+                    }
+                },
+                scene.stage);
             std::unordered_set<SceneStepId> steps;
             for (const auto& instruction : scene.program.instructions)
                 std::visit([&](const auto& typed) { steps.insert(typed.id); }, instruction);
+            std::unordered_set<SceneStepId> completed;
             for (std::size_t instruction_index = 0;
                  instruction_index < scene.program.instructions.size(); ++instruction_index) {
                 const auto instruction_path =
-                    path + "/program/instructions/" + std::to_string(instruction_index);
+                    path + "/program/events/" + std::to_string(instruction_index) + "/instruction";
+                if (instruction_index < scene.program.events.size()) {
+                    const auto& event = scene.program.events[instruction_index];
+                    const auto event_path =
+                        path + "/program/events/" + std::to_string(instruction_index);
+                    for (std::size_t dependency_index = 0;
+                         dependency_index < event.completion_dependencies.size();
+                         ++dependency_index) {
+                        if (!completed.contains(event.completion_dependencies[dependency_index]))
+                            error("project.scene_completion_dependency_order",
+                                  "Scene Event completion dependency must reference an earlier "
+                                  "Event.",
+                                  event_path + "/completionDependencies/" +
+                                      std::to_string(dependency_index));
+                    }
+                    completed.insert(event.id);
+                }
                 std::visit(
                     [&](const auto& instruction) {
                         using T = std::decay_t<decltype(instruction)>;

@@ -220,9 +220,9 @@ function collectRoomSources(data: JsonObject): RegisteredAuthoringLuaSource[] {
 
 function collectSceneSources(data: JsonObject): RegisteredAuthoringLuaSource[] {
   const output: RegisteredAuthoringLuaSource[] = [];
-  asArray(data.steps).forEach((step, index) => {
+  asArray(data.events).forEach((step, index) => {
     if (!isObject(step)) return;
-    const base = ['steps', String(index)];
+    const base = ['events', String(index)];
     addCondition(output, step.condition, [...base, 'condition'], {
       supportsExplicitFallback: false,
     });

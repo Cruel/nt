@@ -92,6 +92,7 @@ public:
     [[nodiscard]] Result<void, Diagnostics> mark_scene_wait(const SceneId& scene,
                                                             const SceneStepId& expected_step,
                                                             SceneStepSubstate substate);
+    [[nodiscard]] Result<void, Diagnostics> mark_scene_stage_initialized(const SceneId& scene);
     [[nodiscard]] Result<void, Diagnostics>
     choose_scene_option(const FlowFrameId& owner, const InputFlowBlockerHandle& handle,
                         const SceneChoiceOptionId& option);

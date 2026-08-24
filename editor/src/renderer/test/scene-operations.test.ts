@@ -19,7 +19,12 @@ describe('scene commands', () => {
     expect(result.document).toMatchObject({
       scenes: {
         opening: {
-          data: { kind: 'scene', continuation: { kind: 'end' }, steps: [{ type: 'comment' }] },
+          data: {
+            kind: 'scene',
+            continuation: { kind: 'end' },
+            stage: { kind: 'blank' },
+            events: [{ type: 'comment' }],
+          },
         },
       },
     });
@@ -30,7 +35,7 @@ describe('scene commands', () => {
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     let state = createInitialCommandBusState(toJsonValue(project));
     const invalid = defaultSceneData('Opening');
-    invalid.steps = [
+    invalid.events = [
       { ...defaultSceneStep('call-dialogue'), dialogue: sceneDialogueRef('missing') },
     ];
     expect(
@@ -40,7 +45,7 @@ describe('scene commands', () => {
       }).ok,
     ).toBe(false);
     const next = defaultSceneData('Opening Scene');
-    next.steps.push({ ...defaultSceneStep('wait'), id: 'wait' });
+    next.events.push({ ...defaultSceneStep('wait'), id: 'wait' });
     const valid = executeCommand(state, {
       type: 'scene.replaceData',
       label: 'Set scene data',

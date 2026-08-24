@@ -1,0 +1,16 @@
+<rml>
+<head>
+    <title>NovelTea Scene Choice</title>
+    <link type="text/rcss" href="system|/ui/runtime/scene-presentation.rcss"/>
+</head>
+<body data-model="noveltea">
+    <div id="scene_choice_panel" data-if="gameplay.scene_choices.size > 0">
+        <button data-for="choice : gameplay.scene_choices"
+                data-class-disabled="!choice.enabled"
+                data-attrif-disabled="!choice.enabled"
+                data-event-click="ui_choose(choice.kind, choice.id)">
+            {{ choice.label }}
+        </button>
+    </div>
+</body>
+</rml>

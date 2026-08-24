@@ -68,7 +68,8 @@ void collect_material_ids(const CompiledProject& project, std::unordered_set<std
     for (const auto& interactable : project.interactables())
         add(interactable.presentation.material);
     for (const auto& scene : project.scenes()) {
-        add(scene.default_background.material);
+        if (const auto* blank = std::get_if<compiled::BlankSceneStage>(&scene.stage))
+            add(blank->background.material);
         for (const auto& instruction : scene.program.instructions) {
             if (const auto* background =
                     std::get_if<compiled::SetBackgroundInstruction>(&instruction))

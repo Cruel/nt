@@ -38,6 +38,8 @@ export const systemLayoutRoleValues = [
   'modal',
   'debug-overlay',
   'command-builder',
+  'scene-text',
+  'scene-choice',
 ] as const;
 
 export type LayoutKind = (typeof layoutKindValues)[number];
@@ -327,6 +329,8 @@ export const systemLayoutSettingsSchema = z
     modal: layoutRecordRefSchema.nullable().optional(),
     'debug-overlay': layoutRecordRefSchema.nullable().optional(),
     'command-builder': layoutRecordRefSchema.nullable().optional(),
+    'scene-text': layoutRecordRefSchema.nullable().optional(),
+    'scene-choice': layoutRecordRefSchema.nullable().optional(),
   })
   .strict()
   .default({});

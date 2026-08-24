@@ -1,0 +1,53 @@
+#scene_text_panel,
+#scene_choice_panel {
+    position: absolute;
+    left: 280px;
+    right: 276px;
+    bottom: 24px;
+    overflow: hidden;
+    padding: 17px 20px;
+    background-color: #101317e8;
+    border: 1px #8d887dcc;
+    pointer-events: auto;
+}
+
+#scene_text_body {
+    display: block;
+    width: 100%;
+    min-height: 82px;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    color: #fff4df;
+    font-size: 18px;
+    line-height: 1.4;
+    pointer-events: auto;
+}
+
+#scene_text_body .nt-active-text__prompt {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    color: #d8c792;
+    font-size: 12px;
+}
+
+#scene_choice_panel button {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 8px 10px;
+    color: #f7f4ed;
+    background-color: #263640;
+    border: 1px #6f8999;
+    text-align: left;
+    pointer-events: auto;
+}
+
+#scene_choice_panel button:hover {
+    background-color: #354d5b;
+}
+
+#scene_choice_panel button.disabled {
+    opacity: 0.55;
+}

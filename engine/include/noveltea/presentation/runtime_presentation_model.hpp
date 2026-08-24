@@ -24,10 +24,16 @@ public:
                  core::RoomPresentationConditionEvaluator evaluate,
                  core::RoomPresentationTextResolver resolve_text,
                  core::RoomCompositionCallback* composition = nullptr) const override;
-    [[nodiscard]] core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>
-    project(const core::CompiledProject& project, const runtime::RuntimeWorld& world,
-            const core::SessionState& state,
-            const core::ResolvedRoomPresentation* room_presentation = nullptr) const override;
+    [[nodiscard]] core::Result<core::RoomPresentationResolution, core::Diagnostics>
+    resolve_staged_room(const core::CompiledProject& project, const runtime::RuntimeWorld& world,
+                        const core::SessionState& state, const core::RoomId& room,
+                        core::RoomPresentationConditionEvaluator evaluate,
+                        core::RoomPresentationTextResolver resolve_text) const override;
+    [[nodiscard]] core::Result<core::RuntimePresentationSnapshot, core::Diagnostics> project(
+        const core::CompiledProject& project, const runtime::RuntimeWorld& world,
+        const core::SessionState& state,
+        const core::ResolvedRoomPresentation* room_presentation = nullptr,
+        const std::vector<core::SceneStageRoomPresentation>* scene_stages = nullptr) const override;
 };
 
 } // namespace noveltea::presentation

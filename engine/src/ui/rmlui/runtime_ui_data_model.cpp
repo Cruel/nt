@@ -620,6 +620,8 @@ struct GameplayProjection {
     bool can_continue = false;
     bool active_text_available = false;
     std::vector<ChoiceProjection> choices;
+    bool scene_text_available = false;
+    std::vector<ChoiceProjection> scene_choices;
     std::vector<ActorProjection> actors;
     DialogueProjection dialogue;
     RoomProjection room;
@@ -634,6 +636,8 @@ struct GameplayProjection {
     bool get_can_continue() { return can_continue; }
     bool get_active_text_available() { return active_text_available; }
     std::vector<ChoiceProjection>& get_choices() { return choices; }
+    bool get_scene_text_available() { return scene_text_available; }
+    std::vector<ChoiceProjection>& get_scene_choices() { return scene_choices; }
     std::vector<ActorProjection>& get_actors() { return actors; }
     DialogueProjection& get_dialogue() { return dialogue; }
     RoomProjection& get_room() { return room; }
@@ -899,7 +903,9 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(GameplayProjection, title), NT_MEMBER(GameplayProjection, notification),
             NT_MEMBER(GameplayProjection, can_continue),
             NT_MEMBER(GameplayProjection, active_text_available),
-            NT_MEMBER(GameplayProjection, choices), NT_MEMBER(GameplayProjection, actors),
+            NT_MEMBER(GameplayProjection, choices),
+            NT_MEMBER(GameplayProjection, scene_text_available),
+            NT_MEMBER(GameplayProjection, scene_choices), NT_MEMBER(GameplayProjection, actors),
             NT_MEMBER(GameplayProjection, dialogue), NT_MEMBER(GameplayProjection, room),
             NT_MEMBER(GameplayProjection, inventory), NT_MEMBER(GameplayProjection, interaction),
             NT_MEMBER(GameplayProjection, command_builder),
@@ -1143,13 +1149,14 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
             : typed_notification;
     out.can_continue = view.can_continue;
     out.active_text_available =
-        (view.scene && view.scene->text && !view.scene->text->text.empty()) ||
         (view.dialogue && view.dialogue->line && !view.dialogue->line->text.empty()) ||
         (view.room && !view.room->description.empty());
+    out.scene_text_available = view.scene && view.scene->text && !view.scene->text->text.empty();
 
     if (view.scene && view.scene->choice) {
         for (const auto& option : view.scene->choice->options)
-            out.choices.push_back({"scene", option.option.text(), option.label, option.enabled});
+            out.scene_choices.push_back(
+                {"scene", option.option.text(), option.label, option.enabled});
     } else if (view.dialogue && view.dialogue->choice) {
         for (const auto& option : view.dialogue->choice->options)
             out.choices.push_back({"dialogue", option.edge.text(), option.label, option.enabled});

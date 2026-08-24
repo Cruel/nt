@@ -868,13 +868,24 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     scenes.push({
       ...definitionBase(id),
       displayName: data.displayName,
-      defaultBackground: {
-        asset: assetRef(data.defaultBackground.asset),
-        material: materialRef(data.defaultBackground.material),
-        color: data.defaultBackground.color,
-        fit: data.defaultBackground.fit,
-      },
-      defaultLayout: layoutRef(data.defaultLayout),
+      stage:
+        data.stage.kind === 'inherited'
+          ? { kind: 'inherited' as const }
+          : data.stage.kind === 'staged-room'
+            ? {
+                kind: 'staged-room' as const,
+                room: { kind: 'room' as const, id: data.stage.room.$ref.id },
+              }
+            : {
+                kind: 'blank' as const,
+                background: {
+                  asset: assetRef(data.stage.background.asset),
+                  material: materialRef(data.stage.background.material),
+                  color: data.stage.background.color,
+                  fit: data.stage.background.fit,
+                },
+                layout: layoutRef(data.stage.layout),
+              },
     });
   }
 

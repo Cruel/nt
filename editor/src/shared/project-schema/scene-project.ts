@@ -67,9 +67,9 @@ export function buildScenePreviewDocumentData(
     };
   const selectedIndex = Math.max(
     0,
-    data.steps.findIndex((step) => step.id === selectedStepId),
+    data.events.findIndex((step) => step.id === selectedStepId),
   );
-  const selected = data.steps[selectedIndex] ?? data.steps[0] ?? null;
+  const selected = data.events[selectedIndex] ?? data.events[0] ?? null;
   return {
     schema: SCENE_PREVIEW_SCHEMA,
     sceneId,
@@ -78,14 +78,23 @@ export function buildScenePreviewDocumentData(
     selectedStepId: selected?.id ?? null,
     selectedStepIndex: selected ? selectedIndex : -1,
     selectedStep: selected ? summarizeStep(project, selected) : null,
-    steps: data.steps.map((step, index) => ({
+    events: data.events.map((step, index) => ({
       id: step.id,
       label: step.label,
       type: step.type,
       enabled: 'enabled' in step ? step.enabled : true,
       selected: index === selectedIndex,
+      timeline: step.timeline,
+      completionDependencies: 'completionDependencies' in step ? step.completionDependencies : [],
     })),
-    defaults: { background: data.defaultBackground, layout: data.defaultLayout },
+    timeline: {
+      durationMs: Math.max(
+        0,
+        ...data.events.map((step) => step.timeline.startMs + Math.max(step.timeline.durationMs, 0)),
+      ),
+      tracks: [...new Set(data.events.map((step) => step.timeline.trackId))],
+    },
+    stage: data.stage,
     continuation: data.continuation,
     diagnostics: validateSceneData(project, sceneId, record),
   };

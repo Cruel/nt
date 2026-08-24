@@ -144,6 +144,17 @@ TEST_CASE("system Layout policies derive shell pause, input, and clock behavior"
     CHECK(builder.gameplay_pause == core::GameplayPausePolicy::Continue);
     CHECK(builder.escape_dismissal == core::EscapeDismissalPolicy::Ignore);
 
+    const auto scene_text =
+        runtime_system_layout_policy(core::compiled::SystemLayoutRole::SceneText);
+    const auto scene_choice =
+        runtime_system_layout_policy(core::compiled::SystemLayoutRole::SceneChoice);
+    CHECK(scene_text.plane == core::PresentationPlane::GameUi);
+    CHECK(scene_text.local_order == 30);
+    CHECK(scene_choice.plane == core::PresentationPlane::GameUi);
+    CHECK(scene_choice.local_order == 40);
+    CHECK(scene_text.clock == core::LayoutClockDomain::Gameplay);
+    CHECK(scene_choice.clock == core::LayoutClockDomain::Gameplay);
+
     const auto debug = runtime_system_layout_policy(core::compiled::SystemLayoutRole::DebugOverlay);
     CHECK(debug.plane == core::PresentationPlane::Debug);
     CHECK(debug.gameplay_pause == core::GameplayPausePolicy::Continue);
@@ -265,5 +276,5 @@ TEST_CASE("system Layout reset clears shell stack and supports fresh project ini
     REQUIRE(layouts.initialize(true));
     CHECK_FALSE(layouts.game_active());
     CHECK(layouts.current_screen() == core::RuntimeShellScreen::Title);
-    CHECK(host.mounted.size() == mounts_before_reload + 3);
+    CHECK(host.mounted.size() == mounts_before_reload + 5);
 }

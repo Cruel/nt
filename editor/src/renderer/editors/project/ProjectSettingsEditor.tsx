@@ -442,6 +442,8 @@ const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
   modal: 'Modal dialog',
   'debug-overlay': 'Debug overlay',
   'command-builder': 'Command builder',
+  'scene-text': 'Scene text',
+  'scene-choice': 'Scene choice',
 };
 
 export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {

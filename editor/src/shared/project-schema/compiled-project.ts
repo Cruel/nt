@@ -968,17 +968,42 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     waitForCompletion: z.boolean(),
   }),
 ]);
-export const sceneProgramSchema = strict({ instructions: z.array(sceneInstructionSchema) });
+const sceneEventSchema = strict({
+  id,
+  timeline: strict({
+    trackId: id,
+    startMs: z.number().int().nonnegative(),
+    durationMs: z.number().int().nonnegative(),
+  }),
+  completionDependencies: z.array(id),
+  instruction: sceneInstructionSchema,
+}).superRefine((event, context) => {
+  if (event.id !== event.instruction.id)
+    context.addIssue({
+      code: 'custom',
+      path: ['instruction', 'id'],
+      message: 'Scene Event and instruction IDs must match.',
+    });
+});
+export const sceneProgramSchema = strict({ events: z.array(sceneEventSchema) });
+const sceneStageSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('inherited') }),
+  strict({ kind: z.literal('staged-room'), room: roomReferenceSchema }),
+  strict({
+    kind: z.literal('blank'),
+    background: strict({
+      asset: assetReferenceSchema.nullable(),
+      color: z.string().nullable(),
+      fit: z.enum(['cover', 'contain', 'stretch', 'center']),
+      material: materialReferenceSchema.nullable(),
+    }),
+    layout: layoutReferenceSchema.nullable(),
+  }),
+]);
 const sceneDefinitionSchema = strict({
   id,
-  defaultBackground: strict({
-    asset: assetReferenceSchema.nullable(),
-    color: z.string().nullable(),
-    fit: z.enum(['cover', 'contain', 'stretch', 'center']),
-    material: materialReferenceSchema.nullable(),
-  }),
-  defaultLayout: layoutReferenceSchema.nullable(),
   displayName: z.string(),
+  stage: sceneStageSchema,
   program: sceneProgramSchema,
   continuation: compiledFlowTargetSchema,
 });
@@ -1411,6 +1436,8 @@ const runtimeSettingsSchema = strict({
         'modal',
         'debug-overlay',
         'command-builder',
+        'scene-text',
+        'scene-choice',
       ]),
     }),
   ),

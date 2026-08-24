@@ -100,6 +100,12 @@ public:
         return m_delegate ? m_delegate->checkpoint_status() : m_staged_checkpoint_status;
     }
 
+    [[nodiscard]] bool
+    presentation_operation_active(core::PresentationOperationId operation) const noexcept override
+    {
+        return m_delegate ? m_delegate->presentation_operation_active(operation) : false;
+    }
+
     void terminate(core::PresentationCancellationReason reason) override
     {
         m_operations.clear();

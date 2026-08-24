@@ -29,6 +29,8 @@ constexpr char kRuntimeSettingsMenuDocumentAsset[] = "system:/ui/menu/settings-m
 constexpr char kRuntimeTextLogDocumentAsset[] = "system:/ui/menu/text-log.rml";
 constexpr char kRuntimeModalDocumentAsset[] = "system:/ui/menu/modal.rml";
 constexpr char kRuntimeCommandBuilderDocumentAsset[] = "system:/ui/runtime/command-builder.rml";
+constexpr char kRuntimeSceneTextDocumentAsset[] = "system:/ui/runtime/scene-text.rml";
+constexpr char kRuntimeSceneChoiceDocumentAsset[] = "system:/ui/runtime/scene-choice.rml";
 constexpr char kRmlUiHtml4BaselineAsset[] = "system:/ui/baseline/rmlui-html4.rcss";
 constexpr char kNovelTeaBaselineAsset[] = "system:/ui/baseline/noveltea.rcss";
 
@@ -58,6 +60,10 @@ BuiltinDescriptor builtin_descriptor(RuntimeLayoutBuiltinDocument document) noex
         return {kRuntimeModalDocumentId, kRuntimeModalDocumentAsset};
     case RuntimeLayoutBuiltinDocument::CommandBuilder:
         return {kRuntimeCommandBuilderDocumentId, kRuntimeCommandBuilderDocumentAsset};
+    case RuntimeLayoutBuiltinDocument::SceneText:
+        return {kRuntimeSceneTextDocumentId, kRuntimeSceneTextDocumentAsset};
+    case RuntimeLayoutBuiltinDocument::SceneChoice:
+        return {kRuntimeSceneChoiceDocumentId, kRuntimeSceneChoiceDocumentAsset};
     case RuntimeLayoutBuiltinDocument::None:
         return {};
     }

@@ -10,6 +10,11 @@
 
 namespace noveltea::core {
 
+enum class RoomPresentationResolveMode : std::uint8_t {
+    ActiveVisit,
+    StagedScene,
+};
+
 class RoomPresentationResolverCore final {
 public:
     [[nodiscard]] Result<RoomPresentationResolution, Diagnostics>
@@ -26,7 +31,8 @@ public:
     resolve(const CompiledProject& project, const runtime::RuntimeWorld& world,
             const SessionState& state, const RoomVisitContext& visit,
             RoomPresentationConditionEvaluator evaluate, RoomPresentationTextResolver resolve_text,
-            RoomCompositionCallback* composition = nullptr) const;
+            RoomCompositionCallback* composition = nullptr,
+            RoomPresentationResolveMode mode = RoomPresentationResolveMode::ActiveVisit) const;
 };
 
 [[nodiscard]] Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target(

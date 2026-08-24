@@ -1,4 +1,5 @@
 #include <noveltea/core/compiled_project_codec.hpp>
+#include <noveltea/core/flow_executor.hpp>
 #include <noveltea/core/layout_policies.hpp>
 #include <noveltea/core/property_resolver.hpp>
 #include <noveltea/presentation/presentation_operation_requests.hpp>
@@ -48,6 +49,28 @@ CompiledProject fixture()
                                 {"visible", true},
                                 {"order", 0}}});
     auto decoded = decode_compiled_project(document, "scene-program.json");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
+CompiledProject staged_scene_fixture()
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/scene-program.json");
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)), {});
+    auto document = nlohmann::json::parse(source);
+    auto& scenes = document["definitions"]["scenes"];
+    auto opening = std::find_if(scenes.begin(), scenes.end(), [](const nlohmann::json& value) {
+        return value["id"] == "opening";
+    });
+    REQUIRE(opening != scenes.end());
+    (*opening)["stage"] = {
+        {"kind", "staged-room"},
+        {"room", {{"kind", "room"}, {"id", "hall"}}},
+    };
+    auto decoded = decode_compiled_project(document, "staged-scene-program.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -284,7 +307,96 @@ const PresentationMountedLayout* find_layout(const RuntimePresentationSnapshot& 
                      [&](const auto& value) { return value.owner == owner && value.key == key; });
     return found == snapshot.layouts.end() ? nullptr : &*found;
 }
+
+struct CountingRoomComposition final : RoomCompositionCallback {
+    int calls = 0;
+    Result<void, Diagnostics> compose(const RoomVisitContext&, RoomPresentationDraft&) override
+    {
+        ++calls;
+        return Result<void, Diagnostics>::success();
+    }
+};
 } // namespace
+
+TEST_CASE("staged Scene Room composition is visual-only and nested Stage unwind restores caller")
+{
+    const auto project = staged_scene_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    RuntimeWorld world(project, state);
+    const auto active_room = resolve_room(project, state);
+    CHECK(world.effective_room(id<CharacterId>("hero")) == id<RoomId>("start"));
+    REQUIRE(state.room_visit());
+    CHECK(state.room_visit()->room == id<RoomId>("start"));
+
+    CountingRoomComposition composition;
+    RoomPresentationResolver resolver;
+    const RoomVisitContext staged_visit{
+        id<RoomId>("hall"), std::nullopt, std::nullopt, RoomEntryCause::DirectedRoomChange, 1, 1};
+    auto staged = resolver.resolve(
+        project, world, state, staged_visit,
+        [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
+        [](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(std::visit(
+                [](const auto& value) -> std::string {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, LuaTextExpression>)
+                        return value.source;
+                    else
+                        return value.value;
+                },
+                source));
+        },
+        &composition, RoomPresentationResolveMode::StagedScene);
+    REQUIRE(staged);
+    CHECK(composition.calls == 0);
+    CHECK(staged.value().presentation.visit.room == id<RoomId>("hall"));
+    CHECK(staged.value().eligible_subjects.empty());
+    CHECK(staged.value().presentation.hotspots.empty());
+    CHECK(world.effective_room(id<CharacterId>("hero")) == id<RoomId>("start"));
+    REQUIRE(state.room_visit());
+    CHECK(state.room_visit()->room == id<RoomId>("start"));
+
+    FlowExecutor flow(project, state);
+    REQUIRE(flow.mark_scene_stage_initialized(id<SceneId>("opening")));
+    const auto& caller = std::get<SceneFrame>(state.flow_stack().back());
+    const ScenePresentationOwner caller_owner{caller.frame_id, caller.scene};
+    std::vector<SceneStageRoomPresentation> caller_stages{
+        SceneStageRoomPresentation{caller_owner, staged.value()}};
+    auto caller_snapshot =
+        PresentationProjector::project(project, world, state, &active_room, &caller_stages);
+    if (!caller_snapshot) {
+        std::string message;
+        for (const auto& diagnostic : caller_snapshot.error())
+            message += diagnostic.code + ": " + diagnostic.message + "\n";
+        FAIL(message);
+    }
+    REQUIRE(caller_snapshot);
+    CHECK(caller_snapshot.value().current_room == id<RoomId>("start"));
+    REQUIRE(caller_snapshot.value().background);
+    CHECK(caller_snapshot.value().background->fit == compiled::BackgroundFit::Contain);
+
+    const auto caller_position = caller.position;
+    REQUIRE(flow.call_child(id<SceneId>("closing"), caller_position));
+    REQUIRE(flow.mark_scene_stage_initialized(id<SceneId>("closing")));
+    auto child_snapshot =
+        PresentationProjector::project(project, world, state, &active_room, &caller_stages);
+    REQUIRE(child_snapshot);
+    CHECK(child_snapshot.value().current_room == id<RoomId>("start"));
+    REQUIRE(child_snapshot.value().background);
+    CHECK(child_snapshot.value().background->color == std::optional<std::string>{"#0f172a"});
+
+    REQUIRE(flow.return_from_flow());
+    auto restored_snapshot =
+        PresentationProjector::project(project, world, state, &active_room, &caller_stages);
+    REQUIRE(restored_snapshot);
+    CHECK(restored_snapshot.value().current_room == id<RoomId>("start"));
+    REQUIRE(restored_snapshot.value().background);
+    CHECK(restored_snapshot.value().background->fit == compiled::BackgroundFit::Contain);
+    CHECK(world.effective_room(id<CharacterId>("hero")) == id<RoomId>("start"));
+}
 
 TEST_CASE("direct Dialogue Stage Slots project ordinary Character presentation actors")
 {

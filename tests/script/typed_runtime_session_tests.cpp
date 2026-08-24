@@ -62,17 +62,33 @@ core::compiled::InventoryLocation player_inventory_location()
         core::compiled::ProjectInventoryOwner{}, std::move(inventory).value()}};
 }
 
+nlohmann::json scene_events(nlohmann::json instructions)
+{
+    auto events = nlohmann::json::array();
+    for (auto& instruction : instructions) {
+        const auto id = instruction.at("id");
+        events.push_back({{"id", id},
+                          {"timeline",
+                           {{"trackId", "main"},
+                            {"startMs", 0},
+                            {"durationMs", instruction.value("durationMs", 0)}}},
+                          {"completionDependencies", nlohmann::json::array()},
+                          {"instruction", std::move(instruction)}});
+    }
+    return events;
+}
+
 core::CompiledProject make_immediate_audio_project(std::string source_name)
 {
     auto document = load_document("scene-program.json");
     auto& opening = document["definitions"]["scenes"][1];
-    opening["program"]["instructions"] =
+    opening["program"]["events"] = scene_events(
         nlohmann::json::array({{{"id", "audio"},
                                 {"kind", "run-lua"},
                                 {"autosaveSafePoint", false},
                                 {"mayYield", false},
                                 {"source", "local ok, err = audio.play('audio-voice', 'voice'); "
-                                           "assert(ok and err == nil)"}}});
+                                           "assert(ok and err == nil)"}}}));
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -80,24 +96,24 @@ core::CompiledProject make_awaited_audio_cue_project(std::string source_name)
 {
     auto document = load_document("scene-program.json");
     auto& opening = document["definitions"]["scenes"][1];
-    opening["program"]["instructions"] =
-        nlohmann::json::array({{{"id", "audio"},
-                                {"kind", "audio-cue"},
-                                {"action", "fade-in"},
-                                {"purpose", "voice"},
-                                {"lifetime", "one-shot"},
-                                {"pausePolicy", "gameplay"},
-                                {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
-                                {"fadeMs", 25},
-                                {"gain", 0.5},
-                                {"pan", 0.0},
-                                {"panSource", nullptr},
-                                {"waitForCompletion", true},
-                                {"causality", "causal"},
-                                {"synchronized", false},
-                                {"skipBehavior", "stop"},
-                                {"instanceId", nullptr},
-                                {"replacementGroup", nullptr}}});
+    opening["program"]["events"] =
+        scene_events(nlohmann::json::array({{{"id", "audio"},
+                                             {"kind", "audio-cue"},
+                                             {"action", "fade-in"},
+                                             {"purpose", "voice"},
+                                             {"lifetime", "one-shot"},
+                                             {"pausePolicy", "gameplay"},
+                                             {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+                                             {"fadeMs", 25},
+                                             {"gain", 0.5},
+                                             {"pan", 0.0},
+                                             {"panSource", nullptr},
+                                             {"waitForCompletion", true},
+                                             {"causality", "causal"},
+                                             {"synchronized", false},
+                                             {"skipBehavior", "stop"},
+                                             {"instanceId", nullptr},
+                                             {"replacementGroup", nullptr}}}));
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -106,7 +122,7 @@ core::CompiledProject make_transition_group_project(std::string source_name,
 {
     auto document = load_document("scene-program.json");
     auto& opening = document["definitions"]["scenes"][1];
-    opening["program"]["instructions"] =
+    opening["program"]["events"] = scene_events(
         nlohmann::json::array({{{"id", "transition"},
                                 {"kind", "transition-group"},
                                 {"children", nlohmann::json::array({{{"id", "background"},
@@ -123,7 +139,38 @@ core::CompiledProject make_transition_group_project(std::string source_name,
                                {{"id", "after-transition"},
                                 {"kind", "set-global-property"},
                                 {"property", {{"kind", "property"}, {"id", "count"}}},
-                                {"value", 9}}});
+                                {"value", 9}}}));
+    return decode_document(std::move(document), std::move(source_name));
+}
+
+core::CompiledProject make_transition_dependency_project(std::string source_name)
+{
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["events"] = scene_events(
+        nlohmann::json::array({{{"id", "transition"},
+                                {"kind", "transition-group"},
+                                {"children", nlohmann::json::array({{{"id", "background"},
+                                                                     {"kind", "set-background"},
+                                                                     {"asset", nullptr},
+                                                                     {"material", nullptr},
+                                                                     {"color", "#556677"},
+                                                                     {"fit", "cover"}}})},
+                                {"transitionKind", "fade"},
+                                {"durationMs", 250},
+                                {"color", "#000000"},
+                                {"skippable", true},
+                                {"waitForCompletion", false}},
+                               {{"id", "overlap"},
+                                {"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "count"}}},
+                                {"value", 5}},
+                               {{"id", "dependent"},
+                                {"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "count"}}},
+                                {"value", 9}}}));
+    opening["program"]["events"][2]["completionDependencies"] =
+        nlohmann::json::array({"transition"});
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -166,12 +213,12 @@ core::CompiledProject make_faulting_scene_project(std::string source_name)
 {
     auto document = load_document("scene-program.json");
     auto& opening = document["definitions"]["scenes"][1];
-    opening["program"]["instructions"] =
-        nlohmann::json::array({{{"id", "fault"},
-                                {"kind", "run-lua"},
-                                {"autosaveSafePoint", false},
-                                {"mayYield", false},
-                                {"source", "error('intentional runtime fault')"}}});
+    opening["program"]["events"] =
+        scene_events(nlohmann::json::array({{{"id", "fault"},
+                                             {"kind", "run-lua"},
+                                             {"autosaveSafePoint", false},
+                                             {"mayYield", false},
+                                             {"source", "error('intentional runtime fault')"}}}));
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -236,6 +283,10 @@ public:
     accept(const core::PresentationOperation& operation) override
     {
         presentation_operations.push_back(operation);
+        if (track_presentation_liveness) {
+            active_presentation_operations.push_back(
+                std::visit([](const auto& value) { return value.common.id; }, operation));
+        }
         if (reject_presentation)
             return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
                 {{.code = "presentation.test_rejected",
@@ -285,6 +336,14 @@ public:
         return status;
     }
 
+    [[nodiscard]] bool
+    presentation_operation_active(core::PresentationOperationId operation) const noexcept override
+    {
+        return std::find(active_presentation_operations.begin(),
+                         active_presentation_operations.end(),
+                         operation) != active_presentation_operations.end();
+    }
+
     void terminate(core::PresentationCancellationReason reason) override
     {
         terminations.push_back(reason);
@@ -293,6 +352,7 @@ public:
     core::PresentationCheckpointStatus status{core::CheckpointStatusRevision::from_number(1), {}};
     std::vector<core::RuntimePresentationSnapshot> reconciled_snapshots;
     std::vector<core::PresentationOperation> presentation_operations;
+    std::vector<core::PresentationOperationId> active_presentation_operations;
     std::vector<core::AudioOperation> audio_operations;
     std::vector<core::PresentationCancellationReason> terminations;
     bool reject_audio = false;
@@ -301,6 +361,7 @@ public:
     std::optional<std::size_t> reject_reconcile_call;
     bool install_barrier_on_audio_accept = false;
     bool install_barrier_on_presentation_accept = false;
+    bool track_presentation_liveness = false;
     TypedRuntimeSession* reentrant_session = nullptr;
     std::optional<runtime::RuntimeDispatchResult> nested_dispatch;
 };
@@ -1682,6 +1743,41 @@ TEST_CASE("disposable TransitionGroup emits and ends the transaction before adja
           core::RuntimeValue{std::int64_t{9}});
 }
 
+TEST_CASE("Scene completion dependencies wait only for the referenced non-blocking operation")
+{
+    auto project = make_transition_dependency_project("transition-group-dependency.json");
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&sources}));
+    REQUIRE(scripts.execute("function initialize_fixture() end", "transition-dependency-startup"));
+    prepare_project_scripts(scripts, project);
+    FakePresentationRuntime presentation;
+    presentation.track_presentation_liveness = true;
+    core::TypedMemorySaveSlotStore saves;
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+    const auto count = make_id<core::PropertyIdTag>("count");
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(presentation.presentation_operations.size() == 1);
+    REQUIRE(presentation.active_presentation_operations.size() == 1);
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{2}});
+
+    auto overlapped = session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(overlapped.diagnostics.empty());
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{5}});
+
+    presentation.active_presentation_operations.clear();
+    auto completed = session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(completed.diagnostics.empty());
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{9}});
+}
+
 TEST_CASE("finite target reconciliation failure restores the source before operation acceptance")
 {
     auto project = make_transition_group_project("transition-group-reconcile.json", false);
@@ -2785,7 +2881,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
 {
     auto document = load_document("scene-program.json");
     auto& opening = document["definitions"]["scenes"][1];
-    opening["program"]["instructions"] = nlohmann::json::array(
+    opening["program"]["events"] = scene_events(nlohmann::json::array(
         {{{"id", "pause"},
           {"kind", "run-lua"},
           {"autosaveSafePoint", false},
@@ -2794,7 +2890,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
          {{"id", "after-pause"},
           {"kind", "set-global-property"},
           {"property", {{"kind", "property"}, {"id", "count"}}},
-          {"value", 77}}});
+          {"value", 77}}}));
     auto project = decode_document(std::move(document), "typed-pause-in-flow.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
@@ -2967,7 +3063,7 @@ TEST_CASE(
 
     auto document = load_document("scene-program.json");
     auto& opening = document["definitions"]["scenes"][1];
-    opening["program"]["instructions"] = nlohmann::json::array(
+    opening["program"]["events"] = scene_events(nlohmann::json::array(
         {{{"id", "lua"},
           {"kind", "run-lua"},
           {"autosaveSafePoint", false},
@@ -2975,7 +3071,7 @@ TEST_CASE(
           {"source", "local ok, err = audio.play_and_wait('audio-voice', 'voice', {gain=0.4}); "
                      "assert(ok and err == nil); Game.set_prop('count', 50); "
                      "ok, err = audio.stop_and_wait('voice', {fade_ms=5}); "
-                     "assert(ok and err == nil); Game.set_prop('count', 77)"}}});
+                     "assert(ok and err == nil); Game.set_prop('count', 77)"}}}));
     auto project = decode_document(std::move(document), "typed-audio-await.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;

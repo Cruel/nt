@@ -242,6 +242,8 @@ using ui::rmlui::kRuntimeLoadMenuDocumentId;
 using ui::rmlui::kRuntimeModalDocumentId;
 using ui::rmlui::kRuntimePauseMenuDocumentId;
 using ui::rmlui::kRuntimeSaveMenuDocumentId;
+using ui::rmlui::kRuntimeSceneChoiceDocumentId;
+using ui::rmlui::kRuntimeSceneTextDocumentId;
 using ui::rmlui::kRuntimeSettingsMenuDocumentId;
 using ui::rmlui::kRuntimeTextLogDocumentId;
 using ui::rmlui::kRuntimeTitleDocumentId;
@@ -326,6 +328,10 @@ std::string_view builtin_document_id(core::compiled::SystemLayoutRole role) noex
         return kRuntimeModalDocumentId;
     case core::compiled::SystemLayoutRole::CommandBuilder:
         return kRuntimeCommandBuilderDocumentId;
+    case core::compiled::SystemLayoutRole::SceneText:
+        return kRuntimeSceneTextDocumentId;
+    case core::compiled::SystemLayoutRole::SceneChoice:
+        return kRuntimeSceneChoiceDocumentId;
     case core::compiled::SystemLayoutRole::DebugOverlay:
         return {};
     }
