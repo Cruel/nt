@@ -49,7 +49,7 @@ The current capability surface includes:
 - `audio.play`, `audio.play_and_wait`, `audio.stop`, and `audio.stop_and_wait` for transient
   playback;
 - `audio.play_ui` for explicitly disposable UI-only sound;
-- `audio.set_loop`, `audio.set_music`, `audio.clear_loop`, `audio.clear_bus`, and `audio.state` for
+- `audio.set_loop`, `audio.set_music`, `audio.clear_loop`, `audio.clear_purpose`, and `audio.state` for
   scoped reconstructible desired audio;
 - `noveltea.text_log.append` and `noveltea.text_log.clear`.
 
@@ -138,11 +138,12 @@ this contract. Computed dynamic code and generated RML remain explicit unsupport
 
 ## Audio
 
-Lua audio always uses compiled audio Asset IDs and one of `sound-effect`, `music`, `voice`, or
-`ambient`. Transient playback options are `volume` and `fade_ms`; `loop=true` is rejected because
-persistent loops are desired state rather than replayable one-shot operations. Stop options support
-`fade_ms`. Missing IDs, non-audio Assets, invalid channels/options, or unavailable backend execution
-return an explicit diagnostic and do not silently succeed.
+Lua audio always uses compiled audio Asset IDs. Audio Purpose is independent from lifetime,
+ownership, pause policy, causality, and skip policy; the closed Purpose set is `music`, `ambience`,
+`voice`, `sound-effect`, and `ui-sound`. Transient playback options include `gain`, stereo `pan`,
+`fade_ms`, `pause_policy`, and `skip_behavior`. Persistent loops are desired state rather than a
+transient `loop` option. Missing IDs, non-audio Assets, invalid Purpose/options, or unavailable
+backend execution return an explicit diagnostic and do not silently succeed.
 
 `RuntimeScriptApi` routes the request through `RuntimeCommandGateway`, and the active runtime session
 produces a typed `AudioOperation`. The engine-owned `RuntimePresentationBridge` accepts and orders
@@ -157,35 +158,38 @@ operation ID, flow owner, and script invocation handle complete. Backend failure
 matching invocation with a typed diagnostic. Immediate scripts and synchronous expressions still
 cannot yield.
 
-Each `audio.play(...)` call creates an independent transient playback instance. Calling it twice on
-the same semantic bus does not interrupt the first sound. `audio.stop(channel)` and
-`audio.stop_and_wait(channel)` apply to transient playback instances on that bus; they do not mutate
-or silently stop persistent desired loops. Voice and gameplay playback are causal checkpoint
-barriers even when they are not awaited. `audio.play_ui(...)` is the separate non-awaited,
-sound-effect-only API whose operations are explicitly disposable.
+Each `audio.play(...)` call creates an independent transient playback instance with an explicit
+semantic Owner. Calling it twice for the same Purpose does not interrupt the first sound.
+`audio.stop(purpose)` and `audio.stop_and_wait(purpose)` target transient playback of that Purpose for
+the same Owner; they do not mutate or silently stop persistent desired loops. Ending the Owner
+cancels its transient work and removes its desired audio without transferring ownership. Causal,
+awaited, synchronized, disposable, and skip behavior are separate typed dimensions. `audio.play_ui`
+is always disposable UI Sound on unscaled presentation time and cannot become a gameplay barrier.
 
-Persistent looping Music and Ambient use `DesiredAudioInstanceId` records:
+Persistent looping Music and Ambience use `DesiredAudioInstanceId` records:
 
-- `audio.set_loop(instance, asset, bus, options)` upserts one exact Music or Ambient instance;
+- `audio.set_loop(instance, asset, purpose, options)` upserts one exact Music or Ambience instance;
 - `audio.set_music(asset, options)` uses the reserved `background-music` instance and replacement
   key as the convenience single-BGM policy;
 - `audio.clear_loop(instance, options)` removes one exact desired instance;
-- `audio.clear_bus(bus, options)` removes every desired instance on that Music or Ambient bus within
-  the selected owner;
+- `audio.clear_purpose(purpose, options)` removes every desired instance of that Music or Ambience
+  Purpose within the selected Owner;
 - `audio.state(instance, options)` returns one desired record, or `nil, nil` when absent.
 
-Desired-audio options support `volume`, `fade_in_ms`, `fade_out_ms`, optional `replacement_key`, and
-the normal presentation owner selection. The default owner is `session`; Scene, current-Room, and
-named-Room ownership are available through the same owner options used by scoped presentation APIs.
-Multiple Ambient instances may coexist. Desired records are saved and reconstructed with fresh
-backend voices; decoder state, sample position, backend handles, and fade progress are never exposed
-or persisted.
+Desired-audio options support `gain`, stereo `pan`, `pause_policy`, `fade_in_ms`, `fade_out_ms`,
+optional `replacement_key`, and the normal presentation Owner selection. The default Owner is
+`session`; Scene, current-Room, and named-Room ownership are available through the same Owner options
+used by scoped presentation APIs. Multiple Ambience instances may coexist. Desired records save
+semantic identity, Owner, Purpose, Pause Policy, gain/pan configuration, and loop/replacement intent,
+then reconstruct with fresh backend voices. Decoder state, sample position, backend handles, and fade
+progress are never exposed or persisted.
 
 Example:
 
 ```lua
 local ok, err = audio.play_and_wait("door-opening", "sound-effect", {
-    volume = 0.8,
+    gain = 0.8,
+    pan = -0.2,
     fade_ms = 50,
 })
 if not ok then
@@ -193,7 +197,7 @@ if not ok then
 end
 
 ok, err = audio.set_music("courtyard-theme", {
-    volume = 0.7,
+    gain = 0.7,
     fade_in_ms = 500,
     fade_out_ms = 750,
 })
@@ -202,7 +206,7 @@ if not ok then
 end
 ```
 
-The deleted `audio.play_sfx`, `audio.play_track`, alias helpers, bus controls, and raw-path overloads
+The deleted `audio.play_sfx`, `audio.play_track`, alias helpers, mixer-bus controls, and raw-path overloads
 are not compatibility APIs.
 
 The standalone `--demo rmlui` sandbox boots a small compiled-project fixture and uses the same

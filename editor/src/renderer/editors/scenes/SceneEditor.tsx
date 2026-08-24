@@ -20,6 +20,7 @@ import {
   sceneDialogueRef,
   sceneLayoutRef,
   sceneMaterialRef,
+  sceneRoomRef,
   sceneStepTypeValues,
   sceneVariableRef,
   validateSceneData,
@@ -30,6 +31,7 @@ import {
   type SceneStepType,
   type SceneTransitionGroupChildData,
 } from '../../../shared/project-schema/authoring-scenes';
+import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   buildScenePreviewDocumentData,
@@ -91,6 +93,17 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
 
   if (!project || !record || !sceneId)
     return <div className="p-4 text-sm text-muted-foreground">Scene not found.</div>;
+  const sceneActorSlots = [
+    ...new Set(data.steps.flatMap((step) => (step.type === 'actor-cue' ? [step.slotId] : []))),
+  ];
+  const roomAnchorOptions = Object.entries(project.rooms).flatMap(([roomId, room]) => {
+    const roomData = parseRoomData(room.data);
+    return (roomData?.anchors ?? []).map((anchor) => ({
+      roomId,
+      roomLabel: room.label || roomId,
+      anchorId: anchor.id,
+    }));
+  });
   const commit = (next: SceneData, label = 'Update scene') => commitScene(sceneId, next, label);
   const replaceStep = (next: SceneStepData) =>
     commit(
@@ -1064,18 +1077,30 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                   </Select>
                 </Label>
                 <Label>
-                  Channel
+                  Purpose
                   <Select
-                    value={selected.channel}
-                    onValueChange={(channel) =>
-                      replaceStep({ ...selected, channel: channel as typeof selected.channel })
+                    value={selected.purpose}
+                    onValueChange={(purpose) =>
+                      replaceStep({ ...selected, purpose: purpose as typeof selected.purpose })
                     }
                   >
-                    {['sound-effect', 'music', 'voice', 'ambient'].map((value) => (
+                    {['music', 'ambience', 'voice', 'sound-effect', 'ui-sound'].map((value) => (
                       <SelectItem key={value} value={value}>
                         {title(value)}
                       </SelectItem>
                     ))}
+                  </Select>
+                </Label>
+                <Label>
+                  Lifetime
+                  <Select
+                    value={selected.lifetime}
+                    onValueChange={(lifetime) =>
+                      replaceStep({ ...selected, lifetime: lifetime as typeof selected.lifetime })
+                    }
+                  >
+                    <SelectItem value="desired-loop">Desired loop</SelectItem>
+                    <SelectItem value="one-shot">One shot</SelectItem>
                   </Select>
                 </Label>
                 <Label>
@@ -1094,18 +1119,138 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                   </Select>
                 </Label>
                 <Label>
-                  Volume
+                  Pause policy
+                  <Select
+                    value={selected.pausePolicy}
+                    onValueChange={(pausePolicy) =>
+                      replaceStep({
+                        ...selected,
+                        pausePolicy: pausePolicy as typeof selected.pausePolicy,
+                      })
+                    }
+                  >
+                    <SelectItem value="gameplay">Follow gameplay pause</SelectItem>
+                    <SelectItem value="owner">Follow owner policy</SelectItem>
+                    <SelectItem value="unscaled">Continue while paused</SelectItem>
+                  </Select>
+                </Label>
+                <Label>
+                  Gain
                   <Input
                     type="number"
                     min="0"
                     max="1"
                     step="0.05"
-                    value={selected.volume}
+                    value={selected.gain}
                     onChange={(event) =>
-                      replaceStep({ ...selected, volume: Number(event.target.value) })
+                      replaceStep({ ...selected, gain: Number(event.target.value) })
                     }
                   />
                 </Label>
+                <Label>
+                  Stereo pan
+                  <Input
+                    type="number"
+                    min="-1"
+                    max="1"
+                    step="0.05"
+                    value={selected.pan}
+                    onChange={(event) =>
+                      replaceStep({ ...selected, pan: Number(event.target.value) })
+                    }
+                  />
+                </Label>
+                <Label>
+                  Pan Source
+                  <Select
+                    value={selected.panSource?.kind ?? '__none__'}
+                    onValueChange={(kind) => {
+                      if (kind === '__none__') {
+                        replaceStep({ ...selected, panSource: null });
+                        return;
+                      }
+                      if (kind === 'scene-actor') {
+                        const slotId = sceneActorSlots[0];
+                        if (slotId)
+                          replaceStep({
+                            ...selected,
+                            panSource: { kind: 'scene-actor', slotId },
+                          });
+                        return;
+                      }
+                      const anchor = roomAnchorOptions[0];
+                      if (anchor)
+                        replaceStep({
+                          ...selected,
+                          panSource: {
+                            kind: 'room-anchor',
+                            room: sceneRoomRef(anchor.roomId),
+                            anchorId: anchor.anchorId,
+                          },
+                        });
+                    }}
+                  >
+                    <SelectItem value="__none__">Fixed pan only</SelectItem>
+                    {sceneActorSlots.length > 0 ? (
+                      <SelectItem value="scene-actor">Scene Actor</SelectItem>
+                    ) : null}
+                    {roomAnchorOptions.length > 0 ? (
+                      <SelectItem value="room-anchor">Room Anchor</SelectItem>
+                    ) : null}
+                  </Select>
+                </Label>
+                {selected.panSource?.kind === 'scene-actor' ? (
+                  <Label>
+                    Scene Actor slot
+                    <Select
+                      value={selected.panSource.slotId}
+                      onValueChange={(slotId) => {
+                        if (slotId)
+                          replaceStep({
+                            ...selected,
+                            panSource: { kind: 'scene-actor', slotId },
+                          });
+                      }}
+                    >
+                      {sceneActorSlots.map((slotId) => (
+                        <SelectItem key={slotId} value={slotId}>
+                          {slotId}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </Label>
+                ) : null}
+                {selected.panSource?.kind === 'room-anchor' ? (
+                  <Label>
+                    Room Anchor
+                    <Select
+                      value={`${selected.panSource.room.$ref.id}\t${selected.panSource.anchorId}`}
+                      onValueChange={(value) => {
+                        const anchor = roomAnchorOptions.find(
+                          (candidate) => `${candidate.roomId}\t${candidate.anchorId}` === value,
+                        );
+                        if (anchor)
+                          replaceStep({
+                            ...selected,
+                            panSource: {
+                              kind: 'room-anchor',
+                              room: sceneRoomRef(anchor.roomId),
+                              anchorId: anchor.anchorId,
+                            },
+                          });
+                      }}
+                    >
+                      {roomAnchorOptions.map((anchor) => (
+                        <SelectItem
+                          key={`${anchor.roomId}:${anchor.anchorId}`}
+                          value={`${anchor.roomId}\t${anchor.anchorId}`}
+                        >
+                          {anchor.roomLabel} · {anchor.anchorId}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </Label>
+                ) : null}
                 <Label>
                   Fade (ms)
                   <Input
@@ -1117,13 +1262,76 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     }
                   />
                 </Label>
-                <Label className="flex items-center gap-2">
-                  Loop
-                  <Switch
-                    checked={selected.loop}
-                    onCheckedChange={(loop) => replaceStep({ ...selected, loop })}
-                  />
-                </Label>
+                {selected.lifetime === 'desired-loop' ? (
+                  <>
+                    <Label>
+                      Instance ID
+                      <Input
+                        value={selected.instanceId ?? ''}
+                        placeholder="music-main"
+                        onChange={(event) =>
+                          replaceStep({ ...selected, instanceId: event.target.value || null })
+                        }
+                      />
+                    </Label>
+                    <Label>
+                      Replacement group
+                      <Input
+                        value={selected.replacementGroup ?? ''}
+                        placeholder="Optional"
+                        onChange={(event) =>
+                          replaceStep({
+                            ...selected,
+                            replacementGroup: event.target.value || null,
+                          })
+                        }
+                      />
+                    </Label>
+                  </>
+                ) : (
+                  <>
+                    <Label>
+                      Causality
+                      <Select
+                        value={selected.causality}
+                        onValueChange={(causality) =>
+                          replaceStep({
+                            ...selected,
+                            causality: causality as typeof selected.causality,
+                          })
+                        }
+                      >
+                        <SelectItem value="causal">Causal</SelectItem>
+                        <SelectItem value="disposable">Disposable</SelectItem>
+                      </Select>
+                    </Label>
+                    <Label>
+                      Skip behavior
+                      <Select
+                        value={selected.skipBehavior}
+                        onValueChange={(skipBehavior) =>
+                          replaceStep({
+                            ...selected,
+                            skipBehavior: skipBehavior as typeof selected.skipBehavior,
+                          })
+                        }
+                      >
+                        <SelectItem value="suppress">Suppress if not started</SelectItem>
+                        <SelectItem value="stop">Stop if started</SelectItem>
+                        <SelectItem value="play">Play on skip</SelectItem>
+                      </Select>
+                    </Label>
+                    <Label className="flex items-center gap-2">
+                      Synchronized cue
+                      <Switch
+                        checked={selected.synchronized}
+                        onCheckedChange={(synchronized) =>
+                          replaceStep({ ...selected, synchronized })
+                        }
+                      />
+                    </Label>
+                  </>
+                )}
                 <Label className="flex items-center gap-2">
                   Wait for completion
                   <Switch

@@ -1216,7 +1216,8 @@ private:
             validate_program(value.default_program, path + "/defaultProgram");
         }
         if (m_input.undefined_interaction_program)
-            validate_program(*m_input.undefined_interaction_program, "/undefinedInteractionProgram");
+            validate_program(*m_input.undefined_interaction_program,
+                             "/undefinedInteractionProgram");
         for (std::size_t index = 0; index < m_input.interactions.size(); ++index) {
             const auto& value = m_input.interactions[index];
             const auto path = item("/definitions/interactions", index);
@@ -1352,19 +1353,83 @@ private:
                                           "Audio cue Asset must have kind Audio.",
                                           instruction_path + "/asset");
                             }
-                            if (instruction.loop &&
-                                (!playing || (instruction.channel != AudioChannel::Music &&
-                                              instruction.channel != AudioChannel::Ambient)))
+                            const bool desired = instruction.lifetime == AudioLifetime::DesiredLoop;
+                            if (desired && !instruction.instance_id)
                                 error("compiled_project.invalid_audio_cue",
-                                      "Only playing Music or Ambient cues may declare a persistent "
-                                      "loop.",
-                                      instruction_path + "/loop");
-                            if (instruction.loop &&
+                                      "Desired looping audio requires a stable instance ID.",
+                                      instruction_path + "/instanceId");
+                            if (desired && instruction.purpose != AudioPurpose::Music &&
+                                instruction.purpose != AudioPurpose::Ambience)
+                                error("compiled_project.invalid_audio_cue",
+                                      "Desired looping audio is supported only for Music and "
+                                      "Ambience.",
+                                      instruction_path + "/purpose");
+                            if (desired &&
                                 std::holds_alternative<AudioCompletionWait>(instruction.wait))
-                                error(
-                                    "compiled_project.invalid_audio_cue",
-                                    "Persistent desired audio cannot wait for playback completion.",
-                                    instruction_path + "/waitForCompletion");
+                                error("compiled_project.invalid_audio_cue",
+                                      "Desired looping audio cannot wait for decoder completion.",
+                                      instruction_path + "/waitForCompletion");
+                            if (desired && (instruction.causality != AudioCausality::Causal ||
+                                            instruction.synchronized ||
+                                            instruction.skip_behavior != AudioSkipBehavior::Stop))
+                                error("compiled_project.invalid_audio_cue",
+                                      "Desired looping audio must use reconstructible causal state "
+                                      "semantics.",
+                                      instruction_path + "/lifetime");
+                            if (!desired && !playing)
+                                error("compiled_project.invalid_audio_cue",
+                                      "One-shot audio starts a new playback and cannot use "
+                                      "stop/fade-out.",
+                                      instruction_path + "/action");
+                            if (!desired && instruction.instance_id)
+                                error("compiled_project.invalid_audio_cue",
+                                      "One-shot audio does not use a desired instance ID.",
+                                      instruction_path + "/instanceId");
+                            if (!desired && instruction.replacement_group)
+                                error("compiled_project.invalid_audio_cue",
+                                      "One-shot audio cannot declare a replacement group.",
+                                      instruction_path + "/replacementGroup");
+                            if (!desired &&
+                                (std::holds_alternative<AudioCompletionWait>(instruction.wait) ||
+                                 instruction.synchronized) &&
+                                instruction.causality != AudioCausality::Causal)
+                                error("compiled_project.invalid_audio_cue",
+                                      "Awaited or synchronized one-shot audio must be causal.",
+                                      instruction_path + "/causality");
+                            if (instruction.purpose == AudioPurpose::UiSound &&
+                                (desired || instruction.causality != AudioCausality::Disposable ||
+                                 std::holds_alternative<AudioCompletionWait>(instruction.wait) ||
+                                 instruction.synchronized ||
+                                 instruction.pause_policy != AudioPausePolicy::Unscaled))
+                                error("compiled_project.invalid_audio_cue",
+                                      "UI Sound is disposable, unscaled, and cannot control "
+                                      "gameplay.",
+                                      instruction_path + "/purpose");
+                            if (instruction.pan_source) {
+                                std::visit(
+                                    [&](const auto& source) {
+                                        using S = std::decay_t<decltype(source)>;
+                                        if constexpr (std::is_same_v<S, RoomAnchorAudioPanSource>) {
+                                            require(m_rooms, source.room, "room",
+                                                    instruction_path + "/panSource/room");
+                                            const auto found = m_rooms.find(source.room);
+                                            if (found != m_rooms.end()) {
+                                                const auto& room = m_input.rooms[found->second];
+                                                if (std::ranges::none_of(
+                                                        room.anchors,
+                                                        [&](const RoomAnchor& anchor) {
+                                                            return anchor.id == source.anchor;
+                                                        }))
+                                                    error(
+                                                        "compiled_project.unresolved_nested_"
+                                                        "reference",
+                                                        "Audio Pan Source Room Anchor is missing.",
+                                                        instruction_path + "/panSource/anchorId");
+                                            }
+                                        }
+                                    },
+                                    *instruction.pan_source);
+                            }
                         } else if constexpr (std::is_same_v<T, SetGlobalPropertySceneInstruction>) {
                             const auto* declaration = property(instruction.property);
                             if (!declaration)
@@ -1644,7 +1709,8 @@ private:
                 require(m_rooms, location.room, "room", location_path + "/room");
                 if (!locations_by_room.emplace(location.room, &location).second)
                     error("compiled_project.duplicate_map_room",
-                          "A Room may have only one Map Location in a Map.", location_path + "/room");
+                          "A Room may have only one Map Location in a Map.",
+                          location_path + "/room");
                 if (location.label)
                     validate_text(*location.label, location_path + "/label");
                 if (location.icon)
@@ -1672,24 +1738,29 @@ private:
                 }
                 std::vector<const RoomExit*> linked_exits;
                 linked_exits.reserve(connection.exits.size());
-                for (std::size_t exit_index = 0; exit_index < connection.exits.size(); ++exit_index) {
+                for (std::size_t exit_index = 0; exit_index < connection.exits.size();
+                     ++exit_index) {
                     const auto& reference = connection.exits[exit_index];
                     const auto exit_path = connection_path + "/exits/" + std::to_string(exit_index);
                     require(m_rooms, reference.room, "room", exit_path + "/room");
                     const auto* linked_exit = exit(reference);
                     if (!linked_exit)
                         error("compiled_project.unresolved_nested_reference",
-                              "Map Connection Exit is missing from its Room.", exit_path + "/exitId");
+                              "Map Connection Exit is missing from its Room.",
+                              exit_path + "/exitId");
                     linked_exits.push_back(linked_exit);
                 }
                 if (!linked_exits.empty() && linked_exits.front() != nullptr) {
-                    if (source != locations.end() && source->second->room != connection.exits.front().room)
+                    if (source != locations.end() &&
+                        source->second->room != connection.exits.front().room)
                         error("compiled_project.inconsistent_map_topology",
                               "Map Connection source must be derived from its first Exit Room.",
                               connection_path + "/sourceLocationId");
-                    if (target != locations.end() && target->second->room != linked_exits.front()->target)
+                    if (target != locations.end() &&
+                        target->second->room != linked_exits.front()->target)
                         error("compiled_project.inconsistent_map_topology",
-                              "Map Connection target must be derived from its first Exit target Room.",
+                              "Map Connection target must be derived from its first Exit target "
+                              "Room.",
                               connection_path + "/targetLocationId");
                 }
                 if (connection.exits.size() == 2 && linked_exits.size() == 2 &&

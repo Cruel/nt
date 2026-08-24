@@ -209,11 +209,12 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                                                std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"accessibility", "display", "roomNavigationTransition", "systemLayouts",
-                         "text", "titleScreen"}))
+                        {"accessibility", "audio", "display", "roomNavigationTransition",
+                         "systemLayouts", "text", "titleScreen"}))
         return std::nullopt;
     const auto* accessibility_value = decoder.member(value, "accessibility", pointer);
     const auto* display_value = decoder.member(value, "display", pointer);
+    const auto* audio_value = decoder.member(value, "audio", pointer);
     const auto* layouts_value = decoder.member(value, "systemLayouts", pointer);
     const auto* text_value = decoder.member(value, "text", pointer);
     const auto* title_value = decoder.member(value, "titleScreen", pointer);
@@ -315,6 +316,95 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
         if (ui_scale && text_scale)
             accessibility = AccessibilitySettings{*ui_scale, *text_scale};
     }
+    std::optional<AudioMixSettings> audio;
+    if (audio_value && decoder.object(*audio_value, pointer_child(pointer, "audio"),
+                                      {"purposes", "voiceDucking"})) {
+        const auto audio_pointer = pointer_child(pointer, "audio");
+        const auto* purposes_value = decoder.member(*audio_value, "purposes", audio_pointer);
+        const auto* ducking_value = decoder.member(*audio_value, "voiceDucking", audio_pointer);
+        std::optional<AudioPurposeMixSettings> music;
+        std::optional<AudioPurposeMixSettings> ambience;
+        std::optional<AudioPurposeMixSettings> voice;
+        std::optional<AudioPurposeMixSettings> sound_effect;
+        std::optional<AudioPurposeMixSettings> ui_sound;
+        if (purposes_value &&
+            decoder.object(*purposes_value, pointer_child(audio_pointer, "purposes"),
+                           {"ambience", "music", "sound-effect", "ui-sound", "voice"})) {
+            const auto purposes_pointer = pointer_child(audio_pointer, "purposes");
+            const auto decode_mix =
+                [&](std::string_view name) -> std::optional<AudioPurposeMixSettings> {
+                const auto* mix_value = decoder.member(*purposes_value, name, purposes_pointer);
+                const auto mix_pointer = pointer_child(purposes_pointer, name);
+                if (!mix_value || !decoder.object(*mix_value, mix_pointer, {"muted", "volume"}))
+                    return std::nullopt;
+                const auto* volume_value = decoder.member(*mix_value, "volume", mix_pointer);
+                const auto* muted_value = decoder.member(*mix_value, "muted", mix_pointer);
+                auto volume =
+                    volume_value
+                        ? decoder.finite_number(*volume_value, pointer_child(mix_pointer, "volume"))
+                        : std::nullopt;
+                auto muted =
+                    muted_value ? decoder.boolean(*muted_value, pointer_child(mix_pointer, "muted"))
+                                : std::nullopt;
+                if (!volume || !muted)
+                    return std::nullopt;
+                if (*volume < 0.0 || *volume > 1.0) {
+                    decoder.error(k_code_number,
+                                  "Audio Purpose volume must be between zero and one.",
+                                  pointer_child(mix_pointer, "volume"));
+                    return std::nullopt;
+                }
+                return AudioPurposeMixSettings{*volume, *muted};
+            };
+            music = decode_mix("music");
+            ambience = decode_mix("ambience");
+            voice = decode_mix("voice");
+            sound_effect = decode_mix("sound-effect");
+            ui_sound = decode_mix("ui-sound");
+        }
+        std::optional<VoiceDuckingSettings> ducking;
+        if (ducking_value &&
+            decoder.object(*ducking_value, pointer_child(audio_pointer, "voiceDucking"),
+                           {"ambienceGain", "enabled", "musicGain"})) {
+            const auto ducking_pointer = pointer_child(audio_pointer, "voiceDucking");
+            const auto* enabled_value = decoder.member(*ducking_value, "enabled", ducking_pointer);
+            const auto* music_gain_value =
+                decoder.member(*ducking_value, "musicGain", ducking_pointer);
+            const auto* ambience_gain_value =
+                decoder.member(*ducking_value, "ambienceGain", ducking_pointer);
+            auto enabled =
+                enabled_value
+                    ? decoder.boolean(*enabled_value, pointer_child(ducking_pointer, "enabled"))
+                    : std::nullopt;
+            auto music_gain =
+                music_gain_value
+                    ? decoder.finite_number(*music_gain_value,
+                                            pointer_child(ducking_pointer, "musicGain"))
+                    : std::nullopt;
+            auto ambience_gain =
+                ambience_gain_value
+                    ? decoder.finite_number(*ambience_gain_value,
+                                            pointer_child(ducking_pointer, "ambienceGain"))
+                    : std::nullopt;
+            if (music_gain && (*music_gain < 0.0 || *music_gain > 1.0)) {
+                decoder.error(k_code_number,
+                              "Voice ducking Music gain must be between zero and one.",
+                              pointer_child(ducking_pointer, "musicGain"));
+                music_gain.reset();
+            }
+            if (ambience_gain && (*ambience_gain < 0.0 || *ambience_gain > 1.0)) {
+                decoder.error(k_code_number,
+                              "Voice ducking Ambience gain must be between zero and one.",
+                              pointer_child(ducking_pointer, "ambienceGain"));
+                ambience_gain.reset();
+            }
+            if (enabled && music_gain && ambience_gain)
+                ducking = VoiceDuckingSettings{*enabled, *music_gain, *ambience_gain};
+        }
+        if (music && ambience && voice && sound_effect && ui_sound && ducking)
+            audio = AudioMixSettings{*music, *ambience, *voice, *sound_effect, *ui_sound, *ducking};
+    }
+
     auto layouts =
         layouts_value
             ? decoder.array<SystemLayout>(
@@ -438,10 +528,11 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             (*kind == TransitionKind::Fade || !color))
             transition = RoomNavigationTransition{*kind, *duration, std::move(color), *skippable};
     }
-    if (!display || !accessibility || !layouts || !text || !title || !transition)
+    if (!display || !accessibility || !audio || !layouts || !text || !title || !transition)
         return std::nullopt;
     return RuntimeSettings{std::move(*display), std::move(*accessibility), std::move(*layouts),
-                           std::move(*text),    std::move(*title),         std::move(*transition)};
+                           std::move(*text),    std::move(*title),         std::move(*transition),
+                           std::move(*audio)};
 }
 
 std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohmann::json& value,

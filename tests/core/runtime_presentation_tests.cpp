@@ -218,12 +218,16 @@ SessionState representative_state(const CompiledProject& project)
     REQUIRE(state.present_text(
         project, PresentedTextState{id<CharacterId>("hero"), "Hello", TextMarkup::Plain}));
     REQUIRE(state.upsert_desired_audio(
-        project,
-        DesiredAudioInstance{id<DesiredAudioInstanceId>("background-music"),
-                             state.session_presentation_owner(), compiled::AudioChannel::Music,
-                             id<AssetId>("audio-voice"), 0.75, std::chrono::milliseconds{150},
-                             std::chrono::milliseconds{250},
-                             id<DesiredAudioReplacementKey>("background-music")}));
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("background-music"),
+                                      .owner = state.session_presentation_owner(),
+                                      .purpose = compiled::AudioPurpose::Music,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.75,
+                                      .fade_in = std::chrono::milliseconds{150},
+                                      .fade_out = std::chrono::milliseconds{250},
+                                      .replacement_key =
+                                          id<DesiredAudioReplacementKey>("background-music")}));
     return state;
 }
 
@@ -528,13 +532,19 @@ TEST_CASE("presentation projector canonicalizes every multi-instance family")
     auto state = representative_state(project);
     REQUIRE(state.set_layout(project, compiled::LayoutSlot::Custom, id<LayoutId>("hud-inline")));
     REQUIRE(state.upsert_desired_audio(
-        project, DesiredAudioInstance{
-                     id<DesiredAudioInstanceId>("rain-left"), state.session_presentation_owner(),
-                     compiled::AudioChannel::Ambient, id<AssetId>("audio-voice"), 0.5}));
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("rain-left"),
+                                      .owner = state.session_presentation_owner(),
+                                      .purpose = compiled::AudioPurpose::Ambience,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.5}));
     REQUIRE(state.upsert_desired_audio(
-        project, DesiredAudioInstance{
-                     id<DesiredAudioInstanceId>("rain-right"), state.session_presentation_owner(),
-                     compiled::AudioChannel::Ambient, id<AssetId>("audio-voice"), 0.4}));
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("rain-right"),
+                                      .owner = state.session_presentation_owner(),
+                                      .purpose = compiled::AudioPurpose::Ambience,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.4}));
     const auto room = resolve_room(project, state);
     auto first = project_snapshot(project, state, &room);
     auto second = project_snapshot(project, state, &room);
@@ -551,9 +561,9 @@ TEST_CASE("presentation projector canonicalizes every multi-instance family")
                                     std::tie(b.policy.plane, b.policy.local_order, b.key);
                          }));
     REQUIRE(first.value().desired_audio.size() == 3);
-    CHECK(first.value().desired_audio[0].bus == compiled::AudioChannel::Music);
-    CHECK(first.value().desired_audio[1].bus == compiled::AudioChannel::Ambient);
-    CHECK(first.value().desired_audio[2].bus == compiled::AudioChannel::Ambient);
+    CHECK(first.value().desired_audio[0].purpose == compiled::AudioPurpose::Music);
+    CHECK(first.value().desired_audio[1].purpose == compiled::AudioPurpose::Ambience);
+    CHECK(first.value().desired_audio[2].purpose == compiled::AudioPurpose::Ambience);
 }
 
 TEST_CASE("Layout Mount contracts keep owner-qualified identity and reevaluate bindings")

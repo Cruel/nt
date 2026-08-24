@@ -876,11 +876,37 @@ bool valid_desired_audio_record(const CompiledProject& project, const SaveState&
                                 const SavedDesiredAudio& audio) noexcept
 {
     const auto* asset = project.find_asset(audio.asset);
+    const bool pan_source_valid =
+        !audio.pan_source ||
+        std::visit(
+            [&](const auto& source) {
+                using T = std::decay_t<decltype(source)>;
+                if constexpr (std::is_same_v<T, compiled::SceneActorAudioPanSource>) {
+                    const auto* scene_owner =
+                        std::get_if<SavedScenePresentationOwner>(&audio.owner);
+                    return scene_owner &&
+                           std::ranges::any_of(
+                               save.actors, [&](const SavedActorPresentation& actor) {
+                                   const auto* key = std::get_if<SavedSceneActorKey>(&actor.key);
+                                   return key && key->owner == *scene_owner &&
+                                          key->slot == source.slot;
+                               });
+                } else {
+                    const auto* room = project.find_room(source.room);
+                    return room && std::ranges::any_of(room->anchors,
+                                                       [&](const compiled::RoomAnchor& anchor) {
+                                                           return anchor.id == source.anchor;
+                                                       });
+                }
+            },
+            *audio.pan_source);
     return valid_saved_owner(project, save, audio.owner) &&
-           (audio.bus == compiled::AudioChannel::Music ||
-            audio.bus == compiled::AudioChannel::Ambient) &&
-           asset != nullptr && asset->kind == compiled::AssetKind::Audio &&
-           std::isfinite(audio.volume) && audio.volume >= 0.0 && audio.volume <= 1.0 &&
+           (audio.purpose == compiled::AudioPurpose::Music ||
+            audio.purpose == compiled::AudioPurpose::Ambience) &&
+           audio.pause_policy <= compiled::AudioPausePolicy::Unscaled && asset != nullptr &&
+           asset->kind == compiled::AssetKind::Audio && std::isfinite(audio.gain) &&
+           audio.gain >= 0.0 && audio.gain <= 1.0 && std::isfinite(audio.pan) &&
+           audio.pan >= -1.0 && audio.pan <= 1.0 && pan_source_valid &&
            audio.fade_in.count() >= 0 && audio.fade_out.count() >= 0;
 }
 

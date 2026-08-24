@@ -258,13 +258,18 @@ void RuntimeSession::queue_input(core::RuntimeInputMessage input)
 }
 
 core::Result<void, core::Diagnostics> RuntimeSession::request_audio(
-    core::compiled::AudioAction action, core::compiled::AudioChannel channel,
-    std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,
-    bool await_completion, core::AudioOperationPurpose purpose)
+    core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
+    std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain, double pan,
+    bool await_completion, core::compiled::AudioCausality causality,
+    core::compiled::AudioPausePolicy pause_policy, core::compiled::AudioSkipBehavior skip_behavior)
 {
     if (action > core::compiled::AudioAction::FadeOut ||
-        channel > core::compiled::AudioChannel::Ambient || fade.count() < 0 ||
-        !std::isfinite(volume) || volume < 0.0 || volume > 1.0) {
+        purpose > core::compiled::AudioPurpose::UiSound ||
+        pause_policy > core::compiled::AudioPausePolicy::Unscaled ||
+        causality > core::compiled::AudioCausality::Disposable ||
+        skip_behavior > core::compiled::AudioSkipBehavior::Play || fade.count() < 0 ||
+        !std::isfinite(gain) || gain < 0.0 || gain > 1.0 || !std::isfinite(pan) || pan < -1.0 ||
+        pan > 1.0) {
         return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
             "runtime.invalid_audio_request", "Typed audio request contains an invalid value")});
     }
@@ -281,19 +286,25 @@ core::Result<void, core::Diagnostics> RuntimeSession::request_audio(
         if (definition == nullptr || definition->kind != core::compiled::AssetKind::Audio) {
             return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
                 diagnostic("runtime.invalid_audio_asset",
-                           "Typed audio playback requires an existing audio Asset ID")});
-        }
-        if (loop) {
-            return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
-                "runtime.transient_audio_loop_invalid",
-                "audio.play is transient; persistent Music and Ambient loops require desired-audio "
-                "commands")});
+                           "Typed audio playback requires an existing Audio Asset ID")});
         }
         if (m_pending_audio) {
             return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
                 "runtime.audio_operation_pending",
                 "A blocking audio operation must finish before starting replacement playback")});
         }
+    }
+    if ((await_completion || skip_behavior == core::compiled::AudioSkipBehavior::Play) &&
+        causality != core::compiled::AudioCausality::Causal) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
+            "runtime.invalid_audio_causality", "Awaited and play-on-skip audio must be causal")});
+    }
+    if (purpose == core::compiled::AudioPurpose::UiSound &&
+        (!playing || await_completion || causality != core::compiled::AudioCausality::Disposable ||
+         pause_policy != core::compiled::AudioPausePolicy::Unscaled)) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
+            diagnostic("runtime.invalid_ui_sound",
+                       "UI Sound is disposable, unscaled playback and cannot control gameplay")});
     }
 
     const core::ScriptFlowBlocker* script_blocker = nullptr;
@@ -306,24 +317,35 @@ core::Result<void, core::Diagnostics> RuntimeSession::request_audio(
         }
     }
 
+    core::PresentationOwner owner{m_kernel->state().session_presentation_owner()};
+    if (!m_kernel->state().flow_stack().empty()) {
+        const auto& top = m_kernel->state().flow_stack().back();
+        if (const auto* scene = std::get_if<core::SceneFrame>(&top))
+            owner = core::ScenePresentationOwner{scene->frame_id, scene->scene};
+    }
     core::AudioOperation operation{
         .id = core::AudioOperationId::from_number(m_next_audio_id++),
         .action = action,
-        .channel = channel,
+        .purpose = purpose,
+        .pause_policy = pause_policy,
+        .audio_owner = owner,
         .asset = std::move(asset),
         .fade = fade,
-        .loop = loop,
-        .volume = volume,
-        .owner =
+        .gain = gain,
+        .pan = pan,
+        .pan_source = std::nullopt,
+        .completion_owner =
             script_blocker ? std::optional<core::FlowFrameId>{script_blocker->owner} : std::nullopt,
         .completion = script_blocker
                           ? std::optional<core::AudioCompletionHandle>{core::AudioCompletionHandle{
                                 script_blocker->handle}}
                           : std::nullopt,
-        .target = playing ? core::AudioOperationTarget{core::NewAudioPlaybackTarget{}}
-                          : core::AudioOperationTarget{core::AudioBusOperationTarget{channel}},
-        .purpose = purpose,
-        .skippable = true};
+        .target =
+            playing ? core::AudioOperationTarget{core::NewAudioPlaybackTarget{}}
+                    : core::AudioOperationTarget{core::AudioPurposeOperationTarget{purpose, owner}},
+        .causality = causality,
+        .synchronized = false,
+        .skip_behavior = skip_behavior};
 
     auto accepted = accept_audio(operation);
     if (!accepted)
@@ -584,22 +606,26 @@ void RuntimeSession::collect_runtime_actions(core::Diagnostics& diagnostics)
         core::AudioOperation operation{
             .id = core::AudioOperationId::from_number(m_next_audio_id++),
             .action = pending.action,
-            .channel = pending.channel,
+            .purpose = pending.purpose,
+            .pause_policy = pending.pause_policy,
+            .audio_owner = pending.owner,
             .asset = std::move(pending.asset),
             .fade = pending.fade,
-            .loop = false,
-            .volume = pending.volume,
-            .owner = pending.completion
-                         ? std::optional<core::FlowFrameId>{pending.completion->owner}
-                         : std::nullopt,
+            .gain = pending.gain,
+            .pan = pending.pan,
+            .pan_source = std::move(pending.pan_source),
+            .completion_owner = pending.completion
+                                    ? std::optional<core::FlowFrameId>{pending.completion->owner}
+                                    : std::nullopt,
             .completion =
                 pending.completion
                     ? std::optional<core::AudioCompletionHandle>{core::AudioCompletionHandle{
                           pending.completion->blocker}}
                     : std::nullopt,
             .target = std::move(pending.target),
-            .purpose = pending.purpose,
-            .skippable = pending.skippable};
+            .causality = pending.causality,
+            .synchronized = pending.synchronized,
+            .skip_behavior = pending.skip_behavior};
         auto accepted = accept_audio(operation);
         if (!accepted) {
             core::append_diagnostics(diagnostics, std::move(accepted).error());
@@ -792,9 +818,9 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                     m_kernel->state().remove_desired_audio(payload.instance, payload.owner);
                 if (!changed)
                     diagnostics = std::move(changed).error();
-            } else if constexpr (std::is_same_v<T, runtime::RemoveDesiredAudioBusCommand>) {
+            } else if constexpr (std::is_same_v<T, runtime::RemoveDesiredAudioPurposeCommand>) {
                 auto changed =
-                    m_kernel->state().remove_desired_audio_bus(payload.bus, payload.owner);
+                    m_kernel->state().remove_desired_audio_purpose(payload.purpose, payload.owner);
                 if (!changed)
                     diagnostics = std::move(changed).error();
             } else if constexpr (std::is_same_v<T, runtime::UpsertMountedLayoutCommand>) {
@@ -933,7 +959,7 @@ core::Diagnostics RuntimeSession::complete_audio(core::AudioOperationId operatio
                                                  bool cancel)
 {
     if (!m_pending_audio || m_pending_audio->id != operation || !m_pending_audio->completion ||
-        !m_pending_audio->owner || *m_pending_audio->owner != owner ||
+        !m_pending_audio->completion_owner || *m_pending_audio->completion_owner != owner ||
         *m_pending_audio->completion != completion)
         return {diagnostic("runtime.stale_audio_completion",
                            "Audio completion does not match the pending operation")};

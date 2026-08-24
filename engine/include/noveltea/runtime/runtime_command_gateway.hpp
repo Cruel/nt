@@ -33,9 +33,11 @@ public:
     virtual ~RuntimeCommandGatewayServices() = default;
 
     [[nodiscard]] virtual core::Result<void, core::Diagnostics>
-    request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
-                  std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
-                  double volume, bool await_completion, core::AudioOperationPurpose purpose) = 0;
+    request_audio(core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
+                  std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain,
+                  double pan, bool await_completion, core::compiled::AudioCausality causality,
+                  core::compiled::AudioPausePolicy pause_policy,
+                  core::compiled::AudioSkipBehavior skip_behavior) = 0;
     [[nodiscard]] virtual const core::TypedRuntimeUIViewState& current_view() const noexcept = 0;
     virtual void queue_input(core::RuntimeInputMessage input) = 0;
 };
@@ -194,7 +196,8 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_desired_audio(core::DesiredAudioInstanceId instance, core::PresentationOwner owner);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    remove_desired_audio_bus(core::compiled::AudioChannel bus, core::PresentationOwner owner);
+    remove_desired_audio_purpose(core::compiled::AudioPurpose purpose,
+                                 core::PresentationOwner owner);
     [[nodiscard]] core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>
     desired_audio(const core::DesiredAudioInstanceId& instance,
                   const core::PresentationOwner& owner) const;
@@ -220,11 +223,14 @@ public:
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
 
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
-                  std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
-                  double volume, bool await_completion,
-                  core::AudioOperationPurpose purpose = core::AudioOperationPurpose::Gameplay);
+    [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(
+        core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
+        std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain, double pan,
+        bool await_completion,
+        core::compiled::AudioCausality causality = core::compiled::AudioCausality::Causal,
+        core::compiled::AudioPausePolicy pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+        core::compiled::AudioSkipBehavior skip_behavior =
+            core::compiled::AudioSkipBehavior::Suppress);
     [[nodiscard]] core::Result<void, core::Diagnostics> append_text_log(core::TextLogEntry entry);
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_text_log();
 

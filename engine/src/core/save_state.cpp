@@ -345,8 +345,9 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
             save.desired_audio.push_back(SavedDesiredAudio{
-                audio.instance, **owner.value_if(), audio.bus, audio.asset, audio.volume,
-                audio.fade_in, audio.fade_out, audio.replacement_key});
+                audio.instance, **owner.value_if(), audio.purpose, audio.pause_policy, audio.asset,
+                audio.gain, audio.pan, audio.pan_source, audio.fade_in, audio.fade_out,
+                audio.replacement_key});
     }
 
     if (session.m_blocker) {

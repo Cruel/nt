@@ -648,15 +648,23 @@ TEST_CASE("desired audio save restore persists loop policy without backend playb
     auto state = make_state(project);
     const auto owner = state.session_presentation_owner();
     REQUIRE(state.upsert_desired_audio(
-        project,
-        DesiredAudioInstance{id<DesiredAudioInstanceId>("background-music"), owner,
-                             compiled::AudioChannel::Music, id<AssetId>("audio-voice"), 0.7,
-                             std::chrono::milliseconds{125}, std::chrono::milliseconds{250},
-                             id<DesiredAudioReplacementKey>("background-music")}));
-    REQUIRE(state.upsert_desired_audio(project,
-                                       DesiredAudioInstance{id<DesiredAudioInstanceId>("rain-near"),
-                                                            owner, compiled::AudioChannel::Ambient,
-                                                            id<AssetId>("audio-voice"), 0.35}));
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("background-music"),
+                                      .owner = owner,
+                                      .purpose = compiled::AudioPurpose::Music,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.7,
+                                      .fade_in = std::chrono::milliseconds{125},
+                                      .fade_out = std::chrono::milliseconds{250},
+                                      .replacement_key =
+                                          id<DesiredAudioReplacementKey>("background-music")}));
+    REQUIRE(state.upsert_desired_audio(
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("rain-near"),
+                                      .owner = owner,
+                                      .purpose = compiled::AudioPurpose::Ambience,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.35}));
 
     auto saved = make_save_state(project, state);
     REQUIRE(saved);
@@ -668,13 +676,18 @@ TEST_CASE("desired audio save restore persists loop policy without backend playb
     for (const auto& record : records) {
         CHECK(record.contains("instance"));
         CHECK(record.contains("owner"));
-        CHECK(record.contains("bus"));
+        CHECK(record.contains("purpose"));
+        CHECK(record.contains("pausePolicy"));
         CHECK(record.contains("asset"));
-        CHECK(record.contains("volume"));
+        CHECK(record.contains("gain"));
+        CHECK(record.contains("pan"));
+        CHECK(record.contains("panSource"));
         CHECK(record.contains("fadeInMs"));
         CHECK(record.contains("fadeOutMs"));
         CHECK(record.contains("replacementKey"));
-        CHECK(record.size() == 8);
+        CHECK(record.size() == 11);
+        CHECK_FALSE(record.contains("bus"));
+        CHECK_FALSE(record.contains("volume"));
         CHECK_FALSE(record.contains("playing"));
         CHECK_FALSE(record.contains("track"));
         CHECK_FALSE(record.contains("voice"));
@@ -692,8 +705,10 @@ TEST_CASE("desired audio save restore persists loop policy without backend playb
         restored.value().desired_audio(id<DesiredAudioInstanceId>("background-music"),
                                        restored.value().session_presentation_owner());
     REQUIRE(music != nullptr);
-    CHECK(music->bus == compiled::AudioChannel::Music);
-    CHECK(music->volume == Catch::Approx(0.7));
+    CHECK(music->purpose == compiled::AudioPurpose::Music);
+    CHECK(music->pause_policy == compiled::AudioPausePolicy::Gameplay);
+    CHECK(music->gain == Catch::Approx(0.7));
+    CHECK(music->pan == Catch::Approx(0.0));
     CHECK(music->fade_in == std::chrono::milliseconds{125});
     CHECK(music->fade_out == std::chrono::milliseconds{250});
 }

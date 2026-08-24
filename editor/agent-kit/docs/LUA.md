@@ -497,45 +497,56 @@ These presentation APIs express engine-owned desired state. They do not expose b
 
 ## Audio
 
-Audio always takes compiled audio Asset IDs, never file paths. Channel tokens are:
+Audio always takes compiled audio Asset IDs, never file paths. Audio Purpose is independent from
+ownership, lifetime, pause behavior, and causality. Purpose tokens are:
 
 ```text
 sound-effect
 music
 voice
-ambient
+ambience
+ui-sound
 ```
 
 Transient playback:
 
 ```text
-audio.play(asset_id, channel, options?) -> ok, error
-audio.play_and_wait(asset_id, channel, options?) -> ok, error
-audio.stop(channel, options?) -> ok, error
-audio.stop_and_wait(channel, options?) -> ok, error
+audio.play(asset_id, purpose, options?) -> ok, error
+audio.play_and_wait(asset_id, purpose, options?) -> ok, error
+audio.stop(purpose, options?) -> ok, error
+audio.stop_and_wait(purpose, options?) -> ok, error
 audio.play_ui(asset_id, options?) -> ok, error
 ```
 
-Transient play options support `volume` and `fade_ms`. `loop=true` is not a supported transient-loop authoring strategy; persistent Music/Ambient belongs in desired audio below. Stop uses `fade_ms`. `audio.play_ui` is non-awaited, sound-effect-only disposable UI audio and accepts `volume`.
+Transient play options support `gain`, stereo `pan` (`-1` to `1`), `fade_ms`,
+`pause_policy` (`gameplay`, `owner`, or `unscaled`), and `skip_behavior` (`suppress`, `stop`, or
+`play`). Persistent Music/Ambience belongs in desired audio below rather than a transient `loop`
+flag. Stop uses `fade_ms`. `audio.play_ui` is always non-awaited, disposable UI Sound on unscaled
+presentation time and accepts `gain` and `pan`; it cannot gate gameplay.
 
-Each `audio.play` creates an independent transient instance. `audio.stop(channel)` stops transient playback on that semantic bus; it does not clear desired persistent loops.
+Each `audio.play` creates an independent transient instance owned by the current admitted presentation
+scope. `audio.stop(purpose)` stops transient playback with that Purpose for the same owner; it does
+not clear desired persistent loops. Ending an owner cancels its remaining transient audio and removes
+its desired audio; ownership is never transferred implicitly.
 
 `play_and_wait` and `stop_and_wait` are the standard engine-coordinated yielding operations. Use them only in a gameplay Script invocation that is actually allowed to yield. After accepting the audio request they suspend the current Lua coroutine until that exact operation completes; using them from a synchronous expression, Room composition, or Layout event is invalid.
 
-Persistent desired Music/Ambient:
+Persistent desired Music/Ambience:
 
 ```text
-audio.set_loop(instance_id, asset_id, bus, options?) -> ok, error
+audio.set_loop(instance_id, asset_id, purpose, options?) -> ok, error
 audio.set_music(asset_id, options?) -> ok, error
 audio.clear_loop(instance_id, options?) -> ok, error
-audio.clear_bus(bus, options?) -> ok, error
+audio.clear_purpose(purpose, options?) -> ok, error
 audio.state(instance_id, options?) -> state_or_nil, error
 ```
 
 `set_loop`/`clear_*`/`state` use the common owner selector, but default to `session` rather than `current-room`. Desired-audio options support:
 
 ```text
-volume
+gain
+pan                     (-1 to 1)
+pause_policy            gameplay | owner | unscaled
 fade_ms                 (fallback for both fade directions)
 fade_in_ms
 fade_out_ms
@@ -543,9 +554,13 @@ replacement_key         (stable semantic ID)
 owner / room
 ```
 
-Desired loop buses are Music or Ambient. `set_music` is the single-BGM convenience policy: it uses the reserved `background-music` desired instance/replacement identity on the Music bus.
+Desired loop Purposes are Music or Ambience. `set_music` is the single-BGM convenience policy: it
+uses the reserved `background-music` desired instance/replacement identity with Music Purpose.
 
-`audio.state()` returns `asset`, `bus`, `volume`, `fade_in_ms`, `fade_out_ms`, and optional `replacement_key`. Desired audio is reconstructible save state; backend voice/sample position/fade progress is not exposed.
+`audio.state()` returns `asset`, `purpose`, `gain`, `pan`, `fade_in_ms`, `fade_out_ms`, and optional
+`replacement_key`. Desired audio is reconstructible save state: identity, owner, Purpose, Pause
+Policy, gain/pan policy, loop intent, and replacement policy are authoritative, while decoder/sample
+position and in-progress fade phase are disposable backend realization.
 
 The underlying `audio._play` and `audio._stop` transport helpers are implementation details used by the public wrappers above. Do not author against underscore-prefixed audio functions.
 

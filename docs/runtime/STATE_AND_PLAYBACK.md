@@ -122,7 +122,7 @@ parameters, plane/order, clock, scroll rate, opacity, and visibility. Immutable 
 defaults rebuild from `RoomDefinition` and are intentionally omitted from save bytes. Active text and
 active choice are retained. Map component focus/open/pan/zoom/mode and arbitrary RmlUi DOM state are
 not retained; only an explicitly committed validated Layout State Slot can carry authored Map-view
-state across save/restore. Runtime-selected desired Music and Ambient records retain
+state across save/restore. Runtime-selected desired Music and Ambience records retain
 stable instance/owner identity, Asset, volume, semantic fade policy, and optional replacement key.
 Transient voice, sound-effect, and non-looping playback operations are not state and are omitted.
 Semantic gameplay pause is deliberately excluded: a successful restore resumes the saved gameplay
@@ -205,8 +205,12 @@ and direct-render code remain presentation backends only. They cannot inspect co
 or own Flow/session/save state.
 
 Typed audio operations are consumed by `RuntimeAudioAdapter`. It resolves only compiled audio Asset
-IDs, translates the typed channel/action/options to `AudioSystem`, reports backend failures through
-the runtime diagnostic seam, and returns exact completion inputs for awaited operations. Neither
+IDs and realizes semantic Purpose, Owner, Pause Policy, gain, stereo pan, causality, and skip policy
+through `AudioSystem`. Project mix/mute settings and optional Voice ducking are applied independently
+from individual instance gain. Effective gameplay pause pauses gameplay/owner-policy voices without
+advancing them, while unscaled UI Sound continues. Ending a semantic Owner cancels its transient
+audio and removes its desired realization without transferring ownership. Backend failures return
+through the runtime diagnostic seam, and awaited operations produce exact completion inputs. Neither
 `SessionState` nor Lua owns audio backend handles.
 
 `RuntimeAudioAdapter` starts audio only from mandatory published `AssetLease<AudioAsset>` values.
@@ -214,6 +218,8 @@ the runtime diagnostic seam, and returns exact completion inputs for awaited ope
 path-based, or alias-based prepared playback overload. A missing desired-audio lease blocks/fails the
 coherent publication instead of synchronously loading the source. Editor preview remains isolated from
 runtime track identity and uses asynchronous Demand requests before handing leases to `AudioSystem`.
+Music and Ambience desired instances reconstruct from their declared beginning/loop entry after load;
+save state retains semantic configuration rather than decoder position, sample cursor, or fade phase.
 
 ## Presentation coordination
 

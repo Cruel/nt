@@ -47,6 +47,9 @@ public:
                                               assets::AssetLease<assets::AudioAsset> asset,
                                               AudioTrackDesc desc = {});
     void stop_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
+    void set_track_volume(const AudioTrackId& track_id, float volume);
+    void set_track_paused(const AudioTrackId& track_id, bool paused);
+    void set_track_pan(const AudioTrackId& track_id, float pan);
     [[nodiscard]] bool track_active(const AudioTrackId& track_id) const noexcept;
 
     void update(float dt);

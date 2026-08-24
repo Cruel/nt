@@ -45,9 +45,8 @@ core::CompiledProject decode_document(nlohmann::json document, std::string sourc
     return std::move(decoded).value();
 }
 
-core::CompiledProject load_project(
-    std::string_view filename,
-    const std::function<void(nlohmann::json&)>& amend = {})
+core::CompiledProject load_project(std::string_view filename,
+                                   const std::function<void(nlohmann::json&)>& amend = {})
 {
     auto document = load_document(filename);
     if (amend)
@@ -85,12 +84,20 @@ core::CompiledProject make_awaited_audio_cue_project(std::string source_name)
         nlohmann::json::array({{{"id", "audio"},
                                 {"kind", "audio-cue"},
                                 {"action", "fade-in"},
-                                {"channel", "voice"},
+                                {"purpose", "voice"},
+                                {"lifetime", "one-shot"},
+                                {"pausePolicy", "gameplay"},
                                 {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
                                 {"fadeMs", 25},
-                                {"loop", false},
-                                {"volume", 0.5},
-                                {"waitForCompletion", true}}});
+                                {"gain", 0.5},
+                                {"pan", 0.0},
+                                {"panSource", nullptr},
+                                {"waitForCompletion", true},
+                                {"causality", "causal"},
+                                {"synchronized", false},
+                                {"skipBehavior", "stop"},
+                                {"instanceId", nullptr},
+                                {"replacementGroup", nullptr}}});
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -142,9 +149,9 @@ core::CompiledProject make_animated_room_project(std::string source_name)
         if (room_id != "start" && room_id != "hall")
             continue;
         auto& hooks = room["scriptHooks"];
-        hooks.erase(std::remove_if(hooks.begin(), hooks.end(), [](const nlohmann::json& hook) {
-                        return hook["hook"] == "after-enter";
-                    }),
+        hooks.erase(std::remove_if(
+                        hooks.begin(), hooks.end(),
+                        [](const nlohmann::json& hook) { return hook["hook"] == "after-enter"; }),
                     hooks.end());
         hooks.push_back(
             {{"hook", "after-enter"},
@@ -337,8 +344,7 @@ public:
         return m_delegate.resume(invocation, capabilities);
     }
 
-    [[nodiscard]] core::Result<runtime::ProjectHookInvocationResult,
-                               runtime::ScriptInvocationError>
+    [[nodiscard]] core::Result<runtime::ProjectHookInvocationResult, runtime::ScriptInvocationError>
     invoke_project_hook(const runtime::ProjectHookInvocationRequest& request,
                         const runtime::RuntimeCapabilitySet& capabilities) override
     {
@@ -390,10 +396,9 @@ struct Fixture {
     std::unique_ptr<TypedRuntimeSession> session;
     runtime::RuntimeBudgetConfiguration runtime_budget;
 
-    explicit Fixture(
-        std::string_view filename = "comprehensive.json",
-        runtime::RuntimeBudgetConfiguration budget = {},
-        const std::function<void(nlohmann::json&)>& amend = {})
+    explicit Fixture(std::string_view filename = "comprehensive.json",
+                     runtime::RuntimeBudgetConfiguration budget = {},
+                     const std::function<void(nlohmann::json&)>& amend = {})
         : project(load_project(filename, amend)), runtime_budget(budget)
     {
         REQUIRE(runtime.initialize({&sources}));
@@ -939,16 +944,17 @@ TEST_CASE("semantic Verb menu publication never auto-selects a primary Offer")
     const core::compiled::InteractionSubject subject =
         core::compiled::InteractableInteractionSubject{key};
 
-    auto opened = dispatch_settled(
-        *fixture.session, core::RuntimeInputMessage{core::OpenVerbMenuInput{subject}});
+    auto opened = dispatch_settled(*fixture.session,
+                                   core::RuntimeInputMessage{core::OpenVerbMenuInput{subject}});
     REQUIRE(opened.diagnostics.empty());
     REQUIRE(opened.publication);
     const auto& view = opened.publication->gameplay_ui;
     CHECK(view.verb_menu_open);
     REQUIRE(view.selected_subjects == std::vector<core::compiled::InteractionSubject>{subject});
-    const auto use = std::find_if(view.verb_offers.begin(), view.verb_offers.end(), [](const auto& offer) {
-        return offer.verb == make_id<core::VerbIdTag>("use");
-    });
+    const auto use =
+        std::find_if(view.verb_offers.begin(), view.verb_offers.end(), [](const auto& offer) {
+            return offer.verb == make_id<core::VerbIdTag>("use");
+        });
     REQUIRE(use != view.verb_offers.end());
     CHECK(use->primary);
     CHECK(view.mode == "room");
@@ -980,9 +986,8 @@ TEST_CASE("ambiguous primary Verb Offers diagnose and open the ordinary menu")
 {
     Fixture fixture("interaction-program.json", {}, [](nlohmann::json& document) {
         auto& verbs = document["definitions"]["verbs"];
-        auto inspect = std::find_if(verbs.begin(), verbs.end(), [](const auto& verb) {
-            return verb["id"] == "inspect";
-        });
+        auto inspect = std::find_if(verbs.begin(), verbs.end(),
+                                    [](const auto& verb) { return verb["id"] == "inspect"; });
         REQUIRE(inspect != verbs.end());
         (*inspect)["offers"].push_back(
             {{"id", "inspect-key"},
@@ -1010,14 +1015,12 @@ TEST_CASE("ambiguous primary Verb Offers diagnose and open the ordinary menu")
     const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
     CHECK(std::holds_alternative<core::compiled::RoomLocation>(location.value()));
-    const auto ambiguity = std::find_if(activated.events.begin(), activated.events.end(),
-                                        [](const auto& event) {
-                                            const auto* observation =
-                                                std::get_if<runtime::ObservationEvent>(&event);
-                                            return observation && std::holds_alternative<
-                                                                      core::VerbOfferAmbiguityObservation>(
-                                                                      observation->observation);
-                                        });
+    const auto ambiguity =
+        std::find_if(activated.events.begin(), activated.events.end(), [](const auto& event) {
+            const auto* observation = std::get_if<runtime::ObservationEvent>(&event);
+            return observation && std::holds_alternative<core::VerbOfferAmbiguityObservation>(
+                                      observation->observation);
+        });
     REQUIRE(ambiguity != activated.events.end());
     const auto& detail = std::get<core::VerbOfferAmbiguityObservation>(
         std::get<runtime::ObservationEvent>(*ambiguity).observation);
@@ -1374,14 +1377,13 @@ TEST_CASE("deferred command self-enqueue is bounded by the transaction command b
                 {{"id", "self-enqueue-hooks"},
                  {"source",
                   {{"kind", "inline-lua"},
-                   {"source",
-                    "return { before_leave = function()\n"
-                    "  local ok, err = noveltea.interactables.set_location('key', {\n"
-                    "    kind = 'inventory',\n"
-                    "    inventory = { owner = { kind = 'project' }, id = 'player' }\n"
-                    "  })\n"
-                    "  assert(ok and err == nil)\n"
-                    "end }"}}}});
+                   {"source", "return { before_leave = function()\n"
+                              "  local ok, err = noveltea.interactables.set_location('key', {\n"
+                              "    kind = 'inventory',\n"
+                              "    inventory = { owner = { kind = 'project' }, id = 'player' }\n"
+                              "  })\n"
+                              "  assert(ok and err == nil)\n"
+                              "end }"}}}});
             for (auto& room : document["definitions"]["rooms"]) {
                 if (room["id"] != "start")
                     continue;
@@ -1838,7 +1840,7 @@ TEST_CASE("runtime events retain order while script audio is accepted directly")
     Fixture fixture;
     REQUIRE(fixture.session->gateway().request_notification("before"));
     REQUIRE(fixture.session->gateway().request_audio(
-        core::compiled::AudioAction::Play, core::compiled::AudioChannel::SoundEffect,
+        core::compiled::AudioAction::Play, core::compiled::AudioPurpose::SoundEffect,
         make_id<core::AssetIdTag>("audio-voice"), std::chrono::milliseconds{0}, false, 1.0, false));
     REQUIRE(fixture.session->gateway().request_notification("after"));
 
@@ -1979,9 +1981,8 @@ TEST_CASE(
             for (auto& hook : room["scriptHooks"]) {
                 if (hook["hook"] != "before-leave")
                     continue;
-                hook["handler"] = {
-                    {"module", {{"kind", "script"}, {"id", "save-on-leave-hooks"}}},
-                    {"export", "before_leave"}};
+                hook["handler"] = {{"module", {{"kind", "script"}, {"id", "save-on-leave-hooks"}}},
+                                   {"export", "before_leave"}};
             }
         }
     });
@@ -2174,7 +2175,8 @@ TEST_CASE("runtime Lua Map activation and layout controls use typed state and va
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local ok, err = noveltea.map.activate('missing', 'start-hall'); assert(not ok and err ~= nil)\n"
+        "local ok, err = noveltea.map.activate('missing', 'start-hall'); assert(not ok and err ~= "
+        "nil)\n"
         "ok, err = noveltea.layouts.set('custom', 'missing'); assert(not ok and err ~= nil)\n"
         "assert(noveltea.layouts.get('custom') == 'hud-assets')\n"
         "ok, err = noveltea.map.activate('house', 'start-hall'); assert(ok and err == nil)",
@@ -2188,8 +2190,7 @@ TEST_CASE("runtime Lua Map activation and layout controls use typed state and va
     CHECK(navigated_view.room->room.text() == "hall");
 
     REQUIRE(execute_session_lua(
-        fixture,
-        "local ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)",
+        fixture, "local ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)",
         "typed-map-layout-clear"));
     auto cleared = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
@@ -2808,13 +2809,12 @@ TEST_CASE(
     REQUIRE(execute_session_lua(
         immediate,
         "local ok, err = audio.set_music('audio-voice', "
-        "{fade_in_ms=10, fade_out_ms=20, volume=0.6}); assert(ok and err == nil)\n"
+        "{fade_in_ms=10, fade_out_ms=20, gain=0.6}); assert(ok and err == nil)\n"
         "ok, err = audio.play('audio-voice', 'voice', "
-        "{fade_ms=25, volume=0.5, loop=false}); assert(ok and err == nil)\n"
+        "{fade_ms=25, gain=0.5}); assert(ok and err == nil)\n"
         "ok, err = audio.play('missing', 'voice'); assert(not ok and err ~= nil)\n"
         "ok, err = audio.play('image-main', 'voice'); assert(not ok and err ~= nil)\n"
-        "ok, err = audio.play('audio-voice', 'voice', {loop=true}); "
-        "assert(not ok and err ~= nil)",
+        "ok, err = audio.play_ui('audio-voice'); assert(ok and err == nil)",
         "typed-audio-immediate"));
     auto settled = immediate.session->dispatch(core::RuntimeInputMessage{
         core::SetVariableDebugInput{make_id<core::PropertyIdTag>("count"), std::int64_t{2}}});
@@ -2822,19 +2822,32 @@ TEST_CASE(
     REQUIRE(execute_session_lua(
         immediate,
         "local state, err = audio.state('background-music'); assert(state and err == nil)\n"
-        "assert(state.asset == 'audio-voice' and state.bus == 'music' and "
-        "state.volume == 0.6 and state.fade_in_ms == 10 and state.fade_out_ms == 20)",
+        "assert(state.asset == 'audio-voice' and state.purpose == 'music' and "
+        "state.gain == 0.6 and state.fade_in_ms == 10 and state.fade_out_ms == 20)",
         "typed-audio-desired-state"));
     auto emitted = immediate.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(emitted.diagnostics.empty());
-    REQUIRE(immediate.presentation.audio_operations.size() == 1);
+    REQUIRE(immediate.presentation.audio_operations.size() == 2);
     const auto* immediate_operation = &immediate.presentation.audio_operations.front();
     CHECK(immediate_operation->action == core::compiled::AudioAction::FadeIn);
-    CHECK(immediate_operation->channel == core::compiled::AudioChannel::Voice);
+    CHECK(immediate_operation->purpose == core::compiled::AudioPurpose::Voice);
     CHECK(immediate_operation->asset == make_id<core::AssetIdTag>("audio-voice"));
-    CHECK_FALSE(immediate_operation->owner);
+    REQUIRE(immediate_operation->audio_owner);
+    CHECK(immediate_operation->causality == core::compiled::AudioCausality::Causal);
+    CHECK(immediate_operation->pause_policy == core::compiled::AudioPausePolicy::Gameplay);
+    CHECK_FALSE(immediate_operation->completion_owner);
     CHECK_FALSE(immediate_operation->completion);
     CHECK(std::holds_alternative<core::NewAudioPlaybackTarget>(immediate_operation->target));
+    const auto& ui_operation = immediate.presentation.audio_operations.back();
+    CHECK(ui_operation.action == core::compiled::AudioAction::Play);
+    CHECK(ui_operation.purpose == core::compiled::AudioPurpose::UiSound);
+    CHECK(ui_operation.asset == make_id<core::AssetIdTag>("audio-voice"));
+    REQUIRE(ui_operation.audio_owner);
+    CHECK(ui_operation.causality == core::compiled::AudioCausality::Disposable);
+    CHECK(ui_operation.pause_policy == core::compiled::AudioPausePolicy::Unscaled);
+    CHECK_FALSE(ui_operation.completion_owner);
+    CHECK_FALSE(ui_operation.completion);
+    CHECK(std::holds_alternative<core::NewAudioPlaybackTarget>(ui_operation.target));
 
     auto document = load_document("scene-program.json");
     auto& opening = document["definitions"]["scenes"][1];
@@ -2843,7 +2856,7 @@ TEST_CASE(
           {"kind", "run-lua"},
           {"autosaveSafePoint", false},
           {"mayYield", true},
-          {"source", "local ok, err = audio.play_and_wait('audio-voice', 'voice', {volume=0.4}); "
+          {"source", "local ok, err = audio.play_and_wait('audio-voice', 'voice', {gain=0.4}); "
                      "assert(ok and err == nil); Game.set_prop('count', 50); "
                      "ok, err = audio.stop_and_wait('voice', {fade_ms=5}); "
                      "assert(ok and err == nil); Game.set_prop('count', 77)"}}});
@@ -2863,10 +2876,10 @@ TEST_CASE(
     REQUIRE(blocked.diagnostics.empty());
     REQUIRE(presentation.audio_operations.size() == 1);
     const auto* awaited = &presentation.audio_operations.front();
-    REQUIRE(awaited->owner);
+    REQUIRE(awaited->completion_owner);
     REQUIRE(awaited->completion);
     REQUIRE(std::holds_alternative<core::ScriptInvocationHandle>(*awaited->completion));
-    const auto owner = *awaited->owner;
+    const auto owner = *awaited->completion_owner;
     const auto completion = *awaited->completion;
     const auto operation = awaited->id;
 
@@ -2886,10 +2899,10 @@ TEST_CASE(
     REQUIRE(presentation.audio_operations.size() == 2);
     const auto* second = &presentation.audio_operations.back();
     CHECK(second->action == core::compiled::AudioAction::FadeOut);
-    REQUIRE(second->owner);
+    REQUIRE(second->completion_owner);
     REQUIRE(second->completion);
     const auto second_operation = second->id;
-    const auto second_owner = *second->owner;
+    const auto second_owner = *second->completion_owner;
     const auto second_completion = *second->completion;
     auto stopped = session->dispatch(core::RuntimeInputMessage{
         core::CompleteAudioInput{second_operation, second_owner, second_completion}});

@@ -142,10 +142,10 @@ struct RemoveDesiredAudioCommand {
     core::PresentationOwner owner;
     bool operator==(const RemoveDesiredAudioCommand&) const = default;
 };
-struct RemoveDesiredAudioBusCommand {
-    core::compiled::AudioChannel bus;
+struct RemoveDesiredAudioPurposeCommand {
+    core::compiled::AudioPurpose purpose;
     core::PresentationOwner owner;
-    bool operator==(const RemoveDesiredAudioBusCommand&) const = default;
+    bool operator==(const RemoveDesiredAudioPurposeCommand&) const = default;
 };
 struct LayoutFadeRequest {
     std::chrono::milliseconds duration{0};
@@ -178,7 +178,7 @@ using DeferredRuntimeCommandPayload = std::variant<
     UpsertActorPresentationCommand, RemoveActorPresentationCommand, UpsertPresentationPropCommand,
     RemovePresentationPropCommand, UpsertPresentationEnvironmentCommand,
     RemovePresentationEnvironmentCommand, RemovePresentationEnvironmentsByStopKeyCommand,
-    UpsertDesiredAudioCommand, RemoveDesiredAudioCommand, RemoveDesiredAudioBusCommand,
+    UpsertDesiredAudioCommand, RemoveDesiredAudioCommand, RemoveDesiredAudioPurposeCommand,
     UpsertMountedLayoutCommand, RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
 
 struct DeferredRuntimeCommand {

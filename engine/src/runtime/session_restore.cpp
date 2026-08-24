@@ -606,8 +606,9 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
         if (!owner)
             return Result<SessionState, Diagnostics>::failure(owner.error());
         auto restored = state->upsert_desired_audio(
-            project, DesiredAudioInstance{saved.instance, *owner.value_if(), saved.bus, saved.asset,
-                                          saved.volume, saved.fade_in, saved.fade_out,
+            project, DesiredAudioInstance{saved.instance, *owner.value_if(), saved.purpose,
+                                          saved.pause_policy, saved.asset, saved.gain, saved.pan,
+                                          saved.pan_source, saved.fade_in, saved.fade_out,
                                           saved.replacement_key});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());

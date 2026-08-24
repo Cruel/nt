@@ -28,6 +28,16 @@ function representativeWireFixture() {
         uiScale: { enabled: true, minimum: 1, maximum: 2 },
         textScale: { enabled: true, minimum: 1, maximum: 2 },
       },
+      audio: {
+        purposes: {
+          music: { volume: 1, muted: false },
+          ambience: { volume: 1, muted: false },
+          voice: { volume: 1, muted: false },
+          'sound-effect': { volume: 1, muted: false },
+          'ui-sound': { volume: 1, muted: false },
+        },
+        voiceDucking: { enabled: false, musicGain: 0.5, ambienceGain: 0.5 },
+      },
       text: { defaultFont: null },
       titleScreen: {
         titleImage: null,

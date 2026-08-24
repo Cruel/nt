@@ -222,6 +222,9 @@ void GameHost::replace_running_game(std::unique_ptr<runtime::RunningGame> runnin
     m_running_game_presentation_port.reset();
     clear_loaded_game_state();
     m_running_game = std::move(running_game);
+    if (m_running_game)
+        m_runtime_audio_adapter.set_mix_settings(
+            m_running_game->package().project().settings().audio);
     advance_session_generation();
     advance_backend_generation();
     bind_runtime_ui_input_sink();
@@ -413,6 +416,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     m_running_game = std::move(candidate);
     m_project_scripts = std::move(candidate_scripts);
     m_running_game_presentation_port = std::move(candidate_presentation);
+    m_runtime_audio_adapter.set_mix_settings(m_running_game->package().project().settings().audio);
 
     const auto rollback_to_previous = [&](core::Diagnostics diagnostics) {
         detach_runtime_bindings();
@@ -432,6 +436,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         m_running_game = std::move(previous_game);
         m_project_scripts = std::move(previous_scripts);
         m_running_game_presentation_port = std::move(previous_presentation);
+        m_runtime_audio_adapter.set_mix_settings(
+            m_running_game->package().project().settings().audio);
         m_lifecycle_state = previous_lifecycle_state;
         m_compiled_project_path = std::move(previous_compiled_project_path);
         m_pending_runtime_inputs = std::move(previous_pending_runtime_inputs);
@@ -816,6 +822,7 @@ bool GameHost::advance(GameHostAdvanceInput input)
     if (!m_running_game)
         return true;
 
+    m_runtime_audio_adapter.set_gameplay_paused(input.effective_gameplay_pause.paused);
     m_running_game->session().set_effective_gameplay_pause(
         std::move(input.effective_gameplay_pause));
     if (m_lifecycle_state != LoadedGameLifecycleState::Running || !input.runtime_input_admitted ||

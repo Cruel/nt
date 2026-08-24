@@ -49,6 +49,16 @@ public:
                                                 const AudioPlaybackDesc& desc) = 0;
     virtual void stop(AudioVoiceHandle voice) = 0;
     virtual void set_volume(AudioVoiceHandle voice, float volume) = 0;
+    virtual void set_paused(AudioVoiceHandle voice, bool paused)
+    {
+        (void)voice;
+        (void)paused;
+    }
+    virtual void set_pan(AudioVoiceHandle voice, float pan)
+    {
+        (void)voice;
+        (void)pan;
+    }
     virtual void set_bus_volume(AudioBus bus, float volume) = 0;
     virtual void pause() = 0;
     virtual void resume() = 0;

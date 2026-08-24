@@ -56,6 +56,7 @@ struct AudioPlaybackDesc {
     AudioBus bus = AudioBus::Sfx;
     float volume = 1.0f;
     float pitch = 1.0f;
+    float pan = 0.0f;
     bool loop = false;
 };
 
@@ -70,6 +71,7 @@ struct AudioTrackDesc {
     AudioBus bus = AudioBus::Music;
     float volume = 1.0f;
     float pitch = 1.0f;
+    float pan = 0.0f;
     bool loop = true;
     float fade_in_seconds = 0.0f;
     float fade_out_seconds = 0.0f;

@@ -432,7 +432,11 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     remove_desired_audio(const DesiredAudioInstanceId& instance, const PresentationOwner& owner);
     [[nodiscard]] Result<void, Diagnostics>
-    remove_desired_audio_bus(compiled::AudioChannel bus, const PresentationOwner& owner);
+    remove_desired_audio_purpose(compiled::AudioPurpose purpose, const PresentationOwner& owner);
+    [[nodiscard]] Result<double, Diagnostics>
+    resolve_audio_pan(const CompiledProject& project, const PresentationOwner& owner,
+                      double fixed_pan,
+                      const std::optional<compiled::AudioPanSource>& source) const;
     [[nodiscard]] Result<void, Diagnostics>
     apply_presentation_target(const CompiledProject& project,
                               const PresentationTargetDraft& target);

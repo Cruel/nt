@@ -1,3 +1,4 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/assets/asset_manager.hpp"
@@ -36,6 +37,11 @@ static_assert(!std::is_move_constructible_v<RuntimeUiProjectAssetService>);
 static_assert(!std::is_move_assignable_v<RuntimeUiProjectAssetService>);
 
 namespace {
+
+core::PresentationOwner session_audio_owner()
+{
+    return core::SessionPresentationOwner{core::PresentationSessionId::from_number(1)};
+}
 
 core::CompiledProject load_project()
 {
@@ -146,7 +152,12 @@ public:
         return voice;
     }
     void stop(AudioVoiceHandle voice) override { active[voice.id] = false; }
-    void set_volume(AudioVoiceHandle, float) override {}
+    void set_volume(AudioVoiceHandle voice, float volume) override { volumes[voice.id] = volume; }
+    void set_paused(AudioVoiceHandle voice, bool paused) override
+    {
+        paused_voices[voice.id] = paused;
+    }
+    void set_pan(AudioVoiceHandle voice, float pan) override { pans[voice.id] = pan; }
     void set_bus_volume(AudioBus, float) override {}
     void pause() override {}
     void resume() override {}
@@ -174,6 +185,9 @@ public:
     std::uint32_t next_clip = 1;
     std::uint32_t next_voice = 1;
     std::unordered_map<std::uint32_t, bool> active;
+    std::unordered_map<std::uint32_t, float> volumes;
+    std::unordered_map<std::uint32_t, bool> paused_voices;
+    std::unordered_map<std::uint32_t, float> pans;
     std::optional<assets::AudioAssetRequest> last_request;
     std::optional<AudioPlaybackDesc> last_playback;
     std::size_t max_active_voices = 0;
@@ -263,12 +277,13 @@ TEST_CASE("runtime audio adapter executes typed playback and completes exact pen
     const core::AudioOperation operation{
         .id = core::AudioOperationId::from_number(4),
         .action = core::compiled::AudioAction::FadeIn,
-        .channel = core::compiled::AudioChannel::Voice,
+        .purpose = core::compiled::AudioPurpose::Voice,
+        .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+        .audio_owner = session_audio_owner(),
         .asset = project.find_asset(core::AssetId::create("audio-voice").value())->id,
         .fade = std::chrono::milliseconds{25},
-        .loop = false,
-        .volume = 0.5,
-        .owner = owner,
+        .gain = 0.5,
+        .completion_owner = owner,
         .completion = core::AudioCompletionHandle{invocation.value()}};
     auto applied = adapter.apply(operation);
     REQUIRE(applied);
@@ -315,31 +330,129 @@ TEST_CASE("runtime audio play operations overlap by default and channel stop end
     auto first =
         adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(20),
                                            .action = core::compiled::AudioAction::Play,
-                                           .channel = core::compiled::AudioChannel::SoundEffect,
+                                           .purpose = core::compiled::AudioPurpose::SoundEffect,
+                                           .audio_owner = session_audio_owner(),
                                            .asset = asset,
-                                           .loop = false,
-                                           .volume = 1.0});
+                                           .gain = 1.0});
     REQUIRE(first);
     auto second =
         adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(21),
                                            .action = core::compiled::AudioAction::Play,
-                                           .channel = core::compiled::AudioChannel::SoundEffect,
+                                           .purpose = core::compiled::AudioPurpose::SoundEffect,
+                                           .audio_owner = session_audio_owner(),
                                            .asset = asset,
-                                           .loop = false,
-                                           .volume = 1.0});
+                                           .gain = 1.0});
     REQUIRE(second);
     CHECK(backend_ptr->active_voice_count() == 2);
 
     auto stopped = adapter.apply(core::AudioOperation{
         .id = core::AudioOperationId::from_number(22),
         .action = core::compiled::AudioAction::Stop,
-        .channel = core::compiled::AudioChannel::SoundEffect,
-        .asset = std::nullopt,
-        .loop = false,
-        .volume = 1.0,
-        .target = core::AudioBusOperationTarget{core::compiled::AudioChannel::SoundEffect}});
+        .purpose = core::compiled::AudioPurpose::SoundEffect,
+        .audio_owner = session_audio_owner(),
+        .gain = 1.0,
+        .target = core::AudioPurposeOperationTarget{core::compiled::AudioPurpose::SoundEffect,
+                                                    session_audio_owner()}});
     REQUIRE(stopped);
     CHECK(backend_ptr->active_voice_count() == 0);
+}
+
+TEST_CASE("runtime audio applies semantic gain pan pause mix and owner lifetime")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
+    RuntimeUiProjectAssetService resolver;
+    resolver.install(project);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+
+    auto mix = project.settings().audio;
+    mix.sound_effect.volume = 0.5;
+    adapter.set_mix_settings(mix);
+    const auto owner = session_audio_owner();
+    const auto asset = core::AssetId::create("audio-voice").value();
+    REQUIRE(adapter.apply(
+        core::AudioOperation{.id = core::AudioOperationId::from_number(30),
+                             .action = core::compiled::AudioAction::Play,
+                             .purpose = core::compiled::AudioPurpose::SoundEffect,
+                             .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+                             .audio_owner = owner,
+                             .asset = asset,
+                             .gain = 0.8,
+                             .pan = -0.25}));
+    REQUIRE(backend_ptr->last_playback);
+    CHECK(backend_ptr->last_playback->volume == Catch::Approx(0.4F));
+    CHECK(backend_ptr->last_playback->pan == Catch::Approx(-0.25F));
+    REQUIRE(backend_ptr->active_voice_count() == 1);
+    const auto first_voice = backend_ptr->next_voice - 1;
+
+    adapter.set_gameplay_paused(true);
+    CHECK(backend_ptr->paused_voices[first_voice]);
+
+    REQUIRE(adapter.apply(
+        core::AudioOperation{.id = core::AudioOperationId::from_number(31),
+                             .action = core::compiled::AudioAction::Play,
+                             .purpose = core::compiled::AudioPurpose::UiSound,
+                             .pause_policy = core::compiled::AudioPausePolicy::Unscaled,
+                             .audio_owner = owner,
+                             .asset = asset,
+                             .causality = core::compiled::AudioCausality::Disposable}));
+    const auto ui_voice = backend_ptr->next_voice - 1;
+    CHECK_FALSE(backend_ptr->paused_voices[ui_voice]);
+
+    adapter.cancel_inactive_owners({});
+    CHECK(backend_ptr->active_voice_count() == 0);
+}
+
+TEST_CASE("Voice ducking releases when the active Voice terminates")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
+    RuntimeUiProjectAssetService resolver;
+    resolver.install(project);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+    auto mix = project.settings().audio;
+    mix.voice_ducking = {.enabled = true, .music_gain = 0.25, .ambience_gain = 0.5};
+    adapter.set_mix_settings(mix);
+    const auto owner = session_audio_owner();
+    const auto asset = core::AssetId::create("audio-voice").value();
+    REQUIRE(adapter.reconcile_desired({
+        {.instance = core::DesiredAudioInstanceId::create("music").value(),
+         .owner = owner,
+         .purpose = core::compiled::AudioPurpose::Music,
+         .asset = asset,
+         .gain = 0.8},
+    }));
+    const auto music_voice = backend_ptr->next_voice - 1;
+    CHECK(backend_ptr->volumes[music_voice] == Catch::Approx(0.8F));
+
+    REQUIRE(adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(32),
+                                               .action = core::compiled::AudioAction::Play,
+                                               .purpose = core::compiled::AudioPurpose::Voice,
+                                               .audio_owner = owner,
+                                               .asset = asset,
+                                               .gain = 1.0}));
+    const auto voice = backend_ptr->next_voice - 1;
+    CHECK(backend_ptr->volumes[music_voice] == Catch::Approx(0.2F));
+
+    backend_ptr->active[voice] = false;
+    (void)adapter.take_completions();
+    CHECK(backend_ptr->volumes[music_voice] == Catch::Approx(0.8F));
 }
 
 TEST_CASE("runtime audio adapter destruction releases active backend tracks")
@@ -362,10 +475,10 @@ TEST_CASE("runtime audio adapter destruction releases active backend tracks")
         auto applied = adapter.apply(
             core::AudioOperation{.id = core::AudioOperationId::from_number(23),
                                  .action = core::compiled::AudioAction::Play,
-                                 .channel = core::compiled::AudioChannel::Ambient,
+                                 .purpose = core::compiled::AudioPurpose::Ambience,
+                                 .audio_owner = session_audio_owner(),
                                  .asset = core::AssetId::create("audio-voice").value(),
-                                 .loop = true,
-                                 .volume = 1.0});
+                                 .gain = 1.0});
         REQUIRE(applied);
         CHECK(backend_ptr->active_voice_count() == 1);
     }
@@ -392,10 +505,10 @@ TEST_CASE("runtime presentation bridge owns live audio barrier until backend ter
 
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(91),
                                          .action = core::compiled::AudioAction::Play,
-                                         .channel = core::compiled::AudioChannel::SoundEffect,
+                                         .purpose = core::compiled::AudioPurpose::SoundEffect,
+                                         .audio_owner = session_audio_owner(),
                                          .asset = core::AssetId::create("audio-voice").value(),
-                                         .loop = false,
-                                         .volume = 1.0};
+                                         .gain = 1.0};
     auto accepted = bridge.accept(operation);
     REQUIRE(accepted);
     CHECK(accepted.value().accepted);
@@ -436,10 +549,10 @@ TEST_CASE("standalone causal audio waits for an asynchronous demand lease before
 
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(901),
                                          .action = core::compiled::AudioAction::Play,
-                                         .channel = core::compiled::AudioChannel::SoundEffect,
+                                         .purpose = core::compiled::AudioPurpose::SoundEffect,
+                                         .audio_owner = session_audio_owner(),
                                          .asset = core::AssetId::create("audio-voice").value(),
-                                         .loop = false,
-                                         .volume = 1.0};
+                                         .gain = 1.0};
     auto accepted = bridge.accept(operation);
     REQUIRE(accepted);
     REQUIRE(accepted.value().accepted);
@@ -490,11 +603,12 @@ TEST_CASE("standalone cosmetic audio drops asynchronously with a diagnostic on l
 
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(902),
                                          .action = core::compiled::AudioAction::Play,
-                                         .channel = core::compiled::AudioChannel::SoundEffect,
+                                         .purpose = core::compiled::AudioPurpose::UiSound,
+                                         .pause_policy = core::compiled::AudioPausePolicy::Unscaled,
+                                         .audio_owner = session_audio_owner(),
                                          .asset = core::AssetId::create("audio-voice").value(),
-                                         .loop = false,
-                                         .volume = 1.0,
-                                         .purpose = core::AudioOperationPurpose::UiCosmetic};
+                                         .gain = 1.0,
+                                         .causality = core::compiled::AudioCausality::Disposable};
     REQUIRE(bridge.accept(operation));
     auto delivered = bridge.flush();
     CHECK(delivered.diagnostics.empty());
@@ -537,45 +651,62 @@ TEST_CASE(
     RuntimeAudioAdapter adapter(audio, resolver, assets);
     const auto asset = core::AssetId::create("audio-voice").value();
 
-    const std::vector<core::PresentationDesiredAudio> desired = {
-        {core::DesiredAudioInstanceId::create("background-music").value(), owner,
-         core::compiled::AudioChannel::Music, asset, 0.8, std::chrono::milliseconds{20},
-         std::chrono::milliseconds{30},
-         core::DesiredAudioReplacementKey::create("background-music").value()},
-        {core::DesiredAudioInstanceId::create("rain-near").value(), owner,
-         core::compiled::AudioChannel::Ambient, asset, 0.4},
-        {core::DesiredAudioInstanceId::create("rain-far").value(), owner,
-         core::compiled::AudioChannel::Ambient, asset, 0.2}};
+    std::vector<core::PresentationDesiredAudio> desired = {
+        {.instance = core::DesiredAudioInstanceId::create("background-music").value(),
+         .owner = owner,
+         .purpose = core::compiled::AudioPurpose::Music,
+         .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+         .asset = asset,
+         .gain = 0.8,
+         .fade_in = std::chrono::milliseconds{20},
+         .fade_out = std::chrono::milliseconds{30},
+         .replacement_key = core::DesiredAudioReplacementKey::create("background-music").value()},
+        {.instance = core::DesiredAudioInstanceId::create("rain-near").value(),
+         .owner = owner,
+         .purpose = core::compiled::AudioPurpose::Ambience,
+         .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+         .asset = asset,
+         .gain = 0.4},
+        {.instance = core::DesiredAudioInstanceId::create("rain-far").value(),
+         .owner = owner,
+         .purpose = core::compiled::AudioPurpose::Ambience,
+         .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+         .asset = asset,
+         .gain = 0.2}};
     REQUIRE(adapter.reconcile_desired(desired));
     CHECK(backend_ptr->active_voice_count() == 3);
     REQUIRE(adapter.reconcile_desired(desired));
     CHECK(backend_ptr->active_voice_count() == 3);
+    const auto voices_after_initial_reconcile = backend_ptr->next_voice;
+    desired.back().pan = 0.6;
+    REQUIRE(adapter.reconcile_desired(desired));
+    CHECK(backend_ptr->active_voice_count() == 3);
+    CHECK(backend_ptr->next_voice == voices_after_initial_reconcile);
+    CHECK(backend_ptr->pans[3] == Catch::Approx(0.6F));
 
     const core::AudioOperation transient_music{.id = core::AudioOperationId::from_number(198),
                                                .action = core::compiled::AudioAction::Play,
-                                               .channel = core::compiled::AudioChannel::Music,
+                                               .purpose = core::compiled::AudioPurpose::Music,
+                                               .audio_owner = owner,
                                                .asset = asset,
-                                               .loop = false,
-                                               .volume = 1.0};
+                                               .gain = 1.0};
     REQUIRE(adapter.apply(transient_music));
     CHECK(backend_ptr->active_voice_count() == 4);
     REQUIRE(adapter.apply(core::AudioOperation{
         .id = core::AudioOperationId::from_number(199),
         .action = core::compiled::AudioAction::Stop,
-        .channel = core::compiled::AudioChannel::Music,
-        .asset = std::nullopt,
-        .loop = false,
-        .volume = 1.0,
-        .target = core::AudioBusOperationTarget{core::compiled::AudioChannel::Music}}));
+        .purpose = core::compiled::AudioPurpose::Music,
+        .audio_owner = owner,
+        .gain = 1.0,
+        .target = core::AudioPurposeOperationTarget{core::compiled::AudioPurpose::Music, owner}}));
     CHECK(backend_ptr->active_voice_count() == 3);
 
     REQUIRE(adapter.apply(core::AudioOperation{
         .id = core::AudioOperationId::from_number(200),
         .action = core::compiled::AudioAction::Stop,
-        .channel = core::compiled::AudioChannel::Ambient,
-        .asset = std::nullopt,
-        .loop = false,
-        .volume = 1.0,
+        .purpose = core::compiled::AudioPurpose::Ambience,
+        .audio_owner = owner,
+        .gain = 1.0,
         .target = core::DesiredAudioOperationTarget{
             core::DesiredAudioInstanceId::create("rain-near").value(), owner}}));
     CHECK(backend_ptr->active_voice_count() == 2);
@@ -584,10 +715,10 @@ TEST_CASE(
 
     const core::AudioOperation one_shot{.id = core::AudioOperationId::from_number(201),
                                         .action = core::compiled::AudioAction::Play,
-                                        .channel = core::compiled::AudioChannel::Voice,
+                                        .purpose = core::compiled::AudioPurpose::Voice,
+                                        .audio_owner = owner,
                                         .asset = asset,
-                                        .loop = false,
-                                        .volume = 1.0};
+                                        .gain = 1.0};
     REQUIRE(adapter.apply(one_shot));
     CHECK(backend_ptr->active_voice_count() == 4);
 
@@ -622,10 +753,10 @@ TEST_CASE(
 
     const core::AudioOperation first{.id = core::AudioOperationId::from_number(210),
                                      .action = core::compiled::AudioAction::Play,
-                                     .channel = core::compiled::AudioChannel::SoundEffect,
+                                     .purpose = core::compiled::AudioPurpose::SoundEffect,
+                                     .audio_owner = session_audio_owner(),
                                      .asset = asset,
-                                     .loop = false,
-                                     .volume = 1.0};
+                                     .gain = 1.0};
     auto accepted = adapter.apply(first);
     REQUIRE(accepted);
     CHECK(backend_ptr->active_voice_count() == 1);
@@ -633,10 +764,10 @@ TEST_CASE(
     auto exhausted =
         adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(211),
                                            .action = core::compiled::AudioAction::Play,
-                                           .channel = core::compiled::AudioChannel::SoundEffect,
+                                           .purpose = core::compiled::AudioPurpose::SoundEffect,
+                                           .audio_owner = session_audio_owner(),
                                            .asset = asset,
-                                           .loop = false,
-                                           .volume = 1.0});
+                                           .gain = 1.0});
     REQUIRE_FALSE(exhausted);
     CHECK(exhausted.error().code == "runtime_audio.play_failed");
     CHECK(backend_ptr->active_voice_count() == 1);
@@ -647,10 +778,10 @@ TEST_CASE(
     auto retried =
         adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(212),
                                            .action = core::compiled::AudioAction::Play,
-                                           .channel = core::compiled::AudioChannel::SoundEffect,
+                                           .purpose = core::compiled::AudioPurpose::SoundEffect,
+                                           .audio_owner = session_audio_owner(),
                                            .asset = asset,
-                                           .loop = false,
-                                           .volume = 1.0});
+                                           .gain = 1.0});
     REQUIRE(retried);
     CHECK(backend_ptr->active_voice_count() == 1);
 }
@@ -702,10 +833,10 @@ TEST_CASE("runtime presentation bridge tracks nonlooping music until backend ter
 
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(92),
                                          .action = core::compiled::AudioAction::Play,
-                                         .channel = core::compiled::AudioChannel::Music,
+                                         .purpose = core::compiled::AudioPurpose::Music,
+                                         .audio_owner = session_audio_owner(),
                                          .asset = core::AssetId::create("audio-voice").value(),
-                                         .loop = false,
-                                         .volume = 1.0};
+                                         .gain = 1.0};
     REQUIRE(bridge.accept(operation));
     REQUIRE(bridge.flush().diagnostics.empty());
     REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
@@ -744,11 +875,11 @@ TEST_CASE("runtime presentation bridge retains exact script audio completion tar
     const core::AudioCompletionHandle completion = invocation.value();
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(93),
                                          .action = core::compiled::AudioAction::Play,
-                                         .channel = core::compiled::AudioChannel::Voice,
+                                         .purpose = core::compiled::AudioPurpose::Voice,
+                                         .audio_owner = session_audio_owner(),
                                          .asset = core::AssetId::create("audio-voice").value(),
-                                         .loop = false,
-                                         .volume = 1.0,
-                                         .owner = owner,
+                                         .gain = 1.0,
+                                         .completion_owner = owner,
                                          .completion = completion};
     REQUIRE(bridge.accept(operation));
     REQUIRE(bridge.flush().diagnostics.empty());
@@ -787,21 +918,21 @@ TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem
 
     REQUIRE(adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(6),
                                                .action = core::compiled::AudioAction::Play,
-                                               .channel = core::compiled::AudioChannel::Music,
+                                               .purpose = core::compiled::AudioPurpose::Music,
+                                               .audio_owner = session_audio_owner(),
                                                .asset = asset,
-                                               .loop = true,
-                                               .volume = 1.0}));
+                                               .gain = 1.0}));
     const core::AudioOperation stop{
         .id = core::AudioOperationId::from_number(7),
         .action = core::compiled::AudioAction::FadeOut,
-        .channel = core::compiled::AudioChannel::Music,
-        .asset = std::nullopt,
+        .purpose = core::compiled::AudioPurpose::Music,
+        .audio_owner = session_audio_owner(),
         .fade = std::chrono::milliseconds{50},
-        .loop = false,
-        .volume = 1.0,
-        .owner = owner,
+        .gain = 1.0,
+        .completion_owner = owner,
         .completion = core::AudioCompletionHandle{invocation.value()},
-        .target = core::AudioBusOperationTarget{core::compiled::AudioChannel::Music}};
+        .target = core::AudioPurposeOperationTarget{core::compiled::AudioPurpose::Music,
+                                                    session_audio_owner()}};
     auto pending = adapter.apply(stop);
     REQUIRE(pending);
     CHECK(pending.value() == TypedRuntimeOperationDisposition::Pending);
@@ -838,11 +969,11 @@ TEST_CASE("checkpoint load reset stops audio without fabricating completion")
     const auto operation =
         core::AudioOperation{.id = core::AudioOperationId::from_number(8),
                              .action = core::compiled::AudioAction::Play,
-                             .channel = core::compiled::AudioChannel::Voice,
+                             .purpose = core::compiled::AudioPurpose::Voice,
+                             .audio_owner = session_audio_owner(),
                              .asset = core::AssetId::create("audio-voice").value(),
-                             .loop = false,
-                             .volume = 1.0,
-                             .owner = owner,
+                             .gain = 1.0,
+                             .completion_owner = owner,
                              .completion = core::AudioCompletionHandle{completion.value()}};
     auto pending = adapter.apply(operation);
     REQUIRE(pending);

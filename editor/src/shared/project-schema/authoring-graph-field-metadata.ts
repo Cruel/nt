@@ -163,6 +163,15 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #86 adds the replaceable Command Builder System Layout at the preserved authoring schema
   // version. Its Layout reference contributes to runtime/UI dependency and preview invalidation.
   [/^\/settings\/ui\/systemLayouts\/command-builder\//, OWNER],
+  // #89 adds Project audio mixing policy and expands Scene audio cues at the preserved authoring
+  // schema version. Project mix fields and the genuinely new cue dimensions all contribute to
+  // runtime projection; purpose/lifetime/gain replace the retired channel/loop/volume leaves and
+  // are path-mapped below so the pre-#89 reviewed sequence remains aligned.
+  [/^\/settings\/audio\//, OWNER],
+  [
+    /^\/scenes\/\*\/data\/steps\/\*\/(?:pausePolicy|pan|panSource|causality|synchronized|skipBehavior|instanceId|replacementGroup)(?:\/|$)/,
+    OWNER,
+  ],
   // #83 atomically replaces positional Verb arity/operand contracts with named slots, stable
   // binding order, completed-command text, and reusable Subject Selectors at the preserved authoring
   // schema version. These leaves all contribute to the owning Verb or Interaction projection.
@@ -314,6 +323,18 @@ function isItemContractLeaf(path: JsonPointer): boolean {
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
   const segments = parseJsonPointer(path);
+  if (
+    segments.length === 6 &&
+    segments[0] === 'scenes' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'steps' &&
+    segments[4] === '*'
+  ) {
+    if (segments[5] === 'purpose') return '/scenes/*/data/steps/*/channel';
+    if (segments[5] === 'lifetime') return '/scenes/*/data/steps/*/loop';
+    if (segments[5] === 'gain') return '/scenes/*/data/steps/*/volume';
+  }
   if (
     segments.length === 6 &&
     segments[0] === 'verbs' &&
@@ -556,11 +577,11 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     project: 'da3be83d',
     properties: 'c35941e2',
     rooms: '78de04a2',
-    scenes: '911d4458',
+    scenes: 'c0e649be',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
-    settings: '7c371fa2',
+    settings: '220e14ad',
     shaders: '94d3aa6e',
     tests: '9cbe2906',
     traits: 'e06af863',

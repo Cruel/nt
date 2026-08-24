@@ -5,6 +5,7 @@
 #include <noveltea/core/session_state.hpp>
 #include <noveltea/runtime/runtime_command_gateway.hpp>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
@@ -447,6 +448,11 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
     REQUIRE(state.set_actor(compiled_project, actor));
     REQUIRE(state.actor(actor_key, owner) != nullptr);
     CHECK(state.actor(actor_key, owner)->character == id<CharacterId>("hero"));
+    auto actor_pan = state.resolve_audio_pan(
+        compiled_project, owner, 0.1,
+        compiled::AudioPanSource{compiled::SceneActorAudioPanSource{id<ActorSlotId>("hero-slot")}});
+    REQUIRE(actor_pan);
+    CHECK(actor_pan.value() == Catch::Approx(0.6));
     REQUIRE(state.set_actor_presentation_complete(compiled_project, actor_key, owner, true));
     CHECK(state.actor(actor_key, owner)->presentation_complete);
 
@@ -473,11 +479,16 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
                           {id<SceneChoiceOptionId>("transition-option"), "Transition", false}}}));
     REQUIRE(state.upsert_desired_audio(
         compiled_project,
-        DesiredAudioInstance{id<DesiredAudioInstanceId>("background-music"),
-                             state.session_presentation_owner(), compiled::AudioChannel::Music,
-                             id<AssetId>("audio-voice"), 0.8, std::chrono::milliseconds{100},
-                             std::chrono::milliseconds{200},
-                             id<DesiredAudioReplacementKey>("background-music")}));
+        DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("background-music"),
+                             .owner = state.session_presentation_owner(),
+                             .purpose = compiled::AudioPurpose::Music,
+                             .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                             .asset = id<AssetId>("audio-voice"),
+                             .gain = 0.8,
+                             .fade_in = std::chrono::milliseconds{100},
+                             .fade_out = std::chrono::milliseconds{200},
+                             .replacement_key =
+                                 id<DesiredAudioReplacementKey>("background-music")}));
 
     CHECK(state.background_overrides().size() == 1);
     CHECK(state.mounted_layouts().size() == 1);
@@ -498,11 +509,12 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
                                            id<SceneStepId>("choice"),
                                            std::nullopt,
                                            {{id<SceneChoiceOptionId>("missing"), "Bad", true}}}));
-    CHECK_FALSE(state.upsert_desired_audio(compiled_project,
-                                           DesiredAudioInstance{id<DesiredAudioInstanceId>("voice"),
-                                                                state.session_presentation_owner(),
-                                                                compiled::AudioChannel::Voice,
-                                                                id<AssetId>("audio-voice")}));
+    CHECK_FALSE(state.upsert_desired_audio(
+        compiled_project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("voice"),
+                                               .owner = state.session_presentation_owner(),
+                                               .purpose = compiled::AudioPurpose::Voice,
+                                               .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                               .asset = id<AssetId>("audio-voice")}));
 
     REQUIRE(state.clear_layout(compiled::LayoutSlot::Custom));
     state.clear_presented_text();
@@ -515,6 +527,32 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
     CHECK_FALSE(state.remove_actor(compiled_project, actor_key, owner));
 }
 
+TEST_CASE("audio Room Anchor Pan Source resolves from effective Room geometry")
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/scene-program.json");
+    REQUIRE(input.good());
+    auto document = nlohmann::json::parse(input, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    auto& start = document["definitions"]["rooms"][1];
+    REQUIRE(start["id"] == "start");
+    start["anchors"] = nlohmann::json::array(
+        {{{"id", "door"}, {"bounds", {{"x", 0.7}, {"y", 0.2}, {"width", 0.2}, {"height", 0.4}}}}});
+    auto decoded = decode_compiled_project(document, "audio-room-anchor.json");
+    REQUIRE(decoded);
+    auto project = std::move(decoded).value();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    const auto owner = state.session_presentation_owner();
+    auto pan = state.resolve_audio_pan(project, owner, -0.1,
+                                       compiled::AudioPanSource{compiled::RoomAnchorAudioPanSource{
+                                           id<RoomId>("start"), id<RoomAnchorId>("door")}});
+    REQUIRE(pan);
+    CHECK(pan.value() == Catch::Approx(0.5));
+}
+
 TEST_CASE("desired audio supports layered ambience and explicit replacement policy")
 {
     const auto project = load_fixture("scene-program.json");
@@ -525,32 +563,48 @@ TEST_CASE("desired audio supports layered ambience and explicit replacement poli
     const auto music_key = id<DesiredAudioReplacementKey>("background-music");
 
     REQUIRE(state.upsert_desired_audio(
-        project, DesiredAudioInstance{id<DesiredAudioInstanceId>("music-one"), owner,
-                                      compiled::AudioChannel::Music, id<AssetId>("audio-voice"),
-                                      0.7, std::chrono::milliseconds{100},
-                                      std::chrono::milliseconds{250}, music_key}));
-    REQUIRE(state.upsert_desired_audio(project,
-                                       DesiredAudioInstance{id<DesiredAudioInstanceId>("rain-near"),
-                                                            owner, compiled::AudioChannel::Ambient,
-                                                            id<AssetId>("audio-voice"), 0.5}));
-    REQUIRE(state.upsert_desired_audio(project,
-                                       DesiredAudioInstance{id<DesiredAudioInstanceId>("rain-far"),
-                                                            owner, compiled::AudioChannel::Ambient,
-                                                            id<AssetId>("audio-voice"), 0.25}));
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("music-one"),
+                                      .owner = owner,
+                                      .purpose = compiled::AudioPurpose::Music,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.7,
+                                      .fade_in = std::chrono::milliseconds{100},
+                                      .fade_out = std::chrono::milliseconds{250},
+                                      .replacement_key = music_key}));
+    REQUIRE(state.upsert_desired_audio(
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("rain-near"),
+                                      .owner = owner,
+                                      .purpose = compiled::AudioPurpose::Ambience,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.5}));
+    REQUIRE(state.upsert_desired_audio(
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("rain-far"),
+                                      .owner = owner,
+                                      .purpose = compiled::AudioPurpose::Ambience,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.25}));
     CHECK(state.desired_audio().size() == 3);
 
     REQUIRE(state.upsert_desired_audio(
-        project, DesiredAudioInstance{id<DesiredAudioInstanceId>("music-two"), owner,
-                                      compiled::AudioChannel::Music, id<AssetId>("audio-voice"),
-                                      0.8, std::chrono::milliseconds{300},
-                                      std::chrono::milliseconds{400}, music_key}));
+        project, DesiredAudioInstance{.instance = id<DesiredAudioInstanceId>("music-two"),
+                                      .owner = owner,
+                                      .purpose = compiled::AudioPurpose::Music,
+                                      .pause_policy = compiled::AudioPausePolicy::Gameplay,
+                                      .asset = id<AssetId>("audio-voice"),
+                                      .gain = 0.8,
+                                      .fade_in = std::chrono::milliseconds{300},
+                                      .fade_out = std::chrono::milliseconds{400},
+                                      .replacement_key = music_key}));
     CHECK(state.desired_audio().size() == 3);
     CHECK(state.desired_audio(id<DesiredAudioInstanceId>("music-one"), owner) == nullptr);
     REQUIRE(state.desired_audio(id<DesiredAudioInstanceId>("music-two"), owner));
 
     REQUIRE(state.remove_desired_audio(id<DesiredAudioInstanceId>("rain-near"), owner));
     CHECK(state.desired_audio().size() == 2);
-    REQUIRE(state.remove_desired_audio_bus(compiled::AudioChannel::Ambient, owner));
+    REQUIRE(state.remove_desired_audio_purpose(compiled::AudioPurpose::Ambience, owner));
     REQUIRE(state.desired_audio().size() == 1);
     CHECK(state.desired_audio().front().instance == id<DesiredAudioInstanceId>("music-two"));
 }

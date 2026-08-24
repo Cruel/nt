@@ -40,6 +40,15 @@ Current presentation-changing Scene actions include:
 - `TransitionGroup`, which contains one or more closed presentation mutations and defines one exact
   atomic target.
 
+`AudioCue` uses the semantic audio contract rather than a mixer channel. Each cue declares Purpose,
+desired-loop versus one-shot lifetime, Pause Policy, gain and stereo pan, optional admitted Pan
+Source, causality/synchronization, and skip behavior. Desired Music/Ambience additionally declares a
+stable instance ID and optional replacement group; it becomes reconstructible Desired Presentation
+State and cannot wait for decoder completion. One-shot Voice and Sound Effect cues may be causal,
+awaited/synchronized, disposable, or explicitly play-on-skip as admitted by validation. UI Sound is
+always disposable, unscaled, and cannot control gameplay. The retired `channel`, `loop`, and
+`volume` Scene audio representation is not accepted by the current authoring or compiled V4 shape.
+
 The standalone targetless `Transition` action has been removed from authoring, compiler, wire V2, and
 the native compiled program. It has no compatibility interpretation. A group never consumes earlier
 or later Scene steps implicitly.

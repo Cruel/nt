@@ -161,6 +161,45 @@ describe('ProjectSettingsEditor', () => {
     expect(screen.getByLabelText('Display name')).toBeInTheDocument();
   });
 
+  it('authors semantic Purpose mixing and Voice ducking from the Audio category', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Audio');
+
+    const musicVolume = screen.getByLabelText('Music volume');
+    expect(musicVolume).toHaveValue('1');
+    fireEvent.change(musicVolume, { target: { value: '0.65' } });
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as ReturnType<typeof project>).settings.audio.purposes
+          .music.volume,
+      ).toBe(0.65),
+    );
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Ambience muted' }));
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as ReturnType<typeof project>).settings.audio.purposes
+          .ambience.muted,
+      ).toBe(true),
+    );
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }));
+    fireEvent.change(screen.getByLabelText('Music gain while Voice is active'), {
+      target: { value: '0.3' },
+    });
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as ReturnType<typeof project>).settings.audio
+          .voiceDucking,
+      ).toMatchObject({ enabled: true, musicGain: 0.3 }),
+    );
+  });
+
   it('preserves inactive room transition fields while showing only active controls', async () => {
     const nextProject = project();
     nextProject.settings.presentation.roomNavigationTransition = {

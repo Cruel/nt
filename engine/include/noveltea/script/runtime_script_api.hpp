@@ -32,7 +32,10 @@ struct DesiredAudioCommandOptions {
     runtime::RuntimePresentationOwnerScope owner_scope =
         runtime::RuntimePresentationOwnerScope::Session;
     std::optional<core::RoomId> room;
-    double volume = 1.0;
+    core::compiled::AudioPausePolicy pause_policy = core::compiled::AudioPausePolicy::Gameplay;
+    double gain = 1.0;
+    double pan = 0.0;
+    std::optional<core::compiled::AudioPanSource> pan_source;
     std::chrono::milliseconds fade_in{0};
     std::chrono::milliseconds fade_out{0};
     std::optional<core::DesiredAudioReplacementKey> replacement_key;
@@ -256,22 +259,25 @@ public:
                 std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
+    [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(
+        core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
+        std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain, double pan,
+        bool await_completion,
+        core::compiled::AudioCausality causality = core::compiled::AudioCausality::Causal,
+        core::compiled::AudioPausePolicy pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+        core::compiled::AudioSkipBehavior skip_behavior =
+            core::compiled::AudioSkipBehavior::Suppress);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
-                  std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
-                  double volume, bool await_completion,
-                  core::AudioOperationPurpose purpose = core::AudioOperationPurpose::Gameplay);
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    set_desired_audio(core::DesiredAudioInstanceId instance, core::compiled::AudioChannel bus,
+    set_desired_audio(core::DesiredAudioInstanceId instance, core::compiled::AudioPurpose purpose,
                       core::AssetId asset, DesiredAudioCommandOptions options);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     clear_desired_audio(core::DesiredAudioInstanceId instance,
                         runtime::RuntimePresentationOwnerScope owner_scope,
                         std::optional<core::RoomId> room = std::nullopt);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    clear_desired_audio_bus(core::compiled::AudioChannel bus,
-                            runtime::RuntimePresentationOwnerScope owner_scope,
-                            std::optional<core::RoomId> room = std::nullopt);
+    clear_desired_audio_purpose(core::compiled::AudioPurpose purpose,
+                                runtime::RuntimePresentationOwnerScope owner_scope,
+                                std::optional<core::RoomId> room = std::nullopt);
     [[nodiscard]] core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>
     desired_audio(core::DesiredAudioInstanceId instance,
                   runtime::RuntimePresentationOwnerScope owner_scope,

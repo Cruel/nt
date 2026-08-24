@@ -315,14 +315,24 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                    : std::nullopt;
     }
     if (*kind == "audio-cue") {
-        SCENE_FIELDS("action", "asset", "channel", "fadeMs", "loop", "volume", "waitForCompletion");
+        SCENE_FIELDS("action", "asset", "causality", "fadeMs", "gain", "instanceId", "lifetime",
+                     "pan", "panSource", "pausePolicy", "purpose", "replacementGroup",
+                     "skipBehavior", "synchronized", "waitForCompletion");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* asset_value = decoder.member(value, "asset", pointer);
-        const auto* channel_value = decoder.member(value, "channel", pointer);
+        const auto* purpose_value = decoder.member(value, "purpose", pointer);
+        const auto* lifetime_value = decoder.member(value, "lifetime", pointer);
+        const auto* pause_value = decoder.member(value, "pausePolicy", pointer);
+        const auto* gain_value = decoder.member(value, "gain", pointer);
+        const auto* pan_value = decoder.member(value, "pan", pointer);
+        const auto* pan_source_value = decoder.member(value, "panSource", pointer);
         const auto* fade_value = decoder.member(value, "fadeMs", pointer);
-        const auto* loop_value = decoder.member(value, "loop", pointer);
-        const auto* volume_value = decoder.member(value, "volume", pointer);
         const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
+        const auto* causality_value = decoder.member(value, "causality", pointer);
+        const auto* synchronized_value = decoder.member(value, "synchronized", pointer);
+        const auto* skip_value = decoder.member(value, "skipBehavior", pointer);
+        const auto* instance_value = decoder.member(value, "instanceId", pointer);
+        const auto* replacement_value = decoder.member(value, "replacementGroup", pointer);
         auto action =
             action_value
                 ? decoder.enumeration<AudioAction>(*action_value, pointer_child(pointer, "action"),
@@ -338,36 +348,145 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                               pointer_child(pointer, "asset"), "asset");
             asset_ok = asset.has_value();
         }
-        auto channel = channel_value ? decoder.enumeration<AudioChannel>(
-                                           *channel_value, pointer_child(pointer, "channel"),
-                                           {{"sound-effect", AudioChannel::SoundEffect},
-                                            {"music", AudioChannel::Music},
-                                            {"voice", AudioChannel::Voice},
-                                            {"ambient", AudioChannel::Ambient}})
+        auto purpose = purpose_value ? decoder.enumeration<AudioPurpose>(
+                                           *purpose_value, pointer_child(pointer, "purpose"),
+                                           {{"music", AudioPurpose::Music},
+                                            {"ambience", AudioPurpose::Ambience},
+                                            {"voice", AudioPurpose::Voice},
+                                            {"sound-effect", AudioPurpose::SoundEffect},
+                                            {"ui-sound", AudioPurpose::UiSound}})
                                      : std::nullopt;
+        auto lifetime = lifetime_value ? decoder.enumeration<AudioLifetime>(
+                                             *lifetime_value, pointer_child(pointer, "lifetime"),
+                                             {{"desired-loop", AudioLifetime::DesiredLoop},
+                                              {"one-shot", AudioLifetime::OneShot}})
+                                       : std::nullopt;
+        auto pause_policy = pause_value ? decoder.enumeration<AudioPausePolicy>(
+                                              *pause_value, pointer_child(pointer, "pausePolicy"),
+                                              {{"gameplay", AudioPausePolicy::Gameplay},
+                                               {"owner", AudioPausePolicy::Owner},
+                                               {"unscaled", AudioPausePolicy::Unscaled}})
+                                        : std::nullopt;
+        auto gain = gain_value ? decoder.finite_number(*gain_value, pointer_child(pointer, "gain"))
+                               : std::nullopt;
+        if (gain && (*gain < 0.0 || *gain > 1.0)) {
+            decoder.error(k_code_number, "Audio gain must be between zero and one.",
+                          pointer_child(pointer, "gain"));
+            gain.reset();
+        }
+        auto pan = pan_value ? decoder.finite_number(*pan_value, pointer_child(pointer, "pan"))
+                             : std::nullopt;
+        if (pan && (*pan < -1.0 || *pan > 1.0)) {
+            decoder.error(k_code_number, "Audio pan must be between negative one and one.",
+                          pointer_child(pointer, "pan"));
+            pan.reset();
+        }
+        std::optional<AudioPanSource> pan_source;
+        bool pan_source_ok = pan_source_value != nullptr;
+        if (pan_source_value && !pan_source_value->is_null()) {
+            const auto pan_pointer = pointer_child(pointer, "panSource");
+            if (decoder.object(*pan_source_value, pan_pointer,
+                               {"anchorId", "kind", "room", "slotId"})) {
+                const auto* source_kind_value =
+                    decoder.member(*pan_source_value, "kind", pan_pointer);
+                auto source_kind =
+                    source_kind_value
+                        ? decoder.string(*source_kind_value, pointer_child(pan_pointer, "kind"))
+                        : std::nullopt;
+                if (source_kind && *source_kind == "scene-actor") {
+                    decoder.object(*pan_source_value, pan_pointer, {"kind", "slotId"});
+                    const auto* slot_value =
+                        decoder.member(*pan_source_value, "slotId", pan_pointer);
+                    auto slot = slot_value ? decoder.id<ActorSlotId>(
+                                                 *slot_value, pointer_child(pan_pointer, "slotId"))
+                                           : std::nullopt;
+                    if (slot)
+                        pan_source = SceneActorAudioPanSource{std::move(*slot)};
+                } else if (source_kind && *source_kind == "room-anchor") {
+                    decoder.object(*pan_source_value, pan_pointer, {"anchorId", "kind", "room"});
+                    const auto* room_value = decoder.member(*pan_source_value, "room", pan_pointer);
+                    const auto* anchor_value =
+                        decoder.member(*pan_source_value, "anchorId", pan_pointer);
+                    auto room =
+                        room_value
+                            ? decode_reference<RoomId>(decoder, *room_value,
+                                                       pointer_child(pan_pointer, "room"), "room")
+                            : std::nullopt;
+                    auto anchor = anchor_value
+                                      ? decoder.id<RoomAnchorId>(
+                                            *anchor_value, pointer_child(pan_pointer, "anchorId"))
+                                      : std::nullopt;
+                    if (room && anchor)
+                        pan_source = RoomAnchorAudioPanSource{std::move(*room), std::move(*anchor)};
+                } else if (source_kind) {
+                    decoder.error(k_code_enum,
+                                  "Unknown audio Pan Source kind '" + *source_kind + "'.",
+                                  pointer_child(pan_pointer, "kind"));
+                }
+                pan_source_ok = pan_source.has_value();
+            } else {
+                pan_source_ok = false;
+            }
+        }
         auto fade = fade_value ? decoder.unsigned_integer<std::uint64_t>(
                                      *fade_value, pointer_child(pointer, "fadeMs"))
                                : std::nullopt;
-        auto loop = loop_value ? decoder.boolean(*loop_value, pointer_child(pointer, "loop"))
-                               : std::nullopt;
-        auto volume = volume_value
-                          ? decoder.finite_number(*volume_value, pointer_child(pointer, "volume"))
-                          : std::nullopt;
-        if (volume && (*volume < 0.0 || *volume > 1.0)) {
-            decoder.error(k_code_number, "Volume must be between zero and one.",
-                          pointer_child(pointer, "volume"));
-            volume.reset();
-        }
         auto waits = wait_value
                          ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
                          : std::nullopt;
-        if (!action || !asset_ok || !channel || !fade || !loop || !volume || !waits)
+        auto causality = causality_value
+                             ? decoder.enumeration<AudioCausality>(
+                                   *causality_value, pointer_child(pointer, "causality"),
+                                   {{"causal", AudioCausality::Causal},
+                                    {"disposable", AudioCausality::Disposable}})
+                             : std::nullopt;
+        auto synchronized =
+            synchronized_value
+                ? decoder.boolean(*synchronized_value, pointer_child(pointer, "synchronized"))
+                : std::nullopt;
+        auto skip = skip_value ? decoder.enumeration<AudioSkipBehavior>(
+                                     *skip_value, pointer_child(pointer, "skipBehavior"),
+                                     {{"stop", AudioSkipBehavior::Stop},
+                                      {"suppress", AudioSkipBehavior::Suppress},
+                                      {"play", AudioSkipBehavior::Play}})
+                               : std::nullopt;
+        std::optional<std::string> instance_id;
+        bool instance_ok = instance_value != nullptr;
+        if (instance_value && !instance_value->is_null()) {
+            instance_id =
+                decoder.string(*instance_value, pointer_child(pointer, "instanceId"), true);
+            instance_ok = instance_id.has_value();
+        }
+        std::optional<std::string> replacement_group;
+        bool replacement_ok = replacement_value != nullptr;
+        if (replacement_value && !replacement_value->is_null()) {
+            replacement_group = decoder.string(*replacement_value,
+                                               pointer_child(pointer, "replacementGroup"), true);
+            replacement_ok = replacement_group.has_value();
+        }
+        if (!action || !asset_ok || !purpose || !lifetime || !pause_policy || !gain || !pan ||
+            !pan_source_ok || !fade || !waits || !causality || !synchronized || !skip ||
+            !instance_ok || !replacement_ok)
             return std::nullopt;
         AudioInstructionWait wait = *waits ? AudioInstructionWait{AudioCompletionWait{}}
                                            : AudioInstructionWait{ImmediateWait{}};
-        return AudioCueInstruction{
-            std::move(*id), std::move(condition), *action, std::move(asset), *channel, *fade, *loop,
-            *volume,        std::move(wait)};
+        return AudioCueInstruction{std::move(*id),
+                                   std::move(condition),
+                                   *action,
+                                   std::move(asset),
+                                   *purpose,
+                                   *lifetime,
+                                   *pause_policy,
+                                   *gain,
+                                   *pan,
+                                   std::move(pan_source),
+                                   *fade,
+                                   std::move(wait),
+                                   *causality,
+                                   *synchronized,
+                                   *skip,
+                                   std::move(instance_id),
+                                   std::move(replacement_group)};
     }
     if (*kind == "set-global-property") {
         SCENE_FIELDS("property", "value");

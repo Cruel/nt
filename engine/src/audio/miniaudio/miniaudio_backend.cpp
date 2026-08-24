@@ -23,11 +23,11 @@ namespace noveltea {
 namespace {
 
 constexpr ma_format kPreparedAudioFormat = ma_format_f32;
-constexpr ma_uint32 kPreparedAudioChannels = 2;
+constexpr ma_uint32 kPreparedAudioPurposes = 2;
 constexpr ma_uint32 kPreparedAudioSampleRate = 48'000;
 constexpr std::uint64_t kStreamingPageCount = 2;
 constexpr std::uint64_t kStreamingAudioBytes =
-    kStreamingPageCount * kPreparedAudioSampleRate * kPreparedAudioChannels * sizeof(float);
+    kStreamingPageCount * kPreparedAudioSampleRate * kPreparedAudioPurposes * sizeof(float);
 
 template<class T> assets::AssetLoadResult<T> fail(std::string message)
 {
@@ -262,10 +262,10 @@ public:
         if (!m_awaiting_reservation_update || m_decode_state != DecodeState::AwaitingReservation)
             return;
         m_awaiting_reservation_update = false;
-        constexpr std::size_t bytes_per_frame = sizeof(float) * kPreparedAudioChannels;
+        constexpr std::size_t bytes_per_frame = sizeof(float) * kPreparedAudioPurposes;
         const std::size_t frames_per_step = std::max<std::size_t>(
             1, assets::detail::asset_preparation_read_chunk_bytes / bytes_per_frame);
-        m_decode_chunk.resize(frames_per_step * kPreparedAudioChannels);
+        m_decode_chunk.resize(frames_per_step * kPreparedAudioPurposes);
         m_pcm_frames.reserve(m_expected_sample_count);
         m_decode_state = DecodeState::Decoding;
     }
@@ -387,7 +387,7 @@ private:
         if (m_decode_state == DecodeState::Initializing) {
             if (m_read.bytes().empty())
                 return fail("audio.decode_empty", "audio asset is empty: '" + m_request.path + "'");
-            const auto config = ma_decoder_config_init(kPreparedAudioFormat, kPreparedAudioChannels,
+            const auto config = ma_decoder_config_init(kPreparedAudioFormat, kPreparedAudioPurposes,
                                                        kPreparedAudioSampleRate);
             const auto result = ma_decoder_init_memory(m_read.bytes().data(), m_read.bytes().size(),
                                                        &config, &m_decoder);
@@ -397,7 +397,7 @@ private:
                                 "': " + ma_error_name(result));
             }
             m_decoder_initialized = true;
-            constexpr std::size_t bytes_per_frame = sizeof(float) * kPreparedAudioChannels;
+            constexpr std::size_t bytes_per_frame = sizeof(float) * kPreparedAudioPurposes;
             const std::size_t frames_per_step = std::max<std::size_t>(
                 1, assets::detail::asset_preparation_read_chunk_bytes / bytes_per_frame);
             ma_uint64 total_frames = 0;
@@ -406,12 +406,12 @@ private:
                             "decoded audio length is unavailable for bounded preparation: '" +
                                 m_request.path + "'");
             }
-            if (total_frames > (std::numeric_limits<std::size_t>::max)() / kPreparedAudioChannels) {
+            if (total_frames > (std::numeric_limits<std::size_t>::max)() / kPreparedAudioPurposes) {
                 return fail("audio.decode_too_large",
                             "decoded audio exceeds addressable memory: '" + m_request.path + "'");
             }
             m_expected_sample_count =
-                static_cast<std::size_t>(total_frames) * kPreparedAudioChannels;
+                static_cast<std::size_t>(total_frames) * kPreparedAudioPurposes;
             if constexpr (sizeof(std::size_t) >= sizeof(std::uint64_t)) {
                 if (m_expected_sample_count >
                     static_cast<std::size_t>((std::numeric_limits<std::uint64_t>::max)() /
@@ -444,7 +444,7 @@ private:
                             m_request.path + "'");
         }
 
-        const ma_uint64 requested_frames = m_decode_chunk.size() / kPreparedAudioChannels;
+        const ma_uint64 requested_frames = m_decode_chunk.size() / kPreparedAudioPurposes;
         ma_uint64 frames_read = 0;
         const auto result = ma_decoder_read_pcm_frames(&m_decoder, m_decode_chunk.data(),
                                                        requested_frames, &frames_read);
@@ -452,11 +452,11 @@ private:
             return fail("audio.decode_failed", "failed while decoding audio asset '" +
                                                    m_request.path + "': " + ma_error_name(result));
         }
-        if (frames_read > (std::numeric_limits<std::size_t>::max)() / kPreparedAudioChannels) {
+        if (frames_read > (std::numeric_limits<std::size_t>::max)() / kPreparedAudioPurposes) {
             return fail("audio.decode_too_large",
                         "decoded audio exceeds addressable memory: '" + m_request.path + "'");
         }
-        const auto sample_count = static_cast<std::size_t>(frames_read) * kPreparedAudioChannels;
+        const auto sample_count = static_cast<std::size_t>(frames_read) * kPreparedAudioPurposes;
         if (sample_count > (std::numeric_limits<std::size_t>::max)() - m_pcm_frames.size()) {
             return fail("audio.decode_too_large",
                         "decoded audio exceeds addressable memory: '" + m_request.path + "'");
@@ -528,7 +528,7 @@ public:
 
         ma_resource_manager_config resource_config = ma_resource_manager_config_init();
         resource_config.decodedFormat = kPreparedAudioFormat;
-        resource_config.decodedChannels = kPreparedAudioChannels;
+        resource_config.decodedChannels = kPreparedAudioPurposes;
         resource_config.decodedSampleRate = kPreparedAudioSampleRate;
         resource_config.pVFS = m_vfs.handle();
         if (job_execution.mode == jobs::JobExecutionMode::Threaded) {
@@ -834,6 +834,26 @@ public:
         }
     }
 
+    void set_paused(AudioVoiceHandle voice, bool paused) override
+    {
+        auto it = m_voices.find(voice.id);
+        if (it == m_voices.end() || !it->second || it->second->paused == paused)
+            return;
+        const ma_result result =
+            paused ? ma_sound_stop(&it->second->sound) : ma_sound_start(&it->second->sound);
+        if (result == MA_SUCCESS)
+            it->second->paused = paused;
+        else
+            ++m_stats.backend_errors;
+    }
+
+    void set_pan(AudioVoiceHandle voice, float pan) override
+    {
+        auto it = m_voices.find(voice.id);
+        if (it != m_voices.end() && it->second)
+            ma_sound_set_pan(&it->second->sound, std::clamp(pan, -1.0F, 1.0F));
+    }
+
     void set_bus_volume(AudioBus bus, float volume) override
     {
         if (bus == AudioBus::Master) {
@@ -885,8 +905,8 @@ public:
         auto it = m_voices.find(voice.id);
         if (it == m_voices.end() || !it->second)
             return false;
-        return ma_sound_is_playing(&it->second->sound) == MA_TRUE &&
-               ma_sound_at_end(&it->second->sound) == MA_FALSE;
+        return ma_sound_at_end(&it->second->sound) == MA_FALSE &&
+               (it->second->paused || ma_sound_is_playing(&it->second->sound) == MA_TRUE);
     }
 
     AudioBackendStats stats() const override
@@ -900,7 +920,7 @@ public:
     {
         for (auto it = m_voices.begin(); it != m_voices.end();) {
             if (!it->second || ma_sound_at_end(&it->second->sound) == MA_TRUE ||
-                ma_sound_is_playing(&it->second->sound) == MA_FALSE) {
+                (!it->second->paused && ma_sound_is_playing(&it->second->sound) == MA_FALSE)) {
                 if (it->second)
                     finish_voice(*it->second);
                 ++m_stats.voices_finished;
@@ -938,6 +958,7 @@ private:
         std::string path;
         bool data_source_initialized = false;
         bool sound_initialized = false;
+        bool paused = false;
     };
 
     [[nodiscard]] core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>
@@ -986,11 +1007,11 @@ private:
         }
 
         if (stored_it->second.storage == ClipStorage::RegisteredDecoded) {
-            const auto frame_count = stored_it->second.pcm_frames.size() / kPreparedAudioChannels;
+            const auto frame_count = stored_it->second.pcm_frames.size() / kPreparedAudioPurposes;
             const auto result = ma_resource_manager_register_decoded_data(
                 &m_resource_manager, stored_it->second.resource_name.c_str(),
                 stored_it->second.pcm_frames.data(), frame_count, kPreparedAudioFormat,
-                kPreparedAudioChannels, kPreparedAudioSampleRate);
+                kPreparedAudioPurposes, kPreparedAudioSampleRate);
             if (result != MA_SUCCESS) {
                 ++m_stats.backend_errors;
                 m_clips.erase(stored_it);

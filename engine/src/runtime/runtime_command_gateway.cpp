@@ -774,17 +774,16 @@ RuntimeCommandGateway::activate_map_connection(core::MapId map, core::MapConnect
     if (definition == nullptr)
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.invalid_map", "Map definition is missing"));
-    const auto found = std::find_if(definition->connections.begin(), definition->connections.end(),
-                                    [&connection](const auto& candidate) {
-                                        return candidate.id == connection;
-                                    });
+    const auto found =
+        std::find_if(definition->connections.begin(), definition->connections.end(),
+                     [&connection](const auto& candidate) { return candidate.id == connection; });
     if (found == definition->connections.end())
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.invalid_map_connection", "Map connection is missing"));
     const auto* active = std::get_if<core::RoomMode>(&m_state.mode());
     if (active == nullptr || !m_state.flow_stack().empty())
-        return core::Result<void, core::Diagnostics>::failure(gateway_error(
-            "runtime.invalid_navigation", "Map activation requires the active Room"));
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.invalid_navigation", "Map activation requires the active Room"));
     const core::compiled::RoomExitRef* selected = nullptr;
     for (const auto& exit : found->exits) {
         if (exit.room != active->room)
@@ -795,9 +794,9 @@ RuntimeCommandGateway::activate_map_connection(core::MapId map, core::MapConnect
         selected = &exit;
     }
     if (selected == nullptr)
-        return core::Result<void, core::Diagnostics>::failure(gateway_error(
-            "runtime.map_connection_unavailable",
-            "Map connection has no outgoing Exit from the active Room"));
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.map_connection_unavailable",
+                          "Map connection has no outgoing Exit from the active Room"));
     return request_navigation(*selected);
 }
 
@@ -941,11 +940,11 @@ RuntimeCommandGateway::remove_desired_audio(core::DesiredAudioInstanceId instanc
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::remove_desired_audio_bus(core::compiled::AudioChannel bus,
-                                                core::PresentationOwner owner)
+RuntimeCommandGateway::remove_desired_audio_purpose(core::compiled::AudioPurpose purpose,
+                                                    core::PresentationOwner owner)
 {
     auto valid = require_gameplay_owner(m_project, m_state, owner);
-    return valid ? enqueue(RemoveDesiredAudioBusCommand{bus, std::move(owner)}) : valid;
+    return valid ? enqueue(RemoveDesiredAudioPurposeCommand{purpose, std::move(owner)}) : valid;
 }
 
 core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>
@@ -1089,15 +1088,16 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::set_gameplay_paused
 }
 
 core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_audio(
-    core::compiled::AudioAction action, core::compiled::AudioChannel channel,
-    std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,
-    bool await_completion, core::AudioOperationPurpose purpose)
+    core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
+    std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain, double pan,
+    bool await_completion, core::compiled::AudioCausality causality,
+    core::compiled::AudioPausePolicy pause_policy, core::compiled::AudioSkipBehavior skip_behavior)
 {
     auto available = require_services("Audio command");
     if (!available)
         return available;
-    return m_services->request_audio(action, channel, std::move(asset), fade, loop, volume,
-                                     await_completion, purpose);
+    return m_services->request_audio(action, purpose, std::move(asset), fade, gain, pan,
+                                     await_completion, causality, pause_policy, skip_behavior);
 }
 
 core::Result<void, core::Diagnostics>

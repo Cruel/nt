@@ -250,6 +250,30 @@ struct TitleScreenSettings {
     std::string subtitle;
     std::optional<AssetId> title_image;
 };
+enum class AudioPurpose : std::uint8_t {
+    Music,
+    Ambience,
+    Voice,
+    SoundEffect,
+    UiSound
+};
+struct AudioPurposeMixSettings {
+    double volume = 1.0;
+    bool muted = false;
+};
+struct VoiceDuckingSettings {
+    bool enabled = false;
+    double music_gain = 0.5;
+    double ambience_gain = 0.5;
+};
+struct AudioMixSettings {
+    AudioPurposeMixSettings music;
+    AudioPurposeMixSettings ambience;
+    AudioPurposeMixSettings voice;
+    AudioPurposeMixSettings sound_effect;
+    AudioPurposeMixSettings ui_sound;
+    VoiceDuckingSettings voice_ducking;
+};
 enum class TransitionKind : std::uint8_t {
     Fade,
     Cut,
@@ -268,6 +292,7 @@ struct RuntimeSettings {
     TextSettings text;
     TitleScreenSettings title_screen;
     RoomNavigationTransition room_navigation_transition{TransitionKind::Cut, 0, std::nullopt, true};
+    AudioMixSettings audio;
 };
 
 enum class BackgroundFit : std::uint8_t {
@@ -855,22 +880,52 @@ enum class AudioAction : std::uint8_t {
     FadeIn,
     FadeOut
 };
-enum class AudioChannel : std::uint8_t {
-    SoundEffect,
-    Music,
-    Voice,
-    Ambient
+enum class AudioLifetime : std::uint8_t {
+    DesiredLoop,
+    OneShot
 };
+enum class AudioPausePolicy : std::uint8_t {
+    Gameplay,
+    Owner,
+    Unscaled
+};
+enum class AudioCausality : std::uint8_t {
+    Causal,
+    Disposable
+};
+enum class AudioSkipBehavior : std::uint8_t {
+    Stop,
+    Suppress,
+    Play
+};
+struct SceneActorAudioPanSource {
+    ActorSlotId slot;
+    bool operator==(const SceneActorAudioPanSource&) const = default;
+};
+struct RoomAnchorAudioPanSource {
+    RoomId room;
+    RoomAnchorId anchor;
+    bool operator==(const RoomAnchorAudioPanSource&) const = default;
+};
+using AudioPanSource = std::variant<SceneActorAudioPanSource, RoomAnchorAudioPanSource>;
 struct AudioCueInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
     AudioAction action;
     std::optional<AssetId> asset;
-    AudioChannel channel;
-    std::uint64_t fade_ms;
-    bool loop;
-    double volume;
-    AudioInstructionWait wait;
+    AudioPurpose purpose = AudioPurpose::SoundEffect;
+    AudioLifetime lifetime = AudioLifetime::OneShot;
+    AudioPausePolicy pause_policy = AudioPausePolicy::Gameplay;
+    double gain = 1.0;
+    double pan = 0.0;
+    std::optional<AudioPanSource> pan_source;
+    std::uint64_t fade_ms = 0;
+    AudioInstructionWait wait = ImmediateWait{};
+    AudioCausality causality = AudioCausality::Causal;
+    bool synchronized = false;
+    AudioSkipBehavior skip_behavior = AudioSkipBehavior::Suppress;
+    std::optional<std::string> instance_id;
+    std::optional<std::string> replacement_group;
 };
 struct SetGlobalPropertySceneInstruction {
     SceneStepId id;

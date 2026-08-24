@@ -48,17 +48,19 @@ std::string logical_project_path(std::string_view path)
     return "project:/" + std::string(path);
 }
 
-AudioClipKind audio_kind(core::compiled::AudioChannel channel) noexcept
+AudioClipKind audio_kind(core::compiled::AudioPurpose channel) noexcept
 {
     switch (channel) {
-    case core::compiled::AudioChannel::SoundEffect:
+    case core::compiled::AudioPurpose::SoundEffect:
         return AudioClipKind::Sfx;
-    case core::compiled::AudioChannel::Music:
+    case core::compiled::AudioPurpose::Music:
         return AudioClipKind::Music;
-    case core::compiled::AudioChannel::Voice:
+    case core::compiled::AudioPurpose::Voice:
         return AudioClipKind::Voice;
-    case core::compiled::AudioChannel::Ambient:
+    case core::compiled::AudioPurpose::Ambience:
         return AudioClipKind::Ambience;
+    case core::compiled::AudioPurpose::UiSound:
+        return AudioClipKind::Sfx;
     }
     return AudioClipKind::Auto;
 }
@@ -748,7 +750,7 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
 {
     const bool starts_playback = operation.action == core::compiled::AudioAction::Play ||
                                  operation.action == core::compiled::AudioAction::FadeIn;
-    if (!starts_playback || operation.purpose == core::AudioOperationPurpose::UiCosmetic)
+    if (!starts_playback || operation.causality == core::compiled::AudioCausality::Disposable)
         return core::Result<void, core::Diagnostics>::success();
     if (!m_impl->group || !operation.asset)
         return core::Result<void, core::Diagnostics>::success();
@@ -772,7 +774,7 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
 
     AudioAssetRequest request{.path = logical_project_path(asset->path),
                               .mode = AudioLoadMode::Auto,
-                              .kind = audio_kind(operation.channel)};
+                              .kind = audio_kind(operation.purpose)};
     StructuredAssetRequestDescriptor descriptor{
         .request = request,
         .cache_key = make_audio_cache_key(request, m_impl->assets.source_generation_on_owner())};

@@ -283,7 +283,7 @@ std::optional<bool> finite_skippable(const CoordinatedPresentationOperation& ope
                           std::is_same_v<T, LayoutFinitePresentationOperation>)
                 return operation_skippable(FinitePresentationOperation{value});
             else if constexpr (std::is_same_v<T, AudioOperation>)
-                return value.skippable;
+                return value.skip_behavior == compiled::AudioSkipBehavior::Stop;
             else
                 return std::nullopt;
         },
@@ -301,19 +301,22 @@ std::optional<AudioOperationTarget> audio_target(const CoordinatedPresentationOp
 Result<PresentationOperationMetadata, Diagnostics> normalize(const AudioOperation& operation)
 {
     if (operation.id.number() == 0 || operation.action > compiled::AudioAction::FadeOut ||
-        operation.channel > compiled::AudioChannel::Ambient || operation.fade.count() < 0 ||
-        !std::isfinite(operation.volume) || operation.volume < 0.0 || operation.volume > 1.0 ||
-        operation.owner.has_value() != operation.completion.has_value() ||
-        operation.purpose > AudioOperationPurpose::UiCosmetic)
+        operation.purpose > compiled::AudioPurpose::UiSound ||
+        operation.pause_policy > compiled::AudioPausePolicy::Unscaled || !operation.audio_owner ||
+        operation.fade.count() < 0 || !std::isfinite(operation.gain) || operation.gain < 0.0 ||
+        operation.gain > 1.0 || !std::isfinite(operation.pan) || operation.pan < -1.0 ||
+        operation.pan > 1.0 ||
+        operation.completion_owner.has_value() != operation.completion.has_value() ||
+        operation.causality > compiled::AudioCausality::Disposable ||
+        operation.skip_behavior > compiled::AudioSkipBehavior::Play)
         return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
-            "presentation.invalid_audio_operation",
-            "Audio identity, owner, and completion target must form a consistent operation")});
+            "presentation.invalid_audio_operation", "Audio identity, Owner, Purpose, Pause Policy, "
+                                                    "mix, and completion target must be valid")});
     const bool playing = operation.action == compiled::AudioAction::Play ||
                          operation.action == compiled::AudioAction::FadeIn;
     if (playing != operation.asset.has_value())
         return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
             "presentation.invalid_audio_operation", "Audio action and Asset identity conflict")});
-
     if (playing && !std::holds_alternative<NewAudioPlaybackTarget>(operation.target))
         return Result<PresentationOperationMetadata, Diagnostics>::failure(
             {diagnostic("presentation.invalid_audio_target",
@@ -322,32 +325,36 @@ Result<PresentationOperationMetadata, Diagnostics> normalize(const AudioOperatio
         return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
             "presentation.invalid_audio_target",
             "Audio stop and fade-out operations require an explicit instance, desired record, or "
-            "semantic bus target")});
-    if (operation.loop)
+            "semantic Purpose target")});
+    if ((operation.completion || operation.synchronized) &&
+        operation.causality != compiled::AudioCausality::Causal)
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            {diagnostic("presentation.invalid_audio_causality",
+                        "Awaited and synchronized audio operations must be causal")});
+    if (operation.purpose == compiled::AudioPurpose::UiSound &&
+        (!playing || operation.causality != compiled::AudioCausality::Disposable ||
+         operation.completion || operation.synchronized ||
+         operation.pause_policy != compiled::AudioPausePolicy::Unscaled))
         return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
-            "presentation.transient_audio_cannot_loop",
-            "Persistent looping audio must be published as desired audio, not a transient "
-            "playback operation")});
-    if (operation.purpose == AudioOperationPurpose::UiCosmetic &&
-        (operation.channel != compiled::AudioChannel::SoundEffect || operation.completion ||
-         !playing))
-        return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
-            "presentation.invalid_disposable_audio",
-            "Disposable UI audio must be a non-awaited SoundEffect playback operation")});
+            "presentation.invalid_ui_sound",
+            "UI Sound must be disposable, unscaled playback and cannot control gameplay")});
 
     PresentationCompletionTarget completion = NoPresentationCompletion{};
     if (operation.completion) {
         if (const auto* flow = std::get_if<AudioFlowBlockerHandle>(&*operation.completion))
-            completion = AudioFlowCompletion{*operation.owner, *flow};
+            completion = AudioFlowCompletion{*operation.completion_owner, *flow};
         else
-            completion = ScriptAudioCompletion{
-                *operation.owner, std::get<ScriptInvocationHandle>(*operation.completion)};
+            completion =
+                ScriptAudioCompletion{*operation.completion_owner,
+                                      std::get<ScriptInvocationHandle>(*operation.completion)};
     }
     return Result<PresentationOperationMetadata, Diagnostics>::success(
         {.operation = operation.id,
          .sequence = PresentationOperationSequence::from_number(1),
-         .owner = PresentationOperationOwner::GameplayRuntime,
-         .checkpoint_class = operation.purpose == AudioOperationPurpose::UiCosmetic
+         .owner = presentation_authority(*operation.audio_owner) == PresentationAuthority::Shell
+                      ? PresentationOperationOwner::Shell
+                      : PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class = operation.causality == compiled::AudioCausality::Disposable
                                  ? CheckpointClass::Disposable
                                  : CheckpointClass::CausalBarrier,
          .completion = std::move(completion)});
