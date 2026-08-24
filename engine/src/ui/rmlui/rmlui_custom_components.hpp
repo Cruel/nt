@@ -67,7 +67,8 @@ private:
     void emit_state_change();
     void apply_state_attributes();
     [[nodiscard]] Rml::Element* semantic_location_element(const core::MapLocationId& location);
-    [[nodiscard]] Rml::Element* semantic_connection_element(const core::MapConnectionId& connection);
+    [[nodiscard]] Rml::Element*
+    semantic_connection_element(const core::MapConnectionId& connection);
     [[nodiscard]] const core::MapLocationView* pick_location(double x, double y) const;
     [[nodiscard]] const core::MapConnectionView* pick_connection(double x, double y) const;
 

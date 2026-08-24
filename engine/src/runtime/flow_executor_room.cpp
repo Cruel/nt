@@ -68,16 +68,15 @@ Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
     const FlowFrameId id{m_state.m_next_frame_id++};
-    m_state.m_flow_stack.emplace_back(RoomTransitionFrame{
-        id,
-        source_mode->room,
-        target,
-        selected_exit,
-        RoomTransitionKind::NavigationAttempt,
-        RoomEntryCause::NavigationAttempt,
-        *source_context,
-        {RoomTransitionStage::SourceCanLeave, 0},
-        NoReturnDestination{}});
+    m_state.m_flow_stack.emplace_back(RoomTransitionFrame{id,
+                                                          source_mode->room,
+                                                          target,
+                                                          selected_exit,
+                                                          RoomTransitionKind::NavigationAttempt,
+                                                          RoomEntryCause::NavigationAttempt,
+                                                          *source_context,
+                                                          {RoomTransitionStage::SourceCanLeave, 0},
+                                                          NoReturnDestination{}});
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
@@ -107,9 +106,9 @@ FlowExecutor::advance_room_transition(const RoomTransitionPosition& expected_pos
     if (transition == nullptr || transition->position != expected_position ||
         next_position.stage > RoomTransitionStage::Complete || next_position.next_effect != 0 ||
         next_position.awaiting_completion || next_position.stage != next_stage(*transition))
-        return fail(
-            execution_error("execution.stale_room_transition_position",
-                            "Room transition advancement does not match canonical lifecycle order"));
+        return fail(execution_error(
+            "execution.stale_room_transition_position",
+            "Room transition advancement does not match canonical lifecycle order"));
 
     auto valid = validate_position(*transition, FlowFramePosition{next_position});
     if (!valid)
@@ -132,9 +131,8 @@ FlowExecutor::mark_room_transition_wait(const RoomTransitionPosition& expected_p
         expected_position.stage != RoomTransitionStage::CommitRoomSwitch ||
         expected_position.awaiting_completion || next_position.stage != expected_position.stage ||
         next_position.next_effect != 0 || !next_position.awaiting_completion)
-        return fail(
-            execution_error("execution.invalid_room_transition_wait",
-                            "Only the committed Room presentation transition may block"));
+        return fail(execution_error("execution.invalid_room_transition_wait",
+                                    "Only the committed Room presentation transition may block"));
     auto valid = validate_position(*transition, FlowFramePosition{next_position});
     if (!valid)
         return fail(valid.error());

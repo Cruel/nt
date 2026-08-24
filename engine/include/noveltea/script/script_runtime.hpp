@@ -143,8 +143,7 @@ public:
     [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
     invoke(const runtime::ScriptInvocationRequest& request,
            const runtime::RuntimeCapabilitySet& capabilities) override;
-    [[nodiscard]] core::Result<runtime::ProjectHookInvocationResult,
-                                      runtime::ScriptInvocationError>
+    [[nodiscard]] core::Result<runtime::ProjectHookInvocationResult, runtime::ScriptInvocationError>
     invoke_project_hook(const runtime::ProjectHookInvocationRequest& request,
                         const runtime::RuntimeCapabilitySet& capabilities) override;
     [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>

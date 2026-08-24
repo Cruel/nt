@@ -36,9 +36,7 @@ describe('workbench dirty state', () => {
         'noveltea.editor.draft.shader-stage-source',
       ),
     ).toEqual({ sourceText: 'void main() {}' });
-    expect(
-      restoredDraftPayload('shader:vertex', 'noveltea.editor.draft.other'),
-    ).toBeUndefined();
+    expect(restoredDraftPayload('shader:vertex', 'noveltea.editor.draft.other')).toBeUndefined();
     useDraftDirtyStore.getState().resetDraftDirty();
   });
 

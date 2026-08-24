@@ -37,9 +37,7 @@ import {
   normalizeTags,
   tagColorForIndex,
 } from '../../shared/project-schema/authoring-tags';
-import {
-  EDITOR_PROJECT_STATE_SCHEMA,
-} from '../../shared/project-schema/editor-project-state';
+import { EDITOR_PROJECT_STATE_SCHEMA } from '../../shared/project-schema/editor-project-state';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import {
   findUsages,

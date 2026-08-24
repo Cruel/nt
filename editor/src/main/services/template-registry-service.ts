@@ -30,8 +30,7 @@ const archiveTool = () =>
 const unzipTool = () => process.env.NOVELTEA_UNZIP ?? 'unzip';
 const zipInfoTool = () => process.env.NOVELTEA_ZIPINFO ?? 'zipinfo';
 let registryRoot =
-  process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
-  path.join(os.homedir(), '.noveltea', 'templates');
+  process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ?? path.join(os.homedir(), '.noveltea', 'templates');
 const digest = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 const issue = (
   code: string,

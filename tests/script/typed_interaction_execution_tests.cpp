@@ -692,9 +692,9 @@ TEST_CASE("Verb Offers resolve exact rule-derived declarations before broader Ve
         core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
     auto offers = kernel->verb_offers(key, "en");
     REQUIRE(offers);
-    const auto use = std::find_if(offers.value().begin(), offers.value().end(), [](const auto& offer) {
-        return offer.verb == id<core::VerbId>("use");
-    });
+    const auto use =
+        std::find_if(offers.value().begin(), offers.value().end(),
+                     [](const auto& offer) { return offer.verb == id<core::VerbId>("use"); });
     REQUIRE(use != offers.value().end());
     CHECK(use->slot == id<core::VerbSlotId>("target"));
     CHECK(use->rank == 5);
@@ -705,12 +705,11 @@ TEST_CASE("a false most-specific Verb Offer suppresses the Verb without broader 
 {
     auto document = load_document();
     auto& rules = definition(document, "interactions", "actions")["rules"];
-    const auto room_feature = std::find_if(rules.begin(), rules.end(), [](const auto& rule) {
-        return rule["id"] == "room-feature";
-    });
+    const auto room_feature = std::find_if(
+        rules.begin(), rules.end(), [](const auto& rule) { return rule["id"] == "room-feature"; });
     REQUIRE(room_feature != rules.end());
-    (*room_feature)["offer"]["condition"] =
-        {{"kind", "lua-predicate"}, {"source", "offer_false()"}};
+    (*room_feature)["offer"]["condition"] = {{"kind", "lua-predicate"},
+                                             {"source", "offer_false()"}};
 
     RuntimeFixture fixture;
     auto project = decode(std::move(document));
@@ -735,19 +734,17 @@ TEST_CASE("Verb Offer publication orders equal authored ranks by stable Verb ID"
     inspect["offers"].push_back(
         {{"id", "inspect-key"},
          {"slotId", "target"},
-         {"selectors",
-          nlohmann::json::array(
-              {{{"kind", "exact"},
-                {"subject",
-                 {{"kind", "interactable"},
-                  {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}}}})},
+         {"selectors", nlohmann::json::array(
+                           {{{"kind", "exact"},
+                             {"subject",
+                              {{"kind", "interactable"},
+                               {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}}}})},
          {"rank", 20},
          {"primary", false}});
     definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
     auto& rules = definition(document, "interactions", "actions")["rules"];
-    const auto use_rule = std::find_if(rules.begin(), rules.end(), [](const auto& rule) {
-        return rule["id"] == "any-context";
-    });
+    const auto use_rule = std::find_if(
+        rules.begin(), rules.end(), [](const auto& rule) { return rule["id"] == "any-context"; });
     REQUIRE(use_rule != rules.end());
     (*use_rule)["offer"] = nullptr;
 
@@ -762,12 +759,12 @@ TEST_CASE("Verb Offer publication orders equal authored ranks by stable Verb ID"
         core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
     auto offers = kernel->verb_offers(key, "en");
     REQUIRE(offers);
-    const auto inspect_offer = std::find_if(offers.value().begin(), offers.value().end(), [](const auto& offer) {
-        return offer.verb == id<core::VerbId>("inspect");
-    });
-    const auto use_offer = std::find_if(offers.value().begin(), offers.value().end(), [](const auto& offer) {
-        return offer.verb == id<core::VerbId>("use");
-    });
+    const auto inspect_offer =
+        std::find_if(offers.value().begin(), offers.value().end(),
+                     [](const auto& offer) { return offer.verb == id<core::VerbId>("inspect"); });
+    const auto use_offer =
+        std::find_if(offers.value().begin(), offers.value().end(),
+                     [](const auto& offer) { return offer.verb == id<core::VerbId>("use"); });
     REQUIRE(inspect_offer != offers.value().end());
     REQUIRE(use_offer != offers.value().end());
     CHECK(inspect_offer->rank == use_offer->rank);
@@ -797,11 +794,9 @@ TEST_CASE("direct complete-command submission does not require a discoverable Ve
         core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
     auto offers = kernel->verb_offers(key, "en");
     REQUIRE(offers);
-    CHECK(std::none_of(offers.value().begin(), offers.value().end(), [](const auto& offer) {
-        return offer.verb == id<core::VerbId>("use");
-    }));
-    REQUIRE(kernel->interact(id<core::VerbId>("use"),
-                             {{id<core::VerbSlotId>("target"), key}}));
+    CHECK(std::none_of(offers.value().begin(), offers.value().end(),
+                       [](const auto& offer) { return offer.verb == id<core::VerbId>("use"); }));
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
 }
 
 TEST_CASE(

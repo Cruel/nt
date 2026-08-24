@@ -613,12 +613,12 @@ TEST_CASE("loaded checkpoint rejects metadata that describes different save cont
     RuntimeCheckpointService service(project, saves, test_support::save_codec());
     auto decoded = core::make_save_state(project, state);
     REQUIRE(decoded);
-    core::SaveCheckpointMetadata mismatched{
-        .project = decoded.value().metadata.project,
-        .project_version = decoded.value().metadata.project_version,
-        .save_contract = decoded.value().metadata.save_contract,
-        .play_time = std::chrono::milliseconds{99},
-        .generations = {}};
+    core::SaveCheckpointMetadata mismatched{.project = decoded.value().metadata.project,
+                                            .project_version =
+                                                decoded.value().metadata.project_version,
+                                            .save_contract = decoded.value().metadata.save_contract,
+                                            .play_time = std::chrono::milliseconds{99},
+                                            .generations = {}};
     auto prepared = service.prepare_loaded_checkpoint("exact", decoded.value(), mismatched);
     REQUIRE_FALSE(prepared);
     CHECK(prepared.error().front().code == "checkpoint.stored_metadata_mismatch");

@@ -1117,9 +1117,9 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
     if (view.verb_menu_open) {
         const auto& controls = view.room ? view.room->controls : view.inventory.controls;
         for (const auto& offer : view.verb_offers) {
-            const auto control = std::find_if(controls.begin(), controls.end(), [&](const auto& value) {
-                return value.verb == offer.verb;
-            });
+            const auto control =
+                std::find_if(controls.begin(), controls.end(),
+                             [&](const auto& value) { return value.verb == offer.verb; });
             std::vector<std::string> binding_order;
             binding_order.reserve(offer.binding_order.size());
             for (const auto& slot : offer.binding_order)

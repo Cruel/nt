@@ -185,8 +185,7 @@ export function lowerDialogueAndInteractionPrograms(
       });
       continue;
     }
-    const blocks: CompiledProjectWire['definitions']['dialogues'][number]['program']['blocks'] =
-      [];
+    const blocks: CompiledProjectWire['definitions']['dialogues'][number]['program']['blocks'] = [];
     for (const block of data.blocks) {
       if (block.type === 'comment') continue;
       if (block.type === 'choice') {

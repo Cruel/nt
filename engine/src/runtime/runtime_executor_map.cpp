@@ -100,33 +100,34 @@ RuntimeExecutor::map_view(const core::MapId& map, std::string_view runtime_local
         if (visible == nullptr)
             return core::Result<core::MapView, RuntimeExecutionError>::failure(
                 visible_result.error());
-        view.locations.push_back({.location = location.id,
-                                  .room = location.room,
-                                  .regions = location.regions,
-                                  .label = std::move(label),
-                                  .icon = location.icon,
-                                  .style = location.style,
-                                  .label_anchor = location.label_anchor,
-                                  .connection_anchor = location.connection_anchor,
-                                  .pick_order = location.pick_order,
-                                  .logical_order = location.logical_order,
-                                  .current = room_mode != nullptr && room_mode->room == location.room,
-                                  .visible = *visible,
-                                  .actionable = false,
-                                  .convenience_exit = std::nullopt});
+        view.locations.push_back(
+            {.location = location.id,
+             .room = location.room,
+             .regions = location.regions,
+             .label = std::move(label),
+             .icon = location.icon,
+             .style = location.style,
+             .label_anchor = location.label_anchor,
+             .connection_anchor = location.connection_anchor,
+             .pick_order = location.pick_order,
+             .logical_order = location.logical_order,
+             .current = room_mode != nullptr && room_mode->room == location.room,
+             .visible = *visible,
+             .actionable = false,
+             .convenience_exit = std::nullopt});
     }
 
-    const auto hook_guard = [this](ProjectHookKind hook, const core::RoomId& room,
-                                   const core::compiled::RoomExitRef& exit,
-                                   const core::RoomId& target)
-        -> core::Result<bool, RuntimeExecutionError> {
+    const auto hook_guard =
+        [this](ProjectHookKind hook, const core::RoomId& room,
+               const core::compiled::RoomExitRef& exit,
+               const core::RoomId& target) -> core::Result<bool, RuntimeExecutionError> {
         ProjectHookInvocationRequest request{
             .semantic_kind = ProjectHookSemanticKind::Room,
             .hook = hook,
             .target = room.text(),
-            .room_transition = core::RoomTransitionContext{
-                exit.room, target, exit, core::RoomEntryCause::NavigationAttempt,
-                m_state.room_visit()},
+            .room_transition = core::RoomTransitionContext{exit.room, target, exit,
+                                                           core::RoomEntryCause::NavigationAttempt,
+                                                           m_state.room_visit()},
             .active_room_context = m_state.room_visit(),
             .rejection_stage = std::nullopt,
             .result_kind = ScriptInvocationResultKind::Boolean,
@@ -139,11 +140,10 @@ RuntimeExecutor::map_view(const core::MapId& map, std::string_view runtime_local
         if (value == nullptr || !value->invoked)
             return core::Result<bool, RuntimeExecutionError>::success(true);
         const auto* allowed = std::get_if<bool>(&value->value);
-        return allowed != nullptr
-                   ? core::Result<bool, RuntimeExecutionError>::success(*allowed)
-                   : core::Result<bool, RuntimeExecutionError>::failure(map_error(
-                         "execution.invalid_room_hook_result",
-                         "Room guard hook did not return a boolean value"));
+        return allowed != nullptr ? core::Result<bool, RuntimeExecutionError>::success(*allowed)
+                                  : core::Result<bool, RuntimeExecutionError>::failure(map_error(
+                                        "execution.invalid_room_hook_result",
+                                        "Room guard hook did not return a boolean value"));
     };
 
     view.connections.reserve(definition->connections.size());
@@ -154,17 +154,20 @@ RuntimeExecutor::map_view(const core::MapId& map, std::string_view runtime_local
             return core::Result<core::MapView, RuntimeExecutionError>::failure(
                 visibility_result.error());
 
-        const auto source = std::find_if(view.locations.begin(), view.locations.end(),
-                                         [&connection](const core::MapLocationView& location) {
-                                             return location.location == connection.source_location_id;
-                                         });
-        const auto target = std::find_if(view.locations.begin(), view.locations.end(),
-                                         [&connection](const core::MapLocationView& location) {
-                                             return location.location == connection.target_location_id;
-                                         });
+        const auto source =
+            std::find_if(view.locations.begin(), view.locations.end(),
+                         [&connection](const core::MapLocationView& location) {
+                             return location.location == connection.source_location_id;
+                         });
+        const auto target =
+            std::find_if(view.locations.begin(), view.locations.end(),
+                         [&connection](const core::MapLocationView& location) {
+                             return location.location == connection.target_location_id;
+                         });
         if (source == view.locations.end() || target == view.locations.end())
-            return core::Result<core::MapView, RuntimeExecutionError>::failure(map_error(
-                "execution.invalid_map_topology", "Map connection references a missing Map Location"));
+            return core::Result<core::MapView, RuntimeExecutionError>::failure(
+                map_error("execution.invalid_map_topology",
+                          "Map connection references a missing Map Location"));
 
         std::optional<core::compiled::RoomExitRef> active_exit;
         const core::compiled::RoomExit* linked_exit = nullptr;
@@ -174,16 +177,17 @@ RuntimeExecutor::map_view(const core::MapId& map, std::string_view runtime_local
                     continue;
                 if (active_exit)
                     return core::Result<core::MapView, RuntimeExecutionError>::failure(map_error(
-                        "execution.invalid_map_topology",
-                        "Map connection resolves more than one outgoing Exit from the active Room"));
+                        "execution.invalid_map_topology", "Map connection resolves more than one "
+                                                          "outgoing Exit from the active Room"));
                 active_exit = reference;
                 linked_exit = find_exit(m_world, reference);
             }
         }
         for (const auto& reference : connection.exits) {
             if (find_exit(m_world, reference) == nullptr)
-                return core::Result<core::MapView, RuntimeExecutionError>::failure(map_error(
-                    "execution.invalid_map_topology", "Map connection references a missing Room Exit"));
+                return core::Result<core::MapView, RuntimeExecutionError>::failure(
+                    map_error("execution.invalid_map_topology",
+                              "Map connection references a missing Room Exit"));
         }
 
         bool actionable = false;
@@ -193,7 +197,8 @@ RuntimeExecutor::map_view(const core::MapId& map, std::string_view runtime_local
             if (source_room != nullptr && target_room != nullptr) {
                 auto can_leave = evaluate(source_room->lifecycle.can_leave);
                 if (!can_leave)
-                    return core::Result<core::MapView, RuntimeExecutionError>::failure(can_leave.error());
+                    return core::Result<core::MapView, RuntimeExecutionError>::failure(
+                        can_leave.error());
                 bool leave_allowed = *can_leave.value_if();
                 if (leave_allowed) {
                     auto scripted = hook_guard(ProjectHookKind::RoomCanLeave, active_exit->room,
@@ -209,7 +214,8 @@ RuntimeExecutor::map_view(const core::MapId& map, std::string_view runtime_local
                         exit_enabled.error());
                 auto can_enter = evaluate(target_room->lifecycle.can_enter);
                 if (!can_enter)
-                    return core::Result<core::MapView, RuntimeExecutionError>::failure(can_enter.error());
+                    return core::Result<core::MapView, RuntimeExecutionError>::failure(
+                        can_enter.error());
                 bool enter_allowed = *can_enter.value_if();
                 if (enter_allowed) {
                     auto scripted = hook_guard(ProjectHookKind::RoomCanEnter, linked_exit->target,
@@ -230,7 +236,8 @@ RuntimeExecutor::map_view(const core::MapId& map, std::string_view runtime_local
             auto resolved = resolve(connection.label->source, runtime_locale);
             auto* value = resolved.value_if();
             if (value == nullptr)
-                return core::Result<core::MapView, RuntimeExecutionError>::failure(resolved.error());
+                return core::Result<core::MapView, RuntimeExecutionError>::failure(
+                    resolved.error());
             label = std::move(*value);
         } else {
             const auto& fallback_ref = active_exit ? *active_exit : connection.exits.front();
@@ -300,9 +307,8 @@ RuntimeExecutor::activate_map_connection(const core::MapId& map,
     if (view == nullptr)
         return core::Result<void, RuntimeExecutionError>::failure(view_result.error());
     if (!view->current_room)
-        return core::Result<void, RuntimeExecutionError>::failure(
-            map_error("execution.map_navigation_unavailable",
-                      "Map navigation requires completed Room mode"));
+        return core::Result<void, RuntimeExecutionError>::failure(map_error(
+            "execution.map_navigation_unavailable", "Map navigation requires completed Room mode"));
 
     const auto selected = std::find_if(view->connections.begin(), view->connections.end(),
                                        [&connection](const core::MapConnectionView& candidate) {

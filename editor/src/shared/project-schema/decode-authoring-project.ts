@@ -1,8 +1,5 @@
 import type { z } from 'zod';
-import {
-  AUTHORING_PROJECT_SCHEMA,
-  authoringCollectionKeys,
-} from './authoring-collections';
+import { AUTHORING_PROJECT_SCHEMA, authoringCollectionKeys } from './authoring-collections';
 import { authoringProjectSchema, type AuthoringProject } from './authoring-project';
 import { validateAuthoringProject } from './authoring-validation';
 import { emptyEditorProjectState } from './editor-project-state';

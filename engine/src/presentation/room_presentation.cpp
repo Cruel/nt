@@ -30,9 +30,9 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
             "room_navigation.invalid_owner", "Room navigation preparation requires a Flow owner"));
     if (input.target_entry_sequence == 0 || input.target_visit_index == 0)
-        return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
-            "room_navigation.invalid_visit",
-            "Prepared Room entry sequence and visit index must be non-zero"));
+        return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(
+            preparation_error("room_navigation.invalid_visit",
+                              "Prepared Room entry sequence and visit index must be non-zero"));
     const auto* target = world.resolved_configuration(input.target_room);
     if (target == nullptr)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
@@ -63,9 +63,9 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
         selected = &*found;
     }
 
-    RoomVisitContext target_visit{input.target_room, input.source_room, input.selected_exit,
-                                  input.entry_cause, input.target_entry_sequence,
-                                  input.target_visit_index};
+    RoomVisitContext target_visit{input.target_room,           input.source_room,
+                                  input.selected_exit,         input.entry_cause,
+                                  input.target_entry_sequence, input.target_visit_index};
     RoomPresentationResolver resolver;
     auto resolution = resolver.resolve(project, world, settled_state, target_visit,
                                        std::move(evaluate), std::move(resolve_text), composition);

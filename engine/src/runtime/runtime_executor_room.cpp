@@ -75,7 +75,8 @@ std::optional<ProjectHookKind> lifecycle_hook(core::RoomTransitionStage stage) n
     }
 }
 
-std::optional<core::RoomId> lifecycle_hook_target(const core::RoomTransitionFrame& transition) noexcept
+std::optional<core::RoomId>
+lifecycle_hook_target(const core::RoomTransitionFrame& transition) noexcept
 {
     switch (transition.position.stage) {
     case core::RoomTransitionStage::BeforeLeave:
@@ -163,12 +164,12 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         return core::FlowModeChangedOutcome{m_state.mode()};
     };
     const auto transition_value = transition_context(transition);
-    auto invoke_hook = [this, &transition_value](
-                           ProjectHookKind hook, const core::RoomId& target_id,
-                           const RuntimeCapabilitySet& capabilities,
-                           ScriptInvocationResultKind result_kind,
-                           std::optional<core::RoomRejectionStage> rejection_stage = std::nullopt)
-        -> core::Result<ProjectHookInvocationResult, core::Diagnostics> {
+    auto invoke_hook =
+        [this, &transition_value](
+            ProjectHookKind hook, const core::RoomId& target_id,
+            const RuntimeCapabilitySet& capabilities, ScriptInvocationResultKind result_kind,
+            std::optional<core::RoomRejectionStage> rejection_stage =
+                std::nullopt) -> core::Result<ProjectHookInvocationResult, core::Diagnostics> {
         ProjectHookInvocationRequest request{
             .semantic_kind = ProjectHookSemanticKind::Room,
             .hook = hook,
@@ -185,10 +186,10 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         return core::Result<ProjectHookInvocationResult, core::Diagnostics>::success(
             std::move(*invoked.value_if()));
     };
-    auto reject_navigation = [this, &fault, &reject, &invoke_hook](
-                                 ProjectHookKind hook, const core::RoomId& target_id,
-                                 core::RoomRejectionStage stage)
-        -> std::optional<core::FlowRunOutcome> {
+    auto reject_navigation =
+        [this, &fault, &reject,
+         &invoke_hook](ProjectHookKind hook, const core::RoomId& target_id,
+                       core::RoomRejectionStage stage) -> std::optional<core::FlowRunOutcome> {
         auto rejected_hook = invoke_hook(hook, target_id, m_room_lifecycle_capabilities,
                                          ScriptInvocationResultKind::None, stage);
         if (!rejected_hook)
@@ -206,12 +207,14 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
                 execution_diagnostics(evaluated.error()));
         const auto* result = evaluated.value_if();
         if (result == nullptr)
-            return core::Result<bool, core::Diagnostics>::failure(execution_error(
-                "execution.invalid_condition_result", "Room lifecycle condition produced no value"));
+            return core::Result<bool, core::Diagnostics>::failure(
+                execution_error("execution.invalid_condition_result",
+                                "Room lifecycle condition produced no value"));
         return core::Result<bool, core::Diagnostics>::success(*result);
     };
-    auto hook_guard = [this, &invoke_hook](ProjectHookKind hook, const core::RoomId& target_id)
-        -> core::Result<bool, core::Diagnostics> {
+    auto hook_guard = [this, &invoke_hook](
+                          ProjectHookKind hook,
+                          const core::RoomId& target_id) -> core::Result<bool, core::Diagnostics> {
         auto invoked = invoke_hook(hook, target_id, m_expression_capabilities,
                                    ScriptInvocationResultKind::Boolean);
         if (!invoked)
@@ -220,11 +223,10 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         if (value == nullptr || !value->invoked)
             return core::Result<bool, core::Diagnostics>::success(true);
         const auto* allowed = std::get_if<bool>(&value->value);
-        return allowed != nullptr
-                   ? core::Result<bool, core::Diagnostics>::success(*allowed)
-                   : core::Result<bool, core::Diagnostics>::failure(execution_error(
-                         "execution.invalid_room_hook_result",
-                         "Room guard hook did not return a boolean value"));
+        return allowed != nullptr ? core::Result<bool, core::Diagnostics>::success(*allowed)
+                                  : core::Result<bool, core::Diagnostics>::failure(execution_error(
+                                        "execution.invalid_room_hook_result",
+                                        "Room guard hook did not return a boolean value"));
     };
 
     switch (transition.position.stage) {
@@ -247,11 +249,11 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         }
         if (!allowed) {
             if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
-                return reject_navigation(ProjectHookKind::RoomRejectLeave,
-                                         *transition.source_room,
+                return reject_navigation(ProjectHookKind::RoomRejectLeave, *transition.source_room,
                                          core::RoomRejectionStage::SourceCanLeave);
-            record_directed_guard("Directed Room Change ignored a false source can-leave guard for '" +
-                                  transition.source_room->text() + "'.");
+            record_directed_guard(
+                "Directed Room Change ignored a false source can-leave guard for '" +
+                transition.source_room->text() + "'.");
         }
         return advance({transition.selected_exit ? core::RoomTransitionStage::ExitCondition
                                                  : core::RoomTransitionStage::TargetCanEnter,
@@ -272,8 +274,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
             return fault(eligible.error());
         if (!*eligible.value_if()) {
             if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
-                return reject_navigation(ProjectHookKind::RoomRejectLeave,
-                                         *transition.source_room,
+                return reject_navigation(ProjectHookKind::RoomRejectLeave, *transition.source_room,
                                          core::RoomRejectionStage::ExitEligibility);
             record_directed_guard("Directed Room Change ignored a false selected-exit guard for '" +
                                   transition.source_room->text() + "." + exit->id.text() + "'.");
@@ -293,15 +294,15 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         }
         if (!allowed) {
             if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
-                return reject_navigation(ProjectHookKind::RoomRejectEnter,
-                                         transition.target_room,
+                return reject_navigation(ProjectHookKind::RoomRejectEnter, transition.target_room,
                                          core::RoomRejectionStage::TargetCanEnter);
             if (transition.entry_cause == core::RoomEntryCause::Entrypoint)
                 return fault(execution_error(
                     "execution.room_entry_rejected",
                     "Entrypoint Room rejected entry and no source Room exists to resume"));
-            record_directed_guard("Directed Room Change ignored a false target can-enter guard for '" +
-                                  transition.target_room.text() + "'.");
+            record_directed_guard(
+                "Directed Room Change ignored a false target can-enter guard for '" +
+                transition.target_room.text() + "'.");
         }
         return advance({transition.source_room ? core::RoomTransitionStage::BeforeLeave
                                                : core::RoomTransitionStage::BeforeEnter,
@@ -337,16 +338,11 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         RuntimeRoomComposition composition(m_scripts, m_gateway);
         auto prepared = m_presentation_model.prepare_room_navigation(
             m_project, m_world, m_state,
-            core::RoomNavigationPreparationInput{
-                transition.frame_id,
-                transition.source_room,
-                transition.target_room,
-                transition.selected_exit,
-                transition.entry_cause,
-                transition.source_context,
-                std::nullopt,
-                m_state.room_entry_sequence() + 1,
-                m_state.room_visits(transition.target_room) + 1},
+            core::RoomNavigationPreparationInput{transition.frame_id, transition.source_room,
+                                                 transition.target_room, transition.selected_exit,
+                                                 transition.entry_cause, transition.source_context,
+                                                 std::nullopt, m_state.room_entry_sequence() + 1,
+                                                 m_state.room_visits(transition.target_room) + 1},
             [this](const core::Condition& value) -> core::Result<bool, core::Diagnostics> {
                 auto evaluated = evaluate(value);
                 const auto* result = evaluated.value_if();

@@ -260,11 +260,10 @@ RuntimeCheckpointService::prepare_loaded_checkpoint(
         .save_contract = decoded.metadata.save_contract,
         .play_time = decoded.play_time,
         .generations = {}};
-    if (stored_metadata &&
-        (stored_metadata->project != decoded_metadata.project ||
-         stored_metadata->project_version != decoded_metadata.project_version ||
-         stored_metadata->save_contract != decoded_metadata.save_contract ||
-         stored_metadata->play_time != decoded_metadata.play_time)) {
+    if (stored_metadata && (stored_metadata->project != decoded_metadata.project ||
+                            stored_metadata->project_version != decoded_metadata.project_version ||
+                            stored_metadata->save_contract != decoded_metadata.save_contract ||
+                            stored_metadata->play_time != decoded_metadata.play_time)) {
         return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
             checkpoint_error("checkpoint.stored_metadata_mismatch",
                              "Stored checkpoint metadata does not describe the encoded save."));

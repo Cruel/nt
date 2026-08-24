@@ -171,8 +171,7 @@ public:
     resume(const core::ScriptInvocationHandle& invocation,
            const RuntimeCapabilitySet& capabilities) = 0;
     [[nodiscard]] virtual core::Result<ProjectHookInvocationResult, ScriptInvocationError>
-    invoke_project_hook(const ProjectHookInvocationRequest&,
-                        const RuntimeCapabilitySet&)
+    invoke_project_hook(const ProjectHookInvocationRequest&, const RuntimeCapabilitySet&)
     {
         return core::Result<ProjectHookInvocationResult, ScriptInvocationError>::success(
             ProjectHookInvocationResult{});

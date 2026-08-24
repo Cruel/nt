@@ -3,7 +3,11 @@ import {
   parseUserExportConfig,
   type UserExportConfig,
 } from '../../shared/project-schema/platform-export-contracts';
-import { novelTeaUserConfigPath, loadNovelTeaUserConfig, updateNovelTeaUserConfig } from './user-config-service';
+import {
+  novelTeaUserConfigPath,
+  loadNovelTeaUserConfig,
+  updateNovelTeaUserConfig,
+} from './user-config-service';
 
 export function userExportConfigRoot(): string {
   return novelTeaUserConfigPath();

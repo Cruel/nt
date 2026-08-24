@@ -1265,13 +1265,12 @@ nlohmann::json encode_observation(const RuntimeObservation& value)
                 }
                 nlohmann::json retained = nullptr;
                 if (observation.retained_revision && observation.retained_metadata) {
-                    retained = {
-                        {"revision", observation.retained_revision->number()},
-                        {"saveFileFormatVersion", save_file_format_version},
-                        {"project", observation.retained_metadata->project.text()},
-                        {"projectVersion", observation.retained_metadata->project_version},
-                        {"saveContract", observation.retained_metadata->save_contract},
-                        {"playTimeMs", observation.retained_metadata->play_time.count()}};
+                    retained = {{"revision", observation.retained_revision->number()},
+                                {"saveFileFormatVersion", save_file_format_version},
+                                {"project", observation.retained_metadata->project.text()},
+                                {"projectVersion", observation.retained_metadata->project_version},
+                                {"saveContract", observation.retained_metadata->save_contract},
+                                {"playTimeMs", observation.retained_metadata->play_time.count()}};
                 }
                 nlohmann::json reconstructible = nullptr;
                 if (observation.presentation.reconstructible_activity) {
@@ -1526,10 +1525,9 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
     if (kind == "layout-preview") {
         TypedEditorLayoutPreviewDocument result;
         exact_fields(document,
-                     {"schema", "contentMode", "layoutId", "layoutKind",
-                      "templateId", "sourceUrl", "defaultParent", "scopedStyles", "script", "rml",
-                      "rcss", "lua", "scalePolicy", "contract", "sampleState", "environment",
-                      "shaderMaterials"},
+                     {"schema", "contentMode", "layoutId", "layoutKind", "templateId", "sourceUrl",
+                      "defaultParent", "scopedStyles", "script", "rml", "rcss", "lua",
+                      "scalePolicy", "contract", "sampleState", "environment", "shaderMaterials"},
                      diagnostics, "/");
         const auto schema = string_field(document, "schema", diagnostics, "/", limits);
         if (schema && *schema != "noveltea.layout-preview")
@@ -1688,8 +1686,8 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
     if (kind == "shader-preview") {
         TypedEditorShaderPreviewDocument result;
         exact_fields(document,
-                     {"schema", "contentMode", "shaderId", "previewMaterialId",
-                      "templateId", "activeShaderVariant", "shaderMaterials"},
+                     {"schema", "contentMode", "shaderId", "previewMaterialId", "templateId",
+                      "activeShaderVariant", "shaderMaterials"},
                      diagnostics, "/");
         const auto schema = string_field(document, "schema", diagnostics, "/", limits);
         if (schema && *schema != "noveltea.shader-preview")
@@ -1846,10 +1844,10 @@ decode_focused_editor_document_request_text(std::string_view request_text,
         diagnostics.push_back(error("editor_preview.invalid_protocol",
                                     "Focused preview protocol is unsupported.", "/protocol"));
     const auto protocol_version = json_access::member_as<int>(document, "protocolVersion");
-        if (!protocol_version || *protocol_version != editor_runtime_protocol_version)
-            diagnostics.push_back(error("editor_preview.invalid_protocol_version",
-                                        "Focused preview protocolVersion is unsupported.",
-                                        "/protocolVersion"));
+    if (!protocol_version || *protocol_version != editor_runtime_protocol_version)
+        diagnostics.push_back(error("editor_preview.invalid_protocol_version",
+                                    "Focused preview protocolVersion is unsupported.",
+                                    "/protocolVersion"));
     if (auto value = string("requestId"))
         result.request_id = std::move(*value);
     if (auto value = string("projectInstanceId"))
@@ -2067,8 +2065,8 @@ decode_editor_room_preview_document_text(std::string_view data_text,
 
     Diagnostics diagnostics;
     exact_fields(document,
-                 {"schema", "environment", "room", "luaAdmission", "queryState",
-                  "shaderMaterials", "world", "layouts", "ui", "composition"},
+                 {"schema", "environment", "room", "luaAdmission", "queryState", "shaderMaterials",
+                  "world", "layouts", "ui", "composition"},
                  diagnostics, "/");
     const auto schema = json_access::member_as<std::string>(document, "schema");
     if (!schema || *schema != "noveltea.room-preview")

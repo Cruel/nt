@@ -68,14 +68,14 @@ describe('template compatibility', () => {
     const result = evaluateTemplateCompatibility(
       { ...descriptor, compiledProjectFormatVersion: 2, playerRuntimeApiVersion: 2 },
       {
-      profile: incompatibleProfile,
-      compiledProjectFormatVersion: 1,
-      playerRuntimeApiVersion: 1,
-      shaderVariants: ['essl-300'],
-      graphicsBackends: ['vulkan'],
-      capabilities: ['microphone'],
-      requiredFeatures: ['rmlui'],
-      host: { platform: 'windows', availableTools: [] },
+        profile: incompatibleProfile,
+        compiledProjectFormatVersion: 1,
+        playerRuntimeApiVersion: 1,
+        shaderVariants: ['essl-300'],
+        graphicsBackends: ['vulkan'],
+        capabilities: ['microphone'],
+        requiredFeatures: ['rmlui'],
+        host: { platform: 'windows', availableTools: [] },
       },
     );
     expect(result.diagnostics.map((item) => item.code)).toEqual(

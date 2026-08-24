@@ -120,9 +120,8 @@ struct LayoutStandardFacetBinding {
     auto operator<=>(const LayoutStandardFacetBinding&) const = default;
 };
 
-using LayoutInputSource =
-    std::variant<LayoutLiteralInput, LayoutVariableBinding, LayoutPropertyBinding,
-                 LayoutStandardFacetBinding>;
+using LayoutInputSource = std::variant<LayoutLiteralInput, LayoutVariableBinding,
+                                       LayoutPropertyBinding, LayoutStandardFacetBinding>;
 
 struct LayoutInputAssignment {
     LayoutInputId input;

@@ -459,9 +459,9 @@ decode_runtime_package_manifest(const nlohmann::json& value, std::string source_
     Decoder decoder(std::move(source_path), "runtime_package");
     RuntimePackageManifest output;
     if (!decoder.object(value, "",
-                        {"format", "runtime_api_version", "kind", "created_by", "project", "display",
-                         "accessibility", "platform", "shader_variants", "shader_materials",
-                         "entries", "checksums"}))
+                        {"format", "runtime_api_version", "kind", "created_by", "project",
+                         "display", "accessibility", "platform", "shader_variants",
+                         "shader_materials", "entries", "checksums"}))
         return Result<RuntimePackageManifest, Diagnostics>::failure(decoder.take());
 
     const auto* format = decoder.required(value, "format", "");

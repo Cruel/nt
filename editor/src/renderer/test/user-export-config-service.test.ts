@@ -6,9 +6,7 @@ import {
   loadUserExportConfig,
   userExportConfigPath,
 } from '../../main/services/user-export-config-service';
-import {
-  defaultUserExportConfig,
-} from '../../shared/project-schema/platform-export-contracts';
+import { defaultUserExportConfig } from '../../shared/project-schema/platform-export-contracts';
 import { NOVELTEA_USER_CONFIG_FORMAT } from '../../shared/user-config';
 
 const roots: string[] = [];

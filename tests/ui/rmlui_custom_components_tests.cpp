@@ -62,36 +62,37 @@ TEST_CASE("RmlUi typed Map snapshot preserves strong IDs and typed selection tar
 
     TypedRuntimeUIViewState state;
     state.mode = "room";
-    state.maps.push_back(MapView{
-        .map = map_id.value(),
-        .initial_mode = compiled::InitialMapMode::Minimap,
-        .current_room = room_id.value(),
-        .title = "House",
-        .locations = {{.location = source_location.value(),
-                       .room = room_id.value(),
-                       .regions = {{{{0.0, 0.0}, {0.4, 0.0}, {0.4, 0.4}}}},
-                       .label = "Start",
-                       .icon = icon_id.value(),
-                       .style = "start-room",
-                       .label_anchor = compiled::Vector2{0.1, 0.2},
-                       .connection_anchor = compiled::Vector2{0.3, 0.4},
-                       .current = true},
-                      {.location = target_location.value(),
-                       .room = target_room.value(),
-                       .regions = {{{{0.6, 0.6}, {1.0, 0.6}, {1.0, 1.0}}}},
-                       .label = "Hall",
-                       .actionable = true,
-                       .convenience_exit = core::compiled::RoomExitRef{room_id.value(),
-                                                                       exit_id.value()}}},
-        .connections = {{.connection = connection_id.value(),
-                         .exits = {{room_id.value(), exit_id.value()}},
-                         .source = source_location.value(),
-                         .target = target_location.value(),
-                         .active_exit = core::compiled::RoomExitRef{room_id.value(), exit_id.value()},
-                         .label = "Hall route",
-                         .icon = icon_id.value(),
-                         .style = "hall-route",
-                         .actionable = true}}});
+    state.maps.push_back(
+        MapView{.map = map_id.value(),
+                .initial_mode = compiled::InitialMapMode::Minimap,
+                .current_room = room_id.value(),
+                .title = "House",
+                .locations = {{.location = source_location.value(),
+                               .room = room_id.value(),
+                               .regions = {{{{0.0, 0.0}, {0.4, 0.0}, {0.4, 0.4}}}},
+                               .label = "Start",
+                               .icon = icon_id.value(),
+                               .style = "start-room",
+                               .label_anchor = compiled::Vector2{0.1, 0.2},
+                               .connection_anchor = compiled::Vector2{0.3, 0.4},
+                               .current = true},
+                              {.location = target_location.value(),
+                               .room = target_room.value(),
+                               .regions = {{{{0.6, 0.6}, {1.0, 0.6}, {1.0, 1.0}}}},
+                               .label = "Hall",
+                               .actionable = true,
+                               .convenience_exit =
+                                   core::compiled::RoomExitRef{room_id.value(), exit_id.value()}}},
+                .connections = {
+                    {.connection = connection_id.value(),
+                     .exits = {{room_id.value(), exit_id.value()}},
+                     .source = source_location.value(),
+                     .target = target_location.value(),
+                     .active_exit = core::compiled::RoomExitRef{room_id.value(), exit_id.value()},
+                     .label = "Hall route",
+                     .icon = icon_id.value(),
+                     .style = "hall-route",
+                     .actionable = true}}});
 
     const auto rml = map_view_rml(make_map_view_snapshot(state));
     CHECK(rml.find("data-map-id=\"house\"") != std::string::npos);

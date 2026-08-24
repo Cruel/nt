@@ -151,7 +151,11 @@ export function certifyTemplateDescriptor(
   mismatch('architecture', report.template.architecture, descriptor.architecture);
   mismatch('buildFlavor', report.template.buildFlavor, descriptor.buildFlavor);
 
-  if (!report.exercised.compiledProjectFormatVersions.includes(descriptor.compiledProjectFormatVersion))
+  if (
+    !report.exercised.compiledProjectFormatVersions.includes(
+      descriptor.compiledProjectFormatVersion,
+    )
+  )
     diagnostics.push({
       code: 'certification-compiled-project-format-unexercised',
       path: '/exercised/compiledProjectFormatVersions',

@@ -108,8 +108,8 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                 settled.error());
     }
     if (std::find(m_room_presentation->eligible_subjects.begin(),
-                  m_room_presentation->eligible_subjects.end(), subject) ==
-        m_room_presentation->eligible_subjects.end())
+                  m_room_presentation->eligible_subjects.end(),
+                  subject) == m_room_presentation->eligible_subjects.end())
         return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::success({});
 
     const auto subject_family = [](const core::compiled::InteractionSubject& value) {
@@ -155,8 +155,8 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                 if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>) {
                     const auto* config = m_world.resolved_configuration(typed.character);
                     return config ? &config->identity.traits : nullptr;
-                } else if constexpr (std::is_same_v<T,
-                                                    core::compiled::InteractableInteractionSubject>) {
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::InteractableInteractionSubject>) {
                     const auto* config = m_world.resolved_configuration(typed.interactable);
                     return config ? &config->identity.traits : nullptr;
                 } else if constexpr (std::is_same_v<T,
@@ -205,8 +205,8 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                         std::get_if<core::compiled::ItemStackInteractionSubject>(&subject);
                     const auto* state = stack ? m_world.item_stack(stack->item_stack) : nullptr;
                     return state && state->definition == value.item_definition;
-                } else if constexpr (std::is_same_v<T,
-                                                    core::compiled::QualifiedPatternSubjectSelector>) {
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::QualifiedPatternSubjectSelector>) {
                     if (value.family != subject_family(subject))
                         return false;
                     const auto identity = subject_identity(subject);
@@ -232,8 +232,7 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                                                   core::compiled::QualifiedPatternSubjectSelector>)
                     return {4, value.pattern.size()};
                 else if constexpr (std::is_same_v<T, core::compiled::TraitSubjectSelector> ||
-                                   std::is_same_v<T,
-                                                  core::compiled::ItemDefinitionSubjectSelector>)
+                                   std::is_same_v<T, core::compiled::ItemDefinitionSubjectSelector>)
                     return {3, 0};
                 else if constexpr (std::is_same_v<T, core::compiled::FamilySubjectSelector>)
                     return {2, 0};
@@ -242,7 +241,8 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
             },
             selector);
     };
-    const auto matching_specificity = [&](const std::vector<core::compiled::SubjectSelector>& selectors)
+    const auto matching_specificity =
+        [&](const std::vector<core::compiled::SubjectSelector>& selectors)
         -> std::optional<Specificity> {
         std::optional<Specificity> best;
         for (const auto& selector : selectors) {
@@ -285,32 +285,27 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
             const auto specificity = matching_specificity(offer.selectors);
             if (!specificity)
                 continue;
-            consider(Candidate{offer.slot_id,
-                               offer.condition ? &*offer.condition : nullptr,
-                               offer.rank,
-                               offer.primary,
-                               *specificity,
+            consider(Candidate{offer.slot_id, offer.condition ? &*offer.condition : nullptr,
+                               offer.rank, offer.primary, *specificity,
                                std::string("verb:") + offer.id.text()});
         }
         for (const auto& interaction : m_project.interactions()) {
             for (const auto& rule : interaction.rules) {
                 if (rule.verb != verb.identity.id || !rule.offer)
                     continue;
-                const auto slot = std::find_if(
-                    rule.slots.begin(), rule.slots.end(),
-                    [&](const auto& value) { return value.slot_id == rule.offer->slot_id; });
+                const auto slot =
+                    std::find_if(rule.slots.begin(), rule.slots.end(), [&](const auto& value) {
+                        return value.slot_id == rule.offer->slot_id;
+                    });
                 if (slot == rule.slots.end())
                     continue;
                 const auto specificity = matching_specificity(slot->selectors);
                 if (!specificity)
                     continue;
-                consider(Candidate{rule.offer->slot_id,
-                                   rule.offer->condition ? &*rule.offer->condition : nullptr,
-                                   rule.offer->rank,
-                                   rule.offer->primary,
-                                   *specificity,
-                                   std::string("rule:") + interaction.identity.id.text() + ":" +
-                                       rule.id.text()});
+                consider(Candidate{
+                    rule.offer->slot_id, rule.offer->condition ? &*rule.offer->condition : nullptr,
+                    rule.offer->rank, rule.offer->primary, *specificity,
+                    std::string("rule:") + interaction.identity.id.text() + ":" + rule.id.text()});
             }
         }
         if (!winner)
@@ -319,8 +314,8 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
             auto condition = evaluate(*winner->condition);
             const auto* condition_value = condition.value_if();
             if (condition_value == nullptr)
-                return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::failure(
-                    condition.error());
+                return core::Result<std::vector<core::VerbOfferView>,
+                                    RuntimeExecutionError>::failure(condition.error());
             if (!*condition_value)
                 continue;
         }

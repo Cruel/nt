@@ -48,10 +48,7 @@ import {
   type PreparedRuntimePackageOptions,
 } from './project-schema/prepared-runtime-artifact';
 
-export {
-  PREPARED_RUNTIME_ARTIFACT_SCHEMA,
-  preparedRuntimeArtifactSchema,
-};
+export { PREPARED_RUNTIME_ARTIFACT_SCHEMA, preparedRuntimeArtifactSchema };
 export type {
   ExportFileEntry,
   ExportManifestPreview,
@@ -463,9 +460,7 @@ async function assembleRuntimeArtifact(
         resources: { ...published.project.project.resources, assets: includedCompiledAssets },
       }
     : undefined;
-  const gameplayJson = compiledProject
-    ? serializeCompiledProjectWire(compiledProject)
-    : undefined;
+  const gameplayJson = compiledProject ? serializeCompiledProjectWire(compiledProject) : undefined;
   const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
     const authored = parseAssetData(project.assets[asset.id]?.data);
     if (!authored) return [];

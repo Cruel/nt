@@ -680,16 +680,15 @@ Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
     remove_scene_presentation(m_state, m_state.m_flow_stack);
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();
-    m_state.m_flow_stack.emplace_back(RoomTransitionFrame{
-        id,
-        source,
-        room,
-        std::nullopt,
-        RoomTransitionKind::DirectedRoomChange,
-        RoomEntryCause::DirectedRoomChange,
-        source_context,
-        {first_stage, 0},
-        NoReturnDestination{}});
+    m_state.m_flow_stack.emplace_back(RoomTransitionFrame{id,
+                                                          source,
+                                                          room,
+                                                          std::nullopt,
+                                                          RoomTransitionKind::DirectedRoomChange,
+                                                          RoomEntryCause::DirectedRoomChange,
+                                                          source_context,
+                                                          {first_stage, 0},
+                                                          NoReturnDestination{}});
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
