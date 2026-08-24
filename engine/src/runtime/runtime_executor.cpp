@@ -526,6 +526,14 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
             return fault(execution_error("execution.invalid_scene",
                                          "The active Scene definition is missing"));
 
+        if (!frame->position.stage_initialized) {
+            auto initialized = m_flow.mark_scene_stage_initialized(frame->scene);
+            if (!initialized)
+                return fault(initialized.error());
+            ++executed;
+            continue;
+        }
+
         if (!frame->position.next_step) {
             auto applied = m_flow.apply_target(scene->continuation);
             if (!applied)
@@ -535,6 +543,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
         }
         const auto step = *frame->position.next_step;
         const auto sequential = next_instruction(*scene, step);
+
+        if (std::holds_alternative<core::SceneStepReady>(frame->position.substate) &&
+            m_scene_event_dependency_checker &&
+            m_scene_event_dependency_checker(frame->frame_id, frame->scene, step))
+            return core::FlowBudgetYieldOutcome{executed};
 
         if (const auto* completion =
                 std::get_if<core::SceneInstructionCompletionPosition>(&frame->position.substate)) {

@@ -579,11 +579,20 @@ struct StructuredAssetDependencyIndex::Impl {
             return;
         }
         const auto& scene = *found->second;
-        append_background(output, scene.default_background, collection_diagnostics,
-                          "Scene default background");
-        if (scene.default_layout)
-            append_layout(output, *scene.default_layout, collection_diagnostics,
-                          "Scene default Layout");
+        std::visit(
+            [&](const auto& stage) {
+                using Stage = std::decay_t<decltype(stage)>;
+                if constexpr (std::is_same_v<Stage, core::compiled::StagedRoomSceneStage>) {
+                    append_room(output, stage.room, collection_diagnostics, traversal);
+                } else if constexpr (std::is_same_v<Stage, core::compiled::BlankSceneStage>) {
+                    append_background(output, stage.background, collection_diagnostics,
+                                      "Scene blank Stage background");
+                    if (stage.layout)
+                        append_layout(output, *stage.layout, collection_diagnostics,
+                                      "Scene blank Stage Layout");
+                }
+            },
+            scene.stage);
 
         for (const auto& instruction : scene.program.instructions) {
             std::visit(

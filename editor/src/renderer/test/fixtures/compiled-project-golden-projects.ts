@@ -555,7 +555,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   };
 
   const opening = defaultSceneData('Opening');
-  opening.steps = [
+  opening.events = [
     {
       ...defaultSceneStep('show-text'),
       id: 'opening-text',
@@ -781,14 +781,17 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   };
 
   const opening = defaultSceneData('Opening');
-  opening.defaultBackground = {
-    asset: sceneAssetRef('image-main'),
-    material: sceneMaterialRef('sprite-material'),
-    color: '#112233',
-    fit: 'stretch',
+  opening.stage = {
+    kind: 'blank',
+    background: {
+      asset: sceneAssetRef('image-main'),
+      material: sceneMaterialRef('sprite-material'),
+      color: '#112233',
+      fit: 'stretch',
+    },
+    layout: sceneLayoutRef('hud-inline'),
   };
-  opening.defaultLayout = sceneLayoutRef('hud-inline');
-  opening.steps = [
+  opening.events = [
     {
       ...defaultSceneStep('set-background'),
       id: 'background',
@@ -885,6 +888,8 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       label: 'Input Wait',
       enabled: true,
       type: 'wait',
+      timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+      completionDependencies: [],
       waitKind: 'input',
       skippable: false,
     },
@@ -1017,7 +1022,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   };
 
   const closing = defaultSceneData('Closing');
-  closing.steps = [
+  closing.events = [
     {
       ...defaultSceneStep('show-text'),
       id: 'closing-text',

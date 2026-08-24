@@ -138,8 +138,7 @@ struct InteractionDefinition {
 struct SceneDefinition {
     DefinitionIdentity<SceneId> identity;
     std::string display_name;
-    BackgroundPresentation default_background;
-    std::optional<LayoutId> default_layout;
+    SceneStage stage;
     SceneProgram program;
     FlowTarget continuation;
 };

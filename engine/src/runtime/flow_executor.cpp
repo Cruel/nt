@@ -549,6 +549,9 @@ Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
     auto ready = ensure_flow_ready();
     if (!ready)
         return fail(ready.error());
+    if (const auto* caller = std::get_if<SceneFrame>(&m_state.m_flow_stack.back()))
+        if (auto* next = std::get_if<SceneFramePosition>(&caller_next_position))
+            next->stage_initialized = caller->position.stage_initialized;
     const auto* definition = m_project.find_scene(scene);
     auto position = validate_position(m_state.m_flow_stack.back(), caller_next_position);
     if (definition == nullptr || !position)
@@ -575,6 +578,9 @@ Result<void, Diagnostics> FlowExecutor::call_child(const DialogueId& dialogue,
     auto ready = ensure_flow_ready();
     if (!ready)
         return fail(ready.error());
+    if (const auto* caller = std::get_if<SceneFrame>(&m_state.m_flow_stack.back()))
+        if (auto* next = std::get_if<SceneFramePosition>(&caller_next_position))
+            next->stage_initialized = caller->position.stage_initialized;
     const auto* definition = m_project.find_dialogue(dialogue);
     auto position = validate_position(m_state.m_flow_stack.back(), caller_next_position);
     if (definition == nullptr || !position)

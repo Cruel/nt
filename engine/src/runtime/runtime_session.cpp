@@ -174,6 +174,11 @@ RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvoc
       m_runtime_locale(std::move(runtime_locale)), m_owner_thread(std::this_thread::get_id())
 {
     m_kernel->gateway().bind_services(this);
+    m_kernel->bind_scene_event_dependency_checker([this](const core::FlowFrameId& owner,
+                                                         const core::SceneId& scene,
+                                                         const core::SceneStepId& event) {
+        return scene_event_dependency_pending(owner, scene, event);
+    });
 }
 
 RuntimeSession::~RuntimeSession()
@@ -227,6 +232,59 @@ void RuntimeSession::record_time_mutation(std::chrono::milliseconds elapsed) noe
     m_transaction_impacts.record(runtime::MutationImpact::ObservationInvalidated);
     if (elapsed.count() <= std::numeric_limits<std::int64_t>::max() - m_transaction_elapsed.count())
         m_transaction_elapsed += elapsed;
+}
+
+bool RuntimeSession::scene_event_dependency_pending(const core::FlowFrameId& owner,
+                                                    const core::SceneId& scene,
+                                                    const core::SceneStepId& event) const noexcept
+{
+    const auto* definition = m_project.find_scene(scene);
+    if (definition == nullptr)
+        return false;
+    const auto metadata =
+        std::find_if(definition->program.events.begin(), definition->program.events.end(),
+                     [&event](const core::compiled::SceneEventMetadata& candidate) {
+                         return candidate.id == event;
+                     });
+    if (metadata == definition->program.events.end())
+        return false;
+    return std::ranges::any_of(
+        metadata->completion_dependencies, [&](const core::SceneStepId& dependency) {
+            return std::ranges::any_of(
+                m_scene_event_presentation_operations,
+                [&](const SceneEventPresentationOperation& operation) {
+                    return operation.owner == owner && operation.scene == scene &&
+                           operation.event == dependency &&
+                           m_presentation.presentation_operation_active(operation.operation);
+                });
+        });
+}
+
+void RuntimeSession::record_scene_event_presentation_operation(
+    core::PresentationOperationId operation)
+{
+    const auto* source = m_kernel->pending_presentation_source_state();
+    if (source == nullptr || source->flow_stack().empty())
+        return;
+    const auto* frame = std::get_if<core::SceneFrame>(&source->flow_stack().back());
+    if (frame == nullptr || !frame->position.next_step)
+        return;
+    const auto event = *frame->position.next_step;
+    std::erase_if(m_scene_event_presentation_operations,
+                  [&](const SceneEventPresentationOperation& candidate) {
+                      return candidate.owner == frame->frame_id &&
+                             candidate.scene == frame->scene && candidate.event == event;
+                  });
+    m_scene_event_presentation_operations.push_back(
+        {frame->frame_id, frame->scene, event, operation});
+}
+
+void RuntimeSession::prune_scene_event_presentation_operations()
+{
+    std::erase_if(m_scene_event_presentation_operations,
+                  [this](const SceneEventPresentationOperation& operation) {
+                      return !m_presentation.presentation_operation_active(operation.operation);
+                  });
 }
 
 const core::SessionState& RuntimeSession::presentation_state() const noexcept
@@ -532,6 +590,7 @@ RuntimeSession::run_kernel_once(std::vector<runtime::RuntimeEvent>& events,
                                 std::vector<core::RuntimeObservation>& observations)
 {
     core::Diagnostics diagnostics;
+    prune_scene_event_presentation_operations();
     const bool execution_can_advance =
         std::holds_alternative<core::FlowMode>(m_kernel->state().mode()) &&
         !m_kernel->state().blocker() && !m_kernel->state().gameplay_paused();
@@ -1359,6 +1418,13 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         result.disposition = runtime::RuntimeInputDisposition::Failed;
         return;
     }
+    auto refreshed_stages = m_kernel->refresh_scene_stage_presentations(m_runtime_locale);
+    if (!refreshed_stages) {
+        core::append_diagnostics(result.diagnostics,
+                                 as_diagnostics(std::move(refreshed_stages).error()));
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        return;
+    }
     auto view = m_kernel->runtime_ui_view(m_runtime_locale);
     if (!view) {
         core::append_diagnostics(result.diagnostics, as_diagnostics(std::move(view).error()));
@@ -1466,7 +1532,8 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                   m_current_publication->presentation)
             : m_presentation_model.project(
                   m_project, m_kernel->world(), m_kernel->state(),
-                  room_resolution == nullptr ? nullptr : &room_resolution->presentation);
+                  room_resolution == nullptr ? nullptr : &room_resolution->presentation,
+                  &m_kernel->scene_stage_presentations());
     if (!presentation) {
         core::append_diagnostics(result.diagnostics, std::move(presentation).error());
         result.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -1620,6 +1687,8 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
             m_pending_presentation =
                 PendingPresentationCompletion{operation_id, completion->owner, completion->blocker,
                                               pending_is_room_navigation(*pending)};
+        } else {
+            record_scene_event_presentation_operation(operation_id);
         }
         // The host may have rebound or reset its realization backend since this source revision was
         // published. Re-prime the exact predecessor before every finite operation.

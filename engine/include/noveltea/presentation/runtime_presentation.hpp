@@ -58,7 +58,8 @@ class PresentationProjector {
 public:
     [[nodiscard]] static Result<RuntimePresentationSnapshot, Diagnostics>
     project(const CompiledProject& project, const runtime::RuntimeWorld& world,
-            const SessionState& state, const ResolvedRoomPresentation* room_presentation = nullptr);
+            const SessionState& state, const ResolvedRoomPresentation* room_presentation = nullptr,
+            const std::vector<SceneStageRoomPresentation>* scene_stages = nullptr);
 };
 
 class RuntimePresentationSnapshotPublisher {

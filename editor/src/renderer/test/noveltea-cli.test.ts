@@ -1062,6 +1062,18 @@ describe('NovelTea headless CLI', () => {
           authoringUrl: 'system|/ui/runtime/command-builder.rml',
           supportingFiles: ['ui/runtime/command-builder.rcss'],
         },
+        'scene-text': {
+          builtinFallback: true,
+          document: 'ui/runtime/scene-text.rml',
+          authoringUrl: 'system|/ui/runtime/scene-text.rml',
+          supportingFiles: ['ui/runtime/scene-presentation.rcss'],
+        },
+        'scene-choice': {
+          builtinFallback: true,
+          document: 'ui/runtime/scene-choice.rml',
+          authoringUrl: 'system|/ui/runtime/scene-choice.rml',
+          supportingFiles: ['ui/runtime/scene-presentation.rcss'],
+        },
         'pause-menu': {
           builtinFallback: true,
           document: 'ui/menu/pause-menu.rml',
@@ -1289,6 +1301,9 @@ describe('NovelTea headless CLI', () => {
       'ui/runtime/command-builder.rml',
       'ui/runtime/runtime_game.rcss',
       'ui/runtime/runtime_game.rml',
+      'ui/runtime/scene-choice.rml',
+      'ui/runtime/scene-presentation.rcss',
+      'ui/runtime/scene-text.rml',
       'ui/title/default-title.rcss',
       'ui/title/default-title.rml',
     ]);
@@ -1463,6 +1478,8 @@ describe('NovelTea headless CLI', () => {
         'can_continue',
         'active_text_available',
         'choices',
+        'scene_text_available',
+        'scene_choices',
         'actors',
         'dialogue',
         'room',

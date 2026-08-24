@@ -23,7 +23,9 @@ describe('authoring scenes v2', () => {
         kind: 'scene',
         displayName: 'Opening',
         continuation: { kind: 'end' },
-        steps: [{ id: 'start', type: 'comment', label: 'Start', text: '' }],
+        events: [
+          expect.objectContaining({ id: 'start', type: 'comment', label: 'Start', text: '' }),
+        ],
       }),
     );
     expect(data).not.toHaveProperty('preview');
@@ -40,7 +42,7 @@ describe('authoring scenes v2', () => {
     expect(
       sceneDataSchema.safeParse({
         ...defaultSceneData(),
-        defaultBackground: { ...defaultSceneData().defaultBackground, previewOnly: true },
+        defaultBackground: { asset: null, material: null, color: null, fit: 'cover' },
       }).success,
     ).toBe(false);
   });
@@ -82,15 +84,15 @@ describe('authoring scenes v2', () => {
       },
     ];
     const data = defaultSceneData('Opening');
-    data.steps = [group];
+    data.events = [group];
     project.scenes.opening = { id: 'opening', label: 'Opening', data };
     expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/durationMs' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/waitForCompletion' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/color' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/children/1/id' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/children/1/layout' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/durationMs' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/waitForCompletion' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/color' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/children/1/id' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/children/1/layout' }),
       ]),
     );
   });
@@ -113,15 +115,15 @@ describe('authoring scenes v2', () => {
     layout.transition = 'fade';
     layout.durationMs = 0;
     const data = defaultSceneData('Opening');
-    data.steps = [background, actor, layout];
+    data.events = [background, actor, layout];
     project.scenes.opening = { id: 'opening', label: 'Opening', data };
     expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/durationMs' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/waitForCompletion' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/1/durationMs' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/1/transition' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/2/durationMs' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/durationMs' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/waitForCompletion' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/1/durationMs' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/1/transition' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/2/durationMs' }),
       ]),
     );
   });
@@ -129,7 +131,7 @@ describe('authoring scenes v2', () => {
   it('validates references, branch targets, and continuation targets', () => {
     const project = createAuthoringProject();
     const data = defaultSceneData('Opening');
-    data.steps = [
+    data.events = [
       {
         ...defaultSceneStep('call-dialogue'),
         id: 'dialogue',
@@ -146,10 +148,41 @@ describe('authoring scenes v2', () => {
     project.scenes.opening = { id: 'opening', label: 'Opening', data };
     expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/dialogue' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/1/branches/0/targetStepId' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/1/fallbackStepId' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/dialogue' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/1/branches/0/targetStepId' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/1/fallbackStepId' }),
         expect.objectContaining({ path: '/scenes/opening/data/continuation/id' }),
+      ]),
+    );
+  });
+
+  it('requires completion dependencies to name earlier enabled runtime Events', () => {
+    const project = createAuthoringProject();
+    const data = defaultSceneData('Opening');
+    data.events = [
+      { ...defaultSceneStep('comment'), id: 'note' },
+      { ...defaultSceneStep('wait'), id: 'disabled', enabled: false },
+      {
+        ...defaultSceneStep('wait'),
+        id: 'dependent',
+        completionDependencies: ['note', 'disabled', 'later'],
+      },
+      { ...defaultSceneStep('wait'), id: 'later' },
+    ];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
+
+    const diagnostics = validateSceneData(project, 'opening', project.scenes.opening);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/scenes/opening/data/events/2/completionDependencies/0',
+        }),
+        expect.objectContaining({
+          path: '/scenes/opening/data/events/2/completionDependencies/1',
+        }),
+        expect.objectContaining({
+          path: '/scenes/opening/data/events/2/completionDependencies/2',
+        }),
       ]),
     );
   });
@@ -158,9 +191,10 @@ describe('authoring scenes v2', () => {
     const project = createAuthoringProject();
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
     const data = defaultSceneData();
-    data.defaultBackground.asset = sceneAssetRef('missing-asset');
-    data.defaultBackground.material = sceneMaterialRef('missing-material');
-    data.steps = [
+    if (data.stage.kind !== 'blank') throw new Error('default Scene Stage must be blank');
+    data.stage.background.asset = sceneAssetRef('missing-asset');
+    data.stage.background.material = sceneMaterialRef('missing-material');
+    data.events = [
       {
         ...defaultSceneStep('set-variable'),
         id: 'set',
@@ -189,11 +223,13 @@ describe('authoring scenes v2', () => {
     project.scenes.opening = { id: 'opening', label: 'Opening', data };
     expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/scenes/opening/data/defaultBackground/asset' }),
-        expect.objectContaining({ path: '/scenes/opening/data/defaultBackground/material' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/0/value' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/1/options/1/id' }),
-        expect.objectContaining({ path: '/scenes/opening/data/steps/1/options/1/effects/0/value' }),
+        expect.objectContaining({ path: '/scenes/opening/data/stage/background/asset' }),
+        expect.objectContaining({ path: '/scenes/opening/data/stage/background/material' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/value' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/1/options/1/id' }),
+        expect.objectContaining({
+          path: '/scenes/opening/data/events/1/options/1/effects/0/value',
+        }),
       ]),
     );
   });
@@ -201,7 +237,7 @@ describe('authoring scenes v2', () => {
   it('builds preview data from editor-owned selection', () => {
     const project = createAuthoringProject();
     const data = defaultSceneData('Opening');
-    data.steps.push({
+    data.events.push({
       ...defaultSceneStep('show-text'),
       id: 'line',
       text: { source: { kind: 'inline', text: 'Hello' }, markup: 'active-text' },

@@ -520,9 +520,11 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       const assetId = selected(draft.options.backgroundAssetId);
       const materialId = selected(draft.options.materialId);
       const layoutId = selected(draft.options.layoutId);
-      if (assetId) data.defaultBackground.asset = ref('assets', assetId);
-      if (materialId) data.defaultBackground.material = ref('materials', materialId);
-      if (layoutId) data.defaultLayout = ref('layouts', layoutId);
+      if (data.stage.kind === 'blank') {
+        if (assetId) data.stage.background.asset = ref('assets', assetId);
+        if (materialId) data.stage.background.material = ref('materials', materialId);
+        if (layoutId) data.stage.layout = ref('layouts', layoutId);
+      }
       return { data };
     },
   },

@@ -45,6 +45,22 @@ core::MountedLayoutPolicy runtime_system_layout_policy(core::compiled::SystemLay
         policy.gameplay_pause = core::GameplayPausePolicy::Continue;
         policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
         break;
+    case core::compiled::SystemLayoutRole::SceneText:
+        policy.plane = core::PresentationPlane::GameUi;
+        policy.local_order = 30;
+        policy.clock = core::LayoutClockDomain::Gameplay;
+        policy.input = core::LayoutInputMode::Normal;
+        policy.gameplay_pause = core::GameplayPausePolicy::Continue;
+        policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
+        break;
+    case core::compiled::SystemLayoutRole::SceneChoice:
+        policy.plane = core::PresentationPlane::GameUi;
+        policy.local_order = 40;
+        policy.clock = core::LayoutClockDomain::Gameplay;
+        policy.input = core::LayoutInputMode::Normal;
+        policy.gameplay_pause = core::GameplayPausePolicy::Continue;
+        policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
+        break;
     case core::compiled::SystemLayoutRole::PauseMenu:
         policy.plane = core::PresentationPlane::MenuOverlay;
         policy.local_order = 100;
@@ -118,6 +134,36 @@ core::Result<void, core::Diagnostics> RuntimeSystemLayouts::initialize(bool show
         return core::Result<void, core::Diagnostics>::failure(std::move(builder).error());
     }
     m_command_builder = *builder.value_if();
+
+    auto scene_text = m_host.mount_system_layout(
+        core::compiled::SystemLayoutRole::SceneText,
+        runtime_system_layout_policy(core::compiled::SystemLayoutRole::SceneText, !show_title));
+    if (!scene_text) {
+        (void)m_host.unmount_system_layout(*m_command_builder);
+        (void)m_host.unmount_system_layout(*m_game_hud);
+        (void)m_host.unmount_system_layout(*m_title);
+        m_command_builder.reset();
+        m_game_hud.reset();
+        m_title.reset();
+        return core::Result<void, core::Diagnostics>::failure(std::move(scene_text).error());
+    }
+    m_scene_text = *scene_text.value_if();
+
+    auto scene_choice = m_host.mount_system_layout(
+        core::compiled::SystemLayoutRole::SceneChoice,
+        runtime_system_layout_policy(core::compiled::SystemLayoutRole::SceneChoice, !show_title));
+    if (!scene_choice) {
+        (void)m_host.unmount_system_layout(*m_scene_text);
+        (void)m_host.unmount_system_layout(*m_command_builder);
+        (void)m_host.unmount_system_layout(*m_game_hud);
+        (void)m_host.unmount_system_layout(*m_title);
+        m_scene_text.reset();
+        m_command_builder.reset();
+        m_game_hud.reset();
+        m_title.reset();
+        return core::Result<void, core::Diagnostics>::failure(std::move(scene_choice).error());
+    }
+    m_scene_choice = *scene_choice.value_if();
     m_game_active = !show_title;
     publish();
     return core::Result<void, core::Diagnostics>::success();
@@ -130,11 +176,17 @@ void RuntimeSystemLayouts::reset() noexcept
     m_stack.clear();
     if (m_command_builder)
         (void)m_host.unmount_system_layout(*m_command_builder);
+    if (m_scene_choice)
+        (void)m_host.unmount_system_layout(*m_scene_choice);
+    if (m_scene_text)
+        (void)m_host.unmount_system_layout(*m_scene_text);
     if (m_game_hud)
         (void)m_host.unmount_system_layout(*m_game_hud);
     if (m_title)
         (void)m_host.unmount_system_layout(*m_title);
     m_command_builder.reset();
+    m_scene_choice.reset();
+    m_scene_text.reset();
     m_game_hud.reset();
     m_title.reset();
     m_confirmation.reset();
@@ -220,6 +272,16 @@ core::Result<void, core::Diagnostics> RuntimeSystemLayouts::start_game()
         if (!shown)
             return shown;
     }
+    if (m_scene_text) {
+        auto shown = m_host.set_system_layout_visible(*m_scene_text, true);
+        if (!shown)
+            return shown;
+    }
+    if (m_scene_choice) {
+        auto shown = m_host.set_system_layout_visible(*m_scene_choice, true);
+        if (!shown)
+            return shown;
+    }
     m_game_active = true;
     publish();
     return core::Result<void, core::Diagnostics>::success();
@@ -237,6 +299,16 @@ core::Result<void, core::Diagnostics> RuntimeSystemLayouts::return_to_title()
             "runtime_shell.return_to_title_failed", "Runtime rejected the return-to-title reset"));
     if (m_command_builder) {
         auto hidden = m_host.set_system_layout_visible(*m_command_builder, false);
+        if (!hidden)
+            return hidden;
+    }
+    if (m_scene_choice) {
+        auto hidden = m_host.set_system_layout_visible(*m_scene_choice, false);
+        if (!hidden)
+            return hidden;
+    }
+    if (m_scene_text) {
+        auto hidden = m_host.set_system_layout_visible(*m_scene_text, false);
         if (!hidden)
             return hidden;
     }
@@ -307,6 +379,10 @@ core::Result<void, core::Diagnostics> RuntimeSystemLayouts::confirm()
             (void)m_host.set_system_layout_visible(*m_game_hud, true);
         if (m_command_builder)
             (void)m_host.set_system_layout_visible(*m_command_builder, true);
+        if (m_scene_text)
+            (void)m_host.set_system_layout_visible(*m_scene_text, true);
+        if (m_scene_choice)
+            (void)m_host.set_system_layout_visible(*m_scene_choice, true);
         return clear_stack();
     }
     return core::Result<void, core::Diagnostics>::success();

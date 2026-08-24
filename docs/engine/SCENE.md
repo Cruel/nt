@@ -3,23 +3,53 @@
 ## Contract
 
 Scene is the canonical visual-novel orchestration component; new code never uses Cutscene. A
-`SceneDefinition` owns immutable metadata and a specialized flat `SceneProgram`. Scene is not a
-universal command stream, graph VM, keyframe timeline, or polymorphic controller.
+`SceneDefinition` owns immutable metadata, one invocation Stage policy, and a specialized flat
+`SceneProgram`. Scene is not a universal command stream, graph VM, keyframe VM, or polymorphic
+controller.
 
 Scene is an immutable orchestration definition, not a stateful Property or Trait owner. Mutable Scene execution state belongs to each Scene frame/invocation in the Runtime Session.
 
 ## Program
 
-Current Scene authoring uses the strict step union: SetBackground, ActorCue, CallDialogue, ShowText, AudioCue,
-SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, TransitionGroup, and Comment. Comment is
-editor-only and removed by compilation. Each step contains only fields valid for its variant,
-including condition, wait, and safe-point data where meaningful. Stable step IDs support diagnostics
-and save/resume.
+Current Scene authoring is an ordered sequence of stable semantic Events. The Event operation union is
+SetBackground, ActorCue, CallDialogue, ShowText, AudioCue, SetVariable, RunLua, Wait,
+ConditionalBranch, Choice, SetLayout, TransitionGroup, and Comment. Comment is editor-only and
+removed by compilation. Every runtime Event has a stable ID, an editor-visible timeline track,
+explicit start and duration values, and zero or more completion dependencies on earlier enabled
+runtime Events. Each operation contains only fields valid for its variant, including condition, wait,
+and safe-point data where meaningful.
 
-A Scene frame holds the mutable instruction cursor and wait/correlation state. `CallDialogue` pushes a
-Dialogue frame and resumes at the next Scene step after Return. A final Scene/Dialogue continuation
+Timeline placement does not turn Scene into a graph or reorder semantic execution. Runtime starts
+Events in authored order. Non-blocking operations may remain in presentation realization after the
+Event cursor advances; explicit completion dependencies are the authored vocabulary for constraining
+later work that must wait for earlier operation completion. The editor may render the ordered Events
+as tracks and overlapping clips without introducing author-visible handlers or edges.
+
+A Scene frame holds the mutable Event cursor, Stage-initialization state, and wait/correlation state.
+`CallDialogue` pushes a Dialogue frame and resumes at the next Scene Event after Return. A final Scene/Dialogue continuation
 tail-replaces; Room enters Room mode; Return pops; End clears execution and enters Ended mode. Return
 is invalid for a direct project entrypoint.
+
+## Invocation Stage
+
+Every Scene invocation selects exactly one Stage before executing its first runtime Event:
+
+- `inherited` leaves the caller's current presentation visible and layers Scene-owned changes over it;
+- `staged-room` resolves a Room as a visual composition template without changing Current Room,
+  Character/Interactable Location, Active Room Context, navigation, or Room lifecycle;
+- `blank` replaces world presentation with an authored background and optional Layout without
+  requiring any Current Room.
+
+Staged Room resolution intentionally exposes no exploration Hotspots or eligible Interaction
+subjects and does not execute the Room composition/lifecycle hook surface. Room cast,
+Interactable occurrences, props, environments, background, overlays, and presentation-space camera
+defaults may still be reused as visual composition.
+
+Stage presentation belongs to the Scene invocation. Staged actors, props, environments, backgrounds,
+and Layouts are rewritten to stable owner-qualified occurrence identities derived from the Flow frame
+plus their semantic occurrence key. A nested child Scene therefore overlays its caller; when the child
+returns, its owner disappears and the unchanged caller Stage is projected again. Staging never creates
+or moves Gameplay Instances.
 
 ## Presentation actions and transition terminology
 
@@ -49,9 +79,9 @@ awaited/synchronized, disposable, or explicitly play-on-skip as admitted by vali
 always disposable, unscaled, and cannot control gameplay. The retired `channel`, `loop`, and
 `volume` Scene audio representation is not accepted by the current authoring or compiled-project shape.
 
-The standalone targetless `Transition` action has been removed from authoring, compiler, compiled wire, and
-the native compiled program. It has no compatibility interpretation. A group never consumes earlier
-or later Scene steps implicitly.
+The standalone targetless `Transition` action has been removed from authoring, compiler, compiled wire,
+and the native compiled program. It has no compatibility interpretation. A group never consumes
+earlier or later Scene Events implicitly.
 
 The grouped authoring contract is conceptually:
 
@@ -93,11 +123,15 @@ realization and leaves the already-published target authoritative.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring:** collection-specific Scene record with strict ordered steps and explicit terminal continuation.
-- **Compiled:** immutable `SceneDefinition` plus `SceneProgram`, linked typed references, and compiler-marked safe points.
-- **Mutable:** Scene `FlowFrame`, actor state, logical waits, and invocation-local execution data in `SessionState`; the Scene definition itself has no Property/Trait state.
-- **Tooling only:** comments, selected step, timeline/graph coordinates, preview playback/background,
-  categories, tags, colors, and sort keys.
+- **Authoring:** collection-specific Scene record with one explicit Stage, strict ordered Events,
+  Event timeline metadata/completion dependencies, and explicit terminal continuation.
+- **Compiled:** immutable `SceneDefinition` plus `SceneProgram.events`; each compiled Event wraps one
+  typed instruction with its stable ID, timeline metadata, and completion dependencies.
+- **Mutable:** Scene `FlowFrame`, Stage initialization, actor/presentation state, logical waits, and
+  invocation-local execution data in `SessionState`; the Scene definition itself has no
+  Property/Trait state.
+- **Tooling only:** comments, selected Event, scrub position/playback state, categories, tags, colors,
+  and sort keys. Authored track/start/duration values are contract data, not editor-only annotations.
 
 Conditions and Lua text expressions are synchronous. RunLua may yield through an engine-owned handle
 bound to the Scene frame. Lua coroutine state is never saved. Autosaves occur only at compiler-marked
@@ -106,20 +140,23 @@ safe points.
 ## Authoring implementation
 
 The authoritative Scene authoring boundary lives in
-`editor/src/shared/project-schema/authoring-scenes.ts`. A Scene record contains its display name,
-initial background and Layout references, a non-empty ordered step sequence, and an explicit terminal
-`FlowTarget`. Preview selection and other editor-only state are not serialized into Scene data.
+`editor/src/shared/project-schema/authoring-scenes.ts`. A Scene record contains its display name, one
+Stage (`inherited`, `staged-room`, or `blank`), a non-empty ordered Event sequence, and an explicit
+terminal `FlowTarget`. The former same-version `defaultBackground`, `defaultLayout`, and `steps`
+shape is not accepted. Preview selection and scrub/play state are not serialized into Scene data.
 
-Every step is a strict discriminated-union member. A step stores only fields valid for its type;
+Every Event operation is a strict discriminated-union member. An Event stores only fields valid for its type;
 unknown fields and payloads belonging to another variant are rejected at every nested boundary.
-Changing a step type creates a fresh payload for the new type instead of retaining hidden inactive
+Changing an Event type creates a fresh payload for the new type instead of retaining hidden inactive
 payloads. Conditions, effects, waits, and autosave-safe-point flags are represented only on variants
 where they are meaningful.
 
-The editor supports ordered creation, selection, duplication, deletion, reordering, type replacement,
-variant-specific editing, explicit continuation editing, diagnostics, undo/redo, and a derived Scene
-preview. The preview receives its selected step from editor state and emits
-`noveltea.scene-preview`; it does not mutate or annotate the authoring record.
+The editor supports Stage configuration, ordered creation, selection, duplication, deletion,
+reordering, type replacement, variant-specific editing, track/start/duration editing, completion
+dependencies, overlapping clip visualization, scrubbing, timeline playback, explicit continuation
+editing, diagnostics, undo/redo, and a derived Scene preview. The preview receives its selected Event
+and derived timeline data from editor state and emits `noveltea.scene-preview`; it does not mutate or
+annotate the authoring record with transient playback state.
 
 Scene edits publish through `scene.replaceData`. The command validates the complete proposed strict
 payload before replacing `/scenes/{sceneId}/data`, preserving deterministic command history and
@@ -139,5 +176,6 @@ editor/src/renderer/test/scene-editor.test.tsx
 
 ## Non-goals
 
-Do not restore legacy cutscene arrays or compatibility APIs. V1 does not provide parallel tracks,
-keyframes, or a general graph VM.
+Do not restore legacy cutscene arrays, the superseded same-version Scene step shape, or compatibility
+APIs. Tracks are an editor/timeline view over one ordered Event sequence; they are not parallel
+program counters, keyframe handlers, or a general graph VM.

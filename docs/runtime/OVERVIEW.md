@@ -32,6 +32,20 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 - Full-game preview/debugger/recorder UI lives under editor renderer preview/test editor surfaces.
 - Package/export builders live in editor main/shared services and runtime package code.
 
+## Scene Runtime Boundary
+
+Scene execution is an ordered Event cursor owned by each Flow invocation. A Scene invocation selects
+its Stage once before its first runtime Event. `inherited` keeps the caller presentation,
+`staged-room` resolves Room visual composition without changing Current Room, Location, Active Room
+Context, Hotspots, eligible Interaction subjects, or Room lifecycle, and `blank` supplies an
+invocation-local background/Layout presentation without requiring a Room.
+
+Scene Stage presentation is projected from active Flow frames and is owner-qualified by the Scene
+invocation. Child Scene presentation therefore overlays caller presentation and disappears when the
+child frame returns. Dedicated `scene-text` and `scene-choice` System Layout Roles realize Scene
+narration and Scene choices independently from the Game HUD and Dialogue UI. See
+`docs/engine/SCENE.md` for the current authoring/compiled/Event contract.
+
 ## Agent Rules
 
 Keep runtime command, Lua API, and preview protocol changes documented together. A protocol change that affects editor preview must update the relevant runtime doc and `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md`.

@@ -410,13 +410,15 @@ describe('Prepared Runtime Artifact module', () => {
     const project = roomProject();
     const scene = defaultSceneData('Opening');
     scene.continuation = { kind: 'room', id: 'kitchen' };
-    scene.steps = [
+    scene.events = [
       { ...defaultSceneStep('comment', 'Opening line'), text: 'The room fades in.' },
       {
         id: 'pause',
         type: 'wait',
         label: 'Pause',
         enabled: true,
+        timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+        completionDependencies: [],
         waitKind: 'input',
         skippable: true,
       },
@@ -437,14 +439,14 @@ describe('Prepared Runtime Artifact module', () => {
     expect(result.ready).toBe(true);
     expect(result.compiledProject).toMatchObject({
       entrypoint: { kind: 'scene', scene: { kind: 'scene', id: 'opening' } },
-      definitions: { scenes: [{ id: 'opening', program: { instructions: expect.any(Array) } }] },
+      definitions: { scenes: [{ id: 'opening', program: { events: expect.any(Array) } }] },
     });
   });
 
   it('preserves supported scene presentation instructions without lossy warnings', async () => {
     const project = roomProject();
     const scene = defaultSceneData('Opening');
-    scene.steps = [
+    scene.events = [
       {
         ...defaultSceneStep('set-background', 'Show background'),
         color: '#000000',

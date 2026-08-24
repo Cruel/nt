@@ -229,6 +229,11 @@ struct RoomPresentationResolution {
     std::vector<compiled::InteractionSubject> eligible_subjects;
 };
 
+struct SceneStageRoomPresentation {
+    ScenePresentationOwner owner;
+    RoomPresentationResolution resolution;
+};
+
 struct RoomNavigationPreparationInput {
     FlowFrameId owner;
     std::optional<RoomId> source_room;

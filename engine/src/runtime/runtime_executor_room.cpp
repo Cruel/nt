@@ -538,4 +538,48 @@ RuntimeExecutor::refresh_room_presentation(std::string_view runtime_locale)
     return core::Result<void, RuntimeExecutionError>::success();
 }
 
+core::Result<void, RuntimeExecutionError>
+RuntimeExecutor::refresh_scene_stage_presentations(std::string_view runtime_locale)
+{
+    std::vector<core::SceneStageRoomPresentation> resolved_stages;
+    for (const auto& value : m_state.flow_stack()) {
+        const auto* frame = std::get_if<core::SceneFrame>(&value);
+        if (frame == nullptr || !frame->position.stage_initialized)
+            continue;
+        const auto* scene = m_project.find_scene(frame->scene);
+        if (scene == nullptr)
+            return core::Result<void, RuntimeExecutionError>::failure(
+                execution_error("execution.invalid_scene", "Active Scene definition is missing"));
+        const auto* staged = std::get_if<core::compiled::StagedRoomSceneStage>(&scene->stage);
+        if (staged == nullptr)
+            continue;
+        auto resolution = m_presentation_model.resolve_staged_room(
+            m_project, m_world, m_state, staged->room,
+            [this](const core::Condition& condition) -> core::Result<bool, core::Diagnostics> {
+                auto result = evaluate(condition);
+                const auto* value = result.value_if();
+                if (value != nullptr)
+                    return core::Result<bool, core::Diagnostics>::success(*value);
+                return core::Result<bool, core::Diagnostics>::failure(
+                    execution_diagnostics(result.error()));
+            },
+            [this, runtime_locale](
+                const core::TextSource& source) -> core::Result<std::string, core::Diagnostics> {
+                auto result = resolve(source, runtime_locale);
+                const auto* value = result.value_if();
+                if (value != nullptr)
+                    return core::Result<std::string, core::Diagnostics>::success(*value);
+                return core::Result<std::string, core::Diagnostics>::failure(
+                    execution_diagnostics(result.error()));
+            });
+        if (!resolution)
+            return core::Result<void, RuntimeExecutionError>::failure(resolution.error());
+        resolved_stages.push_back(core::SceneStageRoomPresentation{
+            core::ScenePresentationOwner{frame->frame_id, frame->scene},
+            std::move(*resolution.value_if())});
+    }
+    m_scene_stage_presentations = std::move(resolved_stages);
+    return core::Result<void, RuntimeExecutionError>::success();
+}
+
 } // namespace noveltea::runtime

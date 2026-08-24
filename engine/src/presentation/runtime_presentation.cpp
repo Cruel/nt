@@ -909,11 +909,21 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
 Result<RuntimePresentationSnapshot, Diagnostics>
 PresentationProjector::project(const CompiledProject& project, const runtime::RuntimeWorld& world,
                                const SessionState& state,
-                               const ResolvedRoomPresentation* room_presentation)
+                               const ResolvedRoomPresentation* room_presentation,
+                               const std::vector<SceneStageRoomPresentation>* scene_stages)
 {
     RuntimePresentationSnapshot result;
     Diagnostics diagnostics;
     result.mode = mode_of(state.mode());
+    struct StageLayout {
+        ScenePresentationOwner owner;
+        std::string occurrence_key;
+        LayoutId layout;
+        std::int32_t order = 0;
+        bool visible = true;
+    };
+    std::vector<StageLayout> stage_layouts;
+    bool scene_stage_replaced_world = false;
 
     if (state.room_visit()) {
         result.current_room = state.room_visit()->room;
@@ -956,7 +966,153 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         }
     }
 
-    const auto background = effective_background(state, room_presentation);
+    for (const auto& flow_frame : state.flow_stack()) {
+        const auto* frame = std::get_if<SceneFrame>(&flow_frame);
+        if (frame == nullptr || !frame->position.stage_initialized)
+            continue;
+        const auto* scene = project.find_scene(frame->scene);
+        if (scene == nullptr) {
+            diagnostics.push_back(unresolved("Scene", frame->scene.text()));
+            continue;
+        }
+        const ScenePresentationOwner owner{frame->frame_id, frame->scene};
+        if (std::holds_alternative<compiled::InheritedSceneStage>(scene->stage))
+            continue;
+
+        scene_stage_replaced_world = true;
+        result.background.reset();
+        result.camera.reset();
+        result.actors.clear();
+        result.interactables.clear();
+        result.props.clear();
+        result.environments.clear();
+        result.hotspots.clear();
+
+        if (const auto* blank = std::get_if<compiled::BlankSceneStage>(&scene->stage)) {
+            if (blank->background.asset || blank->background.color || blank->background.material)
+                result.background = PresentationBackground{
+                    PresentationOwner{owner}, blank->background.asset, blank->background.color,
+                    blank->background.fit, blank->background.material};
+            if (blank->layout)
+                stage_layouts.push_back({owner, "blank", *blank->layout, 0, true});
+            continue;
+        }
+
+        const auto* staged = std::get_if<compiled::StagedRoomSceneStage>(&scene->stage);
+        if (staged == nullptr || scene_stages == nullptr) {
+            diagnostics.push_back(
+                invalid("presentation.scene_stage_unavailable",
+                        "Staged Room Scene presentation is unavailable for the active invocation"));
+            continue;
+        }
+        const auto resolved = std::find_if(
+            scene_stages->begin(), scene_stages->end(),
+            [&](const SceneStageRoomPresentation& candidate) { return candidate.owner == owner; });
+        if (resolved == scene_stages->end()) {
+            diagnostics.push_back(
+                invalid("presentation.scene_stage_unavailable",
+                        "Staged Room Scene presentation is unavailable for the active invocation"));
+            continue;
+        }
+        auto staged_snapshot = RoomPresentationSnapshotProjector::project(
+            project, resolved->resolution,
+            build_room_presentation_visual_catalog(world, resolved->resolution));
+        if (!staged_snapshot) {
+            append_diagnostics(diagnostics, std::move(staged_snapshot).error());
+            continue;
+        }
+        auto staged_value = std::move(*staged_snapshot.value_if());
+        result.background = std::move(staged_value.background);
+        if (result.background)
+            result.background->material_owner = PresentationOwner{owner};
+        result.actors = std::move(staged_value.actors);
+        result.interactables = std::move(staged_value.interactables);
+        result.props = std::move(staged_value.props);
+        result.environments = std::move(staged_value.environments);
+        result.hotspots = std::move(staged_value.hotspots);
+
+        const auto* staged_room = world.resolved_configuration(staged->room);
+        if (staged_room != nullptr)
+            result.camera = PresentationCamera{staged_room->presentation_space,
+                                               staged_room->presentation_space.default_view};
+
+        for (std::size_t index = 0; index < result.actors.size(); ++index) {
+            const auto semantic_key = std::visit(
+                [](const auto& key) {
+                    using Key = std::decay_t<decltype(key)>;
+                    if constexpr (std::is_same_v<Key, CharacterActorKey>)
+                        return std::string{"character-"} + key.character.text();
+                    else if constexpr (std::is_same_v<Key, RoomCastActorKey>)
+                        return std::string{"room-cast-"} + key.room.text() + "-" + key.entry.text();
+                    else if constexpr (std::is_same_v<Key, SceneActorKey>)
+                        return std::string{"scene-slot-"} + key.slot.text();
+                    else
+                        return std::string{"scoped-"} + key.instance.text();
+                },
+                result.actors[index].key);
+            const auto instance = StrongId<ScopedActorInstanceTag>::create(
+                "scene-stage-" + std::to_string(frame->frame_id.number()) + "-actor-" +
+                semantic_key);
+            if (!instance) {
+                append_diagnostics(diagnostics, instance.error());
+                continue;
+            }
+            result.actors[index].key = ScopedActorKey{*instance.value_if()};
+            result.actors[index].material_owner = PresentationOwner{owner};
+        }
+        for (std::size_t index = 0; index < result.props.size(); ++index) {
+            const auto semantic_key = std::visit(
+                [](const auto& key) {
+                    using Key = std::decay_t<decltype(key)>;
+                    if constexpr (std::is_same_v<Key, RoomPropPresentationKey>)
+                        return std::string{"room-prop-"} + key.room.text() + "-" + key.prop.text();
+                    else
+                        return std::string{"scoped-prop-"} + key.instance.text();
+                },
+                result.props[index].key);
+            auto instance = PresentationPropInstanceId::create(
+                "scene-stage-" + std::to_string(frame->frame_id.number()) + "-prop-" +
+                semantic_key);
+            if (!instance) {
+                append_diagnostics(diagnostics, instance.error());
+                continue;
+            }
+            result.props[index].key = ScopedPropPresentationKey{*instance.value_if()};
+            result.props[index].owner = PresentationOwner{owner};
+        }
+        for (std::size_t index = 0; index < result.environments.size(); ++index) {
+            const auto semantic_key = result.environments[index].instance.text();
+            auto instance = PresentationEnvironmentInstanceId::create(
+                "scene-stage-" + std::to_string(frame->frame_id.number()) + "-environment-" +
+                semantic_key);
+            auto stop_key = PresentationEnvironmentStopKey::create(
+                "scene-stage-" + std::to_string(frame->frame_id.number()) + "-environment-" +
+                semantic_key);
+            if (!instance || !stop_key) {
+                append_diagnostics(diagnostics, !instance ? std::move(instance.error())
+                                                          : std::move(stop_key.error()));
+                continue;
+            }
+            result.environments[index].instance = *instance.value_if();
+            result.environments[index].stop_key = *stop_key.value_if();
+            result.environments[index].owner = PresentationOwner{owner};
+        }
+        if (staged_room != nullptr) {
+            for (const auto& overlay : resolved->resolution.presentation.overlays) {
+                const auto authored =
+                    std::ranges::find_if(staged_room->overlays, [&](const auto& candidate) {
+                        return candidate.id == overlay.overlay;
+                    });
+                stage_layouts.push_back(
+                    {owner, "room-overlay-" + overlay.overlay.text(), overlay.layout,
+                     authored == staged_room->overlays.end() ? 0 : authored->order,
+                     overlay.visible});
+            }
+        }
+    }
+
+    const auto background =
+        effective_background(state, scene_stage_replaced_world ? nullptr : room_presentation);
     if (background) {
         validate_asset(project, background->background.asset, compiled::AssetKind::Image,
                        "background image asset", diagnostics);
@@ -964,7 +1120,10 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             background->owner, background->background.asset, background->background.color,
             background->background.fit, background->background.material};
     }
-    result.camera = effective_camera(world, state, room_presentation);
+    const auto camera =
+        effective_camera(world, state, scene_stage_replaced_world ? nullptr : room_presentation);
+    if (camera)
+        result.camera = camera;
 
     for (const auto& desired : state.actors()) {
         if (!state.presentation_owner_is_active(desired.owner))
@@ -1271,6 +1430,40 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             mount.key, mount.owner, mount.layout, mount.policy, mount.scale_overrides,
             mount.composition_group, mount.occurrence, std::move(*inputs.value_if()),
             mount.connected_signals, layout_definition->contract.state, std::move(state_values)});
+    }
+    for (const auto& stage_layout : stage_layouts) {
+        const auto* layout_definition = project.find_layout(stage_layout.layout);
+        if (layout_definition == nullptr) {
+            diagnostics.push_back(unresolved("Scene Stage Layout", stage_layout.layout.text()));
+            continue;
+        }
+        auto scoped = ScopedLayoutInstanceId::create(
+            "scene-stage-" + std::to_string(stage_layout.owner.invocation.number()) + "-" +
+            stage_layout.occurrence_key);
+        if (!scoped) {
+            append_diagnostics(diagnostics, std::move(scoped.error()));
+            continue;
+        }
+        MountedLayoutPolicy policy;
+        policy.plane = PresentationPlane::GameUi;
+        policy.local_order = stage_layout.order;
+        policy.clock = LayoutClockDomain::Gameplay;
+        policy.input = LayoutInputMode::Normal;
+        policy.gameplay_pause = GameplayPausePolicy::Continue;
+        policy.visibility =
+            stage_layout.visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden;
+        policy.escape_dismissal = EscapeDismissalPolicy::Ignore;
+        result.layouts.push_back(PresentationMountedLayout{ScopedLayoutMountKey{*scoped.value_if()},
+                                                           PresentationOwner{stage_layout.owner},
+                                                           stage_layout.layout,
+                                                           policy,
+                                                           {},
+                                                           PresentationCompositionGroup::Interface,
+                                                           std::nullopt,
+                                                           {},
+                                                           {},
+                                                           layout_definition->contract.state,
+                                                           {}});
     }
 
     validate_text_and_choice(project, world, state, diagnostics);

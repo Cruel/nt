@@ -105,6 +105,12 @@ const commonRuntimeStep = {
   label: z.string().min(1),
   enabled: z.boolean().default(true),
   condition: sceneConditionSchema.optional(),
+  timeline: strict({
+    trackId: entityIdSchema,
+    startMs: z.number().int().nonnegative(),
+    durationMs: z.number().int().nonnegative(),
+  }),
+  completionDependencies: z.array(entityIdSchema).default([]),
 };
 const safePoint = { autosaveSafePoint: z.boolean().default(false) };
 
@@ -332,6 +338,11 @@ const commentStepSchema = strict({
   label: z.string().min(1),
   type: z.literal('comment'),
   text: z.string(),
+  timeline: strict({
+    trackId: entityIdSchema,
+    startMs: z.number().int().nonnegative(),
+    durationMs: z.number().int().nonnegative(),
+  }),
 });
 
 export const sceneStepDataSchema = z.discriminatedUnion('type', [
@@ -352,17 +363,26 @@ export const sceneStepDataSchema = z.discriminatedUnion('type', [
   commentStepSchema,
 ]);
 
+export const sceneStageSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('inherited') }),
+  strict({ kind: z.literal('staged-room'), room: sceneRoomRefSchema }),
+  strict({
+    kind: z.literal('blank'),
+    background: strict({
+      asset: sceneAssetRefSchema.nullable(),
+      material: sceneMaterialRefSchema.nullable(),
+      color: z.string().nullable(),
+      fit: z.enum(sceneBackgroundFitValues),
+    }),
+    layout: sceneLayoutRefSchema.nullable(),
+  }),
+]);
+
 export const sceneDataSchema = strict({
   kind: z.literal('scene'),
   displayName: z.string(),
-  defaultBackground: strict({
-    asset: sceneAssetRefSchema.nullable(),
-    material: sceneMaterialRefSchema.nullable(),
-    color: z.string().nullable(),
-    fit: z.enum(sceneBackgroundFitValues),
-  }),
-  defaultLayout: sceneLayoutRefSchema.nullable(),
-  steps: z.array(sceneStepDataSchema).min(1),
+  stage: sceneStageSchema,
+  events: z.array(sceneStepDataSchema).min(1),
   continuation: sceneFlowTargetSchema,
 });
 
@@ -376,6 +396,7 @@ export type SceneConditionData = z.infer<typeof sceneConditionSchema>;
 export type SceneEffectData = z.infer<typeof sceneEffectSchema>;
 export type SceneTransitionGroupChildData = z.infer<typeof transitionGroupChildSchema>;
 export type SceneStepData = z.infer<typeof sceneStepDataSchema>;
+export type SceneStageData = z.infer<typeof sceneStageSchema>;
 export type SceneData = z.infer<typeof sceneDataSchema>;
 
 export interface SceneSchemaDiagnostic {
@@ -397,7 +418,14 @@ export function parseSceneData(value: unknown): SceneData | null {
 
 function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepData {
   const id = type === 'comment' ? 'start' : type;
-  const common = { id, type, label: label ?? type.replaceAll('-', ' '), enabled: true } as const;
+  const common = {
+    id,
+    type,
+    label: label ?? type.replaceAll('-', ' '),
+    enabled: true,
+    timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+    completionDependencies: [],
+  };
   switch (type) {
     case 'set-background':
       return {
@@ -546,7 +574,13 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         ],
       };
     case 'comment':
-      return { id, type, label: label ?? 'Start', text: '' };
+      return {
+        id,
+        type,
+        label: label ?? 'Start',
+        text: '',
+        timeline: { trackId: 'notes', startMs: 0, durationMs: 0 },
+      };
   }
 }
 
@@ -561,9 +595,12 @@ export function defaultSceneData(label = 'Scene'): SceneData {
   return {
     kind: 'scene',
     displayName: label,
-    defaultBackground: { asset: null, material: null, color: '#0f172a', fit: 'cover' },
-    defaultLayout: null,
-    steps: [defaultSceneStep()],
+    stage: {
+      kind: 'blank',
+      background: { asset: null, material: null, color: '#0f172a', fit: 'cover' },
+      layout: null,
+    },
+    events: [defaultSceneStep()],
     continuation: { kind: 'end' },
   };
 }
@@ -666,25 +703,46 @@ export function validateSceneData(
         diagnostic(`${path}/value`, `Material Parameter value does not match ${uniform.type}.`),
       );
   };
-  if (data.defaultBackground.asset)
-    requireRecord(
-      'assets',
-      data.defaultBackground.asset.$ref.id,
-      `${base}/defaultBackground/asset`,
-    );
-  if (data.defaultBackground.material)
-    requireRecord(
-      'materials',
-      data.defaultBackground.material.$ref.id,
-      `${base}/defaultBackground/material`,
-    );
-  if (data.defaultLayout)
-    requireRecord('layouts', data.defaultLayout.$ref.id, `${base}/defaultLayout`);
-  data.steps.forEach((step, index) => {
-    const path = `${base}/steps/${index}`;
+  if (data.stage.kind === 'staged-room')
+    requireRecord('rooms', data.stage.room.$ref.id, `${base}/stage/room`);
+  if (data.stage.kind === 'blank') {
+    if (data.stage.background.asset)
+      requireRecord(
+        'assets',
+        data.stage.background.asset.$ref.id,
+        `${base}/stage/background/asset`,
+      );
+    if (data.stage.background.material)
+      requireRecord(
+        'materials',
+        data.stage.background.material.$ref.id,
+        `${base}/stage/background/material`,
+      );
+    if (data.stage.layout)
+      requireRecord('layouts', data.stage.layout.$ref.id, `${base}/stage/layout`);
+  }
+  data.events.forEach((step, index) => {
+    const path = `${base}/events/${index}`;
     if (ids.has(step.id))
-      diagnostics.push(diagnostic(`${path}/id`, `Duplicate step ID '${step.id}'.`));
+      diagnostics.push(diagnostic(`${path}/id`, `Duplicate Event ID '${step.id}'.`));
     ids.add(step.id);
+    if (step.type !== 'comment') {
+      const earlier = new Set(
+        data.events
+          .slice(0, index)
+          .filter((candidate) => candidate.type !== 'comment' && candidate.enabled)
+          .map((candidate) => candidate.id),
+      );
+      for (const [dependencyIndex, dependency] of step.completionDependencies.entries()) {
+        if (!earlier.has(dependency))
+          diagnostics.push(
+            diagnostic(
+              `${path}/completionDependencies/${dependencyIndex}`,
+              `Completion dependency '${dependency}' must name an earlier Scene Event.`,
+            ),
+          );
+      }
+    }
     if ('condition' in step) validateCondition(step.condition, `${path}/condition`);
     if (step.type === 'set-background') {
       if (step.asset) requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
@@ -853,7 +911,7 @@ export function validateSceneData(
           );
       } else if (step.panSource?.kind === 'scene-actor') {
         const panSource = step.panSource;
-        const slotExists = data.steps.some(
+        const slotExists = data.events.some(
           (candidate) => candidate.type === 'actor-cue' && candidate.slotId === panSource.slotId,
         );
         if (!slotExists)
@@ -914,7 +972,7 @@ export function validateSceneData(
       );
       if (step.target.kind === 'actor') {
         const target = step.target;
-        const slotExists = data.steps.some(
+        const slotExists = data.events.some(
           (candidate) => candidate.type === 'actor-cue' && candidate.slotId === target.slotId,
         );
         if (!slotExists)
@@ -926,7 +984,7 @@ export function validateSceneData(
           );
       } else if (step.target.kind === 'postprocess') {
         const target = step.target;
-        const effectExists = data.steps.some(
+        const effectExists = data.events.some(
           (candidate) =>
             candidate.type === 'postprocess-effect' &&
             candidate.action === 'upsert' &&
@@ -1130,7 +1188,7 @@ export function validateSceneData(
           );
         armIds.add(arm.id);
         validateCondition(arm.condition, `${path}/branches/${armIndex}/condition`);
-        if (!data.steps.some((candidate) => candidate.id === arm.targetStepId))
+        if (!data.events.some((candidate) => candidate.id === arm.targetStepId))
           diagnostics.push(
             diagnostic(
               `${path}/branches/${armIndex}/targetStepId`,
@@ -1138,7 +1196,7 @@ export function validateSceneData(
             ),
           );
       }
-      if (!data.steps.some((candidate) => candidate.id === step.fallbackStepId))
+      if (!data.events.some((candidate) => candidate.id === step.fallbackStepId))
         diagnostics.push(
           diagnostic(`${path}/fallbackStepId`, `Missing fallback step '${step.fallbackStepId}'.`),
         );
@@ -1153,7 +1211,7 @@ export function validateSceneData(
         optionIds.add(option.id);
         validateCondition(option.condition, `${path}/options/${optionIndex}/condition`);
         validateEffects(option.effects, `${path}/options/${optionIndex}/effects`);
-        if (!data.steps.some((candidate) => candidate.id === option.targetStepId))
+        if (!data.events.some((candidate) => candidate.id === option.targetStepId))
           diagnostics.push(
             diagnostic(
               `${path}/options/${optionIndex}/targetStepId`,

@@ -44,13 +44,30 @@ RuntimePresentationModel::resolve_room(const core::CompiledProject& project,
                             std::move(resolve_text), composition);
 }
 
-core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>
-RuntimePresentationModel::project(const core::CompiledProject& project,
-                                  const runtime::RuntimeWorld& world,
-                                  const core::SessionState& state,
-                                  const core::ResolvedRoomPresentation* room_presentation) const
+core::Result<core::RoomPresentationResolution, core::Diagnostics>
+RuntimePresentationModel::resolve_staged_room(const core::CompiledProject& project,
+                                              const runtime::RuntimeWorld& world,
+                                              const core::SessionState& state,
+                                              const core::RoomId& room,
+                                              core::RoomPresentationConditionEvaluator evaluate,
+                                              core::RoomPresentationTextResolver resolve_text) const
 {
-    return core::PresentationProjector::project(project, world, state, room_presentation);
+    core::RoomPresentationResolver resolver;
+    const core::RoomVisitContext staged_visit{
+        room, std::nullopt, std::nullopt, core::RoomEntryCause::DirectedRoomChange, 1, 1};
+    return resolver.resolve(project, world, state, staged_visit, std::move(evaluate),
+                            std::move(resolve_text), nullptr,
+                            core::RoomPresentationResolveMode::StagedScene);
+}
+
+core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>
+RuntimePresentationModel::project(
+    const core::CompiledProject& project, const runtime::RuntimeWorld& world,
+    const core::SessionState& state, const core::ResolvedRoomPresentation* room_presentation,
+    const std::vector<core::SceneStageRoomPresentation>* scene_stages) const
+{
+    return core::PresentationProjector::project(project, world, state, room_presentation,
+                                                scene_stages);
 }
 
 } // namespace noveltea::presentation

@@ -1475,65 +1475,174 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
 std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::json& value,
                                             std::string_view pointer)
 {
-    if (!decoder.object(
-            value, pointer,
-            {"continuation", "defaultBackground", "defaultLayout", "displayName", "id", "program"}))
+    if (!decoder.object(value, pointer, {"continuation", "displayName", "id", "program", "stage"}))
         return std::nullopt;
     auto identity = decode_definition_identity<SceneId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
-    const auto* background_value = decoder.member(value, "defaultBackground", pointer);
-    const auto* layout_value = decoder.member(value, "defaultLayout", pointer);
+    const auto* stage_value = decoder.member(value, "stage", pointer);
     const auto* program_value = decoder.member(value, "program", pointer);
     const auto* continuation_value = decoder.member(value, "continuation", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
-    auto background = background_value
-                          ? decode_background(decoder, *background_value,
-                                              pointer_child(pointer, "defaultBackground"))
-                          : std::nullopt;
-    std::optional<LayoutId> layout;
-    bool layout_ok = layout_value != nullptr;
-    if (layout_value && !layout_value->is_null()) {
-        layout = decode_reference<LayoutId>(decoder, *layout_value,
-                                            pointer_child(pointer, "defaultLayout"), "layout");
-        layout_ok = layout.has_value();
+    std::optional<SceneStage> stage;
+    if (stage_value && stage_value->is_object()) {
+        const auto stage_pointer = pointer_child(pointer, "stage");
+        const auto* kind_value = decoder.member(*stage_value, "kind", stage_pointer);
+        auto kind = kind_value ? decoder.string(*kind_value, pointer_child(stage_pointer, "kind"))
+                               : std::nullopt;
+        if (kind && *kind == "inherited") {
+            if (decoder.object(*stage_value, stage_pointer, {"kind"}))
+                stage = InheritedSceneStage{};
+        } else if (kind && *kind == "staged-room") {
+            if (decoder.object(*stage_value, stage_pointer, {"kind", "room"})) {
+                const auto* room_value = decoder.member(*stage_value, "room", stage_pointer);
+                auto room =
+                    room_value
+                        ? decode_reference<RoomId>(decoder, *room_value,
+                                                   pointer_child(stage_pointer, "room"), "room")
+                        : std::nullopt;
+                if (room)
+                    stage = StagedRoomSceneStage{std::move(*room)};
+            }
+        } else if (kind && *kind == "blank") {
+            if (decoder.object(*stage_value, stage_pointer, {"background", "kind", "layout"})) {
+                const auto* background_value =
+                    decoder.member(*stage_value, "background", stage_pointer);
+                const auto* layout_value = decoder.member(*stage_value, "layout", stage_pointer);
+                auto background =
+                    background_value ? decode_background(decoder, *background_value,
+                                                         pointer_child(stage_pointer, "background"))
+                                     : std::nullopt;
+                std::optional<LayoutId> layout;
+                bool layout_ok = layout_value != nullptr;
+                if (layout_value && !layout_value->is_null()) {
+                    layout = decode_reference<LayoutId>(
+                        decoder, *layout_value, pointer_child(stage_pointer, "layout"), "layout");
+                    layout_ok = layout.has_value();
+                }
+                if (background && layout_ok)
+                    stage = BlankSceneStage{std::move(*background), std::move(layout)};
+            }
+        } else if (kind) {
+            decoder.error(k_code_variant, "Unknown Scene Stage variant '" + *kind + "'.",
+                          pointer_child(stage_pointer, "kind"));
+        }
     }
     std::optional<SceneProgram> program;
     if (program_value &&
-        decoder.object(*program_value, pointer_child(pointer, "program"), {"instructions"})) {
+        decoder.object(*program_value, pointer_child(pointer, "program"), {"events"})) {
         const auto program_pointer = pointer_child(pointer, "program");
-        const auto* instructions_value =
-            decoder.member(*program_value, "instructions", program_pointer);
-        auto instructions =
-            instructions_value
-                ? decoder.array<SceneInstruction>(
-                      *instructions_value, pointer_child(program_pointer, "instructions"),
-                      [&](const nlohmann::json& instruction,
-                          const std::string& instruction_pointer) {
-                          return decode_scene_instruction(decoder, instruction,
-                                                          instruction_pointer);
+        const auto* events_value = decoder.member(*program_value, "events", program_pointer);
+        using DecodedEvent = std::pair<SceneEventMetadata, SceneInstruction>;
+        auto events =
+            events_value
+                ? decoder.array<DecodedEvent>(
+                      *events_value, pointer_child(program_pointer, "events"),
+                      [&](const nlohmann::json& event,
+                          const std::string& event_pointer) -> std::optional<DecodedEvent> {
+                          if (!decoder.object(
+                                  event, event_pointer,
+                                  {"completionDependencies", "id", "instruction", "timeline"}))
+                              return std::nullopt;
+                          const auto* id_value = decoder.member(event, "id", event_pointer);
+                          const auto* timeline_value =
+                              decoder.member(event, "timeline", event_pointer);
+                          const auto* dependencies_value =
+                              decoder.member(event, "completionDependencies", event_pointer);
+                          const auto* instruction_value =
+                              decoder.member(event, "instruction", event_pointer);
+                          auto event_id =
+                              id_value ? decoder.id<SceneStepId>(*id_value,
+                                                                 pointer_child(event_pointer, "id"))
+                                       : std::nullopt;
+                          std::optional<SceneEventTimeline> timeline;
+                          if (timeline_value &&
+                              decoder.object(*timeline_value,
+                                             pointer_child(event_pointer, "timeline"),
+                                             {"durationMs", "startMs", "trackId"})) {
+                              const auto timeline_pointer =
+                                  pointer_child(event_pointer, "timeline");
+                              const auto* track_value =
+                                  decoder.member(*timeline_value, "trackId", timeline_pointer);
+                              const auto* start_value =
+                                  decoder.member(*timeline_value, "startMs", timeline_pointer);
+                              const auto* duration_value =
+                                  decoder.member(*timeline_value, "durationMs", timeline_pointer);
+                              auto track =
+                                  track_value
+                                      ? decoder.string(*track_value,
+                                                       pointer_child(timeline_pointer, "trackId"))
+                                      : std::nullopt;
+                              auto start = start_value
+                                               ? decoder.unsigned_integer<std::uint64_t>(
+                                                     *start_value,
+                                                     pointer_child(timeline_pointer, "startMs"))
+                                               : std::nullopt;
+                              auto duration =
+                                  duration_value
+                                      ? decoder.unsigned_integer<std::uint64_t>(
+                                            *duration_value,
+                                            pointer_child(timeline_pointer, "durationMs"))
+                                      : std::nullopt;
+                              if (track && start && duration)
+                                  timeline =
+                                      SceneEventTimeline{std::move(*track), *start, *duration};
+                          }
+                          auto dependencies =
+                              dependencies_value
+                                  ? decoder.array<SceneStepId>(
+                                        *dependencies_value,
+                                        pointer_child(event_pointer, "completionDependencies"),
+                                        [&](const nlohmann::json& item,
+                                            const std::string& item_pointer) {
+                                            return decoder.id<SceneStepId>(item, item_pointer);
+                                        })
+                                  : std::nullopt;
+                          auto instruction = instruction_value
+                                                 ? decode_scene_instruction(
+                                                       decoder, *instruction_value,
+                                                       pointer_child(event_pointer, "instruction"))
+                                                 : std::nullopt;
+                          if (!event_id || !timeline || !dependencies || !instruction)
+                              return std::nullopt;
+                          const auto instruction_id =
+                              std::visit([](const auto& typed) { return typed.id; }, *instruction);
+                          if (instruction_id != *event_id) {
+                              decoder.error(k_code_variant,
+                                            "Scene Event and instruction IDs must match.",
+                                            pointer_child(event_pointer, "instruction/id"));
+                              return std::nullopt;
+                          }
+                          return DecodedEvent{SceneEventMetadata{std::move(*event_id),
+                                                                 std::move(*timeline),
+                                                                 std::move(*dependencies)},
+                                              std::move(*instruction)};
                       })
                 : std::nullopt;
-        if (instructions) {
+        if (events) {
             decoder.duplicate_ids(
-                *instructions, pointer_child(program_pointer, "instructions"),
-                [](const SceneInstruction& instruction) -> const SceneStepId& {
-                    return std::visit(
-                        [](const auto& typed) -> const SceneStepId& { return typed.id; },
-                        instruction);
-                });
-            program = SceneProgram{std::move(*instructions)};
+                *events, pointer_child(program_pointer, "events"),
+                [](const DecodedEvent& event) -> const SceneStepId& { return event.first.id; });
+            std::vector<SceneInstruction> instructions;
+            std::vector<SceneEventMetadata> metadata;
+            instructions.reserve(events->size());
+            metadata.reserve(events->size());
+            for (auto& event : *events) {
+                metadata.push_back(std::move(event.first));
+                instructions.push_back(std::move(event.second));
+            }
+            program = SceneProgram{std::move(instructions), std::move(metadata)};
         }
     }
     auto continuation = continuation_value
                             ? decode_flow_target_impl(decoder, *continuation_value,
                                                       pointer_child(pointer, "continuation"))
                             : std::nullopt;
-    if (!identity || !display || !background || !layout_ok || !program || !continuation)
+    if (!identity || !display || !stage || !program || !continuation)
         return std::nullopt;
-    return SceneDefinition{std::move(*identity), std::move(*display), std::move(*background),
-                           std::move(layout),    std::move(*program), std::move(*continuation)};
+    return SceneDefinition{std::move(*identity), std::move(*display), std::move(*stage),
+                           std::move(*program), std::move(*continuation)};
 }
 
 } // namespace noveltea::core::compiled::wire::detail

@@ -163,6 +163,14 @@ const systemLayoutReferenceByRole: Readonly<
     document: 'ui/runtime/command-builder.rml',
     supportingFiles: ['ui/runtime/command-builder.rcss'],
   },
+  'scene-text': {
+    document: 'ui/runtime/scene-text.rml',
+    supportingFiles: ['ui/runtime/scene-presentation.rcss'],
+  },
+  'scene-choice': {
+    document: 'ui/runtime/scene-choice.rml',
+    supportingFiles: ['ui/runtime/scene-presentation.rcss'],
+  },
 };
 
 const schemaSources = {

@@ -81,10 +81,21 @@ public:
                                       Diagnostics>::failure({});
     }
 
+    [[nodiscard]] noveltea::core::Result<noveltea::core::RoomPresentationResolution, Diagnostics>
+    resolve_staged_room(const noveltea::core::CompiledProject&,
+                        const noveltea::runtime::RuntimeWorld&, const noveltea::core::SessionState&,
+                        const noveltea::core::RoomId&,
+                        noveltea::core::RoomPresentationConditionEvaluator,
+                        noveltea::core::RoomPresentationTextResolver) const override
+    {
+        return noveltea::core::Result<noveltea::core::RoomPresentationResolution,
+                                      Diagnostics>::failure({});
+    }
+
     [[nodiscard]] noveltea::core::Result<noveltea::core::RuntimePresentationSnapshot, Diagnostics>
     project(const noveltea::core::CompiledProject&, const noveltea::runtime::RuntimeWorld&,
-            const noveltea::core::SessionState&,
-            const noveltea::core::ResolvedRoomPresentation*) const override
+            const noveltea::core::SessionState&, const noveltea::core::ResolvedRoomPresentation*,
+            const std::vector<noveltea::core::SceneStageRoomPresentation>*) const override
     {
         return noveltea::core::Result<noveltea::core::RuntimePresentationSnapshot,
                                       Diagnostics>::failure({});

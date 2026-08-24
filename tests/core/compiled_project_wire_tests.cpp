@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:51e6b398d07f9edede0b7928a8dcc88a");
+    CHECK(project.save_contract == "sc1:2c604cfa34739f0048e69b2aad9f138c");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -138,6 +138,24 @@ TEST_CASE("compiled project Item Stack boundary is strict within the current for
         REQUIRE_FALSE(over_limit);
         CHECK(has_code(over_limit.error(), "compiled_project.item_stack_limit_exceeded"));
     }
+}
+
+TEST_CASE("compiled Scene boundary rejects the superseded same-version wire shape")
+{
+    auto document = fixture("scene-program");
+    auto& scene = document["definitions"]["scenes"][1];
+    const auto stage = scene["stage"];
+    const auto events = scene["program"]["events"];
+    scene.erase("stage");
+    scene["defaultBackground"] = stage["background"];
+    scene["defaultLayout"] = stage["layout"];
+    scene["program"] = {{"instructions", nlohmann::json::array()}};
+    for (const auto& event : events)
+        scene["program"]["instructions"].push_back(event["instruction"]);
+
+    const auto result = decode_shared_project(document, "stale-scene-wire.json");
+    REQUIRE_FALSE(result);
+    CHECK(has_code(result.error(), "compiled_project.unknown_field"));
 }
 
 TEST_CASE("compiled Layout scale policy retains explicit resolved wire values")
@@ -350,7 +368,7 @@ TEST_CASE("compiled project decoder rejects specialized discriminants and incomp
         std::initializer_list<std::string_view> path;
     };
     const Mutation mutations[] = {
-        {"scene-program", {"definitions", "scenes", "1", "program", "instructions", "0"}},
+        {"scene-program", {"definitions", "scenes", "1", "program", "events", "0", "instruction"}},
         {"dialogue-program", {"definitions", "dialogues", "1", "program", "blocks", "0"}},
         {"dialogue-program",
          {"definitions", "dialogues", "1", "program", "blocks", "0", "segments", "0"}},
@@ -373,8 +391,8 @@ TEST_CASE("compiled project decoder rejects specialized discriminants and incomp
     }
 
     auto document = fixture("scene-program");
-    auto* instruction =
-        path_member(document, {"definitions", "scenes", "1", "program", "instructions", "8"});
+    auto* instruction = path_member(
+        document, {"definitions", "scenes", "1", "program", "events", "8", "instruction"});
     REQUIRE(instruction != nullptr);
     (*instruction)["durationMs"] = 10;
     auto result = decode_shared_project(document, "scene-program.json");
@@ -385,7 +403,7 @@ TEST_CASE("compiled project decoder rejects specialized discriminants and incomp
 TEST_CASE("compiled project decoder rejects stale and malformed TransitionGroup contracts")
 {
     const std::initializer_list<std::string_view> instruction_path = {
-        "definitions", "scenes", "1", "program", "instructions", "18"};
+        "definitions", "scenes", "1", "program", "events", "18", "instruction"};
 
     SECTION("stale standalone transition")
     {
@@ -458,8 +476,8 @@ TEST_CASE("compiled project decoder rejects malformed standalone finite presenta
     SECTION("immediate background transition cannot carry finite timing")
     {
         auto document = fixture("scene-program");
-        auto* instruction =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "0"});
+        auto* instruction = path_member(
+            document, {"definitions", "scenes", "1", "program", "events", "0", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["transition"] = "cut";
         (*instruction)["durationMs"] = 50;
@@ -472,8 +490,8 @@ TEST_CASE("compiled project decoder rejects malformed standalone finite presenta
     SECTION("actor slide requires positive timing and a placement action")
     {
         auto document = fixture("scene-program");
-        auto* instruction =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "1"});
+        auto* instruction = path_member(
+            document, {"definitions", "scenes", "1", "program", "events", "1", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["action"] = "expression";
         (*instruction)["transition"] = "slide";
@@ -487,8 +505,8 @@ TEST_CASE("compiled project decoder rejects malformed standalone finite presenta
     SECTION("animated Layout transition requires positive timing")
     {
         auto document = fixture("scene-program");
-        auto* instruction =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "13"});
+        auto* instruction = path_member(
+            document, {"definitions", "scenes", "1", "program", "events", "13", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["transition"] = "fade";
         (*instruction)["durationMs"] = 0;
@@ -501,12 +519,12 @@ TEST_CASE("compiled project decoder rejects malformed standalone finite presenta
 TEST_CASE("compiled project decoder retains valid standalone finite presentation contracts")
 {
     auto document = fixture("scene-program");
-    auto* background =
-        path_member(document, {"definitions", "scenes", "1", "program", "instructions", "0"});
-    auto* actor =
-        path_member(document, {"definitions", "scenes", "1", "program", "instructions", "1"});
-    auto* layout =
-        path_member(document, {"definitions", "scenes", "1", "program", "instructions", "13"});
+    auto* background = path_member(
+        document, {"definitions", "scenes", "1", "program", "events", "0", "instruction"});
+    auto* actor = path_member(
+        document, {"definitions", "scenes", "1", "program", "events", "1", "instruction"});
+    auto* layout = path_member(
+        document, {"definitions", "scenes", "1", "program", "events", "13", "instruction"});
     REQUIRE(background != nullptr);
     REQUIRE(actor != nullptr);
     REQUIRE(layout != nullptr);
@@ -1144,8 +1162,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("Global Property assignment mismatch")
     {
         auto document = fixture("scene-program");
-        auto* instruction =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "7"});
+        auto* instruction = path_member(
+            document, {"definitions", "scenes", "1", "program", "events", "7", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["value"] = "wrong-type";
         auto result = noveltea::core::decode_compiled_project(document, "scene.json");
@@ -1156,8 +1174,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("playing audio cue requires an audio Asset")
     {
         auto document = fixture("scene-program");
-        auto* instruction =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "6"});
+        auto* instruction = path_member(
+            document, {"definitions", "scenes", "1", "program", "events", "6", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["asset"] = nullptr;
         auto result = noveltea::core::decode_compiled_project(document, "scene-audio.json");
@@ -1168,8 +1186,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("audio cue rejects non-audio Assets")
     {
         auto document = fixture("scene-program");
-        auto* instruction =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "6"});
+        auto* instruction = path_member(
+            document, {"definitions", "scenes", "1", "program", "events", "6", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["asset"]["id"] = "image-main";
         auto result = noveltea::core::decode_compiled_project(document, "scene-audio.json");
@@ -1180,8 +1198,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("desired audio requires Music or Ambience and cannot await decoder completion")
     {
         auto invalid_purpose = fixture("scene-program");
-        auto* instruction = path_member(
-            invalid_purpose, {"definitions", "scenes", "1", "program", "instructions", "6"});
+        auto* instruction = path_member(invalid_purpose, {"definitions", "scenes", "1", "program",
+                                                          "events", "6", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["lifetime"] = "desired-loop";
         (*instruction)["instanceId"] = "voice-loop";
@@ -1191,8 +1209,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.invalid_audio_cue"));
 
         auto awaited_loop = fixture("scene-program");
-        instruction = path_member(awaited_loop,
-                                  {"definitions", "scenes", "1", "program", "instructions", "6"});
+        instruction = path_member(
+            awaited_loop, {"definitions", "scenes", "1", "program", "events", "6", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["purpose"] = "music";
         (*instruction)["lifetime"] = "desired-loop";
@@ -1219,8 +1237,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     {
         auto document = fixture("scene-program");
         auto* condition =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "11",
-                                   "branches", "0", "condition"});
+            path_member(document, {"definitions", "scenes", "1", "program", "events", "11",
+                                   "instruction", "branches", "0", "condition"});
         REQUIRE(condition != nullptr);
         (*condition)["value"] = "not-an-integer";
         auto result = noveltea::core::decode_compiled_project(document, "condition.json");
@@ -1231,8 +1249,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("missing Scene branch target")
     {
         auto document = fixture("scene-program");
-        auto* instruction =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "11"});
+        auto* instruction = path_member(
+            document, {"definitions", "scenes", "1", "program", "events", "11", "instruction"});
         REQUIRE(instruction != nullptr);
         (*instruction)["fallbackInstructionId"] = "missing-step";
         auto result = noveltea::core::decode_compiled_project(document, "scene.json");
@@ -1244,10 +1262,11 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     {
         auto document = fixture("scene-program");
         auto* instructions =
-            path_member(document, {"definitions", "scenes", "1", "program", "instructions"});
+            path_member(document, {"definitions", "scenes", "1", "program", "events"});
         REQUIRE(instructions != nullptr);
         REQUIRE(instructions->size() > 1);
         (*instructions)[1]["id"] = (*instructions)[0]["id"];
+        (*instructions)[1]["instruction"]["id"] = (*instructions)[0]["id"];
         auto result = noveltea::core::decode_compiled_project(document, "scene.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.duplicate_id"));

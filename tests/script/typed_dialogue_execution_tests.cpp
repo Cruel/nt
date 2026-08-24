@@ -557,12 +557,16 @@ TEST_CASE("typed Dialogue nested Return resumes its caller and failed effects do
         intro["settings"] = {{"logMode", "nothing"}, {"showDisabledChoices", true}};
         intro["completion"] = {{"kind", "return"}};
         auto& opening = definition_by_id(document["definitions"], "scenes", "opening");
-        opening["program"]["instructions"] = nlohmann::json::array({
-            {{"autosaveSafePoint", false},
-             {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}},
-             {"id", "call"},
-             {"kind", "call-dialogue"},
-             {"startBlockId", "final"}},
+        opening["program"]["events"] = nlohmann::json::array({
+            {{"id", "call"},
+             {"timeline", {{"trackId", "main"}, {"startMs", 0}, {"durationMs", 0}}},
+             {"completionDependencies", nlohmann::json::array()},
+             {"instruction",
+              {{"autosaveSafePoint", false},
+               {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}},
+               {"id", "call"},
+               {"kind", "call-dialogue"},
+               {"startBlockId", "final"}}}},
         });
         opening["continuation"] = {{"kind", "end"}};
         document["entrypoint"] = {{"kind", "scene"},

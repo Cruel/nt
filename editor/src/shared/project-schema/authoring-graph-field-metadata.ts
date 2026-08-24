@@ -163,20 +163,31 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #86 adds the replaceable Command Builder System Layout at the preserved authoring schema
   // version. Its Layout reference contributes to runtime/UI dependency and preview invalidation.
   [/^\/settings\/ui\/systemLayouts\/command-builder\//, OWNER],
+  [/^\/settings\/ui\/systemLayouts\/scene-text\//, OWNER],
+  [/^\/settings\/ui\/systemLayouts\/scene-choice\//, OWNER],
+  // #96 replaces provisional Scene steps/default presentation with ordered Events and an
+  // invocation-local Stage at the preserved authoring schema version. Timeline/dependency leaves
+  // and the Stage discriminator/staged-Room reference are genuinely new owner contributions;
+  // equivalent Event operation and blank-Stage presentation leaves are path-mapped below to their
+  // previously reviewed step/default presentation effects.
+  [/^\/scenes\/\*\/data\/stage\/kind$/, OWNER],
+  [/^\/scenes\/\*\/data\/stage\/room\//, OWNER],
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/timeline\//, OWNER],
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/completionDependencies\//, OWNER],
   // #89 adds Project audio mixing policy and expands Scene audio cues at the preserved authoring
   // schema version. Project mix fields and the genuinely new cue dimensions all contribute to
   // runtime projection; purpose/lifetime/gain replace the retired channel/loop/volume leaves and
   // are path-mapped below so the pre-#89 reviewed sequence remains aligned.
   [/^\/settings\/audio\//, OWNER],
   [
-    /^\/scenes\/\*\/data\/steps\/\*\/(?:pausePolicy|pan|panSource|causality|synchronized|skipBehavior|instanceId|replacementGroup)(?:\/|$)/,
+    /^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:pausePolicy|pan|panSource|causality|synchronized|skipBehavior|instanceId|replacementGroup)(?:\/|$)/,
     OWNER,
   ],
   // #90 adds occurrence-local Material Parameters and bounded postprocess effects without changing
   // the preserved authoring schema version. Every field in those Scene step variants affects the
   // owning Scene's compiled presentation program and preview invalidation.
   [
-    /^\/scenes\/\*\/data\/steps\/\*\/(?:target|parameters)(?:\/|$)|^\/scenes\/\*\/data\/steps\/\*\/(?:parameter|easing|clock|scope|order)$|^\/scenes\/\*\/data\/steps\/\*\/value\/(?:\*|r|g|b|a)$/,
+    /^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:target|parameters)(?:\/|$)|^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:parameter|easing|clock|scope|order)$|^\/scenes\/\*\/data\/(?:steps|events)\/\*\/value\/(?:\*|r|g|b|a)$/,
     OWNER,
   ],
   // #91 replaces the provisional Character pose/expression sprite pair with named Presentation
@@ -192,8 +203,8 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // contribute to the Character's compiled presentation and asset dependency surface.
   [/^\/characters\/\*\/data\/gestures\//, OWNER],
   [/^\/rooms\/\*\/data\/cast\/\*\/(?:profileId|appearanceId)$/, OWNER],
-  [/^\/scenes\/\*\/data\/steps\/\*\/(?:profileId|appearanceId)$/, OWNER],
-  [/^\/scenes\/\*\/data\/steps\/\*\/children\/\*\/(?:profileId|appearanceId)$/, OWNER],
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:profileId|appearanceId)$/, OWNER],
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/children\/\*\/(?:profileId|appearanceId)$/, OWNER],
   // #83 atomically replaces positional Verb arity/operand contracts with named slots, stable
   // binding order, completed-command text, and reusable Subject Selectors at the preserved authoring
   // schema version. These leaves all contribute to the owning Verb or Interaction projection.
@@ -351,6 +362,41 @@ function isItemContractLeaf(path: JsonPointer): boolean {
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
   const segments = parseJsonPointer(path);
+  if (
+    segments.length >= 5 &&
+    segments[0] === 'scenes' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'events' &&
+    segments[4] === '*'
+  ) {
+    const legacy = [...segments];
+    legacy[3] = 'steps';
+    if (legacy.length === 6) {
+      if (legacy[5] === 'purpose') legacy[5] = 'channel';
+      if (legacy[5] === 'lifetime') legacy[5] = 'loop';
+      if (legacy[5] === 'gain') legacy[5] = 'volume';
+    }
+    return `/${legacy.join('/')}` as JsonPointer;
+  }
+  if (
+    segments.length >= 6 &&
+    segments[0] === 'scenes' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'stage' &&
+    segments[4] === 'background'
+  )
+    return `/scenes/*/data/defaultBackground/${segments.slice(5).join('/')}` as JsonPointer;
+  if (
+    segments.length >= 5 &&
+    segments[0] === 'scenes' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'stage' &&
+    segments[4] === 'layout'
+  )
+    return `/scenes/*/data/defaultLayout/${segments.slice(5).join('/')}` as JsonPointer;
   if (
     segments.length === 6 &&
     segments[0] === 'scenes' &&
@@ -628,10 +674,10 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     project: 'da3be83d',
     properties: 'c35941e2',
     rooms: 'af3ac4c1',
-    scenes: '47e7c955',
+    scenes: '142cac3c',
     schema: '63fb9bb9',
     scripts: 'f3482815',
-    settings: '220e14ad',
+    settings: 'e2c61a79',
     shaders: '94d3aa6e',
     tests: '9cbe2906',
     traits: 'e06af863',

@@ -88,6 +88,13 @@ Direct image-asset thumbnails are not rendered-preview sessions. See
   automated certification results, environment notes, and the remaining manual acceptance checklist.
 - `docs/engine/OVERVIEW.md` — component docs for individual project entity editors such as rooms, characters, dialogue, scenes, layouts, shaders, materials, variables, assets, and tests.
 
+Scene editing follows `docs/engine/SCENE.md`: the current Scene record owns one Stage and one ordered
+semantic Event sequence. The Scene editor may visualize those Events as tracks and overlapping clips
+and supports scrub/playback preview, but it must not introduce an author-visible handler graph or
+serialize transient playback state. Stage configuration and Event timeline/dependency fields are
+project contract data and participate in normal validation, dependency metadata, undo/redo, and
+compiled-project generation.
+
 ## ComfyUI Workflow Integration
 
 - `docs/editor/comfyui/WORKFLOW_IMPORT.md` — workflow library sources, manager actions, import guidance, node-title conventions, bindings, outputs, repair, verification, and default resolution.

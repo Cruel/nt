@@ -84,6 +84,8 @@ public:
     {
         return m_coordinator.checkpoint_status();
     }
+    [[nodiscard]] bool
+    presentation_operation_active(core::PresentationOperationId operation) const noexcept override;
     [[nodiscard]] bool has_active_visual_operation() const noexcept
     {
         return m_coordinator.has_active_visual_operation();

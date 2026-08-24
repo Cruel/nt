@@ -406,7 +406,7 @@ describe('authoring compiler framework', () => {
     project.characters.hero = { id: 'hero', label: 'Hero', data: defaultCharacterData('Hero') };
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     const scene = defaultSceneData('Opening');
-    scene.steps = [
+    scene.events = [
       {
         ...defaultSceneStep('set-background'),
         id: 'background',
@@ -444,6 +444,8 @@ describe('authoring compiler framework', () => {
         label: 'input',
         enabled: true,
         type: 'wait',
+        timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+        completionDependencies: [],
         waitKind: 'input',
         skippable: false,
       },
@@ -506,7 +508,7 @@ describe('authoring compiler framework', () => {
     expect(result.diagnostics).toEqual([]);
     const lowered = result.draft!;
     expect(
-      lowered.definitions.scenes[0]!.program.instructions.map((instruction) => instruction.kind),
+      lowered.definitions.scenes[0]!.program.events.map((event) => event.instruction.kind),
     ).toEqual([
       'set-background',
       'actor-cue',
@@ -545,7 +547,7 @@ describe('authoring compiler framework', () => {
     project.characters.hero = { id: 'hero', label: 'Hero', data: defaultCharacterData('Hero') };
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     const scene = defaultSceneData('Broken');
-    scene.steps = [
+    scene.events = [
       {
         ...defaultSceneStep('conditional-branch'),
         id: 'branch',
@@ -583,7 +585,7 @@ describe('authoring compiler framework', () => {
     const project = validProject();
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
     const scene = defaultSceneData('Typed Scene');
-    scene.steps = [
+    scene.events = [
       {
         ...defaultSceneStep('show-text'),
         id: 'typed-text',
@@ -614,7 +616,7 @@ describe('authoring compiler framework', () => {
     );
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({
-        jsonPointer: '/scenes/typed/data/steps/0/condition/value',
+        jsonPointer: '/scenes/typed/data/events/0/condition/value',
         message: "Value does not match variable 'flag'.",
       }),
     );
@@ -1279,7 +1281,7 @@ describe('authoring compiler framework', () => {
     ];
     project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
     const scene = defaultSceneData('Opening');
-    scene.steps = [
+    scene.events = [
       {
         ...defaultSceneStep('choice'),
         id: 'choice',
@@ -1305,7 +1307,7 @@ describe('authoring compiler framework', () => {
     expect(
       resolveNestedAuthoringSymbol(symbols, 'scene-choice-option', 'opening', 'continue')
         ?.sourcePath,
-    ).toBe('/scenes/opening/data/steps/0/options/0');
+    ).toBe('/scenes/opening/data/events/0/options/0');
   });
 
   it('indexes every declared nested stable-ID namespace', () => {
@@ -1371,7 +1373,7 @@ describe('authoring compiler framework', () => {
     project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
 
     const scene = defaultSceneData('Opening');
-    scene.steps = [
+    scene.events = [
       {
         ...defaultSceneStep('conditional-branch'),
         id: 'branch',

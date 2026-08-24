@@ -421,8 +421,8 @@ export function buildAuthoringSymbolTables(project: AuthoringProject): Authoring
   });
   Object.entries(project.scenes).forEach(([ownerId, record]) => {
     const data = parseSceneData(record.data);
-    data?.steps.forEach((step, index) => {
-      const stepPath = `/scenes/${escapeJsonPointerSegment(ownerId)}/data/steps/${index}`;
+    data?.events.forEach((step, index) => {
+      const stepPath = `/scenes/${escapeJsonPointerSegment(ownerId)}/data/events/${index}`;
       addNestedSymbol(nested, 'scene-step', ownerId, step.id, stepPath);
       if (step.type === 'conditional-branch')
         step.branches.forEach((branch, branchIndex) =>

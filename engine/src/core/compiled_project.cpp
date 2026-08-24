@@ -296,7 +296,7 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         return false;
     }
     for (const auto& layout : input.settings.system_layouts) {
-        if (!enum_at_most(layout.role, compiled::SystemLayoutRole::CommandBuilder)) {
+        if (!enum_at_most(layout.role, compiled::SystemLayoutRole::SceneChoice)) {
             diagnostics = invalid_model("System layout role is invalid");
             return false;
         }
@@ -418,7 +418,26 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         return false;
     }
     for (const auto& scene : input.scenes) {
-        if (!valid_background(scene.default_background) ||
+        const bool valid_stage = std::visit(
+            [](const auto& stage) {
+                using Stage = std::decay_t<decltype(stage)>;
+                if constexpr (std::is_same_v<Stage, compiled::BlankSceneStage>)
+                    return valid_background(stage.background);
+                return true;
+            },
+            scene.stage);
+        const bool valid_events =
+            scene.program.events.size() == scene.program.instructions.size() &&
+            std::equal(scene.program.events.begin(), scene.program.events.end(),
+                       scene.program.instructions.begin(),
+                       [](const auto& event, const auto& instruction) {
+                           return event.id == std::visit(
+                                                  [](const auto& value) -> const SceneStepId& {
+                                                      return value.id;
+                                                  },
+                                                  instruction);
+                       });
+        if (!valid_stage || !valid_events ||
             std::any_of(scene.program.instructions.begin(), scene.program.instructions.end(),
                         [](const compiled::SceneInstruction& instruction) {
                             return !valid_scene_instruction(instruction);

@@ -269,11 +269,21 @@ function representativeWireFixture() {
         {
           id: 'opening',
           displayName: 'Opening',
-          defaultLayout: null,
-          defaultBackground: { asset: null, material: null, color: '#000000', fit: 'cover' },
+          stage: {
+            kind: 'blank',
+            background: { asset: null, material: null, color: '#000000', fit: 'cover' },
+            layout: null,
+          },
           continuation: { kind: 'end' },
           program: {
-            instructions: [{ id: 'wait-for-input', kind: 'wait-input', skippable: true }],
+            events: [
+              {
+                id: 'wait-for-input',
+                timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+                completionDependencies: [],
+                instruction: { id: 'wait-for-input', kind: 'wait-input', skippable: true },
+              },
+            ],
           },
         },
       ],
@@ -553,10 +563,22 @@ describe('CompiledProject Wire V4', () => {
     fixture.definitions.scenes.push({
       id: 'after-opening',
       displayName: 'After opening',
-      defaultLayout: null,
-      defaultBackground: { asset: null, material: null, color: null, fit: 'cover' },
+      stage: {
+        kind: 'blank',
+        background: { asset: null, material: null, color: null, fit: 'cover' },
+        layout: null,
+      },
       continuation: { kind: 'end' },
-      program: { instructions: [{ id: 'pause', kind: 'wait-input', skippable: false }] },
+      program: {
+        events: [
+          {
+            id: 'pause',
+            timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+            completionDependencies: [],
+            instruction: { id: 'pause', kind: 'wait-input', skippable: false },
+          },
+        ],
+      },
     });
 
     const serialized = serializeCompiledProjectWire(fixture);

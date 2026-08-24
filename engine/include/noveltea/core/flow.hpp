@@ -56,6 +56,7 @@ using SceneStepSubstate =
 struct SceneFramePosition {
     std::optional<SceneStepId> next_step;
     SceneStepSubstate substate = SceneStepReady{};
+    bool stage_initialized = false;
 };
 
 struct DialogueFramePosition {

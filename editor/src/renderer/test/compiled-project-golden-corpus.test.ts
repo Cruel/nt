@@ -161,9 +161,7 @@ describe('compiled project cross-language golden corpus', () => {
       expect(kinds, `missing compiled kind '${kind}'`).toContain(kind);
 
     const opening = scene.definitions.scenes.find((candidate) => candidate.id === 'opening')!;
-    expect(
-      sorted(new Set(opening.program.instructions.map((instruction) => instruction.kind))),
-    ).toEqual(
+    expect(sorted(new Set(opening.program.events.map((event) => event.instruction.kind)))).toEqual(
       sorted([
         'set-background',
         'actor-cue',

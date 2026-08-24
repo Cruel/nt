@@ -24,6 +24,7 @@ Result<void, Diagnostics> FlowExecutor::advance_scene(const SceneId& scene,
     if (frame == nullptr || frame->scene != scene || frame->position.next_step != expected_step)
         return fail(execution_error("execution.stale_scene_position",
                                     "Scene advancement does not match the active step"));
+    next_position.stage_initialized = frame->position.stage_initialized;
     auto valid = validate_position(*frame, FlowFramePosition{next_position});
     if (!valid)
         return fail(valid.error());
@@ -44,11 +45,26 @@ Result<void, Diagnostics> FlowExecutor::mark_scene_wait(const SceneId& scene,
         !m_state.m_blocker || flow_blocker_owner(*m_state.m_blocker) != frame->frame_id)
         return fail(execution_error("execution.invalid_scene_wait",
                                     "Scene wait does not match the active step and blocker"));
-    SceneFramePosition position{expected_step, std::move(substate)};
+    SceneFramePosition position{expected_step, std::move(substate),
+                                frame->position.stage_initialized};
     auto valid = validate_position(*frame, FlowFramePosition{position});
     if (!valid)
         return fail(valid.error());
     frame->position = std::move(position);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> FlowExecutor::mark_scene_stage_initialized(const SceneId& scene)
+{
+    if (m_state.m_execution_fault)
+        return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
+    auto* frame = !m_state.m_flow_stack.empty()
+                      ? std::get_if<SceneFrame>(&m_state.m_flow_stack.back())
+                      : nullptr;
+    if (frame == nullptr || frame->scene != scene)
+        return fail(execution_error("execution.invalid_scene_stage_owner",
+                                    "Scene Stage initialization does not match the active Scene"));
+    frame->position.stage_initialized = true;
     return Result<void, Diagnostics>::success();
 }
 
@@ -81,7 +97,8 @@ Result<void, Diagnostics> FlowExecutor::choose_scene_option(const FlowFrameId& o
         return Result<void, Diagnostics>::failure(execution_error(
             "execution.invalid_scene_choice", "Scene choice option is missing or disabled"));
     SceneFramePosition position{frame->position.next_step,
-                                SceneChoiceEffectPosition{option, 0, false}};
+                                SceneChoiceEffectPosition{option, 0, false},
+                                frame->position.stage_initialized};
     auto valid = validate_position(*frame, FlowFramePosition{position});
     if (!valid)
         return fail(valid.error());

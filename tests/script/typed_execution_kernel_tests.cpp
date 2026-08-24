@@ -257,10 +257,10 @@ TEST_CASE(
     REQUIRE(created);
     auto kernel = std::move(created).value();
 
-    auto first = kernel->run_until_blocked(2, "en");
+    auto first = kernel->run_until_blocked(3, "en");
     const auto* first_budget = std::get_if<core::FlowBudgetYieldOutcome>(&first);
     REQUIRE(first_budget != nullptr);
-    CHECK(first_budget->executed_units == 2);
+    CHECK(first_budget->executed_units == 3);
     auto view = kernel->scene_view();
     REQUIRE(view);
     REQUIRE(view.value().background);
@@ -476,6 +476,8 @@ TEST_CASE("typed Scene failures preserve the stable cursor and stale resumes do 
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     const auto before = active_scene(*kernel).position.next_step;

@@ -1,0 +1,13 @@
+<rml>
+<head>
+    <title>NovelTea Scene Text</title>
+    <link type="text/rcss" href="system|/ui/runtime/scene-presentation.rcss"/>
+</head>
+<body data-model="noveltea">
+    <div id="scene_text_panel"
+         data-if="gameplay.scene_text_available"
+         data-style-pointer-events="gameplay.can_continue ? 'auto' : 'none'">
+        <nt-active-text id="scene_text_body"></nt-active-text>
+    </div>
+</body>
+</rml>
