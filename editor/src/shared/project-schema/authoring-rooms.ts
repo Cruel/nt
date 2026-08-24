@@ -18,6 +18,7 @@ import type { AuthoringProject, AuthoringRecordBase } from './authoring-project'
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, roomHotspotTargetSchema } from './authoring-features';
+import { parseCharacterData } from './authoring-characters';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -121,8 +122,10 @@ export const roomCastDataSchema = strict({
   character: roomCharacterRefSchema,
   condition: conditionSchema,
   placementId: entityIdSchema,
+  profileId: entityIdSchema.nullable().optional(),
   poseId: entityIdSchema.nullable(),
   expressionId: entityIdSchema.nullable(),
+  appearanceId: entityIdSchema.nullable().optional(),
   idleId: entityIdSchema.nullable().default(null),
   visible: z.boolean(),
   order: z.number().int(),
@@ -526,14 +529,7 @@ export function validateRoomData(
   data.cast.forEach((entry, index) => {
     const path = `${base}/cast/${index}`;
     const character = project.characters[entry.character.$ref.id];
-    const characterData =
-      character && typeof character.data === 'object' && character.data !== null
-        ? (character.data as {
-            poses?: { id: string }[];
-            expressions?: { id: string; poseId?: string | null }[];
-            idles?: { id: string }[];
-          })
-        : null;
+    const characterData = character ? parseCharacterData(character.data) : null;
     if (!character)
       diagnostics.push(
         diagnostic(`${path}/character/$ref`, `Missing character '${entry.character.$ref.id}'.`),
@@ -542,9 +538,15 @@ export function validateRoomData(
       diagnostics.push(
         diagnostic(`${path}/placementId`, `Missing placement '${entry.placementId}'.`),
       );
-    const pose = characterData?.poses?.find((item) => item.id === entry.poseId);
+    const profileId = entry.profileId ?? characterData?.defaults.profileId ?? null;
+    const profile = characterData?.profiles.find((item) => item.id === profileId);
+    const poseId = entry.poseId ?? profile?.defaultPoseId ?? null;
+    const pose = profile?.poses.find((item) => item.id === poseId);
     const expression = characterData?.expressions?.find((item) => item.id === entry.expressionId);
+    const appearance = characterData?.appearances?.find((item) => item.id === entry.appearanceId);
     const idle = characterData?.idles?.find((item) => item.id === entry.idleId);
+    if (entry.profileId && !profile)
+      diagnostics.push(diagnostic(`${path}/profileId`, `Missing profile '${entry.profileId}'.`));
     if (entry.poseId && !pose)
       diagnostics.push(diagnostic(`${path}/poseId`, `Missing pose '${entry.poseId}'.`));
     if (entry.expressionId && !expression)
@@ -553,8 +555,10 @@ export function validateRoomData(
       );
     if (entry.idleId && !idle)
       diagnostics.push(diagnostic(`${path}/idleId`, `Missing idle '${entry.idleId}'.`));
-    if (entry.poseId && expression?.poseId && expression.poseId !== entry.poseId)
-      diagnostics.push(diagnostic(path, 'Cast pose and expression are incompatible.'));
+    if (entry.appearanceId && !appearance)
+      diagnostics.push(
+        diagnostic(`${path}/appearanceId`, `Missing appearance '${entry.appearanceId}'.`),
+      );
     validateCondition(project, entry.condition, `${path}/condition`, diagnostics);
   });
   data.props.forEach((entry, index) => {

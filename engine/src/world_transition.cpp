@@ -142,15 +142,10 @@ bool slide_compatible(const core::PresentationActor& source,
                       const core::PresentationActor& target) noexcept
 {
     return source.key == target.key && source.character == target.character &&
-           source.pose == target.pose && source.expression == target.expression &&
-           source.pose_sprite == target.pose_sprite &&
-           source.pose_material == target.pose_material &&
-           source.pose_anchor == target.pose_anchor && source.pose_offset == target.pose_offset &&
-           source.pose_scale == target.pose_scale &&
-           source.expression_sprite == target.expression_sprite &&
-           source.expression_material == target.expression_material &&
-           source.plane == target.plane && source.order == target.order &&
-           source.enabled == target.enabled;
+           source.profile == target.profile && source.pose == target.pose &&
+           source.expression == target.expression && source.appearance == target.appearance &&
+           source.layers == target.layers && source.plane == target.plane &&
+           source.order == target.order && source.enabled == target.enabled;
 }
 
 std::vector<const WorldPresentationDraw*> actor_draws(const WorldPresentationFrame& frame,

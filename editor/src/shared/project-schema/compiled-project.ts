@@ -301,20 +301,47 @@ export const compiledHotspotRefSchema = z.discriminatedUnion('kind', [
   interactableHotspotRefSchema,
 ]);
 
-const characterPoseSchema = strict({
-  anchor: vector2Schema,
+const characterPresentationLayerSchema = strict({
   id,
+  role: z.string().nullable(),
+});
+const characterLayerCompositionSchema = strict({
+  layerId: id,
   material: materialReferenceSchema.nullable(),
   offset: vector2Schema,
   scale: finiteNumber.positive(),
   sprite: assetReferenceSchema.nullable(),
+  anchor: vector2Schema,
+  visible: z.boolean(),
+});
+const characterPoseSchema = strict({
+  id,
+  layers: z.array(characterLayerCompositionSchema),
+});
+const characterPresentationProfileSchema = strict({
+  id,
+  layers: z.array(characterPresentationLayerSchema),
+  defaultPoseId: id,
+  poses: z.array(characterPoseSchema),
+});
+const characterLayerOverrideSchema = strict({
+  layerId: id,
+  material: materialReferenceSchema.nullable().optional(),
+  sprite: assetReferenceSchema.nullable().optional(),
+  visible: z.boolean().optional(),
+});
+const characterProfileLayerOverridesSchema = strict({
+  profileId: id,
+  layers: z.array(characterLayerOverrideSchema),
 });
 
 const characterExpressionSchema = strict({
   id,
-  material: materialReferenceSchema.nullable(),
-  poseId: id.nullable(),
-  sprite: assetReferenceSchema.nullable(),
+  profiles: z.array(characterProfileLayerOverridesSchema),
+});
+const characterAppearanceSchema = strict({
+  id,
+  profiles: z.array(characterProfileLayerOverridesSchema),
 });
 const characterIdleSchema = strict({
   id,
@@ -326,7 +353,12 @@ const characterIdleSchema = strict({
 
 const characterDefinitionSchema = strict({
   ...propertyBearingDefinition,
-  defaults: strict({ expressionId: id, poseId: id, idleId: id.nullable().optional() }),
+  defaults: strict({
+    profileId: id,
+    expressionId: id,
+    appearanceId: id.nullable(),
+    idleId: id.nullable().optional(),
+  }),
   dialogue: strict({
     name: z.string(),
     nameColor: z.string().nullable(),
@@ -335,8 +367,9 @@ const characterDefinitionSchema = strict({
   }),
   displayName: z.string(),
   expressions: z.array(characterExpressionSchema),
+  appearances: z.array(characterAppearanceSchema),
   idles: z.array(characterIdleSchema).optional(),
-  poses: z.array(characterPoseSchema),
+  profiles: z.array(characterPresentationProfileSchema),
   inventories: z.array(inventoryDefinitionSchema),
   initialWorldState: strict({
     enabled: z.boolean(),
@@ -452,8 +485,10 @@ const roomDefinitionSchema = strict({
       character: characterReferenceSchema,
       condition: compiledConditionSchema,
       placementId: id,
+      profileId: id.nullable(),
       poseId: id.nullable(),
       expressionId: id.nullable(),
+      appearanceId: id.nullable(),
       idleId: id.nullable().optional(),
       visible: z.boolean(),
       order: z.number().int(),
@@ -674,7 +709,7 @@ const compiledMaterialOccurrenceTargetSchema = z.discriminatedUnion('kind', [
   strict({
     kind: z.literal('actor'),
     slotId: id,
-    layer: z.enum(['pose', 'expression']),
+    layerId: id,
   }),
   strict({ kind: z.literal('layout'), slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']) }),
   strict({ kind: z.literal('postprocess'), instanceId: id }),
@@ -690,9 +725,11 @@ const transitionGroupChildSchema = z.discriminatedUnion('kind', [
   }),
   strict({ id, kind: z.literal('clear-background') }),
   strict({
-    action: z.enum(['show', 'hide', 'move', 'pose', 'expression']),
+    action: z.enum(['show', 'hide', 'move', 'profile', 'pose', 'expression', 'appearance']),
     character: characterReferenceSchema,
+    profileId: id.nullable(),
     expressionId: id.nullable(),
+    appearanceId: id.nullable(),
     id,
     kind: z.literal('actor-cue'),
     offset: vector2Schema,
@@ -726,10 +763,12 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
   }),
   strict({
     ...sceneInstructionCommon,
-    action: z.enum(['show', 'hide', 'move', 'pose', 'expression']),
+    action: z.enum(['show', 'hide', 'move', 'profile', 'pose', 'expression', 'appearance']),
     character: characterReferenceSchema,
     durationMs: z.number().int().nonnegative(),
+    profileId: id.nullable(),
     expressionId: id.nullable(),
+    appearanceId: id.nullable(),
     kind: z.literal('actor-cue'),
     offset: vector2Schema,
     poseId: id.nullable(),

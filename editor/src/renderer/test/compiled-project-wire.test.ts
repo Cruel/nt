@@ -120,18 +120,36 @@ function representativeWireFixture() {
           propertyAssignments: [],
           displayName: 'Hero',
           dialogue: { name: 'Hero', nameColor: null, textColor: null, styleClass: '' },
-          defaults: { poseId: 'default', expressionId: 'neutral' },
-          poses: [
+          defaults: {
+            profileId: 'stage',
+            expressionId: 'neutral',
+            appearanceId: null,
+          },
+          profiles: [
             {
-              id: 'default',
-              sprite: null,
-              material: null,
-              offset: { x: 0, y: 0 },
-              scale: 1,
-              anchor: { x: 0.5, y: 1 },
+              id: 'stage',
+              layers: [{ id: 'body', role: 'body' }],
+              defaultPoseId: 'default',
+              poses: [
+                {
+                  id: 'default',
+                  layers: [
+                    {
+                      layerId: 'body',
+                      sprite: null,
+                      material: null,
+                      offset: { x: 0, y: 0 },
+                      scale: 1,
+                      anchor: { x: 0.5, y: 1 },
+                      visible: true,
+                    },
+                  ],
+                },
+              ],
             },
           ],
-          expressions: [{ id: 'neutral', poseId: null, sprite: null, material: null }],
+          expressions: [{ id: 'neutral', profiles: [] }],
+          appearances: [],
           inventories: [{ id: 'pockets', label: 'Pockets' }],
           initialWorldState: {
             location: { kind: 'room', room: { kind: 'room', id: 'foyer' } },

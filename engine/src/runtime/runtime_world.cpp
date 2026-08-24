@@ -684,16 +684,23 @@ core::Result<void, core::Diagnostics> RuntimeWorld::validate_character_configura
     for (const auto& actor : m_state.m_actors) {
         if (actor.character != id)
             continue;
-        const bool pose = std::any_of(configuration.poses.begin(), configuration.poses.end(),
+        const auto profile =
+            std::find_if(configuration.profiles.begin(), configuration.profiles.end(),
+                         [&](const auto& value) { return value.id == actor.profile; });
+        const bool pose = profile != configuration.profiles.end() &&
+                          std::any_of(profile->poses.begin(), profile->poses.end(),
                                       [&](const auto& value) { return value.id == actor.pose; });
         const auto expression =
             std::find_if(configuration.expressions.begin(), configuration.expressions.end(),
                          [&](const auto& value) { return value.id == actor.expression; });
+        const bool appearance =
+            !actor.appearance ||
+            std::any_of(configuration.appearances.begin(), configuration.appearances.end(),
+                        [&](const auto& value) { return value.id == *actor.appearance; });
         const bool idle =
             !actor.idle || std::any_of(configuration.idles.begin(), configuration.idles.end(),
                                        [&](const auto& value) { return value.id == *actor.idle; });
-        if (!pose || expression == configuration.expressions.end() || !idle ||
-            (expression->pose_id && *expression->pose_id != actor.pose))
+        if (!pose || expression == configuration.expressions.end() || !appearance || !idle)
             return core::Result<void, core::Diagnostics>::failure(world_error(
                 "runtime.invalid_structural_edit",
                 "Character configuration change would invalidate live actor presentation state"));
@@ -897,16 +904,23 @@ RuntimeWorld::replace_structural_configuration(const core::CharacterId& id,
     for (const auto& actor : m_state.actors()) {
         if (actor.character != id)
             continue;
-        const bool pose = std::any_of(configuration.poses.begin(), configuration.poses.end(),
+        const auto profile =
+            std::find_if(configuration.profiles.begin(), configuration.profiles.end(),
+                         [&](const auto& value) { return value.id == actor.profile; });
+        const bool pose = profile != configuration.profiles.end() &&
+                          std::any_of(profile->poses.begin(), profile->poses.end(),
                                       [&](const auto& value) { return value.id == actor.pose; });
         const auto expression =
             std::find_if(configuration.expressions.begin(), configuration.expressions.end(),
                          [&](const auto& value) { return value.id == actor.expression; });
+        const bool appearance =
+            !actor.appearance ||
+            std::any_of(configuration.appearances.begin(), configuration.appearances.end(),
+                        [&](const auto& value) { return value.id == *actor.appearance; });
         const bool idle =
             !actor.idle || std::any_of(configuration.idles.begin(), configuration.idles.end(),
                                        [&](const auto& value) { return value.id == *actor.idle; });
-        if (!pose || expression == configuration.expressions.end() || !idle ||
-            (expression->pose_id && *expression->pose_id != actor.pose))
+        if (!pose || expression == configuration.expressions.end() || !appearance || !idle)
             return core::Result<void, core::Diagnostics>::failure(world_error(
                 "runtime.invalid_structural_edit",
                 "Character replacement would invalidate live actor presentation state"));

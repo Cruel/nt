@@ -225,8 +225,12 @@ const compiled::ActorCueInstruction* find_actor_cue(const compiled::SceneDefinit
 bool valid_character_state(const compiled::CharacterDefinition& character,
                            const DesiredActorPresentation& actor) noexcept
 {
+    const auto profile = std::find_if(character.profiles.begin(), character.profiles.end(),
+                                      [&](const auto& item) { return item.id == actor.profile; });
+    if (profile == character.profiles.end())
+        return false;
     const auto pose = std::find_if(
-        character.poses.begin(), character.poses.end(),
+        profile->poses.begin(), profile->poses.end(),
         [&actor](const compiled::CharacterPose& item) { return item.id == actor.pose; });
     const auto expression = std::find_if(character.expressions.begin(), character.expressions.end(),
                                          [&actor](const compiled::CharacterExpression& item) {
@@ -237,11 +241,80 @@ bool valid_character_state(const compiled::CharacterDefinition& character,
                                    [&actor](const compiled::CharacterIdle& item) {
                                        return item.id == *actor.idle;
                                    });
-    return pose != character.poses.end() && expression != character.expressions.end() &&
-           idle_valid && (!expression->pose_id || *expression->pose_id == actor.pose) &&
+    const bool appearance_valid =
+        !actor.appearance || std::any_of(character.appearances.begin(), character.appearances.end(),
+                                         [&actor](const compiled::CharacterAppearance& item) {
+                                             return item.id == *actor.appearance;
+                                         });
+    return pose != profile->poses.end() && expression != character.expressions.end() &&
+           appearance_valid && idle_valid &&
            actor.placement.position <= compiled::ActorPosition::Custom &&
            std::isfinite(actor.placement.offset.x) && std::isfinite(actor.placement.offset.y) &&
            std::isfinite(actor.placement.scale) && actor.placement.scale > 0.0;
+}
+
+template<class SemanticEntry>
+const compiled::CharacterProfileLayerOverrides*
+profile_overrides(const SemanticEntry* entry,
+                  const CharacterPresentationProfileId& profile) noexcept
+{
+    if (entry == nullptr)
+        return nullptr;
+    const auto found = std::ranges::find_if(
+        entry->profiles, [&](const auto& candidate) { return candidate.profile_id == profile; });
+    return found == entry->profiles.end() ? nullptr : &*found;
+}
+
+std::optional<MaterialId>
+resolved_actor_layer_material(const compiled::CharacterDefinition& character,
+                              const DesiredActorPresentation& actor,
+                              const CharacterPresentationLayerId& layer_id) noexcept
+{
+    const auto profile = std::ranges::find_if(
+        character.profiles, [&](const auto& candidate) { return candidate.id == actor.profile; });
+    if (profile == character.profiles.end())
+        return std::nullopt;
+    const auto pose = std::ranges::find_if(
+        profile->poses, [&](const auto& candidate) { return candidate.id == actor.pose; });
+    if (pose == profile->poses.end())
+        return std::nullopt;
+    const auto layer = std::ranges::find_if(
+        pose->layers, [&](const auto& candidate) { return candidate.layer_id == layer_id; });
+    if (layer == pose->layers.end())
+        return std::nullopt;
+    auto result = layer->material;
+    const auto expression = std::ranges::find_if(character.expressions, [&](const auto& candidate) {
+        return candidate.id == actor.expression;
+    });
+    const auto default_expression =
+        std::ranges::find_if(character.expressions, [&](const auto& candidate) {
+            return candidate.id == character.defaults.expression_id;
+        });
+    const compiled::CharacterProfileLayerOverrides* expression_overrides = nullptr;
+    if (expression != character.expressions.end())
+        expression_overrides = profile_overrides(&*expression, actor.profile);
+    if (expression_overrides == nullptr && expression != default_expression &&
+        default_expression != character.expressions.end())
+        expression_overrides = profile_overrides(&*default_expression, actor.profile);
+    const auto apply_material = [&](const compiled::CharacterProfileLayerOverrides* overrides) {
+        if (overrides == nullptr)
+            return;
+        const auto item = std::ranges::find_if(overrides->layers, [&](const auto& candidate) {
+            return candidate.layer_id == layer_id;
+        });
+        if (item != overrides->layers.end() && item->material.specified)
+            result = item->material.value;
+    };
+    apply_material(expression_overrides);
+    if (actor.appearance) {
+        const auto appearance =
+            std::ranges::find_if(character.appearances, [&](const auto& candidate) {
+                return candidate.id == *actor.appearance;
+            });
+        if (appearance != character.appearances.end())
+            apply_material(profile_overrides(&*appearance, actor.profile));
+    }
+    return result;
 }
 
 bool has_inventory_id(const std::vector<compiled::InventoryDefinition>& inventories,
@@ -1433,23 +1506,8 @@ Result<void, Diagnostics> SessionState::upsert_material_parameter(const Compiled
                 const auto* character = runtime_character(*this, desired_actor->character);
                 if (character == nullptr)
                     return false;
-                std::optional<MaterialId> selected;
-                if (occurrence.layer == ActorMaterialLayer::Pose) {
-                    const auto found = std::ranges::find_if(
-                        character->poses, [&](const compiled::CharacterPose& pose) {
-                            return pose.id == desired_actor->pose;
-                        });
-                    if (found != character->poses.end())
-                        selected = found->material;
-                } else {
-                    const auto found =
-                        std::ranges::find_if(character->expressions,
-                                             [&](const compiled::CharacterExpression& expression) {
-                                                 return expression.id == desired_actor->expression;
-                                             });
-                    if (found != character->expressions.end())
-                        selected = found->material;
-                }
+                const auto selected =
+                    resolved_actor_layer_material(*character, *desired_actor, occurrence.layer);
                 return selected == std::optional<MaterialId>{value.material} &&
                        material->role == compiled::MaterialRole::Engine2D;
             } else if constexpr (std::is_same_v<O, PropMaterialOccurrence>) {

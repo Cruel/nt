@@ -625,7 +625,8 @@ RuntimeScriptApi::background(runtime::RuntimePresentationOwnerScope owner_scope,
 }
 
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_scoped_actor(
-    core::ScopedActorKey key, core::CharacterId character, core::CharacterPoseId pose,
+    core::ScopedActorKey key, core::CharacterId character,
+    core::CharacterPresentationProfileId profile, core::CharacterPoseId pose,
     core::CharacterExpressionId expression, ScopedActorCommandOptions options)
 {
     std::scoped_lock lock(m_state->mutex);
@@ -641,8 +642,9 @@ core::Result<void, core::Diagnostics> RuntimeScriptApi::set_scoped_actor(
     if (!owner)
         return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
     return gateway->upsert_actor_presentation(core::DesiredActorPresentation{
-        std::move(key), std::move(*owner.value_if()), std::move(character), std::move(pose),
-        std::move(expression), std::move(options.idle),
+        std::move(key), std::move(*owner.value_if()), std::move(character), std::move(profile),
+        std::move(pose), std::move(expression), std::move(options.appearance),
+        std::move(options.idle),
         core::ActorLogicalPlacement{options.position, options.offset, options.scale},
         options.visible, true});
 }

@@ -8,6 +8,7 @@ import type {
 } from './project-schema/compiled-project';
 import type { Condition, Effect, FlowTarget, TextContent } from './project-schema/authoring-flow';
 import type { AuthoringProject } from './project-schema/authoring-project';
+import { parseCharacterData } from './project-schema/authoring-characters';
 import { resolveMaterialData } from './project-schema/authoring-materials';
 import { parseShaderData, type ShaderUniformValue } from './project-schema/authoring-shaders';
 import {
@@ -174,8 +175,10 @@ function compileTransitionGroupChild(
         slotId: child.slotId,
         character: characterRef(child.character)!,
         action: child.action,
+        profileId: child.profileId ?? null,
         poseId: child.poseId,
         expressionId: child.expressionId,
+        appearanceId: child.appearanceId ?? null,
         position: child.position,
         offset: { ...child.offset },
         scale: child.scale,
@@ -219,8 +222,10 @@ function compileSceneStep(
         slotId: step.slotId,
         character: characterRef(step.character)!,
         action: step.action,
+        profileId: step.profileId ?? null,
         poseId: step.poseId,
         expressionId: step.expressionId,
+        appearanceId: step.appearanceId ?? null,
         position: step.position,
         offset: { ...step.offset },
         scale: step.scale,
@@ -425,21 +430,11 @@ export function lowerSceneAndRoomPrograms(
       });
       if (step.type === 'actor-cue') {
         const character = project.characters[step.character.$ref.id];
-        const characterData = character?.data;
-        const poses =
-          characterData &&
-          typeof characterData === 'object' &&
-          'poses' in characterData &&
-          Array.isArray(characterData.poses)
-            ? characterData.poses
-            : [];
-        const expressions =
-          characterData &&
-          typeof characterData === 'object' &&
-          'expressions' in characterData &&
-          Array.isArray(characterData.expressions)
-            ? characterData.expressions
-            : [];
+        const characterData = parseCharacterData(character?.data);
+        const profileId = step.profileId ?? characterData?.defaults.profileId;
+        const profile = characterData?.profiles.find((candidate) => candidate.id === profileId);
+        const poses = profile?.poses ?? [];
+        const expressions = characterData?.expressions ?? [];
         if (
           step.poseId &&
           !poses.some(
@@ -472,21 +467,11 @@ export function lowerSceneAndRoomPrograms(
         step.children.forEach((child, childIndex) => {
           if (child.type !== 'actor-cue') return;
           const character = project.characters[child.character.$ref.id];
-          const characterData = character?.data;
-          const poses =
-            characterData &&
-            typeof characterData === 'object' &&
-            'poses' in characterData &&
-            Array.isArray(characterData.poses)
-              ? characterData.poses
-              : [];
-          const expressions =
-            characterData &&
-            typeof characterData === 'object' &&
-            'expressions' in characterData &&
-            Array.isArray(characterData.expressions)
-              ? characterData.expressions
-              : [];
+          const characterData = parseCharacterData(character?.data);
+          const profileId = child.profileId ?? characterData?.defaults.profileId;
+          const profile = characterData?.profiles.find((candidate) => candidate.id === profileId);
+          const poses = profile?.poses ?? [];
+          const expressions = characterData?.expressions ?? [];
           if (
             child.poseId &&
             !poses.some(

@@ -526,27 +526,31 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
         const ScenePresentationOwner scene_owner{frame.frame_id, frame.scene};
         const ActorPresentationKey scene_key =
             SceneActorKey{scene_owner, id<ActorSlotId>("hero-slot")};
-        REQUIRE(
-            state.set_actor(project, DesiredActorPresentation{scene_key,
-                                                              scene_owner,
-                                                              id<CharacterId>("hero"),
-                                                              id<CharacterPoseId>("default"),
-                                                              id<CharacterExpressionId>("neutral"),
-                                                              std::nullopt,
-                                                              {},
-                                                              true,
-                                                              false}));
+        REQUIRE(state.set_actor(
+            project, DesiredActorPresentation{scene_key,
+                                              scene_owner,
+                                              id<CharacterId>("hero"),
+                                              id<CharacterPresentationProfileId>("stage"),
+                                              id<CharacterPoseId>("default"),
+                                              id<CharacterExpressionId>("neutral"),
+                                              std::nullopt,
+                                              std::nullopt,
+                                              {},
+                                              true,
+                                              false}));
         const ActorPresentationKey persistent_key = CharacterActorKey{id<CharacterId>("hero")};
-        REQUIRE(
-            state.set_actor(project, DesiredActorPresentation{persistent_key,
-                                                              state.shell_presentation_owner(),
-                                                              id<CharacterId>("hero"),
-                                                              id<CharacterPoseId>("default"),
-                                                              id<CharacterExpressionId>("neutral"),
-                                                              std::nullopt,
-                                                              {},
-                                                              true,
-                                                              true}));
+        REQUIRE(state.set_actor(
+            project, DesiredActorPresentation{persistent_key,
+                                              state.shell_presentation_owner(),
+                                              id<CharacterId>("hero"),
+                                              id<CharacterPresentationProfileId>("stage"),
+                                              id<CharacterPoseId>("default"),
+                                              id<CharacterExpressionId>("neutral"),
+                                              std::nullopt,
+                                              std::nullopt,
+                                              {},
+                                              true,
+                                              true}));
         REQUIRE(
             state.present_text(project, PresentedTextState{id<CharacterId>("hero"), "Retained text",
                                                            TextMarkup::ActiveText}));
@@ -728,8 +732,10 @@ TEST_CASE("actor idle selection persists while loop phase remains backend local"
                             DesiredActorPresentation{CharacterActorKey{id<CharacterId>("hero")},
                                                      state.session_presentation_owner(),
                                                      id<CharacterId>("hero"),
+                                                     id<CharacterPresentationProfileId>("stage"),
                                                      id<CharacterPoseId>("default"),
                                                      id<CharacterExpressionId>("neutral"),
+                                                     std::nullopt,
                                                      id<CharacterIdleId>("breathing"),
                                                      {},
                                                      true,
@@ -803,8 +809,10 @@ TEST_CASE("immutable Room loops and Character idles reconstruct after load witho
                                     {"character", {{"kind", "character"}, {"id", "hero"}}},
                                     {"condition", {{"kind", "always"}}},
                                     {"placementId", "key-placement"},
+                                    {"profileId", nullptr},
                                     {"poseId", nullptr},
                                     {"expressionId", nullptr},
+                                    {"appearanceId", nullptr},
                                     {"idleId", nullptr},
                                     {"visible", true},
                                     {"order", 0}}});

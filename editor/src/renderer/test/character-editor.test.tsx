@@ -78,7 +78,14 @@ describe('CharacterEditor', () => {
       expect(useProjectStore.getState().document).toMatchObject({
         characters: {
           iris: {
-            data: { poses: expect.arrayContaining([expect.objectContaining({ id: 'pose' })]) },
+            data: {
+              profiles: expect.arrayContaining([
+                expect.objectContaining({
+                  id: 'stage',
+                  poses: expect.arrayContaining([expect.objectContaining({ id: 'pose' })]),
+                }),
+              ]),
+            },
           },
         },
       });

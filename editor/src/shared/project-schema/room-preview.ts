@@ -151,21 +151,24 @@ export const focusedTextSchema = strict({
 });
 
 const focusedCharacterVisualSchema = strict({
+  profileId: z.string().min(1),
   requestedPoseId: z.string().min(1),
   resolvedPoseId: z.string().min(1),
   expressionId: z.string().min(1),
+  appearanceId: z.string().min(1).nullable(),
   idleId: z.string().min(1).nullable(),
-  pose: strict({
-    spriteAssetId: z.string().min(1).nullable(),
-    materialId: z.string().min(1).nullable(),
-    offset: vector2,
-    scale: z.number().finite(),
-    anchor: vector2,
-  }),
-  expression: strict({
-    spriteAssetId: z.string().min(1).nullable(),
-    materialId: z.string().min(1).nullable(),
-  }),
+  layers: z.array(
+    strict({
+      id: z.string().min(1),
+      role: z.string().min(1).nullable(),
+      spriteAssetId: z.string().min(1).nullable(),
+      materialId: z.string().min(1).nullable(),
+      offset: vector2,
+      scale: z.number().finite(),
+      anchor: vector2,
+      visible: z.boolean(),
+    }),
+  ),
   idle: z
     .discriminatedUnion('kind', [
       strict({
@@ -644,40 +647,30 @@ export const roomPreviewDocumentSchema = strict({
   };
   checkMaterial(document.world.background.materialId, ['world', 'background', 'materialId']);
   document.world.persistentCharacters.forEach((value, index) => {
-    checkMaterial(value.visual.pose.materialId, [
-      'world',
-      'persistentCharacters',
-      index,
-      'visual',
-      'pose',
-      'materialId',
-    ]);
-    checkMaterial(value.visual.expression.materialId, [
-      'world',
-      'persistentCharacters',
-      index,
-      'visual',
-      'expression',
-      'materialId',
-    ]);
+    value.visual.layers.forEach((layer, layerIndex) =>
+      checkMaterial(layer.materialId, [
+        'world',
+        'persistentCharacters',
+        index,
+        'visual',
+        'layers',
+        layerIndex,
+        'materialId',
+      ]),
+    );
   });
   document.world.cast.forEach((value, index) => {
-    checkMaterial(value.visual.pose.materialId, [
-      'world',
-      'cast',
-      index,
-      'visual',
-      'pose',
-      'materialId',
-    ]);
-    checkMaterial(value.visual.expression.materialId, [
-      'world',
-      'cast',
-      index,
-      'visual',
-      'expression',
-      'materialId',
-    ]);
+    value.visual.layers.forEach((layer, layerIndex) =>
+      checkMaterial(layer.materialId, [
+        'world',
+        'cast',
+        index,
+        'visual',
+        'layers',
+        layerIndex,
+        'materialId',
+      ]),
+    );
   });
   document.world.interactables.forEach((value, index) =>
     checkMaterial(value.materialId, ['world', 'interactables', index, 'materialId']),

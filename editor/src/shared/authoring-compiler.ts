@@ -350,13 +350,15 @@ export function buildAuthoringSymbolTables(project: AuthoringProject): Authoring
   const nested = new Map<CompilerNestedNamespace, Map<string, NestedAuthoringSymbol>>();
   Object.entries(project.characters).forEach(([ownerId, record]) => {
     const data = parseCharacterData(record.data);
-    data?.poses.forEach((pose, index) =>
-      addNestedSymbol(
-        nested,
-        'character-pose',
-        ownerId,
-        pose.id,
-        `/characters/${escapeJsonPointerSegment(ownerId)}/data/poses/${index}`,
+    data?.profiles.forEach((profile, profileIndex) =>
+      profile.poses.forEach((pose, poseIndex) =>
+        addNestedSymbol(
+          nested,
+          'character-pose',
+          ownerId,
+          `${profile.id}:${pose.id}`,
+          `/characters/${escapeJsonPointerSegment(ownerId)}/data/profiles/${profileIndex}/poses/${poseIndex}`,
+        ),
       ),
     );
     data?.expressions.forEach((expression, index) =>

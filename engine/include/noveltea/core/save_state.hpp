@@ -173,8 +173,10 @@ struct SavedActorPresentation {
     SavedActorPresentationKey key;
     SavedPresentationOwner owner;
     CharacterId character;
+    CharacterPresentationProfileId profile;
     CharacterPoseId pose;
     CharacterExpressionId expression;
+    std::optional<CharacterAppearanceId> appearance;
     std::optional<CharacterIdleId> idle;
     ActorLogicalPlacement placement;
     bool visible = false;
@@ -213,7 +215,7 @@ struct SavedBackgroundMaterialOccurrence {
 };
 struct SavedActorMaterialOccurrence {
     SavedActorPresentationKey key;
-    ActorMaterialLayer layer = ActorMaterialLayer::Pose;
+    CharacterPresentationLayerId layer;
     auto operator<=>(const SavedActorMaterialOccurrence&) const = default;
 };
 struct SavedPropMaterialOccurrence {

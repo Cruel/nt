@@ -32,20 +32,28 @@ struct PresentationCamera {
     bool operator==(const PresentationCamera&) const = default;
 };
 
+struct PresentationActorLayer {
+    CharacterPresentationLayerId id;
+    std::optional<std::string> role;
+    std::optional<AssetId> sprite;
+    std::optional<MaterialId> material;
+    compiled::Vector2 anchor;
+    compiled::Vector2 offset;
+    double scale = 1.0;
+    bool visible = true;
+    bool operator==(const PresentationActorLayer&) const = default;
+};
+
 struct PresentationActor {
     ActorPresentationKey key;
     std::optional<PresentationOwner> material_owner;
     CharacterId character;
+    CharacterPresentationProfileId profile;
     CharacterPoseId pose;
     CharacterExpressionId expression;
+    std::optional<CharacterAppearanceId> appearance;
     std::optional<compiled::CharacterIdle> idle;
-    std::optional<AssetId> pose_sprite;
-    std::optional<MaterialId> pose_material;
-    compiled::Vector2 pose_anchor;
-    compiled::Vector2 pose_offset;
-    double pose_scale = 1.0;
-    std::optional<AssetId> expression_sprite;
-    std::optional<MaterialId> expression_material;
+    std::vector<PresentationActorLayer> layers;
     ActorLogicalPlacement placement;
     std::optional<compiled::RoomPlacementRef> room_placement;
     std::optional<compiled::NormalizedRect> room_bounds;

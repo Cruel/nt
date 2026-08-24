@@ -48,10 +48,20 @@ void collect_material_ids(const CompiledProject& project, std::unordered_set<std
         for (const auto& material : layout.dependencies.materials)
             ids.insert(material.text());
     for (const auto& character : project.characters()) {
-        for (const auto& pose : character.poses)
-            add(pose.material);
+        for (const auto& profile : character.profiles)
+            for (const auto& pose : profile.poses)
+                for (const auto& layer : pose.layers)
+                    add(layer.material);
+        const auto add_overrides = [&](const auto& semantic) {
+            for (const auto& profile : semantic.profiles)
+                for (const auto& layer : profile.layers)
+                    if (layer.material.specified)
+                        add(layer.material.value);
+        };
         for (const auto& expression : character.expressions)
-            add(expression.material);
+            add_overrides(expression);
+        for (const auto& appearance : character.appearances)
+            add_overrides(appearance);
     }
     for (const auto& room : project.rooms())
         add(room.background.material);

@@ -335,11 +335,20 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.itemStacks.wallet = { id: 'wallet', label: 'Wallet credits', data: wallet };
 
   const hero = defaultCharacterData('Hero');
-  hero.poses[0]!.sprite = characterAssetRef('image-main');
-  hero.poses[0]!.material = characterMaterialRef('sprite-material');
-  hero.expressions[0]!.poseId = 'default';
-  hero.expressions[0]!.sprite = characterAssetRef('image-main');
-  hero.expressions[0]!.material = characterMaterialRef('sprite-material');
+  hero.profiles[0]!.poses[0]!.layers[0]!.sprite = characterAssetRef('image-main');
+  hero.profiles[0]!.poses[0]!.layers[0]!.material = characterMaterialRef('sprite-material');
+  hero.expressions[0]!.profiles = [
+    {
+      profileId: 'stage',
+      layers: [
+        {
+          layerId: 'body',
+          sprite: characterAssetRef('image-main'),
+          material: characterMaterialRef('sprite-material'),
+        },
+      ],
+    },
+  ];
   hero.inventories = [{ id: 'carried', label: 'Carried' }];
   hero.initialWorldState.location = { kind: 'room', room: roomReference('start') };
   project.characters.hero = {

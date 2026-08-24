@@ -281,7 +281,9 @@ describe('authoring compiler framework', () => {
       properties: {},
     };
     const character = defaultCharacterData('Hero');
-    character.poses[0]!.sprite = { $ref: { collection: 'assets', id: 'hero' } };
+    character.profiles[0]!.poses[0]!.layers[0]!.sprite = {
+      $ref: { collection: 'assets', id: 'hero' },
+    };
     project.characters.hero = {
       id: 'hero',
       label: 'Hero',
@@ -322,7 +324,7 @@ describe('authoring compiler framework', () => {
       traits: ['tense-room'],
       propertyAssignments: [],
     });
-    expect(draft.definitions.characters[0]?.poses[0]?.sprite).toEqual({
+    expect(draft.definitions.characters[0]?.profiles[0]?.poses[0]?.layers[0]?.sprite).toEqual({
       kind: 'asset',
       id: 'hero',
     });
@@ -1182,7 +1184,8 @@ describe('authoring compiler framework', () => {
     const project = validProject();
 
     const character = defaultCharacterData('Hero');
-    character.poses = [{ ...character.poses[0]!, id: 'standing' }];
+    character.profiles[0]!.poses = [{ ...character.profiles[0]!.poses[0]!, id: 'standing' }];
+    character.profiles[0]!.defaultPoseId = 'standing';
     character.expressions = [{ ...character.expressions[0]!, id: 'neutral' }];
     project.characters.hero = { id: 'hero', label: 'Hero', data: character };
 

@@ -294,8 +294,9 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         if (!key)
             return Result<SaveState, Diagnostics>::failure(key.error());
         save.actors.push_back(SavedActorPresentation{
-            *key.value_if(), **owner.value_if(), actor.character, actor.pose, actor.expression,
-            actor.idle, actor.placement, actor.visible, actor.presentation_complete});
+            *key.value_if(), **owner.value_if(), actor.character, actor.profile, actor.pose,
+            actor.expression, actor.appearance, actor.idle, actor.placement, actor.visible,
+            actor.presentation_complete});
     }
     for (const auto& prop : session.m_presentation_props) {
         auto owner = save_presentation_owner(session, prop.owner);

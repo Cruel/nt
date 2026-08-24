@@ -186,11 +186,33 @@ export function resolveProjectDiagnosticTarget(
   if (collection === 'characters' && project.characters[id]) {
     const tab = buildCharacterDetailTabForRecord(id, recordLabel(project, 'characters', id));
     const data = dataRecord(project, 'characters', id);
-    if (scope === 'data' && field === 'poses') {
-      const index = indexedSegment(segments[4]);
-      const rowId = arrayItemId(data, 'poses', index);
-      if (rowId)
-        return rowTarget(tab, `character.pose.${rowId}`, { kind: 'character-pose', index, rowId });
+    if (scope === 'data' && field === 'profiles') {
+      const profileIndex = indexedSegment(segments[4]);
+      const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+      const profile = profileIndex === null ? null : profiles[profileIndex];
+      const profileRecord =
+        typeof profile === 'object' && profile !== null && !Array.isArray(profile)
+          ? (profile as Record<string, unknown>)
+          : null;
+      const profileId = typeof profileRecord?.id === 'string' ? profileRecord.id : null;
+      if (profileId && segments[5] === 'poses') {
+        const poseIndex = indexedSegment(segments[6]);
+        const poseId = arrayItemId(profileRecord, 'poses', poseIndex);
+        if (poseId)
+          return rowTarget(tab, `character.profile.${profileId}.pose.${poseId}`, {
+            kind: 'character-pose',
+            profileIndex,
+            profileId,
+            index: poseIndex,
+            rowId: poseId,
+          });
+      }
+      if (profileId)
+        return rowTarget(tab, `character.profile.${profileId}`, {
+          kind: 'character-profile',
+          index: profileIndex,
+          rowId: profileId,
+        });
     }
     if (scope === 'data' && field === 'expressions') {
       const index = indexedSegment(segments[4]);
@@ -202,17 +224,31 @@ export function resolveProjectDiagnosticTarget(
           rowId,
         });
     }
+    if (scope === 'data' && field === 'appearances') {
+      const index = indexedSegment(segments[4]);
+      const rowId = arrayItemId(data, 'appearances', index);
+      if (rowId)
+        return rowTarget(tab, `character.appearance.${rowId}`, {
+          kind: 'character-appearance',
+          index,
+          rowId,
+        });
+    }
     const anchor =
       scope === 'data'
         ? field === 'preview'
           ? 'character.preview'
-          : field === 'poses'
-            ? 'character.poses'
+          : field === 'profiles'
+            ? 'character.profiles'
             : field === 'expressions'
               ? 'character.expressions'
-              : field === 'defaults'
-                ? 'character.defaults'
-                : 'character.summary'
+              : field === 'appearances'
+                ? 'character.appearances'
+                : field === 'idles'
+                  ? 'character.idles'
+                  : field === 'defaults'
+                    ? 'character.defaults'
+                    : 'character.summary'
         : 'character.summary';
     return target(tab, anchor);
   }

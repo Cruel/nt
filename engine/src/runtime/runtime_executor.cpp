@@ -682,9 +682,31 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     const core::ActorPresentationKey key =
                         core::SceneActorKey{owner, value.slot_id};
                     const auto* current = m_state.actor(key, owner);
-                    const auto pose = value.pose_id ? *value.pose_id : character->defaults.pose_id;
+                    const bool same_character =
+                        current != nullptr && current->character == value.character;
+                    const auto profile = value.profile_id ? *value.profile_id
+                                         : same_character ? current->profile
+                                                          : character->defaults.profile_id;
+                    const auto profile_definition =
+                        std::ranges::find_if(character->profiles, [&](const auto& candidate) {
+                            return candidate.id == profile;
+                        });
+                    if (profile_definition == character->profiles.end())
+                        return fault(execution_error("execution.invalid_actor_profile",
+                                                     "Actor cue Profile is missing"));
+                    const bool preserve_pose = same_character && current->profile == profile;
+                    const auto pose = value.pose_id   ? *value.pose_id
+                                      : preserve_pose ? current->pose
+                                                      : profile_definition->default_pose_id;
                     const auto expression = value.expression_id ? *value.expression_id
+                                            : same_character    ? current->expression
                                                                 : character->defaults.expression_id;
+                    const auto appearance =
+                        value.action == core::compiled::ActorCueAction::Appearance
+                            ? value.appearance_id
+                        : value.appearance_id ? value.appearance_id
+                        : same_character      ? current->appearance
+                                              : character->defaults.appearance_id;
                     bool visible = current != nullptr && current->visible;
                     if (value.action == core::compiled::ActorCueAction::Show)
                         visible = true;
@@ -694,8 +716,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         key,
                         owner,
                         value.character,
+                        profile,
                         pose,
                         expression,
+                        appearance,
                         current != nullptr ? current->idle : character->defaults.idle_id,
                         {value.position, value.offset, value.scale},
                         visible,
@@ -1079,9 +1103,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                 return core::ActorMaterialOccurrence{
                                     core::ActorPresentationKey{
                                         core::SceneActorKey{scene_owner, target.slot}},
-                                    target.layer == core::compiled::MaterialActorLayer::Pose
-                                        ? core::ActorMaterialLayer::Pose
-                                        : core::ActorMaterialLayer::Expression};
+                                    target.layer};
                             } else if constexpr (std::is_same_v<
                                                      Target, core::compiled::
                                                                  LayoutMaterialInstructionTarget>) {
@@ -1240,6 +1262,38 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                         std::get<core::ScenePresentationOwner>(owner),
                                         item.slot_id};
                                     const auto* current = m_state.actor(key, owner);
+                                    const bool same_character =
+                                        current != nullptr && current->character == item.character;
+                                    const auto profile = item.profile_id ? *item.profile_id
+                                                         : same_character
+                                                             ? current->profile
+                                                             : character->defaults.profile_id;
+                                    const auto profile_definition = std::ranges::find_if(
+                                        character->profiles, [&](const auto& candidate) {
+                                            return candidate.id == profile;
+                                        });
+                                    if (profile_definition == character->profiles.end())
+                                        return core::Result<core::TransitionGroupTargetMutation,
+                                                            core::Diagnostics>::
+                                            failure(execution_error(
+                                                "execution.invalid_actor_profile",
+                                                "TransitionGroup Actor Profile is missing"));
+                                    const bool preserve_pose =
+                                        same_character && current->profile == profile;
+                                    const auto pose = item.pose_id ? *item.pose_id
+                                                      : preserve_pose
+                                                          ? current->pose
+                                                          : profile_definition->default_pose_id;
+                                    const auto expression = item.expression_id ? *item.expression_id
+                                                            : same_character
+                                                                ? current->expression
+                                                                : character->defaults.expression_id;
+                                    const auto appearance =
+                                        item.action == core::compiled::ActorCueAction::Appearance
+                                            ? item.appearance_id
+                                        : item.appearance_id ? item.appearance_id
+                                        : same_character     ? current->appearance
+                                                             : character->defaults.appearance_id;
                                     bool visible = current != nullptr && current->visible;
                                     if (item.action == core::compiled::ActorCueAction::Show)
                                         visible = true;
@@ -1252,11 +1306,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                                 key,
                                                 owner,
                                                 item.character,
-                                                item.pose_id ? *item.pose_id
-                                                             : character->defaults.pose_id,
-                                                item.expression_id
-                                                    ? *item.expression_id
-                                                    : character->defaults.expression_id,
+                                                profile,
+                                                pose,
+                                                expression,
+                                                appearance,
                                                 current != nullptr ? current->idle
                                                                    : character->defaults.idle_id,
                                                 {item.position, item.offset, item.scale},

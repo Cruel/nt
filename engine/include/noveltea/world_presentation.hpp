@@ -97,7 +97,8 @@ public:
                                               Size viewport) noexcept;
     [[nodiscard]] static WorldFittedRect fit_background(Size viewport, Size texture,
                                                         core::compiled::BackgroundFit fit) noexcept;
-    [[nodiscard]] static Rect actor_rect(const core::PresentationActor& actor, Size viewport,
+    [[nodiscard]] static Rect actor_rect(const core::PresentationActor& actor,
+                                         const core::PresentationActorLayer& layer, Size viewport,
                                          Size texture) noexcept;
 };
 

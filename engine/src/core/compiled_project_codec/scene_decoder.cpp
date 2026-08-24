@@ -221,12 +221,15 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                    : std::nullopt;
     }
     if (*kind == "actor-cue") {
-        SCENE_FIELDS("action", "character", "durationMs", "expressionId", "offset", "poseId",
-                     "position", "scale", "skippable", "slotId", "transition", "waitForCompletion");
+        SCENE_FIELDS("action", "appearanceId", "character", "durationMs", "expressionId", "offset",
+                     "poseId", "position", "profileId", "scale", "skippable", "slotId",
+                     "transition", "waitForCompletion");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* character_value = decoder.member(value, "character", pointer);
+        const auto* profile_value = decoder.member(value, "profileId", pointer);
         const auto* duration_value = decoder.member(value, "durationMs", pointer);
         const auto* expression_value = decoder.member(value, "expressionId", pointer);
+        const auto* appearance_value = decoder.member(value, "appearanceId", pointer);
         const auto* offset_value = decoder.member(value, "offset", pointer);
         const auto* pose_value = decoder.member(value, "poseId", pointer);
         const auto* position_value = decoder.member(value, "position", pointer);
@@ -240,20 +243,36 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                          {{"show", ActorCueAction::Show},
                                           {"hide", ActorCueAction::Hide},
                                           {"move", ActorCueAction::Move},
+                                          {"profile", ActorCueAction::Profile},
                                           {"pose", ActorCueAction::Pose},
-                                          {"expression", ActorCueAction::Expression}})
+                                          {"expression", ActorCueAction::Expression},
+                                          {"appearance", ActorCueAction::Appearance}})
                                    : std::nullopt;
         auto character =
             character_value
                 ? decode_reference<CharacterId>(decoder, *character_value,
                                                 pointer_child(pointer, "character"), "character")
                 : std::nullopt;
+        std::optional<CharacterPresentationProfileId> profile;
+        bool profile_ok = profile_value != nullptr;
+        if (profile_value && !profile_value->is_null()) {
+            profile = decoder.id<CharacterPresentationProfileId>(
+                *profile_value, pointer_child(pointer, "profileId"));
+            profile_ok = profile.has_value();
+        }
         std::optional<CharacterExpressionId> expression;
         bool expression_ok = expression_value != nullptr;
         if (expression_value && !expression_value->is_null()) {
             expression = decoder.id<CharacterExpressionId>(*expression_value,
                                                            pointer_child(pointer, "expressionId"));
             expression_ok = expression.has_value();
+        }
+        std::optional<CharacterAppearanceId> appearance;
+        bool appearance_ok = appearance_value != nullptr;
+        if (appearance_value && !appearance_value->is_null()) {
+            appearance = decoder.id<CharacterAppearanceId>(*appearance_value,
+                                                           pointer_child(pointer, "appearanceId"));
+            appearance_ok = appearance.has_value();
         }
         auto offset = offset_value
                           ? decode_vector2(decoder, *offset_value, pointer_child(pointer, "offset"))
@@ -318,8 +337,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                 transition.reset();
             }
         }
-        if (!action || !character || !expression_ok || !offset || !pose_ok || !position || !scale ||
-            !skippable || !slot || !transition || !duration || !waits)
+        if (!action || !character || !profile_ok || !expression_ok || !appearance_ok || !offset ||
+            !pose_ok || !position || !scale || !skippable || !slot || !transition || !duration ||
+            !waits)
             return std::nullopt;
         PresentationInstructionWait wait =
             *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
@@ -328,7 +348,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                    std::move(condition),
                                    *action,
                                    std::move(*character),
+                                   std::move(profile),
                                    std::move(expression),
+                                   std::move(appearance),
                                    std::move(*offset),
                                    std::move(pose),
                                    *position,
@@ -889,19 +911,19 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                 decoder.object(*target_value, target_pointer, {"kind"})) {
                 target = BackgroundMaterialInstructionTarget{};
             } else if (target_kind && *target_kind == "actor" &&
-                       decoder.object(*target_value, target_pointer, {"kind", "layer", "slotId"})) {
+                       decoder.object(*target_value, target_pointer,
+                                      {"kind", "layerId", "slotId"})) {
                 const auto* slot_value = decoder.member(*target_value, "slotId", target_pointer);
-                const auto* layer_value = decoder.member(*target_value, "layer", target_pointer);
+                const auto* layer_value = decoder.member(*target_value, "layerId", target_pointer);
                 auto slot = slot_value ? decoder.id<ActorSlotId>(
                                              *slot_value, pointer_child(target_pointer, "slotId"))
                                        : std::nullopt;
-                auto layer = layer_value ? decoder.enumeration<MaterialActorLayer>(
-                                               *layer_value, pointer_child(target_pointer, "layer"),
-                                               {{"pose", MaterialActorLayer::Pose},
-                                                {"expression", MaterialActorLayer::Expression}})
-                                         : std::nullopt;
+                auto layer = layer_value
+                                 ? decoder.id<CharacterPresentationLayerId>(
+                                       *layer_value, pointer_child(target_pointer, "layerId"))
+                                 : std::nullopt;
                 if (slot && layer)
-                    target = ActorMaterialInstructionTarget{std::move(*slot), *layer};
+                    target = ActorMaterialInstructionTarget{std::move(*slot), std::move(*layer)};
             } else if (target_kind && *target_kind == "layout" &&
                        decoder.object(*target_value, target_pointer, {"kind", "slot"})) {
                 const auto* slot_value = decoder.member(*target_value, "slot", target_pointer);
@@ -1195,16 +1217,20 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                           }
                           if (*child_kind == "actor-cue") {
                               if (!decoder.object(child, child_pointer,
-                                                  {"action", "character", "expressionId", "id",
-                                                   "kind", "offset", "poseId", "position", "scale",
-                                                   "slotId"}))
+                                                  {"action", "appearanceId", "character",
+                                                   "expressionId", "id", "kind", "offset", "poseId",
+                                                   "position", "profileId", "scale", "slotId"}))
                                   return std::nullopt;
                               const auto* action_value =
                                   decoder.member(child, "action", child_pointer);
                               const auto* character_value =
                                   decoder.member(child, "character", child_pointer);
+                              const auto* profile_value =
+                                  decoder.member(child, "profileId", child_pointer);
                               const auto* expression_value =
                                   decoder.member(child, "expressionId", child_pointer);
+                              const auto* appearance_value =
+                                  decoder.member(child, "appearanceId", child_pointer);
                               const auto* offset_value =
                                   decoder.member(child, "offset", child_pointer);
                               const auto* pose_value =
@@ -1222,8 +1248,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                             {{"show", ActorCueAction::Show},
                                              {"hide", ActorCueAction::Hide},
                                              {"move", ActorCueAction::Move},
+                                             {"profile", ActorCueAction::Profile},
                                              {"pose", ActorCueAction::Pose},
-                                             {"expression", ActorCueAction::Expression}})
+                                             {"expression", ActorCueAction::Expression},
+                                             {"appearance", ActorCueAction::Appearance}})
                                       : std::nullopt;
                               auto character =
                                   character_value
@@ -1231,6 +1259,13 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                             decoder, *character_value,
                                             pointer_child(child_pointer, "character"), "character")
                                       : std::nullopt;
+                              std::optional<CharacterPresentationProfileId> profile;
+                              bool profile_ok = profile_value != nullptr;
+                              if (profile_value && !profile_value->is_null()) {
+                                  profile = decoder.id<CharacterPresentationProfileId>(
+                                      *profile_value, pointer_child(child_pointer, "profileId"));
+                                  profile_ok = profile.has_value();
+                              }
                               std::optional<CharacterExpressionId> expression;
                               bool expression_ok = expression_value != nullptr;
                               if (expression_value && !expression_value->is_null()) {
@@ -1238,6 +1273,14 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                       *expression_value,
                                       pointer_child(child_pointer, "expressionId"));
                                   expression_ok = expression.has_value();
+                              }
+                              std::optional<CharacterAppearanceId> appearance;
+                              bool appearance_ok = appearance_value != nullptr;
+                              if (appearance_value && !appearance_value->is_null()) {
+                                  appearance = decoder.id<CharacterAppearanceId>(
+                                      *appearance_value,
+                                      pointer_child(child_pointer, "appearanceId"));
+                                  appearance_ok = appearance.has_value();
                               }
                               auto offset =
                                   offset_value
@@ -1274,13 +1317,16 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                            *slot_value,
                                                            pointer_child(child_pointer, "slotId"))
                                                      : std::nullopt;
-                              if (!action || !character || !expression_ok || !offset || !pose_ok ||
-                                  !position || !scale || !slot)
+                              if (!action || !character || !profile_ok || !expression_ok ||
+                                  !appearance_ok || !offset || !pose_ok || !position || !scale ||
+                                  !slot)
                                   return std::nullopt;
                               return TransitionGroupActorMutation{std::move(*child_id),
                                                                   *action,
                                                                   std::move(*character),
+                                                                  std::move(profile),
                                                                   std::move(expression),
+                                                                  std::move(appearance),
                                                                   std::move(*offset),
                                                                   std::move(pose),
                                                                   *position,

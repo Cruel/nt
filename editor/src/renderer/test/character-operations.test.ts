@@ -21,7 +21,13 @@ describe('character commands', () => {
           data: {
             kind: 'character',
             displayName: 'Iris',
-            poses: [{ id: 'default' }],
+            profiles: [
+              {
+                id: 'stage',
+                defaultPoseId: 'default',
+                poses: [{ id: 'default' }],
+              },
+            ],
             expressions: [{ id: 'neutral' }],
           },
         },

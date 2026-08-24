@@ -439,8 +439,10 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
         .key = actor_key,
         .owner = owner,
         .character = id<CharacterId>("hero"),
+        .profile = id<CharacterPresentationProfileId>("stage"),
         .pose = id<CharacterPoseId>("default"),
         .expression = id<CharacterExpressionId>("neutral"),
+        .appearance = std::nullopt,
         .placement = {compiled::ActorPosition::Custom, {0.25, -0.1}, 1.25},
         .visible = true,
         .presentation_complete = false};
@@ -624,30 +626,36 @@ TEST_CASE("desired presentation ownership isolates nested Scene invocations and 
     const auto root = std::get<SceneFrame>(state.flow_stack().back());
     const ScenePresentationOwner root_owner{root.frame_id, root.scene};
     const ActorPresentationKey root_key = SceneActorKey{root_owner, id<ActorSlotId>("hero-slot")};
-    REQUIRE(state.set_actor(project, DesiredActorPresentation{root_key,
-                                                              root_owner,
-                                                              id<CharacterId>("hero"),
-                                                              id<CharacterPoseId>("default"),
-                                                              id<CharacterExpressionId>("neutral"),
-                                                              std::nullopt,
-                                                              {},
-                                                              true,
-                                                              true}));
+    REQUIRE(state.set_actor(project,
+                            DesiredActorPresentation{root_key,
+                                                     root_owner,
+                                                     id<CharacterId>("hero"),
+                                                     id<CharacterPresentationProfileId>("stage"),
+                                                     id<CharacterPoseId>("default"),
+                                                     id<CharacterExpressionId>("neutral"),
+                                                     std::nullopt,
+                                                     std::nullopt,
+                                                     {},
+                                                     true,
+                                                     true}));
 
     REQUIRE(flow.call_child(root.scene, FlowFramePosition{root.position}));
     const auto child = std::get<SceneFrame>(state.flow_stack().back());
     const ScenePresentationOwner child_owner{child.frame_id, child.scene};
     const ActorPresentationKey child_key = SceneActorKey{child_owner, id<ActorSlotId>("hero-slot")};
     CHECK(child_key != root_key);
-    REQUIRE(state.set_actor(project, DesiredActorPresentation{child_key,
-                                                              child_owner,
-                                                              id<CharacterId>("hero"),
-                                                              id<CharacterPoseId>("default"),
-                                                              id<CharacterExpressionId>("neutral"),
-                                                              std::nullopt,
-                                                              {},
-                                                              true,
-                                                              true}));
+    REQUIRE(state.set_actor(project,
+                            DesiredActorPresentation{child_key,
+                                                     child_owner,
+                                                     id<CharacterId>("hero"),
+                                                     id<CharacterPresentationProfileId>("stage"),
+                                                     id<CharacterPoseId>("default"),
+                                                     id<CharacterExpressionId>("neutral"),
+                                                     std::nullopt,
+                                                     std::nullopt,
+                                                     {},
+                                                     true,
+                                                     true}));
     REQUIRE(state.actors().size() == 2);
 
     REQUIRE(flow.return_from_flow());
@@ -655,24 +663,30 @@ TEST_CASE("desired presentation ownership isolates nested Scene invocations and 
     CHECK(state.actor(child_key, child_owner) == nullptr);
 
     const ActorPresentationKey persistent_key = CharacterActorKey{id<CharacterId>("hero")};
-    REQUIRE(state.set_actor(project, DesiredActorPresentation{persistent_key,
-                                                              state.session_presentation_owner(),
-                                                              id<CharacterId>("hero"),
-                                                              id<CharacterPoseId>("default"),
-                                                              id<CharacterExpressionId>("neutral"),
-                                                              std::nullopt,
-                                                              {},
-                                                              true,
-                                                              true}));
-    REQUIRE(state.set_actor(project, DesiredActorPresentation{persistent_key,
-                                                              state.shell_presentation_owner(),
-                                                              id<CharacterId>("hero"),
-                                                              id<CharacterPoseId>("default"),
-                                                              id<CharacterExpressionId>("neutral"),
-                                                              std::nullopt,
-                                                              {},
-                                                              true,
-                                                              true}));
+    REQUIRE(state.set_actor(project,
+                            DesiredActorPresentation{persistent_key,
+                                                     state.session_presentation_owner(),
+                                                     id<CharacterId>("hero"),
+                                                     id<CharacterPresentationProfileId>("stage"),
+                                                     id<CharacterPoseId>("default"),
+                                                     id<CharacterExpressionId>("neutral"),
+                                                     std::nullopt,
+                                                     std::nullopt,
+                                                     {},
+                                                     true,
+                                                     true}));
+    REQUIRE(state.set_actor(project,
+                            DesiredActorPresentation{persistent_key,
+                                                     state.shell_presentation_owner(),
+                                                     id<CharacterId>("hero"),
+                                                     id<CharacterPresentationProfileId>("stage"),
+                                                     id<CharacterPoseId>("default"),
+                                                     id<CharacterExpressionId>("neutral"),
+                                                     std::nullopt,
+                                                     std::nullopt,
+                                                     {},
+                                                     true,
+                                                     true}));
     CHECK(state.actor(persistent_key, state.session_presentation_owner()) != nullptr);
     CHECK(state.actor(persistent_key, state.shell_presentation_owner()) != nullptr);
 

@@ -179,6 +179,17 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/scenes\/\*\/data\/steps\/\*\/(?:target|parameters)(?:\/|$)|^\/scenes\/\*\/data\/steps\/\*\/(?:parameter|easing|clock|scope|order)$|^\/scenes\/\*\/data\/steps\/\*\/value\/(?:\*|r|g|b|a)$/,
     OWNER,
   ],
+  // #91 replaces the provisional Character pose/expression sprite pair with named Presentation
+  // Profiles, ordered Layers, profile-local Poses, semantic Expression overrides, and optional
+  // Appearance at the preserved authoring schema version. These fields all contribute to the
+  // Character's compiled presentation definition and focused-preview dependency surface.
+  [/^\/characters\/\*\/data\/defaults\/(?:profileId|appearanceId)$/, OWNER],
+  [/^\/characters\/\*\/data\/profiles\//, OWNER],
+  [/^\/characters\/\*\/data\/expressions\/\*\/profiles\//, OWNER],
+  [/^\/characters\/\*\/data\/appearances\//, OWNER],
+  [/^\/rooms\/\*\/data\/cast\/\*\/(?:profileId|appearanceId)$/, OWNER],
+  [/^\/scenes\/\*\/data\/steps\/\*\/(?:profileId|appearanceId)$/, OWNER],
+  [/^\/scenes\/\*\/data\/steps\/\*\/children\/\*\/(?:profileId|appearanceId)$/, OWNER],
   // #83 atomically replaces positional Verb arity/operand contracts with named slots, stable
   // binding order, completed-command text, and reusable Subject Selectors at the preserved authoring
   // schema version. These leaves all contribute to the owning Verb or Interaction projection.
@@ -490,6 +501,26 @@ const legacySchemaLeafPaths = [
   '/maps/*/data/connections/*/exit/exit' as JsonPointer,
   '/maps/*/data/connections/*/sourceLocation' as JsonPointer,
   '/maps/*/data/connections/*/targetLocation' as JsonPointer,
+  // #91 atomically replaces the old Character-wide Pose visual and Expression sprite/material
+  // overrides. Retain those removed same-version leaves only to keep unrelated reviewed graph
+  // effects aligned; every replacement presentation leaf is classified explicitly above.
+  '/characters/*/data/defaults/poseId' as JsonPointer,
+  '/characters/*/data/poses/*/id' as JsonPointer,
+  '/characters/*/data/poses/*/label' as JsonPointer,
+  '/characters/*/data/poses/*/sprite/$ref/collection' as JsonPointer,
+  '/characters/*/data/poses/*/sprite/$ref/id' as JsonPointer,
+  '/characters/*/data/poses/*/material/$ref/collection' as JsonPointer,
+  '/characters/*/data/poses/*/material/$ref/id' as JsonPointer,
+  '/characters/*/data/poses/*/offset/x' as JsonPointer,
+  '/characters/*/data/poses/*/offset/y' as JsonPointer,
+  '/characters/*/data/poses/*/scale' as JsonPointer,
+  '/characters/*/data/poses/*/anchor/x' as JsonPointer,
+  '/characters/*/data/poses/*/anchor/y' as JsonPointer,
+  '/characters/*/data/expressions/*/poseId' as JsonPointer,
+  '/characters/*/data/expressions/*/sprite/$ref/collection' as JsonPointer,
+  '/characters/*/data/expressions/*/sprite/$ref/id' as JsonPointer,
+  '/characters/*/data/expressions/*/material/$ref/collection' as JsonPointer,
+  '/characters/*/data/expressions/*/material/$ref/id' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
 if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
@@ -571,7 +602,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
-    characters: '50e127f4',
+    characters: '30383541',
     dialogues: 'bfadec81',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
@@ -586,8 +617,8 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: '78de04a2',
-    scenes: '85280f9a',
+    rooms: 'af3ac4c1',
+    scenes: '47e7c955',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: '220e14ad',

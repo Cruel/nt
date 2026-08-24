@@ -897,12 +897,23 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                       replaceStep({ ...selected, action: action as typeof selected.action })
                     }
                   >
-                    {['show', 'hide', 'move', 'pose', 'expression'].map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {title(value)}
-                      </SelectItem>
-                    ))}
+                    {['show', 'hide', 'move', 'profile', 'pose', 'expression', 'appearance'].map(
+                      (value) => (
+                        <SelectItem key={value} value={value}>
+                          {title(value)}
+                        </SelectItem>
+                      ),
+                    )}
                   </Select>
+                </Label>
+                <Label>
+                  Profile ID
+                  <Input
+                    value={selected.profileId ?? ''}
+                    onChange={(event) =>
+                      replaceStep({ ...selected, profileId: event.target.value || null })
+                    }
+                  />
                 </Label>
                 <Label>
                   Pose ID
@@ -910,6 +921,15 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     value={selected.poseId ?? ''}
                     onChange={(event) =>
                       replaceStep({ ...selected, poseId: event.target.value || null })
+                    }
+                  />
+                </Label>
+                <Label>
+                  Appearance ID
+                  <Input
+                    value={selected.appearanceId ?? ''}
+                    onChange={(event) =>
+                      replaceStep({ ...selected, appearanceId: event.target.value || null })
                     }
                   />
                 </Label>
@@ -1873,7 +1893,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                   selected.target.kind === 'background'
                     ? 'background'
                     : selected.target.kind === 'actor'
-                      ? `actor:${selected.target.slotId}:${selected.target.layer}`
+                      ? `actor:${selected.target.slotId}:${selected.target.layerId}`
                       : selected.target.kind === 'layout'
                         ? `layout:${selected.target.slot}`
                         : `postprocess:${selected.target.instanceId}`;
@@ -1901,11 +1921,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                           let target: typeof selected.target;
                           if (value === 'background') target = { kind: 'background' };
                           else if (value.startsWith('actor:')) {
-                            const [, slotId = '', layer = 'pose'] = value.split(':');
+                            const [, slotId = '', layerId = 'body'] = value.split(':');
                             target = {
                               kind: 'actor',
                               slotId,
-                              layer: layer === 'expression' ? 'expression' : 'pose',
+                              layerId,
                             };
                           } else if (value.startsWith('layout:')) {
                             const [, slot = 'overlay'] = value.split(':');
@@ -1959,17 +1979,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                         }}
                       >
                         <SelectItem value="background">Background</SelectItem>
-                        {sceneActorSlots.flatMap((slotId) => [
-                          <SelectItem key={`${slotId}-pose`} value={`actor:${slotId}:pose`}>
-                            Actor {slotId} / Pose
-                          </SelectItem>,
-                          <SelectItem
-                            key={`${slotId}-expression`}
-                            value={`actor:${slotId}:expression`}
-                          >
-                            Actor {slotId} / Expression
-                          </SelectItem>,
-                        ])}
+                        {sceneActorSlots.map((slotId) => (
+                          <SelectItem key={`${slotId}-body`} value={`actor:${slotId}:body`}>
+                            Actor {slotId} / body
+                          </SelectItem>
+                        ))}
                         {(['hud', 'dialogue-box', 'overlay', 'custom'] as const).map((slot) => (
                           <SelectItem key={slot} value={`layout:${slot}`}>
                             Layout / {title(slot)}
@@ -2693,7 +2707,15 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                                   updateChild({ ...child, action: action as typeof child.action })
                                 }
                               >
-                                {['show', 'hide', 'move', 'pose', 'expression'].map((value) => (
+                                {[
+                                  'show',
+                                  'hide',
+                                  'move',
+                                  'profile',
+                                  'pose',
+                                  'expression',
+                                  'appearance',
+                                ].map((value) => (
                                   <SelectItem key={value} value={value}>
                                     {title(value)}
                                   </SelectItem>
@@ -2701,11 +2723,32 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                               </Select>
                             </Label>
                             <Label>
+                              Profile ID
+                              <Input
+                                value={child.profileId ?? ''}
+                                onChange={(event) =>
+                                  updateChild({ ...child, profileId: event.target.value || null })
+                                }
+                              />
+                            </Label>
+                            <Label>
                               Pose ID
                               <Input
                                 value={child.poseId ?? ''}
                                 onChange={(event) =>
                                   updateChild({ ...child, poseId: event.target.value || null })
+                                }
+                              />
+                            </Label>
+                            <Label>
+                              Appearance ID
+                              <Input
+                                value={child.appearanceId ?? ''}
+                                onChange={(event) =>
+                                  updateChild({
+                                    ...child,
+                                    appearanceId: event.target.value || null,
+                                  })
                                 }
                               />
                             </Label>

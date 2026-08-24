@@ -14,8 +14,14 @@ function projectWithRecords(): AuthoringProject {
     id: 'dfs',
     label: 'DFS',
     data: {
-      poses: [{ id: 'idle' }, { id: 'wave' }],
+      profiles: [
+        {
+          id: 'stage',
+          poses: [{ id: 'idle' }, { id: 'wave' }],
+        },
+      ],
       expressions: [{ id: 'neutral' }],
+      appearances: [{ id: 'formal' }],
     } as never,
   };
   project.layouts.room_1 = { id: 'room_1', label: 'Room Layout', data: {} as never };
@@ -85,17 +91,23 @@ describe('diagnostic navigation', () => {
       target: { id: 'character.preview' },
     });
     expect(
-      resolveProjectDiagnosticTarget(project, '/characters/dfs/data/poses/1/sprite/$ref')?.target
-        ?.id,
-    ).toBe('character.pose.wave');
+      resolveProjectDiagnosticTarget(
+        project,
+        '/characters/dfs/data/profiles/0/poses/1/layers/0/sprite/$ref',
+      )?.target?.id,
+    ).toBe('character.profile.stage.pose.wave');
     expect(
-      resolveProjectDiagnosticTarget(project, '/characters/dfs/data/expressions/0/sprite/$ref')
+      resolveProjectDiagnosticTarget(project, '/characters/dfs/data/expressions/0/profiles/0')
         ?.target?.id,
     ).toBe('character.expression.neutral');
     expect(
-      resolveProjectDiagnosticTarget(project, '/characters/dfs/data/poses/9/sprite/$ref')?.target
+      resolveProjectDiagnosticTarget(project, '/characters/dfs/data/appearances/0/profiles/0')
+        ?.target?.id,
+    ).toBe('character.appearance.formal');
+    expect(
+      resolveProjectDiagnosticTarget(project, '/characters/dfs/data/profiles/9/poses/0')?.target
         ?.id,
-    ).toBe('character.poses');
+    ).toBe('character.profiles');
   });
 
   it('resolves layouts, rooms, project settings, and entrypoint paths', () => {
