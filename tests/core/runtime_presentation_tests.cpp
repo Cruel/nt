@@ -40,8 +40,10 @@ CompiledProject fixture()
                                 {"character", {{"kind", "character"}, {"id", "hero"}}},
                                 {"condition", {{"kind", "always"}}},
                                 {"placementId", "key-placement"},
+                                {"profileId", nullptr},
                                 {"poseId", nullptr},
                                 {"expressionId", nullptr},
+                                {"appearanceId", nullptr},
                                 {"idleId", nullptr},
                                 {"visible", true},
                                 {"order", 0}}});
@@ -183,8 +185,10 @@ SessionState representative_state(const CompiledProject& project)
         project, DesiredActorPresentation{SceneActorKey{scene_owner, id<ActorSlotId>("hero-slot")},
                                           scene_owner,
                                           id<CharacterId>("hero"),
+                                          id<CharacterPresentationProfileId>("stage"),
                                           id<CharacterPoseId>("default"),
                                           id<CharacterExpressionId>("neutral"),
+                                          std::nullopt,
                                           std::nullopt,
                                           {},
                                           true,
@@ -305,7 +309,8 @@ TEST_CASE("presentation projector assembles the complete effective target")
     REQUIRE(world_actor->room_placement);
     REQUIRE(world_actor->room_bounds);
     CHECK(world_actor->room_placement->placement_id == id<RoomPlacementId>("key-placement"));
-    CHECK(world_actor->pose_sprite == id<AssetId>("image-main"));
+    REQUIRE_FALSE(world_actor->layers.empty());
+    CHECK(world_actor->layers.front().sprite == id<AssetId>("image-main"));
     const auto scene_actor =
         std::find_if(snapshot.actors.begin(), snapshot.actors.end(), [](const auto& actor) {
             return std::holds_alternative<SceneActorKey>(actor.key);

@@ -2406,38 +2406,42 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             return result_value;
         }
         exact_fields(value,
-                     {"requestedPoseId", "resolvedPoseId", "expressionId", "idleId", "pose",
-                      "expression", "idle"},
+                     {"profileId", "requestedPoseId", "resolvedPoseId", "expressionId",
+                      "appearanceId", "idleId", "layers", "idle"},
                      diagnostics, path);
+        result_value.profile_id = required_string(value, "profileId", path);
         result_value.requested_pose_id = required_string(value, "requestedPoseId", path);
         result_value.resolved_pose_id = required_string(value, "resolvedPoseId", path);
         result_value.expression_id = required_string(value, "expressionId", path);
+        result_value.appearance_id = optional_string(value, "appearanceId", path);
         result_value.idle_id = optional_string(value, "idleId", path);
-        if (const auto pose = value.find("pose"); pose != value.end() && pose->is_object()) {
-            exact_fields(*pose, {"spriteAssetId", "materialId", "offset", "scale", "anchor"},
-                         diagnostics, std::string(path) + "/pose");
-            result_value.pose.sprite_asset_id = optional_string(*pose, "spriteAssetId", path);
-            result_value.pose.material_id = optional_string(*pose, "materialId", path);
-            result_value.pose.offset =
-                vector2((*pose)["offset"], std::string(path) + "/pose/offset");
-            result_value.pose.scale = json_access::member_as<double>(*pose, "scale").value_or(1.0);
-            result_value.pose.anchor =
-                vector2((*pose)["anchor"], std::string(path) + "/pose/anchor");
+        if (const auto layers = value.find("layers"); layers != value.end() && layers->is_array()) {
+            for (std::size_t index = 0; index < layers->size(); ++index) {
+                const auto& layer = (*layers)[index];
+                const auto layer_path = std::string(path) + "/layers/" + std::to_string(index);
+                if (!layer.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Character layer must be an object.", layer_path));
+                    continue;
+                }
+                exact_fields(layer,
+                             {"id", "role", "spriteAssetId", "materialId", "offset", "scale",
+                              "anchor", "visible"},
+                             diagnostics, layer_path);
+                TypedFocusedCharacterVisual::Layer typed;
+                typed.id = required_string(layer, "id", layer_path);
+                typed.role = optional_string(layer, "role", layer_path);
+                typed.sprite_asset_id = optional_string(layer, "spriteAssetId", layer_path);
+                typed.material_id = optional_string(layer, "materialId", layer_path);
+                typed.offset = vector2(layer["offset"], layer_path + "/offset");
+                typed.scale = json_access::member_as<double>(layer, "scale").value_or(1.0);
+                typed.anchor = vector2(layer["anchor"], layer_path + "/anchor");
+                typed.visible = json_access::member_as<bool>(layer, "visible").value_or(true);
+                result_value.layers.push_back(std::move(typed));
+            }
         } else {
-            diagnostics.push_back(error("editor_preview.wrong_type", "pose must be an object.",
-                                        std::string(path) + "/pose"));
-        }
-        if (const auto expression = value.find("expression");
-            expression != value.end() && expression->is_object()) {
-            exact_fields(*expression, {"spriteAssetId", "materialId"}, diagnostics,
-                         std::string(path) + "/expression");
-            result_value.expression.sprite_asset_id =
-                optional_string(*expression, "spriteAssetId", path);
-            result_value.expression.material_id = optional_string(*expression, "materialId", path);
-        } else {
-            diagnostics.push_back(error("editor_preview.wrong_type",
-                                        "expression must be an object.",
-                                        std::string(path) + "/expression"));
+            diagnostics.push_back(error("editor_preview.wrong_type", "layers must be an array.",
+                                        std::string(path) + "/layers"));
         }
         if (const auto idle = value.find("idle"); idle != value.end() && !idle->is_null()) {
             if (!idle->is_object()) {

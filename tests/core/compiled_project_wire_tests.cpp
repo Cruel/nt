@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:cabf1d69501dd15329fbd939ff333ecf");
+    CHECK(project.save_contract == "sc1:ee0428c0476f6c4616c13d7042531b02");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -1329,12 +1329,12 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
     }
 
-    SECTION("Character defaults reference a missing pose")
+    SECTION("Character profile defaults reference a missing pose")
     {
         auto document = fixture("comprehensive");
-        auto* defaults = path_member(document, {"definitions", "characters", "0", "defaults"});
-        REQUIRE(defaults != nullptr);
-        (*defaults)["poseId"] = "missing-pose";
+        auto* profile = path_member(document, {"definitions", "characters", "0", "profiles", "0"});
+        REQUIRE(profile != nullptr);
+        (*profile)["defaultPoseId"] = "missing-pose";
         auto result = noveltea::core::decode_compiled_project(document, "character.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));

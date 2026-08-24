@@ -22,6 +22,7 @@ import {
   parseCharacterData,
   type CharacterData,
 } from '../../shared/project-schema/authoring-characters';
+import { resolveCharacterPresentationLayers } from '../../shared/project-schema/character-project';
 import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import type {
   AuthoringProject,
@@ -214,40 +215,54 @@ function focusedText(project: AuthoringProject, value: RoomData['description']):
 
 function characterVisual(
   data: CharacterData,
+  requestedProfileId: string | null | undefined,
   requestedPoseId: string | null,
   expressionId: string | null,
+  appearanceId: string | null | undefined,
   idleId: string | null,
   path: string,
   diagnostics: Diagnostic[],
 ): FocusedVisual {
-  const requestedPose = requestedPoseId ?? data.defaults.poseId;
+  const profileId = requestedProfileId ?? data.defaults.profileId;
+  const profile = data.profiles.find((item) => item.id === profileId) ?? data.profiles[0];
+  const requestedPose = requestedPoseId ?? profile?.defaultPoseId ?? '';
   const selectedExpressionId = expressionId ?? data.defaults.expressionId;
   const expression =
     data.expressions.find((item) => item.id === selectedExpressionId) ?? data.expressions[0];
-  const resolvedPoseId = expression?.poseId ?? requestedPose;
-  const pose = data.poses.find((item) => item.id === resolvedPoseId) ?? data.poses[0];
+  const pose =
+    profile?.poses.find((item) => item.id === requestedPose) ?? profile?.poses[0] ?? null;
+  const resolvedPoseId = pose?.id ?? requestedPose;
+  const selectedAppearanceId = appearanceId ?? data.defaults.appearanceId;
   const selectedIdleId = idleId ?? data.defaults.idleId;
   const idle = selectedIdleId ? data.idles.find((item) => item.id === selectedIdleId) : null;
+  if (!profile) diagnostics.push(diagnostic(path, 'Character has no resolvable profile.'));
   if (!pose) diagnostics.push(diagnostic(path, 'Character has no resolvable pose.'));
   if (!expression) diagnostics.push(diagnostic(path, 'Character has no resolvable expression.'));
   if (selectedIdleId && !idle)
     diagnostics.push(diagnostic(path, `Character idle '${selectedIdleId}' is missing.`));
   return {
+    profileId: profile?.id ?? profileId,
     requestedPoseId: requestedPose,
-    resolvedPoseId: pose?.id ?? resolvedPoseId,
+    resolvedPoseId,
     expressionId: expression?.id ?? selectedExpressionId,
+    appearanceId: selectedAppearanceId,
     idleId: idle?.id ?? null,
-    pose: {
-      spriteAssetId: pose?.sprite?.$ref.id ?? null,
-      materialId: pose?.material?.$ref.id ?? null,
-      offset: pose?.offset ?? { x: 0, y: 0 },
-      scale: pose?.scale ?? 1,
-      anchor: pose?.anchor ?? { x: 0.5, y: 1 },
-    },
-    expression: {
-      spriteAssetId: expression?.sprite?.$ref.id ?? null,
-      materialId: expression?.material?.$ref.id ?? null,
-    },
+    layers: resolveCharacterPresentationLayers(
+      data,
+      profile?.id ?? profileId,
+      resolvedPoseId,
+      expression?.id ?? selectedExpressionId,
+      selectedAppearanceId,
+    ).map((layer) => ({
+      id: layer.id,
+      role: layer.role,
+      spriteAssetId: layer.sprite?.$ref.id ?? null,
+      materialId: layer.material?.$ref.id ?? null,
+      offset: layer.offset,
+      scale: layer.scale,
+      anchor: layer.anchor,
+      visible: layer.visible,
+    })),
     idle: idle
       ? {
           kind: idle.kind,
@@ -638,10 +653,10 @@ function collectVisualIds(data: RoomPreviewDocument) {
   addAsset(data.world.background.assetId);
   addMaterial(data.world.background.materialId);
   for (const item of [...data.world.persistentCharacters, ...data.world.cast]) {
-    addAsset(item.visual.pose.spriteAssetId);
-    addAsset(item.visual.expression.spriteAssetId);
-    addMaterial(item.visual.pose.materialId);
-    addMaterial(item.visual.expression.materialId);
+    for (const layer of item.visual.layers) {
+      addAsset(layer.spriteAssetId);
+      addMaterial(layer.materialId);
+    }
   }
   for (const item of data.world.interactables) {
     addAsset(item.spriteAssetId);
@@ -943,8 +958,10 @@ export async function buildFocusedRoomPreview(
             order: entry.order,
             visual: characterVisual(
               character,
+              entry.profileId,
               entry.poseId,
               entry.expressionId,
+              entry.appearanceId,
               entry.idleId,
               `/rooms/${roomId}/data/cast/${entry.id}`,
               diagnostics,

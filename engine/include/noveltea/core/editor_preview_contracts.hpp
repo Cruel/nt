@@ -214,16 +214,15 @@ struct TypedFocusedNormalizedRect {
 };
 
 struct TypedFocusedCharacterVisual {
-    struct Pose {
+    struct Layer {
+        std::string id;
+        std::optional<std::string> role;
         std::optional<std::string> sprite_asset_id;
         std::optional<std::string> material_id;
         TypedFocusedVector2 offset;
         double scale = 1.0;
         TypedFocusedVector2 anchor;
-    };
-    struct Expression {
-        std::optional<std::string> sprite_asset_id;
-        std::optional<std::string> material_id;
+        bool visible = true;
     };
     struct Idle {
         std::string kind;
@@ -231,12 +230,13 @@ struct TypedFocusedCharacterVisual {
         std::uint64_t period_ms = 0;
         std::string clock;
     };
+    std::string profile_id;
     std::string requested_pose_id;
     std::string resolved_pose_id;
     std::string expression_id;
+    std::optional<std::string> appearance_id;
     std::optional<std::string> idle_id;
-    Pose pose;
-    Expression expression;
+    std::vector<Layer> layers;
     std::optional<Idle> idle;
 };
 

@@ -350,8 +350,10 @@ TEST_CASE("Room resolution composes overlapping Character and Interactable occup
                                 {"character", {{"kind", "character"}, {"id", "hero"}}},
                                 {"condition", {{"kind", "always"}}},
                                 {"placementId", "key-placement"},
+                                {"profileId", nullptr},
                                 {"poseId", nullptr},
                                 {"expressionId", nullptr},
+                                {"appearanceId", nullptr},
                                 {"idleId", nullptr},
                                 {"visible", true},
                                 {"order", 0}}});

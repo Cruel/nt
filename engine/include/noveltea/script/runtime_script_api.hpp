@@ -81,6 +81,7 @@ struct ScopedActorCommandOptions {
     runtime::RuntimePresentationOwnerScope owner_scope =
         runtime::RuntimePresentationOwnerScope::CurrentRoom;
     std::optional<core::RoomId> room;
+    std::optional<core::CharacterAppearanceId> appearance;
     std::optional<core::CharacterIdleId> idle;
     core::compiled::ActorPosition position = core::compiled::ActorPosition::Center;
     core::compiled::Vector2 offset{0.0, 0.0};
@@ -124,12 +125,12 @@ struct MaterialBackgroundOccurrenceCommand {
 };
 struct MaterialSceneActorOccurrenceCommand {
     core::ActorSlotId slot;
-    core::ActorMaterialLayer layer = core::ActorMaterialLayer::Pose;
+    core::CharacterPresentationLayerId layer;
     bool operator==(const MaterialSceneActorOccurrenceCommand&) const = default;
 };
 struct MaterialScopedActorOccurrenceCommand {
     core::ScopedActorKey key;
-    core::ActorMaterialLayer layer = core::ActorMaterialLayer::Pose;
+    core::CharacterPresentationLayerId layer;
     bool operator==(const MaterialScopedActorOccurrenceCommand&) const = default;
 };
 struct MaterialPropOccurrenceCommand {
@@ -287,8 +288,8 @@ public:
                std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_scoped_actor(core::ScopedActorKey key, core::CharacterId character,
-                     core::CharacterPoseId pose, core::CharacterExpressionId expression,
-                     ScopedActorCommandOptions options);
+                     core::CharacterPresentationProfileId profile, core::CharacterPoseId pose,
+                     core::CharacterExpressionId expression, ScopedActorCommandOptions options);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     clear_scoped_actor(core::ScopedActorKey key, runtime::RuntimePresentationOwnerScope owner_scope,
                        std::optional<core::RoomId> room = std::nullopt);

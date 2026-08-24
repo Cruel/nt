@@ -218,19 +218,17 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
     require_asset(document.world.background.asset_id, "/world/background/assetId");
     for (std::size_t index = 0; index < document.world.persistent_characters.size(); ++index) {
         const auto& value = document.world.persistent_characters[index];
-        require_asset(value.visual.pose.sprite_asset_id, "/world/persistentCharacters/" +
-                                                             std::to_string(index) +
-                                                             "/visual/pose/spriteAssetId");
-        require_asset(value.visual.expression.sprite_asset_id,
-                      "/world/persistentCharacters/" + std::to_string(index) +
-                          "/visual/expression/spriteAssetId");
+        for (std::size_t layer = 0; layer < value.visual.layers.size(); ++layer)
+            require_asset(value.visual.layers[layer].sprite_asset_id,
+                          "/world/persistentCharacters/" + std::to_string(index) +
+                              "/visual/layers/" + std::to_string(layer) + "/spriteAssetId");
     }
     for (std::size_t index = 0; index < document.world.cast.size(); ++index) {
         const auto& value = document.world.cast[index];
-        require_asset(value.visual.pose.sprite_asset_id,
-                      "/world/cast/" + std::to_string(index) + "/visual/pose/spriteAssetId");
-        require_asset(value.visual.expression.sprite_asset_id,
-                      "/world/cast/" + std::to_string(index) + "/visual/expression/spriteAssetId");
+        for (std::size_t layer = 0; layer < value.visual.layers.size(); ++layer)
+            require_asset(value.visual.layers[layer].sprite_asset_id,
+                          "/world/cast/" + std::to_string(index) + "/visual/layers/" +
+                              std::to_string(layer) + "/spriteAssetId");
     }
     for (std::size_t index = 0; index < document.world.interactables.size(); ++index)
         require_asset(document.world.interactables[index].sprite_asset_id,
@@ -739,8 +737,12 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         if (std::none_of(definition.character_defaults.begin(), definition.character_defaults.end(),
                          [&](const auto& current) { return current.character == character; }))
             definition.character_defaults.push_back(
-                {character, decoded_id<core::CharacterPoseId>(visual.resolved_pose_id),
+                {character, decoded_id<core::CharacterPresentationProfileId>(visual.profile_id),
+                 decoded_id<core::CharacterPoseId>(visual.resolved_pose_id),
                  decoded_id<core::CharacterExpressionId>(visual.expression_id),
+                 visual.appearance_id
+                     ? std::optional{decoded_id<core::CharacterAppearanceId>(*visual.appearance_id)}
+                     : std::nullopt,
                  visual.idle_id ? std::optional{decoded_id<core::CharacterIdleId>(*visual.idle_id)}
                                 : std::nullopt});
     };
@@ -771,8 +773,12 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
             {decoded_id<core::RoomCastEntryId>(cast.entry_id),
              decoded_id<core::CharacterId>(cast.character_id), condition_token(cast.condition),
              decoded_id<core::RoomPlacementId>(cast.placement_id),
+             decoded_id<core::CharacterPresentationProfileId>(cast.visual.profile_id),
              decoded_id<core::CharacterPoseId>(cast.visual.resolved_pose_id),
              decoded_id<core::CharacterExpressionId>(cast.visual.expression_id),
+             cast.visual.appearance_id ? std::optional{decoded_id<core::CharacterAppearanceId>(
+                                             *cast.visual.appearance_id)}
+                                       : std::nullopt,
              cast.visual.idle_id
                  ? std::optional{decoded_id<core::CharacterIdleId>(*cast.visual.idle_id)}
                  : std::nullopt,
@@ -962,28 +968,32 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
                                                   ? core::LayoutClockDomain::UnscaledPresentation
                                                   : core::LayoutClockDomain::Gameplay};
         }
+        std::vector<core::PresentationActorLayer> layers;
+        layers.reserve(visual.layers.size());
+        for (const auto& layer : visual.layers)
+            layers.push_back({decoded_id<core::CharacterPresentationLayerId>(layer.id),
+                              layer.role,
+                              layer.sprite_asset_id
+                                  ? std::optional{decoded_id<core::AssetId>(*layer.sprite_asset_id)}
+                                  : std::nullopt,
+                              layer.material_id
+                                  ? std::optional{decoded_id<core::MaterialId>(*layer.material_id)}
+                                  : std::nullopt,
+                              {layer.anchor.x, layer.anchor.y},
+                              {layer.offset.x, layer.offset.y},
+                              layer.scale,
+                              layer.visible});
         result.characters.push_back(
             {decoded_id<core::CharacterId>(character_id),
+             decoded_id<core::CharacterPresentationProfileId>(visual.profile_id),
              decoded_id<core::CharacterPoseId>(visual.resolved_pose_id),
              decoded_id<core::CharacterExpressionId>(visual.expression_id),
+             visual.appearance_id
+                 ? std::optional{decoded_id<core::CharacterAppearanceId>(*visual.appearance_id)}
+                 : std::nullopt,
              visual.idle_id ? std::optional{decoded_id<core::CharacterIdleId>(*visual.idle_id)}
                             : std::nullopt,
-             visual.pose.sprite_asset_id
-                 ? std::optional{decoded_id<core::AssetId>(*visual.pose.sprite_asset_id)}
-                 : std::nullopt,
-             visual.pose.material_id
-                 ? std::optional{decoded_id<core::MaterialId>(*visual.pose.material_id)}
-                 : std::nullopt,
-             {visual.pose.anchor.x, visual.pose.anchor.y},
-             {visual.pose.offset.x, visual.pose.offset.y},
-             visual.pose.scale,
-             visual.expression.sprite_asset_id
-                 ? std::optional{decoded_id<core::AssetId>(*visual.expression.sprite_asset_id)}
-                 : std::nullopt,
-             visual.expression.material_id
-                 ? std::optional{decoded_id<core::MaterialId>(*visual.expression.material_id)}
-                 : std::nullopt,
-             std::move(idle)});
+             std::move(layers), std::move(idle)});
     };
     for (const auto& character : document.world.persistent_characters)
         append_character(character.character_id, character.visual);

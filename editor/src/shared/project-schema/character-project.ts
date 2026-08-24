@@ -6,8 +6,11 @@ import {
   type CharacterAssetRef,
   type CharacterData,
   type CharacterExpressionData,
+  type CharacterLayerCompositionData,
+  type CharacterLayerOverrideData,
   type CharacterMaterialRef,
   type CharacterPoseData,
+  type CharacterPresentationProfileData,
 } from './authoring-characters';
 import { parseMaterialData } from './authoring-materials';
 import type { AuthoringProject } from './authoring-project';
@@ -63,8 +66,19 @@ function materialMetadata(
   };
 }
 
-function selectedPose(data: CharacterData): CharacterPoseData | null {
-  return data.poses.find((pose) => pose.id === data.defaults.poseId) ?? data.poses[0] ?? null;
+function selectedProfile(data: CharacterData): CharacterPresentationProfileData | null {
+  return (
+    data.profiles.find((profile) => profile.id === data.defaults.profileId) ??
+    data.profiles[0] ??
+    null
+  );
+}
+
+function selectedPose(profile: CharacterPresentationProfileData | null): CharacterPoseData | null {
+  if (!profile) return null;
+  return (
+    profile.poses.find((pose) => pose.id === profile.defaultPoseId) ?? profile.poses[0] ?? null
+  );
 }
 
 function selectedExpression(data: CharacterData): CharacterExpressionData | null {
@@ -75,19 +89,12 @@ function selectedExpression(data: CharacterData): CharacterExpressionData | null
   );
 }
 
-function posePayload(
-  project: AuthoringProject,
-  pose: CharacterPoseData | null,
-): Record<string, unknown> | null {
+function posePayload(pose: CharacterPoseData | null): Record<string, unknown> | null {
   if (!pose) return null;
   return {
     id: pose.id,
     label: pose.label,
-    sprite: assetMetadata(project, pose.sprite),
-    material: materialMetadata(project, pose.material),
-    offset: pose.offset,
-    scale: pose.scale,
-    anchor: pose.anchor,
+    layers: pose.layers.map((layer) => ({ layerId: layer.layerId })),
   };
 }
 
@@ -99,22 +106,104 @@ function expressionPayload(
   return {
     id: expression.id,
     label: expression.label,
-    poseId: expression.poseId,
-    sprite: assetMetadata(project, expression.sprite),
-    material: materialMetadata(project, expression.material),
+    profiles: expression.profiles.map((entry) => ({ profileId: entry.profileId })),
   };
+}
+
+function profileOverrides<
+  T extends { profiles: Array<{ profileId: string; layers: CharacterLayerOverrideData[] }> },
+>(entry: T | null | undefined, profileId: string): CharacterLayerOverrideData[] | null {
+  return entry?.profiles.find((candidate) => candidate.profileId === profileId)?.layers ?? null;
+}
+
+function applyOverrides(
+  layer: CharacterLayerCompositionData,
+  overrides: CharacterLayerOverrideData[] | null,
+): CharacterLayerCompositionData {
+  const patch = overrides?.find((candidate) => candidate.layerId === layer.layerId);
+  if (!patch) return layer;
+  return {
+    ...layer,
+    ...(patch.sprite !== undefined ? { sprite: patch.sprite } : {}),
+    ...(patch.material !== undefined ? { material: patch.material } : {}),
+    ...(patch.visible !== undefined ? { visible: patch.visible } : {}),
+  };
+}
+
+export function resolveCharacterPresentationLayers(
+  data: CharacterData,
+  profileId = data.defaults.profileId,
+  poseId: string | null = null,
+  expressionId = data.defaults.expressionId,
+  appearanceId: string | null = data.defaults.appearanceId,
+): Array<{
+  id: string;
+  role: string | null;
+  sprite: CharacterAssetRef | null;
+  material: CharacterMaterialRef | null;
+  offset: { x: number; y: number };
+  scale: number;
+  anchor: { x: number; y: number };
+  visible: boolean;
+}> {
+  const profile = data.profiles.find((candidate) => candidate.id === profileId) ?? data.profiles[0];
+  if (!profile) return [];
+  const pose =
+    profile.poses.find((candidate) => candidate.id === (poseId ?? profile.defaultPoseId)) ??
+    profile.poses[0];
+  if (!pose) return [];
+
+  const expression = data.expressions.find((candidate) => candidate.id === expressionId);
+  const defaultExpression = data.expressions.find(
+    (candidate) => candidate.id === data.defaults.expressionId,
+  );
+  const expressionOverrides =
+    profileOverrides(expression, profile.id) ??
+    (expression?.id !== defaultExpression?.id
+      ? profileOverrides(defaultExpression, profile.id)
+      : null);
+  const appearance = appearanceId
+    ? data.appearances.find((candidate) => candidate.id === appearanceId)
+    : null;
+  const appearanceOverrides = profileOverrides(appearance, profile.id);
+  return profile.layers.flatMap((definition) => {
+    const base = pose.layers.find((candidate) => candidate.layerId === definition.id);
+    if (!base) return [];
+    const withExpression = applyOverrides(base, expressionOverrides);
+    const resolved = applyOverrides(withExpression, appearanceOverrides);
+    return [
+      {
+        id: resolved.layerId,
+        role: definition.role,
+        sprite: resolved.sprite,
+        material: resolved.material,
+        offset: resolved.offset,
+        scale: resolved.scale,
+        anchor: resolved.anchor,
+        visible: resolved.visible,
+      },
+    ];
+  });
 }
 
 function dependencyRevision(project: AuthoringProject, data: CharacterData): string[] {
   const assetIds = new Set<string>();
   const materialIds = new Set<string>();
-  for (const pose of data.poses) {
-    if (pose.sprite) assetIds.add(pose.sprite.$ref.id);
-    if (pose.material) materialIds.add(pose.material.$ref.id);
+  for (const profile of data.profiles) {
+    for (const pose of profile.poses) {
+      for (const layer of pose.layers) {
+        if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
+        if (layer.material) materialIds.add(layer.material.$ref.id);
+      }
+    }
   }
-  for (const expression of data.expressions) {
-    if (expression.sprite) assetIds.add(expression.sprite.$ref.id);
-    if (expression.material) materialIds.add(expression.material.$ref.id);
+  for (const entry of [...data.expressions, ...data.appearances]) {
+    for (const profile of entry.profiles) {
+      for (const layer of profile.layers) {
+        if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
+        if (layer.material) materialIds.add(layer.material.$ref.id);
+      }
+    }
   }
   const assets = [...assetIds].sort().map((id) => {
     const asset = project.assets[id];
@@ -160,14 +249,19 @@ export function buildCharacterPreviewDocumentData(
     };
   }
 
-  const pose = selectedPose(data);
+  const profile = selectedProfile(data);
+  const pose = selectedPose(profile);
   const expression = selectedExpression(data);
-  const resolvedSprite = expression?.sprite
-    ? assetMetadata(project, expression.sprite)
-    : assetMetadata(project, pose?.sprite ?? null);
-  const resolvedMaterial = expression?.material
-    ? materialMetadata(project, expression.material)
-    : materialMetadata(project, pose?.material ?? null);
+  const resolvedLayers = resolveCharacterPresentationLayers(data).map((layer) => ({
+    id: layer.id,
+    role: layer.role,
+    sprite: assetMetadata(project, layer.sprite),
+    material: materialMetadata(project, layer.material),
+    offset: layer.offset,
+    scale: layer.scale,
+    anchor: layer.anchor,
+    visible: layer.visible,
+  }));
 
   return {
     schema: CHARACTER_PREVIEW_SCHEMA,
@@ -176,13 +270,21 @@ export function buildCharacterPreviewDocumentData(
     displayName: data.displayName,
     dialogue: data.dialogue,
     selected: {
-      poseId: pose?.id ?? data.defaults.poseId,
+      profileId: profile?.id ?? data.defaults.profileId,
+      poseId: pose?.id ?? profile?.defaultPoseId ?? '',
       expressionId: expression?.id ?? data.defaults.expressionId,
+      appearanceId: data.defaults.appearanceId,
     },
-    pose: posePayload(project, pose),
+    profile: profile
+      ? {
+          id: profile.id,
+          label: profile.label,
+          layers: profile.layers,
+        }
+      : null,
+    pose: posePayload(pose),
     expression: expressionPayload(project, expression),
-    resolvedSprite,
-    resolvedMaterial,
+    resolvedLayers,
     diagnostics: validateCharacterData(project, characterId, effectiveRecord),
   };
 }

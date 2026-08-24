@@ -2623,7 +2623,8 @@ TEST_CASE("runtime Lua scoped presentation families share typed owner commands a
         fixture,
         "local ok, err = noveltea.presentation.set_background({owner='current-room', "
         "color='#223344', fit='contain'}); assert(ok and err == nil)\n"
-        "ok, err = noveltea.presentation.set_actor('speaker', 'hero', 'default', 'neutral', "
+        "ok, err = noveltea.presentation.set_actor('speaker', 'hero', 'stage', 'default', "
+        "'neutral', "
         "{owner='current-room', position='left', offset_x=0.1, offset_y=-0.2, scale=1.2}); "
         "assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.set_prop('lantern', {owner='current-room', "

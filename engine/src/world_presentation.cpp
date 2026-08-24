@@ -519,12 +519,13 @@ WorldPresentationLayoutPolicy::fit_background(Size viewport, Size texture,
     return result;
 }
 
-Rect WorldPresentationLayoutPolicy::actor_rect(const core::PresentationActor& actor, Size viewport,
-                                               Size texture) noexcept
+Rect WorldPresentationLayoutPolicy::actor_rect(const core::PresentationActor& actor,
+                                               const core::PresentationActorLayer& layer,
+                                               Size viewport, Size texture) noexcept
 {
     if (texture.width <= 0.0f || texture.height <= 0.0f)
         texture = {viewport.width * 0.32f, viewport.height * 0.78f};
-    const float scale = static_cast<float>(actor.pose_scale * actor.placement.scale);
+    const float scale = static_cast<float>(layer.scale * actor.placement.scale);
     const float width = texture.width * scale;
     const float height = texture.height * scale;
 
@@ -550,10 +551,10 @@ Rect WorldPresentationLayoutPolicy::actor_rect(const core::PresentationActor& ac
 
     anchor_x += static_cast<float>(actor.placement.offset.x) * viewport.width;
     anchor_y += static_cast<float>(actor.placement.offset.y) * viewport.height;
-    anchor_x += static_cast<float>(actor.pose_offset.x) * scale;
-    anchor_y += static_cast<float>(actor.pose_offset.y) * scale;
-    return {anchor_x - static_cast<float>(actor.pose_anchor.x) * width,
-            anchor_y - static_cast<float>(actor.pose_anchor.y) * height, width, height};
+    anchor_x += static_cast<float>(layer.offset.x) * scale;
+    anchor_y += static_cast<float>(layer.offset.y) * scale;
+    return {anchor_x - static_cast<float>(layer.anchor.x) * width,
+            anchor_y - static_cast<float>(layer.anchor.y) * height, width, height};
 }
 
 core::Result<bool, core::Diagnostics>
@@ -713,41 +714,28 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                                              "actor/" + identity));
             continue;
         }
-        auto pose = m_resources.resolve(actor.pose_sprite, actor.pose_material,
-                                        "actor/" + identity + "/pose");
-        const WorldPreparedVisual* pose_visual = nullptr;
-        if (!pose) {
-            append_resource_diagnostics(diagnostics, pose);
-        } else {
-            pose_visual = pose.value_if();
-            const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, viewport,
-                                                                        visual_size(*pose_visual));
+        for (std::size_t layer_index = 0; layer_index < actor.layers.size(); ++layer_index) {
+            const auto& layer = actor.layers[layer_index];
+            if (!layer.visible)
+                continue;
+            auto resolved = m_resources.resolve(layer.sprite, layer.material,
+                                                "actor/" + identity + "/layer/" + layer.id.text());
+            if (!resolved) {
+                append_resource_diagnostics(diagnostics, resolved);
+                continue;
+            }
+            const auto* visual = resolved.value_if();
+            if (!visual->texture && !visual->material)
+                continue;
+            const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, layer, viewport,
+                                                                        visual_size(*visual));
             append_visual_draw(
-                candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order, identity, 0,
-                rect, full_uv, *pose_visual, actor.idle, std::nullopt, {0.0, 0.0},
-                actor.material_owner,
+                candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order, identity,
+                static_cast<std::int32_t>(layer_index), rect, full_uv, *visual, actor.idle,
+                std::nullopt, {0.0, 0.0}, actor.material_owner,
                 actor.material_owner
                     ? std::optional<core::MaterialOccurrence>{core::ActorMaterialOccurrence{
-                          actor.key, core::ActorMaterialLayer::Pose}}
-                    : std::nullopt);
-        }
-
-        auto expression = m_resources.resolve(actor.expression_sprite, actor.expression_material,
-                                              "actor/" + identity + "/expression");
-        if (!expression) {
-            append_resource_diagnostics(diagnostics, expression);
-        } else if (const auto* visual = expression.value_if();
-                   visual->texture || visual->material) {
-            Size size = visual_size(*visual);
-            if (size.width <= 0.0f || size.height <= 0.0f)
-                size = pose_visual ? visual_size(*pose_visual) : Size{};
-            const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, viewport, size);
-            append_visual_draw(
-                candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order, identity, 1,
-                rect, full_uv, *visual, actor.idle, std::nullopt, {0.0, 0.0}, actor.material_owner,
-                actor.material_owner
-                    ? std::optional<core::MaterialOccurrence>{core::ActorMaterialOccurrence{
-                          actor.key, core::ActorMaterialLayer::Expression}}
+                          actor.key, layer.id}}
                     : std::nullopt);
         }
     }

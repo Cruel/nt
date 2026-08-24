@@ -331,8 +331,9 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       const data = defaultCharacterData(draft.basics.label);
       const spriteId = selected(draft.options.spriteId);
       const materialId = selected(draft.options.materialId);
-      if (spriteId) data.poses[0]!.sprite = ref('assets', spriteId);
-      if (materialId) data.poses[0]!.material = ref('materials', materialId);
+      const layer = data.profiles[0]?.poses[0]?.layers[0];
+      if (layer && spriteId) layer.sprite = ref('assets', spriteId);
+      if (layer && materialId) layer.material = ref('materials', materialId);
       return { data };
     },
   },

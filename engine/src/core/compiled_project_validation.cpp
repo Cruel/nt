@@ -820,31 +820,134 @@ private:
             const auto path = item("/definitions/characters", index);
             validate_assignments(character, PropertyOwnerKind::Character, path);
             validate_inventories(character.inventories, path + "/inventories");
-            std::unordered_set<CharacterPoseId> poses;
+            std::unordered_set<CharacterPresentationProfileId> profiles;
             std::unordered_set<CharacterExpressionId> expressions;
+            std::unordered_set<CharacterAppearanceId> appearances;
             std::unordered_set<CharacterIdleId> idles;
-            for (const auto& pose : character.poses) {
-                poses.insert(pose.id);
-                if (pose.sprite)
-                    require(m_assets, *pose.sprite, "asset", path + "/poses/sprite");
-            }
-            for (const auto& expression : character.expressions) {
-                expressions.insert(expression.id);
-                if (expression.pose_id && !poses.contains(*expression.pose_id))
+            for (std::size_t profile_index = 0; profile_index < character.profiles.size();
+                 ++profile_index) {
+                const auto& profile = character.profiles[profile_index];
+                const auto profile_path = path + "/profiles/" + std::to_string(profile_index);
+                if (!profiles.insert(profile.id).second)
+                    error("compiled_project.duplicate_nested_id",
+                          "Duplicate Character presentation profile ID.", profile_path + "/id");
+                std::unordered_set<CharacterPresentationLayerId> layers;
+                for (std::size_t layer_index = 0; layer_index < profile.layers.size();
+                     ++layer_index) {
+                    if (!layers.insert(profile.layers[layer_index].id).second)
+                        error("compiled_project.duplicate_nested_id",
+                              "Duplicate Character presentation layer ID.",
+                              profile_path + "/layers/" + std::to_string(layer_index) + "/id");
+                }
+                std::unordered_set<CharacterPoseId> poses;
+                for (std::size_t pose_index = 0; pose_index < profile.poses.size(); ++pose_index) {
+                    const auto& pose = profile.poses[pose_index];
+                    const auto pose_path = profile_path + "/poses/" + std::to_string(pose_index);
+                    if (!poses.insert(pose.id).second)
+                        error("compiled_project.duplicate_nested_id",
+                              "Duplicate Character pose ID.", pose_path + "/id");
+                    std::unordered_set<CharacterPresentationLayerId> pose_layers;
+                    for (std::size_t layer_index = 0; layer_index < pose.layers.size();
+                         ++layer_index) {
+                        const auto& layer = pose.layers[layer_index];
+                        const auto layer_path =
+                            pose_path + "/layers/" + std::to_string(layer_index);
+                        if (!pose_layers.insert(layer.layer_id).second)
+                            error("compiled_project.duplicate_nested_id",
+                                  "Duplicate Character pose layer ID.", layer_path + "/layerId");
+                        if (!layers.contains(layer.layer_id))
+                            error("compiled_project.unresolved_nested_reference",
+                                  "Character pose references a missing presentation layer.",
+                                  layer_path + "/layerId");
+                        if (layer.sprite)
+                            require(m_assets, *layer.sprite, "asset", layer_path + "/sprite");
+                        if (layer.material)
+                            require(m_material_interfaces, *layer.material, "material",
+                                    layer_path + "/material");
+                    }
+                }
+                if (!poses.contains(profile.default_pose_id))
                     error("compiled_project.unresolved_nested_reference",
-                          "Character expression references a missing pose.",
-                          path + "/expressions/poseId");
-                if (expression.sprite)
-                    require(m_assets, *expression.sprite, "asset", path + "/expressions/sprite");
+                          "Character presentation profile default pose is missing.",
+                          profile_path + "/defaultPoseId");
+            }
+            const auto validate_overrides = [&](const auto& entry, const std::string& entry_path) {
+                std::unordered_set<CharacterPresentationProfileId> seen_profiles;
+                for (std::size_t profile_index = 0; profile_index < entry.profiles.size();
+                     ++profile_index) {
+                    const auto& profile_override = entry.profiles[profile_index];
+                    const auto override_path =
+                        entry_path + "/profiles/" + std::to_string(profile_index);
+                    if (!seen_profiles.insert(profile_override.profile_id).second)
+                        error("compiled_project.duplicate_nested_id",
+                              "Duplicate Character semantic profile override.",
+                              override_path + "/profileId");
+                    const auto profile =
+                        std::ranges::find_if(character.profiles, [&](const auto& candidate) {
+                            return candidate.id == profile_override.profile_id;
+                        });
+                    if (profile == character.profiles.end()) {
+                        error("compiled_project.unresolved_nested_reference",
+                              "Character semantic override references a missing profile.",
+                              override_path + "/profileId");
+                        continue;
+                    }
+                    std::unordered_set<CharacterPresentationLayerId> seen_layers;
+                    for (std::size_t layer_index = 0; layer_index < profile_override.layers.size();
+                         ++layer_index) {
+                        const auto& layer = profile_override.layers[layer_index];
+                        const auto layer_path =
+                            override_path + "/layers/" + std::to_string(layer_index);
+                        if (!seen_layers.insert(layer.layer_id).second)
+                            error("compiled_project.duplicate_nested_id",
+                                  "Duplicate Character semantic layer override.",
+                                  layer_path + "/layerId");
+                        if (std::ranges::none_of(profile->layers, [&](const auto& candidate) {
+                                return candidate.id == layer.layer_id;
+                            }))
+                            error("compiled_project.unresolved_nested_reference",
+                                  "Character semantic override references a missing layer.",
+                                  layer_path + "/layerId");
+                        if (layer.sprite.specified && layer.sprite.value)
+                            require(m_assets, *layer.sprite.value, "asset", layer_path + "/sprite");
+                        if (layer.material.specified && layer.material.value)
+                            require(m_material_interfaces, *layer.material.value, "material",
+                                    layer_path + "/material");
+                    }
+                }
+            };
+            for (std::size_t expression_index = 0; expression_index < character.expressions.size();
+                 ++expression_index) {
+                const auto& expression = character.expressions[expression_index];
+                if (!expressions.insert(expression.id).second)
+                    error("compiled_project.duplicate_nested_id",
+                          "Duplicate Character expression ID.",
+                          path + "/expressions/" + std::to_string(expression_index) + "/id");
+                validate_overrides(expression,
+                                   path + "/expressions/" + std::to_string(expression_index));
+            }
+            for (std::size_t appearance_index = 0; appearance_index < character.appearances.size();
+                 ++appearance_index) {
+                const auto& appearance = character.appearances[appearance_index];
+                if (!appearances.insert(appearance.id).second)
+                    error("compiled_project.duplicate_nested_id",
+                          "Duplicate Character appearance ID.",
+                          path + "/appearances/" + std::to_string(appearance_index) + "/id");
+                validate_overrides(appearance,
+                                   path + "/appearances/" + std::to_string(appearance_index));
             }
             for (const auto& idle : character.idles)
                 idles.insert(idle.id);
-            if (!poses.contains(character.defaults.pose_id))
-                error("compiled_project.unresolved_nested_reference", "Default pose is missing.",
-                      path + "/defaults/poseId");
+            if (!profiles.contains(character.defaults.profile_id))
+                error("compiled_project.unresolved_nested_reference", "Default profile is missing.",
+                      path + "/defaults/profileId");
             if (!expressions.contains(character.defaults.expression_id))
                 error("compiled_project.unresolved_nested_reference",
                       "Default expression is missing.", path + "/defaults/expressionId");
+            if (character.defaults.appearance_id &&
+                !appearances.contains(*character.defaults.appearance_id))
+                error("compiled_project.unresolved_nested_reference",
+                      "Default appearance is missing.", path + "/defaults/appearanceId");
             if (character.defaults.idle_id && !idles.contains(*character.defaults.idle_id))
                 error("compiled_project.unresolved_nested_reference", "Default idle is missing.",
                       path + "/defaults/idleId");
@@ -904,9 +1007,18 @@ private:
                 const auto character = m_characters.find(entry.character);
                 if (character != m_characters.end()) {
                     const auto& definition = m_input.characters[character->second];
-                    const CharacterExpression* expression = nullptr;
-                    if (entry.pose_id &&
-                        std::ranges::none_of(definition.poses, [&](const auto& pose) {
+                    const auto profile_id =
+                        entry.profile_id.value_or(definition.defaults.profile_id);
+                    const auto profile =
+                        std::ranges::find_if(definition.profiles, [&](const auto& candidate) {
+                            return candidate.id == profile_id;
+                        });
+                    if (profile == definition.profiles.end())
+                        error("compiled_project.unresolved_nested_reference",
+                              "Room cast profile is absent from its Character.",
+                              cast_path + "/profileId");
+                    if (entry.pose_id && profile != definition.profiles.end() &&
+                        std::ranges::none_of(profile->poses, [&](const auto& pose) {
                             return pose.id == *entry.pose_id;
                         }))
                         error("compiled_project.unresolved_nested_reference",
@@ -921,13 +1033,14 @@ private:
                             error("compiled_project.unresolved_nested_reference",
                                   "Room cast expression is absent from its Character.",
                                   cast_path + "/expressionId");
-                        else
-                            expression = &*found;
                     }
-                    if (entry.pose_id && expression && expression->pose_id &&
-                        *entry.pose_id != *expression->pose_id)
-                        error("compiled_project.incompatible_character_presentation",
-                              "Room cast pose and expression are incompatible.", cast_path);
+                    if (entry.appearance_id &&
+                        std::ranges::none_of(definition.appearances, [&](const auto& appearance) {
+                            return appearance.id == *entry.appearance_id;
+                        }))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Room cast appearance is absent from its Character.",
+                              cast_path + "/appearanceId");
                     if (entry.idle_id &&
                         std::ranges::none_of(definition.idles, [&](const auto& idle) {
                             return idle.id == *entry.idle_id;
@@ -1324,8 +1437,18 @@ private:
                             const auto found = m_characters.find(instruction.character);
                             if (found != m_characters.end()) {
                                 const auto& character = m_input.characters[found->second];
-                                if (instruction.pose_id &&
-                                    std::ranges::none_of(character.poses,
+                                const auto profile_id =
+                                    instruction.profile_id.value_or(character.defaults.profile_id);
+                                const auto profile = std::ranges::find_if(
+                                    character.profiles, [&](const auto& candidate) {
+                                        return candidate.id == profile_id;
+                                    });
+                                if (profile == character.profiles.end())
+                                    error("compiled_project.unresolved_nested_reference",
+                                          "Actor cue profile is absent from its Character.",
+                                          instruction_path + "/profileId");
+                                if (instruction.pose_id && profile != character.profiles.end() &&
+                                    std::ranges::none_of(profile->poses,
                                                          [&](const CharacterPose& p) {
                                                              return p.id == *instruction.pose_id;
                                                          }))
@@ -1341,6 +1464,15 @@ private:
                                     error("compiled_project.unresolved_nested_reference",
                                           "Actor cue expression is absent from its Character.",
                                           instruction_path + "/expressionId");
+                                if (instruction.appearance_id &&
+                                    std::ranges::none_of(
+                                        character.appearances,
+                                        [&](const CharacterAppearance& appearance) {
+                                            return appearance.id == *instruction.appearance_id;
+                                        }))
+                                    error("compiled_project.unresolved_nested_reference",
+                                          "Actor cue appearance is absent from its Character.",
+                                          instruction_path + "/appearanceId");
                             }
                         } else if constexpr (std::is_same_v<T, CallDialogueSceneInstruction>) {
                             require(m_dialogues, instruction.dialogue, "dialogue",
@@ -1644,9 +1776,22 @@ private:
                                             if (found != m_characters.end()) {
                                                 const auto& character =
                                                     m_input.characters[found->second];
+                                                const auto profile_id = child.profile_id.value_or(
+                                                    character.defaults.profile_id);
+                                                const auto profile = std::ranges::find_if(
+                                                    character.profiles, [&](const auto& candidate) {
+                                                        return candidate.id == profile_id;
+                                                    });
+                                                if (profile == character.profiles.end())
+                                                    error("compiled_project.unresolved_nested_"
+                                                          "reference",
+                                                          "TransitionGroup actor profile is absent "
+                                                          "from its Character.",
+                                                          child_path + "/profileId");
                                                 if (child.pose_id &&
+                                                    profile != character.profiles.end() &&
                                                     std::ranges::none_of(
-                                                        character.poses,
+                                                        profile->poses,
                                                         [&](const CharacterPose& pose) {
                                                             return pose.id == *child.pose_id;
                                                         }))
@@ -1669,6 +1814,18 @@ private:
                                                           "absent "
                                                           "from its Character.",
                                                           child_path + "/expressionId");
+                                                if (child.appearance_id &&
+                                                    std::ranges::none_of(
+                                                        character.appearances,
+                                                        [&](const CharacterAppearance& appearance) {
+                                                            return appearance.id ==
+                                                                   *child.appearance_id;
+                                                        }))
+                                                    error("compiled_project.unresolved_nested_"
+                                                          "reference",
+                                                          "TransitionGroup actor appearance is "
+                                                          "absent from its Character.",
+                                                          child_path + "/appearanceId");
                                             }
                                         } else if constexpr (std::is_same_v<
                                                                  C,

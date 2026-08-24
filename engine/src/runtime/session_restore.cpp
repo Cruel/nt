@@ -594,10 +594,10 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
         if (!key)
             return Result<SessionState, Diagnostics>::failure(key.error());
         auto restored = state->set_actor(
-            project,
-            DesiredActorPresentation{*key.value_if(), *owner.value_if(), saved.character,
-                                     saved.pose, saved.expression, saved.idle, saved.placement,
-                                     saved.visible, saved.presentation_complete});
+            project, DesiredActorPresentation{*key.value_if(), *owner.value_if(), saved.character,
+                                              saved.profile, saved.pose, saved.expression,
+                                              saved.appearance, saved.idle, saved.placement,
+                                              saved.visible, saved.presentation_complete});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }

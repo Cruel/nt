@@ -58,7 +58,15 @@ export type SceneStepType = (typeof sceneStepTypeValues)[number];
 
 export const sceneBackgroundFitValues = ['cover', 'contain', 'stretch', 'center'] as const;
 export const sceneBackgroundTransitionValues = ['none', 'fade', 'cut'] as const;
-export const sceneCharacterActionValues = ['show', 'hide', 'move', 'pose', 'expression'] as const;
+export const sceneCharacterActionValues = [
+  'show',
+  'hide',
+  'move',
+  'profile',
+  'pose',
+  'expression',
+  'appearance',
+] as const;
 export const sceneCharacterPositionValues = ['left', 'center', 'right', 'custom'] as const;
 export const sceneCharacterTransitionValues = ['none', 'fade', 'slide'] as const;
 export const sceneAudioPurposeValues = audioPurposeValues;
@@ -118,8 +126,10 @@ const actorCueStepSchema = strict({
   slotId: entityIdSchema,
   character: sceneCharacterRefSchema,
   action: z.enum(sceneCharacterActionValues),
+  profileId: entityIdSchema.nullable().optional(),
   poseId: entityIdSchema.nullable(),
   expressionId: entityIdSchema.nullable(),
+  appearanceId: entityIdSchema.nullable().optional(),
   position: z.enum(sceneCharacterPositionValues),
   offset: strict({ x: z.number().finite(), y: z.number().finite() }),
   scale: z.number().finite().positive(),
@@ -236,7 +246,7 @@ const materialOccurrenceTargetSchema = z.discriminatedUnion('kind', [
   strict({
     kind: z.literal('actor'),
     slotId: entityIdSchema,
-    layer: z.enum(['pose', 'expression']),
+    layerId: entityIdSchema,
   }),
   strict({ kind: z.literal('layout'), slot: z.enum(sceneLayoutSlotValues) }),
   strict({ kind: z.literal('postprocess'), instanceId: entityIdSchema }),
@@ -290,8 +300,10 @@ const transitionGroupChildSchema = z.discriminatedUnion('type', [
     slotId: entityIdSchema,
     character: sceneCharacterRefSchema,
     action: z.enum(sceneCharacterActionValues),
+    profileId: entityIdSchema.nullable().optional(),
     poseId: entityIdSchema.nullable(),
     expressionId: entityIdSchema.nullable(),
+    appearanceId: entityIdSchema.nullable().optional(),
     position: z.enum(sceneCharacterPositionValues),
     offset: strict({ x: z.number().finite(), y: z.number().finite() }),
     scale: z.number().finite().positive(),
@@ -407,8 +419,10 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         slotId: 'actor',
         character: sceneCharacterRef('character'),
         action: 'show',
+        profileId: null,
         poseId: null,
         expressionId: null,
+        appearanceId: null,
         position: 'center',
         offset: { x: 0, y: 0 },
         scale: 1,

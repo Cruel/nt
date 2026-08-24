@@ -26,8 +26,10 @@ using RoomPresentationTextTokenResolver =
 struct RoomPresentationDefinitionView {
     struct CharacterDefaults {
         CharacterId character;
+        CharacterPresentationProfileId profile;
         CharacterPoseId pose;
         CharacterExpressionId expression;
+        std::optional<CharacterAppearanceId> appearance;
         std::optional<CharacterIdleId> idle;
     };
     struct Overlay {
@@ -42,8 +44,10 @@ struct RoomPresentationDefinitionView {
         CharacterId character;
         RoomPresentationConditionToken condition = 0;
         RoomPlacementId placement;
+        std::optional<CharacterPresentationProfileId> profile;
         std::optional<CharacterPoseId> pose;
         std::optional<CharacterExpressionId> expression;
+        std::optional<CharacterAppearanceId> appearance;
         std::optional<CharacterIdleId> idle;
         bool visible = true;
         std::int32_t order = 0;
@@ -144,8 +148,10 @@ struct ResolvedRoomActor {
     ResolvedRoomActorId id;
     CharacterId character;
     RoomPlacementId placement;
+    CharacterPresentationProfileId profile;
     CharacterPoseId pose;
     CharacterExpressionId expression;
+    std::optional<CharacterAppearanceId> appearance;
     std::optional<CharacterIdleId> idle;
     bool enabled = true;
     bool visible = true;

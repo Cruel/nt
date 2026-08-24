@@ -293,16 +293,17 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                                                     std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"defaults", "dialogue", "displayName", "expressions", "id", "idles",
-                         "initialWorldState", "inventories", "poses", "propertyAssignments",
-                         "traits"}))
+                        {"appearances", "defaults", "dialogue", "displayName", "expressions", "id",
+                         "idles", "initialWorldState", "inventories", "profiles",
+                         "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<CharacterId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
     const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
     const auto* defaults_value = decoder.member(value, "defaults", pointer);
-    const auto* poses_value = decoder.member(value, "poses", pointer);
+    const auto* profiles_value = decoder.member(value, "profiles", pointer);
     const auto* expressions_value = decoder.member(value, "expressions", pointer);
+    const auto* appearances_value = decoder.member(value, "appearances", pointer);
     const auto* idles_value = json_access::member(value, "idles");
     const auto* inventories_value = decoder.member(value, "inventories", pointer);
     const auto* initial_world_value = decoder.member(value, "initialWorldState", pointer);
@@ -345,20 +346,30 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
     }
     std::optional<CharacterDefaults> defaults;
     if (defaults_value && decoder.object(*defaults_value, pointer_child(pointer, "defaults"),
-                                         {"expressionId", "idleId", "poseId"})) {
+                                         {"appearanceId", "expressionId", "idleId", "profileId"})) {
         const auto defaults_pointer = pointer_child(pointer, "defaults");
+        const auto* profile_value = decoder.member(*defaults_value, "profileId", defaults_pointer);
         const auto* expression_value =
             decoder.member(*defaults_value, "expressionId", defaults_pointer);
-        const auto* pose_value = decoder.member(*defaults_value, "poseId", defaults_pointer);
+        const auto* appearance_value =
+            decoder.member(*defaults_value, "appearanceId", defaults_pointer);
         const auto* idle_value = json_access::member(*defaults_value, "idleId");
+        auto profile = profile_value
+                           ? decoder.id<CharacterPresentationProfileId>(
+                                 *profile_value, pointer_child(defaults_pointer, "profileId"))
+                           : std::nullopt;
         auto expression =
             expression_value
                 ? decoder.id<CharacterExpressionId>(*expression_value,
                                                     pointer_child(defaults_pointer, "expressionId"))
                 : std::nullopt;
-        auto pose = pose_value ? decoder.id<CharacterPoseId>(
-                                     *pose_value, pointer_child(defaults_pointer, "poseId"))
-                               : std::nullopt;
+        std::optional<CharacterAppearanceId> appearance;
+        bool appearance_ok = appearance_value != nullptr;
+        if (appearance_value && !appearance_value->is_null()) {
+            appearance = decoder.id<CharacterAppearanceId>(
+                *appearance_value, pointer_child(defaults_pointer, "appearanceId"));
+            appearance_ok = appearance.has_value();
+        }
         std::optional<CharacterIdleId> idle;
         bool idle_ok = true;
         if (idle_value && !idle_value->is_null()) {
@@ -366,117 +377,302 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                 decoder.id<CharacterIdleId>(*idle_value, pointer_child(defaults_pointer, "idleId"));
             idle_ok = idle.has_value();
         }
-        if (expression && pose && idle_ok)
-            defaults = CharacterDefaults{std::move(*expression), std::move(*pose), std::move(idle)};
+        if (profile && expression && appearance_ok && idle_ok)
+            defaults = CharacterDefaults{std::move(*profile), std::move(*expression),
+                                         std::move(appearance), std::move(idle)};
     }
-    auto poses =
-        poses_value
-            ? decoder.array<CharacterPose>(
-                  *poses_value, pointer_child(pointer, "poses"),
-                  [&](const nlohmann::json& pose,
-                      const std::string& pose_pointer) -> std::optional<CharacterPose> {
-                      if (!decoder.object(
-                              pose, pose_pointer,
-                              {"anchor", "id", "material", "offset", "scale", "sprite"}))
+    const auto decode_layer_composition =
+        [&](const nlohmann::json& layer,
+            const std::string& layer_pointer) -> std::optional<CharacterLayerComposition> {
+        if (!decoder.object(
+                layer, layer_pointer,
+                {"anchor", "layerId", "material", "offset", "scale", "sprite", "visible"}))
+            return std::nullopt;
+        const auto* layer_id_value = decoder.member(layer, "layerId", layer_pointer);
+        const auto* sprite_value = decoder.member(layer, "sprite", layer_pointer);
+        const auto* material_value = decoder.member(layer, "material", layer_pointer);
+        const auto* offset_value = decoder.member(layer, "offset", layer_pointer);
+        const auto* scale_value = decoder.member(layer, "scale", layer_pointer);
+        const auto* anchor_value = decoder.member(layer, "anchor", layer_pointer);
+        const auto* visible_value = decoder.member(layer, "visible", layer_pointer);
+        auto layer_id = layer_id_value
+                            ? decoder.id<CharacterPresentationLayerId>(
+                                  *layer_id_value, pointer_child(layer_pointer, "layerId"))
+                            : std::nullopt;
+        std::optional<AssetId> sprite;
+        bool sprite_ok = sprite_value != nullptr;
+        if (sprite_value && !sprite_value->is_null()) {
+            sprite = decode_reference<AssetId>(decoder, *sprite_value,
+                                               pointer_child(layer_pointer, "sprite"), "asset");
+            sprite_ok = sprite.has_value();
+        }
+        std::optional<MaterialId> material;
+        bool material_ok = material_value != nullptr;
+        if (material_value && !material_value->is_null()) {
+            material = decode_reference<MaterialId>(
+                decoder, *material_value, pointer_child(layer_pointer, "material"), "material");
+            material_ok = material.has_value();
+        }
+        auto offset = offset_value ? decode_vector2(decoder, *offset_value,
+                                                    pointer_child(layer_pointer, "offset"))
+                                   : std::nullopt;
+        auto scale =
+            scale_value ? decoder.finite_number(*scale_value, pointer_child(layer_pointer, "scale"))
+                        : std::nullopt;
+        if (scale && *scale <= 0.0) {
+            decoder.error(k_code_number, "Scale must be positive.",
+                          pointer_child(layer_pointer, "scale"));
+            scale.reset();
+        }
+        auto anchor = anchor_value ? decode_vector2(decoder, *anchor_value,
+                                                    pointer_child(layer_pointer, "anchor"))
+                                   : std::nullopt;
+        auto visible =
+            visible_value ? decoder.boolean(*visible_value, pointer_child(layer_pointer, "visible"))
+                          : std::nullopt;
+        if (!layer_id || !sprite_ok || !material_ok || !offset || !scale || !anchor || !visible)
+            return std::nullopt;
+        return CharacterLayerComposition{std::move(*layer_id),
+                                         std::move(sprite),
+                                         std::move(material),
+                                         std::move(*offset),
+                                         *scale,
+                                         std::move(*anchor),
+                                         *visible};
+    };
+    auto profiles =
+        profiles_value
+            ? decoder.array<CharacterPresentationProfile>(
+                  *profiles_value, pointer_child(pointer, "profiles"),
+                  [&](const nlohmann::json& profile, const std::string& profile_pointer)
+                      -> std::optional<CharacterPresentationProfile> {
+                      if (!decoder.object(profile, profile_pointer,
+                                          {"defaultPoseId", "id", "layers", "poses"}))
                           return std::nullopt;
-                      const auto* id_value = decoder.member(pose, "id", pose_pointer);
-                      const auto* anchor_value = decoder.member(pose, "anchor", pose_pointer);
-                      const auto* offset_value = decoder.member(pose, "offset", pose_pointer);
-                      const auto* scale_value = decoder.member(pose, "scale", pose_pointer);
-                      const auto* material_value = decoder.member(pose, "material", pose_pointer);
-                      const auto* sprite_value = decoder.member(pose, "sprite", pose_pointer);
-                      auto id = id_value ? decoder.id<CharacterPoseId>(
-                                               *id_value, pointer_child(pose_pointer, "id"))
+                      const auto* id_value = decoder.member(profile, "id", profile_pointer);
+                      const auto* layers_value = decoder.member(profile, "layers", profile_pointer);
+                      const auto* default_pose_value =
+                          decoder.member(profile, "defaultPoseId", profile_pointer);
+                      const auto* poses_value = decoder.member(profile, "poses", profile_pointer);
+                      auto id = id_value ? decoder.id<CharacterPresentationProfileId>(
+                                               *id_value, pointer_child(profile_pointer, "id"))
                                          : std::nullopt;
-                      auto anchor = anchor_value
-                                        ? decode_vector2(decoder, *anchor_value,
-                                                         pointer_child(pose_pointer, "anchor"))
-                                        : std::nullopt;
-                      auto offset = offset_value
-                                        ? decode_vector2(decoder, *offset_value,
-                                                         pointer_child(pose_pointer, "offset"))
-                                        : std::nullopt;
-                      auto scale = scale_value
-                                       ? decoder.finite_number(*scale_value,
-                                                               pointer_child(pose_pointer, "scale"))
-                                       : std::nullopt;
-                      if (scale && *scale <= 0.0) {
-                          decoder.error(k_code_number, "Scale must be positive.",
-                                        pointer_child(pose_pointer, "scale"));
-                          scale.reset();
-                      }
-                      std::optional<MaterialId> material;
-                      bool material_ok = material_value != nullptr;
-                      if (material_value && !material_value->is_null()) {
-                          material = decode_reference<MaterialId>(
-                              decoder, *material_value, pointer_child(pose_pointer, "material"),
-                              "material");
-                          material_ok = material.has_value();
-                      }
-                      std::optional<AssetId> sprite;
-                      bool sprite_ok = sprite_value != nullptr;
-                      if (sprite_value && !sprite_value->is_null()) {
-                          sprite = decode_reference<AssetId>(decoder, *sprite_value,
-                                                             pointer_child(pose_pointer, "sprite"),
-                                                             "asset");
-                          sprite_ok = sprite.has_value();
-                      }
-                      if (id && anchor && offset && scale && material_ok && sprite_ok)
-                          return CharacterPose{std::move(*id),
-                                               std::move(*anchor),
-                                               std::move(material),
-                                               std::move(*offset),
-                                               *scale,
-                                               std::move(sprite)};
-                      return std::nullopt;
+                      auto layers =
+                          layers_value
+                              ? decoder.array<CharacterPresentationLayer>(
+                                    *layers_value, pointer_child(profile_pointer, "layers"),
+                                    [&](const nlohmann::json& layer,
+                                        const std::string& layer_pointer)
+                                        -> std::optional<CharacterPresentationLayer> {
+                                        if (!decoder.object(layer, layer_pointer, {"id", "role"}))
+                                            return std::nullopt;
+                                        const auto* layer_id_value =
+                                            decoder.member(layer, "id", layer_pointer);
+                                        const auto* role_value =
+                                            decoder.member(layer, "role", layer_pointer);
+                                        auto layer_id =
+                                            layer_id_value
+                                                ? decoder.id<CharacterPresentationLayerId>(
+                                                      *layer_id_value,
+                                                      pointer_child(layer_pointer, "id"))
+                                                : std::nullopt;
+                                        std::optional<std::string> role;
+                                        bool role_ok = role_value != nullptr;
+                                        if (role_value && !role_value->is_null()) {
+                                            role = decoder.string(
+                                                *role_value, pointer_child(layer_pointer, "role"));
+                                            role_ok = role.has_value();
+                                        }
+                                        if (!layer_id || !role_ok)
+                                            return std::nullopt;
+                                        return CharacterPresentationLayer{std::move(*layer_id),
+                                                                          std::move(role)};
+                                    })
+                              : std::nullopt;
+                      auto default_pose = default_pose_value
+                                              ? decoder.id<CharacterPoseId>(
+                                                    *default_pose_value,
+                                                    pointer_child(profile_pointer, "defaultPoseId"))
+                                              : std::nullopt;
+                      auto poses =
+                          poses_value
+                              ? decoder.array<CharacterPose>(
+                                    *poses_value, pointer_child(profile_pointer, "poses"),
+                                    [&](const nlohmann::json& pose, const std::string& pose_pointer)
+                                        -> std::optional<CharacterPose> {
+                                        if (!decoder.object(pose, pose_pointer, {"id", "layers"}))
+                                            return std::nullopt;
+                                        const auto* pose_id_value =
+                                            decoder.member(pose, "id", pose_pointer);
+                                        const auto* pose_layers_value =
+                                            decoder.member(pose, "layers", pose_pointer);
+                                        auto pose_id = pose_id_value
+                                                           ? decoder.id<CharacterPoseId>(
+                                                                 *pose_id_value,
+                                                                 pointer_child(pose_pointer, "id"))
+                                                           : std::nullopt;
+                                        auto pose_layers =
+                                            pose_layers_value
+                                                ? decoder.array<CharacterLayerComposition>(
+                                                      *pose_layers_value,
+                                                      pointer_child(pose_pointer, "layers"),
+                                                      decode_layer_composition)
+                                                : std::nullopt;
+                                        if (!pose_id || !pose_layers)
+                                            return std::nullopt;
+                                        decoder.duplicate_ids(
+                                            *pose_layers, pointer_child(pose_pointer, "layers"),
+                                            [](const CharacterLayerComposition& item)
+                                                -> const CharacterPresentationLayerId& {
+                                                return item.layer_id;
+                                            });
+                                        return CharacterPose{std::move(*pose_id),
+                                                             std::move(*pose_layers)};
+                                    })
+                              : std::nullopt;
+                      if (!id || !layers || !default_pose || !poses)
+                          return std::nullopt;
+                      decoder.duplicate_ids(
+                          *layers, pointer_child(profile_pointer, "layers"),
+                          [](const CharacterPresentationLayer& item)
+                              -> const CharacterPresentationLayerId& { return item.id; });
+                      decoder.duplicate_ids(
+                          *poses, pointer_child(profile_pointer, "poses"),
+                          [](const CharacterPose& item) -> const CharacterPoseId& {
+                              return item.id;
+                          });
+                      return CharacterPresentationProfile{std::move(*id), std::move(*layers),
+                                                          std::move(*default_pose),
+                                                          std::move(*poses)};
                   })
             : std::nullopt;
+    const auto decode_profile_overrides =
+        [&](const nlohmann::json& profile,
+            const std::string& profile_pointer) -> std::optional<CharacterProfileLayerOverrides> {
+        if (!decoder.object(profile, profile_pointer, {"layers", "profileId"}))
+            return std::nullopt;
+        const auto* profile_id_value = decoder.member(profile, "profileId", profile_pointer);
+        const auto* layers_value = decoder.member(profile, "layers", profile_pointer);
+        auto profile_id = profile_id_value
+                              ? decoder.id<CharacterPresentationProfileId>(
+                                    *profile_id_value, pointer_child(profile_pointer, "profileId"))
+                              : std::nullopt;
+        auto layers =
+            layers_value
+                ? decoder.array<CharacterLayerOverride>(
+                      *layers_value, pointer_child(profile_pointer, "layers"),
+                      [&](const nlohmann::json& layer, const std::string& layer_pointer)
+                          -> std::optional<CharacterLayerOverride> {
+                          if (!decoder.object(layer, layer_pointer,
+                                              {"layerId", "material", "sprite", "visible"}))
+                              return std::nullopt;
+                          const auto* layer_id_value =
+                              decoder.member(layer, "layerId", layer_pointer);
+                          auto layer_id =
+                              layer_id_value
+                                  ? decoder.id<CharacterPresentationLayerId>(
+                                        *layer_id_value, pointer_child(layer_pointer, "layerId"))
+                                  : std::nullopt;
+                          CharacterOptionalOverride<AssetId> sprite;
+                          if (const auto* sprite_value = json_access::member(layer, "sprite")) {
+                              sprite.specified = true;
+                              if (!sprite_value->is_null()) {
+                                  sprite.value = decode_reference<AssetId>(
+                                      decoder, *sprite_value,
+                                      pointer_child(layer_pointer, "sprite"), "asset");
+                                  if (!sprite.value)
+                                      return std::nullopt;
+                              }
+                          }
+                          CharacterOptionalOverride<MaterialId> material;
+                          if (const auto* material_value = json_access::member(layer, "material")) {
+                              material.specified = true;
+                              if (!material_value->is_null()) {
+                                  material.value = decode_reference<MaterialId>(
+                                      decoder, *material_value,
+                                      pointer_child(layer_pointer, "material"), "material");
+                                  if (!material.value)
+                                      return std::nullopt;
+                              }
+                          }
+                          std::optional<bool> visible;
+                          if (const auto* visible_value = json_access::member(layer, "visible")) {
+                              visible = decoder.boolean(*visible_value,
+                                                        pointer_child(layer_pointer, "visible"));
+                              if (!visible)
+                                  return std::nullopt;
+                          }
+                          if (!layer_id)
+                              return std::nullopt;
+                          return CharacterLayerOverride{std::move(*layer_id), std::move(sprite),
+                                                        std::move(material), visible};
+                      })
+                : std::nullopt;
+        if (!profile_id || !layers)
+            return std::nullopt;
+        decoder.duplicate_ids(
+            *layers, pointer_child(profile_pointer, "layers"),
+            [](const CharacterLayerOverride& item) -> const CharacterPresentationLayerId& {
+                return item.layer_id;
+            });
+        return CharacterProfileLayerOverrides{std::move(*profile_id), std::move(*layers)};
+    };
     auto expressions =
         expressions_value
             ? decoder.array<CharacterExpression>(
                   *expressions_value, pointer_child(pointer, "expressions"),
                   [&](const nlohmann::json& expression,
                       const std::string& expression_pointer) -> std::optional<CharacterExpression> {
-                      if (!decoder.object(expression, expression_pointer,
-                                          {"id", "material", "poseId", "sprite"}))
+                      if (!decoder.object(expression, expression_pointer, {"id", "profiles"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(expression, "id", expression_pointer);
-                      const auto* material_value =
-                          decoder.member(expression, "material", expression_pointer);
-                      const auto* pose_value =
-                          decoder.member(expression, "poseId", expression_pointer);
-                      const auto* sprite_value =
-                          decoder.member(expression, "sprite", expression_pointer);
+                      const auto* profiles_value =
+                          decoder.member(expression, "profiles", expression_pointer);
                       auto id = id_value ? decoder.id<CharacterExpressionId>(
                                                *id_value, pointer_child(expression_pointer, "id"))
                                          : std::nullopt;
-                      std::optional<MaterialId> material;
-                      bool material_ok = material_value != nullptr;
-                      if (material_value && !material_value->is_null()) {
-                          material = decode_reference<MaterialId>(
-                              decoder, *material_value,
-                              pointer_child(expression_pointer, "material"), "material");
-                          material_ok = material.has_value();
-                      }
-                      std::optional<CharacterPoseId> pose;
-                      bool pose_ok = pose_value != nullptr;
-                      if (pose_value && !pose_value->is_null()) {
-                          pose = decoder.id<CharacterPoseId>(
-                              *pose_value, pointer_child(expression_pointer, "poseId"));
-                          pose_ok = pose.has_value();
-                      }
-                      std::optional<AssetId> sprite;
-                      bool sprite_ok = sprite_value != nullptr;
-                      if (sprite_value && !sprite_value->is_null()) {
-                          sprite = decode_reference<AssetId>(
-                              decoder, *sprite_value, pointer_child(expression_pointer, "sprite"),
-                              "asset");
-                          sprite_ok = sprite.has_value();
-                      }
-                      if (id && material_ok && pose_ok && sprite_ok)
-                          return CharacterExpression{std::move(*id), std::move(material),
-                                                     std::move(pose), std::move(sprite)};
-                      return std::nullopt;
+                      auto profile_overrides =
+                          profiles_value
+                              ? decoder.array<CharacterProfileLayerOverrides>(
+                                    *profiles_value, pointer_child(expression_pointer, "profiles"),
+                                    decode_profile_overrides)
+                              : std::nullopt;
+                      if (!id || !profile_overrides)
+                          return std::nullopt;
+                      decoder.duplicate_ids(
+                          *profile_overrides, pointer_child(expression_pointer, "profiles"),
+                          [](const CharacterProfileLayerOverrides& item)
+                              -> const CharacterPresentationProfileId& { return item.profile_id; });
+                      return CharacterExpression{std::move(*id), std::move(*profile_overrides)};
+                  })
+            : std::nullopt;
+    auto appearances =
+        appearances_value
+            ? decoder.array<CharacterAppearance>(
+                  *appearances_value, pointer_child(pointer, "appearances"),
+                  [&](const nlohmann::json& appearance,
+                      const std::string& appearance_pointer) -> std::optional<CharacterAppearance> {
+                      if (!decoder.object(appearance, appearance_pointer, {"id", "profiles"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(appearance, "id", appearance_pointer);
+                      const auto* profiles_value =
+                          decoder.member(appearance, "profiles", appearance_pointer);
+                      auto id = id_value ? decoder.id<CharacterAppearanceId>(
+                                               *id_value, pointer_child(appearance_pointer, "id"))
+                                         : std::nullopt;
+                      auto profile_overrides =
+                          profiles_value
+                              ? decoder.array<CharacterProfileLayerOverrides>(
+                                    *profiles_value, pointer_child(appearance_pointer, "profiles"),
+                                    decode_profile_overrides)
+                              : std::nullopt;
+                      if (!id || !profile_overrides)
+                          return std::nullopt;
+                      decoder.duplicate_ids(
+                          *profile_overrides, pointer_child(appearance_pointer, "profiles"),
+                          [](const CharacterProfileLayerOverrides& item)
+                              -> const CharacterPresentationProfileId& { return item.profile_id; });
+                      return CharacterAppearance{std::move(*id), std::move(*profile_overrides)};
                   })
             : std::nullopt;
     auto idles =
@@ -531,15 +727,21 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                       return std::nullopt;
                   })
             : std::optional<std::vector<CharacterIdle>>{std::in_place};
-    if (poses)
-        decoder.duplicate_ids(
-            *poses, pointer_child(pointer, "poses"),
-            [](const CharacterPose& pose) -> const CharacterPoseId& { return pose.id; });
+    if (profiles)
+        decoder.duplicate_ids(*profiles, pointer_child(pointer, "profiles"),
+                              [](const CharacterPresentationProfile& profile)
+                                  -> const CharacterPresentationProfileId& { return profile.id; });
     if (expressions)
         decoder.duplicate_ids(
             *expressions, pointer_child(pointer, "expressions"),
             [](const CharacterExpression& expression) -> const CharacterExpressionId& {
                 return expression.id;
+            });
+    if (appearances)
+        decoder.duplicate_ids(
+            *appearances, pointer_child(pointer, "appearances"),
+            [](const CharacterAppearance& appearance) -> const CharacterAppearanceId& {
+                return appearance.id;
             });
     if (idles)
         decoder.duplicate_ids(
@@ -598,13 +800,14 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         if (enabled && visible && location)
             initial_world = CharacterInitialWorldState{std::move(*location), *enabled, *visible};
     }
-    if (!identity || !display || !dialogue || !defaults || !poses || !expressions || !idles ||
-        !inventories || !initial_world)
+    if (!identity || !display || !dialogue || !defaults || !profiles || !expressions ||
+        !appearances || !idles || !inventories || !initial_world)
         return std::nullopt;
-    return CharacterDefinition{
-        std::move(*identity), std::move(*display),     std::move(*dialogue),
-        std::move(*defaults), std::move(*poses),       std::move(*expressions),
-        std::move(*idles),    std::move(*inventories), std::move(*initial_world)};
+    return CharacterDefinition{std::move(*identity),    std::move(*display),
+                               std::move(*dialogue),    std::move(*defaults),
+                               std::move(*profiles),    std::move(*expressions),
+                               std::move(*appearances), std::move(*idles),
+                               std::move(*inventories), std::move(*initial_world)};
 }
 
 std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json& value,
@@ -1045,17 +1248,21 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                   [&](const nlohmann::json& item,
                       const std::string& item_pointer) -> std::optional<RoomCastEntry> {
                       if (!decoder.object(item, item_pointer,
-                                          {"character", "condition", "expressionId", "id", "idleId",
-                                           "order", "placementId", "poseId", "visible"}))
+                                          {"appearanceId", "character", "condition", "expressionId",
+                                           "id", "idleId", "order", "placementId", "poseId",
+                                           "profileId", "visible"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", item_pointer);
                       const auto* character_value = decoder.member(item, "character", item_pointer);
                       const auto* condition_value = decoder.member(item, "condition", item_pointer);
                       const auto* placement_value =
                           decoder.member(item, "placementId", item_pointer);
+                      const auto* profile_value = decoder.member(item, "profileId", item_pointer);
                       const auto* pose_value = decoder.member(item, "poseId", item_pointer);
                       const auto* expression_value =
                           decoder.member(item, "expressionId", item_pointer);
+                      const auto* appearance_value =
+                          decoder.member(item, "appearanceId", item_pointer);
                       const auto* idle_value = json_access::member(item, "idleId");
                       const auto* visible_value = decoder.member(item, "visible", item_pointer);
                       const auto* order_value = decoder.member(item, "order", item_pointer);
@@ -1085,6 +1292,13 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       auto order = order_value ? decode_order(decoder, *order_value,
                                                               pointer_child(item_pointer, "order"))
                                                : std::nullopt;
+                      std::optional<CharacterPresentationProfileId> profile;
+                      bool profile_ok = profile_value != nullptr;
+                      if (profile_value && !profile_value->is_null()) {
+                          profile = decoder.id<CharacterPresentationProfileId>(
+                              *profile_value, pointer_child(item_pointer, "profileId"));
+                          profile_ok = profile.has_value();
+                      }
                       std::optional<CharacterPoseId> pose;
                       bool pose_ok = pose_value != nullptr;
                       if (pose_value && !pose_value->is_null()) {
@@ -1099,6 +1313,13 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               *expression_value, pointer_child(item_pointer, "expressionId"));
                           expression_ok = expression.has_value();
                       }
+                      std::optional<CharacterAppearanceId> appearance;
+                      bool appearance_ok = appearance_value != nullptr;
+                      if (appearance_value && !appearance_value->is_null()) {
+                          appearance = decoder.id<CharacterAppearanceId>(
+                              *appearance_value, pointer_child(item_pointer, "appearanceId"));
+                          appearance_ok = appearance.has_value();
+                      }
                       std::optional<CharacterIdleId> idle;
                       bool idle_ok = true;
                       if (idle_value && !idle_value->is_null()) {
@@ -1107,13 +1328,15 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                           idle_ok = idle.has_value();
                       }
                       if (id && character && condition && placement && visible && order &&
-                          pose_ok && expression_ok && idle_ok)
+                          profile_ok && pose_ok && expression_ok && appearance_ok && idle_ok)
                           return RoomCastEntry{std::move(*id),
                                                std::move(*character),
                                                std::move(*condition),
                                                std::move(*placement),
+                                               std::move(profile),
                                                std::move(pose),
                                                std::move(expression),
+                                               std::move(appearance),
                                                std::move(idle),
                                                *visible,
                                                *order};

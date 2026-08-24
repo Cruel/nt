@@ -660,7 +660,7 @@ std::string saved_material_occurrence_key(const SavedMaterialOccurrence& occurre
                 return std::string{"background"};
             else if constexpr (std::is_same_v<T, SavedActorMaterialOccurrence>)
                 return std::string{"actor:"} + saved_actor_key_text(value.key) + ":" +
-                       (value.layer == ActorMaterialLayer::Pose ? "pose" : "expression");
+                       value.layer.text();
             else if constexpr (std::is_same_v<T, SavedPropMaterialOccurrence>)
                 return std::string{"prop:"} + value.instance.text();
             else if constexpr (std::is_same_v<T, SavedEnvironmentMaterialOccurrence>)
@@ -764,10 +764,14 @@ bool valid_actor_character_state(const CompiledProject& project, const SaveState
         !std::isfinite(actor.placement.offset.y) || !std::isfinite(actor.placement.scale) ||
         actor.placement.scale <= 0.0 || actor.placement.position > compiled::ActorPosition::Custom)
         return false;
+    const auto profile = std::find_if(character->profiles.begin(), character->profiles.end(),
+                                      [&](const auto& value) { return value.id == actor.profile; });
+    if (profile == character->profiles.end())
+        return false;
     const auto pose = std::find_if(
-        character->poses.begin(), character->poses.end(),
+        profile->poses.begin(), profile->poses.end(),
         [&actor](const compiled::CharacterPose& value) { return value.id == actor.pose; });
-    if (pose == character->poses.end())
+    if (pose == profile->poses.end())
         return false;
     const auto expression =
         std::find_if(character->expressions.begin(), character->expressions.end(),
@@ -779,8 +783,13 @@ bool valid_actor_character_state(const CompiledProject& project, const SaveState
                                    [&actor](const compiled::CharacterIdle& value) {
                                        return value.id == *actor.idle;
                                    });
-    return expression != character->expressions.end() && idle_valid &&
-           (!expression->pose_id || *expression->pose_id == actor.pose);
+    const bool appearance_valid =
+        !actor.appearance ||
+        std::any_of(character->appearances.begin(), character->appearances.end(),
+                    [&actor](const compiled::CharacterAppearance& value) {
+                        return value.id == *actor.appearance;
+                    });
+    return expression != character->expressions.end() && appearance_valid && idle_valid;
 }
 
 bool valid_actor_record(const CompiledProject& project, const SaveState& save,

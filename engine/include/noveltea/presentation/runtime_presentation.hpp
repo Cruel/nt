@@ -20,16 +20,12 @@ struct RoomPresentationVisualCatalog {
     };
     struct CharacterVisual {
         CharacterId character;
+        CharacterPresentationProfileId profile;
         CharacterPoseId pose;
         CharacterExpressionId expression;
+        std::optional<CharacterAppearanceId> appearance;
         std::optional<CharacterIdleId> idle_id;
-        std::optional<AssetId> pose_sprite;
-        std::optional<MaterialId> pose_material;
-        compiled::Vector2 anchor{};
-        compiled::Vector2 offset{};
-        double scale = 1.0;
-        std::optional<AssetId> expression_sprite;
-        std::optional<MaterialId> expression_material;
+        std::vector<PresentationActorLayer> layers;
         std::optional<compiled::CharacterIdle> idle;
     };
     struct InteractableVisual {

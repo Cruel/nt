@@ -35,15 +35,57 @@ export const characterVector2Schema = z
   })
   .strict();
 
-export const characterPoseDataSchema = z
+export const characterPresentationLayerDataSchema = z
   .object({
     id: entityIdSchema,
-    label: z.string().min(1, 'Pose label is required.'),
+    label: z.string().min(1, 'Layer label is required.'),
+    role: z.string().min(1).nullable().default(null),
+  })
+  .strict();
+
+export const characterLayerCompositionDataSchema = z
+  .object({
+    layerId: entityIdSchema,
     sprite: characterAssetRefSchema.nullable().default(null),
     material: characterMaterialRefSchema.nullable().default(null),
     offset: characterVector2Schema.default({ x: 0, y: 0 }),
     scale: z.number().finite().positive().default(1),
     anchor: characterVector2Schema.default({ x: 0.5, y: 1 }),
+    visible: z.boolean().default(true),
+  })
+  .strict();
+
+export const characterPoseDataSchema = z
+  .object({
+    id: entityIdSchema,
+    label: z.string().min(1, 'Pose label is required.'),
+    layers: z.array(characterLayerCompositionDataSchema).default([]),
+  })
+  .strict();
+
+export const characterPresentationProfileDataSchema = z
+  .object({
+    id: entityIdSchema,
+    label: z.string().min(1, 'Profile label is required.'),
+    layers: z.array(characterPresentationLayerDataSchema).default([]),
+    defaultPoseId: entityIdSchema,
+    poses: z.array(characterPoseDataSchema).default([]),
+  })
+  .strict();
+
+export const characterLayerOverrideDataSchema = z
+  .object({
+    layerId: entityIdSchema,
+    sprite: characterAssetRefSchema.nullable().optional(),
+    material: characterMaterialRefSchema.nullable().optional(),
+    visible: z.boolean().optional(),
+  })
+  .strict();
+
+export const characterProfileLayerOverridesDataSchema = z
+  .object({
+    profileId: entityIdSchema,
+    layers: z.array(characterLayerOverrideDataSchema).default([]),
   })
   .strict();
 
@@ -51,9 +93,15 @@ export const characterExpressionDataSchema = z
   .object({
     id: entityIdSchema,
     label: z.string().min(1, 'Expression label is required.'),
-    poseId: entityIdSchema.nullable().default(null),
-    sprite: characterAssetRefSchema.nullable().default(null),
-    material: characterMaterialRefSchema.nullable().default(null),
+    profiles: z.array(characterProfileLayerOverridesDataSchema).default([]),
+  })
+  .strict();
+
+export const characterAppearanceDataSchema = z
+  .object({
+    id: entityIdSchema,
+    label: z.string().min(1, 'Appearance label is required.'),
+    profiles: z.array(characterProfileLayerOverridesDataSchema).default([]),
   })
   .strict();
 
@@ -94,14 +142,21 @@ export const characterDataSchema = z
     }),
     defaults: z
       .object({
-        poseId: entityIdSchema,
+        profileId: entityIdSchema,
         expressionId: entityIdSchema,
+        appearanceId: entityIdSchema.nullable().default(null),
         idleId: entityIdSchema.nullable().default(null),
       })
       .strict()
-      .default({ poseId: 'default', expressionId: 'neutral', idleId: null }),
-    poses: z.array(characterPoseDataSchema).default([]),
+      .default({
+        profileId: 'stage',
+        expressionId: 'neutral',
+        appearanceId: null,
+        idleId: null,
+      }),
+    profiles: z.array(characterPresentationProfileDataSchema).default([]),
     expressions: z.array(characterExpressionDataSchema).default([]),
+    appearances: z.array(characterAppearanceDataSchema).default([]),
     idles: z.array(characterIdleDataSchema).default([]),
     inventories: z.array(inventoryDefinitionSchema),
     initialWorldState: z
@@ -117,8 +172,18 @@ export const characterDataSchema = z
 
 export type CharacterAssetRef = z.infer<typeof characterAssetRefSchema>;
 export type CharacterMaterialRef = z.infer<typeof characterMaterialRefSchema>;
+export type CharacterPresentationLayerData = z.infer<typeof characterPresentationLayerDataSchema>;
+export type CharacterLayerCompositionData = z.infer<typeof characterLayerCompositionDataSchema>;
 export type CharacterPoseData = z.infer<typeof characterPoseDataSchema>;
+export type CharacterPresentationProfileData = z.infer<
+  typeof characterPresentationProfileDataSchema
+>;
+export type CharacterLayerOverrideData = z.infer<typeof characterLayerOverrideDataSchema>;
+export type CharacterProfileLayerOverridesData = z.infer<
+  typeof characterProfileLayerOverridesDataSchema
+>;
 export type CharacterExpressionData = z.infer<typeof characterExpressionDataSchema>;
+export type CharacterAppearanceData = z.infer<typeof characterAppearanceDataSchema>;
 export type CharacterIdleData = z.infer<typeof characterIdleDataSchema>;
 export type CharacterDialogueStyle = z.infer<typeof characterDialogueStyleSchema>;
 export type CharacterData = z.infer<typeof characterDataSchema>;
@@ -153,27 +218,45 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
       textColor: null,
       styleClass: '',
     },
-    defaults: { poseId: 'default', expressionId: 'neutral', idleId: null },
-    poses: [
+    defaults: {
+      profileId: 'stage',
+      expressionId: 'neutral',
+      appearanceId: null,
+      idleId: null,
+    },
+    profiles: [
       {
-        id: 'default',
-        label: 'Default',
-        sprite: null,
-        material: null,
-        offset: { x: 0, y: 0 },
-        scale: 1,
-        anchor: { x: 0.5, y: 1 },
+        id: 'stage',
+        label: 'Stage',
+        layers: [{ id: 'body', label: 'Body', role: 'body' }],
+        defaultPoseId: 'default',
+        poses: [
+          {
+            id: 'default',
+            label: 'Default',
+            layers: [
+              {
+                layerId: 'body',
+                sprite: null,
+                material: null,
+                offset: { x: 0, y: 0 },
+                scale: 1,
+                anchor: { x: 0.5, y: 1 },
+                visible: true,
+              },
+            ],
+          },
+        ],
       },
     ],
     expressions: [
       {
         id: 'neutral',
         label: 'Neutral',
-        poseId: null,
-        sprite: null,
-        material: null,
+        profiles: [],
       },
     ],
+    appearances: [],
     idles: [],
     inventories: [],
     initialWorldState: { location: { kind: 'unplaced' }, enabled: true, visible: true },
@@ -263,23 +346,28 @@ export function validateCharacterData(
 
   const data = parsed.data;
 
-  if (data.poses.length === 0)
-    diagnostics.push(diagnostic(`${base}/poses`, 'Character requires at least one pose.'));
+  if (data.profiles.length === 0)
+    diagnostics.push(diagnostic(`${base}/profiles`, 'Character requires at least one profile.'));
   if (data.expressions.length === 0)
     diagnostics.push(
       diagnostic(`${base}/expressions`, 'Character requires at least one expression.'),
     );
-  validateUniqueIds(data.poses, `${base}/poses`, 'pose', diagnostics);
+  validateUniqueIds(data.profiles, `${base}/profiles`, 'profile', diagnostics);
   validateUniqueIds(data.expressions, `${base}/expressions`, 'expression', diagnostics);
+  validateUniqueIds(data.appearances, `${base}/appearances`, 'appearance', diagnostics);
   validateUniqueIds(data.idles, `${base}/idles`, 'idle', diagnostics);
 
-  const poses = new Set(data.poses.map((pose) => pose.id));
+  const profiles = new Set(data.profiles.map((profile) => profile.id));
   const expressions = new Set(data.expressions.map((expression) => expression.id));
+  const appearances = new Set(data.appearances.map((appearance) => appearance.id));
   const idles = new Set(data.idles.map((idle) => idle.id));
 
-  if (!poses.has(data.defaults.poseId))
+  if (!profiles.has(data.defaults.profileId))
     diagnostics.push(
-      diagnostic(`${base}/defaults/poseId`, `Missing default pose '${data.defaults.poseId}'.`),
+      diagnostic(
+        `${base}/defaults/profileId`,
+        `Missing default profile '${data.defaults.profileId}'.`,
+      ),
     );
   if (!expressions.has(data.defaults.expressionId))
     diagnostics.push(
@@ -293,41 +381,105 @@ export function validateCharacterData(
       diagnostic(`${base}/defaults/idleId`, `Missing default idle '${data.defaults.idleId}'.`),
     );
 
-  data.poses.forEach((pose, index) => {
-    validateSpriteRef(project, pose.sprite, `${base}/poses/${index}/sprite`, diagnostics);
-    validateMaterialRef(project, pose.material, `${base}/poses/${index}/material`, diagnostics);
-  });
-  data.expressions.forEach((expression, index) => {
-    if (expression.poseId && !poses.has(expression.poseId)) {
+  if (data.defaults.appearanceId && !appearances.has(data.defaults.appearanceId))
+    diagnostics.push(
+      diagnostic(
+        `${base}/defaults/appearanceId`,
+        `Missing default appearance '${data.defaults.appearanceId}'.`,
+      ),
+    );
+
+  const validateOverrides = (
+    entries: Array<{
+      profiles: Array<{ profileId: string; layers: CharacterLayerOverrideData[] }>;
+    }>,
+    collection: 'expressions' | 'appearances',
+  ) => {
+    entries.forEach((entry, entryIndex) => {
+      validateUniqueIds(
+        entry.profiles.map((profile) => ({ id: profile.profileId })),
+        `${base}/${collection}/${entryIndex}/profiles`,
+        'profile override',
+        diagnostics,
+      );
+      entry.profiles.forEach((profileOverride, profileIndex) => {
+        const profile = data.profiles.find(
+          (candidate) => candidate.id === profileOverride.profileId,
+        );
+        if (!profile) {
+          diagnostics.push(
+            diagnostic(
+              `${base}/${collection}/${entryIndex}/profiles/${profileIndex}/profileId`,
+              `Missing profile '${profileOverride.profileId}'.`,
+            ),
+          );
+          return;
+        }
+        const layerIds = new Set(profile.layers.map((layer) => layer.id));
+        validateUniqueIds(
+          profileOverride.layers.map((layer) => ({ id: layer.layerId })),
+          `${base}/${collection}/${entryIndex}/profiles/${profileIndex}/layers`,
+          'layer override',
+          diagnostics,
+        );
+        profileOverride.layers.forEach((layer, layerIndex) => {
+          const path = `${base}/${collection}/${entryIndex}/profiles/${profileIndex}/layers/${layerIndex}`;
+          if (!layerIds.has(layer.layerId))
+            diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
+          if (layer.sprite !== undefined)
+            validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
+          if (layer.material !== undefined)
+            validateMaterialRef(project, layer.material, `${path}/material`, diagnostics);
+        });
+      });
+    });
+  };
+
+  data.profiles.forEach((profile, profileIndex) => {
+    const profilePath = `${base}/profiles/${profileIndex}`;
+    if (profile.layers.length === 0)
+      diagnostics.push(diagnostic(`${profilePath}/layers`, 'Profile requires at least one layer.'));
+    if (profile.poses.length === 0)
+      diagnostics.push(diagnostic(`${profilePath}/poses`, 'Profile requires at least one pose.'));
+    validateUniqueIds(profile.layers, `${profilePath}/layers`, 'layer', diagnostics);
+    validateUniqueIds(profile.poses, `${profilePath}/poses`, 'pose', diagnostics);
+    const layerIds = new Set(profile.layers.map((layer) => layer.id));
+    const poseIds = new Set(profile.poses.map((pose) => pose.id));
+    if (!poseIds.has(profile.defaultPoseId))
       diagnostics.push(
         diagnostic(
-          `${base}/expressions/${index}/poseId`,
-          `Expression pose '${expression.poseId}' does not exist.`,
-          'warning',
+          `${profilePath}/defaultPoseId`,
+          `Missing default pose '${profile.defaultPoseId}'.`,
         ),
       );
-    }
-    validateSpriteRef(
-      project,
-      expression.sprite,
-      `${base}/expressions/${index}/sprite`,
-      diagnostics,
-    );
-    validateMaterialRef(
-      project,
-      expression.material,
-      `${base}/expressions/${index}/material`,
-      diagnostics,
-    );
+    profile.poses.forEach((pose, poseIndex) => {
+      const posePath = `${profilePath}/poses/${poseIndex}`;
+      validateUniqueIds(
+        pose.layers.map((layer) => ({ id: layer.layerId })),
+        `${posePath}/layers`,
+        'pose layer',
+        diagnostics,
+      );
+      pose.layers.forEach((layer, layerIndex) => {
+        const path = `${posePath}/layers/${layerIndex}`;
+        if (!layerIds.has(layer.layerId))
+          diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
+        validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
+        validateMaterialRef(project, layer.material, `${path}/material`, diagnostics);
+      });
+    });
   });
+  validateOverrides(data.expressions, 'expressions');
+  validateOverrides(data.appearances, 'appearances');
 
-  const selectedPose = data.poses.find((pose) => pose.id === data.defaults.poseId);
-  const selectedExpression = data.expressions.find(
-    (expression) => expression.id === data.defaults.expressionId,
+  const selectedProfile = data.profiles.find((profile) => profile.id === data.defaults.profileId);
+  const selectedPose = selectedProfile?.poses.find(
+    (pose) => pose.id === selectedProfile.defaultPoseId,
   );
-  if (selectedPose && selectedExpression && !selectedPose.sprite && !selectedExpression.sprite) {
+  const hasSprite = selectedPose?.layers.some((layer) => layer.sprite) ?? false;
+  if (selectedProfile && selectedPose && !hasSprite) {
     diagnostics.push(
-      diagnostic(`${base}/preview`, 'Selected pose/expression has no sprite asset yet.', 'warning'),
+      diagnostic(`${base}/preview`, 'Selected profile pose has no sprite asset yet.', 'warning'),
     );
   }
   const location = data.initialWorldState.location;

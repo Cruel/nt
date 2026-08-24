@@ -705,7 +705,7 @@ nlohmann::json encode_material_occurrence(const SavedMaterialOccurrence& occurre
             else if constexpr (std::is_same_v<T, SavedActorMaterialOccurrence>)
                 return {{"kind", "actor"},
                         {"key", encode_actor_key(value.key)},
-                        {"layer", encode_enum(value.layer)}};
+                        {"layer", value.layer.text()}};
             else if constexpr (std::is_same_v<T, SavedPropMaterialOccurrence>)
                 return {{"kind", "prop"}, {"instance", value.instance.text()}};
             else if constexpr (std::is_same_v<T, SavedEnvironmentMaterialOccurrence>)
@@ -741,11 +741,11 @@ decode_material_occurrence(Decoder& d, const nlohmann::json& value, std::string_
         const auto* layer_value = d.member(value, "layer", pointer);
         auto key =
             key_value ? decode_actor_key(d, *key_value, child(pointer, "key")) : std::nullopt;
-        auto layer = layer_value ? decode_enum(d, *layer_value, child(pointer, "layer"),
-                                               ActorMaterialLayer::Expression)
-                                 : std::nullopt;
+        auto layer = layer_value
+                         ? d.id<CharacterPresentationLayerId>(*layer_value, child(pointer, "layer"))
+                         : std::nullopt;
         return key && layer ? std::optional<SavedMaterialOccurrence>{SavedActorMaterialOccurrence{
-                                  std::move(*key), *layer}}
+                                  std::move(*key), std::move(*layer)}}
                             : std::nullopt;
     }
     if (*kind == "prop") {
@@ -1181,8 +1181,10 @@ nlohmann::json encode_presentation_records(const SaveState& save)
         actors.push_back({{"key", encode_actor_key(value.key)},
                           {"owner", encode_presentation_owner(value.owner)},
                           {"character", value.character.text()},
+                          {"profile", value.profile.text()},
                           {"pose", value.pose.text()},
                           {"expression", value.expression.text()},
+                          {"appearance", encode_optional_id(value.appearance)},
                           {"idle", encode_optional_id(value.idle)},
                           {"placement", encode_actor_placement(value.placement)},
                           {"visible", value.visible},
@@ -1399,14 +1401,17 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   [&d](const nlohmann::json& entry,
                        const std::string& entry_pointer) -> std::optional<SavedActorPresentation> {
                       if (!d.object(entry, entry_pointer,
-                                    {"key", "owner", "character", "pose", "expression", "idle",
-                                     "placement", "visible", "presentationComplete"}))
+                                    {"appearance", "character", "expression", "idle", "key",
+                                     "owner", "placement", "pose", "presentationComplete",
+                                     "profile", "visible"}))
                           return std::nullopt;
                       const auto* key_value = d.member(entry, "key", entry_pointer);
                       const auto* owner_value = d.member(entry, "owner", entry_pointer);
                       const auto* character_value = d.member(entry, "character", entry_pointer);
+                      const auto* profile_value = d.member(entry, "profile", entry_pointer);
                       const auto* pose_value = d.member(entry, "pose", entry_pointer);
                       const auto* expression_value = d.member(entry, "expression", entry_pointer);
+                      const auto* appearance_value = d.member(entry, "appearance", entry_pointer);
                       const auto* idle_value = d.member(entry, "idle", entry_pointer);
                       const auto* placement_value = d.member(entry, "placement", entry_pointer);
                       const auto* visible_value = d.member(entry, "visible", entry_pointer);
@@ -1422,6 +1427,10 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                            ? d.id<CharacterId>(*character_value,
                                                                child(entry_pointer, "character"))
                                            : std::nullopt;
+                      auto profile = profile_value
+                                         ? d.id<CharacterPresentationProfileId>(
+                                               *profile_value, child(entry_pointer, "profile"))
+                                         : std::nullopt;
                       auto pose = pose_value ? d.id<CharacterPoseId>(*pose_value,
                                                                      child(entry_pointer, "pose"))
                                              : std::nullopt;
@@ -1429,6 +1438,11 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                           expression_value
                               ? d.id<CharacterExpressionId>(*expression_value,
                                                             child(entry_pointer, "expression"))
+                              : std::nullopt;
+                      auto appearance =
+                          appearance_value
+                              ? decode_optional_id_value<CharacterAppearanceId>(
+                                    d, *appearance_value, child(entry_pointer, "appearance"))
                               : std::nullopt;
                       auto idle = idle_value ? decode_optional_id_value<CharacterIdleId>(
                                                    d, *idle_value, child(entry_pointer, "idle"))
@@ -1445,13 +1459,15 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                           ? d.boolean(*complete_value,
                                                       child(entry_pointer, "presentationComplete"))
                                           : std::nullopt;
-                      return key && owner && character && pose && expression && idle && placement &&
-                                     visible && complete
+                      return key && owner && character && profile && pose && expression &&
+                                     appearance && idle && placement && visible && complete
                                  ? std::optional<SavedActorPresentation>{{std::move(*key),
                                                                           std::move(*owner),
                                                                           std::move(*character),
+                                                                          std::move(*profile),
                                                                           std::move(*pose),
                                                                           std::move(*expression),
+                                                                          std::move(*appearance),
                                                                           std::move(*idle),
                                                                           std::move(*placement),
                                                                           *visible, *complete}}

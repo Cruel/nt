@@ -127,10 +127,18 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
 
     for (const auto& character_state : state.character_world()) {
         const auto* character = world.resolved_configuration(character_state.character);
-        if (character != nullptr)
+        if (character != nullptr) {
+            const auto profile =
+                std::ranges::find_if(character->profiles, [&](const auto& candidate) {
+                    return candidate.id == character->defaults.profile_id;
+                });
+            if (profile == character->profiles.end())
+                continue;
             definition.character_defaults.push_back(
-                {character->identity.id, character->defaults.pose_id,
-                 character->defaults.expression_id, character->defaults.idle_id});
+                {character->identity.id, character->defaults.profile_id, profile->default_pose_id,
+                 character->defaults.expression_id, character->defaults.appearance_id,
+                 character->defaults.idle_id});
+        }
     }
     for (const auto& overlay : room->overlays)
         definition.overlays.push_back({overlay.id, overlay.layout,
@@ -138,8 +146,9 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                                        overlay.order});
     for (const auto& cast : room->cast)
         definition.cast.push_back({cast.id, cast.character, condition_token(cast.condition),
-                                   cast.placement_id, cast.pose_id, cast.expression_id,
-                                   cast.idle_id, cast.visible, cast.order});
+                                   cast.placement_id, cast.profile_id, cast.pose_id,
+                                   cast.expression_id, cast.appearance_id, cast.idle_id,
+                                   cast.visible, cast.order});
     for (const auto& interactable : room->interactables)
         definition.interactables.push_back(
             {interactable.id, interactable.interactable, condition_token(interactable.condition),
@@ -497,8 +506,10 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
             return Result<RoomPresentationResolution, Diagnostics>::failure(
                 error("room_resolution.invalid_cast", "Room cast entry cannot be resolved"));
         draft.actors.push_back({RoomCastPresentationId{room.room, cast.id}, cast.character,
-                                cast.placement, cast.pose.value_or(character->pose),
+                                cast.placement, cast.profile.value_or(character->profile),
+                                cast.pose.value_or(character->pose),
                                 cast.expression.value_or(character->expression),
+                                cast.appearance ? cast.appearance : character->appearance,
                                 cast.idle ? cast.idle : character->idle, character_state->enabled,
                                 character_state->visible && cast.visible, cast.order});
     }

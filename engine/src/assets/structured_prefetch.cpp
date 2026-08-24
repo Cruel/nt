@@ -351,8 +351,10 @@ struct StructuredAssetDependencyIndex::Impl {
     }
 
     void append_character(DescriptorAccumulator& output, const core::CharacterId& character_id,
+                          std::optional<core::CharacterPresentationProfileId> requested_profile,
                           std::optional<core::CharacterPoseId> requested_pose,
                           std::optional<core::CharacterExpressionId> requested_expression,
+                          std::optional<core::CharacterAppearanceId> requested_appearance,
                           core::Diagnostics& collection_diagnostics, std::string_view context) const
     {
         const auto found = characters.find(character_id);
@@ -363,6 +365,17 @@ struct StructuredAssetDependencyIndex::Impl {
             return;
         }
         const auto& character = *found->second;
+        const core::CharacterPresentationProfileId profile_id =
+            requested_profile.value_or(character.defaults.profile_id);
+        const auto profile =
+            std::find_if(character.profiles.begin(), character.profiles.end(),
+                         [&](const auto& candidate) { return candidate.id == profile_id; });
+        if (profile == character.profiles.end()) {
+            add_diagnostic(collection_diagnostics, "assets.prefetch_missing_profile",
+                           std::string(context) + " references missing profile '" +
+                               profile_id.text() + "' on character '" + character_id.text() + "'");
+            return;
+        }
         const core::CharacterExpressionId expression_id =
             requested_expression.value_or(character.defaults.expression_id);
         const auto expression =
@@ -377,30 +390,80 @@ struct StructuredAssetDependencyIndex::Impl {
                                "'");
             return;
         }
-
-        const core::CharacterPoseId pose_id =
-            requested_pose.value_or(expression->pose_id.value_or(character.defaults.pose_id));
-        const auto pose = std::find_if(character.poses.begin(), character.poses.end(),
+        const core::CharacterPoseId pose_id = requested_pose.value_or(profile->default_pose_id);
+        const auto pose = std::find_if(profile->poses.begin(), profile->poses.end(),
                                        [&](const core::compiled::CharacterPose& candidate) {
                                            return candidate.id == pose_id;
                                        });
-        if (pose == character.poses.end()) {
+        if (pose == profile->poses.end()) {
             add_diagnostic(collection_diagnostics, "assets.prefetch_missing_pose",
                            std::string(context) + " references missing pose '" + pose_id.text() +
                                "' on character '" + character_id.text() + "'");
             return;
         }
-
-        if (pose->sprite)
-            append_asset(output, *pose->sprite, core::compiled::AssetKind::Image,
-                         collection_diagnostics, context);
-        if (pose->material)
-            append_material(output, *pose->material, collection_diagnostics, context);
-        if (expression->sprite)
-            append_asset(output, *expression->sprite, core::compiled::AssetKind::Image,
-                         collection_diagnostics, context);
-        if (expression->material)
-            append_material(output, *expression->material, collection_diagnostics, context);
+        const auto profile_overrides =
+            [&](const auto& semantic) -> const core::compiled::CharacterProfileLayerOverrides* {
+            const auto item = std::find_if(
+                semantic.profiles.begin(), semantic.profiles.end(),
+                [&](const auto& candidate) { return candidate.profile_id == profile_id; });
+            return item == semantic.profiles.end() ? nullptr : &*item;
+        };
+        const auto default_expression = std::find_if(
+            character.expressions.begin(), character.expressions.end(), [&](const auto& candidate) {
+                return candidate.id == character.defaults.expression_id;
+            });
+        const auto* expression_overrides = profile_overrides(*expression);
+        if (expression_overrides == nullptr && expression != default_expression &&
+            default_expression != character.expressions.end())
+            expression_overrides = profile_overrides(*default_expression);
+        const core::compiled::CharacterProfileLayerOverrides* appearance_overrides = nullptr;
+        const auto appearance_id =
+            requested_appearance ? requested_appearance : character.defaults.appearance_id;
+        if (appearance_id) {
+            const auto appearance =
+                std::find_if(character.appearances.begin(), character.appearances.end(),
+                             [&](const auto& candidate) { return candidate.id == *appearance_id; });
+            if (appearance != character.appearances.end())
+                appearance_overrides = profile_overrides(*appearance);
+        }
+        for (const auto& layer_definition : profile->layers) {
+            const auto layer =
+                std::find_if(pose->layers.begin(), pose->layers.end(), [&](const auto& candidate) {
+                    return candidate.layer_id == layer_definition.id;
+                });
+            if (layer == pose->layers.end())
+                continue;
+            auto sprite = layer->sprite;
+            auto material = layer->material;
+            bool visible = layer->visible;
+            const auto apply =
+                [&](const core::compiled::CharacterProfileLayerOverrides* overrides) {
+                    if (overrides == nullptr)
+                        return;
+                    const auto patch =
+                        std::find_if(overrides->layers.begin(), overrides->layers.end(),
+                                     [&](const auto& candidate) {
+                                         return candidate.layer_id == layer_definition.id;
+                                     });
+                    if (patch == overrides->layers.end())
+                        return;
+                    if (patch->sprite.specified)
+                        sprite = patch->sprite.value;
+                    if (patch->material.specified)
+                        material = patch->material.value;
+                    if (patch->visible)
+                        visible = *patch->visible;
+                };
+            apply(expression_overrides);
+            apply(appearance_overrides);
+            if (!visible)
+                continue;
+            if (sprite)
+                append_asset(output, *sprite, core::compiled::AssetKind::Image,
+                             collection_diagnostics, context);
+            if (material)
+                append_material(output, *material, collection_diagnostics, context);
+        }
     }
 
     void append_flow_target(DescriptorAccumulator& output, const core::FlowTarget& target,
@@ -441,8 +504,9 @@ struct StructuredAssetDependencyIndex::Impl {
         for (const auto& overlay : room.overlays)
             append_layout(output, overlay.layout, collection_diagnostics, "Room overlay");
         for (const auto& cast : room.cast) {
-            append_character(output, cast.character, cast.pose_id, cast.expression_id,
-                             collection_diagnostics, "Room cast");
+            append_character(output, cast.character, cast.profile_id, cast.pose_id,
+                             cast.expression_id, cast.appearance_id, collection_diagnostics,
+                             "Room cast");
         }
         for (const auto& prop : room.props) {
             if (prop.asset)
@@ -462,7 +526,8 @@ struct StructuredAssetDependencyIndex::Impl {
             initial != initial_characters_by_room.end()) {
             for (const auto* character : initial->second)
                 append_character(output, character->identity.id, std::nullopt, std::nullopt,
-                                 collection_diagnostics, "Room initial character");
+                                 std::nullopt, std::nullopt, collection_diagnostics,
+                                 "Room initial character");
         }
         if (const auto initial = initial_interactables_by_room.find(id);
             initial != initial_interactables_by_room.end()) {
@@ -505,8 +570,9 @@ struct StructuredAssetDependencyIndex::Impl {
                                           "Scene background instruction");
                     } else if constexpr (std::is_same_v<T, core::compiled::ActorCueInstruction>) {
                         if (value.action != core::compiled::ActorCueAction::Hide) {
-                            append_character(output, value.character, value.pose_id,
-                                             value.expression_id, collection_diagnostics,
+                            append_character(output, value.character, value.profile_id,
+                                             value.pose_id, value.expression_id,
+                                             value.appearance_id, collection_diagnostics,
                                              "Scene actor cue");
                         }
                     } else if constexpr (std::is_same_v<
@@ -540,8 +606,9 @@ struct StructuredAssetDependencyIndex::Impl {
                                         if (mutation.action !=
                                             core::compiled::ActorCueAction::Hide) {
                                             append_character(
-                                                output, mutation.character, mutation.pose_id,
-                                                mutation.expression_id, collection_diagnostics,
+                                                output, mutation.character, mutation.profile_id,
+                                                mutation.pose_id, mutation.expression_id,
+                                                mutation.appearance_id, collection_diagnostics,
                                                 "Scene transition actor");
                                         }
                                     } else if constexpr (
@@ -806,20 +873,17 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
         for (const auto& actor : snapshot->actors) {
             if (!actor.enabled || !actor.visible)
                 continue;
-            if (actor.pose_sprite)
-                m_index.m_impl->append_asset(current, *actor.pose_sprite,
-                                             core::compiled::AssetKind::Image, current_diagnostics,
-                                             "current actor pose");
-            if (actor.pose_material)
-                m_index.m_impl->append_material(current, *actor.pose_material, current_diagnostics,
-                                                "current actor pose");
-            if (actor.expression_sprite)
-                m_index.m_impl->append_asset(current, *actor.expression_sprite,
-                                             core::compiled::AssetKind::Image, current_diagnostics,
-                                             "current actor expression");
-            if (actor.expression_material)
-                m_index.m_impl->append_material(current, *actor.expression_material,
-                                                current_diagnostics, "current actor expression");
+            for (const auto& layer : actor.layers) {
+                if (!layer.visible)
+                    continue;
+                if (layer.sprite)
+                    m_index.m_impl->append_asset(current, *layer.sprite,
+                                                 core::compiled::AssetKind::Image,
+                                                 current_diagnostics, "current actor layer");
+                if (layer.material)
+                    m_index.m_impl->append_material(current, *layer.material, current_diagnostics,
+                                                    "current actor layer");
+            }
         }
         for (const auto& interactable : snapshot->interactables) {
             if (!interactable.enabled || !interactable.visible)

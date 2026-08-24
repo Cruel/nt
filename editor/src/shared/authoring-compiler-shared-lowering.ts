@@ -493,23 +493,51 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       displayName: data.displayName,
       dialogue: { ...data.dialogue },
       defaults: {
-        poseId: data.defaults.poseId,
+        profileId: data.defaults.profileId,
         expressionId: data.defaults.expressionId,
+        appearanceId: data.defaults.appearanceId,
         ...(data.defaults.idleId ? { idleId: data.defaults.idleId } : {}),
       },
-      poses: data.poses.map((pose) => ({
-        id: pose.id,
-        sprite: assetRef(pose.sprite),
-        material: materialRef(pose.material),
-        offset: { ...pose.offset },
-        scale: pose.scale,
-        anchor: { ...pose.anchor },
+      profiles: data.profiles.map((profile) => ({
+        id: profile.id,
+        layers: profile.layers.map((layer) => ({ id: layer.id, role: layer.role })),
+        defaultPoseId: profile.defaultPoseId,
+        poses: profile.poses.map((pose) => ({
+          id: pose.id,
+          layers: pose.layers.map((layer) => ({
+            layerId: layer.layerId,
+            sprite: assetRef(layer.sprite),
+            material: materialRef(layer.material),
+            offset: { ...layer.offset },
+            scale: layer.scale,
+            anchor: { ...layer.anchor },
+            visible: layer.visible,
+          })),
+        })),
       })),
       expressions: data.expressions.map((expression) => ({
         id: expression.id,
-        poseId: expression.poseId,
-        sprite: assetRef(expression.sprite),
-        material: materialRef(expression.material),
+        profiles: expression.profiles.map((profile) => ({
+          profileId: profile.profileId,
+          layers: profile.layers.map((layer) => ({
+            layerId: layer.layerId,
+            ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+            ...(layer.material !== undefined ? { material: materialRef(layer.material) } : {}),
+            ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+          })),
+        })),
+      })),
+      appearances: data.appearances.map((appearance) => ({
+        id: appearance.id,
+        profiles: appearance.profiles.map((profile) => ({
+          profileId: profile.profileId,
+          layers: profile.layers.map((layer) => ({
+            layerId: layer.layerId,
+            ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+            ...(layer.material !== undefined ? { material: materialRef(layer.material) } : {}),
+            ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+          })),
+        })),
       })),
       ...(data.idles.length > 0
         ? {
@@ -599,8 +627,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         character: characterRef(entry.character)!,
         condition: compileCondition(entry.condition),
         placementId: entry.placementId,
+        profileId: entry.profileId ?? null,
         poseId: entry.poseId,
         expressionId: entry.expressionId,
+        appearanceId: entry.appearanceId ?? null,
         ...(entry.idleId ? { idleId: entry.idleId } : {}),
         visible: entry.visible,
         order: entry.order,
@@ -929,8 +959,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           character: characterRef(entry.character)!,
           condition: compileCondition(entry.condition),
           placementId: entry.placementId,
+          profileId: entry.profileId ?? null,
           poseId: entry.poseId,
           expressionId: entry.expressionId,
+          appearanceId: entry.appearanceId ?? null,
           ...(entry.idleId ? { idleId: entry.idleId } : {}),
           visible: entry.visible,
           order: entry.order,
@@ -1009,23 +1041,51 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           displayName: data.displayName,
           dialogue: { ...data.dialogue },
           defaults: {
-            poseId: data.defaults.poseId,
+            profileId: data.defaults.profileId,
             expressionId: data.defaults.expressionId,
+            appearanceId: data.defaults.appearanceId,
             ...(data.defaults.idleId ? { idleId: data.defaults.idleId } : {}),
           },
-          poses: data.poses.map((pose) => ({
-            id: pose.id,
-            sprite: assetRef(pose.sprite),
-            material: materialRef(pose.material),
-            offset: { ...pose.offset },
-            scale: pose.scale,
-            anchor: { ...pose.anchor },
+          profiles: data.profiles.map((profile) => ({
+            id: profile.id,
+            layers: profile.layers.map((layer) => ({ id: layer.id, role: layer.role })),
+            defaultPoseId: profile.defaultPoseId,
+            poses: profile.poses.map((pose) => ({
+              id: pose.id,
+              layers: pose.layers.map((layer) => ({
+                layerId: layer.layerId,
+                sprite: assetRef(layer.sprite),
+                material: materialRef(layer.material),
+                offset: { ...layer.offset },
+                scale: layer.scale,
+                anchor: { ...layer.anchor },
+                visible: layer.visible,
+              })),
+            })),
           })),
           expressions: data.expressions.map((expression) => ({
             id: expression.id,
-            poseId: expression.poseId,
-            sprite: assetRef(expression.sprite),
-            material: materialRef(expression.material),
+            profiles: expression.profiles.map((profile) => ({
+              profileId: profile.profileId,
+              layers: profile.layers.map((layer) => ({
+                layerId: layer.layerId,
+                ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+                ...(layer.material !== undefined ? { material: materialRef(layer.material) } : {}),
+                ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+              })),
+            })),
+          })),
+          appearances: data.appearances.map((appearance) => ({
+            id: appearance.id,
+            profiles: appearance.profiles.map((profile) => ({
+              profileId: profile.profileId,
+              layers: profile.layers.map((layer) => ({
+                layerId: layer.layerId,
+                ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+                ...(layer.material !== undefined ? { material: materialRef(layer.material) } : {}),
+                ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+              })),
+            })),
           })),
           ...(data.idles.length > 0
             ? {

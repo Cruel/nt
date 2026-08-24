@@ -90,7 +90,12 @@ describe('authoring schema strictness', () => {
         name: 'characters',
         accepted: characterDataSchema.safeParse({
           ...character,
-          poses: [{ ...character.poses[0], unexpected: true }],
+          profiles: [
+            {
+              ...character.profiles[0],
+              poses: [{ ...character.profiles[0]!.poses[0], unexpected: true }],
+            },
+          ],
         }).success,
       },
       {

@@ -117,13 +117,9 @@ using MountedLayoutPresentationKey =
 struct BackgroundMaterialOccurrence {
     auto operator<=>(const BackgroundMaterialOccurrence&) const = default;
 };
-enum class ActorMaterialLayer : std::uint8_t {
-    Pose,
-    Expression,
-};
 struct ActorMaterialOccurrence {
     ActorPresentationKey key;
-    ActorMaterialLayer layer = ActorMaterialLayer::Pose;
+    CharacterPresentationLayerId layer;
     auto operator<=>(const ActorMaterialOccurrence&) const = default;
 };
 struct PropMaterialOccurrence {
@@ -245,8 +241,10 @@ struct DesiredActorPresentation {
     ActorPresentationKey key;
     PresentationOwner owner;
     CharacterId character;
+    CharacterPresentationProfileId profile;
     CharacterPoseId pose;
     CharacterExpressionId expression;
+    std::optional<CharacterAppearanceId> appearance;
     std::optional<CharacterIdleId> idle;
     ActorLogicalPlacement placement;
     bool visible = false;

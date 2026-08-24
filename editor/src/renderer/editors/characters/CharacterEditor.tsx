@@ -23,14 +23,19 @@ import {
   presentationClockValues,
   validateCharacterData,
   type CharacterData,
+  type CharacterAppearanceData,
   type CharacterExpressionData,
   type CharacterIdleData,
+  type CharacterLayerCompositionData,
+  type CharacterLayerOverrideData,
   type CharacterPoseData,
+  type CharacterPresentationProfileData,
 } from '../../../shared/project-schema/authoring-characters';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   buildCharacterPreviewDocumentData,
   characterPreviewRevision,
+  resolveCharacterPresentationLayers,
 } from '../../../shared/project-schema/character-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -107,8 +112,20 @@ function refValue(ref: { $ref: { id: string } } | null | undefined) {
   return ref?.$ref.id ?? '__none__';
 }
 
+function profileForPreview(data: CharacterData) {
+  return (
+    data.profiles.find((profile) => profile.id === data.defaults.profileId) ??
+    data.profiles[0] ??
+    null
+  );
+}
+
 function poseForPreview(data: CharacterData) {
-  return data.poses.find((pose) => pose.id === data.defaults.poseId) ?? data.poses[0] ?? null;
+  const profile = profileForPreview(data);
+  if (!profile) return null;
+  return (
+    profile.poses.find((pose) => pose.id === profile.defaultPoseId) ?? profile.poses[0] ?? null
+  );
 }
 
 function expressionForPreview(data: CharacterData) {
@@ -192,10 +209,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     revision,
     data: buildCharacterPreviewDocumentData(activeProject, activeCharacterId),
   };
+  const previewProfile = profileForPreview(data);
   const previewPose = poseForPreview(data);
   const previewExpression = expressionForPreview(data);
-  const resolvedSprite = previewExpression?.sprite ?? previewPose?.sprite ?? null;
-  const resolvedMaterial = previewExpression?.material ?? previewPose?.material ?? null;
+  const previewLayers = resolveCharacterPresentationLayers(data);
 
   function commit(next: CharacterData, label = 'Update character') {
     commitCharacter(activeCharacterId, next, label);
@@ -212,14 +229,40 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     commit({ ...data, defaults: { ...data.defaults, ...patch } }, 'Update character defaults');
   }
 
-  function replacePose(poseId: string, patch: Partial<CharacterPoseData>) {
+  function replaceProfile(profileId: string, patch: Partial<CharacterPresentationProfileData>) {
     commit(
       {
         ...data,
-        poses: data.poses.map((pose) => (pose.id === poseId ? { ...pose, ...patch } : pose)),
+        profiles: data.profiles.map((profile) =>
+          profile.id === profileId ? { ...profile, ...patch } : profile,
+        ),
       },
-      'Update character pose',
+      'Update character presentation profile',
     );
+  }
+
+  function replacePose(profileId: string, poseId: string, patch: Partial<CharacterPoseData>) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    replaceProfile(profileId, {
+      poses: profile.poses.map((pose) => (pose.id === poseId ? { ...pose, ...patch } : pose)),
+    });
+  }
+
+  function replacePoseLayer(
+    profileId: string,
+    poseId: string,
+    layerId: string,
+    patch: Partial<CharacterLayerCompositionData>,
+  ) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    const pose = profile?.poses.find((item) => item.id === poseId);
+    if (!profile || !pose) return;
+    replacePose(profileId, poseId, {
+      layers: pose.layers.map((layer) =>
+        layer.layerId === layerId ? { ...layer, ...patch } : layer,
+      ),
+    });
   }
 
   function replaceExpression(expressionId: string, patch: Partial<CharacterExpressionData>) {
@@ -234,6 +277,47 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
+  function replaceAppearance(appearanceId: string, patch: Partial<CharacterAppearanceData>) {
+    commit(
+      {
+        ...data,
+        appearances: data.appearances.map((appearance) =>
+          appearance.id === appearanceId ? { ...appearance, ...patch } : appearance,
+        ),
+      },
+      'Update character appearance',
+    );
+  }
+
+  function replaceSemanticOverride(
+    kind: 'expression' | 'appearance',
+    entryId: string,
+    profileId: string,
+    layerId: string,
+    patch: Partial<CharacterLayerOverrideData>,
+  ) {
+    const entries = kind === 'expression' ? data.expressions : data.appearances;
+    const entry = entries.find((candidate) => candidate.id === entryId);
+    if (!entry) return;
+    const currentProfile = entry.profiles.find((candidate) => candidate.profileId === profileId);
+    const currentLayer = currentProfile?.layers.find((candidate) => candidate.layerId === layerId);
+    const nextLayer = { layerId, ...currentLayer, ...patch };
+    const layers = currentProfile
+      ? currentProfile.layers.some((candidate) => candidate.layerId === layerId)
+        ? currentProfile.layers.map((candidate) =>
+            candidate.layerId === layerId ? nextLayer : candidate,
+          )
+        : [...currentProfile.layers, nextLayer]
+      : [nextLayer];
+    const profiles = currentProfile
+      ? entry.profiles.map((candidate) =>
+          candidate.profileId === profileId ? { ...candidate, layers } : candidate,
+        )
+      : [...entry.profiles, { profileId, layers }];
+    if (kind === 'expression') replaceExpression(entryId, { profiles });
+    else replaceAppearance(entryId, { profiles });
+  }
+
   function replaceIdle(idleId: string, patch: Partial<CharacterIdleData>) {
     commit(
       {
@@ -244,49 +328,171 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
-  function addPose() {
+  function addProfile() {
     const id = nextUniqueId(
-      data.poses.map((pose) => pose.id),
-      'pose',
+      data.profiles.map((profile) => profile.id),
+      'profile',
     );
     commit(
       {
         ...data,
-        poses: [
-          ...data.poses,
+        profiles: [
+          ...data.profiles,
           {
             id,
-            label: 'Pose',
+            label: 'Profile',
+            layers: [{ id: 'body', label: 'Body', role: 'body' }],
+            defaultPoseId: 'default',
+            poses: [
+              {
+                id: 'default',
+                label: 'Default',
+                layers: [
+                  {
+                    layerId: 'body',
+                    sprite: null,
+                    material: null,
+                    offset: { x: 0, y: 0 },
+                    scale: 1,
+                    anchor: { x: 0.5, y: 1 },
+                    visible: true,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      'Add character presentation profile',
+    );
+  }
+
+  function deleteProfile(profileId: string) {
+    const remaining = data.profiles.filter((profile) => profile.id !== profileId);
+    if (remaining.length === 0) return;
+    const fallback = remaining[0]!.id;
+    const removeProfileOverrides = <T extends { profiles: Array<{ profileId: string }> }>(
+      entry: T,
+    ) => ({
+      ...entry,
+      profiles: entry.profiles.filter((profile) => profile.profileId !== profileId),
+    });
+    commit(
+      {
+        ...data,
+        profiles: remaining,
+        defaults: {
+          ...data.defaults,
+          profileId: data.defaults.profileId === profileId ? fallback : data.defaults.profileId,
+        },
+        expressions: data.expressions.map(removeProfileOverrides),
+        appearances: data.appearances.map(removeProfileOverrides),
+      },
+      'Delete character presentation profile',
+    );
+  }
+
+  function addLayer(profileId: string) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    const id = nextUniqueId(
+      profile.layers.map((layer) => layer.id),
+      'layer',
+    );
+    replaceProfile(profileId, {
+      layers: [...profile.layers, { id, label: 'Layer', role: null }],
+      poses: profile.poses.map((pose) => ({
+        ...pose,
+        layers: [
+          ...pose.layers,
+          {
+            layerId: id,
             sprite: null,
             material: null,
             offset: { x: 0, y: 0 },
             scale: 1,
             anchor: { x: 0.5, y: 1 },
+            visible: true,
           },
         ],
-      },
-      'Add character pose',
-    );
+      })),
+    });
   }
 
-  function deletePose(poseId: string) {
-    const remaining = data.poses.filter((pose) => pose.id !== poseId);
-    if (remaining.length === 0) return;
-    const fallback = remaining[0]!.id;
+  function deleteLayer(profileId: string, layerId: string) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    if (!profile || profile.layers.length <= 1) return;
+    const stripOverrides = <
+      T extends { profiles: Array<{ profileId: string; layers: CharacterLayerOverrideData[] }> },
+    >(
+      entry: T,
+    ) => ({
+      ...entry,
+      profiles: entry.profiles.map((candidate) =>
+        candidate.profileId === profileId
+          ? { ...candidate, layers: candidate.layers.filter((layer) => layer.layerId !== layerId) }
+          : candidate,
+      ),
+    });
     commit(
       {
         ...data,
-        poses: remaining,
-        defaults: {
-          ...data.defaults,
-          poseId: data.defaults.poseId === poseId ? fallback : data.defaults.poseId,
-        },
-        expressions: data.expressions.map((expression) =>
-          expression.poseId === poseId ? { ...expression, poseId: null } : expression,
+        profiles: data.profiles.map((candidate) =>
+          candidate.id === profileId
+            ? {
+                ...candidate,
+                layers: candidate.layers.filter((layer) => layer.id !== layerId),
+                poses: candidate.poses.map((pose) => ({
+                  ...pose,
+                  layers: pose.layers.filter((layer) => layer.layerId !== layerId),
+                })),
+              }
+            : candidate,
         ),
+        expressions: data.expressions.map(stripOverrides),
+        appearances: data.appearances.map(stripOverrides),
       },
-      'Delete character pose',
+      'Delete character presentation layer',
     );
+  }
+
+  function addPose(profileId: string) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    const id = nextUniqueId(
+      profile.poses.map((pose) => pose.id),
+      'pose',
+    );
+    replaceProfile(profileId, {
+      poses: [
+        ...profile.poses,
+        {
+          id,
+          label: 'Pose',
+          layers: profile.layers.map((layer) => ({
+            layerId: layer.id,
+            sprite: null,
+            material: null,
+            offset: { x: 0, y: 0 },
+            scale: 1,
+            anchor: { x: 0.5, y: 1 },
+            visible: true,
+          })),
+        },
+      ],
+    });
+  }
+
+  function deletePose(profileId: string, poseId: string) {
+    const profile = data.profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    const remaining = profile.poses.filter((pose) => pose.id !== poseId);
+    if (remaining.length === 0) return;
+    const fallback = remaining[0]!.id;
+    replaceProfile(profileId, {
+      poses: remaining,
+      defaultPoseId: profile.defaultPoseId === poseId ? fallback : profile.defaultPoseId,
+    });
   }
 
   function addExpression() {
@@ -297,12 +503,35 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     commit(
       {
         ...data,
-        expressions: [
-          ...data.expressions,
-          { id, label: 'Expression', poseId: null, sprite: null, material: null },
-        ],
+        expressions: [...data.expressions, { id, label: 'Expression', profiles: [] }],
       },
       'Add character expression',
+    );
+  }
+
+  function addAppearance() {
+    const id = nextUniqueId(
+      data.appearances.map((appearance) => appearance.id),
+      'appearance',
+    );
+    commit(
+      { ...data, appearances: [...data.appearances, { id, label: 'Appearance', profiles: [] }] },
+      'Add character appearance',
+    );
+  }
+
+  function deleteAppearance(appearanceId: string) {
+    commit(
+      {
+        ...data,
+        appearances: data.appearances.filter((appearance) => appearance.id !== appearanceId),
+        defaults: {
+          ...data.defaults,
+          appearanceId:
+            data.defaults.appearanceId === appearanceId ? null : data.defaults.appearanceId,
+        },
+      },
+      'Delete character appearance',
     );
   }
 
@@ -457,14 +686,14 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             data-workbench-anchor="character.defaults"
           >
             <div className="space-y-1">
-              <Label>Default pose</Label>
+              <Label>Default profile</Label>
               <Select
-                value={data.defaults.poseId}
-                onValueChange={(value) => patchDefaults({ poseId: String(value) })}
+                value={data.defaults.profileId}
+                onValueChange={(value) => patchDefaults({ profileId: String(value) })}
               >
-                {data.poses.map((pose) => (
-                  <SelectItem key={pose.id} value={pose.id}>
-                    {pose.label} ({pose.id})
+                {data.profiles.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.label} ({profile.id})
                   </SelectItem>
                 ))}
               </Select>
@@ -482,7 +711,23 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                 ))}
               </Select>
             </div>
-            <div className="space-y-1 md:col-span-2">
+            <div className="space-y-1">
+              <Label>Default appearance</Label>
+              <Select
+                value={data.defaults.appearanceId ?? '__none__'}
+                onValueChange={(value) =>
+                  patchDefaults({ appearanceId: value === '__none__' ? null : String(value) })
+                }
+              >
+                <SelectItem value="__none__">No appearance</SelectItem>
+                {data.appearances.map((appearance) => (
+                  <SelectItem key={appearance.id} value={appearance.id}>
+                    {appearance.label} ({appearance.id})
+                  </SelectItem>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1">
               <Label>Default idle</Label>
               <Select
                 value={data.defaults.idleId ?? '__none__'}
@@ -586,117 +831,249 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             title="Character Inventories"
           />
 
-          <section className="space-y-3 rounded border p-3" data-workbench-anchor="character.poses">
+          <section
+            className="space-y-3 rounded border p-3"
+            data-workbench-anchor="character.profiles"
+          >
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-medium">Poses</h3>
-              <Button size="sm" variant="outline" onClick={addPose}>
-                Add Pose
+              <div>
+                <h3 className="text-sm font-medium">Presentation profiles</h3>
+                <p className="text-xs text-muted-foreground">
+                  Each occurrence chooses one profile. Profiles own their ordered layers and poses.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={addProfile}>
+                Add Profile
               </Button>
             </div>
-            {data.poses.map((pose, index) => (
+            {data.profiles.map((profile, profileIndex) => (
               <div
-                key={pose.id}
-                className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-4"
-                data-workbench-anchor={`character.pose.${pose.id || index}`}
+                key={profile.id}
+                className="space-y-3 rounded border p-3"
+                data-workbench-anchor={`character.profile.${profile.id || profileIndex}`}
               >
-                <div className="space-y-1">
-                  <Label>ID</Label>
-                  <Input
-                    value={pose.id}
-                    onChange={(event) => replacePose(pose.id, { id: event.currentTarget.value })}
-                  />
+                <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+                  <div className="space-y-1">
+                    <Label>ID</Label>
+                    <Input value={profile.id} readOnly />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Label</Label>
+                    <Input
+                      value={profile.label}
+                      onChange={(event) =>
+                        replaceProfile(profile.id, { label: event.currentTarget.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Default pose</Label>
+                    <Select
+                      value={profile.defaultPoseId}
+                      onValueChange={(value) =>
+                        replaceProfile(profile.id, { defaultPoseId: String(value) })
+                      }
+                    >
+                      {profile.poses.map((pose) => (
+                        <SelectItem key={pose.id} value={pose.id}>
+                          {pose.label} ({pose.id})
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={data.profiles.length <= 1}
+                      onClick={() => deleteProfile(profile.id)}
+                    >
+                      Delete Profile
+                    </Button>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label>Label</Label>
-                  <Input
-                    value={pose.label}
-                    onChange={(event) => replacePose(pose.id, { label: event.currentTarget.value })}
-                  />
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-medium">Layers</h4>
+                    <Button size="sm" variant="ghost" onClick={() => addLayer(profile.id)}>
+                      Add Layer
+                    </Button>
+                  </div>
+                  {profile.layers.map((layer) => (
+                    <div
+                      key={layer.id}
+                      className="grid gap-2 rounded bg-muted/30 p-2 md:grid-cols-[1fr_1fr_1fr_auto]"
+                    >
+                      <div className="space-y-1">
+                        <Label>Layer ID</Label>
+                        <Input value={layer.id} readOnly />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Label</Label>
+                        <Input
+                          value={layer.label}
+                          onChange={(event) =>
+                            replaceProfile(profile.id, {
+                              layers: profile.layers.map((candidate) =>
+                                candidate.id === layer.id
+                                  ? { ...candidate, label: event.currentTarget.value }
+                                  : candidate,
+                              ),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Semantic role</Label>
+                        <Input
+                          value={layer.role ?? ''}
+                          placeholder="body, face, outfit…"
+                          onChange={(event) =>
+                            replaceProfile(profile.id, {
+                              layers: profile.layers.map((candidate) =>
+                                candidate.id === layer.id
+                                  ? {
+                                      ...candidate,
+                                      role: event.currentTarget.value.trim() || null,
+                                    }
+                                  : candidate,
+                              ),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={profile.layers.length <= 1}
+                          onClick={() => deleteLayer(profile.id, layer.id)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="space-y-1">
-                  <Label>Sprite</Label>
-                  <Select
-                    value={refValue(pose.sprite)}
-                    onValueChange={(value) =>
-                      replacePose(pose.id, {
-                        sprite: value === '__none__' ? null : characterAssetRef(String(value)),
-                      })
-                    }
-                  >
-                    <SelectItem value="__none__">No sprite</SelectItem>
-                    {imageAssets.map((asset) => (
-                      <SelectItem key={asset.id} value={asset.id}>
-                        {asset.label} ({asset.id})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Material</Label>
-                  <Select
-                    value={refValue(pose.material)}
-                    onValueChange={(value) =>
-                      replacePose(pose.id, {
-                        material: value === '__none__' ? null : characterMaterialRef(String(value)),
-                      })
-                    }
-                  >
-                    <SelectItem value="__none__">No material override</SelectItem>
-                    {materials.map((material) => (
-                      <SelectItem key={material.id} value={material.id}>
-                        {material.label} ({material.id})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Offset X</Label>
-                  <Input
-                    value={String(pose.offset.x)}
-                    onChange={(event) =>
-                      replacePose(pose.id, {
-                        offset: {
-                          ...pose.offset,
-                          x: toNumber(event.currentTarget.value, pose.offset.x),
-                        },
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Offset Y</Label>
-                  <Input
-                    value={String(pose.offset.y)}
-                    onChange={(event) =>
-                      replacePose(pose.id, {
-                        offset: {
-                          ...pose.offset,
-                          y: toNumber(event.currentTarget.value, pose.offset.y),
-                        },
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Scale</Label>
-                  <Input
-                    value={String(pose.scale)}
-                    onChange={(event) =>
-                      replacePose(pose.id, {
-                        scale: Math.max(0.01, toNumber(event.currentTarget.value, pose.scale)),
-                      })
-                    }
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => deletePose(pose.id)}
-                    disabled={data.poses.length <= 1}
-                  >
-                    Delete
-                  </Button>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-medium">Poses</h4>
+                    <Button size="sm" variant="ghost" onClick={() => addPose(profile.id)}>
+                      Add Pose
+                    </Button>
+                  </div>
+                  {profile.poses.map((pose, poseIndex) => (
+                    <div
+                      key={pose.id}
+                      className="space-y-2 rounded border p-2"
+                      data-workbench-anchor={`character.profile.${profile.id}.pose.${pose.id || poseIndex}`}
+                    >
+                      <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                        <div className="space-y-1">
+                          <Label>ID</Label>
+                          <Input value={pose.id} readOnly />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Label</Label>
+                          <Input
+                            value={pose.label}
+                            onChange={(event) =>
+                              replacePose(profile.id, pose.id, { label: event.currentTarget.value })
+                            }
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => deletePose(profile.id, pose.id)}
+                            disabled={profile.poses.length <= 1}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                      {pose.layers.map((layer) => (
+                        <div
+                          key={layer.layerId}
+                          className="grid gap-2 rounded bg-muted/20 p-2 md:grid-cols-2 xl:grid-cols-5"
+                        >
+                          <div className="space-y-1">
+                            <Label>Layer</Label>
+                            <Input value={layer.layerId} readOnly />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Sprite</Label>
+                            <Select
+                              value={refValue(layer.sprite)}
+                              onValueChange={(value) =>
+                                replacePoseLayer(profile.id, pose.id, layer.layerId, {
+                                  sprite:
+                                    value === '__none__' ? null : characterAssetRef(String(value)),
+                                })
+                              }
+                            >
+                              <SelectItem value="__none__">No sprite</SelectItem>
+                              {imageAssets.map((asset) => (
+                                <SelectItem key={asset.id} value={asset.id}>
+                                  {asset.label} ({asset.id})
+                                </SelectItem>
+                              ))}
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Material</Label>
+                            <Select
+                              value={refValue(layer.material)}
+                              onValueChange={(value) =>
+                                replacePoseLayer(profile.id, pose.id, layer.layerId, {
+                                  material:
+                                    value === '__none__'
+                                      ? null
+                                      : characterMaterialRef(String(value)),
+                                })
+                              }
+                            >
+                              <SelectItem value="__none__">No override</SelectItem>
+                              {materials.map((material) => (
+                                <SelectItem key={material.id} value={material.id}>
+                                  {material.label} ({material.id})
+                                </SelectItem>
+                              ))}
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Scale</Label>
+                            <Input
+                              value={String(layer.scale)}
+                              onChange={(event) =>
+                                replacePoseLayer(profile.id, pose.id, layer.layerId, {
+                                  scale: Math.max(
+                                    0.01,
+                                    toNumber(event.currentTarget.value, layer.scale),
+                                  ),
+                                })
+                              }
+                            />
+                          </div>
+                          <label className="flex items-end gap-2 pb-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={layer.visible}
+                              onChange={(event) =>
+                                replacePoseLayer(profile.id, pose.id, layer.layerId, {
+                                  visible: event.currentTarget.checked,
+                                })
+                              }
+                            />
+                            Visible
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -715,7 +1092,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             {data.expressions.map((expression, index) => (
               <div
                 key={expression.id}
-                className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-5"
+                className="grid gap-2 rounded border p-2 md:grid-cols-2"
                 data-workbench-anchor={`character.expression.${expression.id || index}`}
               >
                 <div className="space-y-1">
@@ -736,66 +1113,280 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                     }
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label>Pose restriction</Label>
-                  <Select
-                    value={expression.poseId ?? '__all__'}
-                    onValueChange={(value) =>
-                      replaceExpression(expression.id, {
-                        poseId: value === '__all__' ? null : String(value),
-                      })
-                    }
-                  >
-                    <SelectItem value="__all__">All poses</SelectItem>
-                    {data.poses.map((pose) => (
-                      <SelectItem key={pose.id} value={pose.id}>
-                        {pose.label} ({pose.id})
-                      </SelectItem>
-                    ))}
-                  </Select>
+                <div className="space-y-2 md:col-span-2">
+                  <div className="text-xs text-muted-foreground">
+                    Profile overrides are optional. Missing overrides deliberately fall back to this
+                    Character&apos;s default Expression for the selected profile.
+                  </div>
+                  {data.profiles.map((profile) => (
+                    <div key={profile.id} className="space-y-2 rounded bg-muted/20 p-2">
+                      <div className="text-xs font-medium">{profile.label}</div>
+                      {profile.layers.map((layer) => {
+                        const override = expression.profiles
+                          .find((candidate) => candidate.profileId === profile.id)
+                          ?.layers.find((candidate) => candidate.layerId === layer.id);
+                        return (
+                          <div key={layer.id} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_1fr]">
+                            <div className="self-end pb-2 text-xs">{layer.label}</div>
+                            <div className="space-y-1">
+                              <Label>Sprite</Label>
+                              <Select
+                                value={
+                                  override?.sprite === undefined
+                                    ? '__inherit__'
+                                    : refValue(override.sprite)
+                                }
+                                onValueChange={(value) =>
+                                  replaceSemanticOverride(
+                                    'expression',
+                                    expression.id,
+                                    profile.id,
+                                    layer.id,
+                                    {
+                                      sprite:
+                                        value === '__inherit__'
+                                          ? undefined
+                                          : value === '__none__'
+                                            ? null
+                                            : characterAssetRef(String(value)),
+                                    },
+                                  )
+                                }
+                              >
+                                <SelectItem value="__inherit__">Inherit</SelectItem>
+                                <SelectItem value="__none__">Hide sprite</SelectItem>
+                                {imageAssets.map((asset) => (
+                                  <SelectItem key={asset.id} value={asset.id}>
+                                    {asset.label} ({asset.id})
+                                  </SelectItem>
+                                ))}
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Material</Label>
+                              <Select
+                                value={
+                                  override?.material === undefined
+                                    ? '__inherit__'
+                                    : refValue(override.material)
+                                }
+                                onValueChange={(value) =>
+                                  replaceSemanticOverride(
+                                    'expression',
+                                    expression.id,
+                                    profile.id,
+                                    layer.id,
+                                    {
+                                      material:
+                                        value === '__inherit__'
+                                          ? undefined
+                                          : value === '__none__'
+                                            ? null
+                                            : characterMaterialRef(String(value)),
+                                    },
+                                  )
+                                }
+                              >
+                                <SelectItem value="__inherit__">Inherit</SelectItem>
+                                <SelectItem value="__none__">No material</SelectItem>
+                                {materials.map((material) => (
+                                  <SelectItem key={material.id} value={material.id}>
+                                    {material.label} ({material.id})
+                                  </SelectItem>
+                                ))}
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Visibility</Label>
+                              <Select
+                                value={
+                                  override?.visible === undefined
+                                    ? '__inherit__'
+                                    : override.visible
+                                      ? 'visible'
+                                      : 'hidden'
+                                }
+                                onValueChange={(value) =>
+                                  replaceSemanticOverride(
+                                    'expression',
+                                    expression.id,
+                                    profile.id,
+                                    layer.id,
+                                    {
+                                      visible:
+                                        value === '__inherit__' ? undefined : value === 'visible',
+                                    },
+                                  )
+                                }
+                              >
+                                <SelectItem value="__inherit__">Inherit</SelectItem>
+                                <SelectItem value="visible">Visible</SelectItem>
+                                <SelectItem value="hidden">Hidden</SelectItem>
+                              </Select>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
-                <div className="space-y-1">
-                  <Label>Sprite</Label>
-                  <Select
-                    value={refValue(expression.sprite)}
-                    onValueChange={(value) =>
-                      replaceExpression(expression.id, {
-                        sprite: value === '__none__' ? null : characterAssetRef(String(value)),
-                      })
-                    }
-                  >
-                    <SelectItem value="__none__">Use pose sprite</SelectItem>
-                    {imageAssets.map((asset) => (
-                      <SelectItem key={asset.id} value={asset.id}>
-                        {asset.label} ({asset.id})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Material</Label>
-                  <Select
-                    value={refValue(expression.material)}
-                    onValueChange={(value) =>
-                      replaceExpression(expression.id, {
-                        material: value === '__none__' ? null : characterMaterialRef(String(value)),
-                      })
-                    }
-                  >
-                    <SelectItem value="__none__">Use pose material</SelectItem>
-                    {materials.map((material) => (
-                      <SelectItem key={material.id} value={material.id}>
-                        {material.label} ({material.id})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="flex items-end xl:col-span-5">
+                <div className="flex items-end md:col-span-2">
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => deleteExpression(expression.id)}
                     disabled={data.expressions.length <= 1}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <section
+            className="space-y-3 rounded border p-3"
+            data-workbench-anchor="character.appearances"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-medium">Appearances</h3>
+                <p className="text-xs text-muted-foreground">
+                  Optional independent visual axis for outfits, damage states, and similar variants.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={addAppearance}>
+                Add Appearance
+              </Button>
+            </div>
+            {data.appearances.map((appearance, index) => (
+              <div
+                key={appearance.id}
+                className="grid gap-2 rounded border p-2 md:grid-cols-2"
+                data-workbench-anchor={`character.appearance.${appearance.id || index}`}
+              >
+                <div className="space-y-1">
+                  <Label>ID</Label>
+                  <Input value={appearance.id} readOnly />
+                </div>
+                <div className="space-y-1">
+                  <Label>Label</Label>
+                  <Input
+                    value={appearance.label}
+                    onChange={(event) =>
+                      replaceAppearance(appearance.id, { label: event.currentTarget.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  {data.profiles.map((profile) => (
+                    <div key={profile.id} className="space-y-2 rounded bg-muted/20 p-2">
+                      <div className="text-xs font-medium">{profile.label}</div>
+                      {profile.layers.map((layer) => {
+                        const override = appearance.profiles
+                          .find((candidate) => candidate.profileId === profile.id)
+                          ?.layers.find((candidate) => candidate.layerId === layer.id);
+                        return (
+                          <div key={layer.id} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_1fr]">
+                            <div className="self-end pb-2 text-xs">{layer.label}</div>
+                            <Select
+                              value={
+                                override?.sprite === undefined
+                                  ? '__inherit__'
+                                  : refValue(override.sprite)
+                              }
+                              onValueChange={(value) =>
+                                replaceSemanticOverride(
+                                  'appearance',
+                                  appearance.id,
+                                  profile.id,
+                                  layer.id,
+                                  {
+                                    sprite:
+                                      value === '__inherit__'
+                                        ? undefined
+                                        : value === '__none__'
+                                          ? null
+                                          : characterAssetRef(String(value)),
+                                  },
+                                )
+                              }
+                            >
+                              <SelectItem value="__inherit__">Inherit sprite</SelectItem>
+                              <SelectItem value="__none__">No sprite</SelectItem>
+                              {imageAssets.map((asset) => (
+                                <SelectItem key={asset.id} value={asset.id}>
+                                  {asset.label} ({asset.id})
+                                </SelectItem>
+                              ))}
+                            </Select>
+                            <Select
+                              value={
+                                override?.material === undefined
+                                  ? '__inherit__'
+                                  : refValue(override.material)
+                              }
+                              onValueChange={(value) =>
+                                replaceSemanticOverride(
+                                  'appearance',
+                                  appearance.id,
+                                  profile.id,
+                                  layer.id,
+                                  {
+                                    material:
+                                      value === '__inherit__'
+                                        ? undefined
+                                        : value === '__none__'
+                                          ? null
+                                          : characterMaterialRef(String(value)),
+                                  },
+                                )
+                              }
+                            >
+                              <SelectItem value="__inherit__">Inherit material</SelectItem>
+                              <SelectItem value="__none__">No material</SelectItem>
+                              {materials.map((material) => (
+                                <SelectItem key={material.id} value={material.id}>
+                                  {material.label} ({material.id})
+                                </SelectItem>
+                              ))}
+                            </Select>
+                            <Select
+                              value={
+                                override?.visible === undefined
+                                  ? '__inherit__'
+                                  : override.visible
+                                    ? 'visible'
+                                    : 'hidden'
+                              }
+                              onValueChange={(value) =>
+                                replaceSemanticOverride(
+                                  'appearance',
+                                  appearance.id,
+                                  profile.id,
+                                  layer.id,
+                                  {
+                                    visible:
+                                      value === '__inherit__' ? undefined : value === 'visible',
+                                  },
+                                )
+                              }
+                            >
+                              <SelectItem value="__inherit__">Inherit visibility</SelectItem>
+                              <SelectItem value="visible">Visible</SelectItem>
+                              <SelectItem value="hidden">Hidden</SelectItem>
+                            </Select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+                <div className="md:col-span-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => deleteAppearance(appearance.id)}
                   >
                     Delete
                   </Button>
@@ -911,6 +1502,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           </div>
           <div className="mt-3 space-y-2 text-xs text-muted-foreground">
             <div>
+              <span className="font-medium text-foreground">Profile:</span>{' '}
+              {previewProfile?.label ?? 'None'}
+            </div>
+            <div>
               <span className="font-medium text-foreground">Pose:</span>{' '}
               {previewPose?.label ?? 'None'}
             </div>
@@ -919,13 +1514,15 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
               {previewExpression?.label ?? 'None'}
             </div>
             <div>
-              <span className="font-medium text-foreground">Sprite:</span>{' '}
-              {resolvedSprite?.$ref.id ?? 'None'}
+              <span className="font-medium text-foreground">Appearance:</span>{' '}
+              {data.defaults.appearanceId ?? 'None'}
             </div>
-            <div>
-              <span className="font-medium text-foreground">Material:</span>{' '}
-              {resolvedMaterial?.$ref.id ?? 'None'}
-            </div>
+            {previewLayers.map((layer) => (
+              <div key={layer.id}>
+                <span className="font-medium text-foreground">{layer.id}:</span>{' '}
+                {layer.visible ? (layer.sprite?.$ref.id ?? 'No sprite') : 'Hidden'}
+              </div>
+            ))}
           </div>
           {diagnostics.length > 0 ? (
             <div

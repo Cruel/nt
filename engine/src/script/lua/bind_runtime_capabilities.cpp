@@ -544,16 +544,10 @@ parse_postprocess_scope(const std::string& value)
                                    "Postprocess scope must be 'world' or 'full-game-viewport'"));
 }
 
-core::Result<core::ActorMaterialLayer, core::Diagnostics>
+core::Result<core::CharacterPresentationLayerId, core::Diagnostics>
 parse_actor_material_layer(const std::string& value)
 {
-    using Result = core::Result<core::ActorMaterialLayer, core::Diagnostics>;
-    if (value == "pose")
-        return Result::success(core::ActorMaterialLayer::Pose);
-    if (value == "expression")
-        return Result::success(core::ActorMaterialLayer::Expression);
-    return Result::failure(invalid("runtime.invalid_material_actor_layer",
-                                   "Material Actor layer must be 'pose' or 'expression'"));
+    return parse_id<core::CharacterPresentationLayerId>(value);
 }
 
 core::Result<MaterialOccurrenceCommand, core::Diagnostics>
@@ -567,8 +561,11 @@ parse_material_occurrence(const sol::table& target)
     if (*kind == "background")
         return Result::success(MaterialBackgroundOccurrenceCommand{});
     if (*kind == "scene-actor" || *kind == "scoped-actor") {
-        const auto layer_name = table_option<std::string>(target, "layer").value_or("pose");
-        auto layer = parse_actor_material_layer(layer_name);
+        const auto layer_name = table_option<std::string>(target, "layer");
+        if (!layer_name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Actor Material occurrence requires layer"));
+        auto layer = parse_actor_material_layer(*layer_name);
         if (!layer)
             return Result::failure(layer.error());
         if (*kind == "scene-actor") {
@@ -1626,13 +1623,14 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
         });
     presentation.set_function(
         "set_actor",
-        [api](std::string instance_name, std::string character_name, std::string pose_name,
-              std::string expression_name, sol::optional<sol::table> options,
+        [api](std::string instance_name, std::string character_name, std::string profile_name,
+              std::string pose_name, std::string expression_name, sol::optional<sol::table> options,
               sol::this_state state) -> MutationResult {
             sol::state_view view(state);
             auto instance =
                 parse_id<core::StrongId<core::ScopedActorInstanceTag>>(std::move(instance_name));
             auto character = parse_id<core::CharacterId>(std::move(character_name));
+            auto profile = parse_id<core::CharacterPresentationProfileId>(std::move(profile_name));
             auto pose = parse_id<core::CharacterPoseId>(std::move(pose_name));
             auto expression = parse_id<core::CharacterExpressionId>(std::move(expression_name));
             auto owner = parse_presentation_owner_options(options);
@@ -1641,6 +1639,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                         : "center");
             auto* instance_value = instance.value_if();
             auto* character_value = character.value_if();
+            auto* profile_value = profile.value_if();
             auto* pose_value = pose.value_if();
             auto* expression_value = expression.value_if();
             auto* owner_value = owner.value_if();
@@ -1651,6 +1650,9 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             if (!character_value)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(character.error()));
+            if (!profile_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(profile.error()));
             if (!pose_value)
                 return mutation(view, core::Result<void, core::Diagnostics>::failure(pose.error()));
             if (!expression_value)
@@ -1675,6 +1677,15 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             command_options.visible =
                 options ? table_option<bool>(*options, "visible").value_or(true) : true;
             if (options) {
+                if (const auto appearance_name =
+                        table_option<std::string>(*options, "appearance")) {
+                    auto appearance = parse_id<core::CharacterAppearanceId>(*appearance_name);
+                    auto* appearance_value = appearance.value_if();
+                    if (!appearance_value)
+                        return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                  appearance.error()));
+                    command_options.appearance = std::move(*appearance_value);
+                }
                 if (const auto idle_name = table_option<std::string>(*options, "idle")) {
                     auto idle = parse_id<core::CharacterIdleId>(*idle_name);
                     auto* idle_value = idle.value_if();
@@ -1684,10 +1695,11 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                     command_options.idle = std::move(*idle_value);
                 }
             }
-            return mutation(view, api->set_scoped_actor(
-                                      core::ScopedActorKey{std::move(*instance_value)},
-                                      std::move(*character_value), std::move(*pose_value),
-                                      std::move(*expression_value), std::move(command_options)));
+            return mutation(
+                view, api->set_scoped_actor(core::ScopedActorKey{std::move(*instance_value)},
+                                            std::move(*character_value), std::move(*profile_value),
+                                            std::move(*pose_value), std::move(*expression_value),
+                                            std::move(command_options)));
         });
     presentation.set_function(
         "clear_actor",

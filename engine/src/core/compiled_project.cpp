@@ -354,11 +354,15 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         }
     }
     for (const auto& character : input.characters) {
-        for (const auto& pose : character.poses) {
-            if (!valid_vector(pose.anchor) || !valid_vector(pose.offset) || !finite(pose.scale) ||
-                pose.scale <= 0.0) {
-                diagnostics = invalid_model("Character pose is invalid");
-                return false;
+        for (const auto& profile : character.profiles) {
+            for (const auto& pose : profile.poses) {
+                for (const auto& layer : pose.layers) {
+                    if (!valid_vector(layer.anchor) || !valid_vector(layer.offset) ||
+                        !finite(layer.scale) || layer.scale <= 0.0) {
+                        diagnostics = invalid_model("Character pose layer is invalid");
+                        return false;
+                    }
+                }
             }
         }
     }

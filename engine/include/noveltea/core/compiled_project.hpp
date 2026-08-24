@@ -360,19 +360,59 @@ struct RoomPlacementRef {
     bool operator==(const RoomPlacementRef&) const = default;
 };
 
-struct CharacterPose {
-    CharacterPoseId id;
-    Vector2 anchor;
+struct CharacterPresentationLayer {
+    CharacterPresentationLayerId id;
+    std::optional<std::string> role;
+    bool operator==(const CharacterPresentationLayer&) const = default;
+};
+struct CharacterLayerComposition {
+    CharacterPresentationLayerId layer_id;
+    std::optional<AssetId> sprite;
     std::optional<MaterialId> material;
     Vector2 offset;
     double scale;
-    std::optional<AssetId> sprite;
+    Vector2 anchor;
+    bool visible;
+    bool operator==(const CharacterLayerComposition&) const = default;
+};
+struct CharacterPose {
+    CharacterPoseId id;
+    std::vector<CharacterLayerComposition> layers;
+    bool operator==(const CharacterPose&) const = default;
+};
+struct CharacterPresentationProfile {
+    CharacterPresentationProfileId id;
+    std::vector<CharacterPresentationLayer> layers;
+    CharacterPoseId default_pose_id;
+    std::vector<CharacterPose> poses;
+    bool operator==(const CharacterPresentationProfile&) const = default;
+};
+template<typename T> struct CharacterOptionalOverride {
+    bool specified = false;
+    std::optional<T> value;
+    bool operator==(const CharacterOptionalOverride&) const = default;
+};
+struct CharacterLayerOverride {
+    CharacterPresentationLayerId layer_id;
+    CharacterOptionalOverride<AssetId> sprite;
+    CharacterOptionalOverride<MaterialId> material;
+    std::optional<bool> visible;
+    bool operator==(const CharacterLayerOverride&) const = default;
+};
+struct CharacterProfileLayerOverrides {
+    CharacterPresentationProfileId profile_id;
+    std::vector<CharacterLayerOverride> layers;
+    bool operator==(const CharacterProfileLayerOverrides&) const = default;
 };
 struct CharacterExpression {
     CharacterExpressionId id;
-    std::optional<MaterialId> material;
-    std::optional<CharacterPoseId> pose_id;
-    std::optional<AssetId> sprite;
+    std::vector<CharacterProfileLayerOverrides> profiles;
+    bool operator==(const CharacterExpression&) const = default;
+};
+struct CharacterAppearance {
+    CharacterAppearanceId id;
+    std::vector<CharacterProfileLayerOverrides> profiles;
+    bool operator==(const CharacterAppearance&) const = default;
 };
 enum class CharacterIdleKind : std::uint8_t {
     Bob,
@@ -394,8 +434,9 @@ struct CharacterDialoguePresentation {
     std::optional<std::string> text_color;
 };
 struct CharacterDefaults {
+    CharacterPresentationProfileId profile_id;
     CharacterExpressionId expression_id;
-    CharacterPoseId pose_id;
+    std::optional<CharacterAppearanceId> appearance_id;
     std::optional<CharacterIdleId> idle_id;
 };
 using CharacterInitialWorldLocation = std::variant<UnplacedLocation, RoomLocation>;
@@ -409,8 +450,9 @@ struct CharacterDefinition {
     std::string display_name;
     CharacterDialoguePresentation dialogue;
     CharacterDefaults defaults;
-    std::vector<CharacterPose> poses;
+    std::vector<CharacterPresentationProfile> profiles;
     std::vector<CharacterExpression> expressions;
+    std::vector<CharacterAppearance> appearances;
     std::vector<CharacterIdle> idles;
     std::vector<InventoryDefinition> inventories;
     CharacterInitialWorldState initial_world_state;
@@ -608,8 +650,10 @@ struct RoomCastEntry {
     CharacterId character;
     Condition condition;
     RoomPlacementId placement_id;
+    std::optional<CharacterPresentationProfileId> profile_id;
     std::optional<CharacterPoseId> pose_id;
     std::optional<CharacterExpressionId> expression_id;
+    std::optional<CharacterAppearanceId> appearance_id;
     std::optional<CharacterIdleId> idle_id;
     bool visible;
     std::int32_t order = 0;
@@ -875,8 +919,10 @@ enum class ActorCueAction : std::uint8_t {
     Show,
     Hide,
     Move,
+    Profile,
     Pose,
-    Expression
+    Expression,
+    Appearance
 };
 enum class ActorPosition : std::uint8_t {
     Left,
@@ -894,7 +940,9 @@ struct ActorCueInstruction {
     std::optional<Condition> condition;
     ActorCueAction action;
     CharacterId character;
+    std::optional<CharacterPresentationProfileId> profile_id;
     std::optional<CharacterExpressionId> expression_id;
+    std::optional<CharacterAppearanceId> appearance_id;
     Vector2 offset;
     std::optional<CharacterPoseId> pose_id;
     ActorPosition position;
@@ -1049,16 +1097,12 @@ struct SetLayoutInstruction {
     PresentationInstructionWait wait;
     bool skippable;
 };
-enum class MaterialActorLayer : std::uint8_t {
-    Pose,
-    Expression,
-};
 struct BackgroundMaterialInstructionTarget {
     auto operator<=>(const BackgroundMaterialInstructionTarget&) const = default;
 };
 struct ActorMaterialInstructionTarget {
     ActorSlotId slot;
-    MaterialActorLayer layer = MaterialActorLayer::Pose;
+    CharacterPresentationLayerId layer;
     auto operator<=>(const ActorMaterialInstructionTarget&) const = default;
 };
 struct LayoutMaterialInstructionTarget {
@@ -1131,7 +1175,9 @@ struct TransitionGroupActorMutation {
     TransitionGroupChildId id;
     ActorCueAction action;
     CharacterId character;
+    std::optional<CharacterPresentationProfileId> profile_id;
     std::optional<CharacterExpressionId> expression_id;
+    std::optional<CharacterAppearanceId> appearance_id;
     Vector2 offset;
     std::optional<CharacterPoseId> pose_id;
     ActorPosition position;
