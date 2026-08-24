@@ -611,15 +611,17 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                           std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"background", "cast", "description", "displayName", "environments",
-                         "exits", "features", "hotspots", "id", "interactables",
-                         "lifecycle", "overlays", "placements", "props", "propertyAssignments",
-                         "scriptHooks", "traits"}))
+                        {"anchors", "background", "cast", "description", "displayName",
+                         "environments", "exits", "features", "hotspots", "id", "interactables",
+                         "lifecycle", "overlays", "placements", "presentationSpace", "props",
+                         "propertyAssignments", "scriptHooks", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<RoomId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
     const auto* description_value = decoder.member(value, "description", pointer);
     const auto* background_value = decoder.member(value, "background", pointer);
+    const auto* presentation_space_value = decoder.member(value, "presentationSpace", pointer);
+    const auto* anchors_value = decoder.member(value, "anchors", pointer);
     const auto* lifecycle_value = decoder.member(value, "lifecycle", pointer);
     const auto* overlays_value = decoder.member(value, "overlays", pointer);
     const auto* placements_value = decoder.member(value, "placements", pointer);
@@ -640,6 +642,179 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     auto background = background_value ? decode_background(decoder, *background_value,
                                                            pointer_child(pointer, "background"))
                                        : std::nullopt;
+    const auto decode_camera_view =
+        [&decoder](const nlohmann::json& camera,
+                   const std::string& camera_pointer) -> std::optional<CameraView> {
+        if (!decoder.object(camera, camera_pointer, {"center", "rotationDegrees", "zoom"}))
+            return std::nullopt;
+        const auto* center_value = decoder.member(camera, "center", camera_pointer);
+        const auto* zoom_value = decoder.member(camera, "zoom", camera_pointer);
+        const auto* rotation_value = decoder.member(camera, "rotationDegrees", camera_pointer);
+        auto center = center_value ? decode_vector2(decoder, *center_value,
+                                                    pointer_child(camera_pointer, "center"))
+                                   : std::nullopt;
+        auto zoom = zoom_value
+                        ? decoder.finite_number(*zoom_value, pointer_child(camera_pointer, "zoom"))
+                        : std::nullopt;
+        auto rotation =
+            rotation_value ? decoder.finite_number(*rotation_value,
+                                                   pointer_child(camera_pointer, "rotationDegrees"))
+                           : std::nullopt;
+        if (zoom && *zoom <= 0.0) {
+            decoder.error(k_code_number, "Camera zoom must be positive.",
+                          pointer_child(camera_pointer, "zoom"));
+            zoom.reset();
+        }
+        if (!center || !zoom || !rotation)
+            return std::nullopt;
+        return CameraView{std::move(*center), *zoom, *rotation};
+    };
+    std::optional<WorldPresentationSpace> presentation_space;
+    if (presentation_space_value &&
+        decoder.object(*presentation_space_value, pointer_child(pointer, "presentationSpace"),
+                       {"bounds", "defaultView", "edgePolicy", "size", "views"})) {
+        const auto presentation_pointer = pointer_child(pointer, "presentationSpace");
+        const auto* size_value =
+            decoder.member(*presentation_space_value, "size", presentation_pointer);
+        const auto* bounds_value =
+            decoder.member(*presentation_space_value, "bounds", presentation_pointer);
+        const auto* edge_policy_value =
+            decoder.member(*presentation_space_value, "edgePolicy", presentation_pointer);
+        const auto* default_view_value =
+            decoder.member(*presentation_space_value, "defaultView", presentation_pointer);
+        const auto* views_value =
+            decoder.member(*presentation_space_value, "views", presentation_pointer);
+        std::optional<Vector2> size;
+        if (size_value && decoder.object(*size_value, pointer_child(presentation_pointer, "size"),
+                                         {"height", "width"})) {
+            const auto size_pointer = pointer_child(presentation_pointer, "size");
+            const auto* width_value = decoder.member(*size_value, "width", size_pointer);
+            const auto* height_value = decoder.member(*size_value, "height", size_pointer);
+            auto width = width_value ? decoder.finite_number(*width_value,
+                                                             pointer_child(size_pointer, "width"))
+                                     : std::nullopt;
+            auto height =
+                height_value
+                    ? decoder.finite_number(*height_value, pointer_child(size_pointer, "height"))
+                    : std::nullopt;
+            if (width && *width <= 0.0) {
+                decoder.error(k_code_number, "Presentation Space width must be positive.",
+                              pointer_child(size_pointer, "width"));
+                width.reset();
+            }
+            if (height && *height <= 0.0) {
+                decoder.error(k_code_number, "Presentation Space height must be positive.",
+                              pointer_child(size_pointer, "height"));
+                height.reset();
+            }
+            if (width && height)
+                size = Vector2{*width, *height};
+        }
+        std::optional<WorldPresentationRect> bounds;
+        bool bounds_ok = bounds_value != nullptr;
+        if (bounds_value && !bounds_value->is_null() &&
+            decoder.object(*bounds_value, pointer_child(presentation_pointer, "bounds"),
+                           {"height", "width", "x", "y"})) {
+            const auto bounds_pointer = pointer_child(presentation_pointer, "bounds");
+            const auto* x_value = decoder.member(*bounds_value, "x", bounds_pointer);
+            const auto* y_value = decoder.member(*bounds_value, "y", bounds_pointer);
+            const auto* width_value = decoder.member(*bounds_value, "width", bounds_pointer);
+            const auto* height_value = decoder.member(*bounds_value, "height", bounds_pointer);
+            auto x = x_value ? decoder.finite_number(*x_value, pointer_child(bounds_pointer, "x"))
+                             : std::nullopt;
+            auto y = y_value ? decoder.finite_number(*y_value, pointer_child(bounds_pointer, "y"))
+                             : std::nullopt;
+            auto width = width_value ? decoder.finite_number(*width_value,
+                                                             pointer_child(bounds_pointer, "width"))
+                                     : std::nullopt;
+            auto height =
+                height_value
+                    ? decoder.finite_number(*height_value, pointer_child(bounds_pointer, "height"))
+                    : std::nullopt;
+            if (width && *width <= 0.0) {
+                decoder.error(k_code_number, "Presentation bounds width must be positive.",
+                              pointer_child(bounds_pointer, "width"));
+                width.reset();
+            }
+            if (height && *height <= 0.0) {
+                decoder.error(k_code_number, "Presentation bounds height must be positive.",
+                              pointer_child(bounds_pointer, "height"));
+                height.reset();
+            }
+            if (x && y && width && height)
+                bounds = WorldPresentationRect{*x, *y, *width, *height};
+            else
+                bounds_ok = false;
+        }
+        auto edge_policy =
+            edge_policy_value
+                ? decoder.enumeration<WorldPresentationEdgePolicy>(
+                      *edge_policy_value, pointer_child(presentation_pointer, "edgePolicy"),
+                      {{"contain", WorldPresentationEdgePolicy::Contain},
+                       {"overscan", WorldPresentationEdgePolicy::Overscan}})
+                : std::nullopt;
+        auto default_view =
+            default_view_value
+                ? decode_camera_view(*default_view_value,
+                                     pointer_child(presentation_pointer, "defaultView"))
+                : std::nullopt;
+        auto views =
+            views_value
+                ? decoder.array<NamedCameraView>(
+                      *views_value, pointer_child(presentation_pointer, "views"),
+                      [&](const nlohmann::json& item,
+                          const std::string& item_pointer) -> std::optional<NamedCameraView> {
+                          if (!decoder.object(item, item_pointer, {"id", "view"}))
+                              return std::nullopt;
+                          const auto* id_value = decoder.member(item, "id", item_pointer);
+                          const auto* view_value = decoder.member(item, "view", item_pointer);
+                          auto id = id_value ? decoder.id<CameraViewId>(
+                                                   *id_value, pointer_child(item_pointer, "id"))
+                                             : std::nullopt;
+                          auto view = view_value
+                                          ? decode_camera_view(*view_value,
+                                                               pointer_child(item_pointer, "view"))
+                                          : std::nullopt;
+                          if (!id || !view)
+                              return std::nullopt;
+                          return NamedCameraView{std::move(*id), std::move(*view)};
+                      })
+                : std::nullopt;
+        if (views)
+            decoder.duplicate_ids(
+                *views, pointer_child(presentation_pointer, "views"),
+                [](const NamedCameraView& view) -> const CameraViewId& { return view.id; });
+        if (size && bounds_ok && edge_policy && default_view && views)
+            presentation_space =
+                WorldPresentationSpace{std::move(*size), std::move(bounds), *edge_policy,
+                                       std::move(*default_view), std::move(*views)};
+    }
+    auto anchors =
+        anchors_value
+            ? decoder.array<RoomAnchor>(
+                  *anchors_value, pointer_child(pointer, "anchors"),
+                  [&](const nlohmann::json& item,
+                      const std::string& item_pointer) -> std::optional<RoomAnchor> {
+                      if (!decoder.object(item, item_pointer, {"bounds", "id"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(item, "id", item_pointer);
+                      const auto* bounds_value = decoder.member(item, "bounds", item_pointer);
+                      auto id = id_value ? decoder.id<RoomAnchorId>(
+                                               *id_value, pointer_child(item_pointer, "id"))
+                                         : std::nullopt;
+                      auto bounds = bounds_value
+                                        ? decode_rect(decoder, *bounds_value,
+                                                      pointer_child(item_pointer, "bounds"))
+                                        : std::nullopt;
+                      if (!id || !bounds)
+                          return std::nullopt;
+                      return RoomAnchor{std::move(*id), std::move(*bounds)};
+                  })
+            : std::nullopt;
+    if (anchors)
+        decoder.duplicate_ids(
+            *anchors, pointer_child(pointer, "anchors"),
+            [](const RoomAnchor& anchor) -> const RoomAnchorId& { return anchor.id; });
     std::optional<RoomLifecycle> lifecycle;
     if (lifecycle_value && decoder.object(*lifecycle_value, pointer_child(pointer, "lifecycle"),
                                           {"canEnter", "canLeave"})) {
@@ -1246,16 +1421,27 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               [](const RoomEnvironment& environment) -> const RoomEnvironmentId& {
                                   return environment.id;
                               });
-    if (!identity || !display || !description || !background || !lifecycle || !overlays ||
-        !placements || !exits || !features || !hotspots || !cast || !interactables || !props ||
-        !environments || !script_hooks)
+    if (!identity || !display || !description || !background || !presentation_space || !anchors ||
+        !lifecycle || !overlays || !placements || !exits || !features || !hotspots || !cast ||
+        !interactables || !props || !environments || !script_hooks)
         return std::nullopt;
-    return RoomDefinition{
-        std::move(*identity),     std::move(*display),       std::move(*description),
-        std::move(*background),   std::move(*lifecycle),     std::move(*overlays),
-        std::move(*cast),         std::move(*interactables), std::move(*props),
-        std::move(*environments), std::move(*script_hooks),  std::move(*placements),
-        std::move(*exits),        std::move(*features),      std::move(*hotspots)};
+    return RoomDefinition{std::move(*identity),
+                          std::move(*display),
+                          std::move(*description),
+                          std::move(*background),
+                          std::move(*presentation_space),
+                          std::move(*anchors),
+                          std::move(*lifecycle),
+                          std::move(*overlays),
+                          std::move(*cast),
+                          std::move(*interactables),
+                          std::move(*props),
+                          std::move(*environments),
+                          std::move(*script_hooks),
+                          std::move(*placements),
+                          std::move(*exits),
+                          std::move(*features),
+                          std::move(*hotspots)};
 }
 
 std::optional<InteractableDefinition>
@@ -1560,7 +1746,8 @@ std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& 
     auto decode_map_point = [&](const nlohmann::json& point,
                                 const std::string& point_pointer) -> std::optional<Vector2> {
         auto decoded = decode_vector2(decoder, point, point_pointer);
-        if (decoded && (decoded->x < 0.0 || decoded->x > 1.0 || decoded->y < 0.0 || decoded->y > 1.0)) {
+        if (decoded &&
+            (decoded->x < 0.0 || decoded->x > 1.0 || decoded->y < 0.0 || decoded->y > 1.0)) {
             decoder.error(k_code_number, "Map coordinates must be normalized to [0, 1].",
                           point_pointer);
             return std::nullopt;
@@ -1586,8 +1773,7 @@ std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& 
         }
         return points ? std::optional<MapPolygon>{MapPolygon{std::move(*points)}} : std::nullopt;
     };
-    auto decode_optional_point = [&](const nlohmann::json* point,
-                                     const std::string& point_pointer,
+    auto decode_optional_point = [&](const nlohmann::json* point, const std::string& point_pointer,
                                      bool& ok) -> std::optional<Vector2> {
         ok = point != nullptr;
         if (point == nullptr || point->is_null())
@@ -1596,8 +1782,7 @@ std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& 
         ok = decoded.has_value();
         return decoded;
     };
-    auto decode_optional_asset = [&](const nlohmann::json* asset,
-                                     const std::string& asset_pointer,
+    auto decode_optional_asset = [&](const nlohmann::json* asset, const std::string& asset_pointer,
                                      bool& ok) -> std::optional<AssetId> {
         ok = asset != nullptr;
         if (asset == nullptr || asset->is_null())
@@ -1606,8 +1791,7 @@ std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& 
         ok = decoded.has_value();
         return decoded;
     };
-    auto decode_optional_style = [&](const nlohmann::json* style,
-                                     const std::string& style_pointer,
+    auto decode_optional_style = [&](const nlohmann::json* style, const std::string& style_pointer,
                                      bool& ok) -> std::optional<std::string> {
         ok = style != nullptr;
         if (style == nullptr || style->is_null())
@@ -1618,7 +1802,8 @@ std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& 
     };
     auto decode_order = [&](const nlohmann::json* order,
                             const std::string& order_pointer) -> std::optional<std::int64_t> {
-        if (order == nullptr) return std::nullopt;
+        if (order == nullptr)
+            return std::nullopt;
         auto decoded = json_access::get<std::int64_t>(*order);
         if (!decoded)
             decoder.error(k_code_type, "Expected an integer.", order_pointer);
@@ -1641,52 +1826,88 @@ std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& 
                       const auto* label_value = decoder.member(location, "label", item_pointer);
                       const auto* icon_value = decoder.member(location, "icon", item_pointer);
                       const auto* style_value = decoder.member(location, "style", item_pointer);
-                      const auto* label_anchor_value = decoder.member(location, "labelAnchor", item_pointer);
-                      const auto* connection_anchor_value = decoder.member(location, "connectionAnchor", item_pointer);
-                      const auto* visibility_value = decoder.member(location, "visibility", item_pointer);
-                      const auto* pick_order_value = decoder.member(location, "pickOrder", item_pointer);
-                      const auto* logical_order_value = decoder.member(location, "logicalOrder", item_pointer);
-                      auto id = id_value ? decoder.id<MapLocationId>(*id_value, pointer_child(item_pointer, "id")) : std::nullopt;
-                      auto room = room_value ? decode_reference<RoomId>(decoder, *room_value, pointer_child(item_pointer, "room"), "room") : std::nullopt;
-                      auto regions = regions_value
-                                         ? decoder.array<MapPolygon>(*regions_value, pointer_child(item_pointer, "regions"), decode_polygon)
+                      const auto* label_anchor_value =
+                          decoder.member(location, "labelAnchor", item_pointer);
+                      const auto* connection_anchor_value =
+                          decoder.member(location, "connectionAnchor", item_pointer);
+                      const auto* visibility_value =
+                          decoder.member(location, "visibility", item_pointer);
+                      const auto* pick_order_value =
+                          decoder.member(location, "pickOrder", item_pointer);
+                      const auto* logical_order_value =
+                          decoder.member(location, "logicalOrder", item_pointer);
+                      auto id = id_value ? decoder.id<MapLocationId>(
+                                               *id_value, pointer_child(item_pointer, "id"))
                                          : std::nullopt;
+                      auto room = room_value ? decode_reference<RoomId>(
+                                                   decoder, *room_value,
+                                                   pointer_child(item_pointer, "room"), "room")
+                                             : std::nullopt;
+                      auto regions =
+                          regions_value
+                              ? decoder.array<MapPolygon>(*regions_value,
+                                                          pointer_child(item_pointer, "regions"),
+                                                          decode_polygon)
+                              : std::nullopt;
                       std::optional<TextContent> label;
                       bool label_ok = label_value != nullptr;
                       if (label_value && !label_value->is_null()) {
-                          label = decode_text(decoder, *label_value, pointer_child(item_pointer, "label"));
+                          label = decode_text(decoder, *label_value,
+                                              pointer_child(item_pointer, "label"));
                           label_ok = label.has_value();
                       }
                       bool icon_ok = false;
-                      auto icon = decode_optional_asset(icon_value, pointer_child(item_pointer, "icon"), icon_ok);
+                      auto icon = decode_optional_asset(
+                          icon_value, pointer_child(item_pointer, "icon"), icon_ok);
                       bool style_ok = false;
-                      auto style = decode_optional_style(style_value, pointer_child(item_pointer, "style"), style_ok);
+                      auto style = decode_optional_style(
+                          style_value, pointer_child(item_pointer, "style"), style_ok);
                       bool label_anchor_ok = false;
-                      auto label_anchor = decode_optional_point(label_anchor_value, pointer_child(item_pointer, "labelAnchor"), label_anchor_ok);
+                      auto label_anchor = decode_optional_point(
+                          label_anchor_value, pointer_child(item_pointer, "labelAnchor"),
+                          label_anchor_ok);
                       bool connection_anchor_ok = false;
-                      auto connection_anchor = decode_optional_point(connection_anchor_value, pointer_child(item_pointer, "connectionAnchor"), connection_anchor_ok);
-                      auto visibility = visibility_value ? decode_condition_impl(decoder, *visibility_value, pointer_child(item_pointer, "visibility")) : std::nullopt;
-                      auto pick_order = decode_order(pick_order_value, pointer_child(item_pointer, "pickOrder"));
-                      auto logical_order = decode_order(logical_order_value, pointer_child(item_pointer, "logicalOrder"));
-                      if (id && room && regions && label_ok && icon_ok && style_ok && label_anchor_ok && connection_anchor_ok && visibility && pick_order && logical_order)
-                          return MapLocation{std::move(*id), std::move(*room), std::move(*regions), std::move(label), std::move(icon), std::move(style), std::move(label_anchor), std::move(connection_anchor), std::move(*visibility), *pick_order, *logical_order};
+                      auto connection_anchor = decode_optional_point(
+                          connection_anchor_value, pointer_child(item_pointer, "connectionAnchor"),
+                          connection_anchor_ok);
+                      auto visibility =
+                          visibility_value
+                              ? decode_condition_impl(decoder, *visibility_value,
+                                                      pointer_child(item_pointer, "visibility"))
+                              : std::nullopt;
+                      auto pick_order =
+                          decode_order(pick_order_value, pointer_child(item_pointer, "pickOrder"));
+                      auto logical_order = decode_order(
+                          logical_order_value, pointer_child(item_pointer, "logicalOrder"));
+                      if (id && room && regions && label_ok && icon_ok && style_ok &&
+                          label_anchor_ok && connection_anchor_ok && visibility && pick_order &&
+                          logical_order)
+                          return MapLocation{std::move(*id),          std::move(*room),
+                                             std::move(*regions),     std::move(label),
+                                             std::move(icon),         std::move(style),
+                                             std::move(label_anchor), std::move(connection_anchor),
+                                             std::move(*visibility),  *pick_order,
+                                             *logical_order};
                       return std::nullopt;
                   })
             : std::nullopt;
-    auto decode_exit_reference = [&](const nlohmann::json& value,
-                                     const std::string& item_pointer) -> std::optional<RoomExitRef> {
+    auto decode_exit_reference =
+        [&](const nlohmann::json& value,
+            const std::string& item_pointer) -> std::optional<RoomExitRef> {
         if (!decoder.object(value, item_pointer, {"exitId", "room"}))
             return std::nullopt;
         const auto* exit_id_value = decoder.member(value, "exitId", item_pointer);
         const auto* room_value = decoder.member(value, "room", item_pointer);
-        auto exit_id = exit_id_value
-                           ? decoder.id<RoomExitId>(*exit_id_value, pointer_child(item_pointer, "exitId"))
-                           : std::nullopt;
-        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
-                                                           pointer_child(item_pointer, "room"), "room")
-                               : std::nullopt;
-        return exit_id && room ? std::optional<RoomExitRef>{RoomExitRef{std::move(*room), std::move(*exit_id)}}
-                               : std::nullopt;
+        auto exit_id = exit_id_value ? decoder.id<RoomExitId>(*exit_id_value,
+                                                              pointer_child(item_pointer, "exitId"))
+                                     : std::nullopt;
+        auto room = room_value
+                        ? decode_reference<RoomId>(decoder, *room_value,
+                                                   pointer_child(item_pointer, "room"), "room")
+                        : std::nullopt;
+        return exit_id && room
+                   ? std::optional<RoomExitRef>{RoomExitRef{std::move(*room), std::move(*exit_id)}}
+                   : std::nullopt;
     };
     auto connections =
         connections_value
@@ -1695,51 +1916,88 @@ std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& 
                   [&](const nlohmann::json& connection,
                       const std::string& item_pointer) -> std::optional<MapConnection> {
                       if (!decoder.object(connection, item_pointer,
-                                          {"exits", "hitRegions", "icon", "id", "label", "logicalOrder",
-                                           "path", "sourceLocationId", "style", "targetLocationId",
-                                           "visibility"}))
+                                          {"exits", "hitRegions", "icon", "id", "label",
+                                           "logicalOrder", "path", "sourceLocationId", "style",
+                                           "targetLocationId", "visibility"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(connection, "id", item_pointer);
                       const auto* exits_value = decoder.member(connection, "exits", item_pointer);
-                      const auto* source_value = decoder.member(connection, "sourceLocationId", item_pointer);
-                      const auto* target_value = decoder.member(connection, "targetLocationId", item_pointer);
+                      const auto* source_value =
+                          decoder.member(connection, "sourceLocationId", item_pointer);
+                      const auto* target_value =
+                          decoder.member(connection, "targetLocationId", item_pointer);
                       const auto* label_value = decoder.member(connection, "label", item_pointer);
                       const auto* icon_value = decoder.member(connection, "icon", item_pointer);
                       const auto* style_value = decoder.member(connection, "style", item_pointer);
-                      const auto* visibility_value = decoder.member(connection, "visibility", item_pointer);
-                      const auto* logical_order_value = decoder.member(connection, "logicalOrder", item_pointer);
+                      const auto* visibility_value =
+                          decoder.member(connection, "visibility", item_pointer);
+                      const auto* logical_order_value =
+                          decoder.member(connection, "logicalOrder", item_pointer);
                       const auto* path_value = decoder.member(connection, "path", item_pointer);
-                      const auto* hit_regions_value = decoder.member(connection, "hitRegions", item_pointer);
-                      auto id = id_value ? decoder.id<MapConnectionId>(*id_value, pointer_child(item_pointer, "id")) : std::nullopt;
+                      const auto* hit_regions_value =
+                          decoder.member(connection, "hitRegions", item_pointer);
+                      auto id = id_value ? decoder.id<MapConnectionId>(
+                                               *id_value, pointer_child(item_pointer, "id"))
+                                         : std::nullopt;
                       auto exits = exits_value
-                                       ? decoder.array<RoomExitRef>(*exits_value, pointer_child(item_pointer, "exits"), decode_exit_reference)
+                                       ? decoder.array<RoomExitRef>(
+                                             *exits_value, pointer_child(item_pointer, "exits"),
+                                             decode_exit_reference)
                                        : std::nullopt;
                       if (exits && (exits->empty() || exits->size() > 2)) {
-                          decoder.error(k_code_number, "Map Connections require one Exit or one reciprocal pair.", pointer_child(item_pointer, "exits"));
+                          decoder.error(k_code_number,
+                                        "Map Connections require one Exit or one reciprocal pair.",
+                                        pointer_child(item_pointer, "exits"));
                           exits.reset();
                       }
-                      auto source = source_value ? decoder.id<MapLocationId>(*source_value, pointer_child(item_pointer, "sourceLocationId")) : std::nullopt;
-                      auto target = target_value ? decoder.id<MapLocationId>(*target_value, pointer_child(item_pointer, "targetLocationId")) : std::nullopt;
+                      auto source =
+                          source_value
+                              ? decoder.id<MapLocationId>(
+                                    *source_value, pointer_child(item_pointer, "sourceLocationId"))
+                              : std::nullopt;
+                      auto target =
+                          target_value
+                              ? decoder.id<MapLocationId>(
+                                    *target_value, pointer_child(item_pointer, "targetLocationId"))
+                              : std::nullopt;
                       std::optional<TextContent> label;
                       bool label_ok = label_value != nullptr;
                       if (label_value && !label_value->is_null()) {
-                          label = decode_text(decoder, *label_value, pointer_child(item_pointer, "label"));
+                          label = decode_text(decoder, *label_value,
+                                              pointer_child(item_pointer, "label"));
                           label_ok = label.has_value();
                       }
                       bool icon_ok = false;
-                      auto icon = decode_optional_asset(icon_value, pointer_child(item_pointer, "icon"), icon_ok);
+                      auto icon = decode_optional_asset(
+                          icon_value, pointer_child(item_pointer, "icon"), icon_ok);
                       bool style_ok = false;
-                      auto style = decode_optional_style(style_value, pointer_child(item_pointer, "style"), style_ok);
-                      auto visibility = visibility_value ? decode_condition_impl(decoder, *visibility_value, pointer_child(item_pointer, "visibility")) : std::nullopt;
-                      auto logical_order = decode_order(logical_order_value, pointer_child(item_pointer, "logicalOrder"));
-                      auto path_points = path_value
-                                             ? decoder.array<Vector2>(*path_value, pointer_child(item_pointer, "path"), decode_map_point)
-                                             : std::nullopt;
-                      auto hit_regions = hit_regions_value
-                                             ? decoder.array<MapPolygon>(*hit_regions_value, pointer_child(item_pointer, "hitRegions"), decode_polygon)
-                                             : std::nullopt;
-                      if (id && exits && source && target && label_ok && icon_ok && style_ok && visibility && logical_order && path_points && hit_regions)
-                          return MapConnection{std::move(*id), std::move(*exits), std::move(*source), std::move(*target), std::move(label), std::move(icon), std::move(style), std::move(*visibility), *logical_order, std::move(*path_points), std::move(*hit_regions)};
+                      auto style = decode_optional_style(
+                          style_value, pointer_child(item_pointer, "style"), style_ok);
+                      auto visibility =
+                          visibility_value
+                              ? decode_condition_impl(decoder, *visibility_value,
+                                                      pointer_child(item_pointer, "visibility"))
+                              : std::nullopt;
+                      auto logical_order = decode_order(
+                          logical_order_value, pointer_child(item_pointer, "logicalOrder"));
+                      auto path_points =
+                          path_value ? decoder.array<Vector2>(*path_value,
+                                                              pointer_child(item_pointer, "path"),
+                                                              decode_map_point)
+                                     : std::nullopt;
+                      auto hit_regions =
+                          hit_regions_value
+                              ? decoder.array<MapPolygon>(*hit_regions_value,
+                                                          pointer_child(item_pointer, "hitRegions"),
+                                                          decode_polygon)
+                              : std::nullopt;
+                      if (id && exits && source && target && label_ok && icon_ok && style_ok &&
+                          visibility && logical_order && path_points && hit_regions)
+                          return MapConnection{
+                              std::move(*id),          std::move(*exits),      std::move(*source),
+                              std::move(*target),      std::move(label),       std::move(icon),
+                              std::move(style),        std::move(*visibility), *logical_order,
+                              std::move(*path_points), std::move(*hit_regions)};
                       return std::nullopt;
                   })
             : std::nullopt;

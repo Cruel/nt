@@ -65,6 +65,33 @@ bool valid_background(const compiled::BackgroundPresentation& value) noexcept
     return enum_at_most(value.fit, compiled::BackgroundFit::Center);
 }
 
+bool valid_camera_view(const compiled::CameraView& value,
+                       const compiled::WorldPresentationRect& bounds) noexcept
+{
+    return valid_vector(value.center) && finite(value.zoom) && value.zoom > 0.0 &&
+           finite(value.rotation_degrees) && value.center.x >= bounds.x &&
+           value.center.y >= bounds.y && value.center.x <= bounds.x + bounds.width &&
+           value.center.y <= bounds.y + bounds.height;
+}
+
+bool valid_presentation_space(const compiled::WorldPresentationSpace& value) noexcept
+{
+    if (!valid_vector(value.size) || value.size.x <= 0.0 || value.size.y <= 0.0 ||
+        !enum_at_most(value.edge_policy, compiled::WorldPresentationEdgePolicy::Overscan))
+        return false;
+    const auto bounds = value.bounds.value_or(
+        compiled::WorldPresentationRect{0.0, 0.0, value.size.x, value.size.y});
+    if (!finite(bounds.x) || !finite(bounds.y) || !finite(bounds.width) || !finite(bounds.height) ||
+        bounds.x < 0.0 || bounds.y < 0.0 || bounds.width <= 0.0 || bounds.height <= 0.0 ||
+        bounds.x + bounds.width > value.size.x || bounds.y + bounds.height > value.size.y ||
+        !valid_camera_view(value.default_view, bounds))
+        return false;
+    return std::all_of(value.views.begin(), value.views.end(),
+                       [&bounds](const compiled::NamedCameraView& view) {
+                           return valid_camera_view(view.view, bounds);
+                       });
+}
+
 bool valid_interactable_location(const compiled::InteractableLocation&) noexcept { return true; }
 
 bool valid_subject_selector(const compiled::SubjectSelector& selector) noexcept
@@ -110,7 +137,8 @@ bool valid_interaction_program(const compiled::InteractionProgram& program) noex
                     return valid_interactable_location(value.target);
                 else if constexpr (std::is_same_v<T, compiled::NotifyInstruction> ||
                                    std::is_same_v<T, compiled::CallSceneInteractionInstruction> ||
-                                   std::is_same_v<T, compiled::CallDialogueInteractionInstruction>) {
+                                   std::is_same_v<T,
+                                                  compiled::CallDialogueInteractionInstruction>) {
                     ++terminal_count;
                     return index + 1 == program.instructions.size();
                 } else if constexpr (std::is_same_v<T, compiled::ApplyEffectInstruction>) {
@@ -301,6 +329,10 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
     }
     for (const auto& room : input.rooms) {
         if (!valid_background(room.background) ||
+            !valid_presentation_space(room.presentation_space) ||
+            std::any_of(
+                room.anchors.begin(), room.anchors.end(),
+                [](const compiled::RoomAnchor& anchor) { return !valid_rect(anchor.bounds); }) ||
             std::any_of(room.placements.begin(), room.placements.end(),
                         [](const compiled::RoomPlacement& placement) {
                             return !valid_rect(placement.bounds);
@@ -500,8 +532,8 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
       m_item_stacks(std::move(input.item_stacks)), m_verbs(std::move(input.verbs)),
       m_interactions(std::move(input.interactions)),
       m_undefined_interaction_program(std::move(input.undefined_interaction_program)),
-      m_scenes(std::move(input.scenes)),
-      m_dialogues(std::move(input.dialogues)), m_maps(std::move(input.maps))
+      m_scenes(std::move(input.scenes)), m_dialogues(std::move(input.dialogues)),
+      m_maps(std::move(input.maps))
 {
     Diagnostics unused;
 #define INDEX(id_type, singular, plural, expression, label)                                        \

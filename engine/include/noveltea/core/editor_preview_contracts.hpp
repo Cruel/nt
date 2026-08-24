@@ -241,6 +241,17 @@ struct TypedFocusedCharacterVisual {
 };
 
 struct TypedFocusedRoomWorldDefinition {
+    struct PresentationSpace {
+        compiled::Vector2 size{1920.0, 1080.0};
+        std::optional<compiled::WorldPresentationRect> bounds;
+        compiled::WorldPresentationEdgePolicy edge_policy =
+            compiled::WorldPresentationEdgePolicy::Contain;
+        compiled::CameraView view{{960.0, 540.0}, 1.0, 0.0};
+    };
+    struct Anchor {
+        std::string id;
+        TypedFocusedNormalizedRect bounds;
+    };
     struct Background {
         std::optional<std::string> asset_id;
         std::optional<std::string> material_id;
@@ -313,6 +324,8 @@ struct TypedFocusedRoomWorldDefinition {
         bool visible = false;
         std::int32_t order = 0;
     };
+    PresentationSpace presentation_space;
+    std::vector<Anchor> anchors;
     Background background;
     std::vector<Placement> placements;
     std::vector<PersistentCharacter> persistent_characters;

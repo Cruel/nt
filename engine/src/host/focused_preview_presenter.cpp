@@ -631,26 +631,26 @@ public:
         } else {
             auto loaded = m_scripts.read_script_source(m_definition.source.value);
             if (!loaded)
-                return core::Result<void, core::Diagnostics>::failure(
-                    {error("editor_preview.focused_composition_load_failed",
-                           loaded.error().message)});
+                return core::Result<void, core::Diagnostics>::failure({error(
+                    "editor_preview.focused_composition_load_failed", loaded.error().message)});
             module_source = std::move(*loaded.value_if());
         }
 
-        std::string invocation = "local __module = (function()\n" + module_source +
-                                 "\nend)(); if type(__module) ~= 'table' then "
-                                 "error('Room Hook Registry module must return a table') end; "
-                                 "local __handler = __module[" + lua_quote(m_definition.export_name) +
-                                 "]; if type(__handler) ~= 'function' then error('Room Compose hook export is not callable') end; "
-                                 "local context = { room = " + lua_quote(visit.room.text()) +
-                                 ", visit_index = " + std::to_string(visit.visit_index) +
-                                 ", entry_sequence = " + std::to_string(visit.entry_sequence) +
-                                 ", entry_cause = " + lua_quote(
-                                     visit.entry_cause == core::RoomEntryCause::Entrypoint
-                                         ? "entrypoint"
-                                     : visit.entry_cause == core::RoomEntryCause::NavigationAttempt
-                                         ? "navigation-attempt"
-                                         : "directed-room-change");
+        std::string invocation =
+            "local __module = (function()\n" + module_source +
+            "\nend)(); if type(__module) ~= 'table' then "
+            "error('Room Hook Registry module must return a table') end; "
+            "local __handler = __module[" +
+            lua_quote(m_definition.export_name) +
+            "]; if type(__handler) ~= 'function' then error('Room Compose hook export is not "
+            "callable') end; "
+            "local context = { room = " +
+            lua_quote(visit.room.text()) + ", visit_index = " + std::to_string(visit.visit_index) +
+            ", entry_sequence = " + std::to_string(visit.entry_sequence) + ", entry_cause = " +
+            lua_quote(visit.entry_cause == core::RoomEntryCause::Entrypoint ? "entrypoint"
+                      : visit.entry_cause == core::RoomEntryCause::NavigationAttempt
+                          ? "navigation-attempt"
+                          : "directed-room-change");
         if (visit.source_room)
             invocation += ", source_room = " + lua_quote(visit.source_room->text());
         if (visit.entry_exit)
@@ -1224,6 +1224,13 @@ FocusedPreviewPresenter::prepare_room_state(
     }
     snapshot.value_if()->revision =
         core::PresentationSnapshotRevision::from_number(request.apply_sequence);
+    snapshot.value_if()->camera =
+        core::PresentationCamera{{.size = document.world.presentation_space.size,
+                                  .bounds = document.world.presentation_space.bounds,
+                                  .edge_policy = document.world.presentation_space.edge_policy,
+                                  .default_view = document.world.presentation_space.view,
+                                  .views = {}},
+                                 document.world.presentation_space.view};
     state.snapshot = std::move(*snapshot.value_if());
     state.static_gameplay_values.mode = "room";
     state.static_gameplay_values.room = state.room_resolution->view;

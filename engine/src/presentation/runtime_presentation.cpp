@@ -157,6 +157,29 @@ effective_background(const SessionState& state, const ResolvedRoomPresentation* 
     return result;
 }
 
+std::optional<PresentationCamera> effective_camera(const runtime::RuntimeWorld& world,
+                                                   const SessionState& state,
+                                                   const ResolvedRoomPresentation* room)
+{
+    std::optional<PresentationCamera> result;
+    if (room != nullptr) {
+        const auto* configuration = world.resolved_configuration(room->visit.room);
+        if (configuration != nullptr)
+            result = PresentationCamera{configuration->presentation_space,
+                                        configuration->presentation_space.default_view};
+    }
+    std::uint64_t selected_precedence = 0;
+    for (const auto& desired : state.camera_views()) {
+        const auto precedence = background_precedence(state, desired.owner);
+        if (precedence && *precedence > selected_precedence) {
+            selected_precedence = *precedence;
+            if (result)
+                result->view = desired.view;
+        }
+    }
+    return result;
+}
+
 void validate_actor_key(const CompiledProject& project, const runtime::RuntimeWorld& world,
                         const ActorPresentationKey& key, Diagnostics& diagnostics)
 {
@@ -807,6 +830,7 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         result.background = PresentationBackground{background->asset, background->color,
                                                    background->fit, background->material};
     }
+    result.camera = effective_camera(world, state, room_presentation);
 
     for (const auto& desired : state.actors()) {
         if (!state.presentation_owner_is_active(desired.owner))

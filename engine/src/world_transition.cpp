@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
+#include <numbers>
 #include <tuple>
 #include <type_traits>
 
@@ -189,6 +191,40 @@ validate_targeted(const WorldPresentationBackend& world,
                         failure("presentation.background_operation_kind_unsupported",
                                 "Background finite realization supports cross-fade only"));
                 }
+            } else if constexpr (std::is_same_v<T, core::CameraPanOperation> ||
+                                 std::is_same_v<T, core::CameraZoomOperation> ||
+                                 std::is_same_v<T, core::CameraRotationOperation> ||
+                                 std::is_same_v<T, core::CameraFocusOperation> ||
+                                 std::is_same_v<T, core::CameraShakeOperation> ||
+                                 std::is_same_v<T, core::CameraPunchOperation> ||
+                                 std::is_same_v<T, core::CameraFlashOperation>) {
+                if (!source_snapshot->camera || !target_snapshot->camera) {
+                    return core::Result<void, core::Diagnostic>::failure(failure(
+                        "presentation.camera_revision_unavailable",
+                        "Camera finite realization requires Camera Views in both exact revisions"));
+                }
+                const auto& source_view = source_snapshot->camera->view;
+                const auto& target_view = target_snapshot->camera->view;
+                if constexpr (std::is_same_v<T, core::CameraPanOperation> ||
+                              std::is_same_v<T, core::CameraZoomOperation> ||
+                              std::is_same_v<T, core::CameraRotationOperation>) {
+                    if (source_view != value.source_view || target_view != value.target_view) {
+                        return core::Result<void, core::Diagnostic>::failure(
+                            failure("presentation.camera_revision_mismatch",
+                                    "Camera motion must bind exactly to the committed source and "
+                                    "target Views"));
+                    }
+                } else if constexpr (std::is_same_v<T, core::CameraFocusOperation>) {
+                    if (source_view != target_view || target_view != value.return_view) {
+                        return core::Result<void, core::Diagnostic>::failure(failure(
+                            "presentation.camera_focus_durable_drift",
+                            "Focus must preserve the desired Camera View and return to it"));
+                    }
+                } else if (source_view != target_view) {
+                    return core::Result<void, core::Diagnostic>::failure(failure(
+                        "presentation.camera_emphasis_durable_drift",
+                        "Temporary camera emphasis must not mutate the desired Camera View"));
+                }
             } else if constexpr (std::is_same_v<T, core::ActorPresentationOperation>) {
                 const auto* source_actor = find_actor(*source_snapshot, value.target.actor);
                 const auto* target_actor = find_actor(*target_snapshot, value.target.actor);
@@ -239,6 +275,78 @@ Rect interpolate_rect(const Rect& source, const Rect& target, float progress) no
     };
     return {interpolate(source.x, target.x), interpolate(source.y, target.y),
             interpolate(source.width, target.width), interpolate(source.height, target.height)};
+}
+
+float interpolate_value(float source, float target, float progress) noexcept
+{
+    return source + (target - source) * progress;
+}
+
+core::compiled::CameraView interpolate_camera_view(const core::compiled::CameraView& source,
+                                                   const core::compiled::CameraView& target,
+                                                   float progress) noexcept
+{
+    const double amount = static_cast<double>(progress);
+    return {{source.center.x + (target.center.x - source.center.x) * amount,
+             source.center.y + (target.center.y - source.center.y) * amount},
+            source.zoom + (target.zoom - source.zoom) * amount,
+            source.rotation_degrees + (target.rotation_degrees - source.rotation_degrees) * amount};
+}
+
+core::PresentationCamera clamp_camera(core::PresentationCamera camera) noexcept
+{
+    if (camera.space.edge_policy != core::compiled::WorldPresentationEdgePolicy::Contain)
+        return camera;
+    const auto bounds = camera.space.bounds.value_or(
+        core::compiled::WorldPresentationRect{0.0, 0.0, camera.space.size.x, camera.space.size.y});
+    constexpr double degrees_to_radians = 0.017453292519943295769;
+    const double radians = camera.view.rotation_degrees * degrees_to_radians;
+    const double cosine = std::abs(std::cos(radians));
+    const double sine = std::abs(std::sin(radians));
+    const double half_width =
+        (cosine * camera.space.size.x + sine * camera.space.size.y) / (2.0 * camera.view.zoom);
+    const double half_height =
+        (sine * camera.space.size.x + cosine * camera.space.size.y) / (2.0 * camera.view.zoom);
+    const auto clamp_axis = [](double center, double start, double extent, double half_extent) {
+        if (half_extent * 2.0 >= extent)
+            return start + extent * 0.5;
+        return std::clamp(center, start + half_extent, start + extent - half_extent);
+    };
+    camera.view.center.x = clamp_axis(camera.view.center.x, bounds.x, bounds.width, half_width);
+    camera.view.center.y = clamp_axis(camera.view.center.y, bounds.y, bounds.height, half_height);
+    return camera;
+}
+
+void reframe_command(QuadCommand& command, const core::PresentationCamera& source,
+                     const core::PresentationCamera& target, Size viewport) noexcept
+{
+    const float source_center_x =
+        static_cast<float>(source.view.center.x / source.space.size.x) * viewport.width;
+    const float source_center_y =
+        static_cast<float>(source.view.center.y / source.space.size.y) * viewport.height;
+    const float target_center_x =
+        static_cast<float>(target.view.center.x / target.space.size.x) * viewport.width;
+    const float target_center_y =
+        static_cast<float>(target.view.center.y / target.space.size.y) * viewport.height;
+    const float source_zoom = static_cast<float>(source.view.zoom);
+    const float target_zoom = static_cast<float>(target.view.zoom);
+    const float half_width = viewport.width * 0.5f;
+    const float half_height = viewport.height * 0.5f;
+    const Rect base{(command.rect.x - half_width) / source_zoom + source_center_x,
+                    (command.rect.y - half_height) / source_zoom + source_center_y,
+                    command.rect.width / source_zoom, command.rect.height / source_zoom};
+    command.rect = {(base.x - target_center_x) * target_zoom + half_width,
+                    (base.y - target_center_y) * target_zoom + half_height,
+                    base.width * target_zoom, base.height * target_zoom};
+    command.rotation_degrees +=
+        static_cast<float>(source.view.rotation_degrees - target.view.rotation_degrees);
+    command.rotation_origin = {half_width, half_height};
+}
+
+bool same_draw_identity(const WorldPresentationDraw& left, const WorldPresentationDraw& right)
+{
+    return left.plane == right.plane && left.family == right.family && left.order == right.order &&
+           left.stable_identity == right.stable_identity && left.sublayer == right.sublayer;
 }
 
 Rect offscreen_rect(Rect rect, Size viewport) noexcept
@@ -337,6 +445,13 @@ WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delive
         [](const auto& value) -> std::optional<TargetedPresentationOperation> {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, core::BackgroundPresentationOperation> ||
+                          std::is_same_v<T, core::CameraPanOperation> ||
+                          std::is_same_v<T, core::CameraZoomOperation> ||
+                          std::is_same_v<T, core::CameraRotationOperation> ||
+                          std::is_same_v<T, core::CameraFocusOperation> ||
+                          std::is_same_v<T, core::CameraShakeOperation> ||
+                          std::is_same_v<T, core::CameraPunchOperation> ||
+                          std::is_same_v<T, core::CameraFlashOperation> ||
                           std::is_same_v<T, core::ActorPresentationOperation> ||
                           std::is_same_v<T, core::LayoutFinitePresentationOperation>)
                 return TargetedPresentationOperation{value};
@@ -556,11 +671,122 @@ WorldTransitionBackend::compose_targeted_world_batch() const
         if (draw.plane != core::PresentationPlane::GameUi)
             draws.push_back({draw, 1});
     }
+    std::optional<QuadCommand> flash_overlay;
 
     for (const auto& active : m_targeted) {
         const auto sample = tween_sample(targeted_common(active.request), active.tween);
         const float progress = sample ? sample->value : 1.0f;
-        if (std::holds_alternative<core::LayoutFinitePresentationOperation>(active.request))
+        const auto& common = targeted_common(active.request);
+        const auto* source = m_world.frame(common.revisions.source);
+        const auto* target = m_world.frame(common.revisions.target);
+        if (!source || !target)
+            return core::Result<QuadBatch, core::Diagnostics>::failure(
+                {failure("presentation.targeted_revision_unavailable",
+                         "Camera finite realization lost an exact retained revision")});
+
+        if (std::holds_alternative<core::CameraPanOperation>(active.request) ||
+            std::holds_alternative<core::CameraZoomOperation>(active.request) ||
+            std::holds_alternative<core::CameraRotationOperation>(active.request)) {
+            std::vector<LayeredDraw> interpolated;
+            interpolated.reserve(target->draws.size());
+            for (const auto& target_draw : target->draws) {
+                if (target_draw.plane == core::PresentationPlane::GameUi)
+                    continue;
+                const auto source_draw = std::find_if(
+                    source->draws.begin(), source->draws.end(), [&](const auto& candidate) {
+                        return same_draw_identity(candidate, target_draw);
+                    });
+                if (source_draw == source->draws.end())
+                    return core::Result<QuadBatch, core::Diagnostics>::failure({failure(
+                        "presentation.camera_draw_identity_mismatch",
+                        "Camera motion requires stable world draw identities across revisions")});
+                LayeredDraw draw{target_draw, 1};
+                draw.draw.command.rect =
+                    interpolate_rect(source_draw->command.rect, target_draw.command.rect, progress);
+                draw.draw.command.rotation_degrees =
+                    interpolate_value(source_draw->command.rotation_degrees,
+                                      target_draw.command.rotation_degrees, progress);
+                draw.draw.command.rotation_origin = {
+                    interpolate_value(source_draw->command.rotation_origin.x,
+                                      target_draw.command.rotation_origin.x, progress),
+                    interpolate_value(source_draw->command.rotation_origin.y,
+                                      target_draw.command.rotation_origin.y, progress)};
+                interpolated.push_back(std::move(draw));
+            }
+            draws = std::move(interpolated);
+            continue;
+        }
+
+        const bool temporary_camera =
+            std::holds_alternative<core::CameraFocusOperation>(active.request) ||
+            std::holds_alternative<core::CameraShakeOperation>(active.request) ||
+            std::holds_alternative<core::CameraPunchOperation>(active.request);
+        if (temporary_camera) {
+            if (!current->camera)
+                return core::Result<QuadBatch, core::Diagnostics>::failure(
+                    {failure("presentation.camera_revision_unavailable",
+                             "Temporary camera emphasis requires a current Camera View")});
+            core::PresentationCamera emphasized = *current->camera;
+            const double envelope = std::sin(std::numbers::pi_v<double> * progress);
+            if (const auto* focus = std::get_if<core::CameraFocusOperation>(&active.request)) {
+                core::compiled::CameraView focus_view = current->camera->view;
+                focus_view.center = {focus->capture.bounds.x + focus->capture.bounds.width * 0.5,
+                                     focus->capture.bounds.y + focus->capture.bounds.height * 0.5};
+                focus_view.zoom =
+                    std::min(current->camera->space.size.x / focus->capture.bounds.width,
+                             current->camera->space.size.y / focus->capture.bounds.height);
+                emphasized.view = interpolate_camera_view(current->camera->view, focus_view,
+                                                          static_cast<float>(envelope));
+            } else if (const auto* shake =
+                           std::get_if<core::CameraShakeOperation>(&active.request)) {
+                const double duration_seconds =
+                    std::chrono::duration<double>(shake->common.duration).count();
+                const double phase = 2.0 * std::numbers::pi_v<double> * shake->frequency_hz *
+                                     duration_seconds * progress;
+                emphasized.view.center.x += shake->amplitude.x * std::sin(phase) * envelope;
+                emphasized.view.center.y += shake->amplitude.y * std::cos(phase) * envelope;
+            } else if (const auto* punch =
+                           std::get_if<core::CameraPunchOperation>(&active.request)) {
+                emphasized.view.center.x -= punch->translation.x * envelope;
+                emphasized.view.center.y -= punch->translation.y * envelope;
+                emphasized.view.zoom =
+                    std::max(0.001, emphasized.view.zoom + punch->zoom_delta * envelope);
+                emphasized.view.rotation_degrees += punch->rotation_degrees * envelope;
+            }
+            emphasized = clamp_camera(std::move(emphasized));
+            for (auto& draw : draws)
+                reframe_command(draw.draw.command, *current->camera, emphasized,
+                                m_world.viewport());
+            continue;
+        }
+
+        if (const auto* flash = std::get_if<core::CameraFlashOperation>(&active.request)) {
+            const auto color = parse_color(flash->color);
+            if (!color)
+                return core::Result<QuadBatch, core::Diagnostics>::failure(
+                    {failure("presentation.camera_flash_color_invalid",
+                             "Camera flash color must be #RRGGBB or #RRGGBBAA")});
+            QuadCommand command;
+            command.rect = {0.0f, 0.0f, m_world.viewport().width, m_world.viewport().height};
+            command.color = *color;
+            command.color.a *= static_cast<float>(flash->opacity *
+                                                  std::sin(std::numbers::pi_v<double> * progress));
+            command.layer = GameLayer::Foreground;
+            flash_overlay = std::move(command);
+        }
+    }
+
+    for (const auto& active : m_targeted) {
+        const auto sample = tween_sample(targeted_common(active.request), active.tween);
+        const float progress = sample ? sample->value : 1.0f;
+        if (std::holds_alternative<core::LayoutFinitePresentationOperation>(active.request) ||
+            std::holds_alternative<core::CameraPanOperation>(active.request) ||
+            std::holds_alternative<core::CameraZoomOperation>(active.request) ||
+            std::holds_alternative<core::CameraRotationOperation>(active.request) ||
+            std::holds_alternative<core::CameraFocusOperation>(active.request) ||
+            std::holds_alternative<core::CameraShakeOperation>(active.request) ||
+            std::holds_alternative<core::CameraPunchOperation>(active.request) ||
+            std::holds_alternative<core::CameraFlashOperation>(active.request))
             continue;
 
         const auto& common = targeted_common(active.request);
@@ -646,11 +872,10 @@ WorldTransitionBackend::compose_targeted_world_batch() const
                         rhs.blend_group, rhs.draw.sublayer);
     });
     QuadBatch batch;
-    for (const auto& item : draws) {
-        const auto& command = item.draw.command;
-        batch.draw_material_textured_quad(command.rect, command.material, command.texture,
-                                          command.uv, command.color, command.depth, command.layer);
-    }
+    for (const auto& item : draws)
+        batch.draw(item.draw.command);
+    if (flash_overlay)
+        batch.draw(std::move(*flash_overlay));
     return core::Result<QuadBatch, core::Diagnostics>::success(std::move(batch));
 }
 
@@ -675,12 +900,27 @@ WorldTransitionBackend::tween_service(core::LayoutClockDomain clock) const noexc
 core::Result<animation::TweenHandle, core::Diagnostic>
 WorldTransitionBackend::start_tween(const core::FinitePresentationOperationCommon& common)
 {
+    animation::TweenEasing easing = animation::TweenEasing::QuadraticInOut;
+    switch (common.easing) {
+    case core::PresentationEasing::Linear:
+        easing = animation::TweenEasing::Linear;
+        break;
+    case core::PresentationEasing::EaseIn:
+        easing = animation::TweenEasing::QuadraticIn;
+        break;
+    case core::PresentationEasing::EaseOut:
+        easing = animation::TweenEasing::QuadraticOut;
+        break;
+    case core::PresentationEasing::EaseInOut:
+        easing = animation::TweenEasing::QuadraticInOut;
+        break;
+    }
     return tween_service(common.clock)
         .start_scalar(
             {.from = 0.0f,
              .to = 1.0f,
              .duration = std::chrono::duration_cast<std::chrono::microseconds>(common.duration),
-             .easing = animation::TweenEasing::Linear});
+             .easing = easing});
 }
 
 std::optional<animation::ScalarTweenSample>

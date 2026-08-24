@@ -167,6 +167,11 @@ struct SavedBackgroundOverride {
     compiled::BackgroundPresentation background;
 };
 
+struct SavedCameraView {
+    SavedPresentationOwner owner;
+    compiled::CameraView view;
+};
+
 struct SavedActorPresentation {
     SavedActorPresentationKey key;
     SavedPresentationOwner owner;
@@ -277,6 +282,7 @@ struct SaveState {
     std::vector<SavedLogicalTimer> logical_timers;
     std::vector<SavedLogicalTimerCompletion> pending_timer_completions;
     std::vector<SavedBackgroundOverride> background_overrides;
+    std::vector<SavedCameraView> camera_views;
     std::vector<SavedActorPresentation> actors;
     std::vector<SavedPresentationProp> presentation_props;
     std::vector<SavedPresentationEnvironment> presentation_environments;

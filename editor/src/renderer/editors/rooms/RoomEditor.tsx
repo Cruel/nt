@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Boxes,
+  Camera,
   ChevronsUpDown,
   Image,
   Layers3,
@@ -111,6 +112,7 @@ const backgroundFitLabels = {
 
 type RoomEditorCategory =
   | 'general'
+  | 'camera'
   | 'composition'
   | 'hotspots'
   | 'navigation'
@@ -123,6 +125,12 @@ const roomEditorCategories: readonly CategorizedEditorCategory<RoomEditorCategor
     label: 'General',
     description: 'Room identity, description, and background presentation.',
     icon: Settings2,
+  },
+  {
+    id: 'camera',
+    label: 'Camera',
+    description: 'Define the world presentation space, Camera Views, and reusable Anchors.',
+    icon: Camera,
   },
   {
     id: 'composition',
@@ -161,6 +169,7 @@ function isRoomEditorCategory(value: unknown): value is RoomEditorCategory {
 }
 
 function roomEditorCategoryForTarget(targetId: string): RoomEditorCategory {
+  if (targetId.startsWith('room.camera') || targetId.startsWith('room.anchor')) return 'camera';
   if (targetId.startsWith('room.hotspot')) return 'hotspots';
   if (targetId.startsWith('room.exit') || targetId === 'room.exits') return 'navigation';
   if (
@@ -904,6 +913,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     );
   const categorizedRoomEditorCategories = roomEditorCategories.map((category) => {
     switch (category.id) {
+      case 'camera':
+        return { ...category, trailing: data.presentationSpace.views.length + data.anchors.length };
       case 'composition':
         return { ...category, trailing: data.placements.length };
       case 'hotspots':
@@ -1536,6 +1547,584 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               })}
             </div>
           </section>
+        ) : null}
+
+        {activeCategory === 'camera' ? (
+          <div className="space-y-4" data-workbench-anchor="room.camera">
+            <section className="space-y-3 rounded-xl border bg-card/20 p-4">
+              <div>
+                <h3 className="text-sm font-semibold">World Presentation Space</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Logical world framing is independent of display resolution. Contain clamps the
+                  Camera View to authored bounds; Overscan allows framing outside them.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>Width</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={data.presentationSpace.size.width}
+                    onChange={(event) =>
+                      commit(
+                        {
+                          ...data,
+                          presentationSpace: {
+                            ...data.presentationSpace,
+                            size: {
+                              ...data.presentationSpace.size,
+                              width: Math.max(
+                                1,
+                                numberValue(
+                                  event.currentTarget.value,
+                                  data.presentationSpace.size.width,
+                                ),
+                              ),
+                            },
+                          },
+                        },
+                        'Update presentation space width',
+                      )
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Height</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={data.presentationSpace.size.height}
+                    onChange={(event) =>
+                      commit(
+                        {
+                          ...data,
+                          presentationSpace: {
+                            ...data.presentationSpace,
+                            size: {
+                              ...data.presentationSpace.size,
+                              height: Math.max(
+                                1,
+                                numberValue(
+                                  event.currentTarget.value,
+                                  data.presentationSpace.size.height,
+                                ),
+                              ),
+                            },
+                          },
+                        },
+                        'Update presentation space height',
+                      )
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Edge policy</Label>
+                  <Select
+                    value={data.presentationSpace.edgePolicy}
+                    onValueChange={(edgePolicy) => {
+                      if (!edgePolicy) return;
+                      commit(
+                        {
+                          ...data,
+                          presentationSpace: { ...data.presentationSpace, edgePolicy },
+                        },
+                        'Update camera edge policy',
+                      );
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contain">Contain</SelectItem>
+                      <SelectItem value="overscan">Overscan</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t pt-3">
+                <div>
+                  <Label>Camera bounds</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Optional world-space rectangle used by the Contain policy.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      {
+                        ...data,
+                        presentationSpace: {
+                          ...data.presentationSpace,
+                          bounds: data.presentationSpace.bounds
+                            ? null
+                            : {
+                                x: 0,
+                                y: 0,
+                                width: data.presentationSpace.size.width,
+                                height: data.presentationSpace.size.height,
+                              },
+                        },
+                      },
+                      data.presentationSpace.bounds ? 'Remove camera bounds' : 'Add camera bounds',
+                    )
+                  }
+                >
+                  {data.presentationSpace.bounds ? 'Remove bounds' : 'Add bounds'}
+                </Button>
+              </div>
+              {data.presentationSpace.bounds ? (
+                <div className="grid gap-3 md:grid-cols-4">
+                  {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                    <div key={field} className="space-y-1.5">
+                      <Label>{field[0]!.toUpperCase() + field.slice(1)}</Label>
+                      <Input
+                        type="number"
+                        min={field === 'width' || field === 'height' ? 1 : undefined}
+                        value={data.presentationSpace.bounds![field]}
+                        onChange={(event) => {
+                          const bounds = data.presentationSpace.bounds;
+                          if (!bounds) return;
+                          const raw = numberValue(event.currentTarget.value, bounds[field]);
+                          const value =
+                            field === 'width' || field === 'height' ? Math.max(1, raw) : raw;
+                          commit(
+                            {
+                              ...data,
+                              presentationSpace: {
+                                ...data.presentationSpace,
+                                bounds: { ...bounds, [field]: value },
+                              },
+                            },
+                            'Update camera bounds',
+                          );
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+
+            <section className="space-y-3 rounded-xl border bg-card/20 p-4">
+              <div>
+                <h3 className="text-sm font-semibold">Default Camera View</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Reconstructible framing used when no higher-precedence View is active.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-4">
+                {(['x', 'y'] as const).map((axis) => (
+                  <div key={axis} className="space-y-1.5">
+                    <Label>Center {axis.toUpperCase()}</Label>
+                    <Input
+                      type="number"
+                      value={data.presentationSpace.defaultView.center[axis]}
+                      onChange={(event) =>
+                        commit(
+                          {
+                            ...data,
+                            presentationSpace: {
+                              ...data.presentationSpace,
+                              defaultView: {
+                                ...data.presentationSpace.defaultView,
+                                center: {
+                                  ...data.presentationSpace.defaultView.center,
+                                  [axis]: numberValue(
+                                    event.currentTarget.value,
+                                    data.presentationSpace.defaultView.center[axis],
+                                  ),
+                                },
+                              },
+                            },
+                          },
+                          'Update default Camera View',
+                        )
+                      }
+                    />
+                  </div>
+                ))}
+                <div className="space-y-1.5">
+                  <Label>Zoom</Label>
+                  <Input
+                    type="number"
+                    min={0.001}
+                    step={0.05}
+                    value={data.presentationSpace.defaultView.zoom}
+                    onChange={(event) =>
+                      commit(
+                        {
+                          ...data,
+                          presentationSpace: {
+                            ...data.presentationSpace,
+                            defaultView: {
+                              ...data.presentationSpace.defaultView,
+                              zoom: Math.max(
+                                0.001,
+                                numberValue(
+                                  event.currentTarget.value,
+                                  data.presentationSpace.defaultView.zoom,
+                                ),
+                              ),
+                            },
+                          },
+                        },
+                        'Update default Camera View zoom',
+                      )
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Rotation</Label>
+                  <Input
+                    type="number"
+                    value={data.presentationSpace.defaultView.rotationDegrees}
+                    onChange={(event) =>
+                      commit(
+                        {
+                          ...data,
+                          presentationSpace: {
+                            ...data.presentationSpace,
+                            defaultView: {
+                              ...data.presentationSpace.defaultView,
+                              rotationDegrees: numberValue(
+                                event.currentTarget.value,
+                                data.presentationSpace.defaultView.rotationDegrees,
+                              ),
+                            },
+                          },
+                        },
+                        'Update default Camera View rotation',
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-3 rounded-xl border bg-card/20 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Named Camera Views</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Reusable logical framing targets for presentation operations.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      {
+                        ...data,
+                        presentationSpace: {
+                          ...data.presentationSpace,
+                          views: [
+                            ...data.presentationSpace.views,
+                            {
+                              id: nextId(
+                                data.presentationSpace.views.map((view) => view.id),
+                                'view',
+                              ),
+                              view: {
+                                center: { ...data.presentationSpace.defaultView.center },
+                                zoom: data.presentationSpace.defaultView.zoom,
+                                rotationDegrees: data.presentationSpace.defaultView.rotationDegrees,
+                              },
+                            },
+                          ],
+                        },
+                      },
+                      'Add Camera View',
+                    )
+                  }
+                >
+                  <Plus data-icon="inline-start" /> Add View
+                </Button>
+              </div>
+              {data.presentationSpace.views.map((entry, index) => (
+                <div
+                  key={`${entry.id}-${index}`}
+                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-6"
+                >
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>View ID</Label>
+                    <Input
+                      value={entry.id}
+                      onChange={(event) => {
+                        const views = data.presentationSpace.views.map((candidate, viewIndex) =>
+                          viewIndex === index
+                            ? { ...candidate, id: event.currentTarget.value }
+                            : candidate,
+                        );
+                        commit(
+                          { ...data, presentationSpace: { ...data.presentationSpace, views } },
+                          'Rename Camera View',
+                        );
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Center X</Label>
+                    <Input
+                      type="number"
+                      value={entry.view.center.x}
+                      onChange={(event) => {
+                        const views = data.presentationSpace.views.map((candidate, viewIndex) =>
+                          viewIndex === index
+                            ? {
+                                ...candidate,
+                                view: {
+                                  ...candidate.view,
+                                  center: {
+                                    ...candidate.view.center,
+                                    x: numberValue(
+                                      event.currentTarget.value,
+                                      candidate.view.center.x,
+                                    ),
+                                  },
+                                },
+                              }
+                            : candidate,
+                        );
+                        commit(
+                          { ...data, presentationSpace: { ...data.presentationSpace, views } },
+                          'Update Camera View',
+                        );
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Center Y</Label>
+                    <Input
+                      type="number"
+                      value={entry.view.center.y}
+                      onChange={(event) => {
+                        const views = data.presentationSpace.views.map((candidate, viewIndex) =>
+                          viewIndex === index
+                            ? {
+                                ...candidate,
+                                view: {
+                                  ...candidate.view,
+                                  center: {
+                                    ...candidate.view.center,
+                                    y: numberValue(
+                                      event.currentTarget.value,
+                                      candidate.view.center.y,
+                                    ),
+                                  },
+                                },
+                              }
+                            : candidate,
+                        );
+                        commit(
+                          { ...data, presentationSpace: { ...data.presentationSpace, views } },
+                          'Update Camera View',
+                        );
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Zoom</Label>
+                    <Input
+                      type="number"
+                      min={0.001}
+                      step={0.05}
+                      value={entry.view.zoom}
+                      onChange={(event) => {
+                        const views = data.presentationSpace.views.map((candidate, viewIndex) =>
+                          viewIndex === index
+                            ? {
+                                ...candidate,
+                                view: {
+                                  ...candidate.view,
+                                  zoom: Math.max(
+                                    0.001,
+                                    numberValue(event.currentTarget.value, candidate.view.zoom),
+                                  ),
+                                },
+                              }
+                            : candidate,
+                        );
+                        commit(
+                          { ...data, presentationSpace: { ...data.presentationSpace, views } },
+                          'Update Camera View zoom',
+                        );
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <Label>Rotation</Label>
+                      <Input
+                        type="number"
+                        value={entry.view.rotationDegrees}
+                        onChange={(event) => {
+                          const views = data.presentationSpace.views.map((candidate, viewIndex) =>
+                            viewIndex === index
+                              ? {
+                                  ...candidate,
+                                  view: {
+                                    ...candidate.view,
+                                    rotationDegrees: numberValue(
+                                      event.currentTarget.value,
+                                      candidate.view.rotationDegrees,
+                                    ),
+                                  },
+                                }
+                              : candidate,
+                          );
+                          commit(
+                            { ...data, presentationSpace: { ...data.presentationSpace, views } },
+                            'Update Camera View rotation',
+                          );
+                        }}
+                      />
+                    </div>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Delete Camera View ${entry.id}`}
+                      onClick={() =>
+                        commit(
+                          {
+                            ...data,
+                            presentationSpace: {
+                              ...data.presentationSpace,
+                              views: data.presentationSpace.views.filter(
+                                (_, viewIndex) => viewIndex !== index,
+                              ),
+                            },
+                          },
+                          'Delete Camera View',
+                        )
+                      }
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            <section
+              className="space-y-3 rounded-xl border bg-card/20 p-4"
+              data-workbench-anchor="room.anchors"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Anchors</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Stable authored regions that Focus captures without live tracking.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      {
+                        ...data,
+                        anchors: [
+                          ...data.anchors,
+                          {
+                            id: nextId(
+                              data.anchors.map((anchor) => anchor.id),
+                              'anchor',
+                            ),
+                            bounds: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
+                          },
+                        ],
+                      },
+                      'Add Room Anchor',
+                    )
+                  }
+                >
+                  <Plus data-icon="inline-start" /> Add Anchor
+                </Button>
+              </div>
+              {data.anchors.map((anchor, index) => (
+                <div
+                  key={`${anchor.id}-${index}`}
+                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-6"
+                >
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Anchor ID</Label>
+                    <Input
+                      value={anchor.id}
+                      onChange={(event) =>
+                        commit(
+                          {
+                            ...data,
+                            anchors: data.anchors.map((candidate, anchorIndex) =>
+                              anchorIndex === index
+                                ? { ...candidate, id: event.currentTarget.value }
+                                : candidate,
+                            ),
+                          },
+                          'Rename Room Anchor',
+                        )
+                      }
+                    />
+                  </div>
+                  {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                    <div key={field} className="space-y-1.5">
+                      <Label>{field}</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={anchor.bounds[field]}
+                        onChange={(event) => {
+                          const raw = numberValue(event.currentTarget.value, anchor.bounds[field]);
+                          const value = Math.max(
+                            field === 'width' || field === 'height' ? 0.001 : 0,
+                            Math.min(1, raw),
+                          );
+                          commit(
+                            {
+                              ...data,
+                              anchors: data.anchors.map((candidate, anchorIndex) =>
+                                anchorIndex === index
+                                  ? {
+                                      ...candidate,
+                                      bounds: { ...candidate.bounds, [field]: value },
+                                    }
+                                  : candidate,
+                              ),
+                            },
+                            'Update Room Anchor bounds',
+                          );
+                        }}
+                      />
+                    </div>
+                  ))}
+                  <div className="flex items-end">
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Delete Room Anchor ${anchor.id}`}
+                      onClick={() =>
+                        commit(
+                          {
+                            ...data,
+                            anchors: data.anchors.filter((_, anchorIndex) => anchorIndex !== index),
+                          },
+                          'Delete Room Anchor',
+                        )
+                      }
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </section>
+          </div>
         ) : null}
 
         {activeCategory === 'behavior' ? (

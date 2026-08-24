@@ -179,6 +179,13 @@ RuntimePresentationBridge::realize(const core::CoordinatedOperationDelivery& del
     if (std::holds_alternative<core::SceneTransitionGroupOperation>(delivery.operation) ||
         std::holds_alternative<core::RoomNavigationTransitionOperation>(delivery.operation) ||
         std::holds_alternative<core::BackgroundPresentationOperation>(delivery.operation) ||
+        std::holds_alternative<core::CameraPanOperation>(delivery.operation) ||
+        std::holds_alternative<core::CameraZoomOperation>(delivery.operation) ||
+        std::holds_alternative<core::CameraRotationOperation>(delivery.operation) ||
+        std::holds_alternative<core::CameraFocusOperation>(delivery.operation) ||
+        std::holds_alternative<core::CameraShakeOperation>(delivery.operation) ||
+        std::holds_alternative<core::CameraPunchOperation>(delivery.operation) ||
+        std::holds_alternative<core::CameraFlashOperation>(delivery.operation) ||
         std::holds_alternative<core::ActorPresentationOperation>(delivery.operation) ||
         std::holds_alternative<core::LayoutFinitePresentationOperation>(delivery.operation)) {
         if (m_world_transition_backend)

@@ -547,6 +547,25 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         color: data.background.color,
       },
       description: compileText(data.description),
+      presentationSpace: {
+        size: { ...data.presentationSpace.size },
+        bounds: data.presentationSpace.bounds ? { ...data.presentationSpace.bounds } : null,
+        edgePolicy: data.presentationSpace.edgePolicy,
+        defaultView: {
+          center: { ...data.presentationSpace.defaultView.center },
+          zoom: data.presentationSpace.defaultView.zoom,
+          rotationDegrees: data.presentationSpace.defaultView.rotationDegrees,
+        },
+        views: data.presentationSpace.views.map((entry) => ({
+          id: entry.id,
+          view: {
+            center: { ...entry.view.center },
+            zoom: entry.view.zoom,
+            rotationDegrees: entry.view.rotationDegrees,
+          },
+        })),
+      },
+      anchors: data.anchors.map((anchor) => ({ id: anchor.id, bounds: { ...anchor.bounds } })),
       overlays: data.overlays.map((overlay) => ({
         id: overlay.id,
         layout: layoutRef(overlay.layout)!,
@@ -864,6 +883,25 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           color: data.background.color,
         },
         description: compileText(data.description),
+        presentationSpace: {
+          size: { ...data.presentationSpace.size },
+          bounds: data.presentationSpace.bounds ? { ...data.presentationSpace.bounds } : null,
+          edgePolicy: data.presentationSpace.edgePolicy,
+          defaultView: {
+            center: { ...data.presentationSpace.defaultView.center },
+            zoom: data.presentationSpace.defaultView.zoom,
+            rotationDegrees: data.presentationSpace.defaultView.rotationDegrees,
+          },
+          views: data.presentationSpace.views.map((entry) => ({
+            id: entry.id,
+            view: {
+              center: { ...entry.view.center },
+              zoom: entry.view.zoom,
+              rotationDegrees: entry.view.rotationDegrees,
+            },
+          })),
+        },
+        anchors: data.anchors.map((anchor) => ({ id: anchor.id, bounds: { ...anchor.bounds } })),
         exits: data.exits.map((exit) => ({
           id: exit.id,
           label: compileText({ markup: 'plain', source: { kind: 'inline', text: exit.label } }),

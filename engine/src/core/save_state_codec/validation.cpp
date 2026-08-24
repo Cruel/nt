@@ -526,8 +526,7 @@ bool valid_room_position(const CompiledProject&, const SaveState&,
     const auto& position = frame.position;
     if (position.stage > RoomTransitionStage::Complete || position.next_effect != 0)
         return false;
-    return !position.awaiting_completion ||
-           position.stage == RoomTransitionStage::CommitRoomSwitch;
+    return !position.awaiting_completion || position.stage == RoomTransitionStage::CommitRoomSwitch;
 }
 
 bool valid_room_visit_context(const CompiledProject& project, const SaveState& save,
@@ -1289,7 +1288,8 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (visit.entry_sequence != save.room_entry_sequence ||
             !valid_room_visit_context(project, save, visit, true))
             error("save_codec.invalid_active_room_visit",
-                  "Active Room context is stale or inconsistent with Room history and Entry Sequence.");
+                  "Active Room context is stale or inconsistent with Room history and Entry "
+                  "Sequence.");
     } else if (save.room_entry_sequence != 0) {
         error("save_codec.invalid_room_entry_sequence",
               "Room Entry Sequence requires an authoritative Active Room Context.");
@@ -1505,6 +1505,19 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
             !valid_background_record(project, background.background))
             error("save_codec.invalid_presentation_record",
                   "Background override has a stale owner or resource.");
+    }
+
+    std::unordered_set<std::string> camera_owners;
+    for (const auto& camera : save.camera_views) {
+        if (!camera_owners.insert(saved_owner_key(camera.owner)).second)
+            error("save_codec.duplicate_presentation_record",
+                  "Camera View owner appears more than once.");
+        if (!valid_saved_owner(project, save, camera.owner) ||
+            !std::isfinite(camera.view.center.x) || !std::isfinite(camera.view.center.y) ||
+            !std::isfinite(camera.view.zoom) || camera.view.zoom <= 0.0 ||
+            !std::isfinite(camera.view.rotation_degrees))
+            error("save_codec.invalid_presentation_record",
+                  "Camera View has a stale owner or invalid logical framing.");
     }
 
     std::unordered_set<std::string> actor_keys;

@@ -1,6 +1,7 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/layout_policies.hpp>
 #include <noveltea/core/property_resolver.hpp>
+#include <noveltea/presentation/presentation_operation_requests.hpp>
 #include <noveltea/presentation/room_presentation.hpp>
 #include <noveltea/presentation/runtime_presentation.hpp>
 #include <noveltea/core/session_state.hpp>
@@ -45,6 +46,25 @@ CompiledProject fixture()
                                 {"visible", true},
                                 {"order", 0}}});
     auto decoded = decode_compiled_project(document, "scene-program.json");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
+CompiledProject focus_fixture()
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/scene-program.json");
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)), {});
+    auto document = nlohmann::json::parse(source);
+    auto& rooms = document["definitions"]["rooms"];
+    auto start = std::find_if(rooms.begin(), rooms.end(),
+                              [](const nlohmann::json& value) { return value["id"] == "start"; });
+    REQUIRE(start != rooms.end());
+    (*start)["anchors"] = nlohmann::json::array(
+        {{{"id", "desk"}, {"bounds", {{"x", 0.5}, {"y", 0.1}, {"width", 0.2}, {"height", 0.3}}}}});
+    auto decoded = decode_compiled_project(document, "scene-program-focus.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -225,6 +245,38 @@ const PresentationMountedLayout* find_layout(const RuntimePresentationSnapshot& 
     return found == snapshot.layouts.end() ? nullptr : &*found;
 }
 } // namespace
+
+TEST_CASE("camera Focus capture freezes Room occurrence and Anchor bounds in logical world space")
+{
+    const auto project = focus_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    const auto room = resolve_room(project, state);
+    auto projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    const auto& snapshot = projected.value();
+    REQUIRE(snapshot.camera);
+
+    const compiled::RoomPlacementRef placement{id<RoomId>("start"),
+                                               id<RoomPlacementId>("key-placement")};
+    auto occurrence = capture_camera_focus(project, snapshot, CameraFocusSource{placement});
+    REQUIRE(occurrence);
+    CHECK(occurrence.value().source == CameraFocusSource{placement});
+    CHECK(occurrence.value().bounds == compiled::WorldPresentationRect{192.0, 216.0, 384.0, 216.0});
+
+    const RoomAnchorFocusSource anchor{id<RoomId>("start"), id<RoomAnchorId>("desk")};
+    auto anchored = capture_camera_focus(project, snapshot, CameraFocusSource{anchor});
+    REQUIRE(anchored);
+    CHECK(anchored.value().source == CameraFocusSource{anchor});
+    CHECK(anchored.value().bounds == compiled::WorldPresentationRect{960.0, 108.0, 384.0, 324.0});
+
+    const RoomAnchorFocusSource missing{id<RoomId>("start"), id<RoomAnchorId>("missing")};
+    auto rejected = capture_camera_focus(project, snapshot, CameraFocusSource{missing});
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().front().code == "presentation.camera_focus_source_unavailable");
+}
 
 TEST_CASE("presentation projector assembles the complete effective target")
 {

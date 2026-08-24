@@ -26,7 +26,9 @@ struct ActiveTextPresentationOperation {
 
 using CoordinatedPresentationOperation =
     std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
-                 BackgroundPresentationOperation, ActorPresentationOperation,
+                 BackgroundPresentationOperation, CameraPanOperation, CameraZoomOperation,
+                 CameraRotationOperation, CameraFocusOperation, CameraShakeOperation,
+                 CameraPunchOperation, CameraFlashOperation, ActorPresentationOperation,
                  LayoutFinitePresentationOperation, AudioOperation,
                  ActiveTextPresentationOperation>;
 

@@ -36,15 +36,10 @@ SavedFlowFrame save_frame(const FlowFrame& frame, std::size_t index)
                 return SavedInteractionFrame{snapshot_id, value.invocation, value.program,
                                              value.position, value.destination};
             else
-                return SavedRoomTransitionFrame{snapshot_id,
-                                                value.source_room,
-                                                value.target_room,
-                                                value.selected_exit,
-                                                value.kind,
-                                                value.entry_cause,
-                                                value.source_context,
-                                                value.position,
-                                                value.destination};
+                return SavedRoomTransitionFrame{
+                    snapshot_id,          value.source_room, value.target_room,
+                    value.selected_exit,  value.kind,        value.entry_cause,
+                    value.source_context, value.position,    value.destination};
         },
         frame);
 }
@@ -184,6 +179,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .logical_timers = {},
         .pending_timer_completions = {},
         .background_overrides = {},
+        .camera_views = {},
         .actors = {},
         .presentation_props = {},
         .presentation_environments = {},
@@ -248,6 +244,13 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         if (*owner.value_if())
             save.background_overrides.push_back(
                 SavedBackgroundOverride{**owner.value_if(), background.background});
+    }
+    for (const auto& camera : session.m_camera_views) {
+        auto owner = save_presentation_owner(session, camera.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.camera_views.push_back(SavedCameraView{**owner.value_if(), camera.view});
     }
     for (const auto& actor : session.m_actors) {
         auto owner = save_presentation_owner(session, actor.owner);

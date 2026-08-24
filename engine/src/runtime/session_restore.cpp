@@ -427,6 +427,7 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     }
 
     state->m_background_overrides.clear();
+    state->m_camera_views.clear();
     state->m_actors.clear();
     state->m_presentation_props.clear();
     state->m_presentation_environments.clear();
@@ -539,6 +540,15 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
             return Result<SessionState, Diagnostics>::failure(owner.error());
         auto restored = state->upsert_background_override(
             project, DesiredBackgroundOverride{*owner.value_if(), saved.background});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.camera_views) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto restored =
+            state->set_camera_view(project, DesiredCameraView{*owner.value_if(), saved.view});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }

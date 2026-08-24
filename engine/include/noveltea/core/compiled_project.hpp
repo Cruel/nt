@@ -467,6 +467,41 @@ struct RoomPlacement {
     std::int32_t order = 0;
     RoomPlacementPresentation presentation;
 };
+struct WorldPresentationRect {
+    double x = 0.0;
+    double y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+    bool operator==(const WorldPresentationRect&) const = default;
+};
+struct CameraView {
+    Vector2 center{0.0, 0.0};
+    double zoom = 1.0;
+    double rotation_degrees = 0.0;
+    bool operator==(const CameraView&) const = default;
+};
+struct NamedCameraView {
+    CameraViewId id;
+    CameraView view;
+    bool operator==(const NamedCameraView&) const = default;
+};
+enum class WorldPresentationEdgePolicy : std::uint8_t {
+    Contain,
+    Overscan,
+};
+struct WorldPresentationSpace {
+    Vector2 size{1920.0, 1080.0};
+    std::optional<WorldPresentationRect> bounds;
+    WorldPresentationEdgePolicy edge_policy = WorldPresentationEdgePolicy::Contain;
+    CameraView default_view{{960.0, 540.0}, 1.0, 0.0};
+    std::vector<NamedCameraView> views;
+    bool operator==(const WorldPresentationSpace&) const = default;
+};
+struct RoomAnchor {
+    RoomAnchorId id;
+    NormalizedRect bounds;
+    bool operator==(const RoomAnchor&) const = default;
+};
 enum class RoomExitDirection : std::uint8_t {
     Northwest,
     North,
@@ -563,6 +598,8 @@ struct RoomDefinition {
     std::string display_name;
     TextContent description;
     BackgroundPresentation background;
+    WorldPresentationSpace presentation_space;
+    std::vector<RoomAnchor> anchors;
     RoomLifecycle lifecycle;
     std::vector<RoomOverlay> overlays;
     std::vector<RoomCastEntry> cast;

@@ -212,6 +212,7 @@ decode_blocker(Decoder& d, const nlohmann::json& value, std::string_view pointer
 
 struct SavedPresentationRecords {
     std::vector<SavedBackgroundOverride> background_overrides;
+    std::vector<SavedCameraView> camera_views;
     std::vector<SavedActorPresentation> actors;
     std::vector<SavedPresentationProp> props;
     std::vector<SavedPresentationEnvironment> environments;

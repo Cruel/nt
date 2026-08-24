@@ -298,6 +298,28 @@ const roomPlacementSchema = strict({
     layout: layoutReferenceSchema.nullable(),
   }),
 });
+const worldRectSchema = strict({
+  x: finiteNumber,
+  y: finiteNumber,
+  width: positiveFiniteNumber,
+  height: positiveFiniteNumber,
+});
+export const compiledCameraViewSchema = strict({
+  center: vector2Schema,
+  zoom: positiveFiniteNumber,
+  rotationDegrees: finiteNumber,
+});
+const roomPresentationSpaceSchema = strict({
+  size: strict({ width: positiveFiniteNumber, height: positiveFiniteNumber }),
+  bounds: worldRectSchema.nullable(),
+  edgePolicy: z.enum(['contain', 'overscan']),
+  defaultView: compiledCameraViewSchema,
+  views: z.array(strict({ id, view: compiledCameraViewSchema })),
+});
+const roomAnchorSchema = strict({
+  id,
+  bounds: normalizedRectSchema,
+});
 const roomNavigationTransitionSchema = strict({
   kind: z.enum(['cut', 'fade', 'dissolve']),
   durationMs: z.number().int().nonnegative(),
@@ -349,6 +371,8 @@ const roomDefinitionSchema = strict({
   }),
   description: compiledTextSchema,
   displayName: z.string(),
+  presentationSpace: roomPresentationSpaceSchema,
+  anchors: z.array(roomAnchorSchema),
   exits: z.array(roomExitSchema),
   lifecycle: strict({
     canEnter: compiledConditionSchema,

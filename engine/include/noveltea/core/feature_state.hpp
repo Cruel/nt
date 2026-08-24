@@ -181,6 +181,12 @@ struct DesiredBackgroundOverride {
     bool operator==(const DesiredBackgroundOverride&) const = default;
 };
 
+struct DesiredCameraView {
+    PresentationOwner owner;
+    compiled::CameraView view;
+    bool operator==(const DesiredCameraView&) const = default;
+};
+
 struct DesiredPresentationProp {
     PresentationPropInstanceId instance;
     PresentationOwner owner;

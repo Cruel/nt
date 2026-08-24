@@ -50,6 +50,82 @@ bool operation_skippable(const FinitePresentationOperation& operation) noexcept
     return std::visit([](const auto& value) { return value.common.skippable; }, operation);
 }
 
+Result<CameraFocusCapture, Diagnostics>
+capture_camera_focus(const CompiledProject& project, const RuntimePresentationSnapshot& snapshot,
+                     const CameraFocusSource& source)
+{
+    if (!snapshot.camera)
+        return Result<CameraFocusCapture, Diagnostics>::failure(
+            {diagnostic("presentation.camera_focus_unavailable",
+                        "Focus capture requires an effective Camera View")});
+
+    const auto world_bounds = [&](const compiled::NormalizedRect& bounds) {
+        return compiled::WorldPresentationRect{bounds.x * snapshot.camera->space.size.x,
+                                               bounds.y * snapshot.camera->space.size.y,
+                                               bounds.width * snapshot.camera->space.size.x,
+                                               bounds.height * snapshot.camera->space.size.y};
+    };
+    std::optional<compiled::NormalizedRect> captured;
+    auto resolved = std::visit(
+        [&](const auto& value) -> bool {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, ActorPresentationKey>) {
+                const auto actor = std::find_if(
+                    snapshot.actors.begin(), snapshot.actors.end(),
+                    [&](const PresentationActor& candidate) { return candidate.key == value; });
+                if (actor != snapshot.actors.end() && actor->room_bounds)
+                    captured = *actor->room_bounds;
+                return captured.has_value();
+            } else if constexpr (std::is_same_v<T, compiled::RoomPlacementRef>) {
+                const auto actor = std::find_if(snapshot.actors.begin(), snapshot.actors.end(),
+                                                [&](const PresentationActor& candidate) {
+                                                    return candidate.room_placement == value &&
+                                                           candidate.room_bounds.has_value();
+                                                });
+                if (actor != snapshot.actors.end())
+                    captured = *actor->room_bounds;
+                if (!captured) {
+                    const auto interactable =
+                        std::find_if(snapshot.interactables.begin(), snapshot.interactables.end(),
+                                     [&](const PresentationInteractable& candidate) {
+                                         return candidate.placement == value;
+                                     });
+                    if (interactable != snapshot.interactables.end())
+                        captured = interactable->bounds;
+                }
+                if (!captured) {
+                    const auto prop = std::find_if(snapshot.props.begin(), snapshot.props.end(),
+                                                   [&](const PresentationProp& candidate) {
+                                                       return candidate.placement == value;
+                                                   });
+                    if (prop != snapshot.props.end())
+                        captured = prop->bounds;
+                }
+                return captured.has_value();
+            } else {
+                if (snapshot.current_room != value.room)
+                    return false;
+                const auto* room = project.find_room(value.room);
+                if (!room)
+                    return false;
+                const auto anchor = std::find_if(
+                    room->anchors.begin(), room->anchors.end(),
+                    [&](const auto& candidate) { return candidate.id == value.anchor; });
+                if (anchor != room->anchors.end())
+                    captured = anchor->bounds;
+                return captured.has_value();
+            }
+        },
+        source);
+    if (!resolved)
+        return Result<CameraFocusCapture, Diagnostics>::failure({diagnostic(
+            "presentation.camera_focus_source_unavailable",
+            "Focus source is not a capturable occurrence or Anchor in the exact snapshot")});
+
+    return Result<CameraFocusCapture, Diagnostics>::success(
+        CameraFocusCapture{source, world_bounds(*captured)});
+}
+
 Result<PresentationTargetDraft, Diagnostics>
 build_transition_group_target(const PresentationTargetDraft& source,
                               const std::vector<TransitionGroupTargetMutation>& mutations)
@@ -80,6 +156,26 @@ build_transition_group_target(const PresentationTargetDraft& source,
                                   [&](const DesiredBackgroundOverride& current) {
                                       return current.owner == value.owner;
                                   });
+                } else if constexpr (std::is_same_v<T, TransitionGroupUpsertCameraTarget>) {
+                    if (!gameplay_owner(value.value.owner) ||
+                        !std::isfinite(value.value.view.center.x) ||
+                        !std::isfinite(value.value.view.center.y) ||
+                        !std::isfinite(value.value.view.zoom) || value.value.view.zoom <= 0.0 ||
+                        !std::isfinite(value.value.view.rotation_degrees))
+                        return Result<void, Diagnostics>::failure(
+                            {diagnostic("presentation.invalid_transition_group_camera",
+                                        "TransitionGroup Camera View targets require gameplay "
+                                        "authority and finite logical framing")});
+                    upsert(target.camera_views, value.value, value.value.owner,
+                           [](const DesiredCameraView& current) { return current.owner; });
+                } else if constexpr (std::is_same_v<T, TransitionGroupClearCameraTarget>) {
+                    if (!gameplay_owner(value.owner))
+                        return Result<void, Diagnostics>::failure({diagnostic(
+                            "presentation.invalid_transition_group_owner",
+                            "TransitionGroup Camera View mutations require gameplay authority")});
+                    std::erase_if(target.camera_views, [&](const DesiredCameraView& current) {
+                        return current.owner == value.owner;
+                    });
                 } else if constexpr (std::is_same_v<T, TransitionGroupUpsertActorTarget>) {
                     if (!gameplay_owner(value.value.owner) ||
                         !std::isfinite(value.value.placement.offset.x) ||

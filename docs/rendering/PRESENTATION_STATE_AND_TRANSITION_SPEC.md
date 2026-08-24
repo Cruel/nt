@@ -109,6 +109,34 @@ runtime revision. Reapplying an identical snapshot is safe and performs no one-s
 Ordered finite or one-shot work that realizes a change or effect over time. Operations have lifecycle,
 checkpoint classification, replacement, and acknowledgement semantics. Operations are not saved.
 
+Camera framing follows the same split. `WorldPresentationSpace` is immutable Room presentation data;
+`DesiredCameraView` is owner-scoped reconstructible desired state; and `PresentationCamera` is the
+backend-neutral effective snapshot value. A Camera View contains only logical center, positive zoom,
+and rotation degrees. It never encodes gameplay Location, renderer handles, tween phase, or viewport
+pixels.
+
+Finite camera work is closed and typed: `CameraPanOperation`, `CameraZoomOperation`,
+`CameraRotationOperation`, `CameraFocusOperation`, `CameraShakeOperation`, `CameraPunchOperation`, and
+`CameraFlashOperation`. All use `FinitePresentationOperationCommon`, including positive duration,
+skippability, gameplay clock, easing, and exact source/target snapshot revisions. Pan/zoom/rotation
+realize committed desired View changes. Focus/shake/punch/flash are temporary emphasis operations over
+an unchanged desired View. Focus stores captured world bounds from one occurrence or Room Anchor plus
+the View to return to; backend realization never performs live semantic tracking of that source.
+
+The world backend applies Camera View transforms to world-background/content/overlay draws but not
+Game UI. Pointer hit testing inverse-projects through the same effective camera before evaluating
+world Hotspots. `contain` clamps the effective View against optional World Presentation Space bounds;
+`overscan` leaves authored framing unconstrained. Camera operation replacement uses the single typed
+`CameraOperationTarget`, so a newer camera operation supersedes older camera work without colliding
+with actor, background, Layout, or whole-world transition targets.
+
+`capture_camera_focus(...)` resolves an actor occurrence, Room placement occurrence, or Room Anchor against the exact published snapshot and freezes normalized geometry into logical world-space bounds before the Focus operation is accepted. Transition-group target construction can also upsert or clear owner-scoped desired Camera Views atomically with other world-presentation target mutations.
+
+Checkpoint projection stores owner-scoped desired Camera Views only. Finite camera operation progress,
+Focus captures, shake phase, punch envelope, flash opacity phase, and backend interpolation are
+`Disposable` realization data and are never encoded in save state. Loading or resetting the backend
+therefore reconstructs the saved desired View directly without replaying camera emphasis.
+
 ### Presentation owner
 
 The typed identity that determines when a desired record is active, when it is automatically removed,

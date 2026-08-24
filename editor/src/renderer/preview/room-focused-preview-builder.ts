@@ -887,6 +887,17 @@ export async function buildFocusedRoomPreview(
     queryState: state as RoomPreviewDocumentV2['queryState'],
     shaderMaterials: { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} },
     world: {
+      presentationSpace: {
+        size: { ...room.presentationSpace.size },
+        bounds: room.presentationSpace.bounds ? { ...room.presentationSpace.bounds } : null,
+        edgePolicy: room.presentationSpace.edgePolicy,
+        view: {
+          center: { ...room.presentationSpace.defaultView.center },
+          zoom: room.presentationSpace.defaultView.zoom,
+          rotationDegrees: room.presentationSpace.defaultView.rotationDegrees,
+        },
+      },
+      anchors: room.anchors.map((anchor) => ({ id: anchor.id, bounds: { ...anchor.bounds } })),
       background: {
         assetId: room.background.asset?.$ref.id ?? null,
         materialId: room.background.material?.$ref.id ?? null,

@@ -1059,7 +1059,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     const core::PresentationOwner owner =
                         core::ScenePresentationOwner{frame->frame_id, frame->scene};
                     const core::PresentationTargetDraft source_target{
-                        m_state.background_overrides(), m_state.actors(),
+                        m_state.background_overrides(), m_state.camera_views(), m_state.actors(),
                         m_state.mounted_layouts()};
                     std::vector<core::TransitionGroupTargetMutation> mutations;
                     mutations.reserve(value.children.size());

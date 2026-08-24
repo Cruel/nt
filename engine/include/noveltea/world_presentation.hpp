@@ -153,6 +153,7 @@ struct HotspotInteractionVisualState {
 struct WorldPresentationFrame {
     core::PresentationSnapshotRevision revision =
         core::PresentationSnapshotRevision::from_number(0);
+    std::optional<core::PresentationCamera> camera;
     std::vector<WorldPresentationDraw> draws;
     std::vector<WorldPreparedHotspotSurface> hotspot_surfaces;
     std::vector<WorldHotspotHitTarget> hotspot_hit_targets;

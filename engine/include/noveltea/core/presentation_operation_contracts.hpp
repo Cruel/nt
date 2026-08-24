@@ -26,6 +26,9 @@ struct RoomNavigationOperationTarget {
 struct BackgroundOperationTarget {
     auto operator<=>(const BackgroundOperationTarget&) const = default;
 };
+struct CameraOperationTarget {
+    auto operator<=>(const CameraOperationTarget&) const = default;
+};
 struct ActorOperationTarget {
     ActorPresentationKey actor;
     bool operator==(const ActorOperationTarget&) const = default;
@@ -37,7 +40,15 @@ struct LayoutOperationTarget {
 };
 using FinitePresentationOperationTarget =
     std::variant<WorldCompositionOperationTarget, RoomNavigationOperationTarget,
-                 BackgroundOperationTarget, ActorOperationTarget, LayoutOperationTarget>;
+                 BackgroundOperationTarget, CameraOperationTarget, ActorOperationTarget,
+                 LayoutOperationTarget>;
+
+enum class PresentationEasing : std::uint8_t {
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+};
 
 struct FinitePresentationOperationCommon {
     PresentationOperationId id;
@@ -45,6 +56,7 @@ struct FinitePresentationOperationCommon {
     bool skippable = true;
     LayoutClockDomain clock = LayoutClockDomain::Gameplay;
     PresentationRevisionBinding revisions;
+    PresentationEasing easing = PresentationEasing::Linear;
     bool operator==(const FinitePresentationOperationCommon&) const = default;
 };
 
@@ -75,6 +87,77 @@ struct BackgroundPresentationOperation {
     bool operator==(const BackgroundPresentationOperation&) const = default;
 };
 
+struct RoomAnchorFocusSource {
+    RoomId room;
+    RoomAnchorId anchor;
+    auto operator<=>(const RoomAnchorFocusSource&) const = default;
+};
+using CameraFocusSource =
+    std::variant<ActorPresentationKey, compiled::RoomPlacementRef, RoomAnchorFocusSource>;
+struct CameraFocusCapture {
+    CameraFocusSource source;
+    compiled::WorldPresentationRect bounds;
+    bool operator==(const CameraFocusCapture&) const = default;
+};
+
+struct CameraPanOperation {
+    FinitePresentationOperationCommon common;
+    CameraOperationTarget target;
+    compiled::CameraView source_view;
+    compiled::CameraView target_view;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const CameraPanOperation&) const = default;
+};
+struct CameraZoomOperation {
+    FinitePresentationOperationCommon common;
+    CameraOperationTarget target;
+    compiled::CameraView source_view;
+    compiled::CameraView target_view;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const CameraZoomOperation&) const = default;
+};
+struct CameraRotationOperation {
+    FinitePresentationOperationCommon common;
+    CameraOperationTarget target;
+    compiled::CameraView source_view;
+    compiled::CameraView target_view;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const CameraRotationOperation&) const = default;
+};
+struct CameraFocusOperation {
+    FinitePresentationOperationCommon common;
+    CameraOperationTarget target;
+    CameraFocusCapture capture;
+    compiled::CameraView return_view;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const CameraFocusOperation&) const = default;
+};
+struct CameraShakeOperation {
+    FinitePresentationOperationCommon common;
+    CameraOperationTarget target;
+    compiled::Vector2 amplitude;
+    double frequency_hz = 12.0;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const CameraShakeOperation&) const = default;
+};
+struct CameraPunchOperation {
+    FinitePresentationOperationCommon common;
+    CameraOperationTarget target;
+    compiled::Vector2 translation;
+    double zoom_delta = 0.0;
+    double rotation_degrees = 0.0;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const CameraPunchOperation&) const = default;
+};
+struct CameraFlashOperation {
+    FinitePresentationOperationCommon common;
+    CameraOperationTarget target;
+    std::string color;
+    double opacity = 1.0;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const CameraFlashOperation&) const = default;
+};
+
 enum class ActorOperationKind : std::uint8_t {
     Fade,
     Slide,
@@ -100,11 +183,14 @@ struct LayoutFinitePresentationOperation {
 
 using FinitePresentationOperation =
     std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
-                 BackgroundPresentationOperation, ActorPresentationOperation,
+                 BackgroundPresentationOperation, CameraPanOperation, CameraZoomOperation,
+                 CameraRotationOperation, CameraFocusOperation, CameraShakeOperation,
+                 CameraPunchOperation, CameraFlashOperation, ActorPresentationOperation,
                  LayoutFinitePresentationOperation>;
 
 struct PresentationTargetDraft {
     std::vector<DesiredBackgroundOverride> background_overrides;
+    std::vector<DesiredCameraView> camera_views;
     std::vector<DesiredActorPresentation> actors;
     std::vector<DesiredMountedLayout> layouts;
     bool operator==(const PresentationTargetDraft&) const = default;
@@ -114,6 +200,12 @@ struct TransitionGroupUpsertBackgroundTarget {
     DesiredBackgroundOverride value;
 };
 struct TransitionGroupClearBackgroundTarget {
+    PresentationOwner owner;
+};
+struct TransitionGroupUpsertCameraTarget {
+    DesiredCameraView value;
+};
+struct TransitionGroupClearCameraTarget {
     PresentationOwner owner;
 };
 struct TransitionGroupUpsertActorTarget {
@@ -132,6 +224,7 @@ struct TransitionGroupRemoveLayoutTarget {
 };
 using TransitionGroupTargetMutation =
     std::variant<TransitionGroupUpsertBackgroundTarget, TransitionGroupClearBackgroundTarget,
+                 TransitionGroupUpsertCameraTarget, TransitionGroupClearCameraTarget,
                  TransitionGroupUpsertActorTarget, TransitionGroupRemoveActorTarget,
                  TransitionGroupUpsertLayoutTarget, TransitionGroupRemoveLayoutTarget>;
 

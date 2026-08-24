@@ -43,6 +43,16 @@ RuntimePresentationSnapshot snapshot(std::uint64_t revision)
     return result;
 }
 
+PresentationCamera camera(compiled::CameraView view)
+{
+    return {.space = {.size = {1000.0, 500.0},
+                      .bounds = std::nullopt,
+                      .edge_policy = compiled::WorldPresentationEdgePolicy::Overscan,
+                      .default_view = {{500.0, 250.0}, 1.0, 0.0},
+                      .views = {}},
+            .view = std::move(view)};
+}
+
 CoordinatedOperationDelivery
 delivery(std::uint64_t operation, LayoutClockDomain clock,
          compiled::TransitionKind kind = compiled::TransitionKind::Fade)
@@ -355,6 +365,82 @@ TEST_CASE("targeted background cross-fade retains exact revisions and completes"
     facts = transitions.take_acknowledgements();
     REQUIRE(facts.size() == 1);
     CHECK(std::holds_alternative<BackendOperationCompleted>(facts.front().fact));
+}
+
+TEST_CASE("targeted camera pan interpolates the exact committed world framing")
+{
+    EmptyWorldResources resources;
+    WorldPresentationBackend world(resources);
+    auto source = snapshot(1);
+    source.background = PresentationBackground{.color = std::string{"#ffffff"}};
+    source.camera = camera({{500.0, 250.0}, 1.0, 0.0});
+    auto target = snapshot(2);
+    target.background = source.background;
+    target.camera = camera({{400.0, 250.0}, 1.0, 0.0});
+    REQUIRE(world.reconcile(source, {1000.0f, 500.0f}));
+    REQUIRE(world.reconcile(target, {1000.0f, 500.0f}));
+
+    WorldTransitionBackend transitions(world);
+    CameraPanOperation pan{.common = common(40),
+                           .target = {},
+                           .source_view = source.camera->view,
+                           .target_view = target.camera->view};
+    REQUIRE(transitions.realize(targeted_delivery(40, pan)));
+    (void)transitions.take_acknowledgements();
+    RuntimeClockUpdate clocks;
+    clocks.gameplay_delta = std::chrono::milliseconds{50};
+    transitions.advance(clocks);
+    auto batch = transitions.compose_targeted_world_batch();
+    REQUIRE(batch);
+    REQUIRE(batch.value().commands().size() == 1);
+    CHECK(batch.value().commands().front().rect.x == Catch::Approx(50.0f));
+    CHECK(batch.value().commands().front().rect.width == Catch::Approx(1000.0f));
+}
+
+TEST_CASE("captured camera focus and flash remain temporary over the unchanged desired View")
+{
+    EmptyWorldResources resources;
+    WorldPresentationBackend world(resources);
+    auto first = snapshot(1);
+    first.background = PresentationBackground{.color = std::string{"#ffffff"}};
+    first.camera = camera({{500.0, 250.0}, 1.0, 0.0});
+    auto second = snapshot(2);
+    second.background = first.background;
+    second.camera = first.camera;
+    REQUIRE(world.reconcile(first, {1000.0f, 500.0f}));
+    REQUIRE(world.reconcile(second, {1000.0f, 500.0f}));
+
+    WorldTransitionBackend transitions(world);
+    CameraFocusOperation focus{
+        .common = common(41),
+        .target = {},
+        .capture = {RoomAnchorFocusSource{id<RoomId>("room"), id<RoomAnchorId>("desk")},
+                    {400.0, 200.0, 200.0, 100.0}},
+        .return_view = first.camera->view,
+    };
+    REQUIRE(transitions.realize(targeted_delivery(41, focus)));
+    (void)transitions.take_acknowledgements();
+    RuntimeClockUpdate clocks;
+    clocks.gameplay_delta = std::chrono::milliseconds{50};
+    transitions.advance(clocks);
+    auto batch = transitions.compose_targeted_world_batch();
+    REQUIRE(batch);
+    REQUIRE(batch.value().commands().size() == 1);
+    CHECK(batch.value().commands().front().rect.width == Catch::Approx(5000.0f));
+    REQUIRE(world.snapshot(PresentationSnapshotRevision::from_number(2))->camera);
+    CHECK(world.snapshot(PresentationSnapshotRevision::from_number(2))->camera->view ==
+          first.camera->view);
+
+    transitions.reset(PresentationCancellationReason::RuntimeReset);
+    CameraFlashOperation flash{
+        .common = common(42), .target = {}, .color = "#ff0000", .opacity = 0.8};
+    REQUIRE(transitions.realize(targeted_delivery(42, flash)));
+    (void)transitions.take_acknowledgements();
+    transitions.advance(clocks);
+    batch = transitions.compose_targeted_world_batch();
+    REQUIRE(batch);
+    REQUIRE(batch.value().commands().size() == 2);
+    CHECK(batch.value().commands().back().color.a == Catch::Approx(0.8f));
 }
 
 TEST_CASE("targeted actor slide interpolates resolved bounds and rejects pose changes")
