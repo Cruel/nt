@@ -12,11 +12,79 @@ import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
+  parseDialogueCueMarkup,
+  serializeDialogueCueMarkup,
+} from '../../shared/project-schema/dialogue-cue-markup';
+import {
   buildDialoguePreviewDocumentData,
   dialoguePreviewRevision,
 } from '../../shared/project-schema/dialogue-project';
 
 describe('authoring dialogues schema', () => {
+  it('round-trips ActiveText and semantic markup through one positioned cue model', () => {
+    const source =
+      '[b]Hi[nt-cue id=pose kind=speaker-expression data=%7B%22expressionId%22%3A%22angry%22%7D] there[/b]';
+    const parsed = parseDialogueCueMarkup(source);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.text).toBe('Hi there');
+    expect(parsed.cues).toEqual([
+      expect.objectContaining({
+        kind: 'active-text',
+        position: { offset: 0, order: 0 },
+        token: '[b]',
+      }),
+      expect.objectContaining({
+        id: 'pose',
+        kind: 'speaker-expression',
+        position: { offset: 2, order: 0 },
+        expressionId: 'angry',
+      }),
+      expect.objectContaining({
+        kind: 'active-text',
+        position: { offset: 8, order: 0 },
+        token: '[/b]',
+      }),
+    ]);
+    expect(serializeDialogueCueMarkup(parsed.text, parsed.cues)).toBe(source);
+  });
+
+  it('retains malformed source markup as an actionable invalid cue', () => {
+    const parsed = parseDialogueCueMarkup('Hello [nt-cue id=broken]');
+    expect(parsed.text).toBe('Hello ');
+    expect(parsed.diagnostics).toEqual([
+      expect.objectContaining({
+        offset: 6,
+        message: expect.stringContaining('requires id, kind, and data'),
+      }),
+    ]);
+    expect(parsed.cues).toEqual([
+      expect.objectContaining({
+        kind: 'invalid-markup',
+        position: { offset: 6, order: 0 },
+        token: '[nt-cue id=broken]',
+      }),
+    ]);
+    expect(serializeDialogueCueMarkup(parsed.text, parsed.cues)).toBe('Hello [nt-cue id=broken]');
+
+    const project = createAuthoringProject();
+    const data = defaultDialogueData('Intro');
+    const block = data.blocks[0]!;
+    if (block.type !== 'sequence' || block.segments[0]?.type !== 'line')
+      throw new Error('Expected default line.');
+    block.segments[0].text = inlineTextContent(parsed.text);
+    block.segments[0].cues = parsed.cues;
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data };
+    expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/dialogues/intro/data/blocks/0/segments/0/cues/0',
+          severity: 'error',
+          message: expect.stringContaining('Malformed Dialogue markup'),
+        }),
+      ]),
+    );
+  });
+
   it('provides strict V2 dialogue defaults without editor state', () => {
     expect(defaultDialogueData('Intro')).toEqual({
       kind: 'dialogue',
@@ -38,7 +106,7 @@ describe('authoring dialogues schema', () => {
               type: 'line',
               speaker: null,
               text: inlineTextContent(),
-              presentation: { stage: [], media: [] },
+              cues: [],
               effects: [],
               showOnce: false,
               logged: true,
@@ -157,7 +225,7 @@ describe('authoring dialogues schema', () => {
     );
   });
 
-  it('validates retained Stage and Media Slots plus sparse line presentation mutations', () => {
+  it('validates retained Stage and Media Slots plus sparse line cues', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
     const data = defaultDialogueData('Intro');
@@ -199,14 +267,32 @@ describe('authoring dialogues schema', () => {
     if (start.type !== 'sequence' || start.segments[0]?.type !== 'line')
       throw new Error('Expected default line.');
     start.segments[0].text = inlineTextContent('Welcome.');
-    start.segments[0].presentation = {
-      speakerExpressionId: 'neutral',
-      stage: [
-        { slotId: 'left-speaker', action: 'update', position: 'center', scale: 1.1 },
-        { slotId: 'left-speaker', action: 'show' },
-      ],
-      media: [{ slotId: 'portrait', action: 'hide' }],
-    };
+    start.segments[0].cues = [
+      {
+        id: 'speaker-expression',
+        kind: 'speaker-expression',
+        position: { offset: 0, order: 0 },
+        expressionId: 'neutral',
+      },
+      {
+        id: 'stage-update',
+        kind: 'stage',
+        position: { offset: 0, order: 1 },
+        mutation: { slotId: 'left-speaker', action: 'update', position: 'center', scale: 1.1 },
+      },
+      {
+        id: 'stage-show',
+        kind: 'stage',
+        position: { offset: 0, order: 2 },
+        mutation: { slotId: 'left-speaker', action: 'show' },
+      },
+      {
+        id: 'media-hide',
+        kind: 'media',
+        position: { offset: 0, order: 3 },
+        mutation: { slotId: 'portrait', action: 'hide' },
+      },
+    ];
     project.dialogues.intro = { id: 'intro', label: 'Intro', data };
 
     expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual([]);
@@ -214,20 +300,25 @@ describe('authoring dialogues schema', () => {
       stageSlots: [expect.objectContaining({ id: 'left-speaker', speakerSync: true })],
       mediaSlots: [expect.objectContaining({ id: 'portrait', visible: true })],
       selectedSegment: expect.objectContaining({
-        presentation: expect.objectContaining({
-          stage: expect.arrayContaining([
-            expect.objectContaining({ slotId: 'left-speaker', position: 'center' }),
-          ]),
-          media: [expect.objectContaining({ slotId: 'portrait', action: 'hide' })],
-        }),
+        cues: expect.arrayContaining([
+          expect.objectContaining({ kind: 'stage', id: 'stage-update' }),
+          expect.objectContaining({ kind: 'media', id: 'media-hide' }),
+        ]),
       }),
     });
 
-    start.segments[0].presentation.stage = [{ slotId: 'missing-slot', action: 'hide' }];
+    start.segments[0].cues = [
+      {
+        id: 'bad-stage',
+        kind: 'stage',
+        position: { offset: 0, order: 0 },
+        mutation: { slotId: 'missing-slot', action: 'hide' },
+      },
+    ];
     expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: '/dialogues/intro/data/blocks/0/segments/0/presentation/stage/0/slotId',
+          path: '/dialogues/intro/data/blocks/0/segments/0/cues/0/mutation/slotId',
           severity: 'error',
         }),
       ]),

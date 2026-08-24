@@ -155,7 +155,13 @@ decode_dialogue_stage_state(Decoder& decoder, const nlohmann::json& value, std::
 
 } // namespace
 
-std::optional<DialogueLinePresentation>
+struct DecodedDialogueLinePresentation {
+    std::optional<CharacterExpressionId> speaker_expression_id;
+    std::vector<DialogueStageMutation> stage;
+    std::vector<DialogueMediaMutation> media;
+};
+
+std::optional<DecodedDialogueLinePresentation>
 decode_dialogue_line_presentation(Decoder& decoder, const nlohmann::json& value,
                                   std::string_view pointer)
 {
@@ -318,9 +324,102 @@ decode_dialogue_line_presentation(Decoder& decoder, const nlohmann::json& value,
                   })
             : std::nullopt;
     return speaker_expression_ok && stage && media
-               ? std::optional<DialogueLinePresentation>(DialogueLinePresentation{
+               ? std::optional<DecodedDialogueLinePresentation>(DecodedDialogueLinePresentation{
                      std::move(speaker_expression), std::move(*stage), std::move(*media)})
                : std::nullopt;
+}
+
+std::optional<DialogueCuePosition> decode_dialogue_cue_position(Decoder& decoder,
+                                                                const nlohmann::json& value,
+                                                                std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"offset", "order"}))
+        return std::nullopt;
+    const auto* offset_value = decoder.member(value, "offset", pointer);
+    const auto* order_value = decoder.member(value, "order", pointer);
+    auto offset = offset_value ? decoder.unsigned_integer<std::uint64_t>(
+                                     *offset_value, pointer_child(pointer, "offset"))
+                               : std::nullopt;
+    auto order =
+        order_value
+            ? decoder.unsigned_integer<std::uint64_t>(*order_value, pointer_child(pointer, "order"))
+            : std::nullopt;
+    return offset && order
+               ? std::optional<DialogueCuePosition>(DialogueCuePosition{*offset, *order})
+               : std::nullopt;
+}
+
+std::optional<DialogueSemanticCue> decode_dialogue_semantic_cue(Decoder& decoder,
+                                                                const nlohmann::json& value,
+                                                                std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected a Dialogue cue object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* id_value = decoder.member(value, "id", pointer);
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    const auto* position_value = decoder.member(value, "position", pointer);
+    auto id = id_value ? decoder.id<DialogueCueId>(*id_value, pointer_child(pointer, "id"))
+                       : std::nullopt;
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    auto position = position_value
+                        ? decode_dialogue_cue_position(decoder, *position_value,
+                                                       pointer_child(pointer, "position"))
+                        : std::nullopt;
+    if (!id || !kind || !position)
+        return std::nullopt;
+
+    if (*kind == "speaker-expression") {
+        decoder.object(value, pointer, {"expressionId", "id", "kind", "position"});
+        const auto* expression_value = decoder.member(value, "expressionId", pointer);
+        auto expression = expression_value
+                              ? decoder.id<CharacterExpressionId>(
+                                    *expression_value, pointer_child(pointer, "expressionId"))
+                              : std::nullopt;
+        return expression ? std::optional<DialogueSemanticCue>(DialogueSpeakerExpressionCue{
+                                std::move(*id), *position, std::move(*expression)})
+                          : std::nullopt;
+    }
+    if (*kind == "gesture") {
+        decoder.object(value, pointer, {"gestureId", "id", "kind", "position", "slotId"});
+        const auto* slot_value = decoder.member(value, "slotId", pointer);
+        const auto* gesture_value = decoder.member(value, "gestureId", pointer);
+        auto slot = slot_value ? decoder.id<DialogueStageSlotId>(*slot_value,
+                                                                 pointer_child(pointer, "slotId"))
+                               : std::nullopt;
+        auto gesture = gesture_value ? decoder.id<CharacterGestureId>(
+                                           *gesture_value, pointer_child(pointer, "gestureId"))
+                                     : std::nullopt;
+        return slot && gesture
+                   ? std::optional<DialogueSemanticCue>(DialogueGestureCue{
+                         std::move(*id), *position, std::move(*slot), std::move(*gesture)})
+                   : std::nullopt;
+    }
+    if (*kind == "stage" || *kind == "media") {
+        decoder.object(value, pointer, {"id", "kind", "mutation", "position"});
+        const auto* mutation = decoder.member(value, "mutation", pointer);
+        if (mutation == nullptr)
+            return std::nullopt;
+        nlohmann::json presentation = nlohmann::json::object();
+        presentation["stage"] = nlohmann::json::array();
+        presentation["media"] = nlohmann::json::array();
+        presentation[*kind] = nlohmann::json::array({*mutation});
+        auto decoded = decode_dialogue_line_presentation(decoder, presentation,
+                                                         pointer_child(pointer, "mutation"));
+        if (!decoded)
+            return std::nullopt;
+        if (*kind == "stage" && decoded->stage.size() == 1)
+            return DialogueStageCue{std::move(*id), *position, std::move(decoded->stage.front())};
+        if (*kind == "media" && decoded->media.size() == 1)
+            return DialogueMediaCue{std::move(*id), *position, std::move(decoded->media.front())};
+        return std::nullopt;
+    }
+    decoder.object(value, pointer, {"id", "kind", "position"});
+    decoder.error(k_code_variant, "Unknown Dialogue cue variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
 }
 
 std::optional<DialogueSegment>
@@ -342,15 +441,15 @@ decode_dialogue_segment(Decoder& decoder, const nlohmann::json& value, std::stri
         return std::nullopt;
     if (*kind == "line") {
         decoder.object(value, pointer,
-                       {"autosaveSafePoint", "condition", "effects", "id", "kind", "logged",
-                        "presentation", "showOnce", "speaker", "text"});
+                       {"autosaveSafePoint", "condition", "cues", "effects", "id", "kind", "logged",
+                        "showOnce", "speaker", "text"});
         const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
+        const auto* cues_value = decoder.member(value, "cues", pointer);
         const auto* effects_value = decoder.member(value, "effects", pointer);
         const auto* logged_value = decoder.member(value, "logged", pointer);
         const auto* once_value = decoder.member(value, "showOnce", pointer);
         const auto* speaker_value = decoder.member(value, "speaker", pointer);
         const auto* text_value = decoder.member(value, "text", pointer);
-        const auto* presentation_value = decoder.member(value, "presentation", pointer);
         auto safe = safe_value
                         ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
                         : std::nullopt;
@@ -371,21 +470,18 @@ decode_dialogue_segment(Decoder& decoder, const nlohmann::json& value, std::stri
         }
         auto text = text_value ? decode_text(decoder, *text_value, pointer_child(pointer, "text"))
                                : std::nullopt;
-        auto presentation =
-            presentation_value
-                ? decode_dialogue_line_presentation(decoder, *presentation_value,
-                                                    pointer_child(pointer, "presentation"))
-                : std::nullopt;
-        if (safe && effects && logged && once && speaker_ok && text && presentation)
-            return DialogueLineSegment{std::move(*id),
-                                       *safe,
-                                       std::move(condition),
-                                       std::move(*effects),
-                                       *logged,
-                                       *once,
-                                       std::move(speaker),
-                                       std::move(*text),
-                                       std::move(*presentation)};
+        auto cues = cues_value
+                        ? decoder.array<DialogueSemanticCue>(
+                              *cues_value, pointer_child(pointer, "cues"),
+                              [&](const nlohmann::json& cue, const std::string& cue_pointer) {
+                                  return decode_dialogue_semantic_cue(decoder, cue, cue_pointer);
+                              })
+                        : std::nullopt;
+        if (safe && cues && effects && logged && once && speaker_ok && text)
+            return DialogueLineSegment{
+                std::move(*id),  *safe, std::move(condition), std::move(*effects),
+                *logged,         *once, std::move(speaker),   std::move(*text),
+                std::move(*cues)};
         return std::nullopt;
     }
     if (*kind == "run-lua") {

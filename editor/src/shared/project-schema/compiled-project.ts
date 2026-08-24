@@ -983,50 +983,74 @@ const sceneDefinitionSchema = strict({
   continuation: compiledFlowTargetSchema,
 });
 
+const dialogueCuePositionSchema = strict({
+  offset: z.number().int().nonnegative(),
+  order: z.number().int().nonnegative(),
+});
+const dialogueSemanticCueSchema = z.discriminatedUnion('kind', [
+  strict({
+    expressionId: id,
+    id,
+    kind: z.literal('speaker-expression'),
+    position: dialogueCuePositionSchema,
+  }),
+  strict({
+    id,
+    kind: z.literal('stage'),
+    position: dialogueCuePositionSchema,
+    mutation: strict({
+      action: z.enum(['update', 'show', 'hide', 'clear']),
+      appearanceId: id.nullable().optional(),
+      character: characterReferenceSchema.optional(),
+      expressionId: id.optional(),
+      offset: strict({ x: finiteNumber, y: finiteNumber }).optional(),
+      poseId: id.optional(),
+      position: z.enum(['left', 'center', 'right']).optional(),
+      profileId: id.optional(),
+      scale: finiteNumber.positive().optional(),
+      slotId: id,
+    }),
+  }),
+  strict({
+    id,
+    kind: z.literal('media'),
+    position: dialogueCuePositionSchema,
+    mutation: strict({
+      action: z.enum(['update', 'show', 'hide', 'clear']),
+      content: z
+        .discriminatedUnion('kind', [
+          strict({ asset: assetReferenceSchema, kind: z.literal('image') }),
+          strict({
+            appearanceId: id.nullable(),
+            character: characterReferenceSchema,
+            expressionId: id,
+            kind: z.literal('character'),
+            poseId: id,
+            profileId: id,
+          }),
+        ])
+        .optional(),
+      slotId: id,
+    }),
+  }),
+  strict({
+    gestureId: id,
+    id,
+    kind: z.literal('gesture'),
+    position: dialogueCuePositionSchema,
+    slotId: id,
+  }),
+]);
+
 const dialogueSegmentSchema = z.discriminatedUnion('kind', [
   strict({
     autosaveSafePoint: z.boolean(),
     condition: compiledConditionSchema.optional(),
+    cues: z.array(dialogueSemanticCueSchema),
     effects: z.array(compiledEffectSchema),
     id,
     kind: z.literal('line'),
     logged: z.boolean(),
-    presentation: strict({
-      speakerExpressionId: id.optional(),
-      stage: z.array(
-        strict({
-          action: z.enum(['update', 'show', 'hide', 'clear']),
-          appearanceId: id.nullable().optional(),
-          character: characterReferenceSchema.optional(),
-          expressionId: id.optional(),
-          offset: strict({ x: finiteNumber, y: finiteNumber }).optional(),
-          poseId: id.optional(),
-          position: z.enum(['left', 'center', 'right']).optional(),
-          profileId: id.optional(),
-          scale: finiteNumber.positive().optional(),
-          slotId: id,
-        }),
-      ),
-      media: z.array(
-        strict({
-          action: z.enum(['update', 'show', 'hide', 'clear']),
-          content: z
-            .discriminatedUnion('kind', [
-              strict({ asset: assetReferenceSchema, kind: z.literal('image') }),
-              strict({
-                appearanceId: id.nullable(),
-                character: characterReferenceSchema,
-                expressionId: id,
-                kind: z.literal('character'),
-                poseId: id,
-                profileId: id,
-              }),
-            ])
-            .optional(),
-          slotId: id,
-        }),
-      ),
-    }),
     showOnce: z.boolean(),
     speaker: characterReferenceSchema.nullable(),
     text: compiledTextSchema,

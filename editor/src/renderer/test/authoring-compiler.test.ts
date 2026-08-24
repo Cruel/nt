@@ -646,6 +646,30 @@ describe('authoring compiler framework', () => {
         segments: [
           {
             ...defaultDialogueSegment('line', 'welcome'),
+            text: {
+              source: { kind: 'inline', text: 'Hello' },
+              markup: 'active-text',
+            },
+            cues: [
+              {
+                id: 'bold-open',
+                kind: 'active-text',
+                position: { offset: 0, order: 0 },
+                token: '[b]',
+              },
+              {
+                id: 'expression',
+                kind: 'speaker-expression',
+                position: { offset: 2, order: 0 },
+                expressionId: 'neutral',
+              },
+              {
+                id: 'bold-close',
+                kind: 'active-text',
+                position: { offset: 5, order: 0 },
+                token: '[/b]',
+              },
+            ],
             effects: [
               {
                 kind: 'set-variable',
@@ -825,7 +849,22 @@ describe('authoring compiler framework', () => {
     ]);
     expect(loweredDialogue.program.blocks[0]).toMatchObject({
       segments: [
-        { id: 'welcome', kind: 'line' },
+        {
+          id: 'welcome',
+          kind: 'line',
+          text: {
+            markup: 'active-text',
+            source: { kind: 'inline', text: '[b]Hello[/b]' },
+          },
+          cues: [
+            {
+              id: 'expression',
+              kind: 'speaker-expression',
+              position: { offset: 2, order: 0 },
+              expressionId: 'neutral',
+            },
+          ],
+        },
         { id: 'script', kind: 'run-lua' },
       ],
     });

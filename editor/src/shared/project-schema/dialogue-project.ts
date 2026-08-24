@@ -106,9 +106,10 @@ function dependencyRevision(project: AuthoringProject, data: DialogueData): stri
     for (const segment of block.segments) {
       if (segment.type === 'line') {
         addCharacter(segment.speaker);
-        for (const mutation of segment.presentation.stage)
-          if (mutation.character) addCharacter(mutation.character);
-        for (const mutation of segment.presentation.media) addMedia(mutation.content ?? null);
+        for (const cue of segment.cues) {
+          if (cue.kind === 'stage' && cue.mutation.character) addCharacter(cue.mutation.character);
+          if (cue.kind === 'media') addMedia(cue.mutation.content ?? null);
+        }
         addConditionDependency(project, segment.condition, dependencies);
         addEffectDependencies(project, segment.effects, dependencies);
       } else if (segment.type === 'run-lua') {

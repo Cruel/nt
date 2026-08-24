@@ -366,17 +366,20 @@ TEST_CASE("Dialogue Stage and Media Slot state round-trips through save restore"
     REQUIRE(frame != nullptr);
 
     FlowExecutor flow(project, state);
-    const compiled::DialogueLinePresentation mutation{
-        std::nullopt,
-        {compiled::DialogueStageMutation{.slot_id = id<DialogueStageSlotId>("speaker"),
-                                         .action = compiled::DialogueSlotMutationAction::Update,
-                                         .position = compiled::ActorPosition::Right,
-                                         .offset = compiled::Vector2{4.0, -2.0},
-                                         .scale = 1.25}},
-        {compiled::DialogueMediaMutation{.slot_id = id<DialogueMediaSlotId>("portrait"),
-                                         .action = compiled::DialogueSlotMutationAction::Hide}}};
-    REQUIRE(flow.apply_dialogue_presentation(frame->dialogue, frame->position,
-                                             id<CharacterId>("hero"), mutation));
+    const std::vector<compiled::DialogueSemanticCue> cues{
+        compiled::DialogueStageCue{
+            id<DialogueCueId>("stage"), compiled::DialogueCuePosition{0, 0},
+            compiled::DialogueStageMutation{.slot_id = id<DialogueStageSlotId>("speaker"),
+                                            .action = compiled::DialogueSlotMutationAction::Update,
+                                            .position = compiled::ActorPosition::Right,
+                                            .offset = compiled::Vector2{4.0, -2.0},
+                                            .scale = 1.25}},
+        compiled::DialogueMediaCue{
+            id<DialogueCueId>("media"), compiled::DialogueCuePosition{0, 1},
+            compiled::DialogueMediaMutation{.slot_id = id<DialogueMediaSlotId>("portrait"),
+                                            .action = compiled::DialogueSlotMutationAction::Hide}}};
+    REQUIRE(
+        flow.apply_dialogue_cues(frame->dialogue, frame->position, id<CharacterId>("hero"), cues));
 
     auto snapshot = make_save_state(project, state);
     REQUIRE(snapshot);

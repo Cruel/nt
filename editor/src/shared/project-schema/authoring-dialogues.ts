@@ -110,18 +110,65 @@ const dialogueMediaMutationSchema = strict({
   content: dialogueMediaContentSchema.optional(),
 });
 
-const dialogueLinePresentationSchema = strict({
-  speakerExpressionId: entityIdSchema.optional(),
-  stage: z.array(dialogueStageMutationSchema),
-  media: z.array(dialogueMediaMutationSchema),
+const dialogueCuePositionSchema = strict({
+  offset: z.number().int().nonnegative(),
+  order: z.number().int().nonnegative(),
 });
+
+const dialogueActiveTextCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('active-text'),
+  position: dialogueCuePositionSchema,
+  token: z.string().min(1),
+});
+const dialogueInvalidMarkupCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('invalid-markup'),
+  position: dialogueCuePositionSchema,
+  token: z.string().min(1),
+  message: z.string().min(1),
+});
+const dialogueSpeakerExpressionCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('speaker-expression'),
+  position: dialogueCuePositionSchema,
+  expressionId: entityIdSchema,
+});
+const dialogueStageCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('stage'),
+  position: dialogueCuePositionSchema,
+  mutation: dialogueStageMutationSchema,
+});
+const dialogueMediaCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('media'),
+  position: dialogueCuePositionSchema,
+  mutation: dialogueMediaMutationSchema,
+});
+const dialogueGestureCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('gesture'),
+  position: dialogueCuePositionSchema,
+  slotId: entityIdSchema,
+  gestureId: entityIdSchema,
+});
+
+export const dialogueLineCueSchema = z.discriminatedUnion('kind', [
+  dialogueActiveTextCueSchema,
+  dialogueInvalidMarkupCueSchema,
+  dialogueSpeakerExpressionCueSchema,
+  dialogueStageCueSchema,
+  dialogueMediaCueSchema,
+  dialogueGestureCueSchema,
+]);
 
 const lineSegmentSchema = strict({
   id: entityIdSchema,
   type: z.literal('line'),
   speaker: dialogueCharacterRefSchema.nullable(),
   text: dialogueTextDataSchema,
-  presentation: dialogueLinePresentationSchema,
+  cues: z.array(dialogueLineCueSchema),
   condition: dialogueConditionDataSchema.optional(),
   effects: z.array(dialogueEffectDataSchema),
   showOnce: z.boolean(),
@@ -247,6 +294,7 @@ export type DialogueStageMutation = z.infer<typeof dialogueStageMutationSchema>;
 export type DialogueMediaContent = z.infer<typeof dialogueMediaContentSchema>;
 export type DialogueMediaSlotData = z.infer<typeof dialogueMediaSlotSchema>;
 export type DialogueMediaMutation = z.infer<typeof dialogueMediaMutationSchema>;
+export type DialogueLineCue = z.infer<typeof dialogueLineCueSchema>;
 
 export interface DialogueSchemaDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -277,7 +325,7 @@ export function defaultDialogueSegment<T extends DialogueSegmentType = 'line'>(
           type,
           speaker: null,
           text: inlineTextContent(),
-          presentation: { stage: [], media: [] },
+          cues: [],
           effects: [],
           showOnce: false,
           logged: true,
@@ -508,6 +556,7 @@ export function validateDialogueData(
   validateUniqueIds(data.blocks, `${base}/blocks`, 'block', diagnostics);
   validateUniqueIds(data.edges, `${base}/edges`, 'edge', diagnostics);
   const segmentIds = new Set<string>();
+  const cueIds = new Set<string>();
   data.blocks.forEach((block, blockIndex) => {
     if (block.type !== 'sequence') return;
     block.segments.forEach((segment, segmentIndex) => {
@@ -552,36 +601,116 @@ export function validateDialogueData(
           validateCharacter(segment.speaker, `${segmentPath}/speaker`);
           validateCondition(segment.condition, `${segmentPath}/condition`);
           validateEffects(segment.effects, `${segmentPath}/effects`);
-          segment.presentation.stage.forEach((mutation, mutationIndex) => {
-            const mutationPath = `${segmentPath}/presentation/stage/${mutationIndex}`;
-            const slot = data.stageSlots.find((candidate) => candidate.id === mutation.slotId);
-            if (!slot)
+          const inlineLength =
+            segment.text.source.kind === 'inline'
+              ? Array.from(segment.text.source.text).length
+              : null;
+          const occupiedPositions = new Set<string>();
+          segment.cues.forEach((cue, cueIndex) => {
+            const cuePath = `${segmentPath}/cues/${cueIndex}`;
+            if (cueIds.has(cue.id))
               diagnostics.push(
-                diagnostic(`${mutationPath}/slotId`, `Missing Stage Slot '${mutation.slotId}'.`),
+                diagnostic(`${cuePath}/id`, `Duplicate Dialogue cue ID '${cue.id}'.`),
               );
-            if (mutation.character)
-              validateCharacter(mutation.character, `${mutationPath}/character`);
-            if (
-              mutation.action === 'clear' &&
-              Object.keys(mutation).some((key) => !['slotId', 'action'].includes(key))
-            )
+            cueIds.add(cue.id);
+            if (inlineLength === null) {
               diagnostics.push(
                 diagnostic(
-                  mutationPath,
-                  'Clear Stage Slot mutations cannot include presentation fields.',
+                  cuePath,
+                  'Positioned Dialogue cues currently require an inline text source.',
                 ),
               );
-          });
-          segment.presentation.media.forEach((mutation, mutationIndex) => {
-            const mutationPath = `${segmentPath}/presentation/media/${mutationIndex}`;
-            if (!data.mediaSlots.some((candidate) => candidate.id === mutation.slotId))
+            } else if (cue.position.offset > inlineLength) {
               diagnostics.push(
-                diagnostic(`${mutationPath}/slotId`, `Missing Media Slot '${mutation.slotId}'.`),
+                diagnostic(
+                  `${cuePath}/position/offset`,
+                  `Cue offset ${cue.position.offset} is beyond the line text length ${inlineLength}.`,
+                ),
               );
-            if (mutation.content) validateMedia(mutation.content, `${mutationPath}/content`);
-            if (mutation.action === 'clear' && mutation.content)
+            }
+            const positionKey = `${cue.position.offset}:${cue.position.order}`;
+            if (occupiedPositions.has(positionKey))
               diagnostics.push(
-                diagnostic(mutationPath, 'Clear Media Slot mutations cannot include content.'),
+                diagnostic(
+                  `${cuePath}/position/order`,
+                  `Cue position ${cue.position.offset}:${cue.position.order} is already occupied.`,
+                ),
+              );
+            occupiedPositions.add(positionKey);
+
+            if (cue.kind === 'active-text') {
+              if (segment.text.markup !== 'active-text')
+                diagnostics.push(
+                  diagnostic(
+                    cuePath,
+                    'ActiveText presentation cues require ActiveText markup mode.',
+                  ),
+                );
+              return;
+            }
+            if (cue.kind === 'invalid-markup') {
+              diagnostics.push(diagnostic(cuePath, `Malformed Dialogue markup: ${cue.message}`));
+              return;
+            }
+            if (cue.kind === 'speaker-expression') return;
+            if (cue.kind === 'stage') {
+              const mutation = cue.mutation;
+              const slot = data.stageSlots.find((candidate) => candidate.id === mutation.slotId);
+              if (!slot)
+                diagnostics.push(
+                  diagnostic(
+                    `${cuePath}/mutation/slotId`,
+                    `Missing Stage Slot '${mutation.slotId}'.`,
+                  ),
+                );
+              if (mutation.character)
+                validateCharacter(mutation.character, `${cuePath}/mutation/character`);
+              if (
+                mutation.action === 'clear' &&
+                Object.keys(mutation).some((key) => !['slotId', 'action'].includes(key))
+              )
+                diagnostics.push(
+                  diagnostic(
+                    `${cuePath}/mutation`,
+                    'Clear Stage Slot cues cannot include presentation fields.',
+                  ),
+                );
+              return;
+            }
+            if (cue.kind === 'media') {
+              const mutation = cue.mutation;
+              if (!data.mediaSlots.some((candidate) => candidate.id === mutation.slotId))
+                diagnostics.push(
+                  diagnostic(
+                    `${cuePath}/mutation/slotId`,
+                    `Missing Media Slot '${mutation.slotId}'.`,
+                  ),
+                );
+              if (mutation.content) validateMedia(mutation.content, `${cuePath}/mutation/content`);
+              if (mutation.action === 'clear' && mutation.content)
+                diagnostics.push(
+                  diagnostic(
+                    `${cuePath}/mutation`,
+                    'Clear Media Slot cues cannot include content.',
+                  ),
+                );
+              return;
+            }
+
+            const slot = data.stageSlots.find((candidate) => candidate.id === cue.slotId);
+            if (!slot)
+              diagnostics.push(
+                diagnostic(`${cuePath}/slotId`, `Missing Stage Slot '${cue.slotId}'.`),
+              );
+            const character = slot?.initial
+              ? parseCharacterData(project.characters[slot.initial.character.$ref.id]?.data)
+              : null;
+            if (character && !character.gestures.some((gesture) => gesture.id === cue.gestureId))
+              diagnostics.push(
+                diagnostic(
+                  `${cuePath}/gestureId`,
+                  `Missing Gesture '${cue.gestureId}' on the Stage Slot's initial Character.`,
+                ),
               );
           });
           if (inlineTextIsEmpty(segment.text))

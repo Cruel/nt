@@ -46,6 +46,7 @@ import {
   type DialogueData,
   type DialogueEdgeData,
   type DialogueEffectData,
+  type DialogueLineCue,
   type DialoguePreviewBackground,
   type DialogueMediaContent,
   type DialogueMediaMutation,
@@ -56,6 +57,10 @@ import {
   type DialogueStageSlotState,
   type DialogueSequenceBlockData,
 } from '../../../shared/project-schema/authoring-dialogues';
+import {
+  parseDialogueCueMarkup,
+  serializeDialogueCueMarkup,
+} from '../../../shared/project-schema/dialogue-cue-markup';
 import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
 import {
   inlineTextContent,
@@ -71,6 +76,86 @@ import {
 import { DialogueGraph } from './DialogueGraph';
 
 const DIALOGUE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.dialogue';
+
+type DialogueLineSegment = Extract<DialogueSegmentData, { type: 'line' }>;
+interface DialogueLinePresentationEditorView {
+  speakerExpressionId?: string;
+  stage: DialogueStageMutation[];
+  media: DialogueMediaMutation[];
+}
+type DialogueLineEditorSegment = DialogueLineSegment & {
+  presentation: DialogueLinePresentationEditorView;
+};
+type DialogueEditorSegment =
+  | Exclude<DialogueSegmentData, { type: 'line' }>
+  | DialogueLineEditorSegment;
+
+function presentationEditorView(segment: DialogueLineSegment): DialogueLinePresentationEditorView {
+  const expression = segment.cues.find(
+    (cue): cue is Extract<DialogueLineCue, { kind: 'speaker-expression' }> =>
+      cue.kind === 'speaker-expression',
+  );
+  return {
+    ...(expression ? { speakerExpressionId: expression.expressionId } : {}),
+    stage: segment.cues
+      .filter((cue): cue is Extract<DialogueLineCue, { kind: 'stage' }> => cue.kind === 'stage')
+      .map((cue) => cue.mutation),
+    media: segment.cues
+      .filter((cue): cue is Extract<DialogueLineCue, { kind: 'media' }> => cue.kind === 'media')
+      .map((cue) => cue.mutation),
+  };
+}
+
+function cuesFromPresentationEditorView(
+  segment: DialogueLineSegment,
+  presentation: DialogueLinePresentationEditorView,
+): DialogueLineCue[] {
+  const retained: DialogueLineCue[] = segment.cues.filter(
+    (cue) => cue.kind === 'active-text' || cue.kind === 'invalid-markup' || cue.kind === 'gesture',
+  );
+  const oldStage = segment.cues.filter(
+    (cue): cue is Extract<DialogueLineCue, { kind: 'stage' }> => cue.kind === 'stage',
+  );
+  const oldMedia = segment.cues.filter(
+    (cue): cue is Extract<DialogueLineCue, { kind: 'media' }> => cue.kind === 'media',
+  );
+  const oldExpression = segment.cues.find(
+    (cue): cue is Extract<DialogueLineCue, { kind: 'speaker-expression' }> =>
+      cue.kind === 'speaker-expression',
+  );
+  let nextOrder = Math.max(-1, ...segment.cues.map((cue) => cue.position.order)) + 1;
+  const defaultPosition = () => ({ offset: 0, order: nextOrder++ });
+  if (presentation.speakerExpressionId) {
+    retained.push({
+      id: oldExpression?.id ?? 'speaker-expression',
+      kind: 'speaker-expression',
+      position: oldExpression?.position ?? defaultPosition(),
+      expressionId: presentation.speakerExpressionId,
+    });
+  }
+  presentation.stage.forEach((mutation, index) => {
+    const previous = oldStage[index];
+    retained.push({
+      id: previous?.id ?? `stage-cue-${index + 1}`,
+      kind: 'stage',
+      position: previous?.position ?? defaultPosition(),
+      mutation,
+    });
+  });
+  presentation.media.forEach((mutation, index) => {
+    const previous = oldMedia[index];
+    retained.push({
+      id: previous?.id ?? `media-cue-${index + 1}`,
+      kind: 'media',
+      position: previous?.position ?? defaultPosition(),
+      mutation,
+    });
+  });
+  return retained.sort(
+    (left, right) =>
+      left.position.offset - right.position.offset || left.position.order - right.position.order,
+  );
+}
 
 interface DialogueEditorTabStatePayload {
   scroll?: ScrollViewState;
@@ -610,12 +695,16 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     data.blocks.find((block) => block.id === data.entryBlockId) ??
     data.blocks[0] ??
     null;
-  const activeSegment =
+  const selectedSegment =
     activeBlock?.type === 'sequence'
       ? (activeBlock.segments.find((segment) => segment.id === selectedSegmentId) ??
         activeBlock.segments[0] ??
         null)
       : null;
+  const activeSegment: DialogueEditorSegment | null =
+    selectedSegment?.type === 'line'
+      ? { ...selectedSegment, presentation: presentationEditorView(selectedSegment) }
+      : selectedSegment;
   const characters = Object.entries(project.characters).map(([id, character]) => ({
     id,
     label: character.label,
@@ -834,13 +923,33 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     setSelectedSegmentId(id);
   }
 
-  function replaceSegment(block: DialogueSequenceBlockData, segment: DialogueSegmentData) {
+  function replaceSegment(
+    block: DialogueSequenceBlockData,
+    segment: DialogueSegmentData | DialogueLineEditorSegment,
+  ) {
+    let canonical: DialogueSegmentData = segment;
+    if (segment.type === 'line' && 'presentation' in segment) {
+      const { presentation, ...line } = segment;
+      canonical = {
+        ...line,
+        cues: cuesFromPresentationEditorView(line, presentation),
+      };
+    }
     replaceBlock({
       ...block,
       segments: block.segments.map((candidate) =>
-        candidate.id === segment.id ? segment : candidate,
+        candidate.id === canonical.id ? canonical : candidate,
       ),
     });
+  }
+
+  function replaceLineCues(
+    block: DialogueSequenceBlockData,
+    segment: DialogueLineEditorSegment,
+    cues: DialogueLineCue[],
+  ) {
+    const { presentation: _, ...line } = segment;
+    replaceSegment(block, { ...line, cues });
   }
 
   function renameSegment(block: DialogueSequenceBlockData, oldId: string, newId: string) {
@@ -1042,12 +1151,13 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                   ? segment
                   : {
                       ...segment,
-                      presentation: {
-                        ...segment.presentation,
-                        stage: segment.presentation.stage.filter(
-                          (mutation) => mutation.slotId !== slotId,
-                        ),
-                      },
+                      cues: segment.cues.filter(
+                        (cue) =>
+                          !(
+                            (cue.kind === 'stage' || cue.kind === 'gesture') &&
+                            (cue.kind === 'stage' ? cue.mutation.slotId : cue.slotId) === slotId
+                          ),
+                      ),
                     },
               ),
             },
@@ -1070,12 +1180,9 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                   ? segment
                   : {
                       ...segment,
-                      presentation: {
-                        ...segment.presentation,
-                        media: segment.presentation.media.filter(
-                          (mutation) => mutation.slotId !== slotId,
-                        ),
-                      },
+                      cues: segment.cues.filter(
+                        (cue) => !(cue.kind === 'media' && cue.mutation.slotId === slotId),
+                      ),
                     },
               ),
             },
@@ -1988,15 +2095,196 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                       language={
                         activeSegment.text.source.kind === 'lua-expression' ? 'lua' : 'text'
                       }
-                      value={textValue(activeSegment.text)}
-                      onChange={(value) =>
-                        replaceSegment(activeBlock, {
-                          ...activeSegment,
-                          text: replaceTextValue(activeSegment.text, value),
-                        })
+                      value={
+                        activeSegment.text.source.kind === 'inline'
+                          ? serializeDialogueCueMarkup(
+                              activeSegment.text.source.text,
+                              activeSegment.cues,
+                            )
+                          : textValue(activeSegment.text)
                       }
+                      onChange={(value) => {
+                        if (activeSegment.text.source.kind !== 'inline') {
+                          replaceSegment(activeBlock, {
+                            ...activeSegment,
+                            text: replaceTextValue(activeSegment.text, value),
+                          });
+                          return;
+                        }
+                        const parsed = parseDialogueCueMarkup(value);
+                        const { presentation: _, ...line } = activeSegment;
+                        replaceSegment(activeBlock, {
+                          ...line,
+                          text: {
+                            ...line.text,
+                            source: { kind: 'inline', text: parsed.text },
+                          },
+                          cues: parsed.cues,
+                        });
+                      }}
                     />
                   )}
+                  <div className="space-y-2 rounded border p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-xs font-medium">Cue timeline</h4>
+                        <p className="text-xs text-muted-foreground">
+                          Offsets are Unicode code-point positions in the plain line text. Order
+                          resolves cues at the same offset.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={data.stageSlots.length === 0}
+                        onClick={() => {
+                          const existingIds = data.blocks.flatMap((block) =>
+                            block.type === 'sequence'
+                              ? block.segments.flatMap((segment) =>
+                                  segment.type === 'line' ? segment.cues.map((cue) => cue.id) : [],
+                                )
+                              : [],
+                          );
+                          const cue: DialogueLineCue = {
+                            id: nextUniqueId(existingIds, 'gesture-cue'),
+                            kind: 'gesture',
+                            position: {
+                              offset: 0,
+                              order:
+                                Math.max(
+                                  -1,
+                                  ...activeSegment.cues.map((item) => item.position.order),
+                                ) + 1,
+                            },
+                            slotId: data.stageSlots[0]!.id,
+                            gestureId: 'gesture',
+                          };
+                          replaceLineCues(activeBlock, activeSegment, [...activeSegment.cues, cue]);
+                        }}
+                      >
+                        Add Gesture cue
+                      </Button>
+                    </div>
+                    {activeSegment.cues.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No inline cues.</p>
+                    ) : null}
+                    {activeSegment.cues.map((cue, cueIndex) => (
+                      <div key={cue.id} className="space-y-2 rounded border p-2">
+                        <div className="grid gap-2 md:grid-cols-[1fr_8rem_8rem_auto]">
+                          <Label>
+                            Cue ID / kind
+                            <Input value={`${cue.id} · ${cue.kind}`} readOnly />
+                          </Label>
+                          <Label>
+                            Offset
+                            <Input
+                              type="number"
+                              min="0"
+                              value={cue.position.offset}
+                              onChange={(event) => {
+                                const offset = Number(event.currentTarget.value);
+                                if (!Number.isInteger(offset) || offset < 0) return;
+                                replaceLineCues(
+                                  activeBlock,
+                                  activeSegment,
+                                  activeSegment.cues.map((candidate, index) =>
+                                    index === cueIndex
+                                      ? {
+                                          ...candidate,
+                                          position: { ...candidate.position, offset },
+                                        }
+                                      : candidate,
+                                  ),
+                                );
+                              }}
+                            />
+                          </Label>
+                          <Label>
+                            Order
+                            <Input
+                              type="number"
+                              min="0"
+                              value={cue.position.order}
+                              onChange={(event) => {
+                                const order = Number(event.currentTarget.value);
+                                if (!Number.isInteger(order) || order < 0) return;
+                                replaceLineCues(
+                                  activeBlock,
+                                  activeSegment,
+                                  activeSegment.cues.map((candidate, index) =>
+                                    index === cueIndex
+                                      ? { ...candidate, position: { ...candidate.position, order } }
+                                      : candidate,
+                                  ),
+                                );
+                              }}
+                            />
+                          </Label>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="self-end"
+                            onClick={() =>
+                              replaceLineCues(
+                                activeBlock,
+                                activeSegment,
+                                activeSegment.cues.filter((_, index) => index !== cueIndex),
+                              )
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        {cue.kind === 'gesture' ? (
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <Label>
+                              Stage Slot
+                              <Select
+                                value={cue.slotId}
+                                onValueChange={(value) =>
+                                  replaceLineCues(
+                                    activeBlock,
+                                    activeSegment,
+                                    activeSegment.cues.map((candidate, index) =>
+                                      index === cueIndex && candidate.kind === 'gesture'
+                                        ? { ...candidate, slotId: String(value) }
+                                        : candidate,
+                                    ),
+                                  )
+                                }
+                              >
+                                {data.stageSlots.map((slot) => (
+                                  <SelectItem key={slot.id} value={slot.id}>
+                                    {slot.label} ({slot.id})
+                                  </SelectItem>
+                                ))}
+                              </Select>
+                            </Label>
+                            <Label>
+                              Gesture ID
+                              <Input
+                                value={cue.gestureId}
+                                onChange={(event) =>
+                                  replaceLineCues(
+                                    activeBlock,
+                                    activeSegment,
+                                    activeSegment.cues.map((candidate, index) =>
+                                      index === cueIndex && candidate.kind === 'gesture'
+                                        ? { ...candidate, gestureId: event.currentTarget.value }
+                                        : candidate,
+                                    ),
+                                  )
+                                }
+                              />
+                            </Label>
+                          </div>
+                        ) : null}
+                        {cue.kind === 'invalid-markup' ? (
+                          <p className="text-xs text-destructive">{cue.message}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                   <div className="space-y-2 rounded border p-2">
                     <div className="flex items-center justify-between gap-2">
                       <div>

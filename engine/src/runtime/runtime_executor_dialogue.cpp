@@ -209,8 +209,8 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                 return fault(execution_error("runtime.history_overflow",
                                              "Dialogue line history cannot be incremented"));
 
-            auto presentation = m_flow.apply_dialogue_presentation(frame.dialogue, frame.position,
-                                                                   speaker, line->presentation);
+            auto presentation =
+                m_flow.apply_dialogue_cues(frame.dialogue, frame.position, speaker, line->cues);
             if (!presentation)
                 return fault(presentation.error());
 

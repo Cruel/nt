@@ -17,10 +17,12 @@ import { compileSubjectSelector } from './authoring-compiler-shared-lowering';
 import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import type {
+  DialogueLineCue,
   DialogueMediaContent,
   DialogueStageMutation,
   DialogueStageSlotState,
 } from './project-schema/authoring-dialogues';
+import { renderActiveTextFromDialogueCues } from './project-schema/dialogue-cue-markup';
 import { parseInteractionData } from './project-schema/authoring-interactions';
 import { parseVerbData } from './project-schema/authoring-verbs';
 import type {
@@ -124,6 +126,51 @@ function compileDialogueStageMutation(mutation: DialogueStageMutation) {
     ...(mutation.position === undefined ? {} : { position: mutation.position }),
     ...(mutation.offset === undefined ? {} : { offset: mutation.offset }),
     ...(mutation.scale === undefined ? {} : { scale: mutation.scale }),
+  };
+}
+
+function compileDialogueLineText(
+  text: TextContent,
+  cues: readonly DialogueLineCue[],
+): CompiledText {
+  if (text.source.kind !== 'inline') return compileText(text);
+  return compileText({
+    ...text,
+    source: {
+      kind: 'inline',
+      text:
+        text.markup === 'active-text'
+          ? renderActiveTextFromDialogueCues(text.source.text, cues)
+          : text.source.text,
+    },
+  });
+}
+
+function compileDialogueSemanticCue(
+  cue: Exclude<DialogueLineCue, { kind: 'active-text' | 'invalid-markup' }>,
+) {
+  const common = { id: cue.id, position: cue.position };
+  if (cue.kind === 'speaker-expression')
+    return { ...common, kind: cue.kind, expressionId: cue.expressionId };
+  if (cue.kind === 'stage')
+    return { ...common, kind: cue.kind, mutation: compileDialogueStageMutation(cue.mutation) };
+  if (cue.kind === 'media')
+    return {
+      ...common,
+      kind: cue.kind,
+      mutation: {
+        slotId: cue.mutation.slotId,
+        action: cue.mutation.action,
+        ...(cue.mutation.content === undefined
+          ? {}
+          : { content: compileDialogueMedia(cue.mutation.content) }),
+      },
+    };
+  return {
+    ...common,
+    kind: cue.kind,
+    slotId: cue.slotId,
+    gestureId: cue.gestureId,
   };
 }
 
@@ -263,20 +310,21 @@ export function lowerDialogueAndInteractionPrograms(
             id: segment.id,
             kind: 'line',
             speaker: segment.speaker ? { kind: 'character', id: segment.speaker.$ref.id } : null,
-            text: compileText(segment.text),
-            presentation: {
-              ...(segment.presentation.speakerExpressionId === undefined
-                ? {}
-                : { speakerExpressionId: segment.presentation.speakerExpressionId }),
-              stage: segment.presentation.stage.map(compileDialogueStageMutation),
-              media: segment.presentation.media.map((mutation) => ({
-                slotId: mutation.slotId,
-                action: mutation.action,
-                ...(mutation.content === undefined
-                  ? {}
-                  : { content: compileDialogueMedia(mutation.content) }),
-              })),
-            },
+            text: compileDialogueLineText(segment.text, segment.cues),
+            cues: segment.cues
+              .filter(
+                (
+                  cue,
+                ): cue is Exclude<DialogueLineCue, { kind: 'active-text' | 'invalid-markup' }> =>
+                  cue.kind !== 'active-text' && cue.kind !== 'invalid-markup',
+              )
+              .map(compileDialogueSemanticCue)
+              .sort(
+                (left, right) =>
+                  left.position.offset - right.position.offset ||
+                  left.position.order - right.position.order ||
+                  left.id.localeCompare(right.id),
+              ),
             ...(segment.condition === undefined
               ? {}
               : { condition: compileCondition(segment.condition) }),
