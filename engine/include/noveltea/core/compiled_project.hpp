@@ -1289,6 +1289,72 @@ struct SceneDefinition {
     FlowTarget continuation;
 };
 
+struct DialogueStageSlotState {
+    CharacterId character;
+    CharacterPresentationProfileId profile_id;
+    CharacterPoseId pose_id;
+    CharacterExpressionId expression_id;
+    std::optional<CharacterAppearanceId> appearance_id;
+    ActorPosition position = ActorPosition::Center;
+    Vector2 offset{0.0, 0.0};
+    double scale = 1.0;
+    bool visible = true;
+
+    bool operator==(const DialogueStageSlotState&) const = default;
+};
+struct DialogueStageSlotDefinition {
+    DialogueStageSlotId id;
+    bool speaker_sync = true;
+    std::optional<DialogueStageSlotState> initial;
+};
+struct DialogueImageMedia {
+    AssetId asset;
+
+    bool operator==(const DialogueImageMedia&) const = default;
+};
+struct DialogueCharacterMedia {
+    CharacterId character;
+    CharacterPresentationProfileId profile_id;
+    CharacterPoseId pose_id;
+    CharacterExpressionId expression_id;
+    std::optional<CharacterAppearanceId> appearance_id;
+
+    bool operator==(const DialogueCharacterMedia&) const = default;
+};
+using DialogueMediaContent = std::variant<DialogueImageMedia, DialogueCharacterMedia>;
+struct DialogueMediaSlotDefinition {
+    DialogueMediaSlotId id;
+    std::optional<DialogueMediaContent> initial;
+    bool visible = true;
+};
+enum class DialogueSlotMutationAction : std::uint8_t {
+    Update,
+    Show,
+    Hide,
+    Clear,
+};
+struct DialogueStageMutation {
+    DialogueStageSlotId slot_id;
+    DialogueSlotMutationAction action = DialogueSlotMutationAction::Update;
+    std::optional<CharacterId> character;
+    std::optional<CharacterPresentationProfileId> profile_id;
+    std::optional<CharacterPoseId> pose_id;
+    std::optional<CharacterExpressionId> expression_id;
+    std::optional<std::optional<CharacterAppearanceId>> appearance_id;
+    std::optional<ActorPosition> position;
+    std::optional<Vector2> offset;
+    std::optional<double> scale;
+};
+struct DialogueMediaMutation {
+    DialogueMediaSlotId slot_id;
+    DialogueSlotMutationAction action = DialogueSlotMutationAction::Update;
+    std::optional<DialogueMediaContent> content;
+};
+struct DialogueLinePresentation {
+    std::optional<CharacterExpressionId> speaker_expression_id;
+    std::vector<DialogueStageMutation> stage;
+    std::vector<DialogueMediaMutation> media;
+};
 struct DialogueLineSegment {
     DialogueSegmentId id;
     bool autosave_safe_point;
@@ -1298,6 +1364,7 @@ struct DialogueLineSegment {
     bool show_once;
     std::optional<CharacterId> speaker;
     TextContent text;
+    DialogueLinePresentation presentation;
 };
 struct DialogueRunLuaSegment {
     DialogueSegmentId id;
@@ -1355,6 +1422,8 @@ struct DialogueDefinition {
     DefinitionIdentity<DialogueId> identity;
     std::string display_name;
     std::optional<CharacterId> default_speaker;
+    std::vector<DialogueStageSlotDefinition> stage_slots;
+    std::vector<DialogueMediaSlotDefinition> media_slots;
     DialogueProgram program;
     DialogueSettings settings;
     FlowTarget completion;

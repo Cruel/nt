@@ -3,6 +3,17 @@
 namespace noveltea::core::save_state_codec {
 namespace {
 
+std::optional<double> decode_finite_number(Decoder& d, const nlohmann::json& value,
+                                           std::string_view pointer)
+{
+    auto result = json_access::get<double>(value);
+    if (!result || !std::isfinite(*result)) {
+        d.error(k_type, "Expected a finite number.", std::string(pointer));
+        return std::nullopt;
+    }
+    return result;
+}
+
 std::string_view room_entry_cause_name(RoomEntryCause cause) noexcept
 {
     switch (cause) {
@@ -463,6 +474,214 @@ std::optional<RoomTransitionPosition> decode_room_position(Decoder& d, const nlo
         *awaiting_value};
 }
 
+nlohmann::json encode_dialogue_stage_state(const DialogueStageSlotRuntimeState& slot)
+{
+    if (!slot.value)
+        return {{"slot", slot.slot.text()}, {"value", nullptr}};
+    const auto& value = *slot.value;
+    const std::array<std::string_view, 4> positions = {"left", "center", "right", "custom"};
+    return {{"slot", slot.slot.text()},
+            {"value",
+             {{"character", value.character.text()},
+              {"profileId", value.profile_id.text()},
+              {"poseId", value.pose_id.text()},
+              {"expressionId", value.expression_id.text()},
+              {"appearanceId", encode_optional_id(value.appearance_id)},
+              {"position", positions[static_cast<std::size_t>(value.position)]},
+              {"offset", {{"x", value.offset.x}, {"y", value.offset.y}}},
+              {"scale", value.scale},
+              {"visible", value.visible}}}};
+}
+
+std::optional<DialogueStageSlotRuntimeState>
+decode_dialogue_stage_state(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!d.object(value, pointer, {"slot", "value"}))
+        return std::nullopt;
+    const auto* slot_value = d.member(value, "slot", pointer);
+    const auto* state_value = d.member(value, "value", pointer);
+    auto slot =
+        slot_value ? d.id<DialogueStageSlotId>(*slot_value, child(pointer, "slot")) : std::nullopt;
+    if (!slot || state_value == nullptr)
+        return std::nullopt;
+    if (state_value->is_null())
+        return DialogueStageSlotRuntimeState{std::move(*slot), std::nullopt};
+    const auto state_pointer = child(pointer, "value");
+    if (!d.object(*state_value, state_pointer,
+                  {"character", "profileId", "poseId", "expressionId", "appearanceId", "position",
+                   "offset", "scale", "visible"}))
+        return std::nullopt;
+    const auto* character_value = d.member(*state_value, "character", state_pointer);
+    const auto* profile_value = d.member(*state_value, "profileId", state_pointer);
+    const auto* pose_value = d.member(*state_value, "poseId", state_pointer);
+    const auto* expression_value = d.member(*state_value, "expressionId", state_pointer);
+    const auto* appearance_value = d.member(*state_value, "appearanceId", state_pointer);
+    const auto* position_value = d.member(*state_value, "position", state_pointer);
+    const auto* offset_value = d.member(*state_value, "offset", state_pointer);
+    const auto* scale_value = d.member(*state_value, "scale", state_pointer);
+    const auto* visible_value = d.member(*state_value, "visible", state_pointer);
+    auto character = character_value
+                         ? d.id<CharacterId>(*character_value, child(state_pointer, "character"))
+                         : std::nullopt;
+    auto profile = profile_value ? d.id<CharacterPresentationProfileId>(
+                                       *profile_value, child(state_pointer, "profileId"))
+                                 : std::nullopt;
+    auto pose = pose_value ? d.id<CharacterPoseId>(*pose_value, child(state_pointer, "poseId"))
+                           : std::nullopt;
+    auto expression =
+        expression_value
+            ? d.id<CharacterExpressionId>(*expression_value, child(state_pointer, "expressionId"))
+            : std::nullopt;
+    auto appearance = appearance_value
+                          ? d.optional_id<CharacterAppearanceId>(
+                                *appearance_value, child(state_pointer, "appearanceId"))
+                          : Decoder::OptionalId<CharacterAppearanceId>{};
+    auto position_name =
+        position_value ? d.string(*position_value, child(state_pointer, "position")) : std::nullopt;
+    std::optional<compiled::ActorPosition> position;
+    if (position_name) {
+        if (*position_name == "left")
+            position = compiled::ActorPosition::Left;
+        else if (*position_name == "center")
+            position = compiled::ActorPosition::Center;
+        else if (*position_name == "right")
+            position = compiled::ActorPosition::Right;
+        else if (*position_name == "custom")
+            position = compiled::ActorPosition::Custom;
+        else
+            d.error(k_variant, "Unknown Dialogue Stage position '" + *position_name + "'.",
+                    child(state_pointer, "position"));
+    }
+    std::optional<compiled::Vector2> offset;
+    if (offset_value && d.object(*offset_value, child(state_pointer, "offset"), {"x", "y"})) {
+        const auto offset_pointer = child(state_pointer, "offset");
+        const auto* x_value = d.member(*offset_value, "x", offset_pointer);
+        const auto* y_value = d.member(*offset_value, "y", offset_pointer);
+        auto x =
+            x_value ? decode_finite_number(d, *x_value, child(offset_pointer, "x")) : std::nullopt;
+        auto y =
+            y_value ? decode_finite_number(d, *y_value, child(offset_pointer, "y")) : std::nullopt;
+        if (x && y)
+            offset = compiled::Vector2{*x, *y};
+    }
+    auto scale = scale_value ? decode_finite_number(d, *scale_value, child(state_pointer, "scale"))
+                             : std::nullopt;
+    auto visible =
+        visible_value ? d.boolean(*visible_value, child(state_pointer, "visible")) : std::nullopt;
+    if (!character || !profile || !pose || !expression || !appearance || !position || !offset ||
+        !scale || *scale <= 0.0 || !visible)
+        return std::nullopt;
+    return DialogueStageSlotRuntimeState{
+        std::move(*slot),
+        compiled::DialogueStageSlotState{
+            std::move(*character), std::move(*profile), std::move(*pose), std::move(*expression),
+            std::move(appearance.value), *position, *offset, *scale, *visible}};
+}
+
+nlohmann::json encode_dialogue_media_content(const compiled::DialogueMediaContent& content)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::DialogueImageMedia>)
+                return {{"kind", "image"}, {"asset", value.asset.text()}};
+            else
+                return {{"kind", "character"},
+                        {"character", value.character.text()},
+                        {"profileId", value.profile_id.text()},
+                        {"poseId", value.pose_id.text()},
+                        {"expressionId", value.expression_id.text()},
+                        {"appearanceId", encode_optional_id(value.appearance_id)}};
+        },
+        content);
+}
+
+std::optional<compiled::DialogueMediaContent>
+decode_dialogue_media_content(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object())
+        return std::nullopt;
+    const auto* kind_value = d.member(value, "kind", pointer);
+    auto kind = kind_value ? d.string(*kind_value, child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "image") {
+        if (!d.object(value, pointer, {"kind", "asset"}))
+            return std::nullopt;
+        const auto* asset_value = d.member(value, "asset", pointer);
+        auto asset =
+            asset_value ? d.id<AssetId>(*asset_value, child(pointer, "asset")) : std::nullopt;
+        return asset ? std::optional<compiled::DialogueMediaContent>(
+                           compiled::DialogueImageMedia{std::move(*asset)})
+                     : std::nullopt;
+    }
+    if (*kind == "character") {
+        if (!d.object(value, pointer,
+                      {"kind", "character", "profileId", "poseId", "expressionId", "appearanceId"}))
+            return std::nullopt;
+        const auto* character_value = d.member(value, "character", pointer);
+        const auto* profile_value = d.member(value, "profileId", pointer);
+        const auto* pose_value = d.member(value, "poseId", pointer);
+        const auto* expression_value = d.member(value, "expressionId", pointer);
+        const auto* appearance_value = d.member(value, "appearanceId", pointer);
+        auto character = character_value
+                             ? d.id<CharacterId>(*character_value, child(pointer, "character"))
+                             : std::nullopt;
+        auto profile =
+            profile_value
+                ? d.id<CharacterPresentationProfileId>(*profile_value, child(pointer, "profileId"))
+                : std::nullopt;
+        auto pose = pose_value ? d.id<CharacterPoseId>(*pose_value, child(pointer, "poseId"))
+                               : std::nullopt;
+        auto expression =
+            expression_value
+                ? d.id<CharacterExpressionId>(*expression_value, child(pointer, "expressionId"))
+                : std::nullopt;
+        auto appearance = appearance_value ? d.optional_id<CharacterAppearanceId>(
+                                                 *appearance_value, child(pointer, "appearanceId"))
+                                           : Decoder::OptionalId<CharacterAppearanceId>{};
+        return character && profile && pose && expression && appearance
+                   ? std::optional<compiled::DialogueMediaContent>(compiled::DialogueCharacterMedia{
+                         std::move(*character), std::move(*profile), std::move(*pose),
+                         std::move(*expression), std::move(appearance.value)})
+                   : std::nullopt;
+    }
+    d.error(k_variant, "Unknown Dialogue media kind '" + *kind + "'.", child(pointer, "kind"));
+    return std::nullopt;
+}
+
+nlohmann::json encode_dialogue_media_state(const DialogueMediaSlotRuntimeState& slot)
+{
+    return {{"slot", slot.slot.text()},
+            {"content",
+             slot.content ? encode_dialogue_media_content(*slot.content) : nlohmann::json(nullptr)},
+            {"visible", slot.visible}};
+}
+
+std::optional<DialogueMediaSlotRuntimeState>
+decode_dialogue_media_state(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!d.object(value, pointer, {"slot", "content", "visible"}))
+        return std::nullopt;
+    const auto* slot_value = d.member(value, "slot", pointer);
+    const auto* content_value = d.member(value, "content", pointer);
+    const auto* visible_value = d.member(value, "visible", pointer);
+    auto slot =
+        slot_value ? d.id<DialogueMediaSlotId>(*slot_value, child(pointer, "slot")) : std::nullopt;
+    auto visible =
+        visible_value ? d.boolean(*visible_value, child(pointer, "visible")) : std::nullopt;
+    std::optional<compiled::DialogueMediaContent> content;
+    bool content_ok = content_value != nullptr;
+    if (content_value && !content_value->is_null()) {
+        content = decode_dialogue_media_content(d, *content_value, child(pointer, "content"));
+        content_ok = content.has_value();
+    }
+    return slot && visible && content_ok
+               ? std::optional<DialogueMediaSlotRuntimeState>(
+                     DialogueMediaSlotRuntimeState{std::move(*slot), std::move(content), *visible})
+               : std::nullopt;
+}
+
 nlohmann::json encode_frame(const SavedFlowFrame& frame)
 {
     return std::visit(
@@ -474,13 +693,21 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                         {"scene", value.scene.text()},
                         {"position", encode_scene_position(value.position)},
                         {"destination", encode_destination(value.destination)}};
-            else if constexpr (std::is_same_v<T, SavedDialogueFrame>)
+            else if constexpr (std::is_same_v<T, SavedDialogueFrame>) {
+                nlohmann::json stage_slots = nlohmann::json::array();
+                for (const auto& slot : value.stage_slots)
+                    stage_slots.push_back(encode_dialogue_stage_state(slot));
+                nlohmann::json media_slots = nlohmann::json::array();
+                for (const auto& slot : value.media_slots)
+                    media_slots.push_back(encode_dialogue_media_state(slot));
                 return {{"kind", "dialogue"},
                         {"id", value.snapshot_id.value},
                         {"dialogue", value.dialogue.text()},
                         {"position", encode_dialogue_position(value.position)},
+                        {"stageSlots", std::move(stage_slots)},
+                        {"mediaSlots", std::move(media_slots)},
                         {"destination", encode_destination(value.destination)}};
-            else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
+            } else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
                 nlohmann::json bindings = nlohmann::json::array();
                 for (const auto& binding : value.invocation.bindings) {
                     auto subject_json = std::visit(
@@ -584,9 +811,12 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                    : std::nullopt;
     }
     if (*name == "dialogue") {
-        d.object(value, pointer, {"kind", "id", "dialogue", "position", "destination"});
+        d.object(value, pointer,
+                 {"kind", "id", "dialogue", "position", "stageSlots", "mediaSlots", "destination"});
         const auto* dialogue = d.member(value, "dialogue", pointer);
         const auto* position = d.member(value, "position", pointer);
+        const auto* stage_slots = d.member(value, "stageSlots", pointer);
+        const auto* media_slots = d.member(value, "mediaSlots", pointer);
         const auto* destination = d.member(value, "destination", pointer);
         auto dialogue_id =
             dialogue ? d.id<DialogueId>(*dialogue, child(pointer, "dialogue")) : std::nullopt;
@@ -596,11 +826,43 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         auto saved_destination =
             destination ? decode_destination(d, *destination, child(pointer, "destination"))
                         : std::nullopt;
+        std::vector<DialogueStageSlotRuntimeState> decoded_stage_slots;
+        if (!stage_slots || !stage_slots->is_array()) {
+            if (stage_slots)
+                d.error(k_type, "Expected an array.", child(pointer, "stageSlots"));
+            return std::nullopt;
+        }
+        for (std::size_t item = 0; item < stage_slots->size(); ++item) {
+            const auto* slot = json_access::element(*stage_slots, item);
+            auto decoded = slot ? decode_dialogue_stage_state(
+                                      d, *slot, index(child(pointer, "stageSlots"), item))
+                                : std::nullopt;
+            if (!decoded)
+                return std::nullopt;
+            decoded_stage_slots.push_back(std::move(*decoded));
+        }
+        std::vector<DialogueMediaSlotRuntimeState> decoded_media_slots;
+        if (!media_slots || !media_slots->is_array()) {
+            if (media_slots)
+                d.error(k_type, "Expected an array.", child(pointer, "mediaSlots"));
+            return std::nullopt;
+        }
+        for (std::size_t item = 0; item < media_slots->size(); ++item) {
+            const auto* slot = json_access::element(*media_slots, item);
+            auto decoded = slot ? decode_dialogue_media_state(
+                                      d, *slot, index(child(pointer, "mediaSlots"), item))
+                                : std::nullopt;
+            if (!decoded)
+                return std::nullopt;
+            decoded_media_slots.push_back(std::move(*decoded));
+        }
         return dialogue_id && saved_position && saved_destination
                    ? std::optional<SavedFlowFrame>(
                          SavedDialogueFrame{{*snapshot},
                                             std::move(*dialogue_id),
                                             std::move(*saved_position),
+                                            std::move(decoded_stage_slots),
+                                            std::move(decoded_media_slots),
                                             std::move(*saved_destination)})
                    : std::nullopt;
     }

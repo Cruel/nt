@@ -327,6 +327,86 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     CHECK(std::holds_alternative<SavedInteractionFrame>(interaction.value().flow_stack.front()));
 }
 
+TEST_CASE("Dialogue Stage and Media Slot state round-trips through save restore")
+{
+    const auto project = load_fixture("dialogue-program.json", [](nlohmann::json& document) {
+        for (auto& dialogue : document["definitions"]["dialogues"]) {
+            if (dialogue["id"] != "intro")
+                continue;
+            dialogue["stageSlots"] = nlohmann::json::array({
+                {{"id", "speaker"},
+                 {"speakerSync", true},
+                 {"initial",
+                  {{"character", {{"kind", "character"}, {"id", "hero"}}},
+                   {"profileId", "stage"},
+                   {"poseId", "default"},
+                   {"expressionId", "neutral"},
+                   {"appearanceId", nullptr},
+                   {"position", "left"},
+                   {"offset", {{"x", 0.0}, {"y", 0.0}}},
+                   {"scale", 1.0},
+                   {"visible", true}}}},
+            });
+            dialogue["mediaSlots"] = nlohmann::json::array({
+                {{"id", "portrait"},
+                 {"visible", true},
+                 {"initial",
+                  {{"kind", "character"},
+                   {"character", {{"kind", "character"}, {"id", "hero"}}},
+                   {"profileId", "stage"},
+                   {"poseId", "default"},
+                   {"expressionId", "neutral"},
+                   {"appearanceId", nullptr}}}},
+            });
+        }
+    });
+    auto state = make_state(project);
+    REQUIRE(state.flow_stack().size() == 1);
+    const auto* frame = std::get_if<DialogueFrame>(&state.flow_stack().back());
+    REQUIRE(frame != nullptr);
+
+    FlowExecutor flow(project, state);
+    const compiled::DialogueLinePresentation mutation{
+        std::nullopt,
+        {compiled::DialogueStageMutation{.slot_id = id<DialogueStageSlotId>("speaker"),
+                                         .action = compiled::DialogueSlotMutationAction::Update,
+                                         .position = compiled::ActorPosition::Right,
+                                         .offset = compiled::Vector2{4.0, -2.0},
+                                         .scale = 1.25}},
+        {compiled::DialogueMediaMutation{.slot_id = id<DialogueMediaSlotId>("portrait"),
+                                         .action = compiled::DialogueSlotMutationAction::Hide}}};
+    REQUIRE(flow.apply_dialogue_presentation(frame->dialogue, frame->position,
+                                             id<CharacterId>("hero"), mutation));
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    REQUIRE(snapshot.value().flow_stack.size() == 1);
+    const auto& saved = std::get<SavedDialogueFrame>(snapshot.value().flow_stack.front());
+    REQUIRE(saved.stage_slots.size() == 1);
+    REQUIRE(saved.stage_slots.front().value);
+    CHECK(saved.stage_slots.front().value->position == compiled::ActorPosition::Right);
+    CHECK(saved.stage_slots.front().value->offset.x == 4.0);
+    CHECK(saved.stage_slots.front().value->scale == 1.25);
+    REQUIRE(saved.media_slots.size() == 1);
+    CHECK_FALSE(saved.media_slots.front().visible);
+
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    auto decoded = decode_save_state(project, encoded.value(), "dialogue-presentation-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    REQUIRE(restored.value().flow_stack().size() == 1);
+    const auto* restored_frame = std::get_if<DialogueFrame>(&restored.value().flow_stack().back());
+    REQUIRE(restored_frame != nullptr);
+    REQUIRE(restored_frame->stage_slots.size() == 1);
+    REQUIRE(restored_frame->stage_slots.front().value);
+    CHECK(restored_frame->stage_slots.front().value->position == compiled::ActorPosition::Right);
+    CHECK(restored_frame->stage_slots.front().value->offset.y == -2.0);
+    REQUIRE(restored_frame->media_slots.size() == 1);
+    CHECK_FALSE(restored_frame->media_slots.front().visible);
+}
+
 TEST_CASE("current save-state round-trips the Project undefined Interaction fallback stage")
 {
     const auto project = load_fixture("interaction-program.json", [](nlohmann::json& document) {
@@ -1218,6 +1298,8 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
             id<DialogueId>("intro"),
             {id<DialogueBlockId>("start"), id<DialogueSegmentId>("intro-line"), std::nullopt,
              DialogueFramePosition::Stage::PresentSegment, 0, false},
+            {},
+            {},
             CallerDestination{}});
         snapshot.value().blocker = SavedInputBlocker{SavedFlowFrameId{2}};
         auto restored = test_support::restore_session(project, snapshot.value());

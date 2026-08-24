@@ -405,9 +405,10 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                          std::move(value.program), std::move(value.continuation)}));
     LINK_DEFINITIONS(
         dialogues, dialogues, DialogueDefinition, DialogueId,
-        (compiled::DialogueDefinition{std::move(identity), std::move(value.display_name),
-                                      std::move(value.default_speaker), std::move(value.program),
-                                      std::move(value.settings), std::move(value.completion)}));
+        (compiled::DialogueDefinition{
+            std::move(identity), std::move(value.display_name), std::move(value.default_speaker),
+            std::move(value.stage_slots), std::move(value.media_slots), std::move(value.program),
+            std::move(value.settings), std::move(value.completion)}));
     LINK_DEFINITIONS(
         maps, maps, MapDefinition, MapId,
         (compiled::MapDefinition{std::move(identity), std::move(value.connections),

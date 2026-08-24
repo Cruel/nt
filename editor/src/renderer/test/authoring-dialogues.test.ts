@@ -22,6 +22,8 @@ describe('authoring dialogues schema', () => {
       kind: 'dialogue',
       displayName: 'Intro',
       defaultSpeaker: null,
+      stageSlots: [],
+      mediaSlots: [],
       settings: { showDisabledChoices: true, logMode: 'everything' },
       entryBlockId: 'start',
       blocks: [
@@ -36,6 +38,7 @@ describe('authoring dialogues schema', () => {
               type: 'line',
               speaker: null,
               text: inlineTextContent(),
+              presentation: { stage: [], media: [] },
               effects: [],
               showOnce: false,
               logged: true,
@@ -150,6 +153,83 @@ describe('authoring dialogues schema', () => {
         }),
         expect.objectContaining({ path: '/dialogues/intro/data/edges/1/label', severity: 'error' }),
         expect.objectContaining({ path: '/dialogues/intro/data/completion/id', severity: 'error' }),
+      ]),
+    );
+  });
+
+  it('validates retained Stage and Media Slots plus sparse line presentation mutations', () => {
+    const project = createAuthoringProject();
+    project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
+    const data = defaultDialogueData('Intro');
+    data.defaultSpeaker = dialogueCharacterRef('iris');
+    data.stageSlots = [
+      {
+        id: 'left-speaker',
+        label: 'Left speaker',
+        speakerSync: true,
+        initial: {
+          character: dialogueCharacterRef('iris'),
+          profileId: 'stage',
+          poseId: 'default',
+          expressionId: 'neutral',
+          appearanceId: null,
+          position: 'left',
+          offset: { x: 12, y: -4 },
+          scale: 1,
+          visible: true,
+        },
+      },
+    ];
+    data.mediaSlots = [
+      {
+        id: 'portrait',
+        label: 'Portrait',
+        visible: true,
+        initial: {
+          kind: 'character',
+          character: dialogueCharacterRef('iris'),
+          profileId: 'stage',
+          poseId: 'default',
+          expressionId: 'neutral',
+          appearanceId: null,
+        },
+      },
+    ];
+    const start = data.blocks[0]!;
+    if (start.type !== 'sequence' || start.segments[0]?.type !== 'line')
+      throw new Error('Expected default line.');
+    start.segments[0].text = inlineTextContent('Welcome.');
+    start.segments[0].presentation = {
+      speakerExpressionId: 'neutral',
+      stage: [
+        { slotId: 'left-speaker', action: 'update', position: 'center', scale: 1.1 },
+        { slotId: 'left-speaker', action: 'show' },
+      ],
+      media: [{ slotId: 'portrait', action: 'hide' }],
+    };
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data };
+
+    expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual([]);
+    expect(buildDialoguePreviewDocumentData(project, 'intro')).toMatchObject({
+      stageSlots: [expect.objectContaining({ id: 'left-speaker', speakerSync: true })],
+      mediaSlots: [expect.objectContaining({ id: 'portrait', visible: true })],
+      selectedSegment: expect.objectContaining({
+        presentation: expect.objectContaining({
+          stage: expect.arrayContaining([
+            expect.objectContaining({ slotId: 'left-speaker', position: 'center' }),
+          ]),
+          media: [expect.objectContaining({ slotId: 'portrait', action: 'hide' })],
+        }),
+      }),
+    });
+
+    start.segments[0].presentation.stage = [{ slotId: 'missing-slot', action: 'hide' }];
+    expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/dialogues/intro/data/blocks/0/segments/0/presentation/stage/0/slotId',
+          severity: 'error',
+        }),
       ]),
     );
   });

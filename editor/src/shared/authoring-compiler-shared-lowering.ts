@@ -886,6 +886,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         ...definitionBase(id),
         displayName: data.displayName,
         defaultSpeaker: characterRef(data.defaultSpeaker),
+        stageSlots: [],
+        mediaSlots: [],
         settings: { ...data.settings },
       });
   }

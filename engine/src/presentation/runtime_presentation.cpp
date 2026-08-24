@@ -1002,11 +1002,63 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             actor_order(project, desired.key), true, desired.visible, desired.presentation_complete,
             desired.speaking, true, desired.owner});
     }
+    const auto* dialogue_frame = state.flow_stack().empty()
+                                     ? nullptr
+                                     : std::get_if<DialogueFrame>(&state.flow_stack().back());
     for (const auto& actor : actors)
         append_actor(project, world, actor, result, diagnostics);
-    if (state.presented_text() && state.presented_text()->speaker) {
+    if (dialogue_frame == nullptr && state.presented_text() && state.presented_text()->speaker) {
         for (auto& actor : result.actors)
             actor.speaking = actor.speaking || actor.character == *state.presented_text()->speaker;
+    }
+
+    const auto* dialogue =
+        dialogue_frame == nullptr ? nullptr : project.find_dialogue(dialogue_frame->dialogue);
+    if (dialogue_frame != nullptr && dialogue != nullptr) {
+        for (std::size_t index = 0; index < dialogue_frame->stage_slots.size(); ++index) {
+            const auto& slot_state = dialogue_frame->stage_slots[index];
+            if (!slot_state.value)
+                continue;
+            const auto slot_definition = std::find_if(
+                dialogue->stage_slots.begin(), dialogue->stage_slots.end(),
+                [&slot_state](const auto& candidate) { return candidate.id == slot_state.slot; });
+            if (slot_definition == dialogue->stage_slots.end()) {
+                diagnostics.push_back(unresolved("Dialogue Stage Slot", slot_state.slot.text()));
+                continue;
+            }
+            const auto instance = StrongId<ScopedActorInstanceTag>::create(
+                "dialogue-" + std::to_string(dialogue_frame->frame_id.number()) + "-" +
+                slot_state.slot.text());
+            if (!instance) {
+                append_diagnostics(diagnostics, instance.error());
+                continue;
+            }
+            const auto* character = project.find_character(slot_state.value->character);
+            if (character == nullptr) {
+                diagnostics.push_back(
+                    unresolved("Dialogue Stage Character", slot_state.value->character.text()));
+                continue;
+            }
+            const bool speaking = slot_definition->speaker_sync && state.presented_text() &&
+                                  state.presented_text()->speaker &&
+                                  *state.presented_text()->speaker == slot_state.value->character;
+            const auto order =
+                index > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())
+                    ? std::numeric_limits<std::int32_t>::max()
+                    : static_cast<std::int32_t>(index);
+            append_actor(project, world,
+                         ActorSource{ScopedActorKey{std::move(*instance.value_if())},
+                                     slot_state.value->character, slot_state.value->profile_id,
+                                     slot_state.value->pose_id, slot_state.value->expression_id,
+                                     slot_state.value->appearance_id, character->defaults.idle_id,
+                                     ActorLogicalPlacement{slot_state.value->position,
+                                                           slot_state.value->offset,
+                                                           slot_state.value->scale},
+                                     std::nullopt, std::nullopt, order, true,
+                                     slot_state.value->visible, true, speaking, true,
+                                     state.session_presentation_owner()},
+                         result, diagnostics);
+        }
     }
 
     for (const auto& desired : state.presentation_props()) {

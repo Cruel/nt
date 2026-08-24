@@ -30,8 +30,8 @@ SavedFlowFrame save_frame(const FlowFrame& frame, std::size_t index)
             if constexpr (std::is_same_v<T, SceneFrame>)
                 return SavedSceneFrame{snapshot_id, value.scene, value.position, value.destination};
             else if constexpr (std::is_same_v<T, DialogueFrame>)
-                return SavedDialogueFrame{snapshot_id, value.dialogue, value.position,
-                                          value.destination};
+                return SavedDialogueFrame{snapshot_id,       value.dialogue,    value.position,
+                                          value.stage_slots, value.media_slots, value.destination};
             else if constexpr (std::is_same_v<T, InteractionFrame>)
                 return SavedInteractionFrame{snapshot_id, value.invocation, value.program,
                                              value.position, value.destination};

@@ -1999,9 +1999,94 @@ private:
              ++dialogue_index) {
             const auto& value = m_input.dialogues[dialogue_index];
             const auto path = item("/definitions/dialogues", dialogue_index);
+            const auto validate_character_presentation =
+                [&](const CharacterId& character_id,
+                    const CharacterPresentationProfileId& profile_id,
+                    const CharacterPoseId& pose_id, const CharacterExpressionId& expression_id,
+                    const std::optional<CharacterAppearanceId>& appearance_id,
+                    const std::string& presentation_path) {
+                    require(m_characters, character_id, "character",
+                            presentation_path + "/character");
+                    const auto character = m_characters.find(character_id);
+                    if (character == m_characters.end())
+                        return;
+                    const auto& definition = m_input.characters[character->second];
+                    const auto profile =
+                        std::ranges::find_if(definition.profiles, [&](const auto& candidate) {
+                            return candidate.id == profile_id;
+                        });
+                    if (profile == definition.profiles.end()) {
+                        error("compiled_project.unresolved_nested_reference",
+                              "Dialogue presentation Profile is absent from its Character.",
+                              presentation_path + "/profileId");
+                    } else if (std::ranges::none_of(profile->poses, [&](const auto& pose) {
+                                   return pose.id == pose_id;
+                               })) {
+                        error("compiled_project.unresolved_nested_reference",
+                              "Dialogue presentation Pose is absent from its Profile.",
+                              presentation_path + "/poseId");
+                    }
+                    if (std::ranges::none_of(definition.expressions, [&](const auto& expression) {
+                            return expression.id == expression_id;
+                        }))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Dialogue presentation Expression is absent from its Character.",
+                              presentation_path + "/expressionId");
+                    if (appearance_id &&
+                        std::ranges::none_of(definition.appearances, [&](const auto& appearance) {
+                            return appearance.id == *appearance_id;
+                        }))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Dialogue presentation Appearance is absent from its Character.",
+                              presentation_path + "/appearanceId");
+                };
+            const auto validate_media = [&](const compiled::DialogueMediaContent& media,
+                                            const std::string& media_path) {
+                std::visit(
+                    [&](const auto& content) {
+                        using M = std::decay_t<decltype(content)>;
+                        if constexpr (std::is_same_v<M, DialogueImageMedia>) {
+                            require(m_assets, content.asset, "asset", media_path + "/asset");
+                            const auto asset = m_assets.find(content.asset);
+                            if (asset != m_assets.end() &&
+                                m_input.assets[asset->second].kind != AssetKind::Image)
+                                error("compiled_project.invalid_asset_kind",
+                                      "Dialogue image Media Slot content must use an image Asset.",
+                                      media_path + "/asset");
+                        } else {
+                            validate_character_presentation(content.character, content.profile_id,
+                                                            content.pose_id, content.expression_id,
+                                                            content.appearance_id, media_path);
+                        }
+                    },
+                    media);
+            };
             if (value.default_speaker)
                 require(m_characters, *value.default_speaker, "character",
                         path + "/defaultSpeaker");
+            std::unordered_set<DialogueStageSlotId> stage_slots;
+            for (std::size_t slot_index = 0; slot_index < value.stage_slots.size(); ++slot_index) {
+                const auto& slot = value.stage_slots[slot_index];
+                const auto slot_path = path + "/stageSlots/" + std::to_string(slot_index);
+                if (!stage_slots.insert(slot.id).second)
+                    error("compiled_project.duplicate_nested_id",
+                          "Duplicate Dialogue Stage Slot ID.", slot_path + "/id");
+                if (slot.initial)
+                    validate_character_presentation(
+                        slot.initial->character, slot.initial->profile_id, slot.initial->pose_id,
+                        slot.initial->expression_id, slot.initial->appearance_id,
+                        slot_path + "/initial");
+            }
+            std::unordered_set<DialogueMediaSlotId> media_slots;
+            for (std::size_t slot_index = 0; slot_index < value.media_slots.size(); ++slot_index) {
+                const auto& slot = value.media_slots[slot_index];
+                const auto slot_path = path + "/mediaSlots/" + std::to_string(slot_index);
+                if (!media_slots.insert(slot.id).second)
+                    error("compiled_project.duplicate_nested_id",
+                          "Duplicate Dialogue Media Slot ID.", slot_path + "/id");
+                if (slot.initial)
+                    validate_media(*slot.initial, slot_path + "/initial");
+            }
             std::unordered_map<DialogueBlockId, std::size_t> blocks;
             for (std::size_t index = 0; index < value.program.blocks.size(); ++index)
                 std::visit([&](const auto& block) { blocks.emplace(block.id, index); },
@@ -2034,6 +2119,48 @@ private:
                                                 require(m_characters, *typed.speaker, "character",
                                                         segment_path + "/speaker");
                                             validate_text(typed.text, segment_path + "/text");
+                                            for (std::size_t mutation_index = 0;
+                                                 mutation_index < typed.presentation.stage.size();
+                                                 ++mutation_index) {
+                                                const auto& mutation =
+                                                    typed.presentation.stage[mutation_index];
+                                                const auto mutation_path =
+                                                    segment_path + "/presentation/stage/" +
+                                                    std::to_string(mutation_index);
+                                                if (!stage_slots.contains(mutation.slot_id))
+                                                    error("compiled_project.unresolved_nested_"
+                                                          "reference",
+                                                          "Dialogue Stage mutation references a "
+                                                          "missing Slot.",
+                                                          mutation_path + "/slotId");
+                                                if (mutation.character)
+                                                    require(m_characters, *mutation.character,
+                                                            "character",
+                                                            mutation_path + "/character");
+                                                if (mutation.scale && *mutation.scale <= 0.0)
+                                                    error("compiled_project.invalid_dialogue_"
+                                                          "presentation",
+                                                          "Dialogue Stage scale must be positive.",
+                                                          mutation_path + "/scale");
+                                            }
+                                            for (std::size_t mutation_index = 0;
+                                                 mutation_index < typed.presentation.media.size();
+                                                 ++mutation_index) {
+                                                const auto& mutation =
+                                                    typed.presentation.media[mutation_index];
+                                                const auto mutation_path =
+                                                    segment_path + "/presentation/media/" +
+                                                    std::to_string(mutation_index);
+                                                if (!media_slots.contains(mutation.slot_id))
+                                                    error("compiled_project.unresolved_nested_"
+                                                          "reference",
+                                                          "Dialogue Media mutation references a "
+                                                          "missing Slot.",
+                                                          mutation_path + "/slotId");
+                                                if (mutation.content)
+                                                    validate_media(*mutation.content,
+                                                                   mutation_path + "/content");
+                                            }
                                             for (std::size_t effect = 0;
                                                  effect < typed.effects.size(); ++effect)
                                                 validate_effect(typed.effects[effect],
