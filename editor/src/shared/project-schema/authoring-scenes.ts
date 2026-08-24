@@ -28,6 +28,12 @@ import {
 } from './authoring-flow';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
+import { resolveMaterialData } from './authoring-materials';
+import {
+  isUniformValueCompatible,
+  parseShaderData,
+  shaderUniformValueSchema,
+} from './authoring-shaders';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -43,6 +49,8 @@ export const sceneStepTypeValues = [
   'conditional-branch',
   'choice',
   'set-layout',
+  'material-parameter',
+  'postprocess-effect',
   'transition-group',
   'comment',
 ] as const;
@@ -59,6 +67,9 @@ export const sceneLayoutActionValues = ['show', 'hide', 'swap'] as const;
 export const sceneLayoutSlotValues = ['hud', 'dialogue-box', 'overlay', 'custom'] as const;
 export const sceneLayoutTransitionValues = ['none', 'fade'] as const;
 export const sceneTransitionKindValues = ['fade', 'cut', 'dissolve'] as const;
+export const sceneMaterialClockValues = ['gameplay', 'unscaled-presentation'] as const;
+export const sceneMaterialEasingValues = ['linear', 'ease-in', 'ease-out', 'ease-in-out'] as const;
+export const scenePostprocessScopeValues = ['world', 'full-game-viewport'] as const;
 export const sceneTransitionGroupChildTypeValues = [
   'set-background',
   'clear-background',
@@ -220,6 +231,49 @@ const setLayoutStepSchema = strict({
   waitForCompletion: z.boolean(),
   skippable: z.boolean(),
 });
+const materialOccurrenceTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('background') }),
+  strict({
+    kind: z.literal('actor'),
+    slotId: entityIdSchema,
+    layer: z.enum(['pose', 'expression']),
+  }),
+  strict({ kind: z.literal('layout'), slot: z.enum(sceneLayoutSlotValues) }),
+  strict({ kind: z.literal('postprocess'), instanceId: entityIdSchema }),
+]);
+const materialParameterValueSchema = shaderUniformValueSchema.refine(
+  (value) => value !== null,
+  'Occurrence Material Parameters require a concrete value.',
+);
+const materialParameterStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('material-parameter'),
+  target: materialOccurrenceTargetSchema,
+  material: sceneMaterialRefSchema,
+  parameter: z.string().min(1),
+  value: materialParameterValueSchema,
+  transition: z.enum(['none', 'tween']),
+  durationMs: z.number().int().nonnegative(),
+  easing: z.enum(sceneMaterialEasingValues),
+  clock: z.enum(sceneMaterialClockValues),
+  waitForCompletion: z.boolean(),
+  skippable: z.boolean(),
+});
+const postprocessParameterSchema = strict({
+  name: z.string().min(1),
+  value: materialParameterValueSchema,
+});
+const postprocessEffectStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('postprocess-effect'),
+  action: z.enum(['upsert', 'remove']),
+  instanceId: entityIdSchema,
+  material: sceneMaterialRefSchema.nullable(),
+  scope: z.enum(scenePostprocessScopeValues),
+  order: z.number().int(),
+  clock: z.enum(sceneMaterialClockValues),
+  parameters: z.array(postprocessParameterSchema),
+});
 const transitionGroupChildSchema = z.discriminatedUnion('type', [
   strict({
     id: entityIdSchema,
@@ -280,6 +334,8 @@ export const sceneStepDataSchema = z.discriminatedUnion('type', [
   conditionalBranchStepSchema,
   choiceStepSchema,
   setLayoutStepSchema,
+  materialParameterStepSchema,
+  postprocessEffectStepSchema,
   transitionGroupStepSchema,
   commentStepSchema,
 ]);
@@ -428,6 +484,33 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         waitForCompletion: false,
         skippable: true,
       };
+    case 'material-parameter':
+      return {
+        ...common,
+        type,
+        target: { kind: 'background' },
+        material: sceneMaterialRef('material'),
+        parameter: 'u_effect',
+        value: 0,
+        transition: 'none',
+        durationMs: 0,
+        easing: 'linear',
+        clock: 'gameplay',
+        waitForCompletion: false,
+        skippable: true,
+      };
+    case 'postprocess-effect':
+      return {
+        ...common,
+        type,
+        action: 'remove',
+        instanceId: 'effect',
+        material: null,
+        scope: 'world',
+        order: 0,
+        clock: 'gameplay',
+        parameters: [],
+      };
     case 'transition-group':
       return {
         ...common,
@@ -528,6 +611,46 @@ export function validateSceneData(
         validateVariableValue(effect.variable.$ref.id, effect.value, `${path}/${index}/value`);
       }
     });
+  };
+  const validateMaterialParameter = (
+    materialId: string,
+    parameter: string,
+    value: unknown,
+    path: string,
+    acceptedRoles: readonly string[],
+  ) => {
+    const resolved = resolveMaterialData(project, materialId);
+    if (!resolved.data) {
+      diagnostics.push(diagnostic(`${path}/material`, `Material '${materialId}' is invalid.`));
+      return;
+    }
+    if (!acceptedRoles.includes(resolved.data.role))
+      diagnostics.push(
+        diagnostic(
+          `${path}/material`,
+          `Material role '${resolved.data.role}' is not valid for this presentation occurrence.`,
+        ),
+      );
+    const shaderId = resolved.data.shader?.$ref.id;
+    const shader = shaderId ? parseShaderData(project.shaders[shaderId]?.data) : null;
+    const uniform = shader?.uniforms.find((candidate) => candidate.name === parameter);
+    if (!uniform) {
+      diagnostics.push(
+        diagnostic(`${path}/parameter`, `Shader does not declare uniform '${parameter}'.`),
+      );
+      return;
+    }
+    if (uniform.binding != null)
+      diagnostics.push(
+        diagnostic(
+          `${path}/parameter`,
+          `Uniform '${parameter}' is renderer-bound to '${uniform.binding}' and cannot be occurrence-controlled.`,
+        ),
+      );
+    if (!isUniformValueCompatible(uniform.type, value))
+      diagnostics.push(
+        diagnostic(`${path}/value`, `Material Parameter value does not match ${uniform.type}.`),
+      );
   };
   if (data.defaultBackground.asset)
     requireRecord(
@@ -758,6 +881,141 @@ export function validateSceneData(
               'Immediate Layout changes cannot wait for completion.',
             ),
           );
+      }
+    }
+    if (step.type === 'material-parameter') {
+      requireRecord('materials', step.material.$ref.id, `${path}/material`);
+      const acceptedRoles =
+        step.target.kind === 'layout'
+          ? ['rmlui-decorator']
+          : step.target.kind === 'postprocess'
+            ? ['postprocess']
+            : ['engine-2d'];
+      validateMaterialParameter(
+        step.material.$ref.id,
+        step.parameter,
+        step.value,
+        path,
+        acceptedRoles,
+      );
+      if (step.target.kind === 'actor') {
+        const target = step.target;
+        const slotExists = data.steps.some(
+          (candidate) => candidate.type === 'actor-cue' && candidate.slotId === target.slotId,
+        );
+        if (!slotExists)
+          diagnostics.push(
+            diagnostic(
+              `${path}/target/slotId`,
+              `Scene Actor slot '${target.slotId}' does not exist.`,
+            ),
+          );
+      } else if (step.target.kind === 'postprocess') {
+        const target = step.target;
+        const effectExists = data.steps.some(
+          (candidate) =>
+            candidate.type === 'postprocess-effect' &&
+            candidate.action === 'upsert' &&
+            candidate.instanceId === target.instanceId,
+        );
+        if (!effectExists)
+          diagnostics.push(
+            diagnostic(
+              `${path}/target/instanceId`,
+              `Postprocess Effect '${target.instanceId}' is never authored in this Scene.`,
+            ),
+          );
+      }
+      if (step.transition === 'tween') {
+        if (step.durationMs <= 0)
+          diagnostics.push(
+            diagnostic(
+              `${path}/durationMs`,
+              'Material Parameter transitions require a positive duration.',
+            ),
+          );
+        if (typeof step.value === 'boolean' || Number.isInteger(step.value)) {
+          const resolved = resolveMaterialData(project, step.material.$ref.id);
+          const shaderId = resolved.data?.shader?.$ref.id;
+          const uniform = shaderId
+            ? parseShaderData(project.shaders[shaderId]?.data)?.uniforms.find(
+                (candidate) => candidate.name === step.parameter,
+              )
+            : undefined;
+          if (uniform?.type === 'bool' || uniform?.type === 'int')
+            diagnostics.push(
+              diagnostic(
+                `${path}/transition`,
+                'Boolean and integer Material Parameters cannot use finite interpolation.',
+              ),
+            );
+        }
+      } else {
+        if (step.durationMs !== 0)
+          diagnostics.push(
+            diagnostic(
+              `${path}/durationMs`,
+              'Immediate Material Parameter assignments require zero duration.',
+            ),
+          );
+        if (step.waitForCompletion)
+          diagnostics.push(
+            diagnostic(
+              `${path}/waitForCompletion`,
+              'Immediate Material Parameter assignments cannot wait for completion.',
+            ),
+          );
+      }
+    }
+    if (step.type === 'postprocess-effect') {
+      if (step.action === 'remove') {
+        if (step.material !== null)
+          diagnostics.push(
+            diagnostic(`${path}/material`, 'Removing a Postprocess Effect cannot name a Material.'),
+          );
+        if (step.parameters.length !== 0)
+          diagnostics.push(
+            diagnostic(
+              `${path}/parameters`,
+              'Removing a Postprocess Effect cannot assign Material Parameters.',
+            ),
+          );
+      } else if (!step.material) {
+        diagnostics.push(
+          diagnostic(`${path}/material`, 'Adding a Postprocess Effect requires a Material.'),
+        );
+      } else {
+        requireRecord('materials', step.material.$ref.id, `${path}/material`);
+        const resolved = resolveMaterialData(project, step.material.$ref.id);
+        if (resolved.data) {
+          if (resolved.data.role !== 'postprocess')
+            diagnostics.push(
+              diagnostic(`${path}/material`, 'Postprocess Effects require postprocess Materials.'),
+            );
+          if (resolved.data.postprocessScope !== step.scope)
+            diagnostics.push(
+              diagnostic(
+                `${path}/scope`,
+                `Effect scope must match Material scope '${resolved.data.postprocessScope}'.`,
+              ),
+            );
+        }
+        const names = new Set<string>();
+        step.parameters.forEach((parameter, parameterIndex) => {
+          const parameterPath = `${path}/parameters/${parameterIndex}`;
+          if (names.has(parameter.name))
+            diagnostics.push(
+              diagnostic(`${parameterPath}/name`, `Duplicate parameter '${parameter.name}'.`),
+            );
+          names.add(parameter.name);
+          validateMaterialParameter(
+            step.material!.$ref.id,
+            parameter.name,
+            parameter.value,
+            parameterPath,
+            ['postprocess'],
+          );
+        });
       }
     }
     if (step.type === 'transition-group') {

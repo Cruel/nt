@@ -42,6 +42,53 @@ runtime::RuntimeCapabilityGroup instance_group(const core::GameplayInstanceRef& 
         instance);
 }
 
+core::Result<core::MaterialOccurrence, core::Diagnostics>
+resolve_material_occurrence(const MaterialOccurrenceCommand& occurrence,
+                            const core::PresentationOwner& owner, const core::MaterialId& material)
+{
+    using Result = core::Result<core::MaterialOccurrence, core::Diagnostics>;
+    return std::visit(
+        [&](const auto& value) -> Result {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, MaterialBackgroundOccurrenceCommand>) {
+                return Result::success(core::BackgroundMaterialOccurrence{});
+            } else if constexpr (std::is_same_v<T, MaterialSceneActorOccurrenceCommand>) {
+                const auto* scene = std::get_if<core::ScenePresentationOwner>(&owner);
+                if (scene == nullptr)
+                    return Result::failure(
+                        {core::Diagnostic{.code = "runtime.material_scene_actor_owner_mismatch",
+                                          .message = "Scene Actor Material occurrence requires "
+                                                     "Scene presentation ownership"}});
+                return Result::success(core::ActorMaterialOccurrence{
+                    core::ActorPresentationKey{core::SceneActorKey{*scene, value.slot}},
+                    value.layer});
+            } else if constexpr (std::is_same_v<T, MaterialScopedActorOccurrenceCommand>) {
+                return Result::success(core::ActorMaterialOccurrence{
+                    core::ActorPresentationKey{value.key}, value.layer});
+            } else if constexpr (std::is_same_v<T, MaterialPropOccurrenceCommand>) {
+                return Result::success(core::PropMaterialOccurrence{value.instance});
+            } else if constexpr (std::is_same_v<T, MaterialEnvironmentOccurrenceCommand>) {
+                return Result::success(core::EnvironmentMaterialOccurrence{value.instance});
+            } else if constexpr (std::is_same_v<T, MaterialReservedLayoutOccurrenceCommand>) {
+                return Result::success(core::LayoutMaterialOccurrence{
+                    core::MountedLayoutPresentationKey{core::ReservedLayoutMountKey{value.slot}},
+                    material});
+            } else if constexpr (std::is_same_v<T, MaterialScopedLayoutOccurrenceCommand>) {
+                return Result::success(core::LayoutMaterialOccurrence{
+                    core::MountedLayoutPresentationKey{core::ScopedLayoutMountKey{value.instance}},
+                    material});
+            } else if constexpr (std::is_same_v<T, MaterialRoomOverlayOccurrenceCommand>) {
+                return Result::success(core::LayoutMaterialOccurrence{
+                    core::MountedLayoutPresentationKey{
+                        core::RoomOverlayLayoutMountKey{value.room, value.overlay}},
+                    material});
+            } else {
+                return Result::success(core::PostprocessMaterialOccurrence{value.instance});
+            }
+        },
+        occurrence);
+}
+
 } // namespace
 
 struct RuntimeScriptApi::State {
@@ -795,6 +842,179 @@ RuntimeScriptApi::environment(core::PresentationEnvironmentInstanceId instance,
                             core::Diagnostics>::failure(std::move(owner.error()));
     return gateway->presentation_environment(instance, *owner.value_if());
 }
+
+core::Result<void, core::Diagnostics> RuntimeScriptApi::set_material_parameter(
+    MaterialOccurrenceCommand occurrence, core::MaterialId material, std::string parameter,
+    core::compiled::MaterialParameterValue value, MaterialParameterCommandOptions options)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Material Parameter mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    auto resolved = resolve_material_occurrence(occurrence, *owner.value_if(), material);
+    if (!resolved)
+        return core::Result<void, core::Diagnostics>::failure(std::move(resolved.error()));
+    return gateway->upsert_material_parameter(core::DesiredMaterialParameter{
+        std::move(*owner.value_if()), std::move(*resolved.value_if()), std::move(material),
+        std::move(parameter), std::move(value), std::nullopt, options.clock});
+}
+
+core::Result<void, core::Diagnostics> RuntimeScriptApi::bind_material_parameter(
+    MaterialOccurrenceCommand occurrence, core::MaterialId material, std::string parameter,
+    core::MaterialParameterBinding binding, MaterialParameterCommandOptions options)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("Material Parameter binding"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    auto resolved = resolve_material_occurrence(occurrence, *owner.value_if(), material);
+    if (!resolved)
+        return core::Result<void, core::Diagnostics>::failure(std::move(resolved.error()));
+    return gateway->upsert_material_parameter(core::DesiredMaterialParameter{
+        std::move(*owner.value_if()), std::move(*resolved.value_if()), std::move(material),
+        std::move(parameter), std::nullopt, std::move(binding), options.clock});
+}
+
+core::Result<void, core::Diagnostics> RuntimeScriptApi::clear_material_parameter(
+    MaterialOccurrenceCommand occurrence, core::MaterialId material, std::string parameter,
+    runtime::RuntimePresentationOwnerScope owner_scope, std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Material Parameter clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    auto resolved = resolve_material_occurrence(occurrence, *owner.value_if(), material);
+    if (!resolved)
+        return core::Result<void, core::Diagnostics>::failure(std::move(resolved.error()));
+    return gateway->remove_material_parameter(std::move(*resolved.value_if()),
+                                              std::move(*owner.value_if()), std::move(material),
+                                              std::move(parameter));
+}
+
+core::Result<std::optional<core::DesiredMaterialParameter>, core::Diagnostics>
+RuntimeScriptApi::material_parameter(const MaterialOccurrenceCommand& occurrence,
+                                     const core::MaterialId& material, std::string_view parameter,
+                                     runtime::RuntimePresentationOwnerScope owner_scope,
+                                     std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredMaterialParameter>,
+                            core::Diagnostics>::failure(unavailable());
+    const auto* gateway =
+        m_state->capabilities->query_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredMaterialParameter>,
+                            core::Diagnostics>::failure(denied("Material Parameter query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredMaterialParameter>,
+                            core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredMaterialParameter>,
+                            core::Diagnostics>::failure(std::move(owner.error()));
+    auto resolved = resolve_material_occurrence(occurrence, *owner.value_if(), material);
+    if (!resolved)
+        return core::Result<std::optional<core::DesiredMaterialParameter>,
+                            core::Diagnostics>::failure(std::move(resolved.error()));
+    return gateway->material_parameter(*resolved.value_if(), *owner.value_if(), material,
+                                       parameter);
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_postprocess_effect(core::PostprocessEffectInstanceId instance,
+                                         core::MaterialId material,
+                                         PostprocessEffectCommandOptions options)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("postprocess Effect mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->upsert_postprocess_effect(core::DesiredPostprocessEffect{
+        std::move(instance), std::move(*owner.value_if()), std::move(material), options.scope,
+        options.order, options.clock, options.visible});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_postprocess_effect(core::PostprocessEffectInstanceId instance,
+                                           runtime::RuntimePresentationOwnerScope owner_scope,
+                                           std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("postprocess Effect clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->remove_postprocess_effect(std::move(instance), std::move(*owner.value_if()));
+}
+
+core::Result<std::optional<core::DesiredPostprocessEffect>, core::Diagnostics>
+RuntimeScriptApi::postprocess_effect(core::PostprocessEffectInstanceId instance,
+                                     runtime::RuntimePresentationOwnerScope owner_scope,
+                                     std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredPostprocessEffect>,
+                            core::Diagnostics>::failure(unavailable());
+    const auto* gateway =
+        m_state->capabilities->query_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredPostprocessEffect>,
+                            core::Diagnostics>::failure(denied("postprocess Effect query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredPostprocessEffect>,
+                            core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredPostprocessEffect>,
+                            core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->postprocess_effect(instance, *owner.value_if());
+}
+
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_gameplay_paused(bool paused)
 {
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Game, "gameplay pause mutation",

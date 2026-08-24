@@ -192,6 +192,23 @@ public:
     presentation_environment(const core::PresentationEnvironmentInstanceId& instance,
                              const core::PresentationOwner& owner) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_material_parameter(core::DesiredMaterialParameter value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_material_parameter(core::MaterialOccurrence occurrence, core::PresentationOwner owner,
+                              core::MaterialId material, std::string parameter);
+    [[nodiscard]] core::Result<std::optional<core::DesiredMaterialParameter>, core::Diagnostics>
+    material_parameter(const core::MaterialOccurrence& occurrence,
+                       const core::PresentationOwner& owner, const core::MaterialId& material,
+                       std::string_view parameter) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_postprocess_effect(core::DesiredPostprocessEffect value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_postprocess_effect(core::PostprocessEffectInstanceId instance,
+                              core::PresentationOwner owner);
+    [[nodiscard]] core::Result<std::optional<core::DesiredPostprocessEffect>, core::Diagnostics>
+    postprocess_effect(const core::PostprocessEffectInstanceId& instance,
+                       const core::PresentationOwner& owner) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_desired_audio(core::DesiredAudioInstance value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_desired_audio(core::DesiredAudioInstanceId instance, core::PresentationOwner owner);

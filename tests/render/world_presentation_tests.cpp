@@ -155,6 +155,7 @@ private:
 PresentationActor actor(ActorPresentationKey key, std::int32_t order = 0)
 {
     return PresentationActor{std::move(key),
+                             std::nullopt,
                              id<CharacterId>("hero"),
                              id<CharacterPoseId>("standing"),
                              id<CharacterExpressionId>("neutral"),

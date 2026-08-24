@@ -114,6 +114,85 @@ struct ScopedLayoutMountKey {
 using MountedLayoutPresentationKey =
     std::variant<ReservedLayoutMountKey, RoomOverlayLayoutMountKey, ScopedLayoutMountKey>;
 
+struct BackgroundMaterialOccurrence {
+    auto operator<=>(const BackgroundMaterialOccurrence&) const = default;
+};
+enum class ActorMaterialLayer : std::uint8_t {
+    Pose,
+    Expression,
+};
+struct ActorMaterialOccurrence {
+    ActorPresentationKey key;
+    ActorMaterialLayer layer = ActorMaterialLayer::Pose;
+    auto operator<=>(const ActorMaterialOccurrence&) const = default;
+};
+struct PropMaterialOccurrence {
+    PresentationPropInstanceId instance;
+    auto operator<=>(const PropMaterialOccurrence&) const = default;
+};
+struct EnvironmentMaterialOccurrence {
+    PresentationEnvironmentInstanceId instance;
+    auto operator<=>(const EnvironmentMaterialOccurrence&) const = default;
+};
+struct LayoutMaterialOccurrence {
+    MountedLayoutPresentationKey key;
+    MaterialId material;
+    auto operator<=>(const LayoutMaterialOccurrence&) const = default;
+};
+struct PostprocessMaterialOccurrence {
+    PostprocessEffectInstanceId instance;
+    auto operator<=>(const PostprocessMaterialOccurrence&) const = default;
+};
+using MaterialOccurrence = std::variant<BackgroundMaterialOccurrence, ActorMaterialOccurrence,
+                                        PropMaterialOccurrence, EnvironmentMaterialOccurrence,
+                                        LayoutMaterialOccurrence, PostprocessMaterialOccurrence>;
+
+enum class MaterialClockPolicy : std::uint8_t {
+    Gameplay,
+    UnscaledPresentation,
+};
+enum class MaterialStandardFacet : std::uint8_t {
+    OccurrenceTime,
+    PaintWidth,
+    PaintHeight,
+    ViewportWidth,
+    ViewportHeight,
+    CameraZoom,
+};
+struct MaterialPropertyBinding {
+    PropertyTargetRef target;
+    PropertyId property;
+    bool operator==(const MaterialPropertyBinding&) const = default;
+};
+struct MaterialStandardFacetBinding {
+    MaterialStandardFacet facet = MaterialStandardFacet::OccurrenceTime;
+    bool operator==(const MaterialStandardFacetBinding&) const = default;
+};
+using MaterialParameterBinding =
+    std::variant<MaterialPropertyBinding, MaterialStandardFacetBinding>;
+struct DesiredMaterialParameter {
+    PresentationOwner owner;
+    MaterialOccurrence occurrence;
+    MaterialId material;
+    std::string parameter;
+    std::optional<compiled::MaterialParameterValue> value;
+    std::optional<MaterialParameterBinding> binding;
+    MaterialClockPolicy clock = MaterialClockPolicy::Gameplay;
+    bool operator==(const DesiredMaterialParameter&) const = default;
+};
+
+inline constexpr std::size_t max_postprocess_effects_per_scope = 4;
+struct DesiredPostprocessEffect {
+    PostprocessEffectInstanceId instance;
+    PresentationOwner owner;
+    MaterialId material;
+    compiled::MaterialPostprocessScope scope = compiled::MaterialPostprocessScope::World;
+    std::int32_t order = 0;
+    MaterialClockPolicy clock = MaterialClockPolicy::Gameplay;
+    bool visible = true;
+    bool operator==(const DesiredPostprocessEffect&) const = default;
+};
+
 enum class LayoutStateScope : std::uint8_t {
     Visit,
     Room,

@@ -2271,6 +2271,85 @@ TEST_CASE("runtime Lua environment controls enqueue typed long-lived desired sta
     CHECK(cleared.publication->presentation.environments.empty());
 }
 
+TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic and queryable")
+{
+    Fixture fixture("scene-program.json");
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.set_background({owner='session', "
+        "material='sprite-material', color='#ffffff'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_material_parameter({kind='background'}, "
+        "'sprite-material', 'u_tint', {r=0.2,g=0.4,b=0.6,a=1.0}, "
+        "{owner='session', clock='gameplay'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_postprocess('lua-grade', "
+        "'scene-postprocess-material', {owner='session', scope='world', order=7, "
+        "clock='unscaled-presentation'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_material_parameter({kind='postprocess', "
+        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', 0.75, "
+        "{owner='session', clock='unscaled-presentation'}); assert(ok and err == nil)",
+        "typed-material-presentation-set"));
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    REQUIRE(flushed.publication);
+    REQUIRE(flushed.publication->presentation.material_parameters.size() == 2);
+    REQUIRE(flushed.publication->presentation.postprocess_effects.size() == 1);
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local parameter, err = noveltea.presentation.material_parameter({kind='background'}, "
+        "'sprite-material', 'u_tint', {owner='session'}); assert(parameter ~= nil and "
+        "err == nil and parameter.clock == 'gameplay' and parameter.value.r == 0.2 and "
+        "parameter.value.a == 1.0)\n"
+        "local effect; effect, err = noveltea.presentation.postprocess('lua-grade', "
+        "{owner='session'}); assert(effect ~= nil and err == nil and "
+        "effect.material == 'scene-postprocess-material' and effect.scope == 'world' and "
+        "effect.order == 7 and effect.clock == 'unscaled-presentation' and "
+        "effect.visible == true)",
+        "typed-material-presentation-query"));
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.clear_material_parameter({kind='postprocess', "
+        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', "
+        "{owner='session'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.bind_material_parameter({kind='postprocess', "
+        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', "
+        "{kind='standard-facet', facet='occurrence-time'}, "
+        "{owner='session', clock='unscaled-presentation'}); assert(ok and err == nil)",
+        "typed-material-presentation-bind"));
+    auto bound = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(bound.diagnostics.empty());
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local parameter, err = noveltea.presentation.material_parameter({kind='postprocess', "
+        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', "
+        "{owner='session'}); assert(parameter ~= nil and err == nil and parameter.value == nil "
+        "and parameter.binding.kind == 'standard-facet' and "
+        "parameter.binding.facet == 'occurrence-time')",
+        "typed-material-presentation-binding-query"));
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.clear_material_parameter({kind='background'}, "
+        "'sprite-material', 'u_tint', {owner='session'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.clear_material_parameter({kind='postprocess', "
+        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', "
+        "{owner='session'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.clear_postprocess('lua-grade', {owner='session'}); "
+        "assert(ok and err == nil)",
+        "typed-material-presentation-clear"));
+    auto cleared = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(cleared.diagnostics.empty());
+    CHECK(fixture.session->presentation_state().material_parameters().empty());
+    CHECK(fixture.session->presentation_state().postprocess_effects().empty());
+}
+
 TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner and identity")
 {
     Fixture fixture;

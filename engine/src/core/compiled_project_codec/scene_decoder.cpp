@@ -4,6 +4,91 @@ namespace noveltea::core::compiled::wire::detail {
 
 namespace {
 
+std::optional<MaterialParameterValue> decode_material_parameter_value(Decoder& decoder,
+                                                                      const nlohmann::json& value,
+                                                                      std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"type", "value"}))
+        return std::nullopt;
+    const auto* type_value = decoder.member(value, "type", pointer);
+    const auto* payload = decoder.member(value, "value", pointer);
+    auto type =
+        type_value ? decoder.string(*type_value, pointer_child(pointer, "type")) : std::nullopt;
+    if (!type || payload == nullptr)
+        return std::nullopt;
+    const auto payload_pointer = pointer_child(pointer, "value");
+    if (*type == "float") {
+        auto number = decoder.finite_number(*payload, payload_pointer);
+        return number ? std::optional<MaterialParameterValue>(*number) : std::nullopt;
+    }
+    const auto vector = [&](std::size_t size) -> std::optional<std::vector<double>> {
+        if (!payload->is_array() || payload->size() != size) {
+            decoder.error(k_code_type, "Material vector value has the wrong component count.",
+                          payload_pointer);
+            return std::nullopt;
+        }
+        std::vector<double> result;
+        result.reserve(size);
+        for (std::size_t index = 0; index < size; ++index) {
+            auto component = decoder.finite_number((*payload)[index],
+                                                   payload_pointer + "/" + std::to_string(index));
+            if (!component)
+                return std::nullopt;
+            result.push_back(*component);
+        }
+        return result;
+    };
+    if (*type == "vec2") {
+        auto values = vector(2);
+        return values ? std::optional<MaterialParameterValue>(
+                            std::array<double, 2>{(*values)[0], (*values)[1]})
+                      : std::nullopt;
+    }
+    if (*type == "vec3") {
+        auto values = vector(3);
+        return values ? std::optional<MaterialParameterValue>(
+                            std::array<double, 3>{(*values)[0], (*values)[1], (*values)[2]})
+                      : std::nullopt;
+    }
+    if (*type == "vec4") {
+        auto values = vector(4);
+        return values ? std::optional<MaterialParameterValue>(std::array<double, 4>{
+                            (*values)[0], (*values)[1], (*values)[2], (*values)[3]})
+                      : std::nullopt;
+    }
+    if (*type == "color") {
+        if (!decoder.object(*payload, payload_pointer, {"a", "b", "g", "r"}))
+            return std::nullopt;
+        const auto component = [&](std::string_view name) -> std::optional<double> {
+            const auto* item = decoder.member(*payload, name, payload_pointer);
+            return item ? decoder.finite_number(*item, pointer_child(payload_pointer, name))
+                        : std::nullopt;
+        };
+        auto r = component("r");
+        auto g = component("g");
+        auto b = component("b");
+        auto a = component("a");
+        return r && g && b && a
+                   ? std::optional<MaterialParameterValue>(MaterialColorValue{*r, *g, *b, *a})
+                   : std::nullopt;
+    }
+    if (*type == "int") {
+        if (!payload->is_number_integer()) {
+            decoder.error(k_code_number, "Material integer value must be an integer.",
+                          payload_pointer);
+            return std::nullopt;
+        }
+        return MaterialParameterValue{payload->get<std::int64_t>()};
+    }
+    if (*type == "bool") {
+        auto flag = decoder.boolean(*payload, payload_pointer);
+        return flag ? std::optional<MaterialParameterValue>(*flag) : std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Material Parameter value type.",
+                  pointer_child(pointer, "type"));
+    return std::nullopt;
+}
+
 bool decode_layout_scale_overrides(Decoder& decoder, const nlohmann::json& owner,
                                    std::string_view pointer, LayoutScaleOverrides& overrides)
 {
@@ -776,6 +861,247 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                          SetLayoutInstruction{std::move(*id), std::move(condition), *action,
                                               std::move(layout), std::move(scale_overrides), *slot,
                                               *transition, *duration, std::move(wait), *skippable})
+                   : std::nullopt;
+    }
+    if (*kind == "material-parameter") {
+        SCENE_FIELDS("clock", "durationMs", "easing", "material", "parameter", "skippable",
+                     "target", "transition", "value", "waitForCompletion");
+        const auto* target_value = decoder.member(value, "target", pointer);
+        const auto* material_value = decoder.member(value, "material", pointer);
+        const auto* parameter_value = decoder.member(value, "parameter", pointer);
+        const auto* parameter_payload = decoder.member(value, "value", pointer);
+        const auto* transition_value = decoder.member(value, "transition", pointer);
+        const auto* duration_value = decoder.member(value, "durationMs", pointer);
+        const auto* easing_value = decoder.member(value, "easing", pointer);
+        const auto* clock_value = decoder.member(value, "clock", pointer);
+        const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
+
+        std::optional<MaterialOccurrenceInstructionTarget> target;
+        if (target_value && target_value->is_object()) {
+            const auto target_pointer = pointer_child(pointer, "target");
+            const auto* target_kind_value = decoder.member(*target_value, "kind", target_pointer);
+            auto target_kind =
+                target_kind_value
+                    ? decoder.string(*target_kind_value, pointer_child(target_pointer, "kind"))
+                    : std::nullopt;
+            if (target_kind && *target_kind == "background" &&
+                decoder.object(*target_value, target_pointer, {"kind"})) {
+                target = BackgroundMaterialInstructionTarget{};
+            } else if (target_kind && *target_kind == "actor" &&
+                       decoder.object(*target_value, target_pointer, {"kind", "layer", "slotId"})) {
+                const auto* slot_value = decoder.member(*target_value, "slotId", target_pointer);
+                const auto* layer_value = decoder.member(*target_value, "layer", target_pointer);
+                auto slot = slot_value ? decoder.id<ActorSlotId>(
+                                             *slot_value, pointer_child(target_pointer, "slotId"))
+                                       : std::nullopt;
+                auto layer = layer_value ? decoder.enumeration<MaterialActorLayer>(
+                                               *layer_value, pointer_child(target_pointer, "layer"),
+                                               {{"pose", MaterialActorLayer::Pose},
+                                                {"expression", MaterialActorLayer::Expression}})
+                                         : std::nullopt;
+                if (slot && layer)
+                    target = ActorMaterialInstructionTarget{std::move(*slot), *layer};
+            } else if (target_kind && *target_kind == "layout" &&
+                       decoder.object(*target_value, target_pointer, {"kind", "slot"})) {
+                const auto* slot_value = decoder.member(*target_value, "slot", target_pointer);
+                auto slot = slot_value ? decoder.enumeration<LayoutSlot>(
+                                             *slot_value, pointer_child(target_pointer, "slot"),
+                                             {{"hud", LayoutSlot::Hud},
+                                              {"dialogue-box", LayoutSlot::DialogueBox},
+                                              {"overlay", LayoutSlot::Overlay},
+                                              {"custom", LayoutSlot::Custom}})
+                                       : std::nullopt;
+                if (slot)
+                    target = LayoutMaterialInstructionTarget{*slot};
+            } else if (target_kind && *target_kind == "postprocess" &&
+                       decoder.object(*target_value, target_pointer, {"instanceId", "kind"})) {
+                const auto* instance_value =
+                    decoder.member(*target_value, "instanceId", target_pointer);
+                auto instance = instance_value ? decoder.id<PostprocessEffectInstanceId>(
+                                                     *instance_value,
+                                                     pointer_child(target_pointer, "instanceId"))
+                                               : std::nullopt;
+                if (instance)
+                    target = PostprocessMaterialInstructionTarget{std::move(*instance)};
+            } else if (target_kind) {
+                decoder.error(k_code_variant, "Unknown Material occurrence target.",
+                              pointer_child(target_pointer, "kind"));
+            }
+        } else if (target_value) {
+            decoder.error(k_code_type, "Expected a Material occurrence target object.",
+                          pointer_child(pointer, "target"));
+        }
+        auto material =
+            material_value
+                ? decode_reference<MaterialId>(decoder, *material_value,
+                                               pointer_child(pointer, "material"), "material")
+                : std::nullopt;
+        auto parameter = parameter_value
+                             ? decoder.string(*parameter_value, pointer_child(pointer, "parameter"))
+                             : std::nullopt;
+        auto parameter_data = parameter_payload
+                                  ? decode_material_parameter_value(decoder, *parameter_payload,
+                                                                    pointer_child(pointer, "value"))
+                                  : std::nullopt;
+        auto transition = transition_value
+                              ? decoder.enumeration<MaterialParameterTransition>(
+                                    *transition_value, pointer_child(pointer, "transition"),
+                                    {{"none", MaterialParameterTransition::None},
+                                     {"tween", MaterialParameterTransition::Tween}})
+                              : std::nullopt;
+        auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
+                                             *duration_value, pointer_child(pointer, "durationMs"))
+                                       : std::nullopt;
+        auto easing = easing_value ? decoder.enumeration<MaterialEasing>(
+                                         *easing_value, pointer_child(pointer, "easing"),
+                                         {{"linear", MaterialEasing::Linear},
+                                          {"ease-in", MaterialEasing::EaseIn},
+                                          {"ease-out", MaterialEasing::EaseOut},
+                                          {"ease-in-out", MaterialEasing::EaseInOut}})
+                                   : std::nullopt;
+        auto clock = clock_value
+                         ? decoder.enumeration<MaterialClock>(
+                               *clock_value, pointer_child(pointer, "clock"),
+                               {{"gameplay", MaterialClock::Gameplay},
+                                {"unscaled-presentation", MaterialClock::UnscaledPresentation}})
+                         : std::nullopt;
+        auto waits = wait_value
+                         ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
+                         : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        if (transition && duration && waits) {
+            if (*transition == MaterialParameterTransition::None && (*duration != 0 || *waits)) {
+                decoder.error(
+                    k_code_variant,
+                    "Immediate Material Parameter assignments require zero duration and no wait.",
+                    pointer_child(pointer, "transition"));
+                duration.reset();
+            } else if (*transition == MaterialParameterTransition::Tween && *duration == 0) {
+                decoder.error(k_code_number,
+                              "Material Parameter transitions require a positive duration.",
+                              pointer_child(pointer, "durationMs"));
+                duration.reset();
+            }
+        }
+        PresentationInstructionWait wait =
+            waits && *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
+                            : PresentationInstructionWait{ImmediateWait{}};
+        return target && material && parameter && !parameter->empty() && parameter_data &&
+                       transition && duration && easing && clock && waits && skippable
+                   ? std::optional<SceneInstruction>(MaterialParameterInstruction{
+                         std::move(*id), std::move(condition), std::move(*target),
+                         std::move(*material), std::move(*parameter), std::move(*parameter_data),
+                         *transition, *duration, *easing, *clock, std::move(wait), *skippable})
+                   : std::nullopt;
+    }
+    if (*kind == "postprocess-effect") {
+        SCENE_FIELDS("action", "clock", "instanceId", "material", "order", "parameters", "scope");
+        const auto* action_value = decoder.member(value, "action", pointer);
+        const auto* instance_value = decoder.member(value, "instanceId", pointer);
+        const auto* material_value = decoder.member(value, "material", pointer);
+        const auto* scope_value = decoder.member(value, "scope", pointer);
+        const auto* order_value = decoder.member(value, "order", pointer);
+        const auto* clock_value = decoder.member(value, "clock", pointer);
+        const auto* parameters_value = decoder.member(value, "parameters", pointer);
+        auto action = action_value ? decoder.enumeration<PostprocessEffectAction>(
+                                         *action_value, pointer_child(pointer, "action"),
+                                         {{"upsert", PostprocessEffectAction::Upsert},
+                                          {"remove", PostprocessEffectAction::Remove}})
+                                   : std::nullopt;
+        auto instance = instance_value ? decoder.id<PostprocessEffectInstanceId>(
+                                             *instance_value, pointer_child(pointer, "instanceId"))
+                                       : std::nullopt;
+        std::optional<MaterialId> material;
+        bool material_ok = material_value != nullptr;
+        if (material_value && !material_value->is_null()) {
+            material = decode_reference<MaterialId>(decoder, *material_value,
+                                                    pointer_child(pointer, "material"), "material");
+            material_ok = material.has_value();
+        }
+        auto scope = scope_value
+                         ? decoder.enumeration<MaterialPostprocessScope>(
+                               *scope_value, pointer_child(pointer, "scope"),
+                               {{"world", MaterialPostprocessScope::World},
+                                {"full-game-viewport", MaterialPostprocessScope::FullGameViewport}})
+                         : std::nullopt;
+        std::optional<std::int32_t> order;
+        if (order_value) {
+            if (!order_value->is_number_integer())
+                decoder.error(k_code_number, "Postprocess order must be an integer.",
+                              pointer_child(pointer, "order"));
+            else {
+                const auto wide = order_value->get<std::int64_t>();
+                if (wide < std::numeric_limits<std::int32_t>::min() ||
+                    wide > std::numeric_limits<std::int32_t>::max())
+                    decoder.error(k_code_number, "Postprocess order exceeds the supported range.",
+                                  pointer_child(pointer, "order"));
+                else
+                    order = static_cast<std::int32_t>(wide);
+            }
+        }
+        auto clock = clock_value
+                         ? decoder.enumeration<MaterialClock>(
+                               *clock_value, pointer_child(pointer, "clock"),
+                               {{"gameplay", MaterialClock::Gameplay},
+                                {"unscaled-presentation", MaterialClock::UnscaledPresentation}})
+                         : std::nullopt;
+        auto parameters =
+            parameters_value
+                ? decoder.array<PostprocessEffectParameter>(
+                      *parameters_value, pointer_child(pointer, "parameters"),
+                      [&](const nlohmann::json& item, const std::string& item_pointer)
+                          -> std::optional<PostprocessEffectParameter> {
+                          if (!decoder.object(item, item_pointer, {"name", "value"}))
+                              return std::nullopt;
+                          const auto* name_value = decoder.member(item, "name", item_pointer);
+                          const auto* payload = decoder.member(item, "value", item_pointer);
+                          auto name =
+                              name_value
+                                  ? decoder.string(*name_value, pointer_child(item_pointer, "name"))
+                                  : std::nullopt;
+                          auto data =
+                              payload ? decode_material_parameter_value(
+                                            decoder, *payload, pointer_child(item_pointer, "value"))
+                                      : std::nullopt;
+                          return name && !name->empty() && data
+                                     ? std::optional<PostprocessEffectParameter>(
+                                           PostprocessEffectParameter{std::move(*name),
+                                                                      std::move(*data)})
+                                     : std::nullopt;
+                      })
+                : std::nullopt;
+        if (parameters) {
+            std::unordered_set<std::string> names;
+            for (std::size_t index = 0; index < parameters->size(); ++index) {
+                if (!names.emplace((*parameters)[index].name).second)
+                    decoder.error(
+                        k_code_duplicate, "Duplicate Postprocess Material Parameter name.",
+                        pointer_child(pointer_child(pointer, "parameters"), std::to_string(index)) +
+                            "/name");
+            }
+        }
+        if (action && material_ok && parameters &&
+            ((*action == PostprocessEffectAction::Remove) != !material.has_value())) {
+            decoder.error(
+                k_code_variant,
+                "Removing a Postprocess Effect requires no Material; upsert requires one.",
+                pointer_child(pointer, "material"));
+            material_ok = false;
+        }
+        if (action && *action == PostprocessEffectAction::Remove && parameters &&
+            !parameters->empty()) {
+            decoder.error(k_code_variant,
+                          "Removing a Postprocess Effect cannot assign Material Parameters.",
+                          pointer_child(pointer, "parameters"));
+            parameters.reset();
+        }
+        return action && instance && material_ok && scope && order && clock && parameters
+                   ? std::optional<SceneInstruction>(PostprocessEffectInstruction{
+                         std::move(*id), std::move(condition), *action, std::move(*instance),
+                         std::move(material), *scope, *order, *clock, std::move(*parameters)})
                    : std::nullopt;
     }
     if (*kind == "transition-group") {

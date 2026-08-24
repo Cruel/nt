@@ -92,12 +92,23 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         std::vector<core::LayoutSignalId> connected_signals;
         std::optional<core::LayoutStateShape> state_shape;
         std::vector<core::PresentationLayoutStateValue> state_values;
+        std::vector<core::PresentationMaterialParameter> material_parameters;
+        double material_camera_zoom = 1.0;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
     };
 
     std::vector<Desired> desired;
     for (const auto& mount : snapshot.layouts) {
+        std::vector<core::PresentationMaterialParameter> material_parameters;
+        std::copy_if(snapshot.material_parameters.begin(), snapshot.material_parameters.end(),
+                     std::back_inserter(material_parameters), [&](const auto& parameter) {
+                         if (parameter.owner != mount.owner)
+                             return false;
+                         const auto* occurrence =
+                             std::get_if<core::LayoutMaterialOccurrence>(&parameter.occurrence);
+                         return occurrence != nullptr && occurrence->key == mount.key;
+                     });
         desired.push_back(
             {presentation_layout_owner_text(mount.owner) + "/" +
                  presentation_layout_key_text(mount.key),
@@ -107,6 +118,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                  : core::MountedLayoutOwner::Shell,
              mount.policy, mount.scale_overrides, mount.occurrence, mount.inputs,
              mount.connected_signals, mount.state_shape, mount.state_values,
+             std::move(material_parameters), snapshot.camera ? snapshot.camera->view.zoom : 1.0,
              mount.composition_group});
     }
     std::sort(desired.begin(), desired.end(),
@@ -152,6 +164,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
             existing->second.connected_signals == item.connected_signals &&
             existing->second.state_shape == item.state_shape &&
             existing->second.state_values == item.state_values &&
+            existing->second.material_parameters == item.material_parameters &&
+            existing->second.material_camera_zoom == item.material_camera_zoom &&
             existing->second.composition_group == item.composition_group) {
             auto reused = existing->second;
             reused.key = item.key;
@@ -172,6 +186,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         request.connected_signals = item.connected_signals;
         request.state_shape = item.state_shape;
         request.state_values = item.state_values;
+        request.material_parameters = item.material_parameters;
+        request.material_camera_zoom = item.material_camera_zoom;
         request.source = presentation::RuntimeLayoutProjectSource{};
         request.composition_group = item.composition_group;
         request.publication_revision = snapshot.revision;
@@ -187,6 +203,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                                       item.semantic_owner, item.owner, item.policy,
                                       item.scale_overrides, item.occurrence, item.inputs,
                                       item.connected_signals, item.state_shape, item.state_values,
+                                      item.material_parameters, item.material_camera_zoom,
                                       item.composition_group, snapshot.revision});
             continue;
         }
@@ -197,12 +214,14 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
             return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
         }
         newly_mounted.push_back(*mounted.value_if());
-        next.insert_or_assign(item.identity,
-                              MountedPresentationLayout{
-                                  item.key, *mounted.value_if(), item.layout, item.semantic_owner,
-                                  item.owner, item.policy, item.scale_overrides, item.occurrence,
-                                  item.inputs, item.connected_signals, item.state_shape,
-                                  item.state_values, item.composition_group, snapshot.revision});
+        next.insert_or_assign(
+            item.identity,
+            MountedPresentationLayout{item.key, *mounted.value_if(), item.layout,
+                                      item.semantic_owner, item.owner, item.policy,
+                                      item.scale_overrides, item.occurrence, item.inputs,
+                                      item.connected_signals, item.state_shape, item.state_values,
+                                      item.material_parameters, item.material_camera_zoom,
+                                      item.composition_group, snapshot.revision});
     }
 
     for (const auto& [identity, previous] : m_current) {

@@ -172,6 +172,13 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/scenes\/\*\/data\/steps\/\*\/(?:pausePolicy|pan|panSource|causality|synchronized|skipBehavior|instanceId|replacementGroup)(?:\/|$)/,
     OWNER,
   ],
+  // #90 adds occurrence-local Material Parameters and bounded postprocess effects without changing
+  // the preserved authoring schema version. Every field in those Scene step variants affects the
+  // owning Scene's compiled presentation program and preview invalidation.
+  [
+    /^\/scenes\/\*\/data\/steps\/\*\/(?:target|parameters)(?:\/|$)|^\/scenes\/\*\/data\/steps\/\*\/(?:parameter|easing|clock|scope|order)$|^\/scenes\/\*\/data\/steps\/\*\/value\/(?:\*|r|g|b|a)$/,
+    OWNER,
+  ],
   // #83 atomically replaces positional Verb arity/operand contracts with named slots, stable
   // binding order, completed-command text, and reusable Subject Selectors at the preserved authoring
   // schema version. These leaves all contribute to the owning Verb or Interaction projection.
@@ -577,7 +584,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     project: 'da3be83d',
     properties: 'c35941e2',
     rooms: '78de04a2',
-    scenes: 'c0e649be',
+    scenes: '85280f9a',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',

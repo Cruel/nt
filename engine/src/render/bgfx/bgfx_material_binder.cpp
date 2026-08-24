@@ -284,8 +284,19 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             bgfx::setUniform(uniform_handle(uniform.name), value.data());
             continue;
         }
+        const MaterialUniformOverride* occurrence_override = nullptr;
+        if (inputs.quad_command != nullptr) {
+            const auto found = std::find_if(
+                inputs.quad_command->material_uniform_overrides.begin(),
+                inputs.quad_command->material_uniform_overrides.end(),
+                [&](const MaterialUniformOverride& value) { return value.name == uniform.name; });
+            if (found != inputs.quad_command->material_uniform_overrides.end())
+                occurrence_override = &*found;
+        }
         const ShaderUniformValue* value =
-            assignment != nullptr ? &assignment->value : &uniform.default_value;
+            occurrence_override != nullptr
+                ? &occurrence_override->value
+                : (assignment != nullptr ? &assignment->value : &uniform.default_value);
         if (inputs.role == ShaderRole::Engine2D && uniform.name == "u_useTexture" &&
             std::holds_alternative<std::monostate>(*value) &&
             has_texture_assignment_for_sampler(material, "s_texColor")) {

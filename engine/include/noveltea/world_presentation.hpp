@@ -116,6 +116,8 @@ struct WorldPresentationDraw {
     std::int32_t order = 0;
     std::string stable_identity;
     std::uint8_t sublayer = 0;
+    std::optional<core::PresentationOwner> material_owner;
+    std::optional<core::MaterialOccurrence> material_occurrence;
     QuadCommand command;
     std::optional<core::compiled::CharacterIdle> actor_idle;
     std::optional<core::LayoutClockDomain> environment_clock;
@@ -154,6 +156,7 @@ struct WorldPresentationFrame {
     core::PresentationSnapshotRevision revision =
         core::PresentationSnapshotRevision::from_number(0);
     std::optional<core::PresentationCamera> camera;
+    std::vector<core::PresentationMaterialParameter> material_parameters;
     std::vector<WorldPresentationDraw> draws;
     std::vector<WorldPreparedHotspotSurface> hotspot_surfaces;
     std::vector<WorldHotspotHitTarget> hotspot_hit_targets;

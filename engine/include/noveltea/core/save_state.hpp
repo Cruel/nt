@@ -211,6 +211,56 @@ struct SavedPresentationEnvironment {
     bool visible = true;
 };
 
+struct SavedBackgroundMaterialOccurrence {
+    auto operator<=>(const SavedBackgroundMaterialOccurrence&) const = default;
+};
+struct SavedActorMaterialOccurrence {
+    SavedActorPresentationKey key;
+    ActorMaterialLayer layer = ActorMaterialLayer::Pose;
+    auto operator<=>(const SavedActorMaterialOccurrence&) const = default;
+};
+struct SavedPropMaterialOccurrence {
+    PresentationPropInstanceId instance;
+    auto operator<=>(const SavedPropMaterialOccurrence&) const = default;
+};
+struct SavedEnvironmentMaterialOccurrence {
+    PresentationEnvironmentInstanceId instance;
+    auto operator<=>(const SavedEnvironmentMaterialOccurrence&) const = default;
+};
+struct SavedLayoutMaterialOccurrence {
+    MountedLayoutPresentationKey key;
+    MaterialId material;
+    auto operator<=>(const SavedLayoutMaterialOccurrence&) const = default;
+};
+struct SavedPostprocessMaterialOccurrence {
+    PostprocessEffectInstanceId instance;
+    auto operator<=>(const SavedPostprocessMaterialOccurrence&) const = default;
+};
+using SavedMaterialOccurrence =
+    std::variant<SavedBackgroundMaterialOccurrence, SavedActorMaterialOccurrence,
+                 SavedPropMaterialOccurrence, SavedEnvironmentMaterialOccurrence,
+                 SavedLayoutMaterialOccurrence, SavedPostprocessMaterialOccurrence>;
+
+struct SavedMaterialParameter {
+    SavedPresentationOwner owner;
+    SavedMaterialOccurrence occurrence;
+    MaterialId material;
+    std::string parameter;
+    std::optional<compiled::MaterialParameterValue> value;
+    std::optional<MaterialParameterBinding> binding;
+    MaterialClockPolicy clock = MaterialClockPolicy::Gameplay;
+};
+
+struct SavedPostprocessEffect {
+    PostprocessEffectInstanceId instance;
+    SavedPresentationOwner owner;
+    MaterialId material;
+    compiled::MaterialPostprocessScope scope = compiled::MaterialPostprocessScope::World;
+    std::int32_t order = 0;
+    MaterialClockPolicy clock = MaterialClockPolicy::Gameplay;
+    bool visible = true;
+};
+
 struct SavedMountedLayout {
     MountedLayoutPresentationKey key;
     SavedPresentationOwner owner;
@@ -289,6 +339,8 @@ struct SaveState {
     std::vector<SavedActorPresentation> actors;
     std::vector<SavedPresentationProp> presentation_props;
     std::vector<SavedPresentationEnvironment> presentation_environments;
+    std::vector<SavedMaterialParameter> material_parameters;
+    std::vector<SavedPostprocessEffect> postprocess_effects;
     std::vector<SavedMountedLayout> mounted_layouts;
     std::vector<SavedLayoutStateSlot> layout_state_slots;
     std::vector<SavedDesiredAudio> desired_audio;

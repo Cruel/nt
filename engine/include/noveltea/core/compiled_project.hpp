@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -191,6 +192,51 @@ using ScriptSource = std::variant<InlineLuaSource, AssetScriptSource>;
 struct ScriptResource {
     ScriptId id;
     ScriptSource source;
+};
+
+enum class MaterialRole : std::uint8_t {
+    Engine2D,
+    ActiveText,
+    RmlUiDecorator,
+    RmlUiFilter,
+    Postprocess,
+    HotspotOverlay,
+};
+enum class MaterialParameterType : std::uint8_t {
+    Float,
+    Vec2,
+    Vec3,
+    Vec4,
+    Color,
+    Int,
+    Bool,
+};
+enum class MaterialPostprocessScope : std::uint8_t {
+    World,
+    FullGameViewport,
+};
+struct MaterialColorValue {
+    double r = 1.0;
+    double g = 1.0;
+    double b = 1.0;
+    double a = 1.0;
+    bool operator==(const MaterialColorValue&) const = default;
+};
+using MaterialParameterValue =
+    std::variant<double, std::array<double, 2>, std::array<double, 3>, std::array<double, 4>,
+                 MaterialColorValue, std::int64_t, bool>;
+struct MaterialParameterDeclaration {
+    std::string name;
+    MaterialParameterType type = MaterialParameterType::Float;
+    std::optional<std::string> renderer_binding;
+    bool operator==(const MaterialParameterDeclaration&) const = default;
+};
+struct MaterialInterfaceResource {
+    MaterialId id;
+    MaterialRole role = MaterialRole::Engine2D;
+    MaterialPostprocessScope postprocess_scope = MaterialPostprocessScope::World;
+    std::vector<MaterialParameterDeclaration> parameters;
+    bool operator==(const MaterialInterfaceResource&) const = default;
 };
 
 struct AspectRatio {
@@ -1003,6 +1049,77 @@ struct SetLayoutInstruction {
     PresentationInstructionWait wait;
     bool skippable;
 };
+enum class MaterialActorLayer : std::uint8_t {
+    Pose,
+    Expression,
+};
+struct BackgroundMaterialInstructionTarget {
+    auto operator<=>(const BackgroundMaterialInstructionTarget&) const = default;
+};
+struct ActorMaterialInstructionTarget {
+    ActorSlotId slot;
+    MaterialActorLayer layer = MaterialActorLayer::Pose;
+    auto operator<=>(const ActorMaterialInstructionTarget&) const = default;
+};
+struct LayoutMaterialInstructionTarget {
+    LayoutSlot slot = LayoutSlot::Overlay;
+    auto operator<=>(const LayoutMaterialInstructionTarget&) const = default;
+};
+struct PostprocessMaterialInstructionTarget {
+    PostprocessEffectInstanceId instance;
+    auto operator<=>(const PostprocessMaterialInstructionTarget&) const = default;
+};
+using MaterialOccurrenceInstructionTarget =
+    std::variant<BackgroundMaterialInstructionTarget, ActorMaterialInstructionTarget,
+                 LayoutMaterialInstructionTarget, PostprocessMaterialInstructionTarget>;
+enum class MaterialParameterTransition : std::uint8_t {
+    None,
+    Tween,
+};
+enum class MaterialClock : std::uint8_t {
+    Gameplay,
+    UnscaledPresentation,
+};
+enum class MaterialEasing : std::uint8_t {
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+};
+struct MaterialParameterInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    MaterialOccurrenceInstructionTarget target;
+    MaterialId material;
+    std::string parameter;
+    MaterialParameterValue value;
+    MaterialParameterTransition transition = MaterialParameterTransition::None;
+    std::uint64_t duration_ms = 0;
+    MaterialEasing easing = MaterialEasing::Linear;
+    MaterialClock clock = MaterialClock::Gameplay;
+    PresentationInstructionWait wait;
+    bool skippable = true;
+};
+enum class PostprocessEffectAction : std::uint8_t {
+    Upsert,
+    Remove,
+};
+struct PostprocessEffectParameter {
+    std::string name;
+    MaterialParameterValue value;
+    bool operator==(const PostprocessEffectParameter&) const = default;
+};
+struct PostprocessEffectInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    PostprocessEffectAction action = PostprocessEffectAction::Upsert;
+    PostprocessEffectInstanceId instance;
+    std::optional<MaterialId> material;
+    MaterialPostprocessScope scope = MaterialPostprocessScope::World;
+    std::int32_t order = 0;
+    MaterialClock clock = MaterialClock::Gameplay;
+    std::vector<PostprocessEffectParameter> parameters;
+};
 struct TransitionGroupSetBackgroundMutation {
     TransitionGroupChildId id;
     BackgroundPresentation background;
@@ -1046,6 +1163,7 @@ using SceneInstruction =
                  ShowTextInstruction, AudioCueInstruction, SetGlobalPropertySceneInstruction,
                  RunLuaSceneInstruction, WaitDurationInstruction, WaitInputInstruction,
                  ConditionalBranchInstruction, ChoiceSceneInstruction, SetLayoutInstruction,
+                 MaterialParameterInstruction, PostprocessEffectInstruction,
                  TransitionGroupInstruction>;
 struct SceneProgram {
     std::vector<SceneInstruction> instructions;
@@ -1189,6 +1307,7 @@ struct CompiledProjectInput {
     std::vector<InventoryDefinition> inventories;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;
+    std::vector<MaterialInterfaceResource> material_interfaces;
     std::vector<ScriptResource> scripts;
     std::vector<CharacterDefinition> characters;
     std::vector<RoomDefinition> rooms;
@@ -1247,6 +1366,11 @@ public:
     [[nodiscard]] const std::vector<compiled::LayoutResource>& layouts() const noexcept
     {
         return m_layouts;
+    }
+    [[nodiscard]] const std::vector<compiled::MaterialInterfaceResource>&
+    material_interfaces() const noexcept
+    {
+        return m_material_interfaces;
     }
     [[nodiscard]] const std::vector<compiled::ScriptResource>& scripts() const noexcept
     {
@@ -1307,6 +1431,8 @@ public:
     find_inventory(const compiled::InventoryRef& reference) const noexcept;
     [[nodiscard]] const compiled::AssetResource* find_asset(const AssetId& id) const noexcept;
     [[nodiscard]] const compiled::LayoutResource* find_layout(const LayoutId& id) const noexcept;
+    [[nodiscard]] const compiled::MaterialInterfaceResource*
+    find_material_interface(const MaterialId& id) const noexcept;
     [[nodiscard]] const compiled::ScriptResource* find_script(const ScriptId& id) const noexcept;
     [[nodiscard]] const compiled::CharacterDefinition*
     find_character(const CharacterId& id) const noexcept;
@@ -1346,6 +1472,7 @@ private:
     std::vector<compiled::InventoryDefinition> m_inventories;
     std::vector<compiled::AssetResource> m_assets;
     std::vector<compiled::LayoutResource> m_layouts;
+    std::vector<compiled::MaterialInterfaceResource> m_material_interfaces;
     std::vector<compiled::ScriptResource> m_scripts;
     std::vector<compiled::CharacterDefinition> m_characters;
     std::vector<compiled::RoomDefinition> m_rooms;
@@ -1365,6 +1492,7 @@ private:
     NOVELTEA_COMPILED_INDEX(ArchetypeId, archetype);
     NOVELTEA_COMPILED_INDEX(AssetId, asset);
     NOVELTEA_COMPILED_INDEX(LayoutId, layout);
+    NOVELTEA_COMPILED_INDEX(MaterialId, material_interface);
     NOVELTEA_COMPILED_INDEX(ScriptId, script);
     NOVELTEA_COMPILED_INDEX(CharacterId, character);
     NOVELTEA_COMPILED_INDEX(RoomId, room);

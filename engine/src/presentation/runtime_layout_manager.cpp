@@ -253,6 +253,8 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
         .connected_signals = std::move(request.connected_signals),
         .state_shape = std::move(request.state_shape),
         .state_values = std::move(request.state_values),
+        .material_parameters = std::move(request.material_parameters),
+        .material_camera_zoom = request.material_camera_zoom,
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
     });
@@ -311,6 +313,8 @@ RuntimeLayoutManager::UpdateResult RuntimeLayoutManager::update(core::MountedLay
         .connected_signals = std::move(request.connected_signals),
         .state_shape = std::move(request.state_shape),
         .state_values = std::move(request.state_values),
+        .material_parameters = std::move(request.material_parameters),
+        .material_camera_zoom = request.material_camera_zoom,
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
     };

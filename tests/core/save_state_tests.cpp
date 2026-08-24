@@ -1236,3 +1236,66 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
             flow_return_destination(restored.value().flow_stack().front())));
     }
 }
+
+TEST_CASE("Material Parameter and postprocess Desired State round-trips through save restore")
+{
+    const auto project = load_fixture("scene-program.json");
+    auto state = make_state(project);
+    const PresentationOwner owner{state.session_presentation_owner()};
+    const auto sprite_material = id<MaterialId>("sprite-material");
+    const auto postprocess_material = id<MaterialId>("scene-postprocess-material");
+
+    REQUIRE(state.upsert_background_override(
+        project,
+        DesiredBackgroundOverride{owner, compiled::BackgroundPresentation{
+                                             std::nullopt, std::string{"#ffffff"},
+                                             compiled::BackgroundFit::Cover, sprite_material}}));
+    const MaterialOccurrence background = BackgroundMaterialOccurrence{};
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, background, sprite_material, "u_tint",
+                                          compiled::MaterialColorValue{0.2, 0.4, 0.6, 1.0},
+                                          std::nullopt, MaterialClockPolicy::Gameplay}));
+
+    const auto effect_id = id<PostprocessEffectInstanceId>("saved-grade");
+    REQUIRE(state.upsert_postprocess_effect(
+        project, DesiredPostprocessEffect{effect_id, owner, postprocess_material,
+                                          compiled::MaterialPostprocessScope::World, 4,
+                                          MaterialClockPolicy::UnscaledPresentation, true}));
+    const MaterialOccurrence effect = PostprocessMaterialOccurrence{effect_id};
+    REQUIRE(state.upsert_material_parameter(
+        project,
+        DesiredMaterialParameter{owner, effect, postprocess_material, "u_strength", 0.65,
+                                 std::nullopt, MaterialClockPolicy::UnscaledPresentation}));
+
+    auto saved = make_save_state(project, state);
+    REQUIRE(saved);
+    CHECK(saved.value().material_parameters.size() == 2);
+    CHECK(saved.value().postprocess_effects.size() == 1);
+
+    auto encoded = encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    auto decoded = decode_save_state(project, encoded.value(), "material-presentation-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+
+    REQUIRE(restored.value().material_parameters().size() == 2);
+    REQUIRE(restored.value().postprocess_effects().size() == 1);
+    const auto& restored_effect = restored.value().postprocess_effects().front();
+    CHECK(restored_effect.instance == effect_id);
+    CHECK(restored_effect.material == postprocess_material);
+    CHECK(restored_effect.scope == compiled::MaterialPostprocessScope::World);
+    CHECK(restored_effect.order == 4);
+    CHECK(restored_effect.clock == MaterialClockPolicy::UnscaledPresentation);
+
+    const auto restored_parameter =
+        std::find_if(restored.value().material_parameters().begin(),
+                     restored.value().material_parameters().end(), [&](const auto& parameter) {
+                         return parameter.material == postprocess_material &&
+                                parameter.parameter == "u_strength";
+                     });
+    REQUIRE(restored_parameter != restored.value().material_parameters().end());
+    REQUIRE(restored_parameter->value.has_value());
+    CHECK(std::get<double>(*restored_parameter->value) == Catch::Approx(0.65));
+    CHECK(restored_parameter->clock == MaterialClockPolicy::UnscaledPresentation);
+}

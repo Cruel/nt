@@ -114,11 +114,12 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::guard), Condition>);
     STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::priority), std::int64_t>);
     STATIC_REQUIRE(std::variant_size_v<compiled::SubjectSelector> == 6);
-    STATIC_REQUIRE(std::variant_size_v<compiled::SceneInstruction> == 13);
+    STATIC_REQUIRE(std::variant_size_v<compiled::SceneInstruction> == 15);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueSegment> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueBlock> == 3);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueEdge> == 2);
-    STATIC_REQUIRE(std::is_same_v<decltype(compiled::MapLocation::regions), std::vector<compiled::MapPolygon>>);
+    STATIC_REQUIRE(std::is_same_v<decltype(compiled::MapLocation::regions),
+                                  std::vector<compiled::MapPolygon>>);
 
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, compiled::Entrypoint>, RoomId>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, compiled::Entrypoint>, SceneId>);
@@ -148,6 +149,10 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<11, compiled::SceneInstruction>,
                                   compiled::SetLayoutInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<12, compiled::SceneInstruction>,
+                                  compiled::MaterialParameterInstruction>);
+    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<13, compiled::SceneInstruction>,
+                                  compiled::PostprocessEffectInstruction>);
+    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<14, compiled::SceneInstruction>,
                                   compiled::TransitionGroupInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, compiled::InteractionInstruction>,
                                   compiled::ApplyEffectInstruction>);

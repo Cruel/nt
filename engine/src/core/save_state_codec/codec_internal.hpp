@@ -216,6 +216,8 @@ struct SavedPresentationRecords {
     std::vector<SavedActorPresentation> actors;
     std::vector<SavedPresentationProp> props;
     std::vector<SavedPresentationEnvironment> environments;
+    std::vector<SavedMaterialParameter> material_parameters;
+    std::vector<SavedPostprocessEffect> postprocess_effects;
     std::vector<SavedMountedLayout> layouts;
     std::vector<SavedLayoutStateSlot> layout_state_slots;
     std::vector<SavedDesiredAudio> desired_audio;

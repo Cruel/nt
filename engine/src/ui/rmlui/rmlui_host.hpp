@@ -3,6 +3,7 @@
 #include "host/layout_composition.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/runtime_clock.hpp"
+#include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/core/runtime_user_settings.hpp"
 #include "noveltea/surface.hpp"
 #include "ui/rmlui/rmlui_lifecycle.hpp"
@@ -46,6 +47,8 @@ public:
         std::string name;
         Rml::Context* context = nullptr;
         ResolvedContextMetrics metrics{};
+        std::vector<core::PresentationMaterialParameter> material_parameters;
+        double material_camera_zoom = 1.0;
     };
 
     struct Config {
@@ -125,6 +128,10 @@ public:
     void set_context_render_observer(ContextRenderObserver observer);
     void set_context_initializer(ContextInitializer initializer);
     void set_context_clock(ContextKey key);
+    void
+    set_context_material_parameters(Rml::Context* context,
+                                    std::vector<core::PresentationMaterialParameter> parameters,
+                                    double camera_zoom);
 
     [[nodiscard]] bool wants_pointer_input() const;
     [[nodiscard]] bool wants_keyboard_input() const;

@@ -59,6 +59,17 @@ struct PendingLayoutOperation {
     std::optional<core::PresentationFlowCompletion> completion;
 };
 
+struct PendingMaterialParameterOperation {
+    core::MaterialParameterOperationTarget target;
+    core::compiled::MaterialParameterValue source_value;
+    core::compiled::MaterialParameterValue target_value;
+    std::chrono::milliseconds duration{0};
+    bool skippable = true;
+    core::MaterialClockPolicy clock = core::MaterialClockPolicy::Gameplay;
+    core::PresentationEasing easing = core::PresentationEasing::Linear;
+    std::optional<core::PresentationFlowCompletion> completion;
+};
+
 struct PendingAudioOperation {
     core::compiled::AudioAction action = core::compiled::AudioAction::Play;
     core::compiled::AudioPurpose purpose = core::compiled::AudioPurpose::SoundEffect;
@@ -78,7 +89,8 @@ struct PendingAudioOperation {
 
 using PendingPresentationOperation =
     std::variant<PendingSceneTransitionGroupOperation, PendingRoomNavigationOperation,
-                 PendingBackgroundOperation, PendingActorOperation, PendingLayoutOperation>;
+                 PendingBackgroundOperation, PendingActorOperation, PendingLayoutOperation,
+                 PendingMaterialParameterOperation>;
 
 // Backend-neutral program executor for Scene, Dialogue, Interaction, and Room-transition frames.
 // External adapters remain outside this type and communicate through typed runtime ports.

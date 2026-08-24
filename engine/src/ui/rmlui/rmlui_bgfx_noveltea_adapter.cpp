@@ -16,13 +16,17 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <unordered_set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -137,6 +141,7 @@ struct RmlUiDecoratorStandardInputs {
 [[nodiscard]] std::array<float, 4>
 bound_uniform_value(const ShaderUniformDeclaration& uniform,
                     const MaterialUniformAssignment* assignment,
+                    const ShaderUniformValue* occurrence_value,
                     const rmlui_bgfx::RmlUiMaterialShaderDrawContext& context,
                     const RmlUiDecoratorStandardInputs& standard_inputs)
 {
@@ -157,9 +162,47 @@ bound_uniform_value(const ShaderUniformDeclaration& uniform,
     }
 
     const ShaderUniformValue* value =
-        assignment != nullptr ? &assignment->value : &uniform.default_value;
+        occurrence_value != nullptr
+            ? occurrence_value
+            : (assignment != nullptr ? &assignment->value : &uniform.default_value);
     const auto packed = bgfx_backend::pack_material_uniform(*value);
     return packed.supported ? packed.value : std::array<float, 4>{};
+}
+
+std::optional<ShaderUniformValue>
+to_shader_uniform_value(const core::compiled::MaterialParameterValue& value) noexcept
+{
+    return std::visit(
+        [](const auto& item) -> std::optional<ShaderUniformValue> {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, double>)
+                return std::isfinite(item)
+                           ? std::optional<ShaderUniformValue>{static_cast<float>(item)}
+                           : std::nullopt;
+            else if constexpr (std::is_same_v<T, std::array<double, 2>>)
+                return ShaderUniformValue{
+                    std::array<float, 2>{static_cast<float>(item[0]), static_cast<float>(item[1])}};
+            else if constexpr (std::is_same_v<T, std::array<double, 3>>)
+                return ShaderUniformValue{std::array<float, 3>{static_cast<float>(item[0]),
+                                                               static_cast<float>(item[1]),
+                                                               static_cast<float>(item[2])}};
+            else if constexpr (std::is_same_v<T, std::array<double, 4>>)
+                return ShaderUniformValue{
+                    std::array<float, 4>{static_cast<float>(item[0]), static_cast<float>(item[1]),
+                                         static_cast<float>(item[2]), static_cast<float>(item[3])}};
+            else if constexpr (std::is_same_v<T, core::compiled::MaterialColorValue>)
+                return ShaderUniformValue{
+                    ShaderColor{static_cast<float>(item.r), static_cast<float>(item.g),
+                                static_cast<float>(item.b), static_cast<float>(item.a)}};
+            else if constexpr (std::is_same_v<T, std::int64_t>) {
+                if (item < std::numeric_limits<int>::min() ||
+                    item > std::numeric_limits<int>::max())
+                    return std::nullopt;
+                return ShaderUniformValue{static_cast<int>(item)};
+            } else
+                return ShaderUniformValue{item};
+        },
+        value);
 }
 
 } // namespace
@@ -341,8 +384,51 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         for (const auto& uniform : resolved.program->uniforms) {
             const MaterialUniformAssignment* assignment =
                 find_uniform_assignment(*material, uniform.name);
-            const std::array<float, 4> value =
-                bound_uniform_value(uniform, assignment, context, standard_inputs);
+            std::optional<ShaderUniformValue> occurrence_value;
+            const auto parameter = std::find_if(
+                material_parameters.begin(), material_parameters.end(), [&](const auto& value) {
+                    return value.material.text() == record_it->second.material_id.string() &&
+                           value.parameter == uniform.name;
+                });
+            if (parameter != material_parameters.end()) {
+                if (parameter->value) {
+                    occurrence_value = to_shader_uniform_value(*parameter->value);
+                } else if (parameter->standard_facet) {
+                    float value = 0.0f;
+                    switch (*parameter->standard_facet) {
+                    case core::MaterialStandardFacet::OccurrenceTime: {
+                        const double now = parameter->clock == core::MaterialClockPolicy::Gameplay
+                                               ? gameplay_time_seconds
+                                               : unscaled_time_seconds;
+                        const std::string key =
+                            record_it->second.material_id.string() + "/" + parameter->parameter +
+                            "/" + std::to_string(static_cast<unsigned>(parameter->clock));
+                        const auto [epoch, _] = material_parameter_epochs.try_emplace(key, now);
+                        value = static_cast<float>(std::max(0.0, now - epoch->second));
+                        break;
+                    }
+                    case core::MaterialStandardFacet::PaintWidth:
+                        value = context.paint_dimensions.x;
+                        break;
+                    case core::MaterialStandardFacet::PaintHeight:
+                        value = context.paint_dimensions.y;
+                        break;
+                    case core::MaterialStandardFacet::ViewportWidth:
+                        value = standard_inputs.viewport_pixel_dimensions.x;
+                        break;
+                    case core::MaterialStandardFacet::ViewportHeight:
+                        value = standard_inputs.viewport_pixel_dimensions.y;
+                        break;
+                    case core::MaterialStandardFacet::CameraZoom:
+                        value = static_cast<float>(material_camera_zoom);
+                        break;
+                    }
+                    occurrence_value = ShaderUniformValue{value};
+                }
+            }
+            const std::array<float, 4> value = bound_uniform_value(
+                uniform, assignment, occurrence_value ? &*occurrence_value : nullptr, context,
+                standard_inputs);
             bgfx::setUniform(uniform_handle(uniform.name), value.data());
         }
 
@@ -458,6 +544,25 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
             static_cast<float>(presentation.ui_raster.size.height)};
     }
 
+    void set_material_parameters(std::span<const core::PresentationMaterialParameter> parameters,
+                                 const core::RuntimeClockUpdate& clocks, double camera_zoom)
+    {
+        material_parameters.assign(parameters.begin(), parameters.end());
+        gameplay_time_seconds = std::chrono::duration<double>(clocks.gameplay_time).count();
+        unscaled_time_seconds =
+            std::chrono::duration<double>(clocks.unscaled_presentation_time).count();
+        material_camera_zoom = camera_zoom;
+        std::unordered_set<std::string> active_epoch_keys;
+        for (const auto& parameter : material_parameters) {
+            if (parameter.standard_facet != core::MaterialStandardFacet::OccurrenceTime)
+                continue;
+            active_epoch_keys.insert(parameter.material.text() + "/" + parameter.parameter + "/" +
+                                     std::to_string(static_cast<unsigned>(parameter.clock)));
+        }
+        std::erase_if(material_parameter_epochs,
+                      [&](const auto& entry) { return !active_epoch_keys.contains(entry.first); });
+    }
+
     struct MaterialShaderRecord {
         MaterialId material_id;
         Rml::Vector2f paint_dimensions;
@@ -469,6 +574,11 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
     RmlUiDecoratorStandardInputs standard_inputs{};
     std::uint64_t next_material_shader_id = 0;
     std::unordered_map<std::uint64_t, MaterialShaderRecord> material_shader_records;
+    std::vector<core::PresentationMaterialParameter> material_parameters;
+    std::unordered_map<std::string, double> material_parameter_epochs;
+    double gameplay_time_seconds = 0.0;
+    double unscaled_time_seconds = 0.0;
+    double material_camera_zoom = 1.0;
     std::unordered_map<std::string, bgfx::UniformHandle> uniforms;
     std::unordered_map<std::string, bgfx::UniformHandle> samplers;
     std::unordered_map<std::string, bgfx::TextureHandle> textures;
@@ -655,6 +765,13 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
                                               presentation.viewport.host_framebuffer_rect.width,
                                               presentation.viewport.host_framebuffer_rect.height};
     configure_context(presentation, m_context_metrics);
+}
+
+void BgfxRenderInterface::set_material_parameters(
+    std::span<const core::PresentationMaterialParameter> parameters,
+    const core::RuntimeClockUpdate& clocks, double camera_zoom)
+{
+    m_adapter->set_material_parameters(parameters, clocks, camera_zoom);
 }
 
 Rml::CompiledGeometryHandle

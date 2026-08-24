@@ -32,6 +32,12 @@ import {
   type SceneTransitionGroupChildData,
 } from '../../../shared/project-schema/authoring-scenes';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
+import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
+import {
+  parseShaderData,
+  type ShaderUniformData,
+  type ShaderUniformValue,
+} from '../../../shared/project-schema/authoring-shaders';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   buildScenePreviewDocumentData,
@@ -76,6 +82,76 @@ function scalar(value: string): string | number | boolean | null {
   if (value === 'false') return false;
   const number = Number(value);
   return value.trim() !== '' && Number.isFinite(number) ? number : value;
+}
+
+function materialUniforms(
+  project: NonNullable<ReturnType<typeof useProjectStore.getState>['document']>,
+  materialId: string,
+): ShaderUniformData[] {
+  if (!isAuthoringProject(project)) return [];
+  const material = resolveMaterialData(project, materialId).data;
+  if (!material?.shader) return [];
+  const shader = parseShaderData(project.shaders[material.shader.$ref.id]?.data);
+  return shader?.uniforms.filter((uniform) => !uniform.binding) ?? [];
+}
+
+function defaultUniformValue(
+  uniform: ShaderUniformData | undefined,
+): Exclude<ShaderUniformValue, null> {
+  if (uniform?.default !== undefined && uniform.default !== null) return uniform.default;
+  switch (uniform?.type) {
+    case 'bool':
+      return false;
+    case 'vec2':
+      return [0, 0];
+    case 'vec3':
+      return [0, 0, 0];
+    case 'vec4':
+      return [0, 0, 0, 0];
+    case 'color':
+      return { r: 1, g: 1, b: 1, a: 1 };
+    default:
+      return 0;
+  }
+}
+
+function uniformValueText(value: Exclude<ShaderUniformValue, null>): string {
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+function parseUniformValue(
+  text: string,
+  uniform: ShaderUniformData | undefined,
+): Exclude<ShaderUniformValue, null> | null {
+  if (!uniform) return null;
+  if (uniform.type === 'bool') return text === 'true';
+  if (uniform.type === 'float' || uniform.type === 'int') {
+    const value = Number(text);
+    if (!Number.isFinite(value) || (uniform.type === 'int' && !Number.isInteger(value)))
+      return null;
+    return value;
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (uniform.type === 'vec2' && Array.isArray(parsed) && parsed.length === 2)
+      return parsed as [number, number];
+    if (uniform.type === 'vec3' && Array.isArray(parsed) && parsed.length === 3)
+      return parsed as [number, number, number];
+    if (uniform.type === 'vec4' && Array.isArray(parsed) && parsed.length === 4)
+      return parsed as [number, number, number, number];
+    if (
+      uniform.type === 'color' &&
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      ['r', 'g', 'b', 'a'].every(
+        (key) => typeof (parsed as Record<string, unknown>)[key] === 'number',
+      )
+    )
+      return parsed as { r: number; g: number; b: number; a: number };
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export function SceneEditor({ tab }: WorkbenchEditorProps) {
@@ -130,6 +206,33 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
           typeof value === 'string')
         ? { ...step, variable: sceneVariableRef(id), value }
         : null;
+    }
+    if (step.type === 'material-parameter') {
+      const materialId = Object.keys(project.materials).find(
+        (id) => resolveMaterialData(project, id).data?.role === 'engine-2d',
+      );
+      if (!materialId) return null;
+      const uniform = materialUniforms(project, materialId)[0];
+      if (!uniform) return null;
+      return {
+        ...step,
+        material: sceneMaterialRef(materialId),
+        parameter: uniform.name,
+        value: defaultUniformValue(uniform),
+      };
+    }
+    if (step.type === 'postprocess-effect') {
+      const materialId = Object.keys(project.materials).find(
+        (id) => resolveMaterialData(project, id).data?.role === 'postprocess',
+      );
+      if (!materialId) return step;
+      const material = resolveMaterialData(project, materialId).data;
+      return {
+        ...step,
+        action: 'upsert',
+        material: sceneMaterialRef(materialId),
+        scope: material?.postprocessScope ?? 'world',
+      };
     }
     return step;
   };
@@ -1764,6 +1867,526 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 </Label>
               </>
             )}
+            {selected.type === 'material-parameter' &&
+              (() => {
+                const targetKey =
+                  selected.target.kind === 'background'
+                    ? 'background'
+                    : selected.target.kind === 'actor'
+                      ? `actor:${selected.target.slotId}:${selected.target.layer}`
+                      : selected.target.kind === 'layout'
+                        ? `layout:${selected.target.slot}`
+                        : `postprocess:${selected.target.instanceId}`;
+                const allowedRoles =
+                  selected.target.kind === 'layout'
+                    ? new Set(['rmlui-decorator'])
+                    : selected.target.kind === 'postprocess'
+                      ? new Set(['postprocess'])
+                      : new Set(['engine-2d']);
+                const materialIds = Object.keys(project.materials).filter((id) => {
+                  const role = resolveMaterialData(project, id).data?.role;
+                  return role ? allowedRoles.has(role) : false;
+                });
+                const uniforms = materialUniforms(project, selected.material.$ref.id);
+                const uniform = uniforms.find((item) => item.name === selected.parameter);
+                const tweenable = uniform ? !['bool', 'int'].includes(uniform.type) : false;
+                return (
+                  <>
+                    <Label>
+                      Target
+                      <Select
+                        value={targetKey}
+                        onValueChange={(value) => {
+                          if (!value) return;
+                          let target: typeof selected.target;
+                          if (value === 'background') target = { kind: 'background' };
+                          else if (value.startsWith('actor:')) {
+                            const [, slotId = '', layer = 'pose'] = value.split(':');
+                            target = {
+                              kind: 'actor',
+                              slotId,
+                              layer: layer === 'expression' ? 'expression' : 'pose',
+                            };
+                          } else if (value.startsWith('layout:')) {
+                            const [, slot = 'overlay'] = value.split(':');
+                            target = {
+                              kind: 'layout',
+                              slot: slot as Extract<
+                                typeof selected.target,
+                                { kind: 'layout' }
+                              >['slot'],
+                            };
+                          } else {
+                            target = {
+                              kind: 'postprocess',
+                              instanceId: value.slice('postprocess:'.length),
+                            };
+                          }
+                          const roles =
+                            target.kind === 'layout'
+                              ? new Set(['rmlui-decorator'])
+                              : target.kind === 'postprocess'
+                                ? new Set(['postprocess'])
+                                : new Set(['engine-2d']);
+                          const nextMaterial = Object.keys(project.materials).find((id) => {
+                            const role = resolveMaterialData(project, id).data?.role;
+                            return role ? roles.has(role) : false;
+                          });
+                          if (!nextMaterial) {
+                            replaceStep({ ...selected, target });
+                            return;
+                          }
+                          const nextUniform = materialUniforms(project, nextMaterial)[0];
+                          replaceStep({
+                            ...selected,
+                            target,
+                            material: sceneMaterialRef(nextMaterial),
+                            parameter: nextUniform?.name ?? selected.parameter,
+                            value: nextUniform ? defaultUniformValue(nextUniform) : selected.value,
+                            transition:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? 'none'
+                                : selected.transition,
+                            durationMs:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? 0
+                                : selected.durationMs,
+                            waitForCompletion:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? false
+                                : selected.waitForCompletion,
+                          });
+                        }}
+                      >
+                        <SelectItem value="background">Background</SelectItem>
+                        {sceneActorSlots.flatMap((slotId) => [
+                          <SelectItem key={`${slotId}-pose`} value={`actor:${slotId}:pose`}>
+                            Actor {slotId} / Pose
+                          </SelectItem>,
+                          <SelectItem
+                            key={`${slotId}-expression`}
+                            value={`actor:${slotId}:expression`}
+                          >
+                            Actor {slotId} / Expression
+                          </SelectItem>,
+                        ])}
+                        {(['hud', 'dialogue-box', 'overlay', 'custom'] as const).map((slot) => (
+                          <SelectItem key={slot} value={`layout:${slot}`}>
+                            Layout / {title(slot)}
+                          </SelectItem>
+                        ))}
+                        {data.steps
+                          .filter((step) => step.type === 'postprocess-effect')
+                          .map((step) => (
+                            <SelectItem
+                              key={step.instanceId}
+                              value={`postprocess:${step.instanceId}`}
+                            >
+                              Postprocess / {step.instanceId}
+                            </SelectItem>
+                          ))}
+                      </Select>
+                    </Label>
+                    <Label>
+                      Material
+                      <Select
+                        value={selected.material.$ref.id}
+                        onValueChange={(materialId) => {
+                          if (!materialId) return;
+                          const nextUniform = materialUniforms(project, materialId)[0];
+                          replaceStep({
+                            ...selected,
+                            material: sceneMaterialRef(materialId),
+                            parameter: nextUniform?.name ?? selected.parameter,
+                            value: nextUniform ? defaultUniformValue(nextUniform) : selected.value,
+                            transition:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? 'none'
+                                : selected.transition,
+                            durationMs:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? 0
+                                : selected.durationMs,
+                            waitForCompletion:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? false
+                                : selected.waitForCompletion,
+                          });
+                        }}
+                      >
+                        {materialIds.map((id) => (
+                          <SelectItem key={id} value={id}>
+                            {project.materials[id]?.label ?? id}
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </Label>
+                    <Label>
+                      Parameter
+                      <Select
+                        value={selected.parameter}
+                        onValueChange={(parameter) => {
+                          if (!parameter) return;
+                          const nextUniform = uniforms.find((item) => item.name === parameter);
+                          replaceStep({
+                            ...selected,
+                            parameter,
+                            value: defaultUniformValue(nextUniform),
+                            transition:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? 'none'
+                                : selected.transition,
+                            durationMs:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? 0
+                                : selected.durationMs,
+                            waitForCompletion:
+                              nextUniform && ['bool', 'int'].includes(nextUniform.type)
+                                ? false
+                                : selected.waitForCompletion,
+                          });
+                        }}
+                      >
+                        {uniforms.map((item) => (
+                          <SelectItem key={item.name} value={item.name}>
+                            {item.label ?? item.name} ({item.type})
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </Label>
+                    <Label>
+                      Value
+                      {uniform?.type === 'bool' ? (
+                        <Select
+                          value={selected.value === true ? 'true' : 'false'}
+                          onValueChange={(value) =>
+                            replaceStep({ ...selected, value: value === 'true' })
+                          }
+                        >
+                          <SelectItem value="false">False</SelectItem>
+                          <SelectItem value="true">True</SelectItem>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={uniformValueText(selected.value)}
+                          onChange={(event) => {
+                            const value = parseUniformValue(event.target.value, uniform);
+                            if (value !== null) replaceStep({ ...selected, value });
+                          }}
+                        />
+                      )}
+                    </Label>
+                    <Label>
+                      Transition
+                      <Select
+                        value={selected.transition}
+                        onValueChange={(value) => {
+                          const transition = value === 'tween' && tweenable ? 'tween' : 'none';
+                          replaceStep({
+                            ...selected,
+                            transition,
+                            durationMs:
+                              transition === 'tween' ? Math.max(1, selected.durationMs || 250) : 0,
+                            waitForCompletion:
+                              transition === 'tween' ? selected.waitForCompletion : false,
+                          });
+                        }}
+                      >
+                        <SelectItem value="none">Immediate</SelectItem>
+                        <SelectItem value="tween" disabled={!tweenable}>
+                          Tween
+                        </SelectItem>
+                      </Select>
+                    </Label>
+                    {selected.transition === 'tween' && (
+                      <>
+                        <Label>
+                          Duration (ms)
+                          <Input
+                            type="number"
+                            min="1"
+                            value={selected.durationMs}
+                            onChange={(event) =>
+                              replaceStep({ ...selected, durationMs: Number(event.target.value) })
+                            }
+                          />
+                        </Label>
+                        <Label>
+                          Easing
+                          <Select
+                            value={selected.easing}
+                            onValueChange={(easing) =>
+                              replaceStep({ ...selected, easing: easing as typeof selected.easing })
+                            }
+                          >
+                            {['linear', 'ease-in', 'ease-out', 'ease-in-out'].map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {title(value)}
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </Label>
+                        <Label className="flex items-center gap-2">
+                          Wait for completion
+                          <Switch
+                            checked={selected.waitForCompletion}
+                            onCheckedChange={(waitForCompletion) =>
+                              replaceStep({ ...selected, waitForCompletion })
+                            }
+                          />
+                        </Label>
+                        <Label className="flex items-center gap-2">
+                          Skippable
+                          <Switch
+                            checked={selected.skippable}
+                            onCheckedChange={(skippable) => replaceStep({ ...selected, skippable })}
+                          />
+                        </Label>
+                      </>
+                    )}
+                    <Label>
+                      Material clock
+                      <Select
+                        value={selected.clock}
+                        onValueChange={(clock) =>
+                          replaceStep({ ...selected, clock: clock as typeof selected.clock })
+                        }
+                      >
+                        <SelectItem value="gameplay">Gameplay</SelectItem>
+                        <SelectItem value="unscaled-presentation">Unscaled Presentation</SelectItem>
+                      </Select>
+                    </Label>
+                  </>
+                );
+              })()}
+            {selected.type === 'postprocess-effect' &&
+              (() => {
+                const postprocessMaterials = Object.keys(project.materials).filter(
+                  (id) => resolveMaterialData(project, id).data?.role === 'postprocess',
+                );
+                const materialId = selected.material?.$ref.id ?? '';
+                const uniforms = materialId ? materialUniforms(project, materialId) : [];
+                return (
+                  <>
+                    <Label>
+                      Action
+                      <Select
+                        value={selected.action}
+                        onValueChange={(value) => {
+                          const action = value === 'upsert' ? 'upsert' : 'remove';
+                          if (action === 'remove') {
+                            replaceStep({ ...selected, action, material: null, parameters: [] });
+                            return;
+                          }
+                          const nextMaterial = materialId || postprocessMaterials[0] || '';
+                          const material = nextMaterial
+                            ? resolveMaterialData(project, nextMaterial).data
+                            : null;
+                          replaceStep({
+                            ...selected,
+                            action,
+                            material: nextMaterial ? sceneMaterialRef(nextMaterial) : null,
+                            scope: material?.postprocessScope ?? selected.scope,
+                          });
+                        }}
+                      >
+                        <SelectItem value="upsert">Add / Update</SelectItem>
+                        <SelectItem value="remove">Remove</SelectItem>
+                      </Select>
+                    </Label>
+                    <Label>
+                      Stable effect ID
+                      <Input
+                        value={selected.instanceId}
+                        onChange={(event) =>
+                          replaceStep({ ...selected, instanceId: event.target.value })
+                        }
+                      />
+                    </Label>
+                    {selected.action === 'upsert' && (
+                      <>
+                        <Label>
+                          Material
+                          <Select
+                            value={materialId}
+                            onValueChange={(id) => {
+                              if (!id) return;
+                              const material = resolveMaterialData(project, id).data;
+                              replaceStep({
+                                ...selected,
+                                material: sceneMaterialRef(id),
+                                scope: material?.postprocessScope ?? selected.scope,
+                                parameters: [],
+                              });
+                            }}
+                          >
+                            {postprocessMaterials.map((id) => (
+                              <SelectItem key={id} value={id}>
+                                {project.materials[id]?.label ?? id}
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </Label>
+                        <Label>
+                          Scope
+                          <Select value={selected.scope} disabled>
+                            <SelectItem value="world">World</SelectItem>
+                            <SelectItem value="full-game-viewport">Full Game Viewport</SelectItem>
+                          </Select>
+                        </Label>
+                        <Label>
+                          Order
+                          <Input
+                            type="number"
+                            value={selected.order}
+                            onChange={(event) =>
+                              replaceStep({ ...selected, order: Number(event.target.value) })
+                            }
+                          />
+                        </Label>
+                        <Label>
+                          Material clock
+                          <Select
+                            value={selected.clock}
+                            onValueChange={(clock) =>
+                              replaceStep({ ...selected, clock: clock as typeof selected.clock })
+                            }
+                          >
+                            <SelectItem value="gameplay">Gameplay</SelectItem>
+                            <SelectItem value="unscaled-presentation">
+                              Unscaled Presentation
+                            </SelectItem>
+                          </Select>
+                        </Label>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label>Initial parameters</Label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                uniforms.length === 0 ||
+                                selected.parameters.length >= uniforms.length
+                              }
+                              onClick={() => {
+                                const available = uniforms.find(
+                                  (uniform) =>
+                                    !selected.parameters.some(
+                                      (parameter) => parameter.name === uniform.name,
+                                    ),
+                                );
+                                if (!available) return;
+                                replaceStep({
+                                  ...selected,
+                                  parameters: [
+                                    ...selected.parameters,
+                                    { name: available.name, value: defaultUniformValue(available) },
+                                  ],
+                                });
+                              }}
+                            >
+                              Add parameter
+                            </Button>
+                          </div>
+                          {selected.parameters.map((parameter, index) => {
+                            const parameterUniform = uniforms.find(
+                              (uniform) => uniform.name === parameter.name,
+                            );
+                            return (
+                              <div
+                                key={`${parameter.name}-${index}`}
+                                className="grid gap-2 rounded border p-2"
+                              >
+                                <Select
+                                  value={parameter.name}
+                                  onValueChange={(name) => {
+                                    if (!name) return;
+                                    const nextUniform = uniforms.find(
+                                      (uniform) => uniform.name === name,
+                                    );
+                                    replaceStep({
+                                      ...selected,
+                                      parameters: selected.parameters.map((current, currentIndex) =>
+                                        currentIndex === index
+                                          ? {
+                                              name,
+                                              value: defaultUniformValue(nextUniform),
+                                            }
+                                          : current,
+                                      ),
+                                    });
+                                  }}
+                                >
+                                  {uniforms.map((uniform) => (
+                                    <SelectItem key={uniform.name} value={uniform.name}>
+                                      {uniform.label ?? uniform.name} ({uniform.type})
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                                {parameterUniform?.type === 'bool' ? (
+                                  <Select
+                                    value={parameter.value === true ? 'true' : 'false'}
+                                    onValueChange={(value) =>
+                                      replaceStep({
+                                        ...selected,
+                                        parameters: selected.parameters.map(
+                                          (current, currentIndex) =>
+                                            currentIndex === index
+                                              ? { ...current, value: value === 'true' }
+                                              : current,
+                                        ),
+                                      })
+                                    }
+                                  >
+                                    <SelectItem value="false">False</SelectItem>
+                                    <SelectItem value="true">True</SelectItem>
+                                  </Select>
+                                ) : (
+                                  <Input
+                                    value={uniformValueText(parameter.value)}
+                                    onChange={(event) => {
+                                      const value = parseUniformValue(
+                                        event.target.value,
+                                        parameterUniform,
+                                      );
+                                      if (value === null) return;
+                                      replaceStep({
+                                        ...selected,
+                                        parameters: selected.parameters.map(
+                                          (current, currentIndex) =>
+                                            currentIndex === index
+                                              ? { ...current, value }
+                                              : current,
+                                        ),
+                                      });
+                                    }}
+                                  />
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    replaceStep({
+                                      ...selected,
+                                      parameters: selected.parameters.filter(
+                                        (_, currentIndex) => currentIndex !== index,
+                                      ),
+                                    })
+                                  }
+                                >
+                                  Remove parameter
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             {selected.type === 'transition-group' && (
               <>
                 <Label>

@@ -394,6 +394,59 @@ TEST_CASE(
     CHECK(kernel->state().mounted_layouts().front().layout ==
           core::LayoutId::create("hud-assets").value());
 
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    REQUIRE(kernel->state().postprocess_effects().size() == 1);
+    CHECK(kernel->state().postprocess_effects().front().instance ==
+          core::PostprocessEffectInstanceId::create("scene-grade").value());
+    REQUIRE(kernel->state().material_parameters().size() == 1);
+    CHECK(kernel->state().material_parameters().front().parameter == "u_strength");
+    REQUIRE(kernel->state().material_parameters().front().value);
+    CHECK(std::get<double>(*kernel->state().material_parameters().front().value) == 0.4);
+
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    REQUIRE(kernel->state().material_parameters().size() == 2);
+    CHECK(std::ranges::any_of(kernel->state().material_parameters(), [](const auto& parameter) {
+        return parameter.parameter == "u_tint" && parameter.value.has_value();
+    }));
+
+    auto material_transition = kernel->run_until_blocked(1, "en");
+    const auto* material_blocked = std::get_if<core::FlowBlockedOutcome>(&material_transition);
+    REQUIRE(material_blocked != nullptr);
+    const auto* material_presentation =
+        std::get_if<core::PresentationFlowBlocker>(&material_blocked->blocker);
+    REQUIRE(material_presentation != nullptr);
+    REQUIRE(kernel->pending_presentation_operation());
+    const auto* pending_material = std::get_if<runtime::PendingMaterialParameterOperation>(
+        &*kernel->pending_presentation_operation());
+    REQUIRE(pending_material != nullptr);
+    CHECK(std::get<double>(pending_material->source_value) == 0.4);
+    CHECK(std::get<double>(pending_material->target_value) == 0.75);
+    CHECK(pending_material->duration == std::chrono::milliseconds{350});
+    CHECK(pending_material->clock == core::MaterialClockPolicy::UnscaledPresentation);
+    CHECK(pending_material->easing == core::PresentationEasing::EaseInOut);
+    const auto target_parameter =
+        std::ranges::find_if(kernel->state().material_parameters(), [](const auto& parameter) {
+            return parameter.parameter == "u_strength";
+        });
+    REQUIRE(target_parameter != kernel->state().material_parameters().end());
+    REQUIRE(target_parameter->value);
+    CHECK(std::get<double>(*target_parameter->value) == 0.75);
+
+    kernel->commit_pending_presentation();
+    REQUIRE(kernel->complete(material_presentation->owner, material_presentation->handle));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(active_scene(*kernel).position.next_step ==
+          core::SceneStepId::create("postprocess-remove").value());
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(kernel->state().postprocess_effects().empty());
+    CHECK(std::ranges::none_of(kernel->state().material_parameters(), [](const auto& parameter) {
+        return std::holds_alternative<core::PostprocessMaterialOccurrence>(parameter.occurrence);
+    }));
+
     auto transition = kernel->run_until_blocked(1, "en");
     const auto* transition_blocked = std::get_if<core::FlowBlockedOutcome>(&transition);
     REQUIRE(transition_blocked != nullptr);

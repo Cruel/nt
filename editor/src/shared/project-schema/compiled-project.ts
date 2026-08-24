@@ -31,6 +31,65 @@ const itemDefinitionReferenceSchema = typedReference('item-definition');
 const itemStackReferenceSchema = typedReference('item-stack');
 const layoutReferenceSchema = typedReference('layout');
 const materialReferenceSchema = typedReference('material');
+const compiledMaterialRoleSchema = z.enum([
+  'engine-2d',
+  'active-text',
+  'rmlui-decorator',
+  'rmlui-filter',
+  'postprocess',
+  'hotspot-overlay',
+]);
+const compiledMaterialParameterTypeSchema = z.enum([
+  'float',
+  'vec2',
+  'vec3',
+  'vec4',
+  'color',
+  'int',
+  'bool',
+]);
+const compiledMaterialParameterValueSchema = z.discriminatedUnion('type', [
+  strict({ type: z.literal('float'), value: z.number().finite() }),
+  strict({
+    type: z.literal('vec2'),
+    value: z.tuple([z.number().finite(), z.number().finite()]),
+  }),
+  strict({
+    type: z.literal('vec3'),
+    value: z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]),
+  }),
+  strict({
+    type: z.literal('vec4'),
+    value: z.tuple([
+      z.number().finite(),
+      z.number().finite(),
+      z.number().finite(),
+      z.number().finite(),
+    ]),
+  }),
+  strict({
+    type: z.literal('color'),
+    value: strict({
+      r: z.number().finite(),
+      g: z.number().finite(),
+      b: z.number().finite(),
+      a: z.number().finite(),
+    }),
+  }),
+  strict({ type: z.literal('int'), value: z.number().int() }),
+  strict({ type: z.literal('bool'), value: z.boolean() }),
+]);
+const compiledMaterialParameterSchema = strict({
+  name: z.string().min(1),
+  type: compiledMaterialParameterTypeSchema,
+  rendererBinding: z.string().min(1).nullable(),
+});
+const compiledMaterialInterfaceSchema = strict({
+  id,
+  role: compiledMaterialRoleSchema,
+  postprocessScope: z.enum(['world', 'full-game-viewport']),
+  parameters: z.array(compiledMaterialParameterSchema),
+});
 const roomReferenceSchema = typedReference('room');
 const sceneReferenceSchema = typedReference('scene');
 const scriptReferenceSchema = typedReference('script');
@@ -610,6 +669,16 @@ const verbDefinitionSchema = strict({
 });
 
 const sceneInstructionCommon = { condition: compiledConditionSchema.optional(), id };
+const compiledMaterialOccurrenceTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('background') }),
+  strict({
+    kind: z.literal('actor'),
+    slotId: id,
+    layer: z.enum(['pose', 'expression']),
+  }),
+  strict({ kind: z.literal('layout'), slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']) }),
+  strict({ kind: z.literal('postprocess'), instanceId: id }),
+]);
 const transitionGroupChildSchema = z.discriminatedUnion('kind', [
   strict({
     asset: assetReferenceSchema.nullable(),
@@ -764,6 +833,33 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']),
     transition: z.enum(['none', 'fade']),
     waitForCompletion: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('material-parameter'),
+    target: compiledMaterialOccurrenceTargetSchema,
+    material: materialReferenceSchema,
+    parameter: z.string().min(1),
+    value: compiledMaterialParameterValueSchema,
+    transition: z.enum(['none', 'tween']),
+    durationMs: z.number().int().nonnegative(),
+    easing: z.enum(['linear', 'ease-in', 'ease-out', 'ease-in-out']),
+    clock: z.enum(['gameplay', 'unscaled-presentation']),
+    waitForCompletion: z.boolean(),
+    skippable: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('postprocess-effect'),
+    action: z.enum(['upsert', 'remove']),
+    instanceId: id,
+    material: materialReferenceSchema.nullable(),
+    scope: z.enum(['world', 'full-game-viewport']),
+    order: z.number().int(),
+    clock: z.enum(['gameplay', 'unscaled-presentation']),
+    parameters: z.array(
+      strict({ name: z.string().min(1), value: compiledMaterialParameterValueSchema }),
+    ),
   }),
   strict({
     ...sceneInstructionCommon,
@@ -1121,6 +1217,7 @@ export const compiledProjectWireV4Schema = strict({
   resources: strict({
     assets: z.array(assetResourceSchema),
     layouts: z.array(layoutResourceSchema),
+    materialInterfaces: z.array(compiledMaterialInterfaceSchema),
     scripts: z.array(scriptResourceSchema),
   }),
   saveContract: z.string().regex(COMPILED_PROJECT_SAVE_CONTRACT_PATTERN),
@@ -1323,6 +1420,7 @@ export function computeCompiledProjectSaveContract(
             }
           : layout.id,
       ) as CanonicalJson,
+      materialInterfaces: project.resources.materialInterfaces as CanonicalJson,
       scripts: project.resources.scripts as CanonicalJson,
     },
     traits: project.traits as CanonicalJson,

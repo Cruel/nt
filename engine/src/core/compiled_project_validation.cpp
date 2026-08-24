@@ -20,6 +20,7 @@ public:
         INDEX(traits, input.traits[index].id);
         INDEX(assets, input.assets[index].id);
         INDEX(layouts, input.layouts[index].id);
+        INDEX(material_interfaces, input.material_interfaces[index].id);
         INDEX(scripts, input.scripts[index].id);
         INDEX(characters, input.characters[index].identity.id);
         INDEX(rooms, input.rooms[index].identity.id);
@@ -77,6 +78,35 @@ private:
     {
         const auto found = m_traits.find(id);
         return found == m_traits.end() ? nullptr : &m_input.traits[found->second];
+    }
+
+    const MaterialInterfaceResource* material_interface(const MaterialId& id) const
+    {
+        const auto found = m_material_interfaces.find(id);
+        return found == m_material_interfaces.end() ? nullptr
+                                                    : &m_input.material_interfaces[found->second];
+    }
+
+    static bool material_value_matches(MaterialParameterType type,
+                                       const MaterialParameterValue& value) noexcept
+    {
+        switch (type) {
+        case MaterialParameterType::Float:
+            return std::holds_alternative<double>(value);
+        case MaterialParameterType::Vec2:
+            return std::holds_alternative<std::array<double, 2>>(value);
+        case MaterialParameterType::Vec3:
+            return std::holds_alternative<std::array<double, 3>>(value);
+        case MaterialParameterType::Vec4:
+            return std::holds_alternative<std::array<double, 4>>(value);
+        case MaterialParameterType::Color:
+            return std::holds_alternative<MaterialColorValue>(value);
+        case MaterialParameterType::Int:
+            return std::holds_alternative<std::int64_t>(value);
+        case MaterialParameterType::Bool:
+            return std::holds_alternative<bool>(value);
+        }
+        return false;
     }
 
     const CharacterDefinition* character(const CharacterId& id) const
@@ -1487,6 +1517,107 @@ private:
                             if (instruction.layout)
                                 require(m_layouts, *instruction.layout, "layout",
                                         instruction_path + "/layout");
+                        } else if constexpr (std::is_same_v<T, MaterialParameterInstruction>) {
+                            const auto* material = material_interface(instruction.material);
+                            if (!material) {
+                                require(m_material_interfaces, instruction.material,
+                                        "material interface", instruction_path + "/material");
+                            } else {
+                                const auto declaration = std::ranges::find_if(
+                                    material->parameters, [&](const auto& parameter) {
+                                        return parameter.name == instruction.parameter;
+                                    });
+                                if (declaration == material->parameters.end())
+                                    error("compiled_project.material_parameter_unknown_uniform",
+                                          "Material Parameter names an undeclared Shader uniform.",
+                                          instruction_path + "/parameter");
+                                else if (declaration->renderer_binding)
+                                    error(
+                                        "compiled_project.material_parameter_renderer_bound",
+                                        "Renderer-bound uniforms cannot be occurrence-controlled.",
+                                        instruction_path + "/parameter");
+                                else if (!material_value_matches(declaration->type,
+                                                                 instruction.value))
+                                    error(
+                                        "compiled_project.material_parameter_type_mismatch",
+                                        "Material Parameter value does not match the uniform type.",
+                                        instruction_path + "/value");
+                                const auto role_valid = std::visit(
+                                    [&](const auto& target) {
+                                        using Target = std::decay_t<decltype(target)>;
+                                        if constexpr (std::is_same_v<
+                                                          Target, LayoutMaterialInstructionTarget>)
+                                            return material->role == MaterialRole::RmlUiDecorator;
+                                        else if constexpr (
+                                            std::is_same_v<Target,
+                                                           PostprocessMaterialInstructionTarget>)
+                                            return material->role == MaterialRole::Postprocess;
+                                        else
+                                            return material->role == MaterialRole::Engine2D;
+                                    },
+                                    instruction.target);
+                                if (!role_valid)
+                                    error(
+                                        "compiled_project.material_parameter_role_mismatch",
+                                        "Material role is incompatible with the occurrence target.",
+                                        instruction_path + "/material");
+                            }
+                            if (instruction.transition == MaterialParameterTransition::Tween &&
+                                (std::holds_alternative<std::int64_t>(instruction.value) ||
+                                 std::holds_alternative<bool>(instruction.value)))
+                                error("compiled_project.material_parameter_not_interpolable",
+                                      "Boolean and integer Material Parameters cannot be tweened.",
+                                      instruction_path + "/transition");
+                        } else if constexpr (std::is_same_v<T, PostprocessEffectInstruction>) {
+                            if (instruction.action == PostprocessEffectAction::Upsert &&
+                                instruction.material) {
+                                const auto* material = material_interface(*instruction.material);
+                                if (!material) {
+                                    require(m_material_interfaces, *instruction.material,
+                                            "material interface", instruction_path + "/material");
+                                } else {
+                                    if (material->role != MaterialRole::Postprocess)
+                                        error("compiled_project.postprocess_role_mismatch",
+                                              "Postprocess Effect requires a postprocess Material.",
+                                              instruction_path + "/material");
+                                    if (material->postprocess_scope != instruction.scope)
+                                        error("compiled_project.postprocess_scope_mismatch",
+                                              "Postprocess Effect scope must match its Material.",
+                                              instruction_path + "/scope");
+                                    for (std::size_t parameter_index = 0;
+                                         parameter_index < instruction.parameters.size();
+                                         ++parameter_index) {
+                                        const auto& parameter =
+                                            instruction.parameters[parameter_index];
+                                        const auto parameter_path = instruction_path +
+                                                                    "/parameters/" +
+                                                                    std::to_string(parameter_index);
+                                        const auto declaration = std::ranges::find_if(
+                                            material->parameters, [&](const auto& candidate) {
+                                                return candidate.name == parameter.name;
+                                            });
+                                        if (declaration == material->parameters.end())
+                                            error("compiled_project.material_parameter_unknown_"
+                                                  "uniform",
+                                                  "Postprocess parameter names an undeclared "
+                                                  "Shader uniform.",
+                                                  parameter_path + "/name");
+                                        else if (declaration->renderer_binding)
+                                            error("compiled_project.material_parameter_renderer_"
+                                                  "bound",
+                                                  "Renderer-bound uniforms cannot be "
+                                                  "occurrence-controlled.",
+                                                  parameter_path + "/name");
+                                        else if (!material_value_matches(declaration->type,
+                                                                         parameter.value))
+                                            error(
+                                                "compiled_project.material_parameter_type_mismatch",
+                                                "Postprocess parameter value does not match the "
+                                                "uniform type.",
+                                                parameter_path + "/value");
+                                    }
+                                }
+                            }
                         } else if constexpr (std::is_same_v<T, TransitionGroupInstruction>) {
                             std::unordered_set<TransitionGroupChildId> child_ids;
                             for (std::size_t child_index = 0;
@@ -1819,6 +1950,7 @@ private:
     MAP(traits, TraitId);
     MAP(assets, AssetId);
     MAP(layouts, LayoutId);
+    MAP(material_interfaces, MaterialId);
     MAP(scripts, ScriptId);
     MAP(characters, CharacterId);
     MAP(rooms, RoomId);

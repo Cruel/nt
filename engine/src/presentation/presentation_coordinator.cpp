@@ -239,6 +239,49 @@ normalize(const LayoutFinitePresentationOperation& operation)
          .completion = completion_target(operation.completion)});
 }
 
+Result<PresentationOperationMetadata, Diagnostics>
+normalize(const MaterialParameterTransitionOperation& operation)
+{
+    auto valid = validate_finite_common(operation.common.id, operation.common.duration,
+                                        operation.common.clock, operation.common.revisions,
+                                        operation.common.easing);
+    const auto finite_value = [](const compiled::MaterialParameterValue& value) {
+        return std::visit(
+            [](const auto& item) {
+                using T = std::decay_t<decltype(item)>;
+                if constexpr (std::is_same_v<T, double>)
+                    return std::isfinite(item);
+                else if constexpr (std::is_same_v<T, std::array<double, 2>> ||
+                                   std::is_same_v<T, std::array<double, 3>> ||
+                                   std::is_same_v<T, std::array<double, 4>>)
+                    return std::ranges::all_of(
+                        item, [](double component) { return std::isfinite(component); });
+                else if constexpr (std::is_same_v<T, compiled::MaterialColorValue>)
+                    return std::isfinite(item.r) && std::isfinite(item.g) &&
+                           std::isfinite(item.b) && std::isfinite(item.a);
+                else
+                    return false;
+            },
+            value);
+    };
+    if (!valid || operation.target.parameter.empty() ||
+        operation.source_value.index() != operation.target_value.index() ||
+        !finite_value(operation.source_value) || !finite_value(operation.target_value))
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            valid ? Diagnostics{diagnostic(
+                        "presentation.invalid_material_parameter_operation",
+                        "Material Parameter transition requires one finite scalar/vector/color "
+                        "type and a stable target")}
+                  : valid.error());
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = operation.common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class =
+             operation.completion ? CheckpointClass::CausalBarrier : CheckpointClass::Disposable,
+         .completion = completion_target(operation.completion)});
+}
+
 std::optional<FinitePresentationOperationTarget>
 finite_target(const CoordinatedPresentationOperation& operation)
 {
@@ -256,7 +299,8 @@ finite_target(const CoordinatedPresentationOperation& operation)
                           std::is_same_v<T, CameraPunchOperation> ||
                           std::is_same_v<T, CameraFlashOperation> ||
                           std::is_same_v<T, ActorPresentationOperation> ||
-                          std::is_same_v<T, LayoutFinitePresentationOperation>)
+                          std::is_same_v<T, LayoutFinitePresentationOperation> ||
+                          std::is_same_v<T, MaterialParameterTransitionOperation>)
                 return operation_target(FinitePresentationOperation{value});
             else
                 return std::nullopt;
@@ -280,7 +324,8 @@ std::optional<bool> finite_skippable(const CoordinatedPresentationOperation& ope
                           std::is_same_v<T, CameraPunchOperation> ||
                           std::is_same_v<T, CameraFlashOperation> ||
                           std::is_same_v<T, ActorPresentationOperation> ||
-                          std::is_same_v<T, LayoutFinitePresentationOperation>)
+                          std::is_same_v<T, LayoutFinitePresentationOperation> ||
+                          std::is_same_v<T, MaterialParameterTransitionOperation>)
                 return operation_skippable(FinitePresentationOperation{value});
             else if constexpr (std::is_same_v<T, AudioOperation>)
                 return value.skip_behavior == compiled::AudioSkipBehavior::Stop;

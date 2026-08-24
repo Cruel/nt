@@ -69,6 +69,8 @@ struct RuntimeMountedLayout {
     std::vector<core::LayoutSignalId> connected_signals;
     std::optional<core::LayoutStateShape> state_shape;
     std::vector<core::PresentationLayoutStateValue> state_values;
+    std::vector<core::PresentationMaterialParameter> material_parameters;
+    double material_camera_zoom = 1.0;
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;
     core::PresentationSnapshotRevision publication_revision =
@@ -97,6 +99,8 @@ struct RuntimeLayoutMountRequest {
     std::vector<core::LayoutSignalId> connected_signals;
     std::optional<core::LayoutStateShape> state_shape;
     std::vector<core::PresentationLayoutStateValue> state_values;
+    std::vector<core::PresentationMaterialParameter> material_parameters;
+    double material_camera_zoom = 1.0;
     core::MountedLayoutPolicy policy{
         .plane = core::PresentationPlane::GameUi,
         .clock = core::LayoutClockDomain::Gameplay,

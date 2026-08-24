@@ -160,6 +160,38 @@ restore_actor_key(const SavedActorPresentationKey& key,
         key);
 }
 
+Result<MaterialOccurrence, Diagnostics>
+restore_material_occurrence(const SavedMaterialOccurrence& occurrence,
+                            const std::unordered_map<std::uint64_t, FlowFrameId>& frame_ids)
+{
+    return std::visit(
+        [&](const auto& value) -> Result<MaterialOccurrence, Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SavedBackgroundMaterialOccurrence>)
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    BackgroundMaterialOccurrence{});
+            else if constexpr (std::is_same_v<T, SavedActorMaterialOccurrence>) {
+                auto key = restore_actor_key(value.key, frame_ids);
+                if (!key)
+                    return Result<MaterialOccurrence, Diagnostics>::failure(key.error());
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    ActorMaterialOccurrence{std::move(*key.value_if()), value.layer});
+            } else if constexpr (std::is_same_v<T, SavedPropMaterialOccurrence>)
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    PropMaterialOccurrence{value.instance});
+            else if constexpr (std::is_same_v<T, SavedEnvironmentMaterialOccurrence>)
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    EnvironmentMaterialOccurrence{value.instance});
+            else if constexpr (std::is_same_v<T, SavedLayoutMaterialOccurrence>)
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    LayoutMaterialOccurrence{value.key, value.material});
+            else
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    PostprocessMaterialOccurrence{value.instance});
+        },
+        occurrence);
+}
+
 } // namespace
 
 Result<SessionState, Diagnostics>
@@ -431,6 +463,8 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_actors.clear();
     state->m_presentation_props.clear();
     state->m_presentation_environments.clear();
+    state->m_material_parameters.clear();
+    state->m_postprocess_effects.clear();
     state->m_mounted_layouts.clear();
     state->m_layout_state_slots.clear();
     state->m_desired_audio.clear();
@@ -598,6 +632,31 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
             project, DesiredMountedLayout{saved.key, *owner.value_if(), saved.layout, saved.policy,
                                           saved.scale_overrides, saved.composition_group,
                                           std::nullopt, saved.inputs, saved.connected_signals});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.postprocess_effects) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto restored = state->upsert_postprocess_effect(
+            project,
+            DesiredPostprocessEffect{saved.instance, *owner.value_if(), saved.material, saved.scope,
+                                     saved.order, saved.clock, saved.visible});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.material_parameters) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto occurrence = restore_material_occurrence(saved.occurrence, frame_ids);
+        if (!occurrence)
+            return Result<SessionState, Diagnostics>::failure(occurrence.error());
+        auto restored = state->upsert_material_parameter(
+            project, DesiredMaterialParameter{*owner.value_if(), std::move(*occurrence.value_if()),
+                                              saved.material, saved.parameter, saved.value,
+                                              saved.binding, saved.clock});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }

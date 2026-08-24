@@ -216,6 +216,49 @@ active bounds, and derives the same border/sheen from neighboring mask samples. 
 has a system-material path that uses these owned program handles without requiring package material
 or shader-program leases.
 
+### Occurrence-local Material Parameters
+
+Compiled Material resources remain immutable. Runtime mutation is represented separately as typed
+Desired Presentation State attached to one concrete presentation occurrence: background, actor
+pose/expression, presentation prop, environment, mounted Layout Material dependency, or postprocess
+effect. Two occurrences using the same Material therefore do not share mutable uniform state.
+
+The authoring compiler publishes a compact Material interface for runtime validation. Each exposed
+parameter records its uniform name, declared type, and optional renderer binding. Occurrence-local
+writes must name a declared uniform, match its exact type and compatible Material role, belong to a
+live owner/occurrence, and target a uniform that is not renderer-bound. Renderer-owned bindings remain
+authoritative and cannot be overwritten by occurrence state.
+
+A parameter contains either a concrete typed value or one explicit binding, never both. Bindings can
+reference a compatible Property or one standard engine facet (`occurrence-time`, paint width/height,
+viewport width/height, or camera zoom). Once bound, the binding is the sole authority until it is
+explicitly removed or replaced; a direct assignment does not silently break the binding. Material
+time uses either gameplay or unscaled-presentation clock policy.
+
+Scene `material-parameter` steps support immediate assignment and finite tween operations. A tween
+requires an existing occurrence-local concrete source value, commits its desired target before
+realization begins, carries typed easing/clock/skip/completion metadata, and never exposes backend
+tween progress as authoritative state. Boolean and integer parameters are not interpolated.
+
+Mounted RmlUi Layout occurrences receive their own Material parameter set. The currently admitted
+custom Material shader integration realizes occurrence-local `rmlui-decorator` parameters per RmlUi
+context. `rmlui-filter` remains a valid Material resource role, but occurrence-local filter-parameter
+control is intentionally not admitted until the RmlUi backend has a corresponding custom filter
+Material provider.
+
+### Postprocess Effects
+
+Postprocess effects are stable owner-scoped Desired Presentation State, not an arbitrary render graph.
+Each instance selects a `postprocess` Material, a `world` or `full-game-viewport` scope, deterministic
+integer order, Material clock policy, visibility, and occurrence-local typed parameters. A scope is
+bounded to four active effects. World effects run after world composition and before Game UI;
+full-game effects run after Game UI. Multiple passes use bounded ping-pong render targets and preserve
+the deterministic desired-state order.
+
+Postprocess identity is semantic and survives renderer reconstruction. Removing an effect also
+removes Material Parameters owned by that postprocess occurrence. Runtime package/resource residency
+includes visible postprocess Materials as mandatory dependencies.
+
 ## Export / Package Status
 
 `buildShaderMaterialProject()` converts resolved authoring material records into `noveltea.shader-materials.v2` material metadata. It emits:
@@ -233,9 +276,20 @@ Runtime package export includes shader/material metadata when shader or material
 
 ## Scripting Status
 
-Materials do not currently define a direct Lua authoring surface. Scripts may eventually select or adjust materials through runtime APIs, but current material records are primarily authoring/rendering data.
+Lua exposes semantic presentation APIs for occurrence-local Material state:
 
-Standard shader input bindings should be preferred for runtime-provided values instead of script-updated uniform state.
+- `noveltea.presentation.set_material_parameter`, `bind_material_parameter`,
+  `clear_material_parameter`, and `material_parameter`;
+- `noveltea.presentation.set_postprocess`, `clear_postprocess`, and `postprocess`.
+
+Targets use semantic IDs and owner scopes only. Shader programs, bgfx uniforms, textures,
+framebuffers, render targets, and tween handles are never exposed to Lua. Standard shader input
+bindings remain preferred for values intrinsically owned by the renderer; explicit standard-facet
+bindings are preferred when an occurrence-local semantic parameter should follow engine state.
+
+Occurrence-local Material Parameters and postprocess desired instances are saved and reconstructed.
+Finite Material operation progress, renderer epochs, ping-pong targets, shader handles, and other GPU
+realization are not save state.
 
 ## Relationship To Other Entity Types
 

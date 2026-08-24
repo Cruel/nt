@@ -100,6 +100,7 @@ PresentationActor actor(ActorPresentationKey key, compiled::ActorPosition positi
                         const char* pose = "standing")
 {
     return PresentationActor{std::move(key),
+                             std::nullopt,
                              id<CharacterId>("hero"),
                              id<CharacterPoseId>(pose),
                              id<CharacterExpressionId>("neutral"),

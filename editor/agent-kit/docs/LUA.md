@@ -493,6 +493,51 @@ visible: boolean
 
 `stop_environments` removes all matching desired environments for the selected owner. `environment()` returns `material`, optional `asset`, `stop_key`, `order`, `visible`, and `opacity`.
 
+### Material parameters
+
+```text
+noveltea.presentation.set_material_parameter(target, material_id, parameter, value, options?) -> ok, error
+noveltea.presentation.bind_material_parameter(target, material_id, parameter, binding, options?) -> ok, error
+noveltea.presentation.clear_material_parameter(target, material_id, parameter, options?) -> ok, error
+noveltea.presentation.material_parameter(target, material_id, parameter, options?) -> state_or_nil, error
+```
+
+Material parameter state is local to one semantic presentation occurrence. `target.kind` is one of
+`background`, `scene-actor`, `scoped-actor`, `prop`, `environment`, `reserved-layout`,
+`scoped-layout`, `room-overlay`, or `postprocess`; the remaining target fields identify that
+occurrence (for example `slot_id`, `instance_id`, `slot`, `room`, and `overlay_id`). Actor targets
+also accept `layer = 'pose' | 'expression'`.
+
+Values are typed from the selected Material's Shader uniform declaration: boolean, integer, finite
+float, a 2/3/4-element numeric vector table, or `{r, g, b, a}` color. Renderer-bound uniforms are
+not writable. `options.clock` is `gameplay` or `unscaled-presentation`.
+
+Bindings are explicit and authoritative until cleared or replaced:
+
+```lua
+{ kind = 'standard-facet', facet = 'occurrence-time' }
+{ kind = 'property', property = 'some-property', target = { kind = 'global' } }
+```
+
+Standard facets are `occurrence-time`, `paint-width`, `paint-height`, `viewport-width`,
+`viewport-height`, and `camera-zoom`. A direct assignment cannot silently replace an active
+binding. `material_parameter()` returns the semantic value or binding plus Material, parameter, and
+clock; it never returns a shader program, uniform handle, texture, framebuffer, or tween object.
+
+### Postprocess effects
+
+```text
+noveltea.presentation.set_postprocess(instance_id, material_id, options?) -> ok, error
+noveltea.presentation.clear_postprocess(instance_id, options?) -> ok, error
+noveltea.presentation.postprocess(instance_id, options?) -> state_or_nil, error
+```
+
+Postprocess effects are owner-scoped desired instances with stable semantic identity. Options include
+`owner`/`room`, `scope = 'world' | 'full-game-viewport'`, integer `order`,
+`clock = 'gameplay' | 'unscaled-presentation'`, and `visible`. At most four effects may be active in
+each scope. Order is deterministic. Effect uniforms are controlled through the Material parameter
+APIs using `{kind='postprocess', instance_id='...'}`.
+
 These presentation APIs express engine-owned desired state. They do not expose backend nodes, renderer objects, or animation handles.
 
 ## Audio

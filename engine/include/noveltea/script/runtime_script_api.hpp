@@ -10,6 +10,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <variant>
 
 namespace noveltea::script {
 
@@ -98,6 +100,69 @@ struct PresentationPropCommandOptions {
     std::int32_t order = 0;
     bool visible = true;
 };
+
+struct MaterialParameterCommandOptions {
+    runtime::RuntimePresentationOwnerScope owner_scope =
+        runtime::RuntimePresentationOwnerScope::CurrentRoom;
+    std::optional<core::RoomId> room;
+    core::MaterialClockPolicy clock = core::MaterialClockPolicy::Gameplay;
+};
+
+struct PostprocessEffectCommandOptions {
+    runtime::RuntimePresentationOwnerScope owner_scope =
+        runtime::RuntimePresentationOwnerScope::CurrentRoom;
+    std::optional<core::RoomId> room;
+    core::compiled::MaterialPostprocessScope scope =
+        core::compiled::MaterialPostprocessScope::World;
+    std::int32_t order = 0;
+    core::MaterialClockPolicy clock = core::MaterialClockPolicy::Gameplay;
+    bool visible = true;
+};
+
+struct MaterialBackgroundOccurrenceCommand {
+    bool operator==(const MaterialBackgroundOccurrenceCommand&) const = default;
+};
+struct MaterialSceneActorOccurrenceCommand {
+    core::ActorSlotId slot;
+    core::ActorMaterialLayer layer = core::ActorMaterialLayer::Pose;
+    bool operator==(const MaterialSceneActorOccurrenceCommand&) const = default;
+};
+struct MaterialScopedActorOccurrenceCommand {
+    core::ScopedActorKey key;
+    core::ActorMaterialLayer layer = core::ActorMaterialLayer::Pose;
+    bool operator==(const MaterialScopedActorOccurrenceCommand&) const = default;
+};
+struct MaterialPropOccurrenceCommand {
+    core::PresentationPropInstanceId instance;
+    bool operator==(const MaterialPropOccurrenceCommand&) const = default;
+};
+struct MaterialEnvironmentOccurrenceCommand {
+    core::PresentationEnvironmentInstanceId instance;
+    bool operator==(const MaterialEnvironmentOccurrenceCommand&) const = default;
+};
+struct MaterialReservedLayoutOccurrenceCommand {
+    core::compiled::LayoutSlot slot = core::compiled::LayoutSlot::Custom;
+    bool operator==(const MaterialReservedLayoutOccurrenceCommand&) const = default;
+};
+struct MaterialScopedLayoutOccurrenceCommand {
+    core::ScopedLayoutInstanceId instance;
+    bool operator==(const MaterialScopedLayoutOccurrenceCommand&) const = default;
+};
+struct MaterialRoomOverlayOccurrenceCommand {
+    core::RoomId room;
+    core::RoomOverlayId overlay;
+    bool operator==(const MaterialRoomOverlayOccurrenceCommand&) const = default;
+};
+struct MaterialPostprocessOccurrenceCommand {
+    core::PostprocessEffectInstanceId instance;
+    bool operator==(const MaterialPostprocessOccurrenceCommand&) const = default;
+};
+using MaterialOccurrenceCommand =
+    std::variant<MaterialBackgroundOccurrenceCommand, MaterialSceneActorOccurrenceCommand,
+                 MaterialScopedActorOccurrenceCommand, MaterialPropOccurrenceCommand,
+                 MaterialEnvironmentOccurrenceCommand, MaterialReservedLayoutOccurrenceCommand,
+                 MaterialScopedLayoutOccurrenceCommand, MaterialRoomOverlayOccurrenceCommand,
+                 MaterialPostprocessOccurrenceCommand>;
 
 class RuntimeScriptApi {
 public:
@@ -257,6 +322,35 @@ public:
     environment(core::PresentationEnvironmentInstanceId instance,
                 runtime::RuntimePresentationOwnerScope owner_scope,
                 std::optional<core::RoomId> room = std::nullopt) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_material_parameter(MaterialOccurrenceCommand occurrence, core::MaterialId material,
+                           std::string parameter, core::compiled::MaterialParameterValue value,
+                           MaterialParameterCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    bind_material_parameter(MaterialOccurrenceCommand occurrence, core::MaterialId material,
+                            std::string parameter, core::MaterialParameterBinding binding,
+                            MaterialParameterCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_material_parameter(MaterialOccurrenceCommand occurrence, core::MaterialId material,
+                             std::string parameter,
+                             runtime::RuntimePresentationOwnerScope owner_scope,
+                             std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredMaterialParameter>, core::Diagnostics>
+    material_parameter(const MaterialOccurrenceCommand& occurrence,
+                       const core::MaterialId& material, std::string_view parameter,
+                       runtime::RuntimePresentationOwnerScope owner_scope,
+                       std::optional<core::RoomId> room = std::nullopt) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_postprocess_effect(core::PostprocessEffectInstanceId instance, core::MaterialId material,
+                           PostprocessEffectCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_postprocess_effect(core::PostprocessEffectInstanceId instance,
+                             runtime::RuntimePresentationOwnerScope owner_scope,
+                             std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredPostprocessEffect>, core::Diagnostics>
+    postprocess_effect(core::PostprocessEffectInstanceId instance,
+                       runtime::RuntimePresentationOwnerScope owner_scope,
+                       std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
     [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(

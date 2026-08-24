@@ -206,11 +206,14 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     std::optional<std::vector<AssetResource>> assets;
     std::optional<std::vector<LayoutResource>> layouts;
+    std::optional<std::vector<MaterialInterfaceResource>> material_interfaces;
     std::optional<std::vector<ScriptResource>> scripts;
-    if (resources_value &&
-        decoder.object(*resources_value, "/resources", {"assets", "layouts", "scripts"})) {
+    if (resources_value && decoder.object(*resources_value, "/resources",
+                                          {"assets", "layouts", "materialInterfaces", "scripts"})) {
         const auto* assets_value = decoder.member(*resources_value, "assets", "/resources");
         const auto* layouts_value = decoder.member(*resources_value, "layouts", "/resources");
+        const auto* material_interfaces_value =
+            decoder.member(*resources_value, "materialInterfaces", "/resources");
         const auto* scripts_value = decoder.member(*resources_value, "scripts", "/resources");
         if (assets_value)
             assets = decoder.array<AssetResource>(
@@ -223,6 +226,103 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                 *layouts_value, "/resources/layouts",
                 [&](const nlohmann::json& item, const std::string& pointer) {
                     return decode_layout(decoder, item, pointer);
+                });
+        if (material_interfaces_value)
+            material_interfaces = decoder.array<MaterialInterfaceResource>(
+                *material_interfaces_value, "/resources/materialInterfaces",
+                [&](const nlohmann::json& item,
+                    const std::string& pointer) -> std::optional<MaterialInterfaceResource> {
+                    if (!decoder.object(item, pointer,
+                                        {"id", "parameters", "postprocessScope", "role"}))
+                        return std::nullopt;
+                    const auto* id_value = decoder.member(item, "id", pointer);
+                    const auto* role_value = decoder.member(item, "role", pointer);
+                    const auto* scope_value = decoder.member(item, "postprocessScope", pointer);
+                    const auto* parameters_value = decoder.member(item, "parameters", pointer);
+                    auto id = id_value
+                                  ? decoder.id<MaterialId>(*id_value, pointer_child(pointer, "id"))
+                                  : std::nullopt;
+                    auto role = role_value
+                                    ? decoder.enumeration<MaterialRole>(
+                                          *role_value, pointer_child(pointer, "role"),
+                                          {{"engine-2d", MaterialRole::Engine2D},
+                                           {"active-text", MaterialRole::ActiveText},
+                                           {"rmlui-decorator", MaterialRole::RmlUiDecorator},
+                                           {"rmlui-filter", MaterialRole::RmlUiFilter},
+                                           {"postprocess", MaterialRole::Postprocess},
+                                           {"hotspot-overlay", MaterialRole::HotspotOverlay}})
+                                    : std::nullopt;
+                    auto scope = scope_value
+                                     ? decoder.enumeration<MaterialPostprocessScope>(
+                                           *scope_value, pointer_child(pointer, "postprocessScope"),
+                                           {{"world", MaterialPostprocessScope::World},
+                                            {"full-game-viewport",
+                                             MaterialPostprocessScope::FullGameViewport}})
+                                     : std::nullopt;
+                    auto parameters =
+                        parameters_value
+                            ? decoder.array<MaterialParameterDeclaration>(
+                                  *parameters_value, pointer_child(pointer, "parameters"),
+                                  [&](const nlohmann::json& parameter,
+                                      const std::string& parameter_pointer)
+                                      -> std::optional<MaterialParameterDeclaration> {
+                                      if (!decoder.object(parameter, parameter_pointer,
+                                                          {"name", "rendererBinding", "type"}))
+                                          return std::nullopt;
+                                      const auto* name_value =
+                                          decoder.member(parameter, "name", parameter_pointer);
+                                      const auto* type_value =
+                                          decoder.member(parameter, "type", parameter_pointer);
+                                      const auto* binding_value = decoder.member(
+                                          parameter, "rendererBinding", parameter_pointer);
+                                      auto name =
+                                          name_value ? decoder.string(
+                                                           *name_value,
+                                                           pointer_child(parameter_pointer, "name"))
+                                                     : std::nullopt;
+                                      auto type =
+                                          type_value ? decoder.enumeration<MaterialParameterType>(
+                                                           *type_value,
+                                                           pointer_child(parameter_pointer, "type"),
+                                                           {{"float", MaterialParameterType::Float},
+                                                            {"vec2", MaterialParameterType::Vec2},
+                                                            {"vec3", MaterialParameterType::Vec3},
+                                                            {"vec4", MaterialParameterType::Vec4},
+                                                            {"color", MaterialParameterType::Color},
+                                                            {"int", MaterialParameterType::Int},
+                                                            {"bool", MaterialParameterType::Bool}})
+                                                     : std::nullopt;
+                                      std::optional<std::string> binding;
+                                      bool binding_ok = binding_value != nullptr;
+                                      if (binding_value && !binding_value->is_null()) {
+                                          binding = decoder.string(
+                                              *binding_value,
+                                              pointer_child(parameter_pointer, "rendererBinding"));
+                                          binding_ok = binding.has_value();
+                                      }
+                                      return name && type && binding_ok
+                                                 ? std::optional<MaterialParameterDeclaration>(
+                                                       MaterialParameterDeclaration{
+                                                           std::move(*name), *type,
+                                                           std::move(binding)})
+                                                 : std::nullopt;
+                                  })
+                            : std::nullopt;
+                    if (parameters) {
+                        std::unordered_set<std::string> names;
+                        for (std::size_t index = 0; index < parameters->size(); ++index) {
+                            if (!names.emplace((*parameters)[index].name).second)
+                                decoder.error(k_code_duplicate,
+                                              "Duplicate Material Parameter declaration name.",
+                                              pointer_child(pointer_child(pointer, "parameters"),
+                                                            std::to_string(index)) +
+                                                  "/name");
+                        }
+                    }
+                    return id && role && scope && parameters
+                               ? std::optional<MaterialInterfaceResource>(MaterialInterfaceResource{
+                                     std::move(*id), *role, *scope, std::move(*parameters)})
+                               : std::nullopt;
                 });
         if (scripts_value)
             scripts = decoder.array<ScriptResource>(
@@ -295,6 +395,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         decoder.duplicate_ids(
             *layouts, "/resources/layouts",
             [](const LayoutResource& value) -> const LayoutId& { return value.id; });
+    if (material_interfaces)
+        decoder.duplicate_ids(
+            *material_interfaces, "/resources/materialInterfaces",
+            [](const MaterialInterfaceResource& value) -> const MaterialId& { return value.id; });
     if (scripts)
         decoder.duplicate_ids(
             *scripts, "/resources/scripts",
@@ -317,36 +421,39 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
                           save_contract && localization && inventories && properties && traits &&
-                          archetypes && item_stacks && assets && layouts && scripts && characters &&
-                          rooms && interactables && item_definitions && verbs && interactions &&
-                          undefined_interaction_valid && scenes && dialogues && maps;
+                          archetypes && item_stacks && assets && layouts && material_interfaces &&
+                          scripts && characters && rooms && interactables && item_definitions &&
+                          verbs && interactions && undefined_interaction_valid && scenes &&
+                          dialogues && maps;
     if (!complete || decoder.failed())
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
-    return Result<SharedProject, Diagnostics>::success(SharedProject{std::move(*identity),
-                                                                     std::move(*settings),
-                                                                     std::move(*entrypoint),
-                                                                     std::move(*bootstrap),
-                                                                     std::move(*save_contract),
-                                                                     std::move(*localization),
-                                                                     std::move(*properties),
-                                                                     std::move(*traits),
-                                                                     std::move(*archetypes),
-                                                                     std::move(*inventories),
-                                                                     std::move(*assets),
-                                                                     std::move(*layouts),
-                                                                     std::move(*scripts),
-                                                                     std::move(*characters),
-                                                                     std::move(*rooms),
-                                                                     std::move(*interactables),
-                                                                     std::move(*item_definitions),
-                                                                     std::move(*item_stacks),
-                                                                     std::move(*verbs),
-                                                                     std::move(*interactions),
-                                                                     std::move(undefined_interaction_program),
-                                                                     std::move(*scenes),
-                                                                     std::move(*dialogues),
-                                                                     std::move(*maps)});
+    return Result<SharedProject, Diagnostics>::success(
+        SharedProject{std::move(*identity),
+                      std::move(*settings),
+                      std::move(*entrypoint),
+                      std::move(*bootstrap),
+                      std::move(*save_contract),
+                      std::move(*localization),
+                      std::move(*properties),
+                      std::move(*traits),
+                      std::move(*archetypes),
+                      std::move(*inventories),
+                      std::move(*assets),
+                      std::move(*layouts),
+                      std::move(*material_interfaces),
+                      std::move(*scripts),
+                      std::move(*characters),
+                      std::move(*rooms),
+                      std::move(*interactables),
+                      std::move(*item_definitions),
+                      std::move(*item_stacks),
+                      std::move(*verbs),
+                      std::move(*interactions),
+                      std::move(undefined_interaction_program),
+                      std::move(*scenes),
+                      std::move(*dialogues),
+                      std::move(*maps)});
 }
 
 } // namespace noveltea::core::compiled::wire

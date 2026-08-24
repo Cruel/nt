@@ -18,6 +18,7 @@ enum class PresentationRuntimeMode : std::uint8_t {
 };
 
 struct PresentationBackground {
+    std::optional<PresentationOwner> material_owner;
     std::optional<AssetId> asset;
     std::optional<std::string> color;
     compiled::BackgroundFit fit = compiled::BackgroundFit::Cover;
@@ -33,6 +34,7 @@ struct PresentationCamera {
 
 struct PresentationActor {
     ActorPresentationKey key;
+    std::optional<PresentationOwner> material_owner;
     CharacterId character;
     CharacterPoseId pose;
     CharacterExpressionId expression;
@@ -150,6 +152,17 @@ struct PresentationDesiredAudio {
     bool operator==(const PresentationDesiredAudio&) const = default;
 };
 
+struct PresentationMaterialParameter {
+    PresentationOwner owner;
+    MaterialOccurrence occurrence;
+    MaterialId material;
+    std::string parameter;
+    std::optional<compiled::MaterialParameterValue> value;
+    std::optional<MaterialStandardFacet> standard_facet;
+    MaterialClockPolicy clock = MaterialClockPolicy::Gameplay;
+    bool operator==(const PresentationMaterialParameter&) const = default;
+};
+
 struct AlphaHotspotShape {
     bool operator==(const AlphaHotspotShape&) const = default;
 };
@@ -183,6 +196,8 @@ struct RuntimePresentationSnapshot {
     std::vector<PresentationInteractable> interactables;
     std::vector<PresentationProp> props;
     std::vector<PresentationEnvironment> environments;
+    std::vector<PresentationMaterialParameter> material_parameters;
+    std::vector<DesiredPostprocessEffect> postprocess_effects;
     std::vector<PresentationMountedLayout> layouts;
     PresentationTextAndChoice text_and_choice;
     std::vector<PresentationOwner> active_audio_owners;
