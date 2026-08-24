@@ -520,6 +520,84 @@ bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
     return false;
 }
 
+bool valid_dialogue_character_presentation(
+    const CompiledProject& project, const SaveState& save, const CharacterId& character_id,
+    const CharacterPresentationProfileId& profile_id, const CharacterPoseId& pose_id,
+    const CharacterExpressionId& expression_id,
+    const std::optional<CharacterAppearanceId>& appearance_id) noexcept
+{
+    auto character = resolved_character(project, save, character_id);
+    if (!character)
+        return false;
+    const auto profile = std::find_if(character->profiles.begin(), character->profiles.end(),
+                                      [&](const auto& value) { return value.id == profile_id; });
+    if (profile == character->profiles.end() ||
+        std::none_of(profile->poses.begin(), profile->poses.end(),
+                     [&](const auto& value) { return value.id == pose_id; }) ||
+        std::none_of(character->expressions.begin(), character->expressions.end(),
+                     [&](const auto& value) { return value.id == expression_id; }))
+        return false;
+    return !appearance_id ||
+           std::any_of(character->appearances.begin(), character->appearances.end(),
+                       [&](const auto& value) { return value.id == *appearance_id; });
+}
+
+bool valid_dialogue_stage_state(const CompiledProject& project, const SaveState& save,
+                                const compiled::DialogueStageSlotState& state) noexcept
+{
+    return valid_dialogue_character_presentation(project, save, state.character, state.profile_id,
+                                                 state.pose_id, state.expression_id,
+                                                 state.appearance_id) &&
+           state.position <= compiled::ActorPosition::Right && std::isfinite(state.offset.x) &&
+           std::isfinite(state.offset.y) && std::isfinite(state.scale) && state.scale > 0.0;
+}
+
+bool valid_dialogue_media_content(const CompiledProject& project, const SaveState& save,
+                                  const compiled::DialogueMediaContent& content) noexcept
+{
+    return std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::DialogueImageMedia>) {
+                const auto* asset = project.find_asset(value.asset);
+                return asset != nullptr && asset->kind == compiled::AssetKind::Image;
+            } else {
+                return valid_dialogue_character_presentation(
+                    project, save, value.character, value.profile_id, value.pose_id,
+                    value.expression_id, value.appearance_id);
+            }
+        },
+        content);
+}
+
+bool valid_dialogue_presentation_state(const CompiledProject& project, const SaveState& save,
+                                       const compiled::DialogueDefinition& dialogue,
+                                       const SavedDialogueFrame& frame) noexcept
+{
+    if (frame.stage_slots.size() != dialogue.stage_slots.size() ||
+        frame.media_slots.size() != dialogue.media_slots.size())
+        return false;
+
+    std::unordered_set<DialogueStageSlotId> stage_ids;
+    for (const auto& state : frame.stage_slots) {
+        if (!stage_ids.insert(state.slot).second ||
+            std::none_of(dialogue.stage_slots.begin(), dialogue.stage_slots.end(),
+                         [&](const auto& slot) { return slot.id == state.slot; }) ||
+            (state.value && !valid_dialogue_stage_state(project, save, *state.value)))
+            return false;
+    }
+
+    std::unordered_set<DialogueMediaSlotId> media_ids;
+    for (const auto& state : frame.media_slots) {
+        if (!media_ids.insert(state.slot).second ||
+            std::none_of(dialogue.media_slots.begin(), dialogue.media_slots.end(),
+                         [&](const auto& slot) { return slot.id == state.slot; }) ||
+            (state.content && !valid_dialogue_media_content(project, save, *state.content)))
+            return false;
+    }
+    return true;
+}
+
 bool valid_room_position(const CompiledProject&, const SaveState&,
                          const SavedRoomTransitionFrame& frame)
 {
@@ -1522,7 +1600,8 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                     return scene && valid_scene_position(*scene, item.position);
                 } else if constexpr (std::is_same_v<T, SavedDialogueFrame>) {
                     const auto* dialogue = project.find_dialogue(item.dialogue);
-                    return dialogue && valid_dialogue_position(*dialogue, item.position);
+                    return dialogue && valid_dialogue_position(*dialogue, item.position) &&
+                           valid_dialogue_presentation_state(project, save, *dialogue, item);
                 } else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
                     const auto* program = interaction_program(project, item.program);
                     const auto* verb = project.find_verb(item.invocation.verb);

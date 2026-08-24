@@ -189,6 +189,39 @@ describe('DialogueEditor', () => {
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('dialogue.replaceData');
   });
 
+  it('authors Dialogue Stage and Media Slots plus retained line mutations', async () => {
+    loadDialogue();
+    render(<DialogueEditor tab={tab} />);
+
+    fireEvent.click(screen.getByText('Add Stage Slot'));
+    fireEvent.click(screen.getByText('Add Media Slot'));
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        dialogues: { intro: { data: ReturnType<typeof defaultDialogueData> } };
+      };
+      expect(document.dialogues.intro.data.stageSlots).toEqual([
+        expect.objectContaining({ id: 'stage', speakerSync: true, initial: null }),
+      ]);
+      expect(document.dialogues.intro.data.mediaSlots).toEqual([
+        expect.objectContaining({ id: 'media', visible: true, initial: null }),
+      ]);
+    });
+
+    fireEvent.click(screen.getByText('Add Stage mutation'));
+    fireEvent.click(screen.getByText('Add Media mutation'));
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        dialogues: { intro: { data: ReturnType<typeof defaultDialogueData> } };
+      };
+      const block = document.dialogues.intro.data.blocks[0]!;
+      if (block.type !== 'sequence' || block.segments[0]?.type !== 'line')
+        throw new Error('Expected default Dialogue line.');
+      expect(block.segments[0].presentation.stage).toEqual([{ slotId: 'stage', action: 'update' }]);
+      expect(block.segments[0].presentation.media).toEqual([{ slotId: 'media', action: 'update' }]);
+    });
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('dialogue.replaceData');
+  });
+
   it('captures and restores graph, selection, preview, and layout state in the editor boundary', async () => {
     loadDialogue();
     const view = render(<DialogueEditor tab={tab} />);

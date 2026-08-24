@@ -39,6 +39,8 @@ NOVELTEA_DOMAIN_ID(TransitionGroupChildId);
 NOVELTEA_DOMAIN_ID(DialogueBlockId);
 NOVELTEA_DOMAIN_ID(DialogueSegmentId);
 NOVELTEA_DOMAIN_ID(DialogueEdgeId);
+NOVELTEA_DOMAIN_ID(DialogueStageSlotId);
+NOVELTEA_DOMAIN_ID(DialogueMediaSlotId);
 NOVELTEA_DOMAIN_ID(RoomPlacementId);
 NOVELTEA_DOMAIN_ID(RoomAnchorId);
 NOVELTEA_DOMAIN_ID(CameraViewId);

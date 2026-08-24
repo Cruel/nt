@@ -229,6 +229,11 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/maps\/\*\/data\/connections\/\*\/(?:exits|label|icon|style|visibility|logicalOrder|path|hitRegions)(?:\/|$)/,
     OWNER,
   ],
+  // #93 adds Dialogue-owned Stage/Media Slot declarations plus retained per-Line presentation
+  // mutations at the preserved authoring schema version. Every field changes the owning Dialogue's
+  // compiled/runtime projection; none creates an independent dependency-graph identity.
+  [/^\/dialogues\/\*\/data\/(?:stageSlots|mediaSlots)(?:\/|$)/, OWNER],
+  [/^\/dialogues\/\*\/data\/blocks\/\*\/segments\/\*\/presentation(?:\/|$)/, OWNER],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
 ]);
 
@@ -607,7 +612,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
     characters: 'ea350f01',
-    dialogues: 'bfadec81',
+    dialogues: 'a4e5e485',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
     interactables: '86412986',

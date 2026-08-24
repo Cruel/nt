@@ -143,6 +143,8 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
     const auto& presentation = publication.presentation;
     const auto* checkpoint = published_checkpoint(publication);
     nlohmann::json dialogue_options = nlohmann::json::array();
+    nlohmann::json dialogue_stage_slots = nlohmann::json::array();
+    nlohmann::json dialogue_media_slots = nlohmann::json::array();
     if (view.dialogue && view.dialogue->choice) {
         for (std::size_t index = 0; index < view.dialogue->choice->options.size(); ++index) {
             const auto& option = view.dialogue->choice->options[index];
@@ -156,6 +158,56 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
             dialogue_options.push_back({{"index", static_cast<int>(index)},
                                         {"label", option.label},
                                         {"enabled", option.enabled}});
+        }
+    }
+    if (view.dialogue) {
+        for (const auto& slot : view.dialogue->stage_slots) {
+            nlohmann::json presentation = nullptr;
+            if (slot.presentation) {
+                presentation = {
+                    {"characterId", slot.presentation->character.text()},
+                    {"profileId", slot.presentation->profile_id.text()},
+                    {"poseId", slot.presentation->pose_id.text()},
+                    {"expressionId", slot.presentation->expression_id.text()},
+                    {"appearanceId", slot.presentation->appearance_id
+                                         ? nlohmann::json(slot.presentation->appearance_id->text())
+                                         : nlohmann::json(nullptr)},
+                    {"position", static_cast<int>(slot.presentation->position)},
+                    {"offset",
+                     {{"x", slot.presentation->offset.x}, {"y", slot.presentation->offset.y}}},
+                    {"scale", slot.presentation->scale},
+                    {"visible", slot.presentation->visible}};
+            }
+            dialogue_stage_slots.push_back({{"id", slot.slot.text()},
+                                            {"speakerSync", slot.speaker_sync},
+                                            {"speaking", slot.speaking},
+                                            {"presentation", std::move(presentation)}});
+        }
+        for (const auto& slot : view.dialogue->media_slots) {
+            nlohmann::json content = nullptr;
+            if (slot.content) {
+                content = std::visit(
+                    [](const auto& value) -> nlohmann::json {
+                        using T = std::decay_t<decltype(value)>;
+                        if constexpr (std::is_same_v<T, core::compiled::DialogueImageMedia>) {
+                            return {{"kind", "image"}, {"assetId", value.asset.text()}};
+                        } else {
+                            return {
+                                {"kind", "character"},
+                                {"characterId", value.character.text()},
+                                {"profileId", value.profile_id.text()},
+                                {"poseId", value.pose_id.text()},
+                                {"expressionId", value.expression_id.text()},
+                                {"appearanceId", value.appearance_id
+                                                     ? nlohmann::json(value.appearance_id->text())
+                                                     : nlohmann::json(nullptr)}};
+                        }
+                    },
+                    *slot.content);
+            }
+            dialogue_media_slots.push_back({{"id", slot.slot.text()},
+                                            {"visible", slot.visible},
+                                            {"content", std::move(content)}});
         }
     }
 
@@ -331,6 +383,9 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
           {"clickableTargets", std::move(clickable_targets)}}},
         {"variables", nlohmann::json::array()},
         {"inventory", std::move(inventory)},
+        {"dialoguePresentation",
+         {{"stageSlots", std::move(dialogue_stage_slots)},
+          {"mediaSlots", std::move(dialogue_media_slots)}}},
         {"selectedSubjects", std::move(selected_subjects)},
         {"diagnostics", std::move(diagnostic_list)},
         {"saveSnapshot", encode_preview_checkpoint_snapshot(checkpoint)},

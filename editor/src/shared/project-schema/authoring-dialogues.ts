@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 import {
+  assetRefSchema,
   characterRefSchema,
   conditionSchema,
   effectSchema,
@@ -13,6 +14,7 @@ import {
   type FlowTarget,
   type TextContent,
 } from './authoring-flow';
+import { parseCharacterData } from './authoring-characters';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 
@@ -44,11 +46,82 @@ export const dialogueConditionDataSchema = conditionSchema;
 export const dialogueEffectDataSchema = effectSchema;
 export const dialogueCompletionTargetSchema = flowTargetSchema;
 
+export const dialogueActorPositionValues = ['left', 'center', 'right'] as const;
+
+const dialogueStageSlotStateSchema = strict({
+  character: dialogueCharacterRefSchema,
+  profileId: entityIdSchema,
+  poseId: entityIdSchema,
+  expressionId: entityIdSchema,
+  appearanceId: entityIdSchema.nullable(),
+  position: z.enum(dialogueActorPositionValues),
+  offset: strict({ x: z.number().finite(), y: z.number().finite() }),
+  scale: z.number().finite().positive(),
+  visible: z.boolean(),
+});
+
+const dialogueStageSlotSchema = strict({
+  id: entityIdSchema,
+  label: z.string().min(1),
+  speakerSync: z.boolean(),
+  initial: dialogueStageSlotStateSchema.nullable(),
+});
+
+const dialogueCharacterMediaSchema = strict({
+  kind: z.literal('character'),
+  character: dialogueCharacterRefSchema,
+  profileId: entityIdSchema,
+  poseId: entityIdSchema,
+  expressionId: entityIdSchema,
+  appearanceId: entityIdSchema.nullable(),
+});
+const dialogueImageMediaSchema = strict({
+  kind: z.literal('image'),
+  asset: assetRefSchema,
+});
+export const dialogueMediaContentSchema = z.discriminatedUnion('kind', [
+  dialogueCharacterMediaSchema,
+  dialogueImageMediaSchema,
+]);
+
+const dialogueMediaSlotSchema = strict({
+  id: entityIdSchema,
+  label: z.string().min(1),
+  initial: dialogueMediaContentSchema.nullable(),
+  visible: z.boolean(),
+});
+
+const dialogueStageMutationSchema = strict({
+  slotId: entityIdSchema,
+  action: z.enum(['update', 'show', 'hide', 'clear']),
+  character: dialogueCharacterRefSchema.optional(),
+  profileId: entityIdSchema.optional(),
+  poseId: entityIdSchema.optional(),
+  expressionId: entityIdSchema.optional(),
+  appearanceId: entityIdSchema.nullable().optional(),
+  position: z.enum(dialogueActorPositionValues).optional(),
+  offset: strict({ x: z.number().finite(), y: z.number().finite() }).optional(),
+  scale: z.number().finite().positive().optional(),
+});
+
+const dialogueMediaMutationSchema = strict({
+  slotId: entityIdSchema,
+  action: z.enum(['update', 'show', 'hide', 'clear']),
+  content: dialogueMediaContentSchema.optional(),
+});
+
+const dialogueLinePresentationSchema = strict({
+  speakerExpressionId: entityIdSchema.optional(),
+  stage: z.array(dialogueStageMutationSchema),
+  media: z.array(dialogueMediaMutationSchema),
+});
+
 const lineSegmentSchema = strict({
   id: entityIdSchema,
   type: z.literal('line'),
   speaker: dialogueCharacterRefSchema.nullable(),
   text: dialogueTextDataSchema,
+  presentation: dialogueLinePresentationSchema,
   condition: dialogueConditionDataSchema.optional(),
   effects: z.array(dialogueEffectDataSchema),
   showOnce: z.boolean(),
@@ -144,6 +217,8 @@ export const dialogueDataSchema = strict({
   kind: z.literal('dialogue'),
   displayName: z.string(),
   defaultSpeaker: dialogueCharacterRefSchema.nullable(),
+  stageSlots: z.array(dialogueStageSlotSchema),
+  mediaSlots: z.array(dialogueMediaSlotSchema),
   settings: dialogueSettingsDataSchema,
   entryBlockId: entityIdSchema,
   blocks: z.array(dialogueBlockDataSchema).min(1),
@@ -166,6 +241,12 @@ export type DialogueNextEdgeData = Extract<DialogueEdgeData, { kind: 'next' }>;
 export type DialogueChoiceEdgeData = Extract<DialogueEdgeData, { kind: 'choice' }>;
 export type DialogueSettingsData = z.infer<typeof dialogueSettingsDataSchema>;
 export type DialogueData = z.infer<typeof dialogueDataSchema>;
+export type DialogueStageSlotState = z.infer<typeof dialogueStageSlotStateSchema>;
+export type DialogueStageSlotData = z.infer<typeof dialogueStageSlotSchema>;
+export type DialogueStageMutation = z.infer<typeof dialogueStageMutationSchema>;
+export type DialogueMediaContent = z.infer<typeof dialogueMediaContentSchema>;
+export type DialogueMediaSlotData = z.infer<typeof dialogueMediaSlotSchema>;
+export type DialogueMediaMutation = z.infer<typeof dialogueMediaMutationSchema>;
 
 export interface DialogueSchemaDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -196,6 +277,7 @@ export function defaultDialogueSegment<T extends DialogueSegmentType = 'line'>(
           type,
           speaker: null,
           text: inlineTextContent(),
+          presentation: { stage: [], media: [] },
           effects: [],
           showOnce: false,
           logged: true,
@@ -228,6 +310,8 @@ export function defaultDialogueData(label = 'Dialogue'): DialogueData {
     kind: 'dialogue',
     displayName: label,
     defaultSpeaker: null,
+    stageSlots: [],
+    mediaSlots: [],
     settings: { showDisabledChoices: true, logMode: 'everything' },
     entryBlockId: 'start',
     blocks: [defaultDialogueBlock()],
@@ -335,6 +419,56 @@ export function validateDialogueData(
   const validateCharacter = (ref: DialogueCharacterRef | null, path: string) => {
     if (ref) requireRecord('characters', ref.$ref.id, path);
   };
+  const validateCharacterPresentation = (
+    ref: DialogueCharacterRef,
+    profileId: string,
+    poseId: string,
+    expressionId: string,
+    appearanceId: string | null,
+    path: string,
+  ) => {
+    validateCharacter(ref, `${path}/character`);
+    const character = parseCharacterData(project.characters[ref.$ref.id]?.data);
+    if (!character) return;
+    const profile = character.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile)
+      diagnostics.push(
+        diagnostic(`${path}/profileId`, `Missing Character profile '${profileId}'.`),
+      );
+    else if (!profile.poses.some((candidate) => candidate.id === poseId))
+      diagnostics.push(
+        diagnostic(`${path}/poseId`, `Missing Pose '${poseId}' in profile '${profileId}'.`),
+      );
+    if (!character.expressions.some((candidate) => candidate.id === expressionId))
+      diagnostics.push(diagnostic(`${path}/expressionId`, `Missing Expression '${expressionId}'.`));
+    if (appearanceId && !character.appearances.some((candidate) => candidate.id === appearanceId))
+      diagnostics.push(diagnostic(`${path}/appearanceId`, `Missing Appearance '${appearanceId}'.`));
+  };
+  const validateMedia = (media: DialogueMediaContent, path: string) => {
+    if (media.kind === 'image') {
+      requireRecord('assets', media.asset.$ref.id, `${path}/asset`);
+      const asset = project.assets[media.asset.$ref.id];
+      if (
+        asset &&
+        asset.data &&
+        typeof asset.data === 'object' &&
+        'kind' in asset.data &&
+        asset.data.kind !== 'image'
+      )
+        diagnostics.push(
+          diagnostic(`${path}/asset`, 'Dialogue image media must reference an image asset.'),
+        );
+      return;
+    }
+    validateCharacterPresentation(
+      media.character,
+      media.profileId,
+      media.poseId,
+      media.expressionId,
+      media.appearanceId,
+      path,
+    );
+  };
   const validateVariableValue = (variableId: string, value: unknown, path: string) => {
     const result = validateVariableRuntimeValue(project, variableId, value);
     if (!result.ok) diagnostics.push(diagnostic(path, result.message));
@@ -355,6 +489,22 @@ export function validateDialogueData(
   };
 
   validateCharacter(data.defaultSpeaker, `${base}/defaultSpeaker`);
+  validateUniqueIds(data.stageSlots, `${base}/stageSlots`, 'stage slot', diagnostics);
+  validateUniqueIds(data.mediaSlots, `${base}/mediaSlots`, 'media slot', diagnostics);
+  data.stageSlots.forEach((slot, index) => {
+    if (slot.initial)
+      validateCharacterPresentation(
+        slot.initial.character,
+        slot.initial.profileId,
+        slot.initial.poseId,
+        slot.initial.expressionId,
+        slot.initial.appearanceId,
+        `${base}/stageSlots/${index}/initial`,
+      );
+  });
+  data.mediaSlots.forEach((slot, index) => {
+    if (slot.initial) validateMedia(slot.initial, `${base}/mediaSlots/${index}/initial`);
+  });
   validateUniqueIds(data.blocks, `${base}/blocks`, 'block', diagnostics);
   validateUniqueIds(data.edges, `${base}/edges`, 'edge', diagnostics);
   const segmentIds = new Set<string>();
@@ -402,6 +552,38 @@ export function validateDialogueData(
           validateCharacter(segment.speaker, `${segmentPath}/speaker`);
           validateCondition(segment.condition, `${segmentPath}/condition`);
           validateEffects(segment.effects, `${segmentPath}/effects`);
+          segment.presentation.stage.forEach((mutation, mutationIndex) => {
+            const mutationPath = `${segmentPath}/presentation/stage/${mutationIndex}`;
+            const slot = data.stageSlots.find((candidate) => candidate.id === mutation.slotId);
+            if (!slot)
+              diagnostics.push(
+                diagnostic(`${mutationPath}/slotId`, `Missing Stage Slot '${mutation.slotId}'.`),
+              );
+            if (mutation.character)
+              validateCharacter(mutation.character, `${mutationPath}/character`);
+            if (
+              mutation.action === 'clear' &&
+              Object.keys(mutation).some((key) => !['slotId', 'action'].includes(key))
+            )
+              diagnostics.push(
+                diagnostic(
+                  mutationPath,
+                  'Clear Stage Slot mutations cannot include presentation fields.',
+                ),
+              );
+          });
+          segment.presentation.media.forEach((mutation, mutationIndex) => {
+            const mutationPath = `${segmentPath}/presentation/media/${mutationIndex}`;
+            if (!data.mediaSlots.some((candidate) => candidate.id === mutation.slotId))
+              diagnostics.push(
+                diagnostic(`${mutationPath}/slotId`, `Missing Media Slot '${mutation.slotId}'.`),
+              );
+            if (mutation.content) validateMedia(mutation.content, `${mutationPath}/content`);
+            if (mutation.action === 'clear' && mutation.content)
+              diagnostics.push(
+                diagnostic(mutationPath, 'Clear Media Slot mutations cannot include content.'),
+              );
+          });
           if (inlineTextIsEmpty(segment.text))
             diagnostics.push(
               diagnostic(

@@ -465,6 +465,71 @@ struct TextLogEntryProjection {
     std::string get_body_rml() { return body_rml; }
 };
 
+struct DialogueStageSlotProjection {
+    std::string id;
+    bool populated = false;
+    std::string character_id;
+    std::string profile_id;
+    std::string pose_id;
+    std::string expression_id;
+    std::string appearance_id;
+    std::string position;
+    double offset_x = 0.0;
+    double offset_y = 0.0;
+    double scale = 1.0;
+    bool visible = false;
+    bool speaker_sync = false;
+    bool speaking = false;
+    std::string get_id() { return id; }
+    bool get_populated() { return populated; }
+    std::string get_character_id() { return character_id; }
+    std::string get_profile_id() { return profile_id; }
+    std::string get_pose_id() { return pose_id; }
+    std::string get_expression_id() { return expression_id; }
+    std::string get_appearance_id() { return appearance_id; }
+    std::string get_position() { return position; }
+    double get_offset_x() { return offset_x; }
+    double get_offset_y() { return offset_y; }
+    double get_scale() { return scale; }
+    bool get_visible() { return visible; }
+    bool get_speaker_sync() { return speaker_sync; }
+    bool get_speaking() { return speaking; }
+};
+
+struct DialogueMediaSlotProjection {
+    std::string id;
+    bool populated = false;
+    bool visible = false;
+    std::string kind;
+    std::string asset_id;
+    std::string character_id;
+    std::string profile_id;
+    std::string pose_id;
+    std::string expression_id;
+    std::string appearance_id;
+    std::string get_id() { return id; }
+    bool get_populated() { return populated; }
+    bool get_visible() { return visible; }
+    std::string get_kind() { return kind; }
+    std::string get_asset_id() { return asset_id; }
+    std::string get_character_id() { return character_id; }
+    std::string get_profile_id() { return profile_id; }
+    std::string get_pose_id() { return pose_id; }
+    std::string get_expression_id() { return expression_id; }
+    std::string get_appearance_id() { return appearance_id; }
+};
+
+struct DialogueProjection {
+    bool available = false;
+    std::string id;
+    std::vector<DialogueStageSlotProjection> stage_slots;
+    std::vector<DialogueMediaSlotProjection> media_slots;
+    bool get_available() { return available; }
+    std::string get_id() { return id; }
+    std::vector<DialogueStageSlotProjection>& get_stage_slots() { return stage_slots; }
+    std::vector<DialogueMediaSlotProjection>& get_media_slots() { return media_slots; }
+};
+
 struct RoomProjection {
     bool available = false;
     bool has_enabled_exits = false;
@@ -556,6 +621,7 @@ struct GameplayProjection {
     bool active_text_available = false;
     std::vector<ChoiceProjection> choices;
     std::vector<ActorProjection> actors;
+    DialogueProjection dialogue;
     RoomProjection room;
     InventoryProjection inventory;
     InteractionProjection interaction;
@@ -569,6 +635,7 @@ struct GameplayProjection {
     bool get_active_text_available() { return active_text_available; }
     std::vector<ChoiceProjection>& get_choices() { return choices; }
     std::vector<ActorProjection>& get_actors() { return actors; }
+    DialogueProjection& get_dialogue() { return dialogue; }
     RoomProjection& get_room() { return room; }
     InventoryProjection& get_inventory() { return inventory; }
     InteractionProjection& get_interaction() { return interaction; }
@@ -754,8 +821,36 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(TextLogEntryProjection, has_speaker),
             NT_MEMBER(TextLogEntryProjection, speaker_id), NT_MEMBER(TextLogEntryProjection, text),
             NT_MEMBER(TextLogEntryProjection, body_rml));
+        ok &= register_struct<DialogueStageSlotProjection>(
+            c, NT_MEMBER(DialogueStageSlotProjection, id),
+            NT_MEMBER(DialogueStageSlotProjection, populated),
+            NT_MEMBER(DialogueStageSlotProjection, character_id),
+            NT_MEMBER(DialogueStageSlotProjection, profile_id),
+            NT_MEMBER(DialogueStageSlotProjection, pose_id),
+            NT_MEMBER(DialogueStageSlotProjection, expression_id),
+            NT_MEMBER(DialogueStageSlotProjection, appearance_id),
+            NT_MEMBER(DialogueStageSlotProjection, position),
+            NT_MEMBER(DialogueStageSlotProjection, offset_x),
+            NT_MEMBER(DialogueStageSlotProjection, offset_y),
+            NT_MEMBER(DialogueStageSlotProjection, scale),
+            NT_MEMBER(DialogueStageSlotProjection, visible),
+            NT_MEMBER(DialogueStageSlotProjection, speaker_sync),
+            NT_MEMBER(DialogueStageSlotProjection, speaking));
+        ok &= register_struct<DialogueMediaSlotProjection>(
+            c, NT_MEMBER(DialogueMediaSlotProjection, id),
+            NT_MEMBER(DialogueMediaSlotProjection, populated),
+            NT_MEMBER(DialogueMediaSlotProjection, visible),
+            NT_MEMBER(DialogueMediaSlotProjection, kind),
+            NT_MEMBER(DialogueMediaSlotProjection, asset_id),
+            NT_MEMBER(DialogueMediaSlotProjection, character_id),
+            NT_MEMBER(DialogueMediaSlotProjection, profile_id),
+            NT_MEMBER(DialogueMediaSlotProjection, pose_id),
+            NT_MEMBER(DialogueMediaSlotProjection, expression_id),
+            NT_MEMBER(DialogueMediaSlotProjection, appearance_id));
         ok &= c.RegisterArray<std::vector<ChoiceProjection>>();
         ok &= c.RegisterArray<std::vector<ActorProjection>>();
+        ok &= c.RegisterArray<std::vector<DialogueStageSlotProjection>>();
+        ok &= c.RegisterArray<std::vector<DialogueMediaSlotProjection>>();
         ok &= c.RegisterArray<std::vector<ExitProjection>>();
         ok &= c.RegisterArray<std::vector<ObjectProjection>>();
         ok &= c.RegisterArray<std::vector<InventoryItemProjection>>();
@@ -796,14 +891,17 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(CommandBuilderProjection, complete),
             NT_MEMBER(CommandBuilderProjection, watched));
         ok &= register_struct<TextLogProjection>(c, NT_MEMBER(TextLogProjection, entries));
+        ok &= register_struct<DialogueProjection>(
+            c, NT_MEMBER(DialogueProjection, available), NT_MEMBER(DialogueProjection, id),
+            NT_MEMBER(DialogueProjection, stage_slots), NT_MEMBER(DialogueProjection, media_slots));
         ok &= register_struct<GameplayProjection>(
             c, NT_MEMBER(GameplayProjection, available), NT_MEMBER(GameplayProjection, mode),
             NT_MEMBER(GameplayProjection, title), NT_MEMBER(GameplayProjection, notification),
             NT_MEMBER(GameplayProjection, can_continue),
             NT_MEMBER(GameplayProjection, active_text_available),
             NT_MEMBER(GameplayProjection, choices), NT_MEMBER(GameplayProjection, actors),
-            NT_MEMBER(GameplayProjection, room), NT_MEMBER(GameplayProjection, inventory),
-            NT_MEMBER(GameplayProjection, interaction),
+            NT_MEMBER(GameplayProjection, dialogue), NT_MEMBER(GameplayProjection, room),
+            NT_MEMBER(GameplayProjection, inventory), NT_MEMBER(GameplayProjection, interaction),
             NT_MEMBER(GameplayProjection, command_builder),
             NT_MEMBER(GameplayProjection, text_log));
         ok &= register_struct<ProjectProjection>(c, NT_MEMBER(ProjectProjection, title),
@@ -1055,6 +1153,72 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
     } else if (view.dialogue && view.dialogue->choice) {
         for (const auto& option : view.dialogue->choice->options)
             out.choices.push_back({"dialogue", option.edge.text(), option.label, option.enabled});
+    }
+    out.dialogue.available = view.dialogue.has_value();
+    if (view.dialogue) {
+        out.dialogue.id = view.dialogue->dialogue.text();
+        for (const auto& slot : view.dialogue->stage_slots) {
+            DialogueStageSlotProjection projected;
+            projected.id = slot.slot.text();
+            projected.speaker_sync = slot.speaker_sync;
+            projected.speaking = slot.speaking;
+            if (slot.presentation) {
+                projected.populated = true;
+                projected.character_id = slot.presentation->character.text();
+                projected.profile_id = slot.presentation->profile_id.text();
+                projected.pose_id = slot.presentation->pose_id.text();
+                projected.expression_id = slot.presentation->expression_id.text();
+                projected.appearance_id = slot.presentation->appearance_id
+                                              ? slot.presentation->appearance_id->text()
+                                              : std::string{};
+                switch (slot.presentation->position) {
+                case core::compiled::ActorPosition::Left:
+                    projected.position = "left";
+                    break;
+                case core::compiled::ActorPosition::Center:
+                    projected.position = "center";
+                    break;
+                case core::compiled::ActorPosition::Right:
+                    projected.position = "right";
+                    break;
+                case core::compiled::ActorPosition::Custom:
+                    projected.position = "custom";
+                    break;
+                }
+                projected.offset_x = slot.presentation->offset.x;
+                projected.offset_y = slot.presentation->offset.y;
+                projected.scale = slot.presentation->scale;
+                projected.visible = slot.presentation->visible;
+            }
+            out.dialogue.stage_slots.push_back(std::move(projected));
+        }
+        for (const auto& slot : view.dialogue->media_slots) {
+            DialogueMediaSlotProjection projected;
+            projected.id = slot.slot.text();
+            projected.visible = slot.visible;
+            projected.populated = slot.content.has_value();
+            if (slot.content) {
+                std::visit(
+                    [&](const auto& content) {
+                        using T = std::decay_t<decltype(content)>;
+                        if constexpr (std::is_same_v<T, core::compiled::DialogueImageMedia>) {
+                            projected.kind = "image";
+                            projected.asset_id = content.asset.text();
+                        } else {
+                            projected.kind = "character";
+                            projected.character_id = content.character.text();
+                            projected.profile_id = content.profile_id.text();
+                            projected.pose_id = content.pose_id.text();
+                            projected.expression_id = content.expression_id.text();
+                            projected.appearance_id = content.appearance_id
+                                                          ? content.appearance_id->text()
+                                                          : std::string{};
+                        }
+                    },
+                    *slot.content);
+            }
+            out.dialogue.media_slots.push_back(std::move(projected));
+        }
     }
     if (view.scene) {
         for (const auto& actor : view.scene->actors) {

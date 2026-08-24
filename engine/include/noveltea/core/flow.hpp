@@ -77,6 +77,18 @@ struct DialogueFramePosition {
     auto operator<=>(const DialogueFramePosition&) const = default;
 };
 
+struct DialogueStageSlotRuntimeState {
+    DialogueStageSlotId slot;
+    std::optional<compiled::DialogueStageSlotState> value;
+    bool operator==(const DialogueStageSlotRuntimeState&) const = default;
+};
+struct DialogueMediaSlotRuntimeState {
+    DialogueMediaSlotId slot;
+    std::optional<compiled::DialogueMediaContent> content;
+    bool visible = true;
+    bool operator==(const DialogueMediaSlotRuntimeState&) const = default;
+};
+
 struct InteractionSubjectBinding {
     VerbSlotId slot_id;
     compiled::InteractionSubject subject;
@@ -187,6 +199,8 @@ struct DialogueFrame {
     FlowFrameId frame_id;
     DialogueId dialogue;
     DialogueFramePosition position;
+    std::vector<DialogueStageSlotRuntimeState> stage_slots;
+    std::vector<DialogueMediaSlotRuntimeState> media_slots;
     ReturnDestination destination;
 };
 struct InteractionFrame {

@@ -147,6 +147,8 @@ struct DialogueDefinition {
     DefinitionIdentity<DialogueId> identity;
     std::string display_name;
     std::optional<CharacterId> default_speaker;
+    std::vector<DialogueStageSlotDefinition> stage_slots;
+    std::vector<DialogueMediaSlotDefinition> media_slots;
     DialogueProgram program;
     DialogueSettings settings;
     FlowTarget completion;

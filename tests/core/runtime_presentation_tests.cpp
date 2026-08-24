@@ -84,6 +84,38 @@ CompiledProject hotspot_fixture()
     return std::move(decoded).value();
 }
 
+CompiledProject dialogue_fixture()
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/dialogue-program.json");
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)), {});
+    auto document = nlohmann::json::parse(source);
+    auto& dialogues = document["definitions"]["dialogues"];
+    auto intro = std::find_if(dialogues.begin(), dialogues.end(),
+                              [](const nlohmann::json& value) { return value["id"] == "intro"; });
+    REQUIRE(intro != dialogues.end());
+    (*intro)["stageSlots"] = nlohmann::json::array({
+        {{"id", "speaker"},
+         {"speakerSync", true},
+         {"initial",
+          {{"character", {{"kind", "character"}, {"id", "hero"}}},
+           {"profileId", "stage"},
+           {"poseId", "default"},
+           {"expressionId", "neutral"},
+           {"appearanceId", nullptr},
+           {"position", "left"},
+           {"offset", {{"x", 10.0}, {"y", -5.0}}},
+           {"scale", 1.1},
+           {"visible", true}}}},
+    });
+    (*intro)["mediaSlots"] = nlohmann::json::array();
+    auto decoded = decode_compiled_project(document, "dialogue-presentation.json");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
 CompiledProject layout_contract_fixture()
 {
     std::ifstream input(
@@ -253,6 +285,59 @@ const PresentationMountedLayout* find_layout(const RuntimePresentationSnapshot& 
     return found == snapshot.layouts.end() ? nullptr : &*found;
 }
 } // namespace
+
+TEST_CASE("direct Dialogue Stage Slots project ordinary Character presentation actors")
+{
+    const auto project = dialogue_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(std::holds_alternative<DialogueFrame>(state.flow_stack().back()));
+    auto unrelated_instance = StrongId<ScopedActorInstanceTag>::create("unrelated-hero");
+    REQUIRE(unrelated_instance);
+    REQUIRE(state.set_actor(
+        project, DesiredActorPresentation{ScopedActorKey{std::move(*unrelated_instance.value_if())},
+                                          state.session_presentation_owner(),
+                                          id<CharacterId>("hero"),
+                                          id<CharacterPresentationProfileId>("stage"),
+                                          id<CharacterPoseId>("default"),
+                                          id<CharacterExpressionId>("neutral"),
+                                          std::nullopt,
+                                          std::nullopt,
+                                          {},
+                                          true,
+                                          true,
+                                          false}));
+    REQUIRE(state.present_text(
+        project, PresentedTextState{id<CharacterId>("hero"), "Hello", TextMarkup::Plain}));
+
+    auto snapshot = project_snapshot(project, state);
+    REQUIRE(snapshot);
+    const auto actor = std::find_if(snapshot.value().actors.begin(), snapshot.value().actors.end(),
+                                    [](const PresentationActor& value) {
+                                        return value.character == id<CharacterId>("hero") &&
+                                               std::holds_alternative<ScopedActorKey>(value.key);
+                                    });
+    REQUIRE(actor != snapshot.value().actors.end());
+    CHECK(actor->profile == id<CharacterPresentationProfileId>("stage"));
+    CHECK(actor->pose == id<CharacterPoseId>("default"));
+    CHECK(actor->expression == id<CharacterExpressionId>("neutral"));
+    CHECK(actor->placement.position == compiled::ActorPosition::Left);
+    CHECK(actor->placement.offset.x == 10.0);
+    CHECK(actor->placement.offset.y == -5.0);
+    CHECK(actor->placement.scale == 1.1);
+    CHECK(actor->visible);
+    CHECK(actor->speaking);
+
+    const auto unrelated =
+        std::find_if(snapshot.value().actors.begin(), snapshot.value().actors.end(),
+                     [](const PresentationActor& value) {
+                         const auto* key = std::get_if<ScopedActorKey>(&value.key);
+                         return key != nullptr && key->instance.text() == "unrelated-hero";
+                     });
+    REQUIRE(unrelated != snapshot.value().actors.end());
+    CHECK_FALSE(unrelated->speaking);
+}
 
 TEST_CASE("camera Focus capture freezes Room occurrence and Anchor bounds in logical world space")
 {

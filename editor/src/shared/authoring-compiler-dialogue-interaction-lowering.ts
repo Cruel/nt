@@ -16,6 +16,11 @@ import type { AuthoringProject } from './project-schema/authoring-project';
 import { compileSubjectSelector } from './authoring-compiler-shared-lowering';
 import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
+import type {
+  DialogueMediaContent,
+  DialogueStageMutation,
+  DialogueStageSlotState,
+} from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
 import { parseVerbData } from './project-schema/authoring-verbs';
 import type {
@@ -76,6 +81,50 @@ function compileFlowTarget(target: FlowTarget): CompiledFlowTarget {
     case 'end':
       return { kind: 'end' };
   }
+}
+
+function compileDialogueStageState(state: DialogueStageSlotState) {
+  return {
+    character: { kind: 'character' as const, id: state.character.$ref.id },
+    profileId: state.profileId,
+    poseId: state.poseId,
+    expressionId: state.expressionId,
+    appearanceId: state.appearanceId,
+    position: state.position,
+    offset: state.offset,
+    scale: state.scale,
+    visible: state.visible,
+  };
+}
+
+function compileDialogueMedia(media: DialogueMediaContent) {
+  return media.kind === 'image'
+    ? { kind: 'image' as const, asset: { kind: 'asset' as const, id: media.asset.$ref.id } }
+    : {
+        kind: 'character' as const,
+        character: { kind: 'character' as const, id: media.character.$ref.id },
+        profileId: media.profileId,
+        poseId: media.poseId,
+        expressionId: media.expressionId,
+        appearanceId: media.appearanceId,
+      };
+}
+
+function compileDialogueStageMutation(mutation: DialogueStageMutation) {
+  return {
+    slotId: mutation.slotId,
+    action: mutation.action,
+    ...(mutation.character
+      ? { character: { kind: 'character' as const, id: mutation.character.$ref.id } }
+      : {}),
+    ...(mutation.profileId === undefined ? {} : { profileId: mutation.profileId }),
+    ...(mutation.poseId === undefined ? {} : { poseId: mutation.poseId }),
+    ...(mutation.expressionId === undefined ? {} : { expressionId: mutation.expressionId }),
+    ...(mutation.appearanceId === undefined ? {} : { appearanceId: mutation.appearanceId }),
+    ...(mutation.position === undefined ? {} : { position: mutation.position }),
+    ...(mutation.offset === undefined ? {} : { offset: mutation.offset }),
+    ...(mutation.scale === undefined ? {} : { scale: mutation.scale }),
+  };
 }
 
 function compileInventoryReference(inventory: InventoryReferenceData) {
@@ -215,6 +264,19 @@ export function lowerDialogueAndInteractionPrograms(
             kind: 'line',
             speaker: segment.speaker ? { kind: 'character', id: segment.speaker.$ref.id } : null,
             text: compileText(segment.text),
+            presentation: {
+              ...(segment.presentation.speakerExpressionId === undefined
+                ? {}
+                : { speakerExpressionId: segment.presentation.speakerExpressionId }),
+              stage: segment.presentation.stage.map(compileDialogueStageMutation),
+              media: segment.presentation.media.map((mutation) => ({
+                slotId: mutation.slotId,
+                action: mutation.action,
+                ...(mutation.content === undefined
+                  ? {}
+                  : { content: compileDialogueMedia(mutation.content) }),
+              })),
+            },
             ...(segment.condition === undefined
               ? {}
               : { condition: compileCondition(segment.condition) }),
@@ -236,6 +298,16 @@ export function lowerDialogueAndInteractionPrograms(
     }
     dialogues.push({
       ...dialogue,
+      stageSlots: data.stageSlots.map((slot) => ({
+        id: slot.id,
+        speakerSync: slot.speakerSync,
+        initial: slot.initial ? compileDialogueStageState(slot.initial) : null,
+      })),
+      mediaSlots: data.mediaSlots.map((slot) => ({
+        id: slot.id,
+        visible: slot.visible,
+        initial: slot.initial ? compileDialogueMedia(slot.initial) : null,
+      })),
       program: {
         entryBlockId: data.entryBlockId,
         blocks,

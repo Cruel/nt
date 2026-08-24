@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:ee0428c0476f6c4616c13d7042531b02");
+    CHECK(project.save_contract == "sc1:abfb5b661dad27a4bcadcf76b6ff2228");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -1263,6 +1263,29 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         auto result = noveltea::core::decode_compiled_project(document, "dialogue.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
+    }
+
+    SECTION("retired Dialogue presentation shape is rejected at the preserved version")
+    {
+        auto missing_slots = fixture("dialogue-program");
+        auto* dialogue = path_member(missing_slots, {"definitions", "dialogues", "1"});
+        REQUIRE(dialogue != nullptr);
+        dialogue->erase("stageSlots");
+        auto missing_slots_result =
+            noveltea::core::decode_compiled_project(missing_slots, "dialogue-missing-slots.json");
+        REQUIRE_FALSE(missing_slots_result);
+        CHECK(has_code(missing_slots_result.error(), "compiled_project.missing_field"));
+
+        auto missing_presentation = fixture("dialogue-program");
+        auto* segment =
+            path_member(missing_presentation, {"definitions", "dialogues", "1", "program", "blocks",
+                                               "0", "segments", "0"});
+        REQUIRE(segment != nullptr);
+        segment->erase("presentation");
+        auto missing_presentation_result = noveltea::core::decode_compiled_project(
+            missing_presentation, "dialogue-missing-presentation.json");
+        REQUIRE_FALSE(missing_presentation_result);
+        CHECK(has_code(missing_presentation_result.error(), "compiled_project.missing_field"));
     }
 
     SECTION("duplicate Dialogue block ID")

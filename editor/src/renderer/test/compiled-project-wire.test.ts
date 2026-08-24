@@ -282,6 +282,8 @@ function representativeWireFixture() {
           id: 'intro',
           displayName: 'Intro',
           defaultSpeaker: { kind: 'character', id: 'hero' },
+          stageSlots: [],
+          mediaSlots: [],
           settings: { showDisabledChoices: true, logMode: 'everything' },
           completion: { kind: 'end' },
           program: {
@@ -297,6 +299,7 @@ function representativeWireFixture() {
                     kind: 'line',
                     speaker: null,
                     text: { markup: 'active-text', source: { kind: 'inline', text: 'Hello' } },
+                    presentation: { stage: [], media: [] },
                     effects: [],
                     showOnce: false,
                     logged: true,

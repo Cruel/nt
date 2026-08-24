@@ -146,6 +146,7 @@ nlohmann::json minimal_dialogue_program(std::string_view log_mode, bool line_log
                   "id": "line",
                   "kind": "line",
                   "logged": true,
+                  "presentation": {"stage": [], "media": []},
                   "showOnce": false,
                   "speaker": null,
                   "text": {"markup": "plain", "source": {"kind": "inline", "text": "Line"}}
@@ -164,6 +165,7 @@ nlohmann::json minimal_dialogue_program(std::string_view log_mode, bool line_log
                   "id": "done",
                   "kind": "line",
                   "logged": false,
+                  "presentation": {"stage": [], "media": []},
                   "showOnce": false,
                   "speaker": null,
                   "text": {"markup": "plain", "source": {"kind": "inline", "text": "Done"}}
@@ -364,6 +366,115 @@ TEST_CASE("typed Dialogue show-once and disabled-choice policy are deterministic
         REQUIRE(kernel->choose_dialogue_option(
             input->owner, input->handle, core::DialogueEdgeId::create("choice-redirect").value()));
     }
+}
+
+TEST_CASE("typed Dialogue Stage and Media Slots are self-contained retained presentation")
+{
+    RuntimeFixture fixture;
+    install_dialogue_functions(fixture.runtime);
+    auto document = load_document("dialogue-program.json");
+    auto& hero = definition_by_id(document["definitions"], "characters", "hero");
+    auto angry = hero["expressions"][0];
+    angry["id"] = "angry";
+    hero["expressions"].push_back(std::move(angry));
+    auto rival = hero;
+    rival["id"] = "rival";
+    rival["displayName"] = "Rival";
+    document["definitions"]["characters"].push_back(std::move(rival));
+
+    auto& intro = definition_by_id(document["definitions"], "dialogues", "intro");
+    intro["stageSlots"] = nlohmann::json::array({
+        {{"id", "speaker-left"},
+         {"speakerSync", true},
+         {"initial",
+          {{"character", {{"kind", "character"}, {"id", "hero"}}},
+           {"profileId", "stage"},
+           {"poseId", "default"},
+           {"expressionId", "neutral"},
+           {"appearanceId", nullptr},
+           {"position", "left"},
+           {"offset", {{"x", 0.0}, {"y", 0.0}}},
+           {"scale", 1.0},
+           {"visible", true}}}},
+    });
+    intro["mediaSlots"] = nlohmann::json::array({
+        {{"id", "portrait"},
+         {"visible", true},
+         {"initial",
+          {{"kind", "character"},
+           {"character", {{"kind", "character"}, {"id", "hero"}}},
+           {"profileId", "stage"},
+           {"poseId", "default"},
+           {"expressionId", "neutral"},
+           {"appearanceId", nullptr}}}},
+    });
+    auto& first_line = intro["program"]["blocks"][0]["segments"][0];
+    first_line["presentation"] = {
+        {"speakerExpressionId", "angry"},
+        {"stage", nlohmann::json::array({{{"slotId", "speaker-left"},
+                                          {"action", "update"},
+                                          {"position", "right"},
+                                          {"offset", {{"x", 5.0}, {"y", -3.0}}},
+                                          {"scale", 1.2}}})},
+        {"media", nlohmann::json::array({{{"slotId", "portrait"}, {"action", "hide"}}})},
+    };
+    auto& second_line = intro["program"]["blocks"][0]["segments"][1];
+    second_line["presentation"] = {
+        {"stage", nlohmann::json::array({{{"slotId", "speaker-left"},
+                                          {"action", "update"},
+                                          {"character", {{"kind", "character"}, {"id", "rival"}}},
+                                          {"position", "center"}}})},
+        {"media", nlohmann::json::array()},
+    };
+
+    auto project = decode_document(std::move(document), "dialogue-presentation.json");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+
+    const auto& initial = active_dialogue(*kernel);
+    REQUIRE(initial.stage_slots.size() == 1);
+    REQUIRE(initial.stage_slots[0].value);
+    CHECK(initial.stage_slots[0].value->character == core::CharacterId::create("hero").value());
+    CHECK(initial.stage_slots[0].value->position == core::compiled::ActorPosition::Left);
+    REQUIRE(initial.media_slots.size() == 1);
+    REQUIRE(initial.media_slots[0].content);
+    CHECK(initial.media_slots[0].visible);
+
+    require_input_blocker(kernel->run_until_blocked(100, "en"));
+    auto view = kernel->dialogue_view();
+    REQUIRE(view);
+    REQUIRE(view.value().stage_slots.size() == 1);
+    REQUIRE(view.value().stage_slots[0].presentation);
+    CHECK(view.value().stage_slots[0].presentation->character ==
+          core::CharacterId::create("hero").value());
+    CHECK(view.value().stage_slots[0].presentation->expression_id ==
+          core::CharacterExpressionId::create("angry").value());
+    CHECK(view.value().stage_slots[0].presentation->position ==
+          core::compiled::ActorPosition::Right);
+    CHECK(view.value().stage_slots[0].presentation->offset.x == 5.0);
+    CHECK(view.value().stage_slots[0].presentation->offset.y == -3.0);
+    CHECK(view.value().stage_slots[0].presentation->scale == 1.2);
+    CHECK(view.value().stage_slots[0].speaking);
+    REQUIRE(view.value().media_slots.size() == 1);
+    REQUIRE(view.value().media_slots[0].content);
+    CHECK_FALSE(view.value().media_slots[0].visible);
+
+    complete_input(*kernel);
+    require_input_blocker(kernel->run_until_blocked(100, "en"));
+    view = kernel->dialogue_view();
+    REQUIRE(view);
+    REQUIRE(view.value().stage_slots[0].presentation);
+    CHECK(view.value().stage_slots[0].presentation->character ==
+          core::CharacterId::create("rival").value());
+    CHECK(view.value().stage_slots[0].presentation->profile_id ==
+          core::CharacterPresentationProfileId::create("stage").value());
+    CHECK(view.value().stage_slots[0].presentation->pose_id ==
+          core::CharacterPoseId::create("default").value());
+    CHECK(view.value().stage_slots[0].presentation->position ==
+          core::compiled::ActorPosition::Center);
+    CHECK_FALSE(view.value().stage_slots[0].speaking);
+    CHECK_FALSE(view.value().media_slots[0].visible);
 }
 
 TEST_CASE("typed Dialogue logging modes and per-item suppression are closed policies")

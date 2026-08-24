@@ -42,6 +42,19 @@ struct DialogueView {
     DialogueId dialogue;
     std::optional<PresentedTextState> line;
     std::optional<DialogueChoiceState> choice;
+    struct StageSlot {
+        DialogueStageSlotId slot;
+        std::optional<compiled::DialogueStageSlotState> presentation;
+        bool speaker_sync = false;
+        bool speaking = false;
+    };
+    struct MediaSlot {
+        DialogueMediaSlotId slot;
+        std::optional<compiled::DialogueMediaContent> content;
+        bool visible = true;
+    };
+    std::vector<StageSlot> stage_slots;
+    std::vector<MediaSlot> media_slots;
 };
 
 struct RoomPlacementView {

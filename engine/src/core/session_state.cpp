@@ -675,11 +675,21 @@ Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project
                 const auto* dialogue = project.find_dialogue(id);
                 if (dialogue == nullptr)
                     return false;
+                std::vector<DialogueStageSlotRuntimeState> stage_slots;
+                stage_slots.reserve(dialogue->stage_slots.size());
+                for (const auto& slot : dialogue->stage_slots)
+                    stage_slots.push_back({slot.id, slot.initial});
+                std::vector<DialogueMediaSlotRuntimeState> media_slots;
+                media_slots.reserve(dialogue->media_slots.size());
+                for (const auto& slot : dialogue->media_slots)
+                    media_slots.push_back({slot.id, slot.initial, slot.visible});
                 stack.emplace_back(
                     DialogueFrame{frame_id,
                                   id,
                                   {dialogue->program.entry_block_id, std::nullopt, std::nullopt,
                                    DialogueFramePosition::Stage::EnterBlock, 0},
+                                  std::move(stage_slots),
+                                  std::move(media_slots),
                                   NoReturnDestination{}});
                 return true;
             }

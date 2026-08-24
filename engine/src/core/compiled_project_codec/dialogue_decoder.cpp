@@ -2,6 +2,327 @@
 
 namespace noveltea::core::compiled::wire::detail {
 
+namespace {
+
+std::optional<ActorPosition> decode_dialogue_actor_position(Decoder& decoder,
+                                                            const nlohmann::json& value,
+                                                            std::string_view pointer)
+{
+    return decoder.enumeration<ActorPosition>(value, pointer,
+                                              {{"left", ActorPosition::Left},
+                                               {"center", ActorPosition::Center},
+                                               {"right", ActorPosition::Right}});
+}
+
+std::optional<DialogueSlotMutationAction>
+decode_dialogue_slot_action(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    return decoder.enumeration<DialogueSlotMutationAction>(
+        value, pointer,
+        {{"update", DialogueSlotMutationAction::Update},
+         {"show", DialogueSlotMutationAction::Show},
+         {"hide", DialogueSlotMutationAction::Hide},
+         {"clear", DialogueSlotMutationAction::Clear}});
+}
+
+std::optional<DialogueMediaContent>
+decode_dialogue_media(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Dialogue media content object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "image") {
+        decoder.object(value, pointer, {"asset", "kind"});
+        const auto* asset_value = decoder.member(value, "asset", pointer);
+        auto asset = asset_value
+                         ? decode_reference<AssetId>(decoder, *asset_value,
+                                                     pointer_child(pointer, "asset"), "asset")
+                         : std::nullopt;
+        return asset ? std::optional<DialogueMediaContent>(DialogueImageMedia{std::move(*asset)})
+                     : std::nullopt;
+    }
+    if (*kind == "character") {
+        decoder.object(
+            value, pointer,
+            {"appearanceId", "character", "expressionId", "kind", "poseId", "profileId"});
+        const auto* character_value = decoder.member(value, "character", pointer);
+        const auto* profile_value = decoder.member(value, "profileId", pointer);
+        const auto* pose_value = decoder.member(value, "poseId", pointer);
+        const auto* expression_value = decoder.member(value, "expressionId", pointer);
+        const auto* appearance_value = decoder.member(value, "appearanceId", pointer);
+        auto character =
+            character_value
+                ? decode_reference<CharacterId>(decoder, *character_value,
+                                                pointer_child(pointer, "character"), "character")
+                : std::nullopt;
+        auto profile = profile_value ? decoder.id<CharacterPresentationProfileId>(
+                                           *profile_value, pointer_child(pointer, "profileId"))
+                                     : std::nullopt;
+        auto pose = pose_value
+                        ? decoder.id<CharacterPoseId>(*pose_value, pointer_child(pointer, "poseId"))
+                        : std::nullopt;
+        auto expression = expression_value
+                              ? decoder.id<CharacterExpressionId>(
+                                    *expression_value, pointer_child(pointer, "expressionId"))
+                              : std::nullopt;
+        std::optional<CharacterAppearanceId> appearance;
+        bool appearance_ok = appearance_value != nullptr;
+        if (appearance_value && !appearance_value->is_null()) {
+            appearance = decoder.id<CharacterAppearanceId>(*appearance_value,
+                                                           pointer_child(pointer, "appearanceId"));
+            appearance_ok = appearance.has_value();
+        }
+        return character && profile && pose && expression && appearance_ok
+                   ? std::optional<DialogueMediaContent>(DialogueCharacterMedia{
+                         std::move(*character), std::move(*profile), std::move(*pose),
+                         std::move(*expression), std::move(appearance)})
+                   : std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Dialogue media variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<DialogueStageSlotState>
+decode_dialogue_stage_state(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!decoder.object(value, pointer,
+                        {"appearanceId", "character", "expressionId", "offset", "poseId",
+                         "position", "profileId", "scale", "visible"}))
+        return std::nullopt;
+    const auto* character_value = decoder.member(value, "character", pointer);
+    const auto* profile_value = decoder.member(value, "profileId", pointer);
+    const auto* pose_value = decoder.member(value, "poseId", pointer);
+    const auto* expression_value = decoder.member(value, "expressionId", pointer);
+    const auto* appearance_value = decoder.member(value, "appearanceId", pointer);
+    const auto* position_value = decoder.member(value, "position", pointer);
+    const auto* offset_value = decoder.member(value, "offset", pointer);
+    const auto* scale_value = decoder.member(value, "scale", pointer);
+    const auto* visible_value = decoder.member(value, "visible", pointer);
+    auto character =
+        character_value
+            ? decode_reference<CharacterId>(decoder, *character_value,
+                                            pointer_child(pointer, "character"), "character")
+            : std::nullopt;
+    auto profile = profile_value ? decoder.id<CharacterPresentationProfileId>(
+                                       *profile_value, pointer_child(pointer, "profileId"))
+                                 : std::nullopt;
+    auto pose = pose_value
+                    ? decoder.id<CharacterPoseId>(*pose_value, pointer_child(pointer, "poseId"))
+                    : std::nullopt;
+    auto expression =
+        expression_value ? decoder.id<CharacterExpressionId>(*expression_value,
+                                                             pointer_child(pointer, "expressionId"))
+                         : std::nullopt;
+    std::optional<CharacterAppearanceId> appearance;
+    bool appearance_ok = appearance_value != nullptr;
+    if (appearance_value && !appearance_value->is_null()) {
+        appearance = decoder.id<CharacterAppearanceId>(*appearance_value,
+                                                       pointer_child(pointer, "appearanceId"));
+        appearance_ok = appearance.has_value();
+    }
+    auto position = position_value
+                        ? decode_dialogue_actor_position(decoder, *position_value,
+                                                         pointer_child(pointer, "position"))
+                        : std::nullopt;
+    auto offset = offset_value
+                      ? decode_vector2(decoder, *offset_value, pointer_child(pointer, "offset"))
+                      : std::nullopt;
+    auto scale = scale_value ? decoder.finite_number(*scale_value, pointer_child(pointer, "scale"))
+                             : std::nullopt;
+    auto visible = visible_value
+                       ? decoder.boolean(*visible_value, pointer_child(pointer, "visible"))
+                       : std::nullopt;
+    if (scale && *scale <= 0.0) {
+        decoder.error(k_code_type, "Dialogue Stage Slot scale must be positive.",
+                      pointer_child(pointer, "scale"));
+        scale.reset();
+    }
+    return character && profile && pose && expression && appearance_ok && position && offset &&
+                   scale && visible
+               ? std::optional<DialogueStageSlotState>(DialogueStageSlotState{
+                     std::move(*character), std::move(*profile), std::move(*pose),
+                     std::move(*expression), std::move(appearance), *position, *offset, *scale,
+                     *visible})
+               : std::nullopt;
+}
+
+} // namespace
+
+std::optional<DialogueLinePresentation>
+decode_dialogue_line_presentation(Decoder& decoder, const nlohmann::json& value,
+                                  std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"media", "speakerExpressionId", "stage"}))
+        return std::nullopt;
+    const auto speaker_expression_it = value.find("speakerExpressionId");
+    const auto* stage_value = decoder.member(value, "stage", pointer);
+    const auto* media_value = decoder.member(value, "media", pointer);
+    std::optional<CharacterExpressionId> speaker_expression;
+    bool speaker_expression_ok = true;
+    if (speaker_expression_it != value.end()) {
+        speaker_expression = decoder.id<CharacterExpressionId>(
+            *speaker_expression_it, pointer_child(pointer, "speakerExpressionId"));
+        speaker_expression_ok = speaker_expression.has_value();
+    }
+    auto stage =
+        stage_value
+            ? decoder.array<DialogueStageMutation>(
+                  *stage_value, pointer_child(pointer, "stage"),
+                  [&](const nlohmann::json& mutation,
+                      const std::string& mutation_pointer) -> std::optional<DialogueStageMutation> {
+                      if (!mutation.is_object()) {
+                          decoder.error(k_code_type, "Expected Dialogue Stage mutation object.",
+                                        mutation_pointer);
+                          return std::nullopt;
+                      }
+                      decoder.object(mutation, mutation_pointer,
+                                     {"action", "appearanceId", "character", "expressionId",
+                                      "offset", "poseId", "position", "profileId", "scale",
+                                      "slotId"});
+                      const auto* slot_value = decoder.member(mutation, "slotId", mutation_pointer);
+                      const auto* action_value =
+                          decoder.member(mutation, "action", mutation_pointer);
+                      auto slot = slot_value
+                                      ? decoder.id<DialogueStageSlotId>(
+                                            *slot_value, pointer_child(mutation_pointer, "slotId"))
+                                      : std::nullopt;
+                      auto action = action_value ? decode_dialogue_slot_action(
+                                                       decoder, *action_value,
+                                                       pointer_child(mutation_pointer, "action"))
+                                                 : std::nullopt;
+                      if (!slot || !action)
+                          return std::nullopt;
+                      DialogueStageMutation result{
+                          .slot_id = std::move(*slot),
+                          .action = *action,
+                          .character = std::nullopt,
+                          .profile_id = std::nullopt,
+                          .pose_id = std::nullopt,
+                          .expression_id = std::nullopt,
+                          .appearance_id = std::nullopt,
+                          .position = std::nullopt,
+                          .offset = std::nullopt,
+                          .scale = std::nullopt,
+                      };
+                      if (const auto it = mutation.find("character"); it != mutation.end()) {
+                          auto decoded = decode_reference<CharacterId>(
+                              decoder, *it, pointer_child(mutation_pointer, "character"),
+                              "character");
+                          if (!decoded)
+                              return std::nullopt;
+                          result.character = std::move(*decoded);
+                      }
+                      if (const auto it = mutation.find("profileId"); it != mutation.end()) {
+                          auto decoded = decoder.id<CharacterPresentationProfileId>(
+                              *it, pointer_child(mutation_pointer, "profileId"));
+                          if (!decoded)
+                              return std::nullopt;
+                          result.profile_id = std::move(*decoded);
+                      }
+                      if (const auto it = mutation.find("poseId"); it != mutation.end()) {
+                          auto decoded = decoder.id<CharacterPoseId>(
+                              *it, pointer_child(mutation_pointer, "poseId"));
+                          if (!decoded)
+                              return std::nullopt;
+                          result.pose_id = std::move(*decoded);
+                      }
+                      if (const auto it = mutation.find("expressionId"); it != mutation.end()) {
+                          auto decoded = decoder.id<CharacterExpressionId>(
+                              *it, pointer_child(mutation_pointer, "expressionId"));
+                          if (!decoded)
+                              return std::nullopt;
+                          result.expression_id = std::move(*decoded);
+                      }
+                      if (const auto it = mutation.find("appearanceId"); it != mutation.end()) {
+                          if (it->is_null()) {
+                              result.appearance_id = std::optional<CharacterAppearanceId>{};
+                          } else {
+                              auto decoded = decoder.id<CharacterAppearanceId>(
+                                  *it, pointer_child(mutation_pointer, "appearanceId"));
+                              if (!decoded)
+                                  return std::nullopt;
+                              result.appearance_id =
+                                  std::optional<CharacterAppearanceId>{std::move(*decoded)};
+                          }
+                      }
+                      if (const auto it = mutation.find("position"); it != mutation.end()) {
+                          auto decoded = decode_dialogue_actor_position(
+                              decoder, *it, pointer_child(mutation_pointer, "position"));
+                          if (!decoded)
+                              return std::nullopt;
+                          result.position = *decoded;
+                      }
+                      if (const auto it = mutation.find("offset"); it != mutation.end()) {
+                          auto decoded = decode_vector2(decoder, *it,
+                                                        pointer_child(mutation_pointer, "offset"));
+                          if (!decoded)
+                              return std::nullopt;
+                          result.offset = *decoded;
+                      }
+                      if (const auto it = mutation.find("scale"); it != mutation.end()) {
+                          auto decoded =
+                              decoder.finite_number(*it, pointer_child(mutation_pointer, "scale"));
+                          if (!decoded || *decoded <= 0.0) {
+                              decoder.error(k_code_type,
+                                            "Dialogue Stage mutation scale must be positive.",
+                                            pointer_child(mutation_pointer, "scale"));
+                              return std::nullopt;
+                          }
+                          result.scale = *decoded;
+                      }
+                      return result;
+                  })
+            : std::nullopt;
+    auto media =
+        media_value
+            ? decoder.array<DialogueMediaMutation>(
+                  *media_value, pointer_child(pointer, "media"),
+                  [&](const nlohmann::json& mutation,
+                      const std::string& mutation_pointer) -> std::optional<DialogueMediaMutation> {
+                      if (!mutation.is_object()) {
+                          decoder.error(k_code_type, "Expected Dialogue Media mutation object.",
+                                        mutation_pointer);
+                          return std::nullopt;
+                      }
+                      decoder.object(mutation, mutation_pointer, {"action", "content", "slotId"});
+                      const auto* slot_value = decoder.member(mutation, "slotId", mutation_pointer);
+                      const auto* action_value =
+                          decoder.member(mutation, "action", mutation_pointer);
+                      auto slot = slot_value
+                                      ? decoder.id<DialogueMediaSlotId>(
+                                            *slot_value, pointer_child(mutation_pointer, "slotId"))
+                                      : std::nullopt;
+                      auto action = action_value ? decode_dialogue_slot_action(
+                                                       decoder, *action_value,
+                                                       pointer_child(mutation_pointer, "action"))
+                                                 : std::nullopt;
+                      if (!slot || !action)
+                          return std::nullopt;
+                      DialogueMediaMutation result{
+                          .slot_id = std::move(*slot), .action = *action, .content = std::nullopt};
+                      if (const auto it = mutation.find("content"); it != mutation.end()) {
+                          auto decoded = decode_dialogue_media(
+                              decoder, *it, pointer_child(mutation_pointer, "content"));
+                          if (!decoded)
+                              return std::nullopt;
+                          result.content = std::move(*decoded);
+                      }
+                      return result;
+                  })
+            : std::nullopt;
+    return speaker_expression_ok && stage && media
+               ? std::optional<DialogueLinePresentation>(DialogueLinePresentation{
+                     std::move(speaker_expression), std::move(*stage), std::move(*media)})
+               : std::nullopt;
+}
+
 std::optional<DialogueSegment>
 decode_dialogue_segment(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
@@ -22,13 +343,14 @@ decode_dialogue_segment(Decoder& decoder, const nlohmann::json& value, std::stri
     if (*kind == "line") {
         decoder.object(value, pointer,
                        {"autosaveSafePoint", "condition", "effects", "id", "kind", "logged",
-                        "showOnce", "speaker", "text"});
+                        "presentation", "showOnce", "speaker", "text"});
         const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
         const auto* effects_value = decoder.member(value, "effects", pointer);
         const auto* logged_value = decoder.member(value, "logged", pointer);
         const auto* once_value = decoder.member(value, "showOnce", pointer);
         const auto* speaker_value = decoder.member(value, "speaker", pointer);
         const auto* text_value = decoder.member(value, "text", pointer);
+        const auto* presentation_value = decoder.member(value, "presentation", pointer);
         auto safe = safe_value
                         ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
                         : std::nullopt;
@@ -49,10 +371,21 @@ decode_dialogue_segment(Decoder& decoder, const nlohmann::json& value, std::stri
         }
         auto text = text_value ? decode_text(decoder, *text_value, pointer_child(pointer, "text"))
                                : std::nullopt;
-        if (safe && effects && logged && once && speaker_ok && text)
-            return DialogueLineSegment{std::move(*id),      *safe,           std::move(condition),
-                                       std::move(*effects), *logged,         *once,
-                                       std::move(speaker),  std::move(*text)};
+        auto presentation =
+            presentation_value
+                ? decode_dialogue_line_presentation(decoder, *presentation_value,
+                                                    pointer_child(pointer, "presentation"))
+                : std::nullopt;
+        if (safe && effects && logged && once && speaker_ok && text && presentation)
+            return DialogueLineSegment{std::move(*id),
+                                       *safe,
+                                       std::move(condition),
+                                       std::move(*effects),
+                                       *logged,
+                                       *once,
+                                       std::move(speaker),
+                                       std::move(*text),
+                                       std::move(*presentation)};
         return std::nullopt;
     }
     if (*kind == "run-lua") {
@@ -280,9 +613,9 @@ decode_dialogue_program(Decoder& decoder, const nlohmann::json& value, std::stri
 std::optional<DialogueDefinition> decode_dialogue(Decoder& decoder, const nlohmann::json& value,
                                                   std::string_view pointer)
 {
-    if (!decoder.object(
-            value, pointer,
-            {"completion", "defaultSpeaker", "displayName", "id", "program", "settings"}))
+    if (!decoder.object(value, pointer,
+                        {"completion", "defaultSpeaker", "displayName", "id", "mediaSlots",
+                         "program", "settings", "stageSlots"}))
         return std::nullopt;
     auto identity = decode_definition_identity<DialogueId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -290,6 +623,8 @@ std::optional<DialogueDefinition> decode_dialogue(Decoder& decoder, const nlohma
     const auto* settings_value = decoder.member(value, "settings", pointer);
     const auto* program_value = decoder.member(value, "program", pointer);
     const auto* completion_value = decoder.member(value, "completion", pointer);
+    const auto* stage_slots_value = decoder.member(value, "stageSlots", pointer);
+    const auto* media_slots_value = decoder.member(value, "mediaSlots", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
@@ -328,10 +663,88 @@ std::optional<DialogueDefinition> decode_dialogue(Decoder& decoder, const nlohma
                           ? decode_flow_target_impl(decoder, *completion_value,
                                                     pointer_child(pointer, "completion"))
                           : std::nullopt;
-    if (!identity || !display || !speaker_ok || !program || !settings || !completion)
+    auto stage_slots =
+        stage_slots_value
+            ? decoder.array<DialogueStageSlotDefinition>(
+                  *stage_slots_value, pointer_child(pointer, "stageSlots"),
+                  [&](const nlohmann::json& slot, const std::string& slot_pointer)
+                      -> std::optional<DialogueStageSlotDefinition> {
+                      if (!decoder.object(slot, slot_pointer, {"id", "initial", "speakerSync"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(slot, "id", slot_pointer);
+                      const auto* initial_value = decoder.member(slot, "initial", slot_pointer);
+                      const auto* sync_value = decoder.member(slot, "speakerSync", slot_pointer);
+                      auto id = id_value ? decoder.id<DialogueStageSlotId>(
+                                               *id_value, pointer_child(slot_pointer, "id"))
+                                         : std::nullopt;
+                      auto sync = sync_value
+                                      ? decoder.boolean(*sync_value,
+                                                        pointer_child(slot_pointer, "speakerSync"))
+                                      : std::nullopt;
+                      std::optional<DialogueStageSlotState> initial;
+                      bool initial_ok = initial_value != nullptr;
+                      if (initial_value && !initial_value->is_null()) {
+                          initial = decode_dialogue_stage_state(
+                              decoder, *initial_value, pointer_child(slot_pointer, "initial"));
+                          initial_ok = initial.has_value();
+                      }
+                      return id && sync && initial_ok
+                                 ? std::optional<DialogueStageSlotDefinition>(
+                                       DialogueStageSlotDefinition{std::move(*id), *sync,
+                                                                   std::move(initial)})
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
+    auto media_slots =
+        media_slots_value
+            ? decoder.array<DialogueMediaSlotDefinition>(
+                  *media_slots_value, pointer_child(pointer, "mediaSlots"),
+                  [&](const nlohmann::json& slot, const std::string& slot_pointer)
+                      -> std::optional<DialogueMediaSlotDefinition> {
+                      if (!decoder.object(slot, slot_pointer, {"id", "initial", "visible"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(slot, "id", slot_pointer);
+                      const auto* initial_value = decoder.member(slot, "initial", slot_pointer);
+                      const auto* visible_value = decoder.member(slot, "visible", slot_pointer);
+                      auto id = id_value ? decoder.id<DialogueMediaSlotId>(
+                                               *id_value, pointer_child(slot_pointer, "id"))
+                                         : std::nullopt;
+                      auto visible = visible_value
+                                         ? decoder.boolean(*visible_value,
+                                                           pointer_child(slot_pointer, "visible"))
+                                         : std::nullopt;
+                      std::optional<DialogueMediaContent> initial;
+                      bool initial_ok = initial_value != nullptr;
+                      if (initial_value && !initial_value->is_null()) {
+                          initial = decode_dialogue_media(decoder, *initial_value,
+                                                          pointer_child(slot_pointer, "initial"));
+                          initial_ok = initial.has_value();
+                      }
+                      return id && visible && initial_ok
+                                 ? std::optional<DialogueMediaSlotDefinition>(
+                                       DialogueMediaSlotDefinition{std::move(*id),
+                                                                   std::move(initial), *visible})
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
+    if (stage_slots)
+        decoder.duplicate_ids(
+            *stage_slots, pointer_child(pointer, "stageSlots"),
+            [](const DialogueStageSlotDefinition& slot) -> const DialogueStageSlotId& {
+                return slot.id;
+            });
+    if (media_slots)
+        decoder.duplicate_ids(
+            *media_slots, pointer_child(pointer, "mediaSlots"),
+            [](const DialogueMediaSlotDefinition& slot) -> const DialogueMediaSlotId& {
+                return slot.id;
+            });
+    if (!identity || !display || !speaker_ok || !program || !settings || !completion ||
+        !stage_slots || !media_slots)
         return std::nullopt;
-    return DialogueDefinition{std::move(*identity), std::move(*display),  std::move(speaker),
-                              std::move(*program),  std::move(*settings), std::move(*completion)};
+    return DialogueDefinition{std::move(*identity),    std::move(*display),     std::move(speaker),
+                              std::move(*stage_slots), std::move(*media_slots), std::move(*program),
+                              std::move(*settings),    std::move(*completion)};
 }
 
 } // namespace noveltea::core::compiled::wire::detail

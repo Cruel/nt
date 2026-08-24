@@ -418,7 +418,12 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
                 if constexpr (std::is_same_v<T, SavedSceneFrame>)
                     return SceneFrame{id, frame.scene, frame.position, frame.destination};
                 else if constexpr (std::is_same_v<T, SavedDialogueFrame>)
-                    return DialogueFrame{id, frame.dialogue, frame.position, frame.destination};
+                    return DialogueFrame{id,
+                                         frame.dialogue,
+                                         frame.position,
+                                         frame.stage_slots,
+                                         frame.media_slots,
+                                         frame.destination};
                 else if constexpr (std::is_same_v<T, SavedInteractionFrame>)
                     return InteractionFrame{id, frame.invocation, frame.program, frame.position,
                                             frame.destination};

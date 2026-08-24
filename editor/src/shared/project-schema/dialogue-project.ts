@@ -88,13 +88,27 @@ function dependencyRevision(project: AuthoringProject, data: DialogueData): stri
     const id = ref.$ref.id;
     dependencies.add(`character:${id}:${JSON.stringify(project.characters[id]?.data ?? null)}`);
   };
+  const addMedia = (media: DialogueData['mediaSlots'][number]['initial']) => {
+    if (!media) return;
+    if (media.kind === 'character') {
+      addCharacter(media.character);
+      return;
+    }
+    const id = media.asset.$ref.id;
+    dependencies.add(`asset:${id}:${JSON.stringify(project.assets[id]?.data ?? null)}`);
+  };
   addCharacter(data.defaultSpeaker);
+  for (const slot of data.stageSlots) if (slot.initial) addCharacter(slot.initial.character);
+  for (const slot of data.mediaSlots) addMedia(slot.initial);
   for (const block of data.blocks) {
     if (block.type !== 'sequence') continue;
     addCharacter(block.defaultSpeaker);
     for (const segment of block.segments) {
       if (segment.type === 'line') {
         addCharacter(segment.speaker);
+        for (const mutation of segment.presentation.stage)
+          if (mutation.character) addCharacter(mutation.character);
+        for (const mutation of segment.presentation.media) addMedia(mutation.content ?? null);
         addConditionDependency(project, segment.condition, dependencies);
         addEffectDependencies(project, segment.effects, dependencies);
       } else if (segment.type === 'run-lua') {
@@ -190,6 +204,8 @@ export function buildDialoguePreviewDocumentData(
     dialogueId,
     label: record.label,
     displayName: data.displayName,
+    stageSlots: data.stageSlots,
+    mediaSlots: data.mediaSlots,
     entryBlockId: data.entryBlockId,
     selectedBlockId: block?.id ?? null,
     selectedSegmentId: segment?.id ?? null,

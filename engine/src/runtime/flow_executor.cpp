@@ -43,6 +43,26 @@ first_interaction_instruction(const compiled::InteractionProgram& program)
                       program.instructions.front());
 }
 
+std::vector<DialogueStageSlotRuntimeState>
+initial_dialogue_stage_slots(const compiled::DialogueDefinition& dialogue)
+{
+    std::vector<DialogueStageSlotRuntimeState> result;
+    result.reserve(dialogue.stage_slots.size());
+    for (const auto& slot : dialogue.stage_slots)
+        result.push_back({slot.id, slot.initial});
+    return result;
+}
+
+std::vector<DialogueMediaSlotRuntimeState>
+initial_dialogue_media_slots(const compiled::DialogueDefinition& dialogue)
+{
+    std::vector<DialogueMediaSlotRuntimeState> result;
+    result.reserve(dialogue.media_slots.size());
+    for (const auto& slot : dialogue.media_slots)
+        result.push_back({slot.id, slot.initial, slot.visible});
+    return result;
+}
+
 const compiled::InteractionProgram* find_interaction_program(const CompiledProject& project,
                                                              const InteractionProgramRef& reference)
 {
@@ -438,6 +458,8 @@ Result<void, Diagnostics> FlowExecutor::start_transient(const DialogueId& dialog
                       dialogue,
                       {definition->program.entry_block_id, std::nullopt, std::nullopt,
                        DialogueFramePosition::Stage::EnterBlock, 0},
+                      initial_dialogue_stage_slots(*definition),
+                      initial_dialogue_media_slots(*definition),
                       ResumeRoomDestination{room->room}});
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
@@ -572,6 +594,8 @@ Result<void, Diagnostics> FlowExecutor::call_child(const DialogueId& dialogue,
         id,
         dialogue,
         {block, std::nullopt, std::nullopt, DialogueFramePosition::Stage::EnterBlock, 0},
+        initial_dialogue_stage_slots(*definition),
+        initial_dialogue_media_slots(*definition),
         CallerDestination{}};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
     ++m_state.m_next_frame_id;
@@ -650,6 +674,8 @@ Result<void, Diagnostics> FlowExecutor::replace_with_dialogue(const DialogueId& 
                       dialogue,
                       {definition->program.entry_block_id, std::nullopt, std::nullopt,
                        DialogueFramePosition::Stage::EnterBlock, 0},
+                      initial_dialogue_stage_slots(*definition),
+                      initial_dialogue_media_slots(*definition),
                       destination};
     clear_blocker_for(old_id);
     return Result<void, Diagnostics>::success();

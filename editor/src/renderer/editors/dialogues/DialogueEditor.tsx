@@ -47,9 +47,16 @@ import {
   type DialogueEdgeData,
   type DialogueEffectData,
   type DialoguePreviewBackground,
+  type DialogueMediaContent,
+  type DialogueMediaMutation,
+  type DialogueMediaSlotData,
   type DialogueSegmentData,
+  type DialogueStageMutation,
+  type DialogueStageSlotData,
+  type DialogueStageSlotState,
   type DialogueSequenceBlockData,
 } from '../../../shared/project-schema/authoring-dialogues';
+import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
 import {
   inlineTextContent,
   type FlowTarget,
@@ -613,6 +620,16 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     id,
     label: character.label,
   }));
+  const imageAssets = Object.entries(project.assets)
+    .filter(([, asset]) =>
+      Boolean(
+        asset.data &&
+        typeof asset.data === 'object' &&
+        'kind' in asset.data &&
+        asset.data.kind === 'image',
+      ),
+    )
+    .map(([id, asset]) => ({ id, label: asset.label }));
   const variables = Object.entries(project.variables).map(([id, variable]) => ({
     id,
     label: variable.label,
@@ -949,6 +966,126 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     commit({ ...data, completion }, 'Update dialogue completion');
   }
 
+  function defaultStageState(characterId?: string): DialogueStageSlotState | null {
+    const id = characterId ?? characters[0]?.id;
+    if (!id) return null;
+    const character = parseCharacterData(project?.characters[id]?.data);
+    if (!character) return null;
+    const profile = character.profiles.find(
+      (candidate) => candidate.id === character.defaults.profileId,
+    );
+    if (!profile) return null;
+    return {
+      character: dialogueCharacterRef(id),
+      profileId: profile.id,
+      poseId: profile.defaultPoseId,
+      expressionId: character.defaults.expressionId,
+      appearanceId: character.defaults.appearanceId,
+      position: 'center',
+      offset: { x: 0, y: 0 },
+      scale: 1,
+      visible: true,
+    };
+  }
+
+  function defaultCharacterMedia(characterId?: string): DialogueMediaContent | null {
+    const state = defaultStageState(characterId);
+    return state
+      ? {
+          kind: 'character',
+          character: state.character,
+          profileId: state.profileId,
+          poseId: state.poseId,
+          expressionId: state.expressionId,
+          appearanceId: state.appearanceId,
+        }
+      : null;
+  }
+
+  function addStageSlot() {
+    const id = nextUniqueId(
+      data.stageSlots.map((slot) => slot.id),
+      'stage',
+    );
+    const slot: DialogueStageSlotData = {
+      id,
+      label: `Stage ${data.stageSlots.length + 1}`,
+      speakerSync: true,
+      initial: null,
+    };
+    commit({ ...data, stageSlots: [...data.stageSlots, slot] }, 'Add dialogue Stage Slot');
+  }
+
+  function addMediaSlot() {
+    const id = nextUniqueId(
+      data.mediaSlots.map((slot) => slot.id),
+      'media',
+    );
+    const slot: DialogueMediaSlotData = {
+      id,
+      label: `Media ${data.mediaSlots.length + 1}`,
+      initial: null,
+      visible: true,
+    };
+    commit({ ...data, mediaSlots: [...data.mediaSlots, slot] }, 'Add dialogue Media Slot');
+  }
+
+  function removeStageSlot(slotId: string) {
+    const blocks = data.blocks.map(
+      (block): DialogueBlockData =>
+        block.type !== 'sequence'
+          ? block
+          : {
+              ...block,
+              segments: block.segments.map((segment) =>
+                segment.type !== 'line'
+                  ? segment
+                  : {
+                      ...segment,
+                      presentation: {
+                        ...segment.presentation,
+                        stage: segment.presentation.stage.filter(
+                          (mutation) => mutation.slotId !== slotId,
+                        ),
+                      },
+                    },
+              ),
+            },
+    );
+    commit(
+      { ...data, stageSlots: data.stageSlots.filter((slot) => slot.id !== slotId), blocks },
+      'Remove dialogue Stage Slot',
+    );
+  }
+
+  function removeMediaSlot(slotId: string) {
+    const blocks = data.blocks.map(
+      (block): DialogueBlockData =>
+        block.type !== 'sequence'
+          ? block
+          : {
+              ...block,
+              segments: block.segments.map((segment) =>
+                segment.type !== 'line'
+                  ? segment
+                  : {
+                      ...segment,
+                      presentation: {
+                        ...segment.presentation,
+                        media: segment.presentation.media.filter(
+                          (mutation) => mutation.slotId !== slotId,
+                        ),
+                      },
+                    },
+              ),
+            },
+    );
+    commit(
+      { ...data, mediaSlots: data.mediaSlots.filter((slot) => slot.id !== slotId), blocks },
+      'Remove dialogue Media Slot',
+    );
+  }
+
   return (
     <div
       ref={scrollRef}
@@ -1089,6 +1226,401 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                 ))}
               </Select>
             </Label>
+          </section>
+
+          <section
+            className="space-y-3 rounded border p-3"
+            data-workbench-anchor="dialogue.presentation"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-medium">Dialogue presentation</h3>
+                <p className="text-xs text-muted-foreground">
+                  Stage Slots are stable Character occurrences. Media Slots are positioned by the
+                  Dialogue Layout.
+                </p>
+              </div>
+              <div className="flex gap-1">
+                <Button size="sm" variant="outline" onClick={addStageSlot}>
+                  Add Stage Slot
+                </Button>
+                <Button size="sm" variant="outline" onClick={addMediaSlot}>
+                  Add Media Slot
+                </Button>
+              </div>
+            </div>
+
+            {data.stageSlots.length > 0 ? (
+              <div className="space-y-2">
+                <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Stage Slots
+                </h4>
+                {data.stageSlots.map((slot, slotIndex) => (
+                  <div key={slot.id} className="space-y-2 rounded border p-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{slot.id}</Badge>
+                      <Input
+                        value={slot.label}
+                        aria-label={`Stage Slot ${slot.id} label`}
+                        onChange={(event) => {
+                          const stageSlots = data.stageSlots.map((candidate, index) =>
+                            index === slotIndex
+                              ? { ...candidate, label: event.currentTarget.value }
+                              : candidate,
+                          );
+                          commit({ ...data, stageSlots }, 'Update dialogue Stage Slot');
+                        }}
+                      />
+                      <Button size="sm" variant="outline" onClick={() => removeStageSlot(slot.id)}>
+                        Remove
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-xs">
+                      <label className="flex items-center gap-2">
+                        <Switch
+                          checked={slot.speakerSync}
+                          onCheckedChange={(checked) => {
+                            const stageSlots = data.stageSlots.map((candidate, index) =>
+                              index === slotIndex
+                                ? { ...candidate, speakerSync: Boolean(checked) }
+                                : candidate,
+                            );
+                            commit({ ...data, stageSlots }, 'Update Stage Slot speaker sync');
+                          }}
+                        />
+                        Speaker sync
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <Switch
+                          checked={slot.initial !== null}
+                          disabled={characters.length === 0}
+                          onCheckedChange={(checked) => {
+                            const stageSlots = data.stageSlots.map((candidate, index) =>
+                              index === slotIndex
+                                ? {
+                                    ...candidate,
+                                    initial: checked ? defaultStageState() : null,
+                                  }
+                                : candidate,
+                            );
+                            commit({ ...data, stageSlots }, 'Update Stage Slot initial state');
+                          }}
+                        />
+                        Initial occurrence
+                      </label>
+                    </div>
+                    {slot.initial ? (
+                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        <Label>
+                          Character
+                          <Select
+                            value={slot.initial.character.$ref.id}
+                            onValueChange={(value) => {
+                              const replacement = defaultStageState(String(value));
+                              if (!replacement) return;
+                              const stageSlots = data.stageSlots.map((candidate, index) =>
+                                index === slotIndex
+                                  ? { ...candidate, initial: replacement }
+                                  : candidate,
+                              );
+                              commit({ ...data, stageSlots }, 'Update Stage Slot Character');
+                            }}
+                          >
+                            {characters.map((character) => (
+                              <SelectItem key={character.id} value={character.id}>
+                                {character.label} ({character.id})
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </Label>
+                        <Label>
+                          Profile
+                          <Input
+                            value={slot.initial.profileId}
+                            onChange={(event) => {
+                              const initial = {
+                                ...slot.initial!,
+                                profileId: event.currentTarget.value,
+                              };
+                              const stageSlots = data.stageSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, stageSlots }, 'Update Stage Slot profile');
+                            }}
+                          />
+                        </Label>
+                        <Label>
+                          Pose
+                          <Input
+                            value={slot.initial.poseId}
+                            onChange={(event) => {
+                              const initial = {
+                                ...slot.initial!,
+                                poseId: event.currentTarget.value,
+                              };
+                              const stageSlots = data.stageSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, stageSlots }, 'Update Stage Slot pose');
+                            }}
+                          />
+                        </Label>
+                        <Label>
+                          Expression
+                          <Input
+                            value={slot.initial.expressionId}
+                            onChange={(event) => {
+                              const initial = {
+                                ...slot.initial!,
+                                expressionId: event.currentTarget.value,
+                              };
+                              const stageSlots = data.stageSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, stageSlots }, 'Update Stage Slot expression');
+                            }}
+                          />
+                        </Label>
+                        <Label>
+                          Appearance
+                          <Input
+                            value={slot.initial.appearanceId ?? ''}
+                            placeholder="none"
+                            onChange={(event) => {
+                              const value = event.currentTarget.value.trim();
+                              const initial = {
+                                ...slot.initial!,
+                                appearanceId: value || null,
+                              };
+                              const stageSlots = data.stageSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, stageSlots }, 'Update Stage Slot appearance');
+                            }}
+                          />
+                        </Label>
+                        <Label>
+                          Position
+                          <Select
+                            value={slot.initial.position}
+                            onValueChange={(value) => {
+                              const initial = {
+                                ...slot.initial!,
+                                position: value as DialogueStageSlotState['position'],
+                              };
+                              const stageSlots = data.stageSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, stageSlots }, 'Update Stage Slot position');
+                            }}
+                          >
+                            <SelectItem value="left">left</SelectItem>
+                            <SelectItem value="center">center</SelectItem>
+                            <SelectItem value="right">right</SelectItem>
+                          </Select>
+                        </Label>
+                        <Label>
+                          Scale
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="0.05"
+                            value={slot.initial.scale}
+                            onChange={(event) => {
+                              const scale = Number(event.currentTarget.value);
+                              if (!Number.isFinite(scale) || scale <= 0) return;
+                              const initial = { ...slot.initial!, scale };
+                              const stageSlots = data.stageSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, stageSlots }, 'Update Stage Slot scale');
+                            }}
+                          />
+                        </Label>
+                        <label className="flex items-center gap-2 pt-6">
+                          <Switch
+                            checked={slot.initial.visible}
+                            onCheckedChange={(checked) => {
+                              const initial = { ...slot.initial!, visible: Boolean(checked) };
+                              const stageSlots = data.stageSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, stageSlots }, 'Update Stage Slot visibility');
+                            }}
+                          />
+                          Visible
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {data.mediaSlots.length > 0 ? (
+              <div className="space-y-2">
+                <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Media Slots
+                </h4>
+                {data.mediaSlots.map((slot, slotIndex) => (
+                  <div key={slot.id} className="space-y-2 rounded border p-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{slot.id}</Badge>
+                      <Input
+                        value={slot.label}
+                        aria-label={`Media Slot ${slot.id} label`}
+                        onChange={(event) => {
+                          const mediaSlots = data.mediaSlots.map((candidate, index) =>
+                            index === slotIndex
+                              ? { ...candidate, label: event.currentTarget.value }
+                              : candidate,
+                          );
+                          commit({ ...data, mediaSlots }, 'Update dialogue Media Slot');
+                        }}
+                      />
+                      <Button size="sm" variant="outline" onClick={() => removeMediaSlot(slot.id)}>
+                        Remove
+                      </Button>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      <Label>
+                        Initial content
+                        <Select
+                          value={slot.initial?.kind ?? '__none__'}
+                          onValueChange={(value) => {
+                            let initial: DialogueMediaContent | null = null;
+                            if (value === 'character') initial = defaultCharacterMedia();
+                            if (value === 'image' && imageAssets[0])
+                              initial = {
+                                kind: 'image',
+                                asset: { $ref: { collection: 'assets', id: imageAssets[0].id } },
+                              };
+                            const mediaSlots = data.mediaSlots.map((candidate, index) =>
+                              index === slotIndex ? { ...candidate, initial } : candidate,
+                            );
+                            commit({ ...data, mediaSlots }, 'Update Media Slot content');
+                          }}
+                        >
+                          <SelectItem value="__none__">None</SelectItem>
+                          <SelectItem value="character" disabled={characters.length === 0}>
+                            Character
+                          </SelectItem>
+                          <SelectItem value="image" disabled={imageAssets.length === 0}>
+                            Image
+                          </SelectItem>
+                        </Select>
+                      </Label>
+                      {slot.initial?.kind === 'image' ? (
+                        <Label>
+                          Image
+                          <Select
+                            value={slot.initial.asset.$ref.id}
+                            onValueChange={(value) => {
+                              const initial: DialogueMediaContent = {
+                                kind: 'image',
+                                asset: { $ref: { collection: 'assets', id: String(value) } },
+                              };
+                              const mediaSlots = data.mediaSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, mediaSlots }, 'Update Media Slot image');
+                            }}
+                          >
+                            {imageAssets.map((asset) => (
+                              <SelectItem key={asset.id} value={asset.id}>
+                                {asset.label} ({asset.id})
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </Label>
+                      ) : null}
+                      {slot.initial?.kind === 'character' ? (
+                        <Label>
+                          Character
+                          <Select
+                            value={slot.initial.character.$ref.id}
+                            onValueChange={(value) => {
+                              const initial = defaultCharacterMedia(String(value));
+                              if (!initial) return;
+                              const mediaSlots = data.mediaSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, mediaSlots }, 'Update Media Slot Character');
+                            }}
+                          >
+                            {characters.map((character) => (
+                              <SelectItem key={character.id} value={character.id}>
+                                {character.label} ({character.id})
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </Label>
+                      ) : null}
+                      <label className="flex items-center gap-2 pt-6">
+                        <Switch
+                          checked={slot.visible}
+                          onCheckedChange={(checked) => {
+                            const mediaSlots = data.mediaSlots.map((candidate, index) =>
+                              index === slotIndex
+                                ? { ...candidate, visible: Boolean(checked) }
+                                : candidate,
+                            );
+                            commit({ ...data, mediaSlots }, 'Update Media Slot visibility');
+                          }}
+                        />
+                        Visible
+                      </label>
+                    </div>
+                    {slot.initial?.kind === 'character' ? (
+                      <div className="grid gap-2 md:grid-cols-4">
+                        {(['profileId', 'poseId', 'expressionId'] as const).map((field) => (
+                          <Label key={field}>
+                            {field === 'profileId'
+                              ? 'Profile'
+                              : field === 'poseId'
+                                ? 'Pose'
+                                : 'Expression'}
+                            <Input
+                              value={slot.initial?.kind === 'character' ? slot.initial[field] : ''}
+                              onChange={(event) => {
+                                if (slot.initial?.kind !== 'character') return;
+                                const initial: DialogueMediaContent = {
+                                  ...slot.initial,
+                                  [field]: event.currentTarget.value,
+                                };
+                                const mediaSlots = data.mediaSlots.map((candidate, index) =>
+                                  index === slotIndex ? { ...candidate, initial } : candidate,
+                                );
+                                commit({ ...data, mediaSlots }, 'Update Media Slot Character');
+                              }}
+                            />
+                          </Label>
+                        ))}
+                        <Label>
+                          Appearance
+                          <Input
+                            value={slot.initial.appearanceId ?? ''}
+                            placeholder="none"
+                            onChange={(event) => {
+                              if (slot.initial?.kind !== 'character') return;
+                              const value = event.currentTarget.value.trim();
+                              const initial: DialogueMediaContent = {
+                                ...slot.initial,
+                                appearanceId: value || null,
+                              };
+                              const mediaSlots = data.mediaSlots.map((candidate, index) =>
+                                index === slotIndex ? { ...candidate, initial } : candidate,
+                              );
+                              commit({ ...data, mediaSlots }, 'Update Media Slot Character');
+                            }}
+                          />
+                        </Label>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </section>
 
           <section className="space-y-3 rounded border p-3">
@@ -1465,6 +1997,538 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                       }
                     />
                   )}
+                  <div className="space-y-2 rounded border p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-xs font-medium">Line presentation</h4>
+                        <p className="text-xs text-muted-foreground">
+                          Mutations are retained. Empty update fields preserve the current slot
+                          value.
+                        </p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={data.stageSlots.length === 0}
+                          onClick={() => {
+                            const mutation: DialogueStageMutation = {
+                              slotId: data.stageSlots[0]!.id,
+                              action: 'update',
+                            };
+                            replaceSegment(activeBlock, {
+                              ...activeSegment,
+                              presentation: {
+                                ...activeSegment.presentation,
+                                stage: [...activeSegment.presentation.stage, mutation],
+                              },
+                            });
+                          }}
+                        >
+                          Add Stage mutation
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={data.mediaSlots.length === 0}
+                          onClick={() => {
+                            const mutation: DialogueMediaMutation = {
+                              slotId: data.mediaSlots[0]!.id,
+                              action: 'update',
+                            };
+                            replaceSegment(activeBlock, {
+                              ...activeSegment,
+                              presentation: {
+                                ...activeSegment.presentation,
+                                media: [...activeSegment.presentation.media, mutation],
+                              },
+                            });
+                          }}
+                        >
+                          Add Media mutation
+                        </Button>
+                      </div>
+                    </div>
+                    <Label>
+                      Speaker expression override
+                      <Input
+                        value={activeSegment.presentation.speakerExpressionId ?? ''}
+                        placeholder="preserve current expression"
+                        onChange={(event) => {
+                          const value = event.currentTarget.value.trim();
+                          replaceSegment(activeBlock, {
+                            ...activeSegment,
+                            presentation: {
+                              ...activeSegment.presentation,
+                              ...(value
+                                ? { speakerExpressionId: value }
+                                : (() => {
+                                    const { speakerExpressionId: _, ...rest } =
+                                      activeSegment.presentation;
+                                    return rest;
+                                  })()),
+                            },
+                          });
+                        }}
+                      />
+                    </Label>
+                    {activeSegment.presentation.stage.map((mutation, mutationIndex) => (
+                      <div key={`stage-${mutationIndex}`} className="space-y-2 rounded border p-2">
+                        <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                          <Label>
+                            Stage Slot
+                            <Select
+                              value={mutation.slotId}
+                              onValueChange={(value) => {
+                                const stage = activeSegment.presentation.stage.map(
+                                  (candidate, index) =>
+                                    index === mutationIndex
+                                      ? { ...candidate, slotId: String(value) }
+                                      : candidate,
+                                );
+                                replaceSegment(activeBlock, {
+                                  ...activeSegment,
+                                  presentation: { ...activeSegment.presentation, stage },
+                                });
+                              }}
+                            >
+                              {data.stageSlots.map((slot) => (
+                                <SelectItem key={slot.id} value={slot.id}>
+                                  {slot.label} ({slot.id})
+                                </SelectItem>
+                              ))}
+                            </Select>
+                          </Label>
+                          <Label>
+                            Action
+                            <Select
+                              value={mutation.action}
+                              onValueChange={(value) => {
+                                const action = value as DialogueStageMutation['action'];
+                                const next: DialogueStageMutation =
+                                  action === 'clear'
+                                    ? { slotId: mutation.slotId, action }
+                                    : { ...mutation, action };
+                                const stage = activeSegment.presentation.stage.map(
+                                  (candidate, index) =>
+                                    index === mutationIndex ? next : candidate,
+                                );
+                                replaceSegment(activeBlock, {
+                                  ...activeSegment,
+                                  presentation: { ...activeSegment.presentation, stage },
+                                });
+                              }}
+                            >
+                              {['update', 'show', 'hide', 'clear'].map((action) => (
+                                <SelectItem key={action} value={action}>
+                                  {action}
+                                </SelectItem>
+                              ))}
+                            </Select>
+                          </Label>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="self-end"
+                            onClick={() => {
+                              const stage = activeSegment.presentation.stage.filter(
+                                (_, index) => index !== mutationIndex,
+                              );
+                              replaceSegment(activeBlock, {
+                                ...activeSegment,
+                                presentation: { ...activeSegment.presentation, stage },
+                              });
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        {mutation.action !== 'clear' ? (
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <Label>
+                              Character
+                              <Select
+                                value={mutation.character?.$ref.id ?? '__preserve__'}
+                                onValueChange={(value) => {
+                                  const stage = activeSegment.presentation.stage.map(
+                                    (candidate, index): DialogueStageMutation => {
+                                      if (index !== mutationIndex) return candidate;
+                                      if (value === '__preserve__') {
+                                        const { character: _, ...rest } = candidate;
+                                        return rest;
+                                      }
+                                      return {
+                                        ...candidate,
+                                        character: dialogueCharacterRef(String(value)),
+                                      };
+                                    },
+                                  );
+                                  replaceSegment(activeBlock, {
+                                    ...activeSegment,
+                                    presentation: { ...activeSegment.presentation, stage },
+                                  });
+                                }}
+                              >
+                                <SelectItem value="__preserve__">Preserve</SelectItem>
+                                {characters.map((character) => (
+                                  <SelectItem key={character.id} value={character.id}>
+                                    {character.label}
+                                  </SelectItem>
+                                ))}
+                              </Select>
+                            </Label>
+                            {(['profileId', 'poseId', 'expressionId'] as const).map((field) => (
+                              <Label key={field}>
+                                {field === 'profileId'
+                                  ? 'Profile'
+                                  : field === 'poseId'
+                                    ? 'Pose'
+                                    : 'Expression'}
+                                <Input
+                                  value={mutation[field] ?? ''}
+                                  placeholder="preserve"
+                                  onChange={(event) => {
+                                    const value = event.currentTarget.value.trim();
+                                    const stage = activeSegment.presentation.stage.map(
+                                      (candidate, index): DialogueStageMutation => {
+                                        if (index !== mutationIndex) return candidate;
+                                        if (!value) {
+                                          const next = { ...candidate };
+                                          delete next[field];
+                                          return next;
+                                        }
+                                        return { ...candidate, [field]: value };
+                                      },
+                                    );
+                                    replaceSegment(activeBlock, {
+                                      ...activeSegment,
+                                      presentation: { ...activeSegment.presentation, stage },
+                                    });
+                                  }}
+                                />
+                              </Label>
+                            ))}
+                            <Label>
+                              Appearance
+                              <Input
+                                value={mutation.appearanceId ?? ''}
+                                placeholder="preserve; use 'none' to clear"
+                                onChange={(event) => {
+                                  const value = event.currentTarget.value.trim();
+                                  const stage = activeSegment.presentation.stage.map(
+                                    (candidate, index): DialogueStageMutation => {
+                                      if (index !== mutationIndex) return candidate;
+                                      if (!value) {
+                                        const { appearanceId: _, ...rest } = candidate;
+                                        return rest;
+                                      }
+                                      return {
+                                        ...candidate,
+                                        appearanceId: value === 'none' ? null : value,
+                                      };
+                                    },
+                                  );
+                                  replaceSegment(activeBlock, {
+                                    ...activeSegment,
+                                    presentation: { ...activeSegment.presentation, stage },
+                                  });
+                                }}
+                              />
+                            </Label>
+                            <Label>
+                              Position
+                              <Select
+                                value={mutation.position ?? '__preserve__'}
+                                onValueChange={(value) => {
+                                  const stage = activeSegment.presentation.stage.map(
+                                    (candidate, index): DialogueStageMutation => {
+                                      if (index !== mutationIndex) return candidate;
+                                      if (value === '__preserve__') {
+                                        const { position: _, ...rest } = candidate;
+                                        return rest;
+                                      }
+                                      return {
+                                        ...candidate,
+                                        position: value as DialogueStageMutation['position'],
+                                      };
+                                    },
+                                  );
+                                  replaceSegment(activeBlock, {
+                                    ...activeSegment,
+                                    presentation: { ...activeSegment.presentation, stage },
+                                  });
+                                }}
+                              >
+                                <SelectItem value="__preserve__">Preserve</SelectItem>
+                                <SelectItem value="left">left</SelectItem>
+                                <SelectItem value="center">center</SelectItem>
+                                <SelectItem value="right">right</SelectItem>
+                              </Select>
+                            </Label>
+                            <Label>
+                              Offset X
+                              <Input
+                                type="number"
+                                value={mutation.offset?.x ?? ''}
+                                placeholder="preserve"
+                                onChange={(event) => {
+                                  const x = Number(event.currentTarget.value);
+                                  if (!Number.isFinite(x)) return;
+                                  const stage = activeSegment.presentation.stage.map(
+                                    (candidate, index): DialogueStageMutation =>
+                                      index === mutationIndex
+                                        ? {
+                                            ...candidate,
+                                            offset: { x, y: candidate.offset?.y ?? 0 },
+                                          }
+                                        : candidate,
+                                  );
+                                  replaceSegment(activeBlock, {
+                                    ...activeSegment,
+                                    presentation: { ...activeSegment.presentation, stage },
+                                  });
+                                }}
+                              />
+                            </Label>
+                            <Label>
+                              Offset Y
+                              <Input
+                                type="number"
+                                value={mutation.offset?.y ?? ''}
+                                placeholder="preserve"
+                                onChange={(event) => {
+                                  const y = Number(event.currentTarget.value);
+                                  if (!Number.isFinite(y)) return;
+                                  const stage = activeSegment.presentation.stage.map(
+                                    (candidate, index): DialogueStageMutation =>
+                                      index === mutationIndex
+                                        ? {
+                                            ...candidate,
+                                            offset: { x: candidate.offset?.x ?? 0, y },
+                                          }
+                                        : candidate,
+                                  );
+                                  replaceSegment(activeBlock, {
+                                    ...activeSegment,
+                                    presentation: { ...activeSegment.presentation, stage },
+                                  });
+                                }}
+                              />
+                            </Label>
+                            <Label>
+                              Scale
+                              <Input
+                                type="number"
+                                min="0.01"
+                                step="0.05"
+                                value={mutation.scale ?? ''}
+                                placeholder="preserve"
+                                onChange={(event) => {
+                                  const scale = Number(event.currentTarget.value);
+                                  if (!Number.isFinite(scale) || scale <= 0) return;
+                                  const stage = activeSegment.presentation.stage.map(
+                                    (candidate, index): DialogueStageMutation =>
+                                      index === mutationIndex ? { ...candidate, scale } : candidate,
+                                  );
+                                  replaceSegment(activeBlock, {
+                                    ...activeSegment,
+                                    presentation: { ...activeSegment.presentation, stage },
+                                  });
+                                }}
+                              />
+                            </Label>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                    {activeSegment.presentation.media.map((mutation, mutationIndex) => (
+                      <div key={`media-${mutationIndex}`} className="space-y-2 rounded border p-2">
+                        <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                          <Label>
+                            Media Slot
+                            <Select
+                              value={mutation.slotId}
+                              onValueChange={(value) => {
+                                const media = activeSegment.presentation.media.map(
+                                  (candidate, index) =>
+                                    index === mutationIndex
+                                      ? { ...candidate, slotId: String(value) }
+                                      : candidate,
+                                );
+                                replaceSegment(activeBlock, {
+                                  ...activeSegment,
+                                  presentation: { ...activeSegment.presentation, media },
+                                });
+                              }}
+                            >
+                              {data.mediaSlots.map((slot) => (
+                                <SelectItem key={slot.id} value={slot.id}>
+                                  {slot.label} ({slot.id})
+                                </SelectItem>
+                              ))}
+                            </Select>
+                          </Label>
+                          <Label>
+                            Action
+                            <Select
+                              value={mutation.action}
+                              onValueChange={(value) => {
+                                const action = value as DialogueMediaMutation['action'];
+                                const next: DialogueMediaMutation =
+                                  action === 'clear'
+                                    ? { slotId: mutation.slotId, action }
+                                    : { ...mutation, action };
+                                const media = activeSegment.presentation.media.map(
+                                  (candidate, index) =>
+                                    index === mutationIndex ? next : candidate,
+                                );
+                                replaceSegment(activeBlock, {
+                                  ...activeSegment,
+                                  presentation: { ...activeSegment.presentation, media },
+                                });
+                              }}
+                            >
+                              {['update', 'show', 'hide', 'clear'].map((action) => (
+                                <SelectItem key={action} value={action}>
+                                  {action}
+                                </SelectItem>
+                              ))}
+                            </Select>
+                          </Label>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="self-end"
+                            onClick={() => {
+                              const media = activeSegment.presentation.media.filter(
+                                (_, index) => index !== mutationIndex,
+                              );
+                              replaceSegment(activeBlock, {
+                                ...activeSegment,
+                                presentation: { ...activeSegment.presentation, media },
+                              });
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        {mutation.action === 'update' ? (
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <Label>
+                              Content
+                              <Select
+                                value={mutation.content?.kind ?? '__preserve__'}
+                                onValueChange={(value) => {
+                                  const media = activeSegment.presentation.media.map(
+                                    (candidate, index): DialogueMediaMutation => {
+                                      if (index !== mutationIndex) return candidate;
+                                      if (value === '__preserve__') {
+                                        const { content: _, ...rest } = candidate;
+                                        return rest;
+                                      }
+                                      if (value === 'character') {
+                                        const content = defaultCharacterMedia();
+                                        return content ? { ...candidate, content } : candidate;
+                                      }
+                                      const asset = imageAssets[0];
+                                      return asset
+                                        ? {
+                                            ...candidate,
+                                            content: {
+                                              kind: 'image',
+                                              asset: {
+                                                $ref: { collection: 'assets', id: asset.id },
+                                              },
+                                            },
+                                          }
+                                        : candidate;
+                                    },
+                                  );
+                                  replaceSegment(activeBlock, {
+                                    ...activeSegment,
+                                    presentation: { ...activeSegment.presentation, media },
+                                  });
+                                }}
+                              >
+                                <SelectItem value="__preserve__">Preserve</SelectItem>
+                                <SelectItem value="character" disabled={characters.length === 0}>
+                                  Character
+                                </SelectItem>
+                                <SelectItem value="image" disabled={imageAssets.length === 0}>
+                                  Image
+                                </SelectItem>
+                              </Select>
+                            </Label>
+                            {mutation.content?.kind === 'image' ? (
+                              <Label>
+                                Image
+                                <Select
+                                  value={mutation.content.asset.$ref.id}
+                                  onValueChange={(value) => {
+                                    const media = activeSegment.presentation.media.map(
+                                      (candidate, index): DialogueMediaMutation =>
+                                        index === mutationIndex
+                                          ? {
+                                              ...candidate,
+                                              content: {
+                                                kind: 'image',
+                                                asset: {
+                                                  $ref: {
+                                                    collection: 'assets',
+                                                    id: String(value),
+                                                  },
+                                                },
+                                              },
+                                            }
+                                          : candidate,
+                                    );
+                                    replaceSegment(activeBlock, {
+                                      ...activeSegment,
+                                      presentation: { ...activeSegment.presentation, media },
+                                    });
+                                  }}
+                                >
+                                  {imageAssets.map((asset) => (
+                                    <SelectItem key={asset.id} value={asset.id}>
+                                      {asset.label}
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </Label>
+                            ) : null}
+                            {mutation.content?.kind === 'character' ? (
+                              <Label>
+                                Character
+                                <Select
+                                  value={mutation.content.character.$ref.id}
+                                  onValueChange={(value) => {
+                                    const content = defaultCharacterMedia(String(value));
+                                    if (!content) return;
+                                    const media = activeSegment.presentation.media.map(
+                                      (candidate, index): DialogueMediaMutation =>
+                                        index === mutationIndex
+                                          ? { ...candidate, content }
+                                          : candidate,
+                                    );
+                                    replaceSegment(activeBlock, {
+                                      ...activeSegment,
+                                      presentation: { ...activeSegment.presentation, media },
+                                    });
+                                  }}
+                                >
+                                  {characters.map((character) => (
+                                    <SelectItem key={character.id} value={character.id}>
+                                      {character.label}
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </Label>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                   <ConditionEditor
                     condition={activeSegment.condition}
                     variableOptions={variables}

@@ -209,6 +209,11 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                 return fault(execution_error("runtime.history_overflow",
                                              "Dialogue line history cannot be incremented"));
 
+            auto presentation = m_flow.apply_dialogue_presentation(frame.dialogue, frame.position,
+                                                                   speaker, line->presentation);
+            if (!presentation)
+                return fault(presentation.error());
+
             auto waiting = begin(core::WaitSpec{core::InputWait{}});
             if (!waiting)
                 return fault(waiting.error());
@@ -459,8 +464,29 @@ core::Result<core::DialogueView, core::Diagnostics> RuntimeExecutor::dialogue_vi
     if (frame == nullptr)
         return core::Result<core::DialogueView, core::Diagnostics>::failure(execution_error(
             "execution.dialogue_view_unavailable", "Active flow frame is not a Dialogue"));
-    core::DialogueView view{
-        .dialogue = frame->dialogue, .line = m_state.presented_text(), .choice = std::nullopt};
+    core::DialogueView view{.dialogue = frame->dialogue,
+                            .line = m_state.presented_text(),
+                            .choice = std::nullopt,
+                            .stage_slots = {},
+                            .media_slots = {}};
+    const auto* definition = m_project.find_dialogue(frame->dialogue);
+    if (definition == nullptr)
+        return core::Result<core::DialogueView, core::Diagnostics>::failure(execution_error(
+            "execution.dialogue_view_unavailable", "Active Dialogue definition is missing"));
+    view.stage_slots.reserve(frame->stage_slots.size());
+    for (const auto& state : frame->stage_slots) {
+        const auto slot =
+            std::find_if(definition->stage_slots.begin(), definition->stage_slots.end(),
+                         [&state](const auto& candidate) { return candidate.id == state.slot; });
+        if (slot == definition->stage_slots.end())
+            continue;
+        const bool speaking = state.value && slot->speaker_sync && view.line &&
+                              view.line->speaker && state.value->character == *view.line->speaker;
+        view.stage_slots.push_back({state.slot, state.value, slot->speaker_sync, speaking});
+    }
+    view.media_slots.reserve(frame->media_slots.size());
+    for (const auto& state : frame->media_slots)
+        view.media_slots.push_back({state.slot, state.content, state.visible});
     if (m_state.active_choice()) {
         const auto* choice = std::get_if<core::DialogueChoiceState>(&*m_state.active_choice());
         if (choice != nullptr && choice->dialogue == frame->dialogue)

@@ -99,6 +99,8 @@ struct SavedDialogueFrame {
     SavedFlowFrameId snapshot_id;
     DialogueId dialogue;
     DialogueFramePosition position;
+    std::vector<DialogueStageSlotRuntimeState> stage_slots;
+    std::vector<DialogueMediaSlotRuntimeState> media_slots;
     ReturnDestination destination;
 };
 struct SavedInteractionFrame {

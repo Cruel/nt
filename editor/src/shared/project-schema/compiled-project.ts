@@ -991,6 +991,42 @@ const dialogueSegmentSchema = z.discriminatedUnion('kind', [
     id,
     kind: z.literal('line'),
     logged: z.boolean(),
+    presentation: strict({
+      speakerExpressionId: id.optional(),
+      stage: z.array(
+        strict({
+          action: z.enum(['update', 'show', 'hide', 'clear']),
+          appearanceId: id.nullable().optional(),
+          character: characterReferenceSchema.optional(),
+          expressionId: id.optional(),
+          offset: strict({ x: finiteNumber, y: finiteNumber }).optional(),
+          poseId: id.optional(),
+          position: z.enum(['left', 'center', 'right']).optional(),
+          profileId: id.optional(),
+          scale: finiteNumber.positive().optional(),
+          slotId: id,
+        }),
+      ),
+      media: z.array(
+        strict({
+          action: z.enum(['update', 'show', 'hide', 'clear']),
+          content: z
+            .discriminatedUnion('kind', [
+              strict({ asset: assetReferenceSchema, kind: z.literal('image') }),
+              strict({
+                appearanceId: id.nullable(),
+                character: characterReferenceSchema,
+                expressionId: id,
+                kind: z.literal('character'),
+                poseId: id,
+                profileId: id,
+              }),
+            ])
+            .optional(),
+          slotId: id,
+        }),
+      ),
+    }),
     showOnce: z.boolean(),
     speaker: characterReferenceSchema.nullable(),
     text: compiledTextSchema,
@@ -1037,6 +1073,42 @@ const dialogueDefinitionSchema = strict({
   completion: compiledFlowTargetSchema,
   defaultSpeaker: characterReferenceSchema.nullable(),
   displayName: z.string(),
+  stageSlots: z.array(
+    strict({
+      id,
+      initial: strict({
+        appearanceId: id.nullable(),
+        character: characterReferenceSchema,
+        expressionId: id,
+        offset: strict({ x: finiteNumber, y: finiteNumber }),
+        poseId: id,
+        position: z.enum(['left', 'center', 'right']),
+        profileId: id,
+        scale: finiteNumber.positive(),
+        visible: z.boolean(),
+      }).nullable(),
+      speakerSync: z.boolean(),
+    }),
+  ),
+  mediaSlots: z.array(
+    strict({
+      id,
+      initial: z
+        .discriminatedUnion('kind', [
+          strict({ asset: assetReferenceSchema, kind: z.literal('image') }),
+          strict({
+            appearanceId: id.nullable(),
+            character: characterReferenceSchema,
+            expressionId: id,
+            kind: z.literal('character'),
+            poseId: id,
+            profileId: id,
+          }),
+        ])
+        .nullable(),
+      visible: z.boolean(),
+    }),
+  ),
   program: dialogueProgramSchema,
   settings: strict({
     logMode: z.enum(['everything', 'nothing', 'only-choices', 'only-lines']),
