@@ -100,18 +100,11 @@ std::string environment_identity(const core::PresentationEnvironment& environmen
            environment.instance.text();
 }
 
-void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::PresentationPlane plane,
-                        WorldDrawFamily family, std::int32_t order, std::string stable_identity,
-                        std::uint8_t sublayer, Rect rect, Rect uv,
-                        const WorldPreparedVisual& visual,
-                        std::optional<core::compiled::CharacterIdle> actor_idle = std::nullopt,
-                        std::optional<core::LayoutClockDomain> environment_clock = std::nullopt,
-                        core::compiled::Vector2 environment_scroll_per_second = {0.0, 0.0},
-                        std::optional<core::PresentationOwner> material_owner = std::nullopt,
-                        std::optional<core::MaterialOccurrence> material_occurrence = std::nullopt)
+std::optional<QuadCommand> visual_command(core::PresentationPlane plane, Rect rect, Rect uv,
+                                          const WorldPreparedVisual& visual)
 {
     if (!visual.texture && !visual.material)
-        return;
+        return std::nullopt;
     QuadCommand command;
     command.rect = rect;
     command.uv = uv;
@@ -123,10 +116,39 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
     }
     if (visual.material)
         command.material = *visual.material;
-    draws.push_back({plane, family, order, std::move(stable_identity), sublayer,
-                     std::move(material_owner), std::move(material_occurrence), std::move(command),
-                     std::move(actor_idle), environment_clock, environment_scroll_per_second,
-                     visual.texture_lease, visual.material_lease, std::nullopt});
+    return command;
+}
+
+void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::PresentationPlane plane,
+                        WorldDrawFamily family, std::int32_t order, std::string stable_identity,
+                        std::uint8_t sublayer, Rect rect, Rect uv,
+                        const WorldPreparedVisual& visual,
+                        std::optional<core::compiled::CharacterIdle> actor_idle = std::nullopt,
+                        std::optional<core::LayoutClockDomain> environment_clock = std::nullopt,
+                        core::compiled::Vector2 environment_scroll_per_second = {0.0, 0.0},
+                        std::optional<core::PresentationOwner> material_owner = std::nullopt,
+                        std::optional<core::MaterialOccurrence> material_occurrence = std::nullopt)
+{
+    auto command = visual_command(plane, rect, uv, visual);
+    if (!command)
+        return;
+    draws.push_back({plane,
+                     family,
+                     order,
+                     std::move(stable_identity),
+                     sublayer,
+                     std::move(material_owner),
+                     std::move(material_occurrence),
+                     std::move(*command),
+                     std::move(actor_idle),
+                     environment_clock,
+                     environment_scroll_per_second,
+                     visual.texture_lease,
+                     visual.material_lease,
+                     std::nullopt,
+                     {},
+                     {},
+                     false});
 }
 
 void append_resource_diagnostics(core::Diagnostics& diagnostics,
@@ -606,7 +628,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                                            {0.0, 0.0},
                                            std::nullopt,
                                            std::nullopt,
-                                           std::nullopt});
+                                           std::nullopt,
+                                           {},
+                                           {},
+                                           false});
             }
         }
         auto resolved = m_resources.resolve(background.asset, background.material, "background");
@@ -729,6 +754,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 continue;
             const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, layer, viewport,
                                                                         visual_size(*visual));
+            const auto draw_index = candidate.draws.size();
             append_visual_draw(
                 candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order, identity,
                 static_cast<std::int32_t>(layer_index), rect, full_uv, *visual, actor.idle,
@@ -737,6 +763,59 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                     ? std::optional<core::MaterialOccurrence>{core::ActorMaterialOccurrence{
                           actor.key, layer.id}}
                     : std::nullopt);
+            if (candidate.draws.size() == draw_index)
+                continue;
+            auto& draw = candidate.draws.back();
+            draw.actor_automatic_animations = actor.automatic_animations;
+            draw.actor_speaking = actor.speaking;
+            draw.actor_animation_clips.reserve(actor.animation_clips.size());
+            for (const auto& clip : actor.animation_clips) {
+                WorldPresentationDraw::ActorAnimationClip prepared{clip.id, clip.clock, {}};
+                prepared.frames.reserve(clip.frames.size());
+                for (const auto& frame : clip.frames) {
+                    auto animated = layer;
+                    const auto patch =
+                        std::ranges::find_if(frame.layers, [&](const auto& candidate) {
+                            return candidate.layer_id == layer.id;
+                        });
+                    if (patch != frame.layers.end()) {
+                        if (patch->sprite.specified)
+                            animated.sprite = patch->sprite.value;
+                        if (patch->material.specified)
+                            animated.material = patch->material.value;
+                        if (patch->offset)
+                            animated.offset = *patch->offset;
+                        if (patch->scale)
+                            animated.scale = *patch->scale;
+                        if (patch->anchor)
+                            animated.anchor = *patch->anchor;
+                        if (patch->visible)
+                            animated.visible = *patch->visible;
+                    }
+                    WorldPresentationDraw::ActorAnimationFrame prepared_frame;
+                    prepared_frame.duration_ms = frame.duration_ms;
+                    if (animated.visible) {
+                        auto frame_visual =
+                            m_resources.resolve(animated.sprite, animated.material,
+                                                "actor/" + identity + "/animation/" +
+                                                    clip.id.text() + "/layer/" + layer.id.text());
+                        if (!frame_visual) {
+                            append_resource_diagnostics(diagnostics, frame_visual);
+                        } else if (const auto* resolved_frame = frame_visual.value_if();
+                                   resolved_frame->texture || resolved_frame->material) {
+                            prepared_frame.command = visual_command(
+                                actor.plane,
+                                WorldPresentationLayoutPolicy::actor_rect(
+                                    actor, animated, viewport, visual_size(*resolved_frame)),
+                                full_uv, *resolved_frame);
+                            prepared_frame.texture_lease = resolved_frame->texture_lease;
+                            prepared_frame.material_lease = resolved_frame->material_lease;
+                        }
+                    }
+                    prepared.frames.push_back(std::move(prepared_frame));
+                }
+                draw.actor_animation_clips.push_back(std::move(prepared));
+            }
         }
     }
 
@@ -1069,6 +1148,63 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
     frame.base_game_ui_underlay_batch.clear();
     for (const auto& draw : frame.draws) {
         QuadCommand command = draw.command;
+        if (clock && !draw.actor_animation_clips.empty()) {
+            const WorldPresentationDraw::ActorAnimationClip* active_clip = nullptr;
+            std::uint64_t lead_in_ms = 0;
+            if (draw.actor_speaking && draw.actor_automatic_animations.speaking) {
+                const auto clip_id = draw.actor_automatic_animations.speaking->clip_id;
+                const auto found =
+                    std::ranges::find_if(draw.actor_animation_clips, [&](const auto& candidate) {
+                        return candidate.id == clip_id;
+                    });
+                if (found != draw.actor_animation_clips.end())
+                    active_clip = &*found;
+            } else if (draw.actor_automatic_animations.blink) {
+                const auto& blink = *draw.actor_automatic_animations.blink;
+                const auto found =
+                    std::ranges::find_if(draw.actor_animation_clips, [&](const auto& candidate) {
+                        return candidate.id == blink.clip_id;
+                    });
+                if (found != draw.actor_animation_clips.end()) {
+                    active_clip = &*found;
+                    lead_in_ms = blink.interval_ms;
+                }
+            }
+            if (active_clip && !active_clip->frames.empty()) {
+                std::uint64_t clip_duration_ms = 0;
+                for (const auto& frame : active_clip->frames)
+                    clip_duration_ms += frame.duration_ms;
+                if (clip_duration_ms > 0) {
+                    const auto now = clock_time(*clock, active_clip->clock);
+                    const auto key = loop_key(draw) + ":animation:" + active_clip->id.text() +
+                                     (draw.actor_speaking ? ":speaking" : ":blink");
+                    auto [epoch, inserted] =
+                        m_loop_epochs.try_emplace(key, LoopEpoch{active_clip->clock, now});
+                    if (!inserted && epoch->second.clock != active_clip->clock)
+                        epoch->second = LoopEpoch{active_clip->clock, now};
+                    const auto elapsed = now >= epoch->second.started_at
+                                             ? now - epoch->second.started_at
+                                             : std::chrono::microseconds{0};
+                    const auto elapsed_ms = static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+                    const std::uint64_t cycle_ms = lead_in_ms + clip_duration_ms;
+                    const std::uint64_t phase_ms = cycle_ms > 0 ? elapsed_ms % cycle_ms : 0;
+                    if (phase_ms >= lead_in_ms) {
+                        std::uint64_t frame_phase = phase_ms - lead_in_ms;
+                        for (const auto& frame : active_clip->frames) {
+                            if (frame_phase < frame.duration_ms) {
+                                if (frame.command)
+                                    command = *frame.command;
+                                else
+                                    command.color.a = 0.0f;
+                                break;
+                            }
+                            frame_phase -= frame.duration_ms;
+                        }
+                    }
+                }
+            }
+        }
         double elapsed_seconds = 0.0;
         const auto domain =
             draw.actor_idle ? std::optional{draw.actor_idle->clock} : draw.environment_clock;
@@ -1254,6 +1390,13 @@ void WorldPresentationBackend::prune_loop_epochs()
         for (const auto& draw : frame.draws) {
             if (draw.actor_idle || draw.environment_clock)
                 active.insert(loop_key(draw));
+            if (draw.actor_speaking && draw.actor_automatic_animations.speaking)
+                active.insert(loop_key(draw) + ":animation:" +
+                              draw.actor_automatic_animations.speaking->clip_id.text() +
+                              ":speaking");
+            else if (draw.actor_automatic_animations.blink)
+                active.insert(loop_key(draw) + ":animation:" +
+                              draw.actor_automatic_animations.blink->clip_id.text() + ":blink");
         }
     }
     std::erase_if(m_loop_epochs,

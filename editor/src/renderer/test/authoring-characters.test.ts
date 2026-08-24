@@ -249,4 +249,99 @@ describe('authoring characters schema', () => {
       ],
     });
   });
+
+  it('validates profile animation clips, automatic roles, gestures, and restricted cue assets', () => {
+    const project = createAuthoringProject();
+    project.assets.blink = {
+      id: 'blink',
+      label: 'Blink',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/blink.png',
+        extension: '.png',
+        byteSize: 12,
+        contentHash: 'hash-blink',
+        importedAt: '2026-01-01T00:00:00.000Z',
+        originalName: 'blink.png',
+        originalPath: '/tmp/blink.png',
+        imageMetadata: { width: 640, height: 960, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.assets.slam = {
+      id: 'slam',
+      label: 'Desk Slam',
+      data: assetDataFromImportMetadata({
+        kind: 'audio',
+        projectRelativePath: 'assets/audio/slam.ogg',
+        extension: '.ogg',
+        byteSize: 42,
+        contentHash: 'hash-slam',
+        importedAt: '2026-01-01T00:00:00.000Z',
+        originalName: 'slam.ogg',
+        originalPath: '/tmp/slam.ogg',
+        imageMetadata: null,
+      }),
+    };
+    const data = defaultCharacterData('Iris');
+    const profile = data.profiles[0]!;
+    profile.layers.push({ id: 'face', label: 'Face', role: 'face' });
+    profile.poses[0]!.layers.push({
+      layerId: 'face',
+      sprite: null,
+      material: null,
+      offset: { x: 0, y: 0 },
+      scale: 1,
+      anchor: { x: 0.5, y: 1 },
+      visible: true,
+    });
+    profile.animationClips.push({
+      id: 'blink',
+      label: 'Blink',
+      clock: 'unscaled-presentation',
+      frames: [
+        {
+          durationMs: 80,
+          layers: [{ layerId: 'face', sprite: characterAssetRef('blink') }],
+        },
+        { durationMs: 80, layers: [] },
+      ],
+    });
+    profile.automaticAnimations.blink = { clipId: 'blink', role: 'face', intervalMs: 3000 };
+    data.gestures.push({
+      id: 'slam',
+      label: 'Desk Slam',
+      profiles: [
+        {
+          profileId: 'stage',
+          clipId: 'blink',
+          cues: [
+            { kind: 'presentation', id: 'impact', atMs: 40, event: 'impact' },
+            {
+              kind: 'audio',
+              id: 'slam-sfx',
+              atMs: 40,
+              asset: characterAssetRef('slam'),
+              gain: 1,
+              pan: 0,
+            },
+          ],
+        },
+      ],
+    });
+    project.characters.iris = { id: 'iris', label: 'Iris', data };
+
+    expect(
+      validateCharacterData(project, 'iris', project.characters.iris).filter(
+        (diagnostic) => diagnostic.severity === 'error',
+      ),
+    ).toEqual([]);
+    expect(characterPreviewRevision(project, 'iris')).toContain('hash-slam');
+    expect(buildCharacterPreviewDocumentData(project, 'iris')).toMatchObject({
+      profile: {
+        animationClips: [{ id: 'blink' }],
+        automaticAnimations: { blink: { clipId: 'blink', role: 'face' } },
+      },
+      gestures: [{ id: 'slam' }],
+    });
+  });
 });

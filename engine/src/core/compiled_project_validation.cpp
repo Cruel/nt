@@ -832,12 +832,15 @@ private:
                     error("compiled_project.duplicate_nested_id",
                           "Duplicate Character presentation profile ID.", profile_path + "/id");
                 std::unordered_set<CharacterPresentationLayerId> layers;
+                std::unordered_set<std::string> roles;
                 for (std::size_t layer_index = 0; layer_index < profile.layers.size();
                      ++layer_index) {
                     if (!layers.insert(profile.layers[layer_index].id).second)
                         error("compiled_project.duplicate_nested_id",
                               "Duplicate Character presentation layer ID.",
                               profile_path + "/layers/" + std::to_string(layer_index) + "/id");
+                    if (profile.layers[layer_index].role)
+                        roles.insert(*profile.layers[layer_index].role);
                 }
                 std::unordered_set<CharacterPoseId> poses;
                 for (std::size_t pose_index = 0; pose_index < profile.poses.size(); ++pose_index) {
@@ -870,6 +873,73 @@ private:
                     error("compiled_project.unresolved_nested_reference",
                           "Character presentation profile default pose is missing.",
                           profile_path + "/defaultPoseId");
+                std::unordered_set<CharacterAnimationClipId> clips;
+                for (std::size_t clip_index = 0; clip_index < profile.animation_clips.size();
+                     ++clip_index) {
+                    const auto& clip = profile.animation_clips[clip_index];
+                    const auto clip_path =
+                        profile_path + "/animationClips/" + std::to_string(clip_index);
+                    if (!clips.insert(clip.id).second)
+                        error("compiled_project.duplicate_nested_id",
+                              "Duplicate Character animation clip ID.", clip_path + "/id");
+                    if (clip.frames.empty())
+                        error("compiled_project.invalid_character_animation_clip",
+                              "Character animation clip requires at least one frame.",
+                              clip_path + "/frames");
+                    for (std::size_t frame_index = 0; frame_index < clip.frames.size();
+                         ++frame_index) {
+                        const auto& frame = clip.frames[frame_index];
+                        const auto frame_path =
+                            clip_path + "/frames/" + std::to_string(frame_index);
+                        if (frame.duration_ms == 0)
+                            error("compiled_project.invalid_character_animation_clip",
+                                  "Character animation frame duration must be positive.",
+                                  frame_path + "/durationMs");
+                        std::unordered_set<CharacterPresentationLayerId> frame_layers;
+                        for (std::size_t layer_index = 0; layer_index < frame.layers.size();
+                             ++layer_index) {
+                            const auto& layer = frame.layers[layer_index];
+                            const auto layer_path =
+                                frame_path + "/layers/" + std::to_string(layer_index);
+                            if (!frame_layers.insert(layer.layer_id).second)
+                                error("compiled_project.duplicate_nested_id",
+                                      "Duplicate Character animation frame layer ID.",
+                                      layer_path + "/layerId");
+                            if (!layers.contains(layer.layer_id))
+                                error("compiled_project.unresolved_nested_reference",
+                                      "Character animation frame references a missing layer.",
+                                      layer_path + "/layerId");
+                            if (layer.sprite.specified && layer.sprite.value)
+                                require(m_assets, *layer.sprite.value, "asset",
+                                        layer_path + "/sprite");
+                            if (layer.material.specified && layer.material.value)
+                                require(m_material_interfaces, *layer.material.value, "material",
+                                        layer_path + "/material");
+                        }
+                    }
+                }
+                const auto validate_automatic = [&](const auto& automatic,
+                                                    const std::string& automatic_path) {
+                    if (!clips.contains(automatic.clip_id))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Character automatic animation references a missing clip.",
+                              automatic_path + "/clipId");
+                    if (!roles.contains(automatic.role))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Character automatic animation references an unused semantic role.",
+                              automatic_path + "/role");
+                };
+                if (profile.automatic_animations.blink) {
+                    validate_automatic(*profile.automatic_animations.blink,
+                                       profile_path + "/automaticAnimations/blink");
+                    if (profile.automatic_animations.blink->interval_ms == 0)
+                        error("compiled_project.invalid_character_animation_clip",
+                              "Automatic blink interval must be positive.",
+                              profile_path + "/automaticAnimations/blink/intervalMs");
+                }
+                if (profile.automatic_animations.speaking)
+                    validate_automatic(*profile.automatic_animations.speaking,
+                                       profile_path + "/automaticAnimations/speaking");
             }
             const auto validate_overrides = [&](const auto& entry, const std::string& entry_path) {
                 std::unordered_set<CharacterPresentationProfileId> seen_profiles;
@@ -935,6 +1005,70 @@ private:
                           path + "/appearances/" + std::to_string(appearance_index) + "/id");
                 validate_overrides(appearance,
                                    path + "/appearances/" + std::to_string(appearance_index));
+            }
+            std::unordered_set<CharacterGestureId> gestures;
+            for (std::size_t gesture_index = 0; gesture_index < character.gestures.size();
+                 ++gesture_index) {
+                const auto& gesture = character.gestures[gesture_index];
+                const auto gesture_path = path + "/gestures/" + std::to_string(gesture_index);
+                if (!gestures.insert(gesture.id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Character gesture ID.",
+                          gesture_path + "/id");
+                std::unordered_set<CharacterPresentationProfileId> gesture_profiles;
+                for (std::size_t profile_index = 0; profile_index < gesture.profiles.size();
+                     ++profile_index) {
+                    const auto& gesture_profile = gesture.profiles[profile_index];
+                    const auto gesture_profile_path =
+                        gesture_path + "/profiles/" + std::to_string(profile_index);
+                    if (!gesture_profiles.insert(gesture_profile.profile_id).second)
+                        error("compiled_project.duplicate_nested_id",
+                              "Duplicate Character gesture profile mapping.",
+                              gesture_profile_path + "/profileId");
+                    const auto profile =
+                        std::ranges::find_if(character.profiles, [&](const auto& candidate) {
+                            return candidate.id == gesture_profile.profile_id;
+                        });
+                    if (profile == character.profiles.end()) {
+                        error("compiled_project.unresolved_nested_reference",
+                              "Character gesture references a missing presentation profile.",
+                              gesture_profile_path + "/profileId");
+                        continue;
+                    }
+                    const auto clip =
+                        std::ranges::find_if(profile->animation_clips, [&](const auto& candidate) {
+                            return candidate.id == gesture_profile.clip_id;
+                        });
+                    if (clip == profile->animation_clips.end()) {
+                        error("compiled_project.unresolved_nested_reference",
+                              "Character gesture references a missing animation clip.",
+                              gesture_profile_path + "/clipId");
+                        continue;
+                    }
+                    std::uint64_t duration_ms = 0;
+                    for (const auto& frame : clip->frames)
+                        duration_ms += frame.duration_ms;
+                    std::unordered_set<CharacterGestureCueId> cues;
+                    for (std::size_t cue_index = 0; cue_index < gesture_profile.cues.size();
+                         ++cue_index) {
+                        const auto& cue = gesture_profile.cues[cue_index];
+                        const auto cue_path =
+                            gesture_profile_path + "/cues/" + std::to_string(cue_index);
+                        std::visit(
+                            [&](const auto& value) {
+                                if (!cues.insert(value.id).second)
+                                    error("compiled_project.duplicate_nested_id",
+                                          "Duplicate Character gesture cue ID.", cue_path + "/id");
+                                if (value.at_ms > duration_ms)
+                                    error("compiled_project.invalid_character_gesture_cue",
+                                          "Character gesture cue occurs after its animation clip.",
+                                          cue_path + "/atMs");
+                                using T = std::decay_t<decltype(value)>;
+                                if constexpr (std::is_same_v<T, CharacterAudioGestureCue>)
+                                    require(m_assets, value.asset, "asset", cue_path + "/asset");
+                            },
+                            cue);
+                    }
+                }
             }
             for (const auto& idle : character.idles)
                 idles.insert(idle.id);

@@ -15,6 +15,12 @@ operation_target(const FinitePresentationOperation& operation);
 capture_camera_focus(const CompiledProject& project, const RuntimePresentationSnapshot& snapshot,
                      const CameraFocusSource& source);
 
+[[nodiscard]] Result<CharacterGestureOperation, Diagnostics> make_character_gesture_operation(
+    const CompiledProject& project, const RuntimePresentationSnapshot& snapshot,
+    const ActorPresentationKey& actor, const CharacterGestureId& gesture,
+    PresentationOperationId operation,
+    std::optional<PresentationFlowCompletion> completion = std::nullopt, bool skippable = true);
+
 [[nodiscard]] Result<PresentationTargetDraft, Diagnostics>
 build_transition_group_target(const PresentationTargetDraft& source,
                               const std::vector<TransitionGroupTargetMutation>& mutations);

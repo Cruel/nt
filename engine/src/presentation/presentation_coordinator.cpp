@@ -221,6 +221,30 @@ normalize(const ActorPresentationOperation& operation)
 }
 
 Result<PresentationOperationMetadata, Diagnostics>
+normalize(const CharacterGestureOperation& operation)
+{
+    auto valid = validate_finite_common(operation.common.id, operation.common.duration,
+                                        operation.common.clock, operation.common.revisions);
+    if (!valid)
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(valid.error());
+    for (const auto& cue : operation.cues) {
+        const auto at_ms = std::visit([](const auto& value) { return value.at_ms; }, cue);
+        if (std::chrono::milliseconds{at_ms} > operation.common.duration) {
+            return Result<PresentationOperationMetadata, Diagnostics>::failure(
+                {diagnostic("presentation.invalid_character_gesture_cue",
+                            "Character Gesture cue occurs after the finite gesture duration")});
+        }
+    }
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = operation.common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class =
+             operation.completion ? CheckpointClass::CausalBarrier : CheckpointClass::Disposable,
+         .completion = completion_target(operation.completion)});
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
 normalize(const LayoutFinitePresentationOperation& operation)
 {
     auto valid = validate_finite_common(operation.common.id, operation.common.duration,
@@ -299,6 +323,7 @@ finite_target(const CoordinatedPresentationOperation& operation)
                           std::is_same_v<T, CameraPunchOperation> ||
                           std::is_same_v<T, CameraFlashOperation> ||
                           std::is_same_v<T, ActorPresentationOperation> ||
+                          std::is_same_v<T, CharacterGestureOperation> ||
                           std::is_same_v<T, LayoutFinitePresentationOperation> ||
                           std::is_same_v<T, MaterialParameterTransitionOperation>)
                 return operation_target(FinitePresentationOperation{value});
@@ -324,6 +349,7 @@ std::optional<bool> finite_skippable(const CoordinatedPresentationOperation& ope
                           std::is_same_v<T, CameraPunchOperation> ||
                           std::is_same_v<T, CameraFlashOperation> ||
                           std::is_same_v<T, ActorPresentationOperation> ||
+                          std::is_same_v<T, CharacterGestureOperation> ||
                           std::is_same_v<T, LayoutFinitePresentationOperation> ||
                           std::is_same_v<T, MaterialParameterTransitionOperation>)
                 return operation_skippable(FinitePresentationOperation{value});

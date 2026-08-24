@@ -249,6 +249,7 @@ struct DesiredActorPresentation {
     ActorLogicalPlacement placement;
     bool visible = false;
     bool presentation_complete = true;
+    bool speaking = false;
     bool operator==(const DesiredActorPresentation&) const = default;
 };
 

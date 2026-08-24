@@ -12,8 +12,16 @@ namespace noveltea {
 
 class WorldTransitionBackend;
 
+struct RuntimeCharacterPresentationCue {
+    core::PresentationOperationRef operation;
+    core::CharacterGestureCueId cue;
+    core::CharacterGestureEventId event;
+    bool operator==(const RuntimeCharacterPresentationCue&) const = default;
+};
+
 struct RuntimePresentationDispatchResult {
     std::vector<core::RuntimeInputMessage> inputs;
+    std::vector<RuntimeCharacterPresentationCue> character_presentation_cues;
     core::Diagnostics diagnostics;
 };
 
@@ -59,6 +67,7 @@ public:
     [[nodiscard]] RuntimePresentationFastForwardResult fast_forward_one();
     void terminate(core::PresentationCancellationReason reason) override;
     void bind_presentation_id_allocator(std::function<core::PresentationOperationId()> allocator);
+    void bind_audio_id_allocator(std::function<core::AudioOperationId()> allocator);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     bind_snapshot_backend(std::function<core::Result<void, core::Diagnostics>(
                               const core::RuntimePresentationSnapshot&)> backend);
@@ -96,6 +105,7 @@ private:
     core::PresentationCoordinator m_coordinator;
     std::vector<core::BackendOperationAcknowledgement> m_backend_facts;
     std::function<core::PresentationOperationId()> m_allocate_presentation_id;
+    std::function<core::AudioOperationId()> m_allocate_audio_id;
     std::optional<core::PresentationOperationId> m_active_text_operation;
     core::ActiveTextPresentationPhase m_active_text_phase =
         core::ActiveTextPresentationPhase::Stable;

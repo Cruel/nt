@@ -177,6 +177,17 @@ struct ActorPresentationOperation {
     bool operator==(const ActorPresentationOperation&) const = default;
 };
 
+struct CharacterGestureOperation {
+    FinitePresentationOperationCommon common;
+    ActorOperationTarget target;
+    CharacterId character;
+    CharacterGestureId gesture;
+    CharacterAnimationClipId clip;
+    std::vector<compiled::CharacterGestureCue> cues;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const CharacterGestureOperation&) const = default;
+};
+
 enum class LayoutOperationKind : std::uint8_t {
     Fade,
 };
@@ -202,7 +213,8 @@ using FinitePresentationOperation =
                  BackgroundPresentationOperation, CameraPanOperation, CameraZoomOperation,
                  CameraRotationOperation, CameraFocusOperation, CameraShakeOperation,
                  CameraPunchOperation, CameraFlashOperation, ActorPresentationOperation,
-                 LayoutFinitePresentationOperation, MaterialParameterTransitionOperation>;
+                 CharacterGestureOperation, LayoutFinitePresentationOperation,
+                 MaterialParameterTransitionOperation>;
 
 struct PresentationTargetDraft {
     std::vector<DesiredBackgroundOverride> background_overrides;

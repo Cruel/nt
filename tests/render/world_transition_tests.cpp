@@ -107,6 +107,8 @@ PresentationActor actor(ActorPresentationKey key, compiled::ActorPosition positi
                              id<CharacterExpressionId>("neutral"),
                              std::nullopt,
                              std::nullopt,
+                             {},
+                             {},
                              {{id<CharacterPresentationLayerId>("body"),
                                std::string{"body"},
                                std::nullopt,
@@ -122,7 +124,36 @@ PresentationActor actor(ActorPresentationKey key, compiled::ActorPosition positi
                              0,
                              true,
                              true,
-                             true};
+                             true,
+                             false};
+}
+
+PresentationActor gesture_actor(ActorPresentationKey key, compiled::ActorPosition position)
+{
+    auto result = actor(std::move(key), position);
+    result.animation_clips.push_back({id<CharacterAnimationClipId>("slam-clip"),
+                                      LayoutClockDomain::Gameplay,
+                                      {{100,
+                                        {{id<CharacterPresentationLayerId>("body"),
+                                          {},
+                                          {true, id<core::MaterialId>("gesture-material")},
+                                          std::nullopt,
+                                          std::nullopt,
+                                          std::nullopt,
+                                          std::nullopt}}}}});
+    return result;
+}
+
+CharacterGestureOperation gesture_operation(std::uint64_t operation, ActorPresentationKey key,
+                                            std::vector<compiled::CharacterGestureCue> cues)
+{
+    return {.common = common(operation),
+            .target = {std::move(key)},
+            .character = id<CharacterId>("hero"),
+            .gesture = id<CharacterGestureId>("slam"),
+            .clip = id<CharacterAnimationClipId>("slam-clip"),
+            .cues = std::move(cues),
+            .completion = std::nullopt};
 }
 
 PresentationMountedLayout layout(MountedLayoutPresentationKey key)
@@ -369,6 +400,88 @@ TEST_CASE("targeted background cross-fade retains exact revisions and completes"
     facts = transitions.take_acknowledgements();
     REQUIRE(facts.size() == 1);
     CHECK(std::holds_alternative<BackendOperationCompleted>(facts.front().fact));
+}
+
+TEST_CASE("Character Gesture animates admitted layers and emits each cue exactly once")
+{
+    EmptyWorldResources resources;
+    WorldPresentationBackend world(resources);
+    const auto key = ActorPresentationKey{CharacterActorKey{id<CharacterId>("hero")}};
+    auto source = snapshot(1);
+    source.actors.push_back(gesture_actor(key, compiled::ActorPosition::Center));
+    auto target = snapshot(2);
+    target.actors.push_back(gesture_actor(key, compiled::ActorPosition::Center));
+    REQUIRE(world.reconcile(source, {1280.0f, 720.0f}));
+    REQUIRE(world.reconcile(target, {1280.0f, 720.0f}));
+
+    WorldTransitionBackend transitions(world);
+    const auto presentation_cue = compiled::CharacterPresentationGestureCue{
+        id<CharacterGestureCueId>("impact"), 25, id<CharacterGestureEventId>("impact")};
+    const auto audio_cue = compiled::CharacterAudioGestureCue{
+        id<CharacterGestureCueId>("slam-sfx"), 75, id<AssetId>("slam-audio"), 1.0, 0.0};
+    REQUIRE(transitions.realize(
+        targeted_delivery(60, gesture_operation(60, key, {presentation_cue, audio_cue}))));
+    (void)transitions.take_acknowledgements();
+
+    RuntimeClockUpdate clocks;
+    clocks.gameplay_delta = std::chrono::milliseconds{50};
+    transitions.advance(clocks);
+    auto cues = transitions.take_gesture_cues();
+    REQUIRE(cues.size() == 1);
+    CHECK(cues.front().cue == presentation_cue.id);
+    CHECK(std::holds_alternative<compiled::CharacterPresentationGestureCue>(cues.front().payload));
+    CHECK(transitions.take_gesture_cues().empty());
+
+    auto batch = transitions.compose_targeted_world_batch();
+    REQUIRE(batch);
+    REQUIRE(batch.value().commands().size() == 1);
+    CHECK(batch.value().commands().front().material.value() == "gesture-material");
+
+    transitions.advance(clocks);
+    cues = transitions.take_gesture_cues();
+    REQUIRE(cues.size() == 1);
+    CHECK(cues.front().cue == audio_cue.id);
+    CHECK(std::holds_alternative<compiled::CharacterAudioGestureCue>(cues.front().payload));
+    CHECK(transitions.take_gesture_cues().empty());
+    CHECK(transitions.targeted_render_states().empty());
+}
+
+TEST_CASE("Character Gesture cancellation and replacement suppress pending cues")
+{
+    EmptyWorldResources resources;
+    WorldPresentationBackend world(resources);
+    const auto key = ActorPresentationKey{CharacterActorKey{id<CharacterId>("hero")}};
+    auto source = snapshot(1);
+    source.actors.push_back(gesture_actor(key, compiled::ActorPosition::Center));
+    auto target = snapshot(2);
+    target.actors.push_back(gesture_actor(key, compiled::ActorPosition::Center));
+    REQUIRE(world.reconcile(source, {1280.0f, 720.0f}));
+    REQUIRE(world.reconcile(target, {1280.0f, 720.0f}));
+
+    WorldTransitionBackend transitions(world);
+    const auto late = compiled::CharacterPresentationGestureCue{
+        id<CharacterGestureCueId>("late"), 80, id<CharacterGestureEventId>("late")};
+    REQUIRE(transitions.realize(targeted_delivery(61, gesture_operation(61, key, {late}))));
+    (void)transitions.take_acknowledgements();
+    RuntimeClockUpdate clocks;
+    clocks.gameplay_delta = std::chrono::milliseconds{50};
+    transitions.advance(clocks);
+    CHECK(transitions.take_gesture_cues().empty());
+    transitions.snap_to_target(PresentationOperationRef{PresentationOperationId::from_number(61)});
+    transitions.advance(clocks);
+    CHECK(transitions.take_gesture_cues().empty());
+
+    REQUIRE(transitions.realize(targeted_delivery(62, gesture_operation(62, key, {late}))));
+    (void)transitions.take_acknowledgements();
+    transitions.advance(clocks);
+    const auto replacement = compiled::CharacterPresentationGestureCue{
+        id<CharacterGestureCueId>("replacement"), 25, id<CharacterGestureEventId>("replacement")};
+    REQUIRE(transitions.realize(targeted_delivery(63, gesture_operation(63, key, {replacement}))));
+    (void)transitions.take_acknowledgements();
+    transitions.advance(clocks);
+    const auto cues = transitions.take_gesture_cues();
+    REQUIRE(cues.size() == 1);
+    CHECK(cues.front().cue == replacement.id);
 }
 
 TEST_CASE("targeted camera pan interpolates the exact committed world framing")

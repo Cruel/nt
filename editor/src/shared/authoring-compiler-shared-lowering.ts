@@ -514,6 +514,40 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
             visible: layer.visible,
           })),
         })),
+        ...(profile.animationClips.length > 0
+          ? {
+              animationClips: profile.animationClips.map((clip) => ({
+                id: clip.id,
+                clock: clip.clock,
+                frames: clip.frames.map((frame) => ({
+                  durationMs: frame.durationMs,
+                  layers: frame.layers.map((layer) => ({
+                    layerId: layer.layerId,
+                    ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+                    ...(layer.material !== undefined
+                      ? { material: materialRef(layer.material) }
+                      : {}),
+                    ...(layer.offset !== undefined ? { offset: { ...layer.offset } } : {}),
+                    ...(layer.scale !== undefined ? { scale: layer.scale } : {}),
+                    ...(layer.anchor !== undefined ? { anchor: { ...layer.anchor } } : {}),
+                    ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+                  })),
+                })),
+              })),
+            }
+          : {}),
+        ...(profile.automaticAnimations.blink || profile.automaticAnimations.speaking
+          ? {
+              automaticAnimations: {
+                blink: profile.automaticAnimations.blink
+                  ? { ...profile.automaticAnimations.blink }
+                  : null,
+                speaking: profile.automaticAnimations.speaking
+                  ? { ...profile.automaticAnimations.speaking }
+                  : null,
+              },
+            }
+          : {}),
       })),
       expressions: data.expressions.map((expression) => ({
         id: expression.id,
@@ -539,6 +573,34 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           })),
         })),
       })),
+      ...(data.gestures.length > 0
+        ? {
+            gestures: data.gestures.map((gesture) => ({
+              id: gesture.id,
+              profiles: gesture.profiles.map((profile) => ({
+                profileId: profile.profileId,
+                clipId: profile.clipId,
+                cues: profile.cues.map((cue) =>
+                  cue.kind === 'presentation'
+                    ? {
+                        kind: 'presentation' as const,
+                        id: cue.id,
+                        atMs: cue.atMs,
+                        event: cue.event,
+                      }
+                    : {
+                        kind: 'audio' as const,
+                        id: cue.id,
+                        atMs: cue.atMs,
+                        asset: assetRef(cue.asset)!,
+                        gain: cue.gain,
+                        pan: cue.pan,
+                      },
+                ),
+              })),
+            })),
+          }
+        : {}),
       ...(data.idles.length > 0
         ? {
             idles: data.idles.map((idle) => ({
@@ -1062,6 +1124,40 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                 visible: layer.visible,
               })),
             })),
+            ...(profile.animationClips.length > 0
+              ? {
+                  animationClips: profile.animationClips.map((clip) => ({
+                    id: clip.id,
+                    clock: clip.clock,
+                    frames: clip.frames.map((frame) => ({
+                      durationMs: frame.durationMs,
+                      layers: frame.layers.map((layer) => ({
+                        layerId: layer.layerId,
+                        ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+                        ...(layer.material !== undefined
+                          ? { material: materialRef(layer.material) }
+                          : {}),
+                        ...(layer.offset !== undefined ? { offset: { ...layer.offset } } : {}),
+                        ...(layer.scale !== undefined ? { scale: layer.scale } : {}),
+                        ...(layer.anchor !== undefined ? { anchor: { ...layer.anchor } } : {}),
+                        ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
+                      })),
+                    })),
+                  })),
+                }
+              : {}),
+            ...(profile.automaticAnimations.blink || profile.automaticAnimations.speaking
+              ? {
+                  automaticAnimations: {
+                    blink: profile.automaticAnimations.blink
+                      ? { ...profile.automaticAnimations.blink }
+                      : null,
+                    speaking: profile.automaticAnimations.speaking
+                      ? { ...profile.automaticAnimations.speaking }
+                      : null,
+                  },
+                }
+              : {}),
           })),
           expressions: data.expressions.map((expression) => ({
             id: expression.id,
@@ -1087,6 +1183,34 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               })),
             })),
           })),
+          ...(data.gestures.length > 0
+            ? {
+                gestures: data.gestures.map((gesture) => ({
+                  id: gesture.id,
+                  profiles: gesture.profiles.map((profile) => ({
+                    profileId: profile.profileId,
+                    clipId: profile.clipId,
+                    cues: profile.cues.map((cue) =>
+                      cue.kind === 'presentation'
+                        ? {
+                            kind: 'presentation' as const,
+                            id: cue.id,
+                            atMs: cue.atMs,
+                            event: cue.event,
+                          }
+                        : {
+                            kind: 'audio' as const,
+                            id: cue.id,
+                            atMs: cue.atMs,
+                            asset: assetRef(cue.asset)!,
+                            gain: cue.gain,
+                            pan: cue.pan,
+                          },
+                    ),
+                  })),
+                })),
+              }
+            : {}),
           ...(data.idles.length > 0
             ? {
                 idles: data.idles.map((idle) => ({

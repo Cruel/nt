@@ -380,17 +380,56 @@ struct CharacterPose {
     std::vector<CharacterLayerComposition> layers;
     bool operator==(const CharacterPose&) const = default;
 };
+template<typename T> struct CharacterOptionalOverride {
+    bool specified = false;
+    std::optional<T> value;
+    bool operator==(const CharacterOptionalOverride&) const = default;
+};
+struct CharacterAnimationLayerFrame {
+    CharacterPresentationLayerId layer_id;
+    CharacterOptionalOverride<AssetId> sprite;
+    CharacterOptionalOverride<MaterialId> material;
+    std::optional<Vector2> offset;
+    std::optional<double> scale;
+    std::optional<Vector2> anchor;
+    std::optional<bool> visible;
+    bool operator==(const CharacterAnimationLayerFrame&) const = default;
+};
+struct CharacterAnimationFrame {
+    std::uint64_t duration_ms;
+    std::vector<CharacterAnimationLayerFrame> layers;
+    bool operator==(const CharacterAnimationFrame&) const = default;
+};
+struct CharacterAnimationClip {
+    CharacterAnimationClipId id;
+    LayoutClockDomain clock;
+    std::vector<CharacterAnimationFrame> frames;
+    bool operator==(const CharacterAnimationClip&) const = default;
+};
+struct CharacterAutomaticBlink {
+    CharacterAnimationClipId clip_id;
+    std::string role;
+    std::uint64_t interval_ms;
+    bool operator==(const CharacterAutomaticBlink&) const = default;
+};
+struct CharacterAutomaticSpeaking {
+    CharacterAnimationClipId clip_id;
+    std::string role;
+    bool operator==(const CharacterAutomaticSpeaking&) const = default;
+};
+struct CharacterAutomaticAnimations {
+    std::optional<CharacterAutomaticBlink> blink;
+    std::optional<CharacterAutomaticSpeaking> speaking;
+    bool operator==(const CharacterAutomaticAnimations&) const = default;
+};
 struct CharacterPresentationProfile {
     CharacterPresentationProfileId id;
     std::vector<CharacterPresentationLayer> layers;
     CharacterPoseId default_pose_id;
     std::vector<CharacterPose> poses;
+    std::vector<CharacterAnimationClip> animation_clips;
+    CharacterAutomaticAnimations automatic_animations;
     bool operator==(const CharacterPresentationProfile&) const = default;
-};
-template<typename T> struct CharacterOptionalOverride {
-    bool specified = false;
-    std::optional<T> value;
-    bool operator==(const CharacterOptionalOverride&) const = default;
 };
 struct CharacterLayerOverride {
     CharacterPresentationLayerId layer_id;
@@ -427,6 +466,32 @@ struct CharacterIdle {
     LayoutClockDomain clock;
     bool operator==(const CharacterIdle&) const = default;
 };
+struct CharacterPresentationGestureCue {
+    CharacterGestureCueId id;
+    std::uint64_t at_ms;
+    CharacterGestureEventId event;
+    bool operator==(const CharacterPresentationGestureCue&) const = default;
+};
+struct CharacterAudioGestureCue {
+    CharacterGestureCueId id;
+    std::uint64_t at_ms;
+    AssetId asset;
+    double gain = 1.0;
+    double pan = 0.0;
+    bool operator==(const CharacterAudioGestureCue&) const = default;
+};
+using CharacterGestureCue = std::variant<CharacterPresentationGestureCue, CharacterAudioGestureCue>;
+struct CharacterGestureProfile {
+    CharacterPresentationProfileId profile_id;
+    CharacterAnimationClipId clip_id;
+    std::vector<CharacterGestureCue> cues;
+    bool operator==(const CharacterGestureProfile&) const = default;
+};
+struct CharacterGesture {
+    CharacterGestureId id;
+    std::vector<CharacterGestureProfile> profiles;
+    bool operator==(const CharacterGesture&) const = default;
+};
 struct CharacterDialoguePresentation {
     std::string name;
     std::optional<std::string> name_color;
@@ -453,6 +518,7 @@ struct CharacterDefinition {
     std::vector<CharacterPresentationProfile> profiles;
     std::vector<CharacterExpression> expressions;
     std::vector<CharacterAppearance> appearances;
+    std::vector<CharacterGesture> gestures;
     std::vector<CharacterIdle> idles;
     std::vector<InventoryDefinition> inventories;
     CharacterInitialWorldState initial_world_state;

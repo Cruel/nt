@@ -60,6 +60,7 @@ struct CharacterDefinition {
     std::vector<CharacterPresentationProfile> profiles;
     std::vector<CharacterExpression> expressions;
     std::vector<CharacterAppearance> appearances;
+    std::vector<CharacterGesture> gestures;
     std::vector<CharacterIdle> idles;
     std::vector<InventoryDefinition> inventories;
     CharacterInitialWorldState initial_world_state;
