@@ -68,9 +68,9 @@ std::optional<std::string> read_string(std::string_view input, std::size_t& offs
 Result<std::string, Diagnostics> encode_checkpoint_bundle(const TypedSaveSlotCheckpoint& checkpoint)
 {
     if (!checkpoint.metadata && checkpoint.thumbnail)
-        return Result<std::string, Diagnostics>::failure(slot_error(
-            "save_slot.invalid_checkpoint_thumbnail",
-            "Save checkpoint thumbnails require checkpoint metadata."));
+        return Result<std::string, Diagnostics>::failure(
+            slot_error("save_slot.invalid_checkpoint_thumbnail",
+                       "Save checkpoint thumbnails require checkpoint metadata."));
     std::string output;
     output.reserve(save_file_magic.size() + checkpoint.encoded_save.size() +
                    (checkpoint.thumbnail ? checkpoint.thumbnail->bytes.size() : 0u) + 160u);

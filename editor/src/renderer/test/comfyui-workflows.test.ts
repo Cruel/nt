@@ -161,9 +161,9 @@ describe('comfyui workflow manifests', () => {
       }),
     ).toThrow('bindings.extra must be declared by contract.inputs.extra');
 
-    expect(() => parseComfyUiWorkflowDefinition({ ...currentManifest, outputBindings: {} })).toThrow(
-      'contract.outputs.images must declare at least one graph binding',
-    );
+    expect(() =>
+      parseComfyUiWorkflowDefinition({ ...currentManifest, outputBindings: {} }),
+    ).toThrow('contract.outputs.images must declare at least one graph binding');
   });
 
   it('keeps unsupported future output media discoverable but reports it non-runnable', () => {
@@ -219,9 +219,9 @@ describe('comfyui workflow manifests', () => {
   });
 
   it('rejects the retired output-node compatibility field', () => {
-    expect(() => parseComfyUiWorkflowDefinition({ ...currentManifest, outputNodeIds: ['9'] })).toThrow(
-      'manifest.outputNodeIds is not supported',
-    );
+    expect(() =>
+      parseComfyUiWorkflowDefinition({ ...currentManifest, outputNodeIds: ['9'] }),
+    ).toThrow('manifest.outputNodeIds is not supported');
   });
 
   it('exposes known image classifications only as authoring/inference metadata', () => {

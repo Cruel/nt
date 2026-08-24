@@ -8,7 +8,6 @@ import type {
   TemplateDescriptor,
 } from './platform-export-contracts';
 import { resolveAssetMemoryPolicy } from './platform-export-contracts';
-import { PLAYER_RUNTIME_API_VERSION } from './platform-export-contracts';
 import { COMPILED_PROJECT_FORMAT_VERSION } from './compiled-project';
 import { applicationIdPattern } from './authoring-project-settings';
 import { createPlatformExportValidationDiagnostic } from './project-validation';

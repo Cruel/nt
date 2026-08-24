@@ -1035,8 +1035,8 @@ core::Result<runtime::ProjectHookInvocationResult, runtime::ScriptInvocationErro
 ScriptRuntime::invoke_project_hook(const runtime::ProjectHookInvocationRequest& request,
                                    const runtime::RuntimeCapabilitySet& capabilities)
 {
-    using Result = core::Result<runtime::ProjectHookInvocationResult,
-                                runtime::ScriptInvocationError>;
+    using Result =
+        core::Result<runtime::ProjectHookInvocationResult, runtime::ScriptInvocationError>;
     auto explained = explain_project_hook(request.semantic_kind, request.hook, request.target);
     if (!explained)
         return Result::failure(std::move(explained).error());
@@ -1057,8 +1057,7 @@ ScriptRuntime::invoke_project_hook(const runtime::ProjectHookInvocationRequest& 
 
     lua_State* state = m_impl->lua.lua_state();
     const int stack_base = lua_gettop(state);
-    auto error = push_project_import(state, winner->handler.module_id,
-                                     winner->handler.export_name);
+    auto error = push_project_import(state, winner->handler.module_id, winner->handler.export_name);
     if (error) {
         lua_settop(state, stack_base);
         error->chunk = winner->source_path;
@@ -1066,9 +1065,9 @@ ScriptRuntime::invoke_project_hook(const runtime::ProjectHookInvocationRequest& 
     }
     if (!lua_isfunction(state, -1)) {
         lua_settop(state, stack_base);
-        return Result::failure(make_error(
-            ScriptErrorCode::InvalidResult,
-            "Frozen Hook Registry handler is no longer callable", winner->source_path));
+        return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                          "Frozen Hook Registry handler is no longer callable",
+                                          winner->source_path));
     }
 
     push_project_hook_context(state, request);
@@ -1086,7 +1085,8 @@ ScriptRuntime::invoke_project_hook(const runtime::ProjectHookInvocationRequest& 
         ++argument_count;
     }
 
-    const int result_count = request.result_kind == runtime::ScriptInvocationResultKind::None ? 0 : 1;
+    const int result_count =
+        request.result_kind == runtime::ScriptInvocationResultKind::None ? 0 : 1;
     const int status = lua_pcall(state, argument_count, result_count, 0);
     if (status != LUA_OK) {
         const std::string raw = lua_value_message(state, -1);

@@ -17,7 +17,7 @@ std::string_view room_entry_cause_name(RoomEntryCause cause) noexcept
 }
 
 std::optional<RoomEntryCause> decode_room_entry_cause(Decoder& d, const nlohmann::json& value,
-                                                       std::string_view pointer)
+                                                      std::string_view pointer)
 {
     auto name = d.string(value, pointer);
     if (!name)
@@ -32,9 +32,8 @@ std::optional<RoomEntryCause> decode_room_entry_cause(Decoder& d, const nlohmann
     return std::nullopt;
 }
 
-std::optional<RoomTransitionKind> decode_room_transition_kind(Decoder& d,
-                                                              const nlohmann::json& value,
-                                                              std::string_view pointer)
+std::optional<RoomTransitionKind>
+decode_room_transition_kind(Decoder& d, const nlohmann::json& value, std::string_view pointer)
 {
     auto name = d.string(value, pointer);
     if (!name)
@@ -70,8 +69,7 @@ decode_room_context(Decoder& d, const nlohmann::json& value, std::string_view po
     if (value.is_null())
         return std::optional<RoomVisitContext>{};
     if (!d.object(value, pointer,
-                  {"room", "sourceRoom", "entryExit", "entryCause", "entrySequence",
-                   "visitIndex"}))
+                  {"room", "sourceRoom", "entryExit", "entryCause", "entrySequence", "visitIndex"}))
         return std::nullopt;
     const auto* room = d.member(value, "room", pointer);
     const auto* source = d.member(value, "sourceRoom", pointer);
@@ -89,35 +87,32 @@ decode_room_context(Decoder& d, const nlohmann::json& value, std::string_view po
         if (d.object(*entry, entry_pointer, {"room", "exit"})) {
             const auto* exit_room = d.member(*entry, "room", entry_pointer);
             const auto* exit_id = d.member(*entry, "exit", entry_pointer);
-            auto parsed_room = exit_room
-                                   ? d.id<RoomId>(*exit_room, child(entry_pointer, "room"))
-                                   : std::nullopt;
-            auto parsed_exit = exit_id
-                                   ? d.id<RoomExitId>(*exit_id, child(entry_pointer, "exit"))
-                                   : std::nullopt;
+            auto parsed_room =
+                exit_room ? d.id<RoomId>(*exit_room, child(entry_pointer, "room")) : std::nullopt;
+            auto parsed_exit =
+                exit_id ? d.id<RoomExitId>(*exit_id, child(entry_pointer, "exit")) : std::nullopt;
             entry_ok = parsed_room.has_value() && parsed_exit.has_value();
             if (entry_ok)
-                entry_exit = compiled::RoomExitRef{std::move(*parsed_room),
-                                                   std::move(*parsed_exit)};
+                entry_exit =
+                    compiled::RoomExitRef{std::move(*parsed_room), std::move(*parsed_exit)};
         } else {
             entry_ok = false;
         }
     }
-    auto parsed_cause = cause
-                            ? decode_room_entry_cause(d, *cause, child(pointer, "entryCause"))
-                            : std::nullopt;
-    auto parsed_sequence = sequence
-                               ? d.unsigned_integer<std::uint64_t>(
-                                     *sequence, child(pointer, "entrySequence"), true)
-                               : std::nullopt;
-    auto parsed_visit = visit ? d.unsigned_integer<std::uint64_t>(
-                                   *visit, child(pointer, "visitIndex"), true)
-                              : std::nullopt;
+    auto parsed_cause =
+        cause ? decode_room_entry_cause(d, *cause, child(pointer, "entryCause")) : std::nullopt;
+    auto parsed_sequence =
+        sequence
+            ? d.unsigned_integer<std::uint64_t>(*sequence, child(pointer, "entrySequence"), true)
+            : std::nullopt;
+    auto parsed_visit =
+        visit ? d.unsigned_integer<std::uint64_t>(*visit, child(pointer, "visitIndex"), true)
+              : std::nullopt;
     if (!room_id || !source_id || !entry_ok || !parsed_cause || !parsed_sequence || !parsed_visit)
         return std::nullopt;
-    return std::optional<RoomVisitContext>{RoomVisitContext{
-        std::move(*room_id), std::move(source_id.value), std::move(entry_exit), *parsed_cause,
-        *parsed_sequence, *parsed_visit}};
+    return std::optional<RoomVisitContext>{
+        RoomVisitContext{std::move(*room_id), std::move(source_id.value), std::move(entry_exit),
+                         *parsed_cause, *parsed_sequence, *parsed_visit}};
 }
 
 } // namespace
@@ -544,10 +539,9 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                              ? nlohmann::json{{"room", value.selected_exit->room.text()},
                                               {"exit", value.selected_exit->exit_id.text()}}
                              : nlohmann::json(nullptr)},
-                        {"transitionKind",
-                         value.kind == RoomTransitionKind::NavigationAttempt
-                             ? "navigation-attempt"
-                             : "directed-room-change"},
+                        {"transitionKind", value.kind == RoomTransitionKind::NavigationAttempt
+                                               ? "navigation-attempt"
+                                               : "directed-room-change"},
                         {"entryCause", room_entry_cause_name(value.entry_cause)},
                         {"sourceContext", encode_room_context(value.source_context)},
                         {"position", encode_room_position(value.position)},
@@ -731,8 +725,8 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
     }
     if (*name == "room-transition") {
         d.object(value, pointer,
-                 {"kind", "id", "sourceRoom", "targetRoom", "selectedExit",
-                  "transitionKind", "entryCause", "sourceContext", "position", "destination"});
+                 {"kind", "id", "sourceRoom", "targetRoom", "selectedExit", "transitionKind",
+                  "entryCause", "sourceContext", "position", "destination"});
         const auto* source = d.member(value, "sourceRoom", pointer);
         const auto* target = d.member(value, "targetRoom", pointer);
         const auto* selected = d.member(value, "selectedExit", pointer);
@@ -760,18 +754,17 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                     exit = compiled::RoomExitRef{std::move(*room_id), std::move(*parsed_exit)};
             }
         }
-        auto parsed_kind = transition_kind
-                               ? decode_room_transition_kind(d, *transition_kind,
-                                                             child(pointer, "transitionKind"))
-                               : std::nullopt;
-        auto parsed_cause = entry_cause
-                                ? decode_room_entry_cause(d, *entry_cause,
-                                                          child(pointer, "entryCause"))
-                                : std::nullopt;
-        auto parsed_source_context = source_context
-                                         ? decode_room_context(d, *source_context,
-                                                               child(pointer, "sourceContext"))
-                                         : std::nullopt;
+        auto parsed_kind =
+            transition_kind
+                ? decode_room_transition_kind(d, *transition_kind, child(pointer, "transitionKind"))
+                : std::nullopt;
+        auto parsed_cause =
+            entry_cause ? decode_room_entry_cause(d, *entry_cause, child(pointer, "entryCause"))
+                        : std::nullopt;
+        auto parsed_source_context =
+            source_context
+                ? decode_room_context(d, *source_context, child(pointer, "sourceContext"))
+                : std::nullopt;
         auto saved_position = position
                                   ? decode_room_position(d, *position, child(pointer, "position"))
                                   : std::nullopt;

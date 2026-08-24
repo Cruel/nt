@@ -12,58 +12,58 @@ namespace noveltea::ui::rmlui {
 
 RMLUI_RTTI_Define(NtActiveTextElement) RMLUI_RTTI_Define(NtMapViewElement)
 
-namespace {
-
-std::string escape_lua_string(std::string_view value)
+    namespace
 {
-    std::string out;
-    out.reserve(value.size() + 2);
-    out.push_back('\'');
-    for (const char ch : value) {
-        if (ch == '\\' || ch == '\'')
-            out.push_back('\\');
-        out.push_back(ch);
-    }
-    out.push_back('\'');
-    return out;
-}
-
-const char* map_mode_name(core::compiled::InitialMapMode mode) noexcept
-{
-    return mode == core::compiled::InitialMapMode::Minimap ? "minimap" : "full-map";
-}
-
-std::optional<double> parse_number(std::string_view value)
-{
-    double parsed = 0.0;
-    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
-    if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
-        !std::isfinite(parsed))
-        return std::nullopt;
-    return parsed;
-}
-
-bool point_in_polygon(double x, double y, const core::compiled::MapPolygon& polygon)
-{
-    if (polygon.points.size() < 3)
-        return false;
-    bool inside = false;
-    std::size_t previous = polygon.points.size() - 1;
-    for (std::size_t current = 0; current < polygon.points.size(); ++current) {
-        const auto& a = polygon.points[current];
-        const auto& b = polygon.points[previous];
-        const bool crosses = (a.y > y) != (b.y > y);
-        if (crosses) {
-            const double denominator = b.y - a.y;
-            const double intersection =
-                denominator == 0.0 ? a.x : (b.x - a.x) * (y - a.y) / denominator + a.x;
-            if (x < intersection)
-                inside = !inside;
+    std::string escape_lua_string(std::string_view value)
+    {
+        std::string out;
+        out.reserve(value.size() + 2);
+        out.push_back('\'');
+        for (const char ch : value) {
+            if (ch == '\\' || ch == '\'')
+                out.push_back('\\');
+            out.push_back(ch);
         }
-        previous = current;
+        out.push_back('\'');
+        return out;
     }
-    return inside;
-}
+
+    const char* map_mode_name(core::compiled::InitialMapMode mode) noexcept
+    {
+        return mode == core::compiled::InitialMapMode::Minimap ? "minimap" : "full-map";
+    }
+
+    std::optional<double> parse_number(std::string_view value)
+    {
+        double parsed = 0.0;
+        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+        if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
+            !std::isfinite(parsed))
+            return std::nullopt;
+        return parsed;
+    }
+
+    bool point_in_polygon(double x, double y, const core::compiled::MapPolygon& polygon)
+    {
+        if (polygon.points.size() < 3)
+            return false;
+        bool inside = false;
+        std::size_t previous = polygon.points.size() - 1;
+        for (std::size_t current = 0; current < polygon.points.size(); ++current) {
+            const auto& a = polygon.points[current];
+            const auto& b = polygon.points[previous];
+            const bool crosses = (a.y > y) != (b.y > y);
+            if (crosses) {
+                const double denominator = b.y - a.y;
+                const double intersection =
+                    denominator == 0.0 ? a.x : (b.x - a.x) * (y - a.y) / denominator + a.x;
+                if (x < intersection)
+                    inside = !inside;
+            }
+            previous = current;
+        }
+        return inside;
+    }
 
 } // namespace
 
@@ -116,14 +116,14 @@ ActiveTextComponentSnapshot make_active_text_snapshot(const core::TypedRuntimeUI
 }
 
 TypedMapViewComponentSnapshot make_map_view_snapshot(const core::TypedRuntimeUIViewState& state,
-                                                      std::optional<core::MapId> map)
+                                                     std::optional<core::MapId> map)
 {
     TypedMapViewComponentSnapshot snapshot;
     const core::MapView* selected = nullptr;
     if (map) {
-        const auto found = std::find_if(state.maps.begin(), state.maps.end(), [&](const auto& candidate) {
-            return candidate.map == *map;
-        });
+        const auto found =
+            std::find_if(state.maps.begin(), state.maps.end(),
+                         [&](const auto& candidate) { return candidate.map == *map; });
         if (found != state.maps.end())
             selected = &*found;
     } else if (state.maps.size() == 1) {
@@ -157,13 +157,12 @@ std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot)
             << "\"";
     out << " data-open=\"" << (snapshot.open ? "true" : "false") << "\" data-mode=\""
         << map_mode_name(snapshot.mode) << "\" data-pan-x=\"" << snapshot.pan_x
-        << "\" data-pan-y=\"" << snapshot.pan_y << "\" data-zoom=\"" << snapshot.zoom
-        << "\">";
+        << "\" data-pan-y=\"" << snapshot.pan_y << "\" data-zoom=\"" << snapshot.zoom << "\">";
 
     out << "<div class=\"nt-map-view__view-controls\">"
         << "<button data-map-action=\"toggle-open\" aria-label=\""
-        << (snapshot.open ? "Close map" : "Open map") << "\">"
-        << (snapshot.open ? "Close" : "Open") << "</button>";
+        << (snapshot.open ? "Close map" : "Open map") << "\">" << (snapshot.open ? "Close" : "Open")
+        << "</button>";
     if (snapshot.open) {
         out << "<button data-map-action=\"toggle-mode\" aria-label=\"Toggle map mode\">"
             << (snapshot.mode == core::compiled::InitialMapMode::Minimap ? "Full map" : "Minimap")
@@ -184,7 +183,8 @@ std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot)
     if (map.title)
         out << "<h2 class=\"nt-map-view__title\">" << escape_rml(*map.title) << "</h2>";
 
-    out << "<div class=\"nt-map-view__canvas\" data-map-canvas=\"true\" aria-hidden=\"true\"></div>";
+    out << "<div class=\"nt-map-view__canvas\" data-map-canvas=\"true\" "
+           "aria-hidden=\"true\"></div>";
     out << "<div class=\"nt-map-view__connections\">";
     for (const auto& connection : map.connections) {
         if (!connection.visible)
@@ -202,12 +202,14 @@ std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot)
             out << " data-map-style=\"" << escape_rml(*connection.style) << "\"";
         if (connection.active_exit) {
             out << " data-exit-room-id=\"" << escape_rml(connection.active_exit->room.text())
-                << "\" data-exit-id=\"" << escape_rml(connection.active_exit->exit_id.text()) << "\"";
+                << "\" data-exit-id=\"" << escape_rml(connection.active_exit->exit_id.text())
+                << "\"";
         }
         if (connection.actionable) {
             out << " onclick=\""
-                << escape_rml("Game.ui.navigate_map_connection(" + escape_lua_string(map.map.text()) +
-                              ", " + escape_lua_string(connection.connection.text()) + ")")
+                << escape_rml("Game.ui.navigate_map_connection(" +
+                              escape_lua_string(map.map.text()) + ", " +
+                              escape_lua_string(connection.connection.text()) + ")")
                 << "\"";
         } else {
             out << " disabled";
@@ -228,9 +230,8 @@ std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot)
         if (location.actionable)
             out << " nt-map-view__room--actionable";
         out << "\" data-location-id=\"" << escape_rml(location.location.text())
-            << "\" data-room-id=\"" << escape_rml(location.room.text())
-            << "\" data-pick-order=\"" << location.pick_order
-            << "\" data-logical-order=\"" << location.logical_order
+            << "\" data-room-id=\"" << escape_rml(location.room.text()) << "\" data-pick-order=\""
+            << location.pick_order << "\" data-logical-order=\"" << location.logical_order
             << "\" data-region-count=\"" << location.regions.size() << "\"";
         if (location.icon)
             out << " data-icon-id=\"" << escape_rml(location.icon->text()) << "\"";
@@ -280,8 +281,8 @@ std::optional<core::MapId> NtMapViewElement::requested_map() const
 
 void NtMapViewElement::set_snapshot(const TypedMapViewComponentSnapshot& snapshot)
 {
-    const std::optional<core::MapId> next_map = snapshot.map ? std::optional<core::MapId>{snapshot.map->map}
-                                                             : std::nullopt;
+    const std::optional<core::MapId> next_map =
+        snapshot.map ? std::optional<core::MapId>{snapshot.map->map} : std::nullopt;
     const bool map_changed = next_map != m_bound_map;
     m_map = snapshot.map;
     m_bound_map = next_map;
@@ -295,9 +296,10 @@ void NtMapViewElement::set_snapshot(const TypedMapViewComponentSnapshot& snapsho
         m_zoom = snapshot.zoom;
         apply_state_attributes();
     } else if (m_map && m_focused_location) {
-        const auto focus = std::find_if(m_map->locations.begin(), m_map->locations.end(), [&](const auto& location) {
-            return location.location == *m_focused_location && location.visible;
-        });
+        const auto focus = std::find_if(
+            m_map->locations.begin(), m_map->locations.end(), [&](const auto& location) {
+                return location.location == *m_focused_location && location.visible;
+            });
         if (focus == m_map->locations.end())
             m_focused_location.reset();
     }
@@ -410,14 +412,16 @@ const core::MapLocationView* NtMapViewElement::pick_location(double x, double y)
     for (const auto& location : m_map->locations) {
         if (!location.visible)
             continue;
-        const bool hit = std::any_of(location.regions.begin(), location.regions.end(), [&](const auto& region) {
-            return point_in_polygon(map_x, map_y, region);
-        });
+        const bool hit =
+            std::any_of(location.regions.begin(), location.regions.end(),
+                        [&](const auto& region) { return point_in_polygon(map_x, map_y, region); });
         if (!hit)
             continue;
         if (selected == nullptr || location.pick_order > selected->pick_order ||
-            (location.pick_order == selected->pick_order && location.logical_order > selected->logical_order) ||
-            (location.pick_order == selected->pick_order && location.logical_order == selected->logical_order &&
+            (location.pick_order == selected->pick_order &&
+             location.logical_order > selected->logical_order) ||
+            (location.pick_order == selected->pick_order &&
+             location.logical_order == selected->logical_order &&
              location.location.text() > selected->location.text()))
             selected = &location;
     }
@@ -434,10 +438,9 @@ const core::MapConnectionView* NtMapViewElement::pick_connection(double x, doubl
     for (const auto& connection : m_map->connections) {
         if (!connection.visible || !connection.actionable)
             continue;
-        const bool hit = std::any_of(
-            connection.hit_regions.begin(), connection.hit_regions.end(), [&](const auto& region) {
-                return point_in_polygon(map_x, map_y, region);
-            });
+        const bool hit =
+            std::any_of(connection.hit_regions.begin(), connection.hit_regions.end(),
+                        [&](const auto& region) { return point_in_polygon(map_x, map_y, region); });
         if (!hit)
             continue;
         if (selected == nullptr || connection.logical_order > selected->logical_order ||

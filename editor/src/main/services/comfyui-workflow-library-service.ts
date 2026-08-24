@@ -456,9 +456,7 @@ async function readVerificationCache(
     if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
     const document = value as Record<string, unknown>;
     if (
-      Object.keys(document).some(
-        (key) => key !== 'schema' && key !== 'records',
-      ) ||
+      Object.keys(document).some((key) => key !== 'schema' && key !== 'records') ||
       document.schema !== COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA ||
       !Array.isArray(document.records)
     )

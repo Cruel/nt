@@ -94,21 +94,24 @@ describe('editor project state defaults', () => {
     );
   });
 
-  it.each([undefined, 2, 4])('discards metadata with retired schemaVersion value %s', (schemaVersion) => {
-    const parsed = parseEditorProjectStateWithDiagnostics({
-      schema: 'noveltea.editor.project-state',
-      schemaVersion,
-    });
+  it.each([undefined, 2, 4])(
+    'discards metadata with retired schemaVersion value %s',
+    (schemaVersion) => {
+      const parsed = parseEditorProjectStateWithDiagnostics({
+        schema: 'noveltea.editor.project-state',
+        schemaVersion,
+      });
 
-    expect(parsed.state).toEqual(emptyEditorProjectState());
-    expect(parsed.diagnostics).toContainEqual(
-      expect.objectContaining({
-        code: 'editor.metadata.invalid',
-        path: '/editor',
-        ownerPaths: ['/editor'],
-      }),
-    );
-  });
+      expect(parsed.state).toEqual(emptyEditorProjectState());
+      expect(parsed.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: 'editor.metadata.invalid',
+          path: '/editor',
+          ownerPaths: ['/editor'],
+        }),
+      );
+    },
+  );
 
   it.each([
     { ...emptyEditorProjectState(), schema: 'other.editor.state' },

@@ -3,7 +3,11 @@ import {
   normalizeComfyUiSharedUserConfig,
   type ComfyUiSharedUserConfig,
 } from '../../shared/comfyui';
-import { novelTeaUserConfigPath, loadNovelTeaUserConfig, updateNovelTeaUserConfig } from './user-config-service';
+import {
+  novelTeaUserConfigPath,
+  loadNovelTeaUserConfig,
+  updateNovelTeaUserConfig,
+} from './user-config-service';
 
 export function comfyUiUserConfigPath(): string {
   return novelTeaUserConfigPath();

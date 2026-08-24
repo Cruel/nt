@@ -132,7 +132,8 @@ TEST_CASE("typed Map derives selection exclusively from Room exits and routes na
     REQUIRE(ui.value().maps.size() == 1);
     CHECK(ui.value().maps.front().current_room == id<core::RoomId>("hall"));
     REQUIRE(ui.value().maps.front().connections.front().active_exit);
-    CHECK(ui.value().maps.front().connections.front().active_exit->room == id<core::RoomId>("hall"));
+    CHECK(ui.value().maps.front().connections.front().active_exit->room ==
+          id<core::RoomId>("hall"));
     CHECK(ui.value().maps.front().connections.front().active_exit->exit_id ==
           id<core::RoomExitId>("south-exit"));
     CHECK(ui.value().maps.front().connections.front().actionable);
@@ -152,7 +153,8 @@ TEST_CASE("typed Map derives selection exclusively from Room exits and routes na
     drive_to_room(*kernel, id<core::RoomId>("start"));
 }
 
-TEST_CASE("typed Map visibility stays independent when canonical navigation guards deny actionability")
+TEST_CASE(
+    "typed Map visibility stays independent when canonical navigation guards deny actionability")
 {
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;

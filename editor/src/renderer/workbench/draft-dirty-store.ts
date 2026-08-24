@@ -121,10 +121,7 @@ export function serializeDraftDirtyState(
 ): Record<string, SerializedEditorDraftState> {
   return Object.fromEntries(
     Object.entries(state.entriesByKey)
-      .filter(
-        ([, entry]) =>
-          entry.dirty && entry.schema && entry.payload !== undefined,
-      )
+      .filter(([, entry]) => entry.dirty && entry.schema && entry.payload !== undefined)
       .map(([key, entry]) => [
         key,
         {

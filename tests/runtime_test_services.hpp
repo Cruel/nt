@@ -25,7 +25,8 @@ inline const core::JsonSaveStateCodec& save_codec()
 template<class ScriptPort>
 auto create_execution_kernel(const core::CompiledProject& project, ScriptPort& scripts)
 {
-    using Result = decltype(runtime::RuntimeExecutor::create(project, scripts, presentation_model()));
+    using Result =
+        decltype(runtime::RuntimeExecutor::create(project, scripts, presentation_model()));
     if constexpr (requires {
                       scripts.prepare_project_modules(project);
                       scripts.run_project_bootstrap();
@@ -58,9 +59,9 @@ template<class ScriptPort, class PresentationPort, class SaveStore, class... Arg
 auto create_runtime_session(const core::CompiledProject& project, ScriptPort& scripts,
                             PresentationPort& presentation, SaveStore& saves, Args&&... args)
 {
-    using Result = decltype(runtime::RuntimeSession::create(
-        project, scripts, presentation_model(), presentation, saves, save_codec(),
-        std::forward<Args>(args)...));
+    using Result = decltype(runtime::RuntimeSession::create(project, scripts, presentation_model(),
+                                                            presentation, saves, save_codec(),
+                                                            std::forward<Args>(args)...));
     if constexpr (requires {
                       scripts.prepare_project_modules(project);
                       scripts.run_project_bootstrap();

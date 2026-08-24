@@ -1400,9 +1400,7 @@ function fnv1a32(value: string, seed: number): string {
  * deliberately excluded; persistent declarations, executable checkpoint-addressable definitions,
  * Bootstrap/module code, and referenced resource identities are included.
  */
-export function computeCompiledProjectSaveContract(
-  project: CompiledProjectWire,
-): `sc1:${string}` {
+export function computeCompiledProjectSaveContract(project: CompiledProjectWire): `sc1:${string}` {
   const projection: CanonicalJson = {
     bootstrapModule: project.bootstrapModule as CanonicalJson,
     archetypes: project.archetypes as CanonicalJson,

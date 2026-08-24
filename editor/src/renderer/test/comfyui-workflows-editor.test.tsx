@@ -313,9 +313,9 @@ describe('ComfyUiWorkflowsEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Audio Bed' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Repair manifest' }));
     expect(await screen.findByText('Strict manifest JSON')).toBeInTheDocument();
-    expect(
-      (screen.getByLabelText('Strict manifest JSON') as HTMLTextAreaElement).value,
-    ).toContain('audio.generate');
+    expect((screen.getByLabelText('Strict manifest JSON') as HTMLTextAreaElement).value).toContain(
+      'audio.generate',
+    );
     expect(screen.getByText(/manual JSON supports arbitrary public IDs/i)).toBeInTheDocument();
   });
 

@@ -352,29 +352,30 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
                   *offers_value, pointer_child(pointer, "offers"),
                   [&](const nlohmann::json& offer,
                       const std::string& offer_pointer) -> std::optional<VerbOffer> {
-                      if (!decoder.object(offer, offer_pointer,
-                                          {"condition", "id", "primary", "rank", "selectors",
-                                           "slotId"}))
+                      if (!decoder.object(
+                              offer, offer_pointer,
+                              {"condition", "id", "primary", "rank", "selectors", "slotId"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(offer, "id", offer_pointer);
                       const auto* slot_value = decoder.member(offer, "slotId", offer_pointer);
-                      const auto* selectors_value = decoder.member(offer, "selectors", offer_pointer);
+                      const auto* selectors_value =
+                          decoder.member(offer, "selectors", offer_pointer);
                       const auto* rank_value = decoder.member(offer, "rank", offer_pointer);
                       const auto* primary_value = decoder.member(offer, "primary", offer_pointer);
                       auto id = id_value ? decoder.id<VerbOfferId>(
                                                *id_value, pointer_child(offer_pointer, "id"))
                                          : std::nullopt;
-                      auto slot = slot_value ? decoder.id<VerbSlotId>(
-                                                   *slot_value,
-                                                   pointer_child(offer_pointer, "slotId"))
-                                             : std::nullopt;
-                      auto selectors = selectors_value
-                                           ? decode_subject_selectors(
-                                                 decoder, *selectors_value,
-                                                 pointer_child(offer_pointer, "selectors"))
-                                           : std::nullopt;
-                      auto rank = rank_value ? json_access::get<std::int64_t>(*rank_value)
-                                             : std::nullopt;
+                      auto slot = slot_value
+                                      ? decoder.id<VerbSlotId>(
+                                            *slot_value, pointer_child(offer_pointer, "slotId"))
+                                      : std::nullopt;
+                      auto selectors =
+                          selectors_value
+                              ? decode_subject_selectors(decoder, *selectors_value,
+                                                         pointer_child(offer_pointer, "selectors"))
+                              : std::nullopt;
+                      auto rank =
+                          rank_value ? json_access::get<std::int64_t>(*rank_value) : std::nullopt;
                       if (rank_value && !rank)
                           decoder.error(k_code_type, "Expected an integer.",
                                         pointer_child(offer_pointer, "rank"));
@@ -383,8 +384,8 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
                                                            pointer_child(offer_pointer, "primary"))
                                          : std::nullopt;
                       bool condition_valid = false;
-                      auto condition = decode_optional_condition(decoder, offer, offer_pointer,
-                                                                 condition_valid);
+                      auto condition =
+                          decode_optional_condition(decoder, offer, offer_pointer, condition_valid);
                       return id && slot && selectors && rank && primary && condition_valid
                                  ? std::optional<VerbOffer>(VerbOffer{
                                        std::move(*id), std::move(*slot), std::move(*selectors),
@@ -393,8 +394,9 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
                   })
             : std::nullopt;
     if (offers)
-        decoder.duplicate_ids(*offers, pointer_child(pointer, "offers"),
-                              [](const VerbOffer& offer) -> const VerbOfferId& { return offer.id; });
+        decoder.duplicate_ids(
+            *offers, pointer_child(pointer, "offers"),
+            [](const VerbOffer& offer) -> const VerbOfferId& { return offer.id; });
     auto availability = availability_value
                             ? decode_condition_impl(decoder, *availability_value,
                                                     pointer_child(pointer, "availability"))
@@ -425,8 +427,9 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                   *rules_value, pointer_child(pointer, "rules"),
                   [&](const nlohmann::json& rule,
                       const std::string& rule_pointer) -> std::optional<InteractionRule> {
-                      if (!decoder.object(rule, rule_pointer,
-                                          {"guard", "id", "offer", "priority", "program", "slots", "verb"}))
+                      if (!decoder.object(
+                              rule, rule_pointer,
+                              {"guard", "id", "offer", "priority", "program", "slots", "verb"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(rule, "id", rule_pointer);
                       const auto* verb_value = decoder.member(rule, "verb", rule_pointer);
@@ -499,21 +502,20 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                                   decoder.member(*offer_value, "rank", offer_pointer);
                               const auto* primary_value =
                                   decoder.member(*offer_value, "primary", offer_pointer);
-                              auto slot = slot_value
-                                              ? decoder.id<VerbSlotId>(
-                                                    *slot_value,
-                                                    pointer_child(offer_pointer, "slotId"))
-                                              : std::nullopt;
+                              auto slot = slot_value ? decoder.id<VerbSlotId>(
+                                                           *slot_value,
+                                                           pointer_child(offer_pointer, "slotId"))
+                                                     : std::nullopt;
                               auto rank = rank_value ? json_access::get<std::int64_t>(*rank_value)
                                                      : std::nullopt;
                               if (rank_value && !rank)
                                   decoder.error(k_code_type, "Expected an integer.",
                                                 pointer_child(offer_pointer, "rank"));
-                              auto primary = primary_value
-                                                 ? decoder.boolean(
-                                                       *primary_value,
-                                                       pointer_child(offer_pointer, "primary"))
-                                                 : std::nullopt;
+                              auto primary =
+                                  primary_value
+                                      ? decoder.boolean(*primary_value,
+                                                        pointer_child(offer_pointer, "primary"))
+                                      : std::nullopt;
                               bool condition_valid = false;
                               auto condition = decode_optional_condition(
                                   decoder, *offer_value, offer_pointer, condition_valid);
@@ -529,9 +531,9 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                                                            pointer_child(rule_pointer, "program"))
                               : std::nullopt;
                       if (id && verb && guard && priority && slots && offer_valid && program)
-                          return InteractionRule{std::move(*id), std::move(*verb),
-                                                 std::move(*slots), std::move(offer),
-                                                 std::move(*guard), *priority,
+                          return InteractionRule{std::move(*id),     std::move(*verb),
+                                                 std::move(*slots),  std::move(offer),
+                                                 std::move(*guard),  *priority,
                                                  std::move(*program)};
                       return std::nullopt;
                   })

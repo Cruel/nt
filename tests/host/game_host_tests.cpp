@@ -283,18 +283,20 @@ std::string lua_counter_compiled_project_fixture()
     auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
     REQUIRE_FALSE(project.is_discarded());
     project["properties"].push_back({{"id", "hook-count"},
-                                      {"label", "Hook Count"},
-                                      {"description", ""},
-                                      {"type", "integer"},
-                                      {"nullable", false},
-                                      {"defaultValue", 0},
-                                      {"enumValues", nlohmann::json::array()},
-                                      {"scope", "global"}});
+                                     {"label", "Hook Count"},
+                                     {"description", ""},
+                                     {"type", "integer"},
+                                     {"nullable", false},
+                                     {"defaultValue", 0},
+                                     {"enumValues", nlohmann::json::array()},
+                                     {"scope", "global"}});
     project["resources"]["scripts"].push_back(
         {{"id", "counter-hooks"},
          {"source",
           {{"kind", "inline-lua"},
-           {"source", "return { before_enter = function() local count, err = Game.prop('hook-count'); assert(err == nil); local ok, set_err = Game.set_prop('hook-count', count + 1); assert(ok, set_err) end }"}}}});
+           {"source", "return { before_enter = function() local count, err = "
+                      "Game.prop('hook-count'); assert(err == nil); local ok, set_err = "
+                      "Game.set_prop('hook-count', count + 1); assert(ok, set_err) end }"}}}});
     project["definitions"]["rooms"][0]["scriptHooks"].push_back(
         {{"hook", "before-enter"},
          {"handler",
@@ -1431,8 +1433,7 @@ TEST_CASE("Rejected runtime package validation does not advance the live asset g
     candidate_project["definitions"]["rooms"][0]["scriptHooks"].push_back(
         {{"hook", "compose"},
          {"handler",
-          {{"module", {{"id", "candidate-compose"}, {"kind", "script"}}},
-           {"export", "compose"}}}});
+          {{"module", {{"id", "candidate-compose"}, {"kind", "script"}}}, {"export", "compose"}}}});
     const auto candidate_fixture = candidate_project.dump();
     const std::array candidate_files = {std::pair<std::string, std::string>{
         "scripts/candidate-compose.lua",

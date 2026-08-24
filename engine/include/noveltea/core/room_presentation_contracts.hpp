@@ -250,8 +250,8 @@ struct PreparedRoomNavigationTarget {
 class RoomCompositionCallback {
 public:
     virtual ~RoomCompositionCallback() = default;
-    [[nodiscard]] virtual Result<void, Diagnostics>
-    compose(const RoomVisitContext& visit, RoomPresentationDraft& draft) = 0;
+    [[nodiscard]] virtual Result<void, Diagnostics> compose(const RoomVisitContext& visit,
+                                                            RoomPresentationDraft& draft) = 0;
 };
 
 } // namespace noveltea::core

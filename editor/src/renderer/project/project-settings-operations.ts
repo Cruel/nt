@@ -25,9 +25,7 @@ import {
   normalizeTagKey,
   normalizeTagName,
 } from '../../shared/project-schema/authoring-tags';
-import {
-  EDITOR_PROJECT_STATE_SCHEMA,
-} from '../../shared/project-schema/editor-project-state';
+import { EDITOR_PROJECT_STATE_SCHEMA } from '../../shared/project-schema/editor-project-state';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 

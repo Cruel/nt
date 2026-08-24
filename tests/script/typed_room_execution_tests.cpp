@@ -366,8 +366,7 @@ TEST_CASE("Room resolution composes overlapping Character and Interactable occup
     room_document(document, "start")["scriptHooks"].push_back(
         {{"hook", "compose"},
          {"handler",
-          {{"module", {{"kind", "script"}, {"id", "room-compose"}}},
-           {"export", "compose"}}}});
+          {{"module", {{"kind", "script"}, {"id", "room-compose"}}}, {"export", "compose"}}}});
     auto project = decode_document(std::move(document), "room-composition");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
@@ -410,9 +409,8 @@ TEST_CASE("typed Room navigation preserves serialized atomic lifecycle order")
                       "noveltea.notify('before-leave-end') end }"}}}});
     for (auto& hook : room_document(document, "start")["scriptHooks"]) {
         if (hook["hook"] == "before-leave")
-            hook["handler"] = {
-                {"module", {{"kind", "script"}, {"id", "ordered-room-hooks"}}},
-                {"export", "before_leave"}};
+            hook["handler"] = {{"module", {{"kind", "script"}, {"id", "ordered-room-hooks"}}},
+                               {"export", "before_leave"}};
     }
     auto project = decode_document(std::move(document), "room-navigation");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
@@ -567,7 +565,8 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
             {{"id", "failing-after-enter"},
              {"source",
               {{"kind", "inline-lua"},
-               {"source", "return { after_enter = function() error('after-enter failed') end }"}}}});
+               {"source",
+                "return { after_enter = function() error('after-enter failed') end }"}}}});
         room_document(document, "hall")["scriptHooks"].push_back(
             {{"hook", "after-enter"},
              {"handler",
@@ -626,8 +625,8 @@ TEST_CASE("Directed Room Change diagnoses false guards and remains authoritative
     RuntimeFixture fixture;
     install_room_scripts(fixture, true, false, false, false);
     auto document = load_document("comprehensive.json");
-    room_document(document, "hall")["lifecycle"]["canEnter"] =
-        {{"kind", "lua-predicate"}, {"source", "can_enter_hall()"}};
+    room_document(document, "hall")["lifecycle"]["canEnter"] = {{"kind", "lua-predicate"},
+                                                                {"source", "can_enter_hall()"}};
     auto project = decode_document(std::move(document), "directed-room-guard");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
@@ -690,9 +689,8 @@ TEST_CASE("Room lifecycle Hook Registry handlers cannot yield")
            {"source", "return { before_leave = function() coroutine.yield() end }"}}}});
     for (auto& hook : room_document(document, "start")["scriptHooks"]) {
         if (hook["hook"] == "before-leave")
-            hook["handler"] = {
-                {"module", {{"kind", "script"}, {"id", "yielding-room-hooks"}}},
-                {"export", "before_leave"}};
+            hook["handler"] = {{"module", {{"kind", "script"}, {"id", "yielding-room-hooks"}}},
+                               {"export", "before_leave"}};
     }
     auto project = decode_document(std::move(document), "room-yield-forbidden");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
@@ -700,8 +698,8 @@ TEST_CASE("Room lifecycle Hook Registry handlers cannot yield")
     auto kernel = std::move(created).value();
     drive_to_room(*kernel, id<core::RoomId>("start"));
     REQUIRE(kernel->navigate(id<core::RoomExitId>("north-exit")));
-    REQUIRE(std::holds_alternative<core::FlowBudgetYieldOutcome>(
-        kernel->run_until_blocked(3, "en")));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(3, "en")));
     const auto failed = kernel->run_until_blocked(1, "en");
     REQUIRE(std::holds_alternative<core::FlowFaultOutcome>(failed));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::BeforeLeave);
