@@ -857,7 +857,7 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
-  it('exposes one reusable Node-reference runner covering every Phase 6 command path', async () => {
+  it('exposes one reusable Node-reference runner covering every supported command path', async () => {
     expect(PHASE_SIX_NODE_REFERENCE_COMMANDS).toEqual([
       'validate',
       'entity create',
@@ -900,7 +900,7 @@ describe('NovelTea headless CLI', () => {
     }
   });
 
-  it('generates the complete deterministic Phase 8 agent-kit payload from current codecs', () => {
+  it('generates the complete deterministic agent-kit payload from current codecs', () => {
     const first = createNovelTeaAgentKitPayload();
     const second = createNovelTeaAgentKitPayload();
     expect(second).toEqual(first);

@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`image thumbnail Phase 1 characterization > records pure tier-selection vectors for the next phase 1`] = `
+exports[`image thumbnail characterization > records pure tier-selection vectors 1`] = `
 [
   {
     "fit": "cover",

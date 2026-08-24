@@ -155,8 +155,9 @@ development rows whose version is not `1`. It also scans production source for c
 version-proliferation patterns such as version-suffixed NovelTea schema identities, current model/type
 names ending in `Vn`, and version-numbered user/config/cache paths.
 
-`rules.tsv`, `exceptions.tsv`, and `temporary_debt.tsv` continue to enforce focused compatibility-debt
-patterns. Exceptions must be narrow and reviewed; temporary debt must name its planned removal phase.
+`rules.tsv` and `exceptions.tsv` enforce focused compatibility-debt patterns. Exceptions must be
+narrow, reviewed, and exact-counted so stale exemptions fail the checker rather than silently
+accumulating.
 
 Run the policy with either:
 

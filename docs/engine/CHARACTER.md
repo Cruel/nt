@@ -21,7 +21,7 @@ A declared Character authoring record may attach one same-kind Archetype. Archet
 
 ## Runtime rules
 
-Actor cues change desired actor state; they do not mutate `CharacterDefinition`. Presentation projection resolves the selected idle definition into the immutable snapshot. The world backend realizes `bob`, `sway`, and `pulse` loops against the selected gameplay or unscaled-presentation clock. Save format V5 stores only the selected idle ID; loop epoch, phase, renderer resources, transitions, and tween internals are excluded. A fresh backend therefore restarts the loop at phase zero after load or reset.
+Actor cues change desired actor state; they do not mutate `CharacterDefinition`. Presentation projection resolves the selected idle definition into the immutable snapshot. The world backend realizes `bob`, `sway`, and `pulse` loops against the selected gameplay or unscaled-presentation clock. Save state stores only the selected idle ID; loop epoch, phase, renderer resources, transitions, and tween internals are excluded. A fresh backend therefore restarts the loop at phase zero after load or reset.
 
 ## Current implementation scaffold
 

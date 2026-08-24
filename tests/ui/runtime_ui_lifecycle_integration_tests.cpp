@@ -1315,7 +1315,7 @@ TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD docum
     CHECK(background->GetInnerRML().find("sentinel") != std::string::npos);
 }
 
-TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-system Layout")
+TEST_CASE("RuntimeUI renders gameplay collections in an ordinary non-system Layout")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     REQUIRE(fixture.initialize());
@@ -1676,7 +1676,7 @@ TEST_CASE("RuntimeUI isolates ActiveText and provisional Map updates to supporte
                                     {.role = noveltea::core::compiled::SystemLayoutRole::TextLog,
                                      .document_id = "component-text-log"}});
 
-    const auto map_id = noveltea::core::MapId::create("phase-six-map");
+    const auto map_id = noveltea::core::MapId::create("gameplay-map");
     const auto room_id = noveltea::core::RoomId::create("room");
     REQUIRE(map_id);
     REQUIRE(room_id);

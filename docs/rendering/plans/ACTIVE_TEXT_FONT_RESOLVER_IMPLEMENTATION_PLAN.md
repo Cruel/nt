@@ -408,8 +408,7 @@ After renderer-facing changes:
 
 ```sh
 cmake --build --preset linux-debug
-ctest --test-dir build/linux-debug --output-on-failure
-./build/linux-debug/apps/sandbox/noveltea-sandbox --demo none --runtime-project project:/projects/runtime_phase8.json --no-imgui
+ctest --test-dir build/linux-debug --output-on-failure -R "text|active_text|rmlui"
 ```
 
 After touching Web-relevant text/renderer code:

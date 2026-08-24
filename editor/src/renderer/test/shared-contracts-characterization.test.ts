@@ -38,7 +38,7 @@ import { shaderVariantValues } from '../../shared/shader-variants';
 
 const hash = `sha256:${'a'.repeat(64)}`;
 
-describe('Phase 1 shared contracts', () => {
+describe('shared contracts characterization', () => {
   it('keeps focused limits and shader variants closed and in native parity', () => {
     expect(shaderVariantValues).toEqual(['glsl-120', 'essl-100', 'essl-300', 'metal']);
     expect(FOCUSED_PREVIEW_RESOURCE_LIMITS).toEqual({

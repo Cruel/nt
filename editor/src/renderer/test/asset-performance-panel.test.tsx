@@ -63,7 +63,7 @@ describe('AssetPerformancePanel', () => {
     });
   });
 
-  it('renders the Phase 7 overview without exposing future cache-policy categories', () => {
+  it('renders the current overview without exposing unsupported cache-policy categories', () => {
     const payload = assetProfilerFullPayload({ assets: [assetProfilerEntry()] });
     payload.memory.current.assetRamBytes = '1048576';
     payload.memory.peak.assetRamBytes = '2097152';

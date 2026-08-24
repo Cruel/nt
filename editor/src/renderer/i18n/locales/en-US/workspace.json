@@ -195,7 +195,7 @@
       "issues": "No matching asset issues.",
       "assets": "No current assets are reported."
     },
-    "assetsAvailable": "{{count}} current assets available; the inventory view is added in the next implementation phase."
+    "assetsAvailable": "{{count}} current assets available."
   },
   "commandPalette": {
     "actions": {

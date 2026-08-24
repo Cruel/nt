@@ -24,7 +24,7 @@ async function animatedFixture(format: 'gif' | 'webp') {
     : image.webp({ delay: [100, 100], loop: 0 }).toBuffer();
 }
 
-describe('image thumbnail Phase 1 characterization', () => {
+describe('image thumbnail characterization', () => {
   it('locks every current project asset URL consumer to an explicit disposition', () => {
     const consumers = new Map([
       ['src/renderer/editors/assets/AssetPreview.tsx', 'split compact migrate / detail retain'],
@@ -143,7 +143,7 @@ describe('image thumbnail Phase 1 characterization', () => {
     expect(reimportSource).toContain('contentHash,');
   });
 
-  it('records pure tier-selection vectors for the next phase', () => {
+  it('records pure tier-selection vectors', () => {
     expect([
       { name: 'square-cover', source: [1000, 1000], required: [96, 96], fit: 'cover', tier: 192 },
       { name: 'portrait-cover', source: [500, 1000], required: [192, 96], fit: 'cover', tier: 384 },

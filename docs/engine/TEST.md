@@ -67,7 +67,7 @@ Related docs:
 
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md`
 - `docs/runtime/STATE_AND_PLAYBACK.md`
-- `docs/editor/plans/IMPLEMENTATION_PLAN.md`
+- `docs/editor/OVERVIEW.md`
 
 ## Data Model
 

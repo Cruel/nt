@@ -300,7 +300,7 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
 }
 
 TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native visual payloads",
-          "[.phase7]")
+          "[.focused-preview]")
 {
     const std::string revision = "sha256:" + std::string(64, 'a');
     const nlohmann::json environment = {
@@ -331,7 +331,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
     };
 
     const auto layout_rml =
-        std::string("<rml><head></head><body><div id=\"phase7-layout\">Layout</div></body></rml>");
+        std::string("<rml><head></head><body><div id=\"focused-layout\">Layout</div></body></rml>");
     auto layout_request = decode_focused_editor_document_request_text(
         envelope("layout-preview",
                  {{"schema", "noveltea.layout-preview"},
@@ -344,7 +344,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
                   {"defaultParent", nullptr},
                   {"scopedStyles", true},
                   {"rml", {{"kind", "inline"}, {"text", layout_rml}}},
-                  {"rcss", {{"kind", "inline"}, {"text", "#phase7-layout {}"}}},
+                  {"rcss", {{"kind", "inline"}, {"text", "#focused-layout {}"}}},
                   {"lua", {{"kind", "inline"}, {"text", ""}}},
                   {"script", {{"enabled", false}, {"namespace", nullptr}}},
                   {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
@@ -361,7 +361,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
     const auto* typed_layout = std::get_if<TypedEditorLayoutPreviewDocument>(&layout.value());
     REQUIRE(typed_layout != nullptr);
     CHECK(typed_layout->rml.value == layout_rml);
-    CHECK(typed_layout->rcss.value == "#phase7-layout {}");
+    CHECK(typed_layout->rcss.value == "#focused-layout {}");
 
     auto shader_request = decode_focused_editor_document_request_text(
         envelope("shader-preview", {{"schema", "noveltea.shader-preview"},

@@ -176,7 +176,7 @@ function document(resources: unknown[]) {
   };
 }
 
-describe('Phase 7 focused resource publication', () => {
+describe('focused resource publication', () => {
   it('advances the source generation when alpha preparation requirements change', () => {
     const memoryFs = new MemoryFs();
     const committed = committedResources();
