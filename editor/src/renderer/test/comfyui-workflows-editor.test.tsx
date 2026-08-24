@@ -265,7 +265,7 @@ describe('ComfyUiWorkflowsEditor', () => {
 
   it('opens future classifications in strict generic manifest repair mode', async () => {
     const genericDefinition = {
-      schemaVersion: 2 as const,
+      schemaVersion: 1 as const,
       id: 'audio-bed',
       label: 'Audio Bed',
       provider: 'comfyui' as const,
@@ -312,9 +312,9 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(await screen.findByText('Audio Bed')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Audio Bed' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Repair manifest' }));
-    expect(await screen.findByText('Strict V2 manifest JSON')).toBeInTheDocument();
+    expect(await screen.findByText('Strict manifest JSON')).toBeInTheDocument();
     expect(
-      (screen.getByLabelText('Strict V2 manifest JSON') as HTMLTextAreaElement).value,
+      (screen.getByLabelText('Strict manifest JSON') as HTMLTextAreaElement).value,
     ).toContain('audio.generate');
     expect(screen.getByText(/manual JSON supports arbitrary public IDs/i)).toBeInTheDocument();
   });

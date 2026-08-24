@@ -73,7 +73,7 @@ function workflow() {
 
 function manifest(includeOptionalBindings: boolean) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     id: 'custom',
     label: 'Custom',
     provider: 'comfyui',

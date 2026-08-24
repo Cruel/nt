@@ -107,17 +107,14 @@ export function usePreviewTransport({
           !isPreviewToEditorMessage(message)
         ) {
           const pending = pendingRef.current.get(message.requestId);
-          const code =
-            isRecord(message.payload) &&
-            Object.hasOwn(message.payload, 'schemaVersion') &&
-            message.payload.schemaVersion !== 3
-              ? 'asset-profiler.unsupported-schema'
-              : 'asset-profiler.invalid-payload';
           if (pending?.expectedPayload === 'asset-profiler') {
             window.clearTimeout(pending.timeout);
             pendingRef.current.delete(message.requestId);
             pending.reject(
-              new PreviewCommandError('Preview sent an invalid asset profiler payload.', code),
+              new PreviewCommandError(
+                'Preview sent an invalid asset profiler payload.',
+                'asset-profiler.invalid-payload',
+              ),
             );
           }
           onErrorRef.current('Preview sent an invalid asset profiler payload.');

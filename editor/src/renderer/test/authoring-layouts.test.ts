@@ -23,7 +23,7 @@ describe('authoring layouts schema', () => {
     expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
     expect(layoutPreviewRevision(project, 'main')).toContain('main');
     expect(buildLayoutPreviewDocumentData(project, 'main')).toMatchObject({
-      schema: 'noveltea.layout-preview.v1',
+      schema: 'noveltea.layout-preview',
       layoutId: 'main',
       label: 'Main UI',
       layoutKind: 'fragment',

@@ -11,7 +11,7 @@ namespace {
 noveltea::ShaderMaterialProject make_project()
 {
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "engine_2d_default":{
           "stages":{
@@ -194,7 +194,7 @@ TEST_CASE("missing direct shader-pair variants report ActiveText shader ids")
 TEST_CASE("material resolution does not guess vertex stages when role binding is required")
 {
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "fragment_only":{
           "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/fragment_only.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},

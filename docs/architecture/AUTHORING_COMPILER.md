@@ -1,7 +1,7 @@
 # Authoring Compiler
 
 `compileAuthoringProject` in `editor/src/shared/authoring-compiler.ts` is the sole public
-AuthoringProject V2 to CompiledProject V2 compiler. It accepts an untrusted raw value, performs the
+current AuthoringProject to Compiled Project Format V1 compiler. It accepts an untrusted raw value, performs the
 authoring-schema parse itself, and is a pure TypeScript module: it has no DOM, Electron, filesystem,
 or native-addon dependency, parses a detached default-normalized copy, and does not mutate the
 authored input.
@@ -28,7 +28,7 @@ authored references. Before shared-definition lowering, declared Room, Character
 records resolve their optional same-kind Archetype chain plus explicit instance overrides. Character
 `initialWorldState` and Interactable `initialState` remain instance-local. Shared-definition lowering
 then converts the resulting effective declared-instance configuration, identity, runtime settings,
-localization, Property and Trait declarations, resources, Trait attachments, authored property assignments, and every non-program definition into `CompiledProjectSharedDraft`. Archetype records themselves are never emitted into compiled V4.
+localization, Property and Trait declarations, resources, Trait attachments, authored property assignments, and every non-program definition into `CompiledProjectSharedDraft`. Archetype records themselves are never emitted into the compiled-project wire.
 
 Scene lowering extends that deterministic, non-publishable draft with every Scene instruction and
 terminal continuation. Room lowering keeps declarative `canEnter`/`canLeave` guards and emits the
@@ -77,7 +77,7 @@ gameplay JSON.
 `compileAuthoringProject` now strictly validates and publishes the complete wire value and canonical
 JSON together. Definition/resource tables are stable-ID sorted while authored semantic sequences stay
 in authored order. The checked-in corpus under
-`editor/src/renderer/test/fixtures/compiled-project-golden/` contains seven exact V4 decoder inputs:
+`editor/src/renderer/test/fixtures/compiled-project-golden/` contains seven exact current-format decoder inputs:
 minimal, comprehensive, Trait/property/localization, resources, Scene program, Dialogue program, and Interaction program. The corpus covers every top-level definition/declaration/resource family, all specialized program discriminants, typed resource references, inline and asset-backed resource sources, every variable/property scalar type, Trait attachment/configuration, and nested stable IDs. `pnpm goldens:compiled-project` regenerates the documents from the sole compiler
 API; the test suite rejects byte drift and explicitly verifies the closed decoder vocabulary.
 

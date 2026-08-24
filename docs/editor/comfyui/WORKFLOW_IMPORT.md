@@ -16,7 +16,7 @@ The editor/Node reference reads the checked-in built-in package assets. Release 
 
 The NovelTea user configuration root is `~/.noveltea` by default and honors `NOVELTEA_USER_CONFIG_ROOT`, including in
 headless CLI and CI usage. The editor and CLI therefore consume the same shared user workflow directory rather than an
-Electron application-data workflow directory. `<NovelTea user config>/comfyui/config-v1.json` is the strict
+Electron application-data workflow directory. `<NovelTea user config>/config.json` is the versioned
 `noveltea.comfyui-user-config` version 1 machine configuration. It owns the ComfyUI server URL, per-request timeout, and
 logical default-workflow mappings keyed by extensible dotted classifications. The current V1 shape has no singular
 default-workflow alias. Editor enablement and periodic connection-check cadence remain editor-local preferences and are
@@ -158,17 +158,17 @@ Selecting explicit output nodes prevents complex workflows from importing previe
 unrelated nodes. The bundled image workflows currently expose the public output ID `images`, but that name is not a
 schema-level requirement.
 
-Workflow manifests require exact `schemaVersion: 2` and one canonical strict shape. Issue #104 deliberately rewrote the
-same selected V2 contract atomically rather than bumping the version. Therefore a missing or different version, retired
+Workflow manifests require exact `schemaVersion: 1` and one canonical strict development shape. Issue #104 deliberately rewrote the
+same selected development contract atomically rather than bumping the version. Therefore a missing or different version, retired
 `role` or top-level `defaults`, single-object input bindings, binding/output `valueType`, `image-list`/`primary` output
 metadata, retired `outputNodeIds`, or any other noncanonical field makes the workflow invalid. The library does not infer,
-upgrade, or dual-read the replaced V2 shape.
+upgrade, or dual-read the replaced development shape.
 
 ## Repair
 
 Use `Repair` in the `ComfyUI Workflows` manager when a mutable workflow manifest reports stale or unresolved bindings.
 Known image classifications can reuse the image-classification inference UI. Generic packages with unknown or omitted
-classifications open directly in strict V2 manifest JSON mode so arbitrary named inputs, outputs, and binding arrays can
+classifications open directly in strict current-manifest JSON mode so arbitrary named inputs, outputs, and binding arrays can
 be repaired manually without pretending to use an image semantic role. Repair preserves the installed workflow JSON and
 writes the canonical generic manifest shape. Built-in workflows cannot be repaired in place; copy them to the user or
 project source first if a local replacement is needed.

@@ -483,7 +483,6 @@ describe('LayoutEditor persistent layout preview', () => {
     await waitFor(() => {
       expect(useWorkbenchTabStateStore.getState().tabStatesById[layoutTab.id]).toMatchObject({
         schema: 'noveltea.editor.tab-state.layout',
-        schemaVersion: 2,
         payload: {
           leftScroll: { scrollTop: 128, scrollLeft: 12 },
           sourceViewStates: {
@@ -546,7 +545,6 @@ describe('LayoutEditor persistent layout preview', () => {
     });
     expect(useWorkbenchTabStateStore.getState().tabStatesById[layoutTab.id]).toMatchObject({
       schema: 'noveltea.editor.tab-state.layout',
-      schemaVersion: 2,
       payload: { previewCollapsed: true },
     });
 

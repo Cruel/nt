@@ -1,6 +1,7 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/compiled_package_codec.hpp>
 #include <noveltea/core/package_export.hpp>
+#include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/core/editor_runtime_protocol.hpp>
 #include <noveltea/core/save_state_codec.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
@@ -148,7 +149,7 @@ make_headless_running_game_input(nlohmann::json gameplay,
 
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 2},
+        {"runtime_api_version", player_runtime_api_version},
         {"kind", "runtime"},
         {"created_by", "noveltea"},
         {"project",

@@ -1,7 +1,7 @@
 import { parseSceneData, validateSceneData, type SceneStepData } from './authoring-scenes';
 import type { AuthoringProject } from './authoring-project';
 
-export const SCENE_PREVIEW_SCHEMA = 'noveltea.scene-preview.v2' as const;
+export const SCENE_PREVIEW_SCHEMA = 'noveltea.scene-preview' as const;
 
 function refId(ref: { $ref: { id: string } } | null | undefined): string | null {
   return ref?.$ref.id ?? null;

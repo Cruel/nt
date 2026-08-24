@@ -51,9 +51,9 @@ std::vector<std::byte> bytes(std::string_view value)
 std::string player_config_for(std::span<const std::byte> package)
 {
     return std::string(
-               R"({"format":"noveltea.player-config","formatVersion":2,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"game.ntpkg","sha256":")") +
+               R"({"format":"noveltea.player-config","formatVersion":1,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"game.ntpkg","sha256":")") +
            sha256_hex(package) +
-           R"(","runtimePackageApi":2},"capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}})";
+           R"("},"capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}})";
 }
 
 void write_file(const std::filesystem::path& path, std::span<const std::byte> contents)
@@ -80,12 +80,12 @@ bool has_diagnostic(const PlayerBootstrapResult& result, PlayerBootstrapError ca
 }
 } // namespace
 
-TEST_CASE("player bootstrap parses the shared version two contract")
+TEST_CASE("player bootstrap parses the shared player runtime API version one contract")
 {
     const auto result = parse_player_config(R"({
-      "format":"noveltea.player-config","formatVersion":2,"displayName":"Game",
+      "format":"noveltea.player-config","formatVersion":1,"displayName":"Game",
       "applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1.0.0",
-      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},
+      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
       "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
       "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}
     })");
@@ -97,9 +97,9 @@ TEST_CASE("player bootstrap parses the shared version two contract")
 TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
 {
     const auto result = parse_player_config(R"({
-      "format":"noveltea.player-config","formatVersion":2,"displayName":"Game",
+      "format":"noveltea.player-config","formatVersion":1,"displayName":"Game",
       "applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1.0.0",
-      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},
+      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
       "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
       "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
       "assetMemory":{"preset":"balanced","preparedCpuBytes":134217728,"gpuBytes":268435456,"audioBytes":67108864,"temporaryBytes":67108864,"prefetchAllowancePercent":30}
@@ -111,9 +111,9 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
     CHECK(result.config.asset_memory->prefetch_allowance_percent == 30);
 
     const auto invalid = parse_player_config(R"({
-      "format":"noveltea.player-config","formatVersion":2,"displayName":"Game",
+      "format":"noveltea.player-config","formatVersion":1,"displayName":"Game",
       "applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1.0.0",
-      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},
+      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
       "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
       "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
       "assetMemory":{"preset":"custom","preparedCpuBytes":1,"gpuBytes":1,"audioBytes":1,"temporaryBytes":1024,"prefetchAllowancePercent":101}
@@ -130,7 +130,7 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
 TEST_CASE("player bootstrap rejects unknown fields and unsafe package paths")
 {
     auto unknown = parse_player_config(
-        R"({"format":"noveltea.player-config","formatVersion":2,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"../game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},"capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},"extra":true})");
+        R"({"format":"noveltea.player-config","formatVersion":1,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"../game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},"extra":true})");
     CHECK_FALSE(unknown.success());
     CHECK_FALSE(is_safe_player_relative_path("../game.ntpkg"));
     CHECK(is_safe_player_relative_path("packages/game.ntpkg"));
@@ -139,7 +139,7 @@ TEST_CASE("player bootstrap rejects unknown fields and unsafe package paths")
 TEST_CASE("player bootstrap rejects reference dimensions above the runtime display limit")
 {
     const auto result = parse_player_config(
-        R"({"format":"noveltea.player-config","formatVersion":2,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},"capabilities":[],"display":{"referenceResolution":{"width":10001,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}})");
+        R"({"format":"noveltea.player-config","formatVersion":1,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"capabilities":[],"display":{"referenceResolution":{"width":10001,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}})");
     REQUIRE_FALSE(result.success());
     CHECK(std::ranges::any_of(
         result.diagnostics, [](const auto& diagnostic) { return diagnostic.path == "/display"; }));
@@ -167,10 +167,10 @@ TEST_CASE("packaged player bootstrap failures have specific actionable diagnosti
         CHECK(has_diagnostic(result, PlayerBootstrapError::ConfigParse, "expected object"));
     }
 
-    SECTION("unsupported player config API")
+    SECTION("unsupported player runtime API")
     {
         auto config = nlohmann::json::parse(valid_config);
-        config["formatVersion"] = 1;
+        config["formatVersion"] = 2;
         write_file(config_path, config.dump());
         const auto result = load_and_verify_player(config_path);
         CHECK(has_diagnostic(result, PlayerBootstrapError::ConfigParse,
@@ -192,17 +192,6 @@ TEST_CASE("packaged player bootstrap failures have specific actionable diagnosti
         const auto result = load_and_verify_player(config_path);
         CHECK(has_diagnostic(result, PlayerBootstrapError::PackageChecksum,
                              "checksum does not match"));
-    }
-
-    SECTION("unsupported runtime package API")
-    {
-        auto config = nlohmann::json::parse(valid_config);
-        config["package"]["runtimePackageApi"] = 3;
-        write_file(config_path, config.dump());
-        write_file(package_path, package);
-        const auto result = load_and_verify_player(config_path);
-        CHECK(has_diagnostic(result, PlayerBootstrapError::PackageApi,
-                             "unsupported runtime package API"));
     }
 
     SECTION("missing required capability support")

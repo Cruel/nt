@@ -1,13 +1,11 @@
 import { clampImageStageCamera, type StageSize } from './image-stage-transforms';
 
 export const HOTSPOT_VIEW_STATE_SCHEMA = 'noveltea.editor.hotspot-view' as const;
-export const HOTSPOT_VIEW_STATE_VERSION = 1 as const;
 
 export type HotspotTool = 'select' | 'draw-rect' | 'pan';
 
-export interface HotspotEditorViewStateV1 {
+export interface HotspotEditorViewState {
   schema: typeof HOTSPOT_VIEW_STATE_SCHEMA;
-  schemaVersion: typeof HOTSPOT_VIEW_STATE_VERSION;
   tool: HotspotTool;
   selectedHotspotId: string | null;
   zoom: number;
@@ -15,9 +13,8 @@ export interface HotspotEditorViewStateV1 {
   panY: number;
 }
 
-export const defaultHotspotViewState = (): HotspotEditorViewStateV1 => ({
+export const defaultHotspotViewState = (): HotspotEditorViewState => ({
   schema: HOTSPOT_VIEW_STATE_SCHEMA,
-  schemaVersion: HOTSPOT_VIEW_STATE_VERSION,
   tool: 'select',
   selectedHotspotId: null,
   zoom: 1,
@@ -25,12 +22,19 @@ export const defaultHotspotViewState = (): HotspotEditorViewStateV1 => ({
   panY: 0,
 });
 
-export function parseHotspotViewTabState(value: unknown): HotspotEditorViewStateV1 | undefined {
+export function parseHotspotViewTabState(value: unknown): HotspotEditorViewState | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const state = value as Partial<HotspotEditorViewStateV1>;
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 6 ||
+    !['schema', 'tool', 'selectedHotspotId', 'zoom', 'panX', 'panY'].every((key) =>
+      Object.hasOwn(value, key),
+    )
+  )
+    return undefined;
+  const state = value as Partial<HotspotEditorViewState>;
   if (
     state.schema !== HOTSPOT_VIEW_STATE_SCHEMA ||
-    state.schemaVersion !== HOTSPOT_VIEW_STATE_VERSION ||
     !['select', 'draw-rect', 'pan'].includes(String(state.tool)) ||
     typeof state.panX !== 'number' ||
     !Number.isFinite(state.panX) ||
@@ -42,8 +46,12 @@ export function parseHotspotViewTabState(value: unknown): HotspotEditorViewState
   )
     return undefined;
   return {
-    ...(state as HotspotEditorViewStateV1),
+    schema: HOTSPOT_VIEW_STATE_SCHEMA,
+    tool: state.tool as HotspotTool,
+    selectedHotspotId: state.selectedHotspotId,
     zoom: Math.min(16, Math.max(0.1, state.zoom)),
+    panX: state.panX,
+    panY: state.panY,
   };
 }
 
@@ -51,7 +59,7 @@ export function restoreHotspotViewState(
   value: unknown,
   hotspotIds: Iterable<string>,
   geometry?: { viewport: StageSize; image: StageSize },
-): HotspotEditorViewStateV1 {
+): HotspotEditorViewState {
   const parsed = parseHotspotViewTabState(value) ?? defaultHotspotViewState();
   const ids = new Set(hotspotIds);
   const camera = geometry

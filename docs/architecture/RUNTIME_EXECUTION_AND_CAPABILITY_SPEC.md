@@ -342,7 +342,7 @@ before the new live boundary is constructed.
 
 `RuntimeWorld::resolved_configuration(...)` is the named production boundary for effective immutable
 Room, Character, and Interactable configuration. Authoring Archetype chains are fully resolved by the
-TypeScript compiler. Compiled V4 retains each resolved Archetype as immutable same-kind configuration
+TypeScript compiler. The current compiled-project format retains each resolved Archetype as immutable same-kind configuration
 vocabulary so admitted runtime code can create an instance from an Archetype without performing
 runtime inheritance. Archetypes still have no Gameplay Instance identity, Location, or mutable state.
 

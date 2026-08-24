@@ -8,8 +8,8 @@ Hotspot package ownership and runtime-derived mask behavior are specified in
 Runtime exports are ZIP-based `.ntpkg` files with safe relative paths. The authoritative documents
 are separate:
 
-- `gameplay.json`: canonical `noveltea.compiled.project` version 4.
-- `manifest.json`: runtime-package format version 2 with package identity, canonical reference
+- `gameplay.json`: canonical `noveltea.compiled.project` format version 1.
+- `manifest.json`: Runtime Package Format V1 with package identity, canonical reference
   resolution, world raster policy, accessibility policies, platform launch data, inventory, sizes, and
   optional checksums.
 - `shader-materials.json`: optional shader/material manifest.
@@ -120,7 +120,8 @@ path. `NOVELTEA_ENABLE_THREADS` selects SDL-worker versus cooperative NovelTea j
 
 ## Player Export
 
-Platform staging writes player-config version 2 using runtime-package API 2, the runtime package,
+Platform staging writes Player Runtime API V1 configuration alongside the runtime package, whose
+manifest carries the same Player Runtime API V1 compatibility value,
 template files, and
 platform-specific launch metadata. The player verifies config format, package API, checksum, and
 capabilities before calling the shared compiled-project loader.

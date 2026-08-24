@@ -36,31 +36,17 @@ export function evaluateTemplateCompatibility(
       '/packageAccessModes',
       `Template does not support package access mode '${profile.packageAccess}'.`,
     );
-  const range = (value: number, minimum: number, maximum: number) =>
-    value >= minimum && value <= maximum;
-  if (
-    !range(
-      requirements.runtimePackageApi,
-      descriptor.runtimePackageApi.minimum,
-      descriptor.runtimePackageApi.maximum,
-    )
-  )
+  if (requirements.compiledProjectFormatVersion !== descriptor.compiledProjectFormatVersion)
     add(
-      'template-runtime-package-api-mismatch',
-      '/runtimePackageApi',
-      'Template does not support this runtime package API.',
+      'template-compiled-project-format-mismatch',
+      '/compiledProjectFormatVersion',
+      'Template does not support this compiled project format.',
     );
-  if (
-    !range(
-      requirements.playerConfigApi,
-      descriptor.playerConfigApi.minimum,
-      descriptor.playerConfigApi.maximum,
-    )
-  )
+  if (requirements.playerRuntimeApiVersion !== descriptor.playerRuntimeApiVersion)
     add(
-      'template-player-config-api-mismatch',
-      '/playerConfigApi',
-      'Template does not support this player config API.',
+      'template-player-runtime-api-mismatch',
+      '/playerRuntimeApiVersion',
+      'Template does not support this player runtime API.',
     );
   for (const value of requirements.shaderVariants)
     if (!descriptor.shaderVariants.includes(value))

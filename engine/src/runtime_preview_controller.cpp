@@ -91,7 +91,7 @@ encode_preview_checkpoint_snapshot(const core::CheckpointRuntimeObservation* che
     nlohmann::json retained = nullptr;
     if (checkpoint->retained_revision && checkpoint->retained_metadata) {
         retained = {{"revision", checkpoint->retained_revision->number()},
-                    {"saveFormatVersion", checkpoint->retained_metadata->save_format_version},
+                    {"saveFileFormatVersion", core::save_file_format_version},
                     {"project", checkpoint->retained_metadata->project.text()},
                     {"projectVersion", checkpoint->retained_metadata->project_version},
                     {"saveContract", checkpoint->retained_metadata->save_contract},

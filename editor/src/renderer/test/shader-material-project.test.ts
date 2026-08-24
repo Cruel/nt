@@ -155,7 +155,7 @@ describe('buildShaderMaterialProject', () => {
       .stages[1]!.compiled['glsl-120']!;
     const result = await buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
-    expect(result.project.schema).toBe('noveltea.shader-materials.v2');
+    expect(result.project.schema).toBe('noveltea.shader-materials');
     expect(result.project.shaders.noise).toMatchObject({
       display_name: 'Noise',
       stages: {
@@ -305,7 +305,7 @@ describe('buildShaderMaterialProject', () => {
     const project = await projectWithShaderMaterial();
     expect(shaderPreviewRevision(project, 'noise')).toContain('noise');
     expect(await buildShaderPreviewDocumentData(project, 'noise')).toMatchObject({
-      schema: 'noveltea.shader-preview.v1',
+      schema: 'noveltea.shader-preview',
       shaderId: 'noise',
       previewMaterialId: 'editor/preview/shader/noise',
       template: {

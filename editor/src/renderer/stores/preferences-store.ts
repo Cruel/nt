@@ -17,6 +17,7 @@ import {
   normalizeRmlUiRasterSnapMode,
   type RmlUiRasterSnapMode,
 } from '../../shared/preview-protocol';
+import type { NovelTeaUserPreferences } from '../../shared/user-config';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -80,6 +81,77 @@ function editorLocalComfyUiPreferences(config: ComfyUiConfig): EditorLocalComfyU
   return {
     enabled: config.enabled,
     connectionCheckIntervalMs: config.connectionCheckIntervalMs,
+  };
+}
+
+function sharedPreferencesSnapshot(state: ResettableEditorPreferences): NovelTeaUserPreferences {
+  return {
+    theme: state.theme,
+    language: state.language,
+    codeEditorTheme: state.codeEditorTheme,
+    developerMode: state.developerMode,
+    restoreLastProjectOnStart: state.restoreLastProjectOnStart,
+    showPreviewFpsCounter: state.showPreviewFpsCounter,
+    previewFpsCap: state.previewFpsCap,
+    previewRmlUiRasterSnap: state.previewRmlUiRasterSnap,
+    defaultProjectDirectory: state.defaultProjectDirectory,
+    comfyUi: editorLocalComfyUiPreferences(state.comfyUiConfig),
+    previewDisplay: state.previewDisplay,
+    editorPreviewLayout: state.editorPreviewLayout,
+    exportPreferences: state.exportPreferences,
+  };
+}
+
+function sharedPreferencesState(
+  persisted: NovelTeaUserPreferences,
+  current: PreferencesState,
+): Partial<PreferencesState> {
+  const comfyUi =
+    persisted.comfyUi && typeof persisted.comfyUi === 'object'
+      ? (persisted.comfyUi as Partial<EditorLocalComfyUiPreferences>)
+      : {};
+  const candidate = persisted as Partial<ResettableEditorPreferences>;
+  return {
+    ...(candidate.theme === 'system' || candidate.theme === 'light' || candidate.theme === 'dark'
+      ? { theme: candidate.theme }
+      : {}),
+    ...(typeof candidate.language === 'string' ? { language: candidate.language } : {}),
+    ...(typeof candidate.codeEditorTheme === 'string'
+      ? { codeEditorTheme: candidate.codeEditorTheme }
+      : {}),
+    ...(typeof candidate.developerMode === 'boolean'
+      ? { developerMode: candidate.developerMode }
+      : {}),
+    ...(typeof candidate.restoreLastProjectOnStart === 'boolean'
+      ? { restoreLastProjectOnStart: candidate.restoreLastProjectOnStart }
+      : {}),
+    ...(typeof candidate.showPreviewFpsCounter === 'boolean'
+      ? { showPreviewFpsCounter: candidate.showPreviewFpsCounter }
+      : {}),
+    previewFpsCap: normalizePreviewFpsCap(Number(candidate.previewFpsCap ?? current.previewFpsCap)),
+    previewRmlUiRasterSnap: normalizeRmlUiRasterSnapMode(
+      candidate.previewRmlUiRasterSnap ?? current.previewRmlUiRasterSnap,
+    ),
+    ...(candidate.defaultProjectDirectory === null ||
+    typeof candidate.defaultProjectDirectory === 'string'
+      ? { defaultProjectDirectory: candidate.defaultProjectDirectory }
+      : {}),
+    comfyUiConfig: normalizeComfyUiConfig({
+      ...current.comfyUiConfig,
+      ...(typeof comfyUi.enabled === 'boolean' ? { enabled: comfyUi.enabled } : {}),
+      ...(typeof comfyUi.connectionCheckIntervalMs === 'number'
+        ? { connectionCheckIntervalMs: comfyUi.connectionCheckIntervalMs }
+        : {}),
+    }),
+    previewDisplay: normalizePreviewDisplayPreference(
+      candidate.previewDisplay ?? current.previewDisplay,
+    ),
+    editorPreviewLayout: normalizeEditorPreviewLayoutPreference(
+      candidate.editorPreviewLayout ?? current.editorPreviewLayout,
+    ),
+    exportPreferences: normalizeExportPreferences(
+      candidate.exportPreferences ?? current.exportPreferences,
+    ),
   };
 }
 
@@ -210,42 +282,44 @@ export const usePreferencesStore = create<PreferencesState>()(
     {
       name: 'noveltea-preferences',
       partialize: (state) => ({
-        ...state,
-        comfyUiConfig: editorLocalComfyUiPreferences(state.comfyUiConfig) as ComfyUiConfig,
+        lastProjectPath: state.lastProjectPath,
+        editorPreviewSplitSizes: state.editorPreviewSplitSizes,
       }),
       merge: (persisted, current) => {
         const persistedState =
           persisted && typeof persisted === 'object'
             ? (persisted as Partial<PreferencesState>)
             : {};
-        const persistedComfyUi =
-          persistedState.comfyUiConfig && typeof persistedState.comfyUiConfig === 'object'
-            ? persistedState.comfyUiConfig
-            : null;
-        const next = {
-          ...current,
-          ...persistedState,
-          comfyUiConfig: normalizeComfyUiConfig({
-            ...current.comfyUiConfig,
-            ...(typeof persistedComfyUi?.enabled === 'boolean'
-              ? { enabled: persistedComfyUi.enabled }
-              : {}),
-            ...(typeof persistedComfyUi?.connectionCheckIntervalMs === 'number'
-              ? { connectionCheckIntervalMs: persistedComfyUi.connectionCheckIntervalMs }
-              : {}),
-          }),
-        } as PreferencesState;
         return {
-          ...next,
-          previewFpsCap: normalizePreviewFpsCap(next.previewFpsCap),
-          previewRmlUiRasterSnap: normalizeRmlUiRasterSnapMode(next.previewRmlUiRasterSnap),
-          comfyUiConfig: normalizeComfyUiConfig(next.comfyUiConfig),
-          previewDisplay: normalizePreviewDisplayPreference(next.previewDisplay),
-          editorPreviewLayout: normalizeEditorPreviewLayoutPreference(next.editorPreviewLayout),
-          editorPreviewSplitSizes: normalizeEditorPreviewSplitSizes(next.editorPreviewSplitSizes),
-          exportPreferences: normalizeExportPreferences(next.exportPreferences),
+          ...current,
+          ...(typeof persistedState.lastProjectPath === 'string' ||
+          persistedState.lastProjectPath === null
+            ? { lastProjectPath: persistedState.lastProjectPath }
+            : {}),
+          editorPreviewSplitSizes: normalizeEditorPreviewSplitSizes(
+            persistedState.editorPreviewSplitSizes,
+          ),
         };
       },
     },
   ),
 );
+
+let sharedPreferencesInitialized = false;
+
+export async function initializeSharedPreferencesPersistence(): Promise<() => void> {
+  if (sharedPreferencesInitialized) return () => undefined;
+  sharedPreferencesInitialized = true;
+
+  const persisted = await window.noveltea.loadUserPreferences();
+  usePreferencesStore.setState(sharedPreferencesState(persisted, usePreferencesStore.getState()));
+  let serialized = JSON.stringify(sharedPreferencesSnapshot(usePreferencesStore.getState()));
+
+  return usePreferencesStore.subscribe((state) => {
+    const snapshot = sharedPreferencesSnapshot(state);
+    const next = JSON.stringify(snapshot);
+    if (next === serialized) return;
+    serialized = next;
+    void window.noveltea.saveUserPreferences(snapshot);
+  });
+}

@@ -331,7 +331,6 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
       resources,
       data: {
         schema: 'noveltea.layout-preview',
-        schemaVersion: 1,
         contentMode: 'layout',
         layoutId: context.root.recordId,
         layoutKind: layout.layoutKind,
@@ -392,7 +391,6 @@ const shaderAdapter: FocusedPreviewAdapter<z.infer<typeof shaderPreviewInputsSch
       resources,
       data: {
         schema: 'noveltea.shader-preview',
-        schemaVersion: 1,
         contentMode: 'shader',
         shaderId: context.root.recordId,
         previewMaterialId: `editor/preview/shader/${context.root.recordId}`,

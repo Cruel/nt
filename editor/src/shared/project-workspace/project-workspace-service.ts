@@ -23,7 +23,6 @@ import {
 } from '../project-search/project-search-index';
 import {
   AUTHORING_PROJECT_SCHEMA,
-  AUTHORING_PROJECT_SCHEMA_VERSION,
   authoringCollectionKeys,
   type AuthoringCollectionKey,
 } from '../project-schema/authoring-collections';
@@ -56,7 +55,6 @@ import type { LuaSourceSnapshot } from '../project-schema/authoring-lua-analysis
 import { sha256PrefixedUtf8 } from '../web-crypto';
 import {
   EDITOR_LOCAL_STATE_SCHEMA,
-  EDITOR_LOCAL_STATE_SCHEMA_VERSION,
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from './project-workspace-contracts';
@@ -75,7 +73,6 @@ import {
 
 export {
   EDITOR_LOCAL_STATE_SCHEMA,
-  EDITOR_LOCAL_STATE_SCHEMA_VERSION,
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from './project-workspace-contracts';
@@ -86,14 +83,12 @@ export {
 const editorLocalStateSchema = editorProjectStateSchema
   .omit({
     schema: true,
-    schemaVersion: true,
     chapters: true,
     tags: true,
     recordMetadata: true,
   })
   .extend({
     schema: z.literal(EDITOR_LOCAL_STATE_SCHEMA),
-    schemaVersion: z.literal(EDITOR_LOCAL_STATE_SCHEMA_VERSION),
     workspaceRevision: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   })
   .strict();
@@ -644,12 +639,10 @@ export function projectWorkspaceLocalStateFile(
     tags: _tags,
     recordMetadata: _recordMetadata,
     schema: _schema,
-    schemaVersion: _schemaVersion,
     ...local
   } = editorState;
   return canonicalJson({
     schema: EDITOR_LOCAL_STATE_SCHEMA,
-    schemaVersion: EDITOR_LOCAL_STATE_SCHEMA_VERSION,
     workspaceRevision,
     ...local,
   });
@@ -1062,7 +1055,6 @@ export class ProjectWorkspaceService {
                 ...emptyEditorProjectState(),
                 ...localFields,
                 schema: emptyEditorProjectState().schema,
-                schemaVersion: emptyEditorProjectState().schemaVersion,
               };
             }
           } catch {
@@ -1070,7 +1062,6 @@ export class ProjectWorkspaceService {
           }
           const candidate = {
             schema: AUTHORING_PROJECT_SCHEMA,
-            schemaVersion: AUTHORING_PROJECT_SCHEMA_VERSION,
             ...manifest,
             properties,
             traits,
@@ -1083,9 +1074,8 @@ export class ProjectWorkspaceService {
             },
             ...collections,
           };
-          delete (candidate as Record<string, unknown>).schemaVersion;
           (candidate as Record<string, unknown>).schema = AUTHORING_PROJECT_SCHEMA;
-          (candidate as Record<string, unknown>).schemaVersion = AUTHORING_PROJECT_SCHEMA_VERSION;
+          delete (candidate as Record<string, unknown>).schemaVersion;
           const decoded = authoringProjectSchema.safeParse(candidate);
           if (!decoded.success)
             return complete({

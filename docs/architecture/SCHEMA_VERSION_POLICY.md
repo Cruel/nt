@@ -1,124 +1,169 @@
-# Schema Version Policy
+# Compatibility Version Policy
 
 ## Governing Rule
 
-NovelTea is an unreleased engine and editor. Every versioned schema, protocol, persisted state,
-package format, generated manifest, and cache contract supports exactly one declared current version.
-A version change replaces the previous contract atomically across all producers, consumers,
-fixtures, tests, documentation, and development data.
+NovelTea versions **compatibility boundaries**, not schemas merely because they are serialized,
+persisted, validated, or represented as JSON.
 
-Normal readers must not contain migrations, upgrade decoders, missing-version defaults, retired-field
-aliases, dual writers, or old/new representation unions. This includes accepting alternate historical
-shapes under the same numeric version. Historical conversion is permitted only through an explicitly
-requested, separately invoked importer; no such importer is implied by this policy.
+A contract earns an independent compatibility version only when one build, installation, process,
+or durable artifact may be produced independently and consumed later by another compatible build,
+installation, or process. Nested implementation state inherits the compatibility boundary that owns
+it. Disposable state, caches, generated reports, and same-build internal documents remain strictly
+validated but are not independently versioned.
 
-Because NovelTea is unreleased, an explicitly scoped implementation may preserve an already-selected
-numeric version while atomically replacing its one canonical contract shape. That is a contract rewrite,
-not compatibility: every producer, consumer, fixture, test, and document must move together, and the
-replaced shape must be rejected immediately by normal readers. Do not infer this exception merely from
-pre-release status; the owning issue or implementation instruction must explicitly require preserving the
-selected version.
+NovelTea is unreleased. Every compatibility boundary is currently in the `development` lifecycle and
+is fixed at version **1**. Incompatible development changes replace the current V1 shape atomically;
+they do **not** increment a version. A version may begin advancing only after that boundary is
+explicitly promoted to `stable`.
 
-ComfyUI workflow manifests are one such explicitly selected rewrite: current `schemaVersion: 2` means the
-generic public-ID contract with optional dotted `classification`, typed per-input defaults and binding arrays,
-and media/cardinality outputs. The retired same-version semantic `role`, top-level `defaults`, single binding
-object, binding/output `valueType`, and `image-list`/`primary` representation are noncanonical V2 data and
-must be rejected rather than upgraded or interpreted.
+Agents and contributors must never infer a compatibility-version bump from a schema edit. A bump is
+an explicit compatibility/release decision.
 
-Issue #105 preserves the already-selected ComfyUI verification-cache `schemaVersion: 1` while moving
-workflow source identity from the retired Electron-specific `editor:` key space to the shared `user:` source.
-Issue #106 preserves that same cache version while adding normalized `serverIdentity` to every canonical record
-so verification cannot be reused across servers. Current verification records use only `built-in:`, `user:`, or
-`project:` workflow keys and require server identity, package hash, and observed ComfyUI version. Same-version
-cache data with the retired `editor:` source or without server identity is discarded rather than migrated or aliased.
+## Current Compatibility Boundaries
 
-The shared `noveltea.comfyui-user-config` contract remains at `formatVersion: 1` under the general NovelTea user
-configuration root. Issue #109 explicitly rewrites that selected V1 shape in place so defaults are represented only as
-an extensible dotted-classification-to-logical-workflow-ID map. The retired singular `defaultWorkflowId` alias and the
-closed image-only classification map are noncanonical V1 data and are discarded rather than migrated or dual-read. The
-current contract contains server URL, per-request timeout, and generic default-workflow mappings only; editor enablement
-and periodic connection cadence are intentionally outside this machine-level contract.
+`cmake/schema_version_policy/contracts.tsv` is the authoritative inventory. The current boundaries
+are:
 
-Issue #89 explicitly preserves authoring-project `schemaVersion: 4`, compiled-project
-`schemaVersion: 4`, and save-state `version: 8` while atomically replacing the retired audio
-channel/loop/volume model with semantic Purpose, Owner, Pause Policy, lifetime, causality/skip,
-gain/pan/Pan Source, replacement, and project-mix fields. Normal readers accept only the new
-same-version canonical shapes: retired audio fields and V8 desired-audio records using `bus` or
-`volume` are rejected rather than inferred, migrated, or dual-read.
+| Boundary | Version | Meaning |
+| --- | ---: | --- |
+| Project Workspace Format | 1 | Authored project files on disk. |
+| Compiled Project Format | 1 | Compiler output consumed by a compatible runtime. |
+| Save File Format | 1 | Physical `.ntsav` representation. |
+| Player Template Format | 1 | Installable/downloadable player-template package and descriptor. |
+| Player Runtime API | 1 | Editor-generated bootstrap/package metadata consumed by the player. |
+| NovelTea User Config Format | 1 | Shared `~/.noveltea/config.json` for editor and CLI. |
+| ComfyUI Workflow Manifest | 1 | Importable/shareable ComfyUI workflow package manifest. |
+| Editor Runtime Protocol | 1 | Editor/runtime preview, playback, profiling, and related IPC. |
+| Runtime User Settings Format | 1 | Player-side user settings that survive game/runtime updates. |
+| CLI JSON Protocol | 1 | Machine-readable `noveltea --json` interface. |
 
-## Definitions
+No other current schema has an independent compatibility epoch unless it is first added to this
+inventory by an explicit architecture decision.
 
-- **Current version:** the one version emitted and accepted for a particular contract. Different
-  contracts may use different version numbers.
-- **Compatibility behavior:** logic that accepts, infers, upgrades, normalizes, or preserves an older
-  version or retired representation.
-- **Semantic optionality:** omission or nullability that belongs to the current product model rather
-  than support for historical data. Strict wire producers still materialize fields required by the
-  canonical boundary contract.
-- **Importer:** a separately named and invoked conversion utility that reads an old artifact and
-  writes a current artifact. Importers are outside normal open/load/restore paths.
+## What Is Not Independently Versioned
 
-## Required Failure Semantics
+Examples include the assembled `AuthoringProject`, editor project/local/session state, individual tab
+and draft payloads, preview documents nested inside Editor Runtime Protocol, shader/material preview
+documents, prepared runtime artifacts, workspace transaction journals, verification caches, export
+profiles and generated export manifests, template registry records, certification/build reports,
+resource-alias manifests, generated Agent Kit manifests, and the runtime-package manifest itself.
 
-| Boundary | Unsupported or malformed input | Required action |
-| --- | --- | --- |
-| Root authoring project | Wrong or missing identity/version, unusable shape | Reject project open through structural diagnostics. |
-| Embedded editor metadata | Absent | Create empty current metadata with the current content fingerprint. |
-| Embedded editor metadata | Wrong/missing identity or version, malformed top level | Discard the complete metadata object, create empty current metadata, and warn. |
-| Recovery entry inside valid current metadata | Malformed entry | Ignore only that entry and emit the existing recovery warning. |
-| Browser-local shell session | Version mismatch or malformed state | Discard and initialize `shellSession: null`. |
-| Editor tab or draft state | Wrong identity/version for the owning editor | Discard that state; do not invoke the editor restore path. |
-| ComfyUI workflow manifest | Wrong/missing version or noncanonical shape | Mark invalid; do not execute, copy, install, or repair by interpretation. |
-| ComfyUI shared user config | Wrong/missing identity/version or noncanonical fields | Discard it and use the current machine-level defaults; do not infer editor-local fields. |
-| ComfyUI verification cache | Wrong/missing identity/version or malformed record | Discard the cache and rebuild current verification records. |
-| Compiled project or package | Wrong version or noncanonical resource | Reject the complete artifact through decoder diagnostics. |
-| Focused preview candidate | Wrong protocol/schema or resource shape | Reject the candidate and preserve the last committed preview. |
-| Shader/material runtime document | Wrong schema or noncanonical Shader data | Reject the complete candidate/document. |
-| Resource-alias manifest | Wrong/missing identity/version or alternate entry shape | Reject the complete manifest. |
-| Player, template, export, registry, certification, or editor-stage manifest | Wrong identity/version | Reject, discard, or regenerate according to the inventory row; never normalize the old artifact. |
-| Generated cache or compile output | Incompatible metadata | Discard or regenerate; never migrate. |
+These contracts should still use strict schemas, discriminators, validation, hashes, or regeneration
+rules where useful. Removing a numeric version does not make them loosely typed.
 
-## Future Pre-Release Contract Changes
+For disposable or regenerable data, incompatibility means discard/regenerate. For authored project
+records, compatibility inherits Project Workspace Format. For compiled runtime records, compatibility
+inherits Compiled Project Format. For preview/runtime messages, compatibility inherits Editor Runtime
+Protocol. Runtime-package/bootstrap metadata crossing the editor-to-player seam inherits Player
+Runtime API.
 
-By default, a contract-shape change increments the single current version constant or schema tag. When
-an explicitly scoped implementation instead requires preserving an already-selected version, keep that
-number and perform the same atomic replacement without accepting the prior shape.
+## Development and Stable Lifecycles
 
-In either case:
+### `development`
 
-1. Update every producer and consumer in the same change.
-2. Replace checked-in fixtures and development data with the current form.
-3. Update permanent contract documentation.
-4. Replace positive coverage for the retired shape with focused rejection coverage where useful.
-5. Remove the previous decoder, migration, alias, and dual writer.
-6. Add a separately requested importer only when conversion is itself a product requirement.
+- The compatibility version must remain `1`.
+- The canonical shape may change incompatibly at any time.
+- Producers, consumers, fixtures, tests, and documentation move together.
+- Normal readers support only the current shape; do not add migrations, aliases, dual readers, or
+  missing-version fallbacks for replaced development shapes.
 
-## Automated Inventory and Guardrail
+### `stable`
 
-`cmake/schema_version_policy/contracts.tsv` is the authoritative inventory of versioned contracts.
-Update it whenever a contract is introduced, removed, renamed, or changes version, owner, producers,
-consumers, or failure action. Every listed path must exist. Contract markers must have literal
-evidence in an inventoried producer or consumer, declared versions must be positive integers with
-producer/consumer evidence, and owners must use the closed build/editor/engine ownership vocabulary.
+Promotion to `stable` is an explicit release/architecture decision recorded in the inventory. After
+promotion, an incompatible boundary change requires an explicit version bump and an explicit decision
+about compatibility/import behavior. Source API names still remain stable; version suffixes are used
+only for deliberately coexisting historical decoders/types.
 
-Every row also names positive and negative fixture paths. The checker rejects missing evidence paths,
-so adding a reader without current-version acceptance and unsupported-version rejection coverage is
-not a complete contract change.
+## Stable Source Naming
 
-`rules.tsv` defines focused forbidden compatibility patterns. `exceptions.tsv` records reviewed
-current-model uses that match mechanically but are not compatibility. `temporary_debt.tsv` records
-known compatibility scheduled for removal by an active phase of the implementation plan. Entries use
-exact files and exact match counts. Unlisted matches, stale records, malformed records, duplicates,
-and incorrect counts fail the checker.
+Current source APIs and filenames do not carry their serialized compatibility number. Prefer:
 
-Run the policy through either:
+```text
+CompiledProjectWire
+compiledProjectWireSchema
+parseCompiledProjectWire()
+serializeCompiledProjectWire()
+compiled-project.ts
+COMPILED_PROJECT_WIRE.md
+```
+
+Do not use current-only names such as `CompiledProjectWireV1`, `foo-v2.ts`, or schema identities such
+as `noveltea.foo.v2`. A `V1`/`V2` source suffix is justified only when multiple historical versions
+intentionally coexist in the same source tree.
+
+Likewise, current user/config/cache paths should be stable (`config.json`, `templates/`,
+`verification-cache.json`) instead of embedding the current compatibility number.
+
+## Boundary-Specific Notes
+
+### Project authoring
+
+Project Workspace Format owns authored-project persistence. The assembled `AuthoringProject` is an
+in-memory validated aggregate and has no independent version.
+
+### Save files
+
+Save File Format owns the physical `.ntsav` envelope. The inner runtime save-state document is not
+independently versioned. `saveContract` is deliberately separate: the file-format version answers
+whether the runtime can decode the save file, while `saveContract` answers whether a particular
+compiled game can safely consume its contents.
+
+### Player templates
+
+A template records three independent compatibility facts:
+
+- Player Template Format version;
+- Compiled Project Format version;
+- Player Runtime API version.
+
+Do not split Player Runtime API into per-document `runtimePackageApi`, `playerConfigApi`, or similar
+epochs when those documents cross the same editor-to-player seam.
+
+The `.ntpkg` manifest therefore carries `runtime_api_version`, not its own package-format epoch. That
+field is the Player Runtime API version and must use the same constant as player bootstrap/config
+validation.
+
+### User configuration
+
+Durable editor and CLI settings share `~/.noveltea/config.json`. Consumers may use only the sections
+they need. Subsections such as ComfyUI or export/signing configuration do not have independent format
+versions; they inherit NovelTea User Config Format.
+
+### Editor/runtime communication
+
+Preview documents, playback messages, profiler payloads, and related packets inherit one Editor
+Runtime Protocol version. Individual packet/document schemas may have discriminators but not separate
+numeric compatibility epochs.
+
+## Failure Semantics
+
+- Wrong/malformed durable boundary input: reject it rather than guessing or migrating it implicitly.
+- Invalid disposable/local/cache state: discard or regenerate it.
+- Invalid nested authored state: fail according to the owning Project Workspace validation policy.
+- Wrong editor/runtime protocol: reject the message/candidate and preserve the last valid runtime or
+  preview state when applicable.
+- Wrong template compatibility declarations: keep the descriptor parseable when practical so the
+  editor can report a precise compatibility mismatch, but do not use the incompatible template.
+
+Historical conversion is permitted only through a separately named/imported conversion path when it
+becomes a product requirement.
+
+## Automated Guardrails
+
+The schema-version policy checker validates the authoritative compatibility inventory and rejects
+development rows whose version is not `1`. It also scans production source for common accidental
+version-proliferation patterns such as version-suffixed NovelTea schema identities, current model/type
+names ending in `Vn`, and version-numbered user/config/cache paths.
+
+`rules.tsv`, `exceptions.tsv`, and `temporary_debt.tsv` continue to enforce focused compatibility-debt
+patterns. Exceptions must be narrow and reviewed; temporary debt must name its planned removal phase.
+
+Run the policy with either:
 
 ```sh
 cmake --build <build-dir> --target noveltea-schema-version-policy
 pnpm -C editor run check:schema-version-policy
 ```
 
-Behavioral rejection tests remain mandatory; the checker is supplemental static enforcement.
-
-The latest repository-wide review and command evidence is recorded in
-`docs/architecture/certifications/SCHEMA_VERSION_POLICY_CERTIFICATION.md`.
+Behavioral tests remain mandatory. Static policy checks supplement rather than replace producer/
+consumer and rejection coverage.

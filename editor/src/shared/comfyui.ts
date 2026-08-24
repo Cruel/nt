@@ -72,12 +72,7 @@ export const comfyUiConfigSchema = z
   })
   .strict();
 
-export const COMFYUI_USER_CONFIG_FORMAT = 'noveltea.comfyui-user-config' as const;
-export const COMFYUI_USER_CONFIG_FORMAT_VERSION = 1 as const;
-
 export interface ComfyUiSharedUserConfig {
-  format: typeof COMFYUI_USER_CONFIG_FORMAT;
-  formatVersion: typeof COMFYUI_USER_CONFIG_FORMAT_VERSION;
   serverUrl: string;
   requestTimeoutMs: number;
   defaultWorkflows: Partial<Record<ComfyUiWorkflowClassification, ComfyUiWorkflowId>>;
@@ -123,8 +118,6 @@ export interface ComfyUiQueueProgress {
 
 export function defaultComfyUiSharedUserConfig(): ComfyUiSharedUserConfig {
   return {
-    format: COMFYUI_USER_CONFIG_FORMAT,
-    formatVersion: COMFYUI_USER_CONFIG_FORMAT_VERSION,
     serverUrl: 'http://127.0.0.1:8000',
     defaultWorkflows: {
       'image.generate': 'flux2-klein-text-to-image',
@@ -136,8 +129,6 @@ export function defaultComfyUiSharedUserConfig(): ComfyUiSharedUserConfig {
 
 export const comfyUiSharedUserConfigSchema = z
   .object({
-    format: z.literal(COMFYUI_USER_CONFIG_FORMAT),
-    formatVersion: z.literal(COMFYUI_USER_CONFIG_FORMAT_VERSION),
     serverUrl: comfyUiServerUrlSchema,
     defaultWorkflows: defaultWorkflowsSchema,
     requestTimeoutMs: z.number().int().positive().max(COMFYUI_IPC_LIMITS.requestTimeoutMs),
@@ -161,8 +152,6 @@ export function normalizeComfyUiSharedUserConfig(
 
 export function comfyUiSharedUserConfigFromRuntime(config: ComfyUiConfig): ComfyUiSharedUserConfig {
   return normalizeComfyUiSharedUserConfig({
-    format: COMFYUI_USER_CONFIG_FORMAT,
-    formatVersion: COMFYUI_USER_CONFIG_FORMAT_VERSION,
     serverUrl: config.serverUrl,
     requestTimeoutMs: config.requestTimeoutMs,
     defaultWorkflows: config.defaultWorkflows,

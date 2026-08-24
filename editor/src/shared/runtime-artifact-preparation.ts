@@ -9,7 +9,7 @@ import type {
   ShaderCompileResponse,
 } from './editor-tooling';
 import { parseAssetData } from './project-schema/authoring-assets';
-import { serializeCompiledProjectWireV4 } from './project-schema/compiled-project';
+import { serializeCompiledProjectWire } from './project-schema/compiled-project';
 import type { ExportProfileData, ExportShaderVariant } from './project-schema/authoring-export';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import type { LuaSourceSnapshot } from './project-schema/authoring-lua-analysis';
@@ -41,7 +41,6 @@ import {
 } from './project-schema/authoring-shaders';
 import {
   PREPARED_RUNTIME_ARTIFACT_SCHEMA,
-  PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION,
   preparedRuntimeArtifactSchema,
   type ExportFileEntry,
   type ExportManifestPreview,
@@ -51,7 +50,6 @@ import {
 
 export {
   PREPARED_RUNTIME_ARTIFACT_SCHEMA,
-  PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION,
   preparedRuntimeArtifactSchema,
 };
 export type {
@@ -466,7 +464,7 @@ async function assembleRuntimeArtifact(
       }
     : undefined;
   const gameplayJson = compiledProject
-    ? serializeCompiledProjectWireV4(compiledProject)
+    ? serializeCompiledProjectWire(compiledProject)
     : undefined;
   const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
     const authored = parseAssetData(project.assets[asset.id]?.data);
@@ -824,7 +822,6 @@ export async function prepareRuntimeArtifact(
   }
   const artifact: PreparedRuntimeArtifact = {
     schema: PREPARED_RUNTIME_ARTIFACT_SCHEMA,
-    schemaVersion: PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION,
     sourceFingerprint: assessment.sourceFingerprint,
     ...(options.recoveryFingerprint === undefined
       ? {}

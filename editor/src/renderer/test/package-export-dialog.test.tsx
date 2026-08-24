@@ -63,8 +63,8 @@ function installedLinuxTemplate() {
       minimumPlatformVersion: 'test',
       graphicsBackends: ['opengl' as const],
       shaderVariants: ['glsl-120' as const],
-      runtimePackageApi: { minimum: 2, maximum: 2 },
-      playerConfigApi: { minimum: 2, maximum: 2 },
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       compiledFeatures: [],
       capabilities: ['external-url' as const],
       buildFlavor: 'release' as const,
@@ -114,8 +114,6 @@ beforeEach(() => {
     error: null,
   });
   vi.mocked(window.noveltea.loadUserExportConfig).mockResolvedValue({
-    format: 'noveltea.user-export-config',
-    formatVersion: 1,
     toolchains: {},
     signingProfiles: [],
   });
@@ -370,8 +368,6 @@ describe('PackageExportDialog', () => {
 
   it('populates signing identities from the shared user export configuration', async () => {
     vi.mocked(window.noveltea.loadUserExportConfig).mockResolvedValue({
-      format: 'noveltea.user-export-config',
-      formatVersion: 1,
       toolchains: {},
       signingProfiles: [
         {

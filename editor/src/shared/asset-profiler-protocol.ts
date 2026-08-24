@@ -1,5 +1,3 @@
-export const ASSET_PROFILER_SCHEMA_VERSION = 3;
-
 export type CanonicalDecimal = string;
 export type AssetProfilerPayloadKind = 'full' | 'delta';
 
@@ -250,7 +248,6 @@ export type AssetProfilerWireChange =
     });
 
 interface AssetProfilerWirePayloadBase {
-  schemaVersion: 3;
   sessionId: CanonicalDecimal;
   latestSequence: CanonicalDecimal;
   capturedAtNs: CanonicalDecimal;
@@ -702,7 +699,6 @@ function isChange(value: unknown): value is AssetProfilerWireChange {
 
 const payloadBaseKeys = [
   'kind',
-  'schemaVersion',
   'sessionId',
   'latestSequence',
   'capturedAtNs',
@@ -717,7 +713,6 @@ export function isAssetProfilerWirePayload(value: unknown): value is AssetProfil
   if (
     !isRecord(value) ||
     (value.kind !== 'full' && value.kind !== 'delta') ||
-    value.schemaVersion !== ASSET_PROFILER_SCHEMA_VERSION ||
     !isCanonicalUnsignedDecimal(value.sessionId) ||
     !isCanonicalUnsignedDecimal(value.latestSequence) ||
     !isCanonicalUnsignedDecimal(value.capturedAtNs) ||

@@ -129,7 +129,6 @@ interface LayoutEditorTabStatePayload {
 
 type LayoutEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof LAYOUT_EDITOR_TAB_STATE_SCHEMA;
-  schemaVersion: 2;
   payload: LayoutEditorTabStatePayload;
 };
 
@@ -138,7 +137,6 @@ function parseLayoutEditorTabState(
 ): LayoutEditorTabStatePayload | null {
   if (
     value.schema !== LAYOUT_EDITOR_TAB_STATE_SCHEMA ||
-    value.schemaVersion !== 2 ||
     typeof value.payload !== 'object' ||
     value.payload === null ||
     Array.isArray(value.payload) ||
@@ -264,10 +262,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: LAYOUT_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 2,
         captureTabState: () => ({
           schema: LAYOUT_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 2,
           payload: {
             leftScroll: captureScrollViewState(leftPaneRef.current),
             sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),

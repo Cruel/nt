@@ -32,7 +32,7 @@ function activeWorkflow(
     label: id,
     classification,
     definition: {
-      schemaVersion: 2,
+      schemaVersion: 1,
       id,
       label: id,
       provider: 'comfyui',
@@ -427,8 +427,6 @@ describe('SettingsPage code editor theme selector', () => {
     await waitFor(() =>
       expect(window.noveltea.saveComfyUiUserConfig).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          format: 'noveltea.comfyui-user-config',
-          formatVersion: 1,
           serverUrl: 'http://127.0.0.1:8000',
           defaultWorkflows: {
             'image.generate': 'custom-workflow',

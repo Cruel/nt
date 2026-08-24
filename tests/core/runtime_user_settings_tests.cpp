@@ -15,7 +15,7 @@ const compiled::AccessibilitySettings kAccessibility{
 
 } // namespace
 
-TEST_CASE("runtime user settings defaults and round-trip through the strict V2 codec")
+TEST_CASE("runtime user settings defaults and round-trip through the strict current codec")
 {
     const auto defaults = RuntimeUserSettings::defaults();
     CHECK(defaults.ui_scale() == 1.0);
@@ -27,7 +27,7 @@ TEST_CASE("runtime user settings defaults and round-trip through the strict V2 c
     REQUIRE(encoded);
     CHECK(
         encoded.value() ==
-        R"({"schema":"noveltea.runtime.user-settings","schemaVersion":2,"textScale":1.5,"uiScale":1.25})");
+        R"({"schema":"noveltea.runtime.user-settings","schemaVersion":1,"textScale":1.5,"uiScale":1.25})");
 
     const auto decoded =
         decode_runtime_user_settings_text(encoded.value(), kAccessibility, "settings.json");
@@ -85,7 +85,7 @@ TEST_CASE("runtime user settings codec is strict and versioned")
 {
     const nlohmann::json valid = {
         {"schema", "noveltea.runtime.user-settings"},
-        {"schemaVersion", 2},
+        {"schemaVersion", 1},
         {"uiScale", 1.0},
         {"textScale", 1.0},
     };
@@ -104,7 +104,7 @@ TEST_CASE("runtime user settings codec is strict and versioned")
     REQUIRE_FALSE(decode_runtime_user_settings(unsupported_schema, kAccessibility));
 
     auto unsupported_version = valid;
-    unsupported_version["schemaVersion"] = 1;
+    unsupported_version["schemaVersion"] = 2;
     REQUIRE_FALSE(decode_runtime_user_settings(unsupported_version, kAccessibility));
 
     auto missing = valid;
@@ -127,7 +127,7 @@ TEST_CASE("runtime user settings codec rejects malformed types and values")
 
     const nlohmann::json nonpositive = {
         {"schema", "noveltea.runtime.user-settings"},
-        {"schemaVersion", 2},
+        {"schemaVersion", 1},
         {"uiScale", 1.0},
         {"textScale", 0.0},
     };
@@ -147,7 +147,7 @@ TEST_CASE("runtime user settings codec rejects non-finite JSON DOM numbers")
 {
     const nlohmann::json document = {
         {"schema", "noveltea.runtime.user-settings"},
-        {"schemaVersion", 2},
+        {"schemaVersion", 1},
         {"uiScale", 1.0},
         {"textScale", std::numeric_limits<double>::infinity()},
     };

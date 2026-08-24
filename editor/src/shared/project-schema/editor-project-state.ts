@@ -5,7 +5,6 @@ import {
 } from './project-validation';
 
 export const EDITOR_PROJECT_STATE_SCHEMA = 'noveltea.editor.project-state' as const;
-export const EDITOR_PROJECT_STATE_SCHEMA_VERSION = 3 as const;
 
 const workbenchResourceKindSchema = z.enum(['record', 'preview', 'tool', 'project', 'raw']);
 
@@ -78,7 +77,6 @@ export const editorWorkbenchStateSchema = z
 export const editorTabStateSchema = z
   .object({
     schema: z.string().min(1),
-    schemaVersion: z.number().int().positive(),
     payload: z.unknown().optional(),
   })
   .strict();
@@ -86,7 +84,6 @@ export const editorTabStateSchema = z
 export const editorDraftStateSchema = z
   .object({
     schema: z.string().min(1),
-    schemaVersion: z.number().int().positive(),
     tabId: z.string().min(1),
     label: z.string().optional(),
     payload: z.unknown(),
@@ -272,7 +269,6 @@ export type LastSuccessfulPlatformExportIdentity = z.infer<
 export const editorProjectStateSchema = z
   .object({
     schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
-    schemaVersion: z.literal(EDITOR_PROJECT_STATE_SCHEMA_VERSION),
     recovery: editorRecoveryStateSchema.default({ sequence: 0, saveUnitsById: {} }),
     lastSuccessfulPlatformExportIdentity: lastSuccessfulPlatformExportIdentitySchema.optional(),
     workbench: editorWorkbenchStateSchema.optional(),
@@ -339,7 +335,6 @@ export function emptyEditorBottomPanelState(): EditorBottomPanelState {
 export function emptyEditorProjectState(): EditorProjectState {
   return {
     schema: EDITOR_PROJECT_STATE_SCHEMA,
-    schemaVersion: EDITOR_PROJECT_STATE_SCHEMA_VERSION,
     recovery: { sequence: 0, saveUnitsById: {} },
     explorer: emptyEditorExplorerState(),
     chapters: emptyEditorChaptersState(),
@@ -377,18 +372,6 @@ function invalidMetadataDiagnostic(): ProjectValidationDiagnostic {
   });
 }
 
-function unsupportedMetadataVersionDiagnostic(received: unknown): ProjectValidationDiagnostic {
-  return createProjectValidationDiagnostic({
-    code: 'editor.metadata.schema-version.unsupported',
-    severity: 'warning',
-    category: 'Project metadata',
-    path: '/editor/schemaVersion',
-    message: `Discarded editor metadata with schema version ${JSON.stringify(received)}; expected version ${EDITOR_PROJECT_STATE_SCHEMA_VERSION}.`,
-    boundaries: ['authoring'],
-    ownerPaths: ['/editor/schemaVersion'],
-  });
-}
-
 export function parseEditorProjectStateWithDiagnostics(value: unknown): ParsedEditorProjectState {
   if (value === undefined) return { state: emptyEditorProjectState(), diagnostics: [] };
 
@@ -400,13 +383,6 @@ export function parseEditorProjectStateWithDiagnostics(value: unknown): ParsedEd
   }
 
   const record = value as Record<string, unknown>;
-  if (record.schemaVersion !== EDITOR_PROJECT_STATE_SCHEMA_VERSION) {
-    return {
-      state: emptyEditorProjectState(),
-      diagnostics: [unsupportedMetadataVersionDiagnostic(record.schemaVersion)],
-    };
-  }
-
   const candidate: Record<string, unknown> = { ...record };
   const recoveryValue = candidate.recovery;
   const recoveryRecord =
@@ -500,7 +476,6 @@ export function stripLocalEditorProjectState<T>(project: T): T {
   const source = editor as Record<string, unknown>;
   cloned.editor = {
     ...(source.schema !== undefined ? { schema: source.schema } : {}),
-    ...(source.schemaVersion !== undefined ? { schemaVersion: source.schemaVersion } : {}),
     ...(source.chapters !== undefined ? { chapters: source.chapters } : {}),
     ...(source.tags !== undefined ? { tags: source.tags } : {}),
     ...(source.recordMetadata !== undefined ? { recordMetadata: source.recordMetadata } : {}),

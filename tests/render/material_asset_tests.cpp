@@ -80,7 +80,7 @@ TEST_CASE("shader and material ids are schema ids")
 TEST_CASE("project shader and material records parse")
 {
     const auto result = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "display_name":"Soft Noise",
@@ -193,7 +193,7 @@ TEST_CASE("project shader and material records parse")
 TEST_CASE("ambiguous shader dpi bindings are rejected")
 {
     const auto result = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "legacy_dpi":{
           "stages":{},
@@ -215,7 +215,7 @@ TEST_CASE("ambiguous shader dpi bindings are rejected")
 TEST_CASE("role bindings parse")
 {
     const auto result = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/shaders/ui/soft_noise.fs.sc"}},
@@ -249,7 +249,7 @@ TEST_CASE("runtime shader roles reject noncanonical membership and binding shape
         if (bindings)
             shader["role_bindings"] = std::move(*bindings);
         const nlohmann::json document = {
-            {"schema", "noveltea.shader-materials.v2"},
+            {"schema", "noveltea.shader-materials"},
             {"shaders", {{"soft_noise", std::move(shader)}}},
             {"materials", nlohmann::json::object()},
         };
@@ -274,21 +274,21 @@ TEST_CASE("parser reports schema and shader diagnostics")
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({)json"),
                    MaterialDiagnosticCode::InvalidJson));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "bad.shader":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
       }
     })json"),
                    MaterialDiagnosticCode::InvalidShaderId));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{"stages":{"fragment":{"source":"project://bad.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
       }
     })json"),
                    MaterialDiagnosticCode::InvalidShaderSourceRef));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
@@ -299,7 +299,7 @@ TEST_CASE("parser reports schema and shader diagnostics")
     })json"),
                    MaterialDiagnosticCode::InvalidCompiledBinaryRef));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
@@ -311,7 +311,7 @@ TEST_CASE("parser reports schema and shader diagnostics")
     })json"),
                    MaterialDiagnosticCode::InvalidUniformDeclaration));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
@@ -328,7 +328,7 @@ TEST_CASE("runtime shader compiled outputs reject every noncanonical shape")
 {
     const auto rejects = [](nlohmann::json output) {
         nlohmann::json document = {
-            {"schema", "noveltea.shader-materials.v2"},
+            {"schema", "noveltea.shader-materials"},
             {"shaders",
              {{"soft_noise",
                {
@@ -369,19 +369,19 @@ TEST_CASE("runtime shader compiled outputs reject every noncanonical shape")
 TEST_CASE("material validation reports refs values and roles")
 {
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{"soft_noise":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}},
       "materials":{"bad":{"role":"engine-2d","shader":"missing"}}
     })json"),
                    MaterialDiagnosticCode::UnknownShaderRef));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{"soft_noise":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}},
       "materials":{"bad":{"role":"rmlui-decorator","shader":"soft_noise"}}
     })json"),
                    MaterialDiagnosticCode::IncompatibleShaderRole));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
@@ -396,7 +396,7 @@ TEST_CASE("material validation reports refs values and roles")
     })json"),
                    MaterialDiagnosticCode::InvalidUniformValue));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
@@ -411,7 +411,7 @@ TEST_CASE("material validation reports refs values and roles")
     })json"),
                    MaterialDiagnosticCode::UndeclaredUniform));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
@@ -426,7 +426,7 @@ TEST_CASE("material validation reports refs values and roles")
     })json"),
                    MaterialDiagnosticCode::InvalidTextureSource));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
@@ -449,7 +449,7 @@ TEST_CASE("material validation reports refs values and roles")
 TEST_CASE("postprocess scopes are closed and default to world")
 {
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "fx":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
@@ -482,7 +482,7 @@ TEST_CASE("postprocess scopes are closed and default to world")
     CHECK(viewport->postprocess_scope == noveltea::PostprocessScope::FullGameViewport);
 
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["postprocess"],"role_bindings":{}}
       },
@@ -496,7 +496,7 @@ TEST_CASE("postprocess scopes are closed and default to world")
 TEST_CASE("remaining deferred roles and fallback records are explicit")
 {
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["rmlui-filter"],"role_bindings":{}}
       }
@@ -538,7 +538,7 @@ TEST_CASE("built-in hotspot materials expose distinct alpha and custom interface
 TEST_CASE("material documents reject assignments to engine-bound hotspot samplers")
 {
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "hotspot/test":{
           "stages":{"fragment":{"source":"project:/hotspot.fs.sc"}},

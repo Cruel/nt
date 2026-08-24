@@ -9,7 +9,6 @@ export interface WorkbenchEditorTabStateHandle<
   TTabState extends WorkbenchTabStatePayload = WorkbenchTabStatePayload,
 > {
   schema: TTabState['schema'];
-  schemaVersion: TTabState['schemaVersion'];
   captureTabState(): TTabState | null | undefined;
   restoreTabState(state: TTabState): void | Promise<void>;
 }
@@ -171,7 +170,6 @@ const handlesByTabId = new Map<string, WorkbenchEditorTabStateHandle>();
 function cloneTabState(state: WorkbenchTabStatePayload): WorkbenchTabStatePayload {
   return {
     schema: state.schema,
-    schemaVersion: state.schemaVersion,
     payload: state.payload === undefined ? undefined : (toJsonValue(state.payload) as JsonValue),
   };
 }
@@ -181,8 +179,7 @@ function restoreHandle(
   handle: WorkbenchEditorTabStateHandle,
   state: WorkbenchTabStatePayload | undefined,
 ): void {
-  if (!state || state.schema !== handle.schema || state.schemaVersion !== handle.schemaVersion)
-    return;
+  if (!state || state.schema !== handle.schema) return;
   void handle.restoreTabState(cloneTabState(state));
 }
 
@@ -287,7 +284,6 @@ export function useWorkbenchEditorTabState<TTabState extends WorkbenchTabStatePa
   if (!stableHandleRef.current) {
     stableHandleRef.current = {
       schema: handle.schema,
-      schemaVersion: handle.schemaVersion,
       captureTabState: () => latestHandleRef.current.captureTabState(),
       restoreTabState: (state) => latestHandleRef.current.restoreTabState(state),
     };

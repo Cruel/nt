@@ -37,8 +37,8 @@ function setup() {
     minimumPlatformVersion: 'Chrome 121',
     graphicsBackends: ['webgl2'],
     shaderVariants: ['essl-300'],
-    runtimePackageApi: { minimum: 2, maximum: 2 },
-    playerConfigApi: { minimum: 2, maximum: 2 },
+    compiledProjectFormatVersion: 1,
+    playerRuntimeApiVersion: 1,
     capabilities: ['external-url'],
     compiledFeatures: [],
     packageAccessModes: ['web-fetch'],
@@ -85,14 +85,13 @@ function setup() {
   });
   const results = {
     format: 'noveltea-platform-certification-results',
-    formatVersion: 1,
     fixtureRevision: 'fixture-1',
     runtimePackageSha256: 'b'.repeat(64),
     profileSha256: 'c'.repeat(64),
     environment,
     exercised: {
-      packageApis: [2],
-      playerConfigApis: [2],
+      compiledProjectFormatVersions: [1],
+      playerRuntimeApiVersions: [1],
       packageAccessModes: ['web-fetch'],
     },
     evidence,

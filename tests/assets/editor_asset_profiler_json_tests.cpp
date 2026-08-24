@@ -263,14 +263,14 @@ core::AssetProfilerSnapshot full_snapshot()
 
 } // namespace
 
-TEST_CASE("Editor asset profiler full JSON uses the exact version 3 wire contract",
+TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
           "[assets][telemetry-matrix][profiler][json]")
 {
     const auto root = Json::parse(core::serialize_asset_profiler_snapshot(full_snapshot()));
     REQUIRE(root == Json{{"ok", true}, {"payload", root.at("payload")}});
     const auto& payload = root.at("payload");
     CHECK(payload.at("kind") == "full");
-    CHECK(payload.at("schemaVersion") == 3);
+    CHECK_FALSE(payload.contains("schemaVersion"));
     CHECK(payload.at("sessionId") == "18446744073709551615");
     CHECK(payload.at("capturedAtNs") == "9007199254740993");
     CHECK(payload.at("assets").at(0).at("jobId") == "9007199254740993");

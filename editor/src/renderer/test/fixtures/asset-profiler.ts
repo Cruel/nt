@@ -92,7 +92,6 @@ export function assetProfilerFullPayload({
   historyComplete?: boolean;
 } = {}): AssetProfilerFullWirePayload {
   return {
-    schemaVersion: 3,
     kind: 'full',
     sessionId,
     latestSequence,
@@ -122,7 +121,6 @@ export function assetProfilerDeltaPayload({
   historyGap?: boolean;
 } = {}): AssetProfilerDeltaWirePayload {
   return {
-    schemaVersion: 3,
     kind: 'delta',
     sessionId,
     latestSequence,

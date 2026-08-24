@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { COMPILED_PROJECT_FORMAT_VERSION } from './compiled-project';
 import {
   preparedRuntimeArtifactSchema,
   type PreparedRuntimeArtifact,
@@ -7,21 +8,14 @@ import type { ProjectValidationDiagnostic } from './project-validation';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 export const PLAYER_CONFIG_FORMAT = 'noveltea.player-config' as const;
-export const PLAYER_CONFIG_FORMAT_VERSION = 2 as const;
+export const PLAYER_RUNTIME_API_VERSION = 1 as const;
 export const TEMPLATE_DESCRIPTOR_FORMAT = 'noveltea.player-template' as const;
 export const TEMPLATE_DESCRIPTOR_FORMAT_VERSION = 1 as const;
 export const PLATFORM_EXPORT_PROFILE_FORMAT = 'noveltea.platform-export-profile' as const;
-export const PLATFORM_EXPORT_PROFILE_FORMAT_VERSION = 1 as const;
 export const EDITOR_EXPORT_LOCAL_STATE_FORMAT = 'noveltea.editor-export-local-state' as const;
-export const EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION = 1 as const;
-export const USER_EXPORT_CONFIG_FORMAT = 'noveltea.user-export-config' as const;
-export const USER_EXPORT_CONFIG_FORMAT_VERSION = 1 as const;
 export const PLATFORM_EXPORT_MANIFEST_FORMAT = 'noveltea.platform-export-manifest' as const;
-export const PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION = 1 as const;
 export const TEMPLATE_REGISTRY_FORMAT = 'noveltea.template-registry' as const;
-export const TEMPLATE_REGISTRY_FORMAT_VERSION = 1 as const;
 export const TEMPLATE_REGISTRY_INDEX_FORMAT = 'noveltea.template-registry-index' as const;
-export const TEMPLATE_REGISTRY_INDEX_FORMAT_VERSION = 1 as const;
 
 const trimmedNonEmptyStringSchema = z.string().check(z.trim(), z.minLength(1));
 export const signingSecretReferenceSchema = z
@@ -298,7 +292,7 @@ const androidTemplateDescriptorSchema = z
 export const playerBootstrapConfigSchema = z
   .object({
     format: z.literal(PLAYER_CONFIG_FORMAT),
-    formatVersion: z.literal(PLAYER_CONFIG_FORMAT_VERSION),
+    formatVersion: z.literal(PLAYER_RUNTIME_API_VERSION),
     displayName: trimmedNonEmptyStringSchema,
     applicationId: trimmedNonEmptyStringSchema,
     saveNamespace: trimmedNonEmptyStringSchema,
@@ -310,7 +304,6 @@ export const playerBootstrapConfigSchema = z
         sha256: z
           .string()
           .regex(/^[0-9a-f]{64}$/, 'SHA-256 must contain 64 lowercase hexadecimal characters.'),
-        runtimePackageApi: z.number().int().nonnegative(),
       })
       .strict(),
     capabilities: capabilityArraySchema,
@@ -319,16 +312,6 @@ export const playerBootstrapConfigSchema = z
     assetMemory: resolvedAssetMemoryPolicySchema.optional(),
   })
   .strict();
-
-const runtimePackageApiRangeSchema = z
-  .object({
-    minimum: z.number().int().nonnegative(),
-    maximum: z.number().int().nonnegative(),
-  })
-  .strict()
-  .refine(({ minimum, maximum }) => minimum <= maximum, {
-    message: 'Minimum package API must not exceed maximum.',
-  });
 
 export const templateDescriptorSchema = z
   .object({
@@ -345,8 +328,8 @@ export const templateDescriptorSchema = z
       .array(z.enum(['direct3d11', 'metal', 'opengl', 'opengles', 'webgl2', 'vulkan']))
       .min(1),
     shaderVariants: z.array(z.enum(['glsl-120', 'essl-100', 'essl-300', 'metal'])).min(1),
-    runtimePackageApi: runtimePackageApiRangeSchema,
-    playerConfigApi: runtimePackageApiRangeSchema,
+    compiledProjectFormatVersion: z.number().int().positive(),
+    playerRuntimeApiVersion: z.number().int().positive(),
     compiledFeatures: z
       .array(trimmedNonEmptyStringSchema)
       .transform((values) => [...new Set(values)].sort()),
@@ -447,7 +430,6 @@ export const templateDescriptorSchema = z
 
 const platformProfileBase = z.object({
   format: z.literal(PLATFORM_EXPORT_PROFILE_FORMAT),
-  formatVersion: z.literal(PLATFORM_EXPORT_PROFILE_FORMAT_VERSION),
   id: trimmedNonEmptyStringSchema,
   label: trimmedNonEmptyStringSchema,
   buildFlavor: z.enum(exportBuildFlavorValues),
@@ -550,7 +532,6 @@ export function defaultPlatformExportProfile(
 ): PlatformExportProfile {
   const common = {
     format: PLATFORM_EXPORT_PROFILE_FORMAT,
-    formatVersion: PLATFORM_EXPORT_PROFILE_FORMAT_VERSION,
     id: `${target}-release`,
     label: `${target[0]!.toUpperCase()}${target.slice(1)}`,
     buildFlavor: 'release' as const,
@@ -616,7 +597,6 @@ export function parseProjectPlatformExportSettings(value: unknown): ProjectPlatf
 export const editorExportLocalStateSchema = z
   .object({
     format: z.literal(EDITOR_EXPORT_LOCAL_STATE_FORMAT),
-    formatVersion: z.literal(EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION),
     lastOutputDirectory: z.string().optional(),
     templateRoots: z.array(z.string()).default([]),
     toolchains: z
@@ -701,8 +681,6 @@ export const userSigningProfileSchema = z.discriminatedUnion('target', [
 
 export const userExportConfigSchema = z
   .object({
-    format: z.literal(USER_EXPORT_CONFIG_FORMAT),
-    formatVersion: z.literal(USER_EXPORT_CONFIG_FORMAT_VERSION),
     toolchains: z
       .object({
         androidSdk: z.string().optional(),
@@ -738,8 +716,8 @@ export type UserExportConfig = z.infer<typeof userExportConfigSchema>;
 export const templateCompatibilityRequirementsSchema = z
   .object({
     profile: platformExportProfileSchema,
-    runtimePackageApi: z.number().int().nonnegative(),
-    playerConfigApi: z.number().int().nonnegative().default(PLAYER_CONFIG_FORMAT_VERSION),
+    compiledProjectFormatVersion: z.literal(COMPILED_PROJECT_FORMAT_VERSION),
+    playerRuntimeApiVersion: z.literal(PLAYER_RUNTIME_API_VERSION),
     shaderVariants: z.array(z.enum(['glsl-120', 'essl-100', 'essl-300', 'metal'])).default([]),
     graphicsBackends: z
       .array(z.enum(['direct3d11', 'metal', 'opengl', 'opengles', 'webgl2', 'vulkan']))
@@ -770,7 +748,6 @@ export interface TemplateCompatibilityResult {
 export const templateRegistryEntrySchema = z
   .object({
     format: z.literal(TEMPLATE_REGISTRY_FORMAT),
-    formatVersion: z.literal(TEMPLATE_REGISTRY_FORMAT_VERSION),
     templateId: z.string().min(1),
     buildId: z.string().min(1),
     descriptorSha256: z.string().regex(/^[0-9a-f]{64}$/),
@@ -828,7 +805,6 @@ export interface TemplateResolveResult {
 export const templateRegistryIndexSchema = z
   .object({
     format: z.literal(TEMPLATE_REGISTRY_INDEX_FORMAT),
-    formatVersion: z.literal(TEMPLATE_REGISTRY_INDEX_FORMAT_VERSION),
     generatedAt: z.string(),
     release: z.string().regex(/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
     templates: z.array(
@@ -891,7 +867,8 @@ export interface PlatformDeploymentModel {
   packageAccess: string;
   templateId: string;
   buildId: string;
-  runtimePackageApi: number;
+  compiledProjectFormatVersion: number;
+  playerRuntimeApiVersion: typeof PLAYER_RUNTIME_API_VERSION;
   assetMemory: ResolvedAssetMemoryPolicy;
   android?: {
     applicationId: string;
@@ -910,7 +887,6 @@ export interface PlatformDeploymentModel {
 }
 export interface PlatformExportManifest {
   format: typeof PLATFORM_EXPORT_MANIFEST_FORMAT;
-  formatVersion: typeof PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION;
   deployment: PlatformDeploymentModel;
   files: StagedFileEntry[];
 }
@@ -948,7 +924,7 @@ export interface PlatformStageRequest {
   runtimeDisplay: z.infer<typeof playerDisplayMetadataSchema>;
   accessibility: z.infer<typeof playerAccessibilityMetadataSchema>;
   capabilities?: ExportCapability[];
-  runtimePackageApi: number;
+  playerRuntimeApiVersion: typeof PLAYER_RUNTIME_API_VERSION;
   host?: { platform: 'windows' | 'linux' | 'macos'; availableTools: string[] };
   // Signing inputs are deliberately request-local.  They are sourced from editor
   // secure settings or CI and must never be persisted in a project profile.
@@ -1193,8 +1169,6 @@ export const parseUserExportConfig = (value: unknown): UserExportConfig =>
   userExportConfigSchema.parse(value);
 export const defaultUserExportConfig = (): UserExportConfig =>
   userExportConfigSchema.parse({
-    format: USER_EXPORT_CONFIG_FORMAT,
-    formatVersion: USER_EXPORT_CONFIG_FORMAT_VERSION,
     toolchains: {},
     signingProfiles: [],
   });

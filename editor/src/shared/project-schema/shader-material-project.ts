@@ -23,8 +23,8 @@ import {
   type ShaderUniformData,
 } from './authoring-shaders';
 
-export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials.v2' as const;
-export const SHADER_PREVIEW_SCHEMA = 'noveltea.shader-preview.v1' as const;
+export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials' as const;
+export const SHADER_PREVIEW_SCHEMA = 'noveltea.shader-preview' as const;
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const runtimeShaderCompiledOutputSchema = strict({

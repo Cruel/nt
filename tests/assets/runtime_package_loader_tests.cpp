@@ -3,6 +3,7 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/boundary/running_game_loader.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/player_bootstrap.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -70,7 +71,7 @@ nlohmann::json runtime_manifest(const nlohmann::json& gameplay,
 
     return {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 2},
+        {"runtime_api_version", noveltea::core::player_runtime_api_version},
         {"kind", "runtime"},
         {"created_by", "runtime-package-loader-test"},
         {"project", {{"name", project.identity().name}, {"version", project.identity().version}}},

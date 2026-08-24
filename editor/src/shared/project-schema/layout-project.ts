@@ -10,7 +10,7 @@ import {
 } from './authoring-layouts';
 import { parseMaterialData } from './authoring-materials';
 
-export const LAYOUT_PREVIEW_SCHEMA = 'noveltea.layout-preview.v1' as const;
+export const LAYOUT_PREVIEW_SCHEMA = 'noveltea.layout-preview' as const;
 
 export interface LayoutProjectDiagnostic {
   severity: 'error' | 'warning' | 'info';

@@ -381,15 +381,12 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: 'noveltea.editor.variables-tab-state',
-        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: 'noveltea.editor.variables-tab-state',
-          schemaVersion: 1,
           payload: { creating, creatingDraft, editingId, editingDraft },
         }),
         restoreTabState: (state: WorkbenchTabStatePayload) => {
-          if (state.schema !== 'noveltea.editor.variables-tab-state' || state.schemaVersion !== 1)
-            return;
+          if (state.schema !== 'noveltea.editor.variables-tab-state') return;
           const payload = state.payload;
           if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
           const values = payload as Record<string, unknown>;

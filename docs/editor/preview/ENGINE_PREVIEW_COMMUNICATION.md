@@ -386,8 +386,8 @@ requests emit `runtime-asset-profiler` with the same `requestId`, followed by th
 
 The widget calls only the two narrow native exports
 `noveltea_asset_profiler_snapshot()` and `noveltea_asset_profiler_delta(session, sequence)`. It parses
-their typed `{ok,payload|error}` JSON envelope, verifies schema version 3 and the full/delta outer
-shape, and then posts the owning payload. The shared renderer protocol performs the exact recursive
+their typed `{ok,payload|error}` JSON envelope, verifies the current full/delta outer shape, and then
+posts the owning payload. The shared renderer protocol performs the exact recursive
 validation before data can reach editor profiler state. All `uint64_t` values remain decimal strings
 through this boundary, including values larger than JavaScript's safe-integer range. The complete
 wire DTO and retained-event rules are documented in `ASSET_PROFILER_HANDOFF.md`.

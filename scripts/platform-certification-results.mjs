@@ -8,7 +8,6 @@ import process from 'node:process';
 import { spawn } from 'node:child_process';
 
 const RESULTS_FORMAT = 'noveltea-platform-certification-results';
-const RESULTS_VERSION = 1;
 const PROOF_FORMAT = 'noveltea-platform-certification-proof';
 const contract = JSON.parse(
   await readFile(
@@ -16,9 +15,6 @@ const contract = JSON.parse(
     'utf8',
   ),
 );
-if (contract.formatVersion !== 1)
-  throw new Error(`Unsupported platform certification contract version ${contract.formatVersion}.`);
-
 function parseArgs(argv) {
   const options = { smokes: [] };
   for (let index = 0; index < argv.length; index += 1) {
@@ -222,7 +218,7 @@ function verifyCanonicalEvidence(canonical, descriptor, label = 'Canonical evide
     if (!/^[0-9a-f]{64}$/.test(canonical[field] ?? ''))
       throw new Error(`${label} is missing a ${description} SHA-256.`);
   }
-  for (const field of ['runtimePackageApi', 'playerConfigApi']) {
+  for (const field of ['compiledProjectFormatVersion', 'playerRuntimeApiVersion']) {
     if (!Number.isInteger(canonical[field]) || canonical[field] < 0)
       throw new Error(`${label} is missing a valid ${field}.`);
   }
@@ -256,7 +252,6 @@ async function main() {
     await mkdir(path.dirname(proofPath), { recursive: true });
     const proof = {
       format: PROOF_FORMAT,
-      formatVersion: 1,
       check,
       target: descriptor.platform,
       templateId: descriptor.templateId,
@@ -498,14 +493,13 @@ async function main() {
 
     const results = {
       format: RESULTS_FORMAT,
-      formatVersion: RESULTS_VERSION,
       fixtureRevision: canonical.fixtureRevision,
       runtimePackageSha256: canonical.runtimePackageSha256,
       profileSha256: canonical.profileSha256,
       environment,
       exercised: {
-        packageApis: [canonical.runtimePackageApi],
-        playerConfigApis: [canonical.playerConfigApi],
+        compiledProjectFormatVersions: [canonical.compiledProjectFormatVersion],
+        playerRuntimeApiVersions: [canonical.playerRuntimeApiVersion],
         packageAccessModes: [canonical.packageAccessMode],
       },
       evidence,

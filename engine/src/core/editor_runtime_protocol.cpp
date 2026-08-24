@@ -1267,7 +1267,7 @@ nlohmann::json encode_observation(const RuntimeObservation& value)
                 if (observation.retained_revision && observation.retained_metadata) {
                     retained = {
                         {"revision", observation.retained_revision->number()},
-                        {"saveFormatVersion", observation.retained_metadata->save_format_version},
+                        {"saveFileFormatVersion", save_file_format_version},
                         {"project", observation.retained_metadata->project.text()},
                         {"projectVersion", observation.retained_metadata->project_version},
                         {"saveContract", observation.retained_metadata->save_contract},
@@ -1526,7 +1526,7 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
     if (kind == "layout-preview") {
         TypedEditorLayoutPreviewDocument result;
         exact_fields(document,
-                     {"schema", "schemaVersion", "contentMode", "layoutId", "layoutKind",
+                     {"schema", "contentMode", "layoutId", "layoutKind",
                       "templateId", "sourceUrl", "defaultParent", "scopedStyles", "script", "rml",
                       "rcss", "lua", "scalePolicy", "contract", "sampleState", "environment",
                       "shaderMaterials"},
@@ -1536,11 +1536,6 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
             diagnostics.push_back(error("editor_preview.invalid_schema",
                                         "Layout preview schema must be noveltea.layout-preview.",
                                         "/schema"));
-        const auto schema_version = json_access::member_as<int>(document, "schemaVersion");
-        if (!schema_version || *schema_version != 1)
-            diagnostics.push_back(error("editor_preview.invalid_schema_version",
-                                        "Layout preview schemaVersion must be 1.",
-                                        "/schemaVersion"));
         const auto content_mode = string_field(document, "contentMode", diagnostics, "/", limits);
         if (content_mode && *content_mode != "layout")
             diagnostics.push_back(error("editor_preview.invalid_content_mode",
@@ -1693,7 +1688,7 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
     if (kind == "shader-preview") {
         TypedEditorShaderPreviewDocument result;
         exact_fields(document,
-                     {"schema", "schemaVersion", "contentMode", "shaderId", "previewMaterialId",
+                     {"schema", "contentMode", "shaderId", "previewMaterialId",
                       "templateId", "activeShaderVariant", "shaderMaterials"},
                      diagnostics, "/");
         const auto schema = string_field(document, "schema", diagnostics, "/", limits);
@@ -1701,11 +1696,6 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
             diagnostics.push_back(error("editor_preview.invalid_schema",
                                         "Shader preview schema must be noveltea.shader-preview.",
                                         "/schema"));
-        const auto schema_version = json_access::member_as<int>(document, "schemaVersion");
-        if (!schema_version || *schema_version != 1)
-            diagnostics.push_back(error("editor_preview.invalid_schema_version",
-                                        "Shader preview schemaVersion must be 1.",
-                                        "/schemaVersion"));
         const auto content_mode = string_field(document, "contentMode", diagnostics, "/", limits);
         if (content_mode && *content_mode != "shader")
             diagnostics.push_back(error("editor_preview.invalid_content_mode",
@@ -1856,10 +1846,10 @@ decode_focused_editor_document_request_text(std::string_view request_text,
         diagnostics.push_back(error("editor_preview.invalid_protocol",
                                     "Focused preview protocol is unsupported.", "/protocol"));
     const auto protocol_version = json_access::member_as<int>(document, "protocolVersion");
-    if (!protocol_version || *protocol_version != 2)
-        diagnostics.push_back(error("editor_preview.invalid_protocol_version",
-                                    "Focused preview protocolVersion must be 2.",
-                                    "/protocolVersion"));
+        if (!protocol_version || *protocol_version != editor_runtime_protocol_version)
+            diagnostics.push_back(error("editor_preview.invalid_protocol_version",
+                                        "Focused preview protocolVersion is unsupported.",
+                                        "/protocolVersion"));
     if (auto value = string("requestId"))
         result.request_id = std::move(*value);
     if (auto value = string("projectInstanceId"))
@@ -2077,7 +2067,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
 
     Diagnostics diagnostics;
     exact_fields(document,
-                 {"schema", "schemaVersion", "environment", "room", "luaAdmission", "queryState",
+                 {"schema", "environment", "room", "luaAdmission", "queryState",
                   "shaderMaterials", "world", "layouts", "ui", "composition"},
                  diagnostics, "/");
     const auto schema = json_access::member_as<std::string>(document, "schema");
@@ -2085,10 +2075,6 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         diagnostics.push_back(error("editor_preview.invalid_schema",
                                     "Room preview schema must be noveltea.room-preview.",
                                     "/schema"));
-    const auto version = json_access::member_as<int>(document, "schemaVersion");
-    if (!version || *version != 2)
-        diagnostics.push_back(error("editor_preview.invalid_schema_version",
-                                    "Room preview schemaVersion must be 2.", "/schemaVersion"));
 
     TypedEditorRoomPreviewDocument result;
     const auto object = [&](std::string_view name) -> const nlohmann::json* {

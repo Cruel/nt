@@ -5,7 +5,6 @@ export {
 } from './node-project-workspace-file-system';
 export {
   EDITOR_LOCAL_STATE_SCHEMA,
-  EDITOR_LOCAL_STATE_SCHEMA_VERSION,
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from './project-workspace-contracts';
@@ -17,7 +16,6 @@ export {
 export {
   PROJECT_WORKSPACE_ABSENT_REVISION,
   PROJECT_WORKSPACE_TRANSACTION_SCHEMA,
-  PROJECT_WORKSPACE_TRANSACTION_SCHEMA_VERSION,
   ProjectWorkspaceMutationError,
   ProjectWorkspaceTransactionService,
   utf8WorkspaceTransactionTarget,

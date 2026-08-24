@@ -14,7 +14,7 @@ A declared Character authoring record may attach one same-kind Archetype. Archet
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** a collection-specific Character record with label/notes as editor metadata, explicit runtime-visible identity/dialogue fields, poses, expressions, idle definitions, optional default idle selection, Trait attachments, and typed Property assignments.
+- **Authoring:** a collection-specific Character record with label/notes as editor metadata, explicit runtime-visible identity/dialogue fields, poses, expressions, idle definitions, optional default idle selection, Trait attachments, and typed Property assignments.
 - **Compiled:** `CharacterDefinition`, retained Trait attachments, owner-local Inventory declarations, validated pose/expression/idle/resource and initial Room references, and authored Property assignments. Empty idle collections and absent default idle selections are omitted from canonical wire output.
 - **Mutable:** desired actor presentation stores character ID, pose, expression, optional selected idle ID, logical placement, visibility, and completed presentation state. Character property overrides live in `SessionState` by `(PropertyOwnerRef, PropertyId)`.
 - **Tooling only:** preview pose/expression, preview background, graph/selection state, categories, tags, colors, and sort keys.
@@ -34,7 +34,7 @@ editor/src/renderer/editors/characters/CharacterEditor.tsx
 editor/src/renderer/project/character-operations.ts
 ```
 
-The V2 editor schema keeps immutable Character identity, dialogue presentation, poses, expressions,
+The current editor schema keeps immutable Character identity, dialogue presentation, poses, expressions,
 idle definitions, defaults, owner-local Inventories, and the initial Room/Unplaced world Location in
 the authoring record. Preview selection belongs to editor tab state, not authored runtime content.
 `CompiledProject` provides the immutable `CharacterDefinition`; `SessionState` owns persistent
@@ -107,7 +107,7 @@ record data validated through the shared Trait/Property contract.
 
 ### Current preview, export, and runtime status
 
-`buildCharacterPreviewDocumentData()` emits the `noveltea.character-preview.v1` document with the
+`buildCharacterPreviewDocumentData()` emits the current `noveltea.character-preview` document with the
 selected pose/expression, resolved sprite/material metadata, dialogue style, preview settings, and
 diagnostics. Its revision includes referenced asset hashes/paths and material data so dependency
 changes invalidate preview output.

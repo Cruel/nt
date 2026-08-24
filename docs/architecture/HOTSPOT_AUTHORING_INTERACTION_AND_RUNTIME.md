@@ -50,8 +50,8 @@ The dependency graph indexes nested Feature ownership, Feature Trait/Property de
 targets, and owner-local Room Exit targets. There are no exact-Hotspot Interaction-context edges and
 no authored-test Hotspot-activation edges because Hotspot identity is not a gameplay subject.
 
-The compiled-project boundary remains `noveltea.compiled.project` version 4. Issue #70 is an atomic
-replacement of the already-selected V4 contract; it does not introduce a schema-version bump. Compiled
+The compiled-project boundary is `noveltea.compiled.project` format version 1. Issue #70 was an atomic
+replacement of the then-current development contract; it does not introduce a compatibility-version bump. Compiled
 Room/Interactable definitions contain nested Features, Interaction subjects include owner-qualified
 Feature references, and Hotspots contain semantic targets instead of behavior activations.
 
@@ -143,7 +143,7 @@ invocation identity.
 
 ## Export and package behavior
 
-Feature and Hotspot authoring data compile into strict `noveltea.compiled.project` version 4.
+Feature and Hotspot authoring data compile into strict `noveltea.compiled.project` format version 1.
 Referenced images, shader variants, Materials, and built-in Hotspot resources are included by the
 existing closure and package writers. Runtime-generated custom masks remain derived resources rather
 than independent authoring assets.

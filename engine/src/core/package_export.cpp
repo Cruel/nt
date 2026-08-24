@@ -1,4 +1,5 @@
 #include <noveltea/core/package_export.hpp>
+#include <noveltea/core/player_bootstrap.hpp>
 
 #include <algorithm>
 #include <array>
@@ -454,7 +455,7 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
 {
     auto manifest = nlohmann::json::object();
     manifest["format"] = "noveltea.runtime-package";
-    manifest["format_version"] = 2;
+    manifest["runtime_api_version"] = player_runtime_api_version;
     manifest["kind"] = options.kind == PackageExportKind::Runtime ? "runtime" : "editable";
     manifest["created_by"] = options.created_by;
     manifest["project"] = nlohmann::json::object({
@@ -474,7 +475,7 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
     if (options.shader_material_metadata) {
         manifest["shader_materials"] = nlohmann::json::object({
             {"entry", shader_materials_entry},
-            {"schema", "noveltea.shader-materials.v2"},
+            {"schema", "noveltea.shader-materials"},
             {"sources_stripped", options.strip_shader_sources},
         });
     }

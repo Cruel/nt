@@ -33,7 +33,7 @@ contract in `docs/engine/ITEM.md`; counts must not be simulated with generic Int
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring version 3:** collection-specific Interactable record, Trait attachments, typed Property
+- **Authoring:** collection-specific Interactable record, Trait attachments, typed Property
   assignments, owner-local Features, immutable presentation, semantic Hotspot targets, and initial
   state declaration.
 - **Compiled:** `InteractableDefinition`, retained Trait attachments, nested Features, linked resources,

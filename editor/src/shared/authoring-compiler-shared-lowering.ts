@@ -6,12 +6,12 @@ import {
 import { parseCharacterData } from './project-schema/authoring-characters';
 import type {
   CompiledCondition,
-  CompiledProjectWireV4,
+  CompiledProjectWire,
   CompiledText,
 } from './project-schema/compiled-project';
 import {
   COMPILED_PROJECT_SCHEMA,
-  COMPILED_PROJECT_SCHEMA_VERSION,
+  COMPILED_PROJECT_FORMAT_VERSION,
 } from './project-schema/compiled-project';
 import type { Condition, TextContent } from './project-schema/authoring-flow';
 import type {
@@ -49,8 +49,8 @@ import { parseVariableData } from './project-schema/authoring-variables';
 import { parseVerbData, type SubjectSelector } from './project-schema/authoring-verbs';
 import { parseShaderData } from './project-schema/authoring-shaders';
 
-type WireDefinitions = CompiledProjectWireV4['definitions'];
-type WireResources = CompiledProjectWireV4['resources'];
+type WireDefinitions = CompiledProjectWire['definitions'];
+type WireResources = CompiledProjectWire['resources'];
 
 export type SharedCharacterDefinition = WireDefinitions['characters'][number];
 export type SharedRoomDefinition = Omit<WireDefinitions['rooms'][number], 'lifecycle'> & {
@@ -80,19 +80,19 @@ export type SharedMapDefinition = WireDefinitions['maps'][number];
  */
 export interface CompiledProjectSharedDraft {
   schema: typeof COMPILED_PROJECT_SCHEMA;
-  schemaVersion: typeof COMPILED_PROJECT_SCHEMA_VERSION;
-  project: CompiledProjectWireV4['project'];
-  settings: CompiledProjectWireV4['settings'];
-  bootstrapModule: CompiledProjectWireV4['bootstrapModule'];
-  entrypoint: CompiledProjectWireV4['entrypoint'];
-  properties: CompiledProjectWireV4['properties'];
-  traits: CompiledProjectWireV4['traits'];
-  archetypes: CompiledProjectWireV4['archetypes'];
-  inventories: CompiledProjectWireV4['inventories'];
-  itemStacks: CompiledProjectWireV4['itemStacks'];
-  localization: CompiledProjectWireV4['localization'];
+  schemaVersion: typeof COMPILED_PROJECT_FORMAT_VERSION;
+  project: CompiledProjectWire['project'];
+  settings: CompiledProjectWire['settings'];
+  bootstrapModule: CompiledProjectWire['bootstrapModule'];
+  entrypoint: CompiledProjectWire['entrypoint'];
+  properties: CompiledProjectWire['properties'];
+  traits: CompiledProjectWire['traits'];
+  archetypes: CompiledProjectWire['archetypes'];
+  inventories: CompiledProjectWire['inventories'];
+  itemStacks: CompiledProjectWire['itemStacks'];
+  localization: CompiledProjectWire['localization'];
   resources: WireResources;
-  saveContract: CompiledProjectWireV4['saveContract'];
+  saveContract: CompiledProjectWire['saveContract'];
   definitions: {
     characters: SharedCharacterDefinition[];
     rooms: SharedRoomDefinition[];
@@ -354,7 +354,7 @@ function compileLayoutStateShape(shape: LayoutStateShapeData): unknown {
 
 function compileEntrypoint(
   entrypoint: NonNullable<AuthoringProject['entrypoint']>,
-): CompiledProjectWireV4['entrypoint'] {
+): CompiledProjectWire['entrypoint'] {
   if (entrypoint.kind === 'room') return { kind: 'room', room: roomRef(entrypoint.id) };
   if (entrypoint.kind === 'scene')
     return { kind: 'scene', scene: { kind: 'scene', id: entrypoint.id } };
@@ -726,7 +726,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
   }
 
-  const itemStacks: CompiledProjectWireV4['itemStacks'] = [];
+  const itemStacks: CompiledProjectWire['itemStacks'] = [];
   for (const [id, record] of sortedEntries(project.itemStacks)) {
     const data = requireData(parseItemStackData(record.data), `/itemStacks/${id}/data`);
     if (!data) continue;
@@ -856,7 +856,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
   }
 
-  const archetypes: CompiledProjectWireV4['archetypes'] = [];
+  const archetypes: CompiledProjectWire['archetypes'] = [];
   for (const [id, record] of sortedEntries(project.archetypes)) {
     const configuration = resolveArchetypeConfiguration(project, id);
     if (!configuration) {
@@ -1090,7 +1090,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }
   }
 
-  const properties: CompiledProjectWireV4['properties'] = sortedEntries(project.properties).map(
+  const properties: CompiledProjectWire['properties'] = sortedEntries(project.properties).map(
     ([id, definition]) => ({
       id,
       label: definition.label,
@@ -1139,7 +1139,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
   }
 
-  const traits: CompiledProjectWireV4['traits'] = sortedEntries(project.traits).map(
+  const traits: CompiledProjectWire['traits'] = sortedEntries(project.traits).map(
     ([id, trait]) => ({
       id,
       label: trait.label,
@@ -1180,7 +1180,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   const settings = project.settings;
   const draft: CompiledProjectSharedDraft = {
     schema: COMPILED_PROJECT_SCHEMA,
-    schemaVersion: COMPILED_PROJECT_SCHEMA_VERSION,
+    schemaVersion: COMPILED_PROJECT_FORMAT_VERSION,
     saveContract: 'sc1:00000000000000000000000000000000',
     project: { ...project.project },
     settings: {

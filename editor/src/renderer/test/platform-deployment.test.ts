@@ -12,7 +12,6 @@ import {
 
 const profile = parsePlatformExportProfile({
   format: PLATFORM_EXPORT_PROFILE_FORMAT,
-  formatVersion: 1,
   id: 'web',
   label: 'Web',
   target: 'web',
@@ -34,8 +33,8 @@ const descriptor = {
   minimumPlatformVersion: 'modern',
   graphicsBackends: ['webgl2' as const],
   shaderVariants: ['essl-300' as const],
-  runtimePackageApi: { minimum: 2, maximum: 2 },
-  playerConfigApi: { minimum: 2, maximum: 2 },
+  compiledProjectFormatVersion: 1,
+  playerRuntimeApiVersion: 1,
   compiledFeatures: ['web-single-threaded'],
   capabilities: ['network.client' as const],
   buildFlavor: 'release' as const,
@@ -101,7 +100,7 @@ describe('platform deployment model', () => {
           textScale: { enabled: true, minimum: 1, maximum: 2 },
         },
         capabilities: ['network.client'],
-        runtimePackageApi: 2,
+        playerRuntimeApiVersion: 1,
       },
       descriptor,
     );
@@ -137,12 +136,12 @@ describe('platform deployment model', () => {
           uiScale: { enabled: true, minimum: 1, maximum: 2 },
           textScale: { enabled: true, minimum: 1, maximum: 2 },
         },
-        runtimePackageApi: 2,
+        playerRuntimeApiVersion: 1,
       },
       {
         ...descriptor,
         platform: 'windows',
-        runtimePackageApi: { minimum: 1, maximum: 1 },
+        playerRuntimeApiVersion: 2,
       },
     );
     expect(result.diagnostics.map((item) => item.code)).toEqual(
@@ -150,7 +149,7 @@ describe('platform deployment model', () => {
         'invalid-app-identity',
         'missing-icon',
         'template-platform-mismatch',
-        'template-runtime-package-api-mismatch',
+        'template-player-runtime-api-mismatch',
       ]),
     );
   });

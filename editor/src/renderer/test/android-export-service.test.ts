@@ -15,7 +15,6 @@ import {
 const sha = 'a'.repeat(64);
 const profile = parsePlatformExportProfile({
   format: 'noveltea.platform-export-profile',
-  formatVersion: 1,
   id: 'android',
   label: 'Android',
   target: 'android',
@@ -36,8 +35,8 @@ const descriptor = parseTemplateDescriptor({
   minimumPlatformVersion: '24',
   graphicsBackends: ['opengles'],
   shaderVariants: ['essl-300'],
-  runtimePackageApi: { minimum: 2, maximum: 2 },
-  playerConfigApi: { minimum: 2, maximum: 2 },
+  compiledProjectFormatVersion: 1,
+  playerRuntimeApiVersion: 1,
   compiledFeatures: [],
   capabilities: ['network.client', 'microphone'],
   buildFlavor: 'release',
@@ -113,7 +112,7 @@ const request = (capabilities: PlatformStageRequest['capabilities']): PlatformSt
     textScale: { enabled: true, minimum: 1, maximum: 2 },
   },
   capabilities,
-  runtimePackageApi: 2,
+  playerRuntimeApiVersion: 1,
 });
 
 describe('Android generated manifest', () => {

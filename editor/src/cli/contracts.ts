@@ -1,5 +1,7 @@
 export { NOVELTEA_CLI_HELP, NOVELTEA_CLI_VERSION } from './static-contracts';
 
+export const NOVELTEA_CLI_JSON_PROTOCOL_VERSION = 1 as const;
+
 export const NOVELTEA_CLI_EXIT_CODES = {
   success: 0,
   usage: 2,
@@ -51,6 +53,7 @@ export interface NovelTeaCliDiagnostic {
 }
 
 export interface NovelTeaCliEnvelope {
+  readonly protocolVersion?: typeof NOVELTEA_CLI_JSON_PROTOCOL_VERSION;
   readonly success: boolean;
   readonly exitCode: NovelTeaCliExitCode;
   readonly diagnostics: readonly NovelTeaCliDiagnostic[];
@@ -107,6 +110,7 @@ export function formatCliResult(
   const diagnostics = sortedCliDiagnostics(envelopeInput.diagnostics ?? []);
   const envelope: NovelTeaCliEnvelope = {
     ...envelopeInput,
+    protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
     success: envelopeInput.success,
     exitCode: envelopeInput.exitCode,
     diagnostics,

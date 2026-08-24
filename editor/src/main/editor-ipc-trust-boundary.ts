@@ -22,9 +22,10 @@ import {
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { isSafeProjectAssetPath } from '../shared/project-schema/authoring-assets';
 import { editorProjectStateSchema } from '../shared/project-schema/editor-project-state';
-import { compiledProjectWireV4Schema } from '../shared/project-schema/compiled-project';
+import { compiledProjectWireSchema } from '../shared/project-schema/compiled-project';
 import { preparedRuntimeArtifactSchema } from '../shared/project-schema/prepared-runtime-artifact';
 import {
+  PLAYER_RUNTIME_API_VERSION,
   exportCapabilityValues,
   normalizedPlatformDisplayMetadataSchema,
   platformExportProfileSchema,
@@ -36,6 +37,7 @@ import {
 import { shaderMaterialProjectWireSchema } from '../shared/project-schema/shader-material-project';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 import { userExportConfigSchema } from '../shared/project-schema/platform-export-contracts';
+import { novelTeaUserPreferencesSchema } from '../shared/user-config';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
 const MAX_DIALOG_TITLE_LENGTH = 512;
@@ -232,6 +234,7 @@ export const selectDirectoryArgumentsSchema = z.tuple([
 
 export const noArgumentsSchema = z.tuple([]);
 export const saveUserExportConfigArgumentsSchema = z.tuple([userExportConfigSchema]);
+export const saveUserPreferencesArgumentsSchema = z.tuple([novelTeaUserPreferencesSchema]);
 
 export const selectPackageOutputPathArgumentsSchema = z.tuple([
   z.string().min(1).max(MAX_DIALOG_PATH_LENGTH).nullable(),
@@ -488,7 +491,7 @@ export const runPlaybackTestArgumentsSchema = z.tuple([
   z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
 ]);
 export const runPlaybackSpecArgumentsSchema = z.tuple([
-  compiledProjectWireV4Schema,
+  compiledProjectWireSchema,
   playbackSpecSchema,
 ]);
 export const previewSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
@@ -518,7 +521,7 @@ const boundedExportArgumentsSchema = z
 
 export const exportPackageArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  compiledProjectWireV4Schema,
+  compiledProjectWireSchema,
   boundedExportStringSchema,
   preparedRuntimeArtifactSchema.shape.packageOptions,
 ]);
@@ -576,7 +579,7 @@ const platformStageRequestSchema = z
       .array(z.enum(exportCapabilityValues))
       .max(MAX_EXPORT_COLLECTION_ENTRIES)
       .optional(),
-    runtimePackageApi: z.number().int().nonnegative(),
+    playerRuntimeApiVersion: z.literal(PLAYER_RUNTIME_API_VERSION),
     host: z
       .object({
         platform: z.enum(['windows', 'linux', 'macos']),

@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <noveltea/core/compiled_project_codec.hpp>
+#include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/assets/asset_manager.hpp>
 #include <noveltea/assets/asset_source.hpp>
 #include <noveltea/runtime/running_game.hpp>
@@ -53,7 +54,7 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
     files.push_back({"shaders/bgfx/glsl-120/sprite.fs.bin", 10, std::nullopt});
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 2},
+        {"runtime_api_version", noveltea::core::player_runtime_api_version},
         {"kind", "runtime"},
         {"created_by", "compiled-runtime-test"},
         {"project",
@@ -77,12 +78,12 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
         {"shader_variants", nlohmann::json::array({"glsl-120"})},
         {"shader_materials",
          {{"entry", "shader-materials.json"},
-          {"schema", "noveltea.shader-materials.v2"},
+          {"schema", "noveltea.shader-materials"},
           {"sources_stripped", true}}},
         {"entries", std::move(entries)},
     };
     auto shader_materials = nlohmann::json::parse(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{"sprite-shader":{"display_name":"Sprite","roles":["engine-2d"],"role_bindings":{},
         "stages":{"vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
                   "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},

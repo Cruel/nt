@@ -126,15 +126,12 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
           payload: { showOverridden },
         }),
         restoreTabState: (state: WorkbenchTabStatePayload) => {
-          if (state.schema !== COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA || state.schemaVersion !== 1)
-            return;
+          if (state.schema !== COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA) return;
           const payload = state.payload;
           if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
             const values = payload as Record<string, unknown>;

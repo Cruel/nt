@@ -11,7 +11,7 @@ namespace noveltea::core {
 namespace {
 
 constexpr std::string_view schema_name = "noveltea.runtime.user-settings";
-constexpr std::uint32_t schema_version = 2;
+constexpr std::uint32_t schema_version = 1;
 
 Diagnostic diagnostic(std::string code, std::string message, const std::string& source_path,
                       std::string json_pointer = {})
@@ -105,7 +105,7 @@ decode_runtime_user_settings(const nlohmann::json& document,
                                              source_path, "/schemaVersion"));
         } else if (*value != schema_version) {
             diagnostics.push_back(diagnostic("runtime_user_settings.unsupported_version",
-                                             "Only schema version 2 is supported.", source_path,
+                                             "Only schema version 1 is supported.", source_path,
                                              "/schemaVersion"));
         }
     }

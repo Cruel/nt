@@ -78,7 +78,6 @@ for (const library of libraries) {
 const results = [...grouped.values()].sort((left, right) => left.abi.localeCompare(right.abi));
 const report = {
   format: 'noveltea-android-load-alignment',
-  formatVersion: 1,
   minimumAlignment: '0x4000',
   results,
 };

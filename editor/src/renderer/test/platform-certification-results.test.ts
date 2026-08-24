@@ -59,8 +59,8 @@ function setup() {
     minimumPlatformVersion: 'test',
     graphicsBackends: ['webgl2'],
     shaderVariants: ['essl-100'],
-    runtimePackageApi: { minimum: 2, maximum: 2 },
-    playerConfigApi: { minimum: 2, maximum: 2 },
+    compiledProjectFormatVersion: 1,
+    playerRuntimeApiVersion: 1,
     capabilities: [],
     compiledFeatures: ['web-single-threaded'],
     packageAccessModes: ['web-fetch'],
@@ -110,8 +110,8 @@ function setup() {
       projectSha256: 'c'.repeat(64),
       runtimePackageSha256: packageSha,
       outputManifestSha256: 'd'.repeat(64),
-      runtimePackageApi: 2,
-      playerConfigApi: 2,
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       packageAccessMode: 'web-fetch',
       webBasePath: '/',
       webThreaded: false,
@@ -134,8 +134,8 @@ function setup() {
       projectSha256: '1'.repeat(64),
       runtimePackageSha256: nestedPackageSha,
       outputManifestSha256: '2'.repeat(64),
-      runtimePackageApi: 2,
-      playerConfigApi: 2,
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       packageAccessMode: 'web-fetch',
       webBasePath: '/nested/game/',
       webThreaded: false,
@@ -148,7 +148,6 @@ function setup() {
     browser,
     `${JSON.stringify({
       format: 'noveltea.web-export-browser-certification',
-      formatVersion: 1,
       results: [
         {
           label: 'single-root',
@@ -232,8 +231,8 @@ function setupAndroid() {
     minimumPlatformVersion: 'Android API 24',
     graphicsBackends: ['opengles'],
     shaderVariants: ['essl-300'],
-    runtimePackageApi: { minimum: 2, maximum: 2 },
-    playerConfigApi: { minimum: 2, maximum: 2 },
+    compiledProjectFormatVersion: 1,
+    playerRuntimeApiVersion: 1,
     capabilities: [],
     compiledFeatures: ['android-private-copy'],
     packageAccessModes: ['android-private-copy'],
@@ -284,8 +283,8 @@ function setupAndroid() {
       projectSha256: '4'.repeat(64),
       runtimePackageSha256: '5'.repeat(64),
       outputManifestSha256: '6'.repeat(64),
-      runtimePackageApi: 2,
-      playerConfigApi: 2,
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       packageAccessMode: 'android-private-copy',
       templateId: descriptor.templateId,
       templateBuildId: descriptor.buildId,
@@ -296,7 +295,6 @@ function setupAndroid() {
     androidReport,
     `${JSON.stringify({
       format: 'noveltea.android-export-report',
-      formatVersion: 1,
       template: { id: descriptor.templateId, buildId: descriptor.buildId },
       package: { sha256: '7'.repeat(64) },
       verification: {
@@ -311,7 +309,6 @@ function setupAndroid() {
     alignment,
     `${JSON.stringify({
       format: 'noveltea-android-load-alignment',
-      formatVersion: 1,
       results: [{ abi: 'arm64-v8a', status: 'passed' }],
     })}\n`,
   );

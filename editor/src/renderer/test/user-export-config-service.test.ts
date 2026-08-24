@@ -8,8 +8,8 @@ import {
 } from '../../main/services/user-export-config-service';
 import {
   defaultUserExportConfig,
-  USER_EXPORT_CONFIG_FORMAT,
 } from '../../shared/project-schema/platform-export-contracts';
+import { NOVELTEA_USER_CONFIG_FORMAT } from '../../shared/user-config';
 
 const roots: string[] = [];
 
@@ -35,10 +35,10 @@ describe('user export config service', () => {
     await expect(readFile(file, 'utf8')).resolves.toBe('{not-json}\n');
   });
 
-  it('discards wrong-version config in memory without rewriting it', async () => {
+  it('discards wrong top-level user-config version in memory without rewriting it', async () => {
     await root();
     const file = userExportConfigPath();
-    const original = `${JSON.stringify({ format: USER_EXPORT_CONFIG_FORMAT, formatVersion: 99 })}\n`;
+    const original = `${JSON.stringify({ format: NOVELTEA_USER_CONFIG_FORMAT, formatVersion: 99 })}\n`;
     await writeFile(file, original);
 
     await expect(loadUserExportConfig()).resolves.toEqual(defaultUserExportConfig());

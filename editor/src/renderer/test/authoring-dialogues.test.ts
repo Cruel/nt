@@ -200,7 +200,7 @@ describe('authoring dialogues schema', () => {
         background: 'checker',
       }),
     ).toMatchObject({
-      schema: 'noveltea.dialogue-preview.v2',
+      schema: 'noveltea.dialogue-preview',
       dialogueId: 'intro',
       selectedBlockId: 'decision',
       choices: [expect.objectContaining({ targetLabel: 'Sequence' })],

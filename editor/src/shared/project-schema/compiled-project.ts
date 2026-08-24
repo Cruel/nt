@@ -5,10 +5,10 @@ import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 /**
  * The sole gameplay JSON contract for the native decoder. This is
- * deliberately independent of the editable AuthoringProject V4 shape.
+ * deliberately independent of the editable AuthoringProject shape.
  */
 export const COMPILED_PROJECT_SCHEMA = 'noveltea.compiled.project' as const;
-export const COMPILED_PROJECT_SCHEMA_VERSION = 4 as const;
+export const COMPILED_PROJECT_FORMAT_VERSION = 1 as const;
 export const COMPILED_PROJECT_SAVE_CONTRACT_PATTERN = /^sc1:[0-9a-f]{32}$/u;
 
 const strict = <Shape extends z.ZodRawShape>(shape: Shape) => z.object(shape).strict();
@@ -1184,7 +1184,7 @@ export const compiledDiagnosticSchema = strict({
   sortKey: strict({ code: z.string(), jsonPointer: z.string(), sourcePath: z.string() }),
 });
 
-export const compiledProjectWireV4Schema = strict({
+export const compiledProjectWireSchema = strict({
   archetypes: z.array(archetypeDefinitionSchema),
   definitions: strict({
     characters: z.array(characterDefinitionSchema),
@@ -1222,7 +1222,7 @@ export const compiledProjectWireV4Schema = strict({
   }),
   saveContract: z.string().regex(COMPILED_PROJECT_SAVE_CONTRACT_PATTERN),
   schema: z.literal(COMPILED_PROJECT_SCHEMA),
-  schemaVersion: z.literal(COMPILED_PROJECT_SCHEMA_VERSION),
+  schemaVersion: z.literal(COMPILED_PROJECT_FORMAT_VERSION),
   settings: runtimeSettingsSchema,
   bootstrapModule: scriptReferenceSchema,
   undefinedInteractionProgram: interactionProgramSchema.nullable().optional(),
@@ -1289,10 +1289,10 @@ export type SceneProgram = z.infer<typeof sceneProgramSchema>;
 export type DialogueProgram = z.infer<typeof dialogueProgramSchema>;
 export type CompiledDiagnostic = z.infer<typeof compiledDiagnosticSchema>;
 export type CompiledHotspotRef = z.infer<typeof compiledHotspotRefSchema>;
-export type CompiledProjectWireV4 = z.infer<typeof compiledProjectWireV4Schema>;
+export type CompiledProjectWire = z.infer<typeof compiledProjectWireSchema>;
 
-export function parseCompiledProjectWireV4(value: unknown): CompiledProjectWireV4 {
-  return compiledProjectWireV4Schema.parse(value);
+export function parseCompiledProjectWire(value: unknown): CompiledProjectWire {
+  return compiledProjectWireSchema.parse(value);
 }
 
 function compareUnicodeCodePoints(left: string, right: string): number {
@@ -1401,7 +1401,7 @@ function fnv1a32(value: string, seed: number): string {
  * Bootstrap/module code, and referenced resource identities are included.
  */
 export function computeCompiledProjectSaveContract(
-  project: CompiledProjectWireV4,
+  project: CompiledProjectWire,
 ): `sc1:${string}` {
   const projection: CanonicalJson = {
     bootstrapModule: project.bootstrapModule as CanonicalJson,
@@ -1437,6 +1437,6 @@ export function computeCompiledProjectSaveContract(
  * normalizes negative zero, and deliberately preserves every array's order.
  * Compiler stages own definition sorting and authored-sequence preservation.
  */
-export function serializeCompiledProjectWireV4(value: unknown): string {
-  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV4(value) as CanonicalJson));
+export function serializeCompiledProjectWire(value: unknown): string {
+  return JSON.stringify(canonicalizeJson(parseCompiledProjectWire(value) as CanonicalJson));
 }

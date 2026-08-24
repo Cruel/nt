@@ -1034,7 +1034,7 @@ describe('authoring compiler framework', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.project.schemaVersion).toBe(4);
+    expect(result.project.schemaVersion).toBe(1);
     expect(result.project.definitions.itemDefinitions).toEqual([
       {
         id: 'credits',

@@ -60,7 +60,7 @@ Runtime controls expose the stable `bindingOrder`, resolved action text, and loc
 ## Authoring, compiled, and state disposition
 
 - **Current authoring schema:** collection-specific Verb record with named slots, selector unions, `bindingOrder`, localized slot label/prompt text, completed-command template, explicit Offers, availability, and default program. #84 adds Offers without changing the already-selected authoring schema version.
-- **Compiled V4:** linked immutable `VerbDefinition` with the same named-slot/selector vocabulary, typed Offers and Offer Conditions, availability condition, and typed default program. #84 does not change compiled schema version 4.
+- **Compiled project:** linked immutable `VerbDefinition` with the same named-slot/selector vocabulary, typed Offers and Offer Conditions, availability condition, and typed default program.
 - **Mutable:** only interaction execution frames/results in `SessionState`; the Verb definition itself has no Property/Trait state.
 - **Tooling only:** labels/notes not explicitly runtime-visible, categories, tags, colors, sort keys, and editor preview state.
 
@@ -70,4 +70,4 @@ The editor authors slots, slot selector unions, stable binding order, action tex
 
 The Play inspector adds subject-centric Offer analysis for the selected live subject. It exposes every structurally matching explicit and rule-derived candidate, the same specificity tier used by runtime, authored rank, primary intent, availability/Offer-condition certainty, structural winner, and shadowing. The runtime snapshot's resolved Offer list is shown alongside that explanation so actual Lua/live-state evaluation remains authoritative. Runtime-created subjects are analyzed by their live family and identity; Trait, Item Definition, or Lua facts absent from the tooling snapshot remain explicitly unknown rather than being inferred from declaration provenance.
 
-The compiler lowers each slot, selector, and Offer without collapsing them to positional roles. Native decoding is strict about the current fields and selector variants. Runtime invocation, preview, Lua direct interaction submission, authored tests, and recorded-test playback submit exact named bindings, while preview/default UI also expose semantic Primary Activate and Open Verb Menu requests. #87 adds tooling only and does not change either the current authoring schema version or compiled V4.
+The compiler lowers each slot, selector, and Offer without collapsing them to positional roles. Native decoding is strict about the current fields and selector variants. Runtime invocation, preview, Lua direct interaction submission, authored tests, and recorded-test playback submit exact named bindings, while preview/default UI also expose semantic Primary Activate and Open Verb Menu requests.

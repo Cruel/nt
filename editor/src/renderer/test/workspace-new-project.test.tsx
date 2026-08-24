@@ -658,7 +658,6 @@ describe('WorkspacePage new project modal', () => {
       tabId: settingsTab.id,
       dirty: true,
       schema: 'noveltea.editor.draft.test',
-      schemaVersion: 1,
       payload: { name: 'Saved Draft Title' },
       apply,
     });

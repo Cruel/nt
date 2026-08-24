@@ -41,8 +41,8 @@ function archiveFixture(
     minimumPlatformVersion: 'glibc 2.39',
     graphicsBackends: ['opengl'],
     shaderVariants: ['glsl-120'],
-    runtimePackageApi: { minimum: 2, maximum: 2 },
-    playerConfigApi: { minimum: 2, maximum: 2 },
+    compiledProjectFormatVersion: 1,
+    playerRuntimeApiVersion: 1,
     compiledFeatures: ['lua'],
     capabilities: [],
     buildFlavor: 'release',
@@ -77,7 +77,6 @@ function archiveFixture(
 }
 const profile = parsePlatformExportProfile({
   format: 'noveltea.platform-export-profile',
-  formatVersion: 1,
   id: 'linux',
   label: 'Linux',
   target: 'linux',
@@ -91,7 +90,6 @@ describe('template registry service', () => {
     const response = new Response(
       JSON.stringify({
         format: 'noveltea.template-registry-index',
-        formatVersion: 1,
         generatedAt: '2026-08-12T00:00:00Z',
         release: 'v1.0.0',
         templates: [],
@@ -154,8 +152,8 @@ describe('template registry service', () => {
     const resolved = await resolvePlayerTemplate({
       requirements: {
         profile,
-        runtimePackageApi: 2,
-        playerConfigApi: 2,
+        compiledProjectFormatVersion: 1,
+        playerRuntimeApiVersion: 1,
         shaderVariants: ['glsl-120'],
         graphicsBackends: ['opengl'],
         capabilities: [],

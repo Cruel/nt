@@ -1768,7 +1768,6 @@ TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-s
         .thumbnail_available = true,
         .thumbnail_capture_pending = false};
     const auto metadata = noveltea::core::SaveCheckpointMetadata{
-        .save_format_version = 7,
         .project = noveltea::core::ProjectId::create("project").value(),
         .project_version = "9C",
         .save_contract = "sc1:0123456789abcdef0123456789abcdef",

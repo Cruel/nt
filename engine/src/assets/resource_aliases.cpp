@@ -233,14 +233,12 @@ AssetLoadResult<ResourceAliasRegistry> parse_resource_alias_registry(std::string
     }
 
     const auto schema = core::json_access::member_as<std::string>(root, "schema");
-    const auto schema_version = core::json_access::member_as<std::uint32_t>(root, "schemaVersion");
     const auto* resources = core::json_access::member(root, "resources");
-    if (!has_only_keys(root, {"schema", "schemaVersion", "resources"}) ||
-        schema != std::optional<std::string>{"noveltea.resource-aliases"} ||
-        schema_version != std::optional<std::uint32_t>{1} || !resources ||
+    if (!has_only_keys(root, {"schema", "resources"}) ||
+        schema != std::optional<std::string>{"noveltea.resource-aliases"} || !resources ||
         !resources->is_object()) {
         return fail<ResourceAliasRegistry>(
-            "unsupported resource alias manifest; expected noveltea.resource-aliases version 1");
+            "unsupported resource alias manifest; expected noveltea.resource-aliases");
     }
 
     if (!has_only_keys(*resources, {"audio", "textures", "materials"}))

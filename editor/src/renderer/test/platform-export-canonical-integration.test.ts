@@ -10,10 +10,7 @@ import {
   configureTemplateRegistryRoot,
   installPlayerTemplate,
 } from '../../main/services/template-registry-service';
-import {
-  PLAYER_CONFIG_FORMAT_VERSION,
-  type ExportPlatform,
-} from '../../shared/project-schema/platform-export-contracts';
+import type { ExportPlatform } from '../../shared/project-schema/platform-export-contracts';
 
 const target = process.env.NOVELTEA_CANONICAL_EXPORT_TARGET as ExportPlatform | undefined;
 const archive = process.env.NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE;
@@ -82,7 +79,6 @@ suite('canonical platform export integration', () => {
       if (target === 'android') {
         const localConfig = {
           format: 'noveltea.editor-export-local-state',
-          formatVersion: 1,
           templateRoots: [],
           toolchains: {
             androidSdk: process.env.ANDROID_SDK_ROOT ?? process.env.ANDROID_HOME,
@@ -124,11 +120,17 @@ suite('canonical platform export integration', () => {
         | { files: Array<{ origin: string; sha256: string }> }
         | undefined;
       const deployment = command.envelope.deployment as
-        | { templateId?: string; buildId?: string; runtimePackageApi?: number }
+        | {
+            templateId?: string;
+            buildId?: string;
+            compiledProjectFormatVersion?: number;
+            playerRuntimeApiVersion?: number;
+          }
         | undefined;
       const packageEntry = manifest?.files.find((entry) => entry.origin === 'runtime-package');
       expect(packageEntry?.sha256).toMatch(/^[0-9a-f]{64}$/);
-      expect(deployment?.runtimePackageApi).toBeTypeOf('number');
+      expect(deployment?.compiledProjectFormatVersion).toBeTypeOf('number');
+      expect(deployment?.playerRuntimeApiVersion).toBeTypeOf('number');
 
       const evidence = {
         format: 'noveltea-canonical-export-fixture',
@@ -142,8 +144,8 @@ suite('canonical platform export integration', () => {
         profileSha256: fixture.profileSha256,
         projectSha256: fixture.projectSha256,
         runtimePackageSha256: packageEntry!.sha256,
-        runtimePackageApi: deployment!.runtimePackageApi!,
-        playerConfigApi: PLAYER_CONFIG_FORMAT_VERSION,
+        compiledProjectFormatVersion: deployment!.compiledProjectFormatVersion!,
+        playerRuntimeApiVersion: deployment!.playerRuntimeApiVersion!,
         packageAccessMode: fixture.profile.packageAccess,
         webBasePath: fixture.profile.target === 'web' ? fixture.profile.web.basePath : undefined,
         webThreaded: fixture.profile.target === 'web' ? fixture.profile.web.threaded : undefined,

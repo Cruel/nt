@@ -2,12 +2,11 @@ import { z } from 'zod';
 import type { PackageExportOptions } from '../editor-tooling';
 import { assetKindValues, type AssetKind } from './authoring-assets';
 import { exportProfileSchema, type ExportProfileData } from './authoring-export';
-import { compiledProjectWireV4Schema, type CompiledProjectWireV4 } from './compiled-project';
+import { compiledProjectWireSchema, type CompiledProjectWire } from './compiled-project';
 import type { ProjectValidationDiagnostic } from './project-validation';
 import { shaderMaterialProjectWireSchema } from './shader-material-project';
 
 export const PREPARED_RUNTIME_ARTIFACT_SCHEMA = 'noveltea.prepared-runtime-artifact' as const;
-export const PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION = 1 as const;
 
 export interface ExportFileEntry {
   source: string;
@@ -55,11 +54,10 @@ export interface ExportManifestPreview {
 
 export interface PreparedRuntimeArtifact {
   schema: typeof PREPARED_RUNTIME_ARTIFACT_SCHEMA;
-  schemaVersion: typeof PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION;
   sourceFingerprint: string;
   recoveryFingerprint?: unknown;
   profile: ExportProfileData;
-  compiledProject: CompiledProjectWireV4;
+  compiledProject: CompiledProjectWire;
   gameplayJson: string;
   shaderMaterialMetadata?: z.infer<typeof shaderMaterialProjectWireSchema>;
   requiredShaderBinaryPaths: string[];
@@ -166,11 +164,10 @@ const manifestPreviewSchema = z
 export const preparedRuntimeArtifactSchema = z
   .object({
     schema: z.literal(PREPARED_RUNTIME_ARTIFACT_SCHEMA),
-    schemaVersion: z.literal(PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION),
     sourceFingerprint: z.string().regex(/^fnv1a:[0-9a-f]{8}$/),
     recoveryFingerprint: z.unknown().optional(),
     profile: exportProfileSchema,
-    compiledProject: compiledProjectWireV4Schema,
+    compiledProject: compiledProjectWireSchema,
     gameplayJson: z.string(),
     shaderMaterialMetadata: shaderMaterialProjectWireSchema.optional(),
     requiredShaderBinaryPaths: z.array(z.string()),

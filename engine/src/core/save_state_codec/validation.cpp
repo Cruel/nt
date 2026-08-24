@@ -1073,8 +1073,6 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         diagnostics.push_back(Diagnostic{
             .code = std::move(code), .message = std::move(message), .source_path = source_path});
     };
-    if (save.metadata.format_version != SaveStateMetadata::current_format_version)
-        error("save_codec.unsupported_version", "Save format version is unsupported.");
     if (save.metadata.project != project.identity().id)
         error("save_codec.project_mismatch", "Save metadata does not match the loaded project.");
     if (save.metadata.save_contract != project.save_contract())

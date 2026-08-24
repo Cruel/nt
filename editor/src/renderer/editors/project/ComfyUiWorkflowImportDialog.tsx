@@ -1025,7 +1025,7 @@ export function ComfyUiWorkflowImportDialog({
         />
         {manualManifestMode ? (
           <div className="space-y-1">
-            <Label htmlFor="comfyui-generic-manifest-json">Strict V2 manifest JSON</Label>
+            <Label htmlFor="comfyui-generic-manifest-json">Strict manifest JSON</Label>
             <textarea
               id="comfyui-generic-manifest-json"
               className="min-h-80 w-full resize-y rounded border bg-background p-2 font-mono text-[11px]"
@@ -1035,7 +1035,7 @@ export function ComfyUiWorkflowImportDialog({
             />
             {!manualManifest ? (
               <div className="text-xs text-destructive">
-                Manifest JSON must parse as the current strict ComfyUI workflow V2 contract.
+                Manifest JSON must parse as the current strict ComfyUI workflow contract.
               </div>
             ) : null}
           </div>

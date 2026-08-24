@@ -46,7 +46,7 @@ function project() {
 
 function workflow(overrides: Partial<ComfyUiWorkflowDefinition>): ComfyUiWorkflowDefinition {
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     id: 'workflow',
     label: 'Workflow',
     provider: 'comfyui',

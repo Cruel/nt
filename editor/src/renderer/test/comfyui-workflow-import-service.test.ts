@@ -35,7 +35,7 @@ function simpleWorkflow() {
 
 function simpleManifest(workflowFile = 'custom.workflow.json') {
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     id: 'custom',
     label: 'Custom',
     provider: 'comfyui',

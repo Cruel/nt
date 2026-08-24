@@ -7,7 +7,6 @@ import { novelTeaComfyUiConfigRoot } from '../../shared/user-config-root';
 import { analyzeComfyUiApiWorkflow } from '../../shared/comfyui-workflow-graph';
 import {
   COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA,
-  COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION,
   getComfyUiWorkflowExecutionSupport,
   parseComfyUiWorkflowDefinition,
   resolveComfyUiWorkflowBinding,
@@ -133,7 +132,7 @@ export function resolveComfyUiWorkflowLibraryRoots(
       (assetRoot ? path.join(assetRoot, 'comfyui', 'workflows') : null),
     userRoot,
     projectRoot,
-    cacheFile: options.roots?.cacheFile ?? path.join(comfyUiRoot, 'verification-cache-v1.json'),
+    cacheFile: options.roots?.cacheFile ?? path.join(comfyUiRoot, 'verification-cache.json'),
   };
 }
 
@@ -458,10 +457,9 @@ async function readVerificationCache(
     const document = value as Record<string, unknown>;
     if (
       Object.keys(document).some(
-        (key) => key !== 'schema' && key !== 'schemaVersion' && key !== 'records',
+        (key) => key !== 'schema' && key !== 'records',
       ) ||
       document.schema !== COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA ||
-      document.schemaVersion !== COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION ||
       !Array.isArray(document.records)
     )
       return [];
@@ -545,7 +543,6 @@ export async function writeComfyUiWorkflowVerificationCache(
     `${JSON.stringify(
       {
         schema: COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA,
-        schemaVersion: COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION,
         records,
       },
       null,

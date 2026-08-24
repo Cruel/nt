@@ -4,7 +4,7 @@ import {
   defaultHotspotViewState,
   parseHotspotViewTabState,
   restoreHotspotViewState,
-  type HotspotEditorViewStateV1,
+  type HotspotEditorViewState,
 } from '@/components/image-stage/hotspot-view-state';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { Badge } from '@/components/ui/badge';
@@ -41,8 +41,7 @@ import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation
 const INTERACTABLE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.interactable';
 type InteractableEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof INTERACTABLE_EDITOR_TAB_STATE_SCHEMA;
-  schemaVersion: 1;
-  payload: { hotspotView: HotspotEditorViewStateV1 };
+  payload: { hotspotView: HotspotEditorViewState };
 };
 
 function parseInteractableEditorTabState(
@@ -50,7 +49,6 @@ function parseInteractableEditorTabState(
 ): InteractableEditorTabState['payload'] | null {
   if (
     value.schema !== INTERACTABLE_EDITOR_TAB_STATE_SCHEMA ||
-    value.schemaVersion !== 1 ||
     typeof value.payload !== 'object' ||
     value.payload === null ||
     Array.isArray(value.payload)
@@ -82,7 +80,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         : data.presentation.hotspots.hotspots.map((item) => item.id),
     [data.presentation.hotspots],
   );
-  const [hotspotView, setHotspotView] = useState<HotspotEditorViewStateV1>(() => {
+  const [hotspotView, setHotspotView] = useState<HotspotEditorViewState>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState
       ? (parseInteractableEditorTabState(savedState)?.hotspotView ?? defaultHotspotViewState())
@@ -93,10 +91,8 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: INTERACTABLE_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
         captureTabState: () => ({
           schema: INTERACTABLE_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
           payload: { hotspotView },
         }),
         restoreTabState: (state) => {

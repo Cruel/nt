@@ -683,7 +683,6 @@ TEST_CASE("AssetManager parses and resolves typed resource aliases")
     AssetManager manager;
     manager.mount("project", memory_source("project:/resources/aliases.json", asset_bytes(R"({
         "schema": "noveltea.resource-aliases",
-        "schemaVersion": 1,
         "resources": {
           "audio": {
             "ui.notification": { "path": "project:/audio/notification.mp3", "kind": "sfx", "load": "decode" }
@@ -724,14 +723,12 @@ TEST_CASE("AssetManager rejects retired resource alias manifest shapes")
 
     const auto unwrapped_root = parse_resource_alias_registry(R"({
       "schema": "noveltea.resource-aliases",
-      "schemaVersion": 1,
       "audio": {}
     })");
     CHECK_FALSE(unwrapped_root);
 
     const auto string_entry = parse_resource_alias_registry(R"({
       "schema": "noveltea.resource-aliases",
-      "schemaVersion": 1,
       "resources": {
         "audio": { "ui.notification": "project:/audio/notification.mp3" }
       }
@@ -740,7 +737,6 @@ TEST_CASE("AssetManager rejects retired resource alias manifest shapes")
 
     const auto alternate_fields = parse_resource_alias_registry(R"({
       "schema": "noveltea.resource-aliases",
-      "schemaVersion": 1,
       "resources": {
         "audio": {
           "ui.notification": {

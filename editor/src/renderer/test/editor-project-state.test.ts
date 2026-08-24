@@ -76,7 +76,7 @@ describe('editor project state defaults', () => {
     );
   });
 
-  it('discards v1 metadata with an unsupported-version warning', () => {
+  it('discards metadata carrying the retired version field', () => {
     const parsed = parseEditorProjectStateWithDiagnostics({
       schema: 'noveltea.editor.project-state',
       schemaVersion: 1,
@@ -86,16 +86,15 @@ describe('editor project state defaults', () => {
     expect(parsed.state).toEqual(emptyEditorProjectState());
     expect(parsed.diagnostics).toContainEqual(
       expect.objectContaining({
-        code: 'editor.metadata.schema-version.unsupported',
+        code: 'editor.metadata.invalid',
         severity: 'warning',
-        path: '/editor/schemaVersion',
-        ownerPaths: ['/editor/schemaVersion'],
-        message: expect.stringContaining('1'),
+        path: '/editor',
+        ownerPaths: ['/editor'],
       }),
     );
   });
 
-  it.each([undefined, 2, 4])('discards metadata with schema version %s', (schemaVersion) => {
+  it.each([undefined, 2, 4])('discards metadata with retired schemaVersion value %s', (schemaVersion) => {
     const parsed = parseEditorProjectStateWithDiagnostics({
       schema: 'noveltea.editor.project-state',
       schemaVersion,
@@ -104,10 +103,9 @@ describe('editor project state defaults', () => {
     expect(parsed.state).toEqual(emptyEditorProjectState());
     expect(parsed.diagnostics).toContainEqual(
       expect.objectContaining({
-        code: 'editor.metadata.schema-version.unsupported',
-        path: '/editor/schemaVersion',
-        ownerPaths: ['/editor/schemaVersion'],
-        message: expect.stringContaining('expected version 3'),
+        code: 'editor.metadata.invalid',
+        path: '/editor',
+        ownerPaths: ['/editor'],
       }),
     );
   });

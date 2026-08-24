@@ -1,7 +1,6 @@
 import type { z } from 'zod';
 import {
   AUTHORING_PROJECT_SCHEMA,
-  AUTHORING_PROJECT_SCHEMA_VERSION,
   authoringCollectionKeys,
 } from './authoring-collections';
 import { authoringProjectSchema, type AuthoringProject } from './authoring-project';
@@ -211,14 +210,6 @@ function collectBasicStructuralDiagnostics(project: Record<string, unknown>) {
         'authoring.schema.unsupported',
         '/schema',
         `Project schema must be '${AUTHORING_PROJECT_SCHEMA}'.`,
-      ),
-    );
-  if (project.schemaVersion !== AUTHORING_PROJECT_SCHEMA_VERSION)
-    diagnostics.push(
-      structuralDiagnostic(
-        'authoring.schema.version.unsupported',
-        '/schemaVersion',
-        `Project schema version must be ${AUTHORING_PROJECT_SCHEMA_VERSION}.`,
       ),
     );
   if (!isRecord(project.project))

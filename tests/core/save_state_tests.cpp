@@ -235,7 +235,6 @@ TEST_CASE("native SaveState projects all typed Property overrides")
     auto snapshot = make_save_state(project, state);
     REQUIRE(snapshot);
     const auto& save = snapshot.value();
-    CHECK(save.metadata.format_version == SaveStateMetadata::current_format_version);
     CHECK(save.metadata.project == project.identity().id);
     CHECK(save.metadata.project_version == project.identity().version);
     CHECK(save.metadata.save_contract == project.save_contract());
@@ -929,7 +928,7 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
     auto encoded = encode_save_state(project, snapshot.value());
     REQUIRE(encoded);
     CHECK(encoded.value()["schema"] == "noveltea.save.state");
-    CHECK(encoded.value()["version"] == SaveStateMetadata::current_format_version);
+    CHECK_FALSE(encoded.value().contains("version"));
     CHECK(encoded.value()["metadata"]["saveContract"] == project.save_contract());
 
     auto decoded = decode_save_state(project, encoded.value(), "save-fixture.json");
@@ -948,7 +947,7 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
     }
 
-    SECTION("current V8 item Stack fields are mandatory and stale identities are rejected")
+    SECTION("current Item Stack fields are mandatory and stale identities are rejected")
     {
         auto invalid = encoded.value();
         invalid["runtimeWorld"].erase("nextItemStackId");

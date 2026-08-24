@@ -8,6 +8,8 @@ import type {
   TemplateDescriptor,
 } from './platform-export-contracts';
 import { resolveAssetMemoryPolicy } from './platform-export-contracts';
+import { PLAYER_RUNTIME_API_VERSION } from './platform-export-contracts';
+import { COMPILED_PROJECT_FORMAT_VERSION } from './compiled-project';
 import { applicationIdPattern } from './authoring-project-settings';
 import { createPlatformExportValidationDiagnostic } from './project-validation';
 import { evaluateTemplateCompatibility } from './template-compatibility';
@@ -88,8 +90,8 @@ export function buildPlatformDeployment(
   const capabilities = sorted([...(request.capabilities ?? [])]);
   const compatibility = evaluateTemplateCompatibility(descriptor, {
     profile: request.profile,
-    runtimePackageApi: request.runtimePackageApi,
-    playerConfigApi: 2,
+    compiledProjectFormatVersion: COMPILED_PROJECT_FORMAT_VERSION,
+    playerRuntimeApiVersion: request.playerRuntimeApiVersion,
     shaderVariants: [],
     graphicsBackends: [],
     capabilities: capabilities as never,
@@ -135,7 +137,8 @@ export function buildPlatformDeployment(
       packageAccess: request.profile.packageAccess,
       templateId: descriptor.templateId,
       buildId: descriptor.buildId,
-      runtimePackageApi: request.runtimePackageApi,
+      compiledProjectFormatVersion: descriptor.compiledProjectFormatVersion,
+      playerRuntimeApiVersion: request.playerRuntimeApiVersion,
       assetMemory: resolveAssetMemoryPolicy(request.profile.target, request.profile.assetMemory),
       android,
     },

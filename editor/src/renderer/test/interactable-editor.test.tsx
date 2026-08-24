@@ -139,11 +139,9 @@ describe('InteractableEditor', () => {
     captureWorkbenchTabState(tab.id);
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
       schema: 'noveltea.editor.tab-state.interactable',
-      schemaVersion: 1,
       payload: {
         hotspotView: {
           schema: 'noveltea.editor.hotspot-view',
-          schemaVersion: 1,
           tool: 'select',
           selectedHotspotId: null,
           zoom: 1,

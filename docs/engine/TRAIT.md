@@ -2,7 +2,7 @@
 
 Traits are discoverable capability/configuration declarations backed entirely by ordinary identity-scoped Properties. They do not introduce a second value namespace, a generic component bag, structural inheritance, or executable inheritance.
 
-Current authoring and compiled gameplay schemas remain `noveltea.authoring.project` V4 and `noveltea.compiled.project` V4. The current V4 contracts contain only the Trait form; normal readers reject the retired universal same-type `extends` shape rather than maintaining a compatibility path.
+Current authoring uses the stable `noveltea.authoring.project` identity and compiled gameplay uses `noveltea.compiled.project` Format V1. The current contracts contain only the Trait form; normal readers reject the retired universal same-type `extends` shape rather than maintaining a compatibility path.
 
 ## Declaration
 

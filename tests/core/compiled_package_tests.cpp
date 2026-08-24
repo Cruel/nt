@@ -4,6 +4,7 @@
 #include <noveltea/core/compiled_package_codec.hpp>
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/json_access.hpp>
+#include <noveltea/core/player_bootstrap.hpp>
 
 #include "../support/json_test_utils.hpp"
 
@@ -44,7 +45,7 @@ CompiledProject decode_project(std::string_view name)
 nlohmann::json shader_manifest()
 {
     return nlohmann::json::parse(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "sprite-shader":{
           "display_name":"Sprite",
@@ -83,7 +84,7 @@ nlohmann::json package_manifest_for(const CompiledProject& project, bool with_ma
     }
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 2},
+        {"runtime_api_version", noveltea::core::player_runtime_api_version},
         {"kind", "runtime"},
         {"created_by", "compiled-package-test"},
         {"project", {{"name", project.identity().name}, {"version", project.identity().version}}},
@@ -100,7 +101,7 @@ nlohmann::json package_manifest_for(const CompiledProject& project, bool with_ma
     };
     if (with_materials) {
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
-                                        {"schema", "noveltea.shader-materials.v2"},
+                                        {"schema", "noveltea.shader-materials"},
                                         {"sources_stripped", true}};
     }
     return manifest;

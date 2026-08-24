@@ -6,6 +6,7 @@
 #include "noveltea/assets/structured_prefetch.hpp"
 #include "noveltea/core/compiled_package_codec.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/player_bootstrap.hpp"
 #include "noveltea/jobs/inline_job_executor.hpp"
 #include "../support/json_test_utils.hpp"
 
@@ -58,7 +59,7 @@ nlohmann::json read_comprehensive_project()
 nlohmann::json shader_material_manifest()
 {
     return nlohmann::json::parse(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "sprite-shader":{
           "display_name":"Sprite",
@@ -102,7 +103,7 @@ nlohmann::json package_manifest_for(const core::CompiledProject& project)
     entries.push_back({{"path", "shaders/bgfx/glsl-120/sprite.fs.bin"}, {"size", 10}});
     return {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 2},
+        {"runtime_api_version", noveltea::core::player_runtime_api_version},
         {"kind", "runtime"},
         {"created_by", "structured-prefetch-test"},
         {"project", {{"name", project.identity().name}, {"version", project.identity().version}}},
@@ -116,7 +117,7 @@ nlohmann::json package_manifest_for(const core::CompiledProject& project)
         {"shader_variants", nlohmann::json::array({"glsl-120"})},
         {"shader_materials",
          {{"entry", "shader-materials.json"},
-          {"schema", "noveltea.shader-materials.v2"},
+          {"schema", "noveltea.shader-materials"},
           {"sources_stripped", true}}},
         {"entries", std::move(entries)},
     };

@@ -2,7 +2,7 @@
 
 ## Collection disposition
 
-This table is the authoritative current ownership map. Authoring records are editor-owned source; wire values are strict `noveltea.compiled.project` V4 data; mutable values belong to `SessionState` unless marked tooling-only.
+This table is the authoritative current ownership map. Authoring records are editor-owned source; wire values are strict `noveltea.compiled.project` Format V1 data; mutable values belong to `SessionState` unless marked tooling-only.
 
 | V2 collection/section | Authoring owner | Compiled representation | Runtime disposition |
 | --- | --- | --- | --- |
@@ -70,7 +70,7 @@ Compilation rejects missing or owner-incompatible Trait attachments, incompatibl
 
 Declared Rooms, Characters, and Interactables may attach at most one same-kind Archetype. An Archetype may itself name at most one same-kind base Archetype, producing a single acyclic chain. Archetypes contribute immutable structural configuration, Trait attachments, and direct authored Property assignments; the declared instance may author explicit overrides on top of the resolved chain. Character `initialWorldState` and Interactable `initialState` are instance-local and are never inherited. Clearing an override reveals the next Archetype value, while detaching materializes the current effective configuration into the declared instance.
 
-Archetypes are authoring-only blueprints. They do not become `CharacterDefinition`, `RoomDefinition`, or `InteractableDefinition` identities, cannot own Location or runtime mutable state, and are not serialized into saves. The authoring compiler resolves the entire chain and emits only the flattened declared-instance definition into compiled V4. Runtime inspection therefore observes exactly the effective compiled Room/Character/Interactable configuration through the existing immutable-definition/`RuntimeWorld::resolved_configuration(...)` boundary; no runtime Archetype lookup exists.
+Archetypes are authoring-only blueprints. They do not become `CharacterDefinition`, `RoomDefinition`, or `InteractableDefinition` identities, cannot own Location or runtime mutable state, and are not serialized into saves. The authoring compiler resolves the entire chain and emits only the flattened declared-instance definition into the current compiled-project format. Runtime inspection therefore observes exactly the effective compiled Room/Character/Interactable configuration through the existing immutable-definition/`RuntimeWorld::resolved_configuration(...)` boundary; no runtime Archetype lookup exists.
 
 Verb availability and default programs are definition-local; an unhandled selected Interaction program falls back only to that Verb's own default program before the project undefined-interaction fallback.
 

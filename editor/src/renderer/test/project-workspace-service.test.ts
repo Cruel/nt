@@ -177,7 +177,7 @@ describe('ProjectWorkspaceService', () => {
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/AGENTS.md`);
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.gitignore`);
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.noveltea/editor/state.json`);
-    expect(opened.editorState).toMatchObject({ schemaVersion: 3 });
+    expect(opened.editorState).toMatchObject({ schema: 'noveltea.editor.project-state' });
   });
 
   it('loads the current segmented workspace without Electron', async () => {

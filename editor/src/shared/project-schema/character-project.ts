@@ -12,7 +12,7 @@ import {
 import { parseMaterialData } from './authoring-materials';
 import type { AuthoringProject } from './authoring-project';
 
-export const CHARACTER_PREVIEW_SCHEMA = 'noveltea.character-preview.v1' as const;
+export const CHARACTER_PREVIEW_SCHEMA = 'noveltea.character-preview' as const;
 
 export interface CharacterProjectDiagnostic {
   severity: 'error' | 'warning' | 'info';

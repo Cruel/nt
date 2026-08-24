@@ -43,7 +43,7 @@ describe('preview protocol validation', () => {
       recordId: 'layout-a',
       revision: 'rev',
       data: {
-        schema: 'noveltea.layout-preview.v1',
+        schema: 'noveltea.layout-preview',
         scalePolicy: { ui: 'ignore', text: 'inherit' },
       },
     };
@@ -180,7 +180,7 @@ describe('preview protocol validation', () => {
         kind: 'layout-preview',
         recordId: 'layout-a',
         revision: 'rev',
-        data: { schema: 'noveltea.layout-preview.v1' },
+        data: { schema: 'noveltea.layout-preview' },
       }),
     ).toBe(true);
     expect(
@@ -196,7 +196,7 @@ describe('preview protocol validation', () => {
         kind: 'dialogue-preview',
         recordId: 'dialogue-a',
         revision: 'rev',
-        data: { schema: 'noveltea.dialogue-preview.v2' },
+        data: { schema: 'noveltea.dialogue-preview' },
       }),
     ).toBe(true);
     expect(
@@ -204,7 +204,7 @@ describe('preview protocol validation', () => {
         kind: 'scene-preview',
         recordId: 'scene-a',
         revision: 'rev',
-        data: { schema: 'noveltea.scene-preview.v2' },
+        data: { schema: 'noveltea.scene-preview' },
       }),
     ).toBe(true);
     expect(
@@ -212,7 +212,7 @@ describe('preview protocol validation', () => {
         kind: 'character-preview',
         recordId: 'character-a',
         revision: 'rev',
-        data: { schema: 'noveltea.character-preview.v1' },
+        data: { schema: 'noveltea.character-preview' },
       }),
     ).toBe(true);
     for (const [kind, schema] of [

@@ -186,9 +186,9 @@ describe('asset profiler polling controller', () => {
     controller.dispose();
   });
 
-  it('stops polling after malformed or unsupported protocol data until preview recreation', async () => {
-    const protocolError = Object.assign(new Error('unsupported schema'), {
-      code: 'asset-profiler.unsupported-schema',
+  it('stops polling after malformed protocol data until preview recreation', async () => {
+    const protocolError = Object.assign(new Error('invalid profiler payload'), {
+      code: 'asset-profiler.invalid-payload',
     });
     const request = vi.fn().mockRejectedValue(protocolError);
     const controller = new AssetProfilerPollingController();
@@ -199,7 +199,7 @@ describe('asset profiler polling controller', () => {
     expect(request).toHaveBeenCalledTimes(1);
     expect(useAssetProfilerStore.getState()).toMatchObject({
       status: 'error',
-      error: 'unsupported schema',
+      error: 'invalid profiler payload',
     });
 
     controller.setTransport({ key: 'preview-2', request, connected: true, supported: true });

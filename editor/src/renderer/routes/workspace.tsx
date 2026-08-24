@@ -1183,7 +1183,7 @@ export function WorkspacePage() {
         ).filter((entry) => entry.dirty);
         const nonSerializableDraft = activeDrafts.find(
           (entry) =>
-            !entry.apply && (!entry.schema || !entry.schemaVersion || entry.payload === undefined),
+            !entry.apply && (!entry.schema || entry.payload === undefined),
         );
         if (nonSerializableDraft) {
           const message = 'Apply the active tab draft before saving, or discard it.';
@@ -1260,7 +1260,7 @@ export function WorkspacePage() {
       );
       const unappliedNonSerializableDrafts = dirtyDrafts.filter(
         (entry) =>
-          !entry.apply && (!entry.schema || !entry.schemaVersion || entry.payload === undefined),
+          !entry.apply && (!entry.schema || entry.payload === undefined),
       );
       if (unappliedNonSerializableDrafts.length > 0) {
         const message = 'Apply local drafts before saving all, or discard them.';

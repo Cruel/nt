@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import {
   AUTHORING_PROJECT_SCHEMA,
-  AUTHORING_PROJECT_SCHEMA_VERSION,
   authoringCollectionKeys,
   isAuthoringCollectionKey,
   type AuthoringCollectionKey,
@@ -67,7 +66,6 @@ const projectExportSettingsSchema = z
 export const authoringProjectSchema = z
   .object({
     schema: z.literal(AUTHORING_PROJECT_SCHEMA),
-    schemaVersion: z.literal(AUTHORING_PROJECT_SCHEMA_VERSION),
     project: projectIdentitySchema,
     settings: typedProjectSettingsSchema,
     export: projectExportSettingsSchema,
@@ -122,7 +120,6 @@ export function createAuthoringProject(
   const collections = Object.fromEntries(authoringCollectionKeys.map((key) => [key, {}]));
   return authoringProjectSchema.parse({
     schema: AUTHORING_PROJECT_SCHEMA,
-    schemaVersion: AUTHORING_PROJECT_SCHEMA_VERSION,
     project: {
       id: options.id ?? 'new-project',
       name: options.name ?? 'New Project',

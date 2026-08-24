@@ -176,10 +176,8 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const tabStateHandle = useMemo(
     () => ({
       schema: 'noveltea.editor.image-generation-tab-state',
-      schemaVersion: 1,
       captureTabState: (): WorkbenchTabStatePayload => ({
         schema: 'noveltea.editor.image-generation-tab-state',
-        schemaVersion: 1,
         payload: {
           prompt,
           editPrompt,
@@ -198,11 +196,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
         },
       }),
       restoreTabState: (state: WorkbenchTabStatePayload) => {
-        if (
-          state.schema !== 'noveltea.editor.image-generation-tab-state' ||
-          state.schemaVersion !== 1
-        )
-          return;
+        if (state.schema !== 'noveltea.editor.image-generation-tab-state') return;
         const payload = state.payload;
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
         const values = payload as Record<string, unknown>;

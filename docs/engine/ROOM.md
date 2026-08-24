@@ -101,9 +101,9 @@ The current version-4 authoring schema uses strict Room records with typed descr
 conditions/effects, owner-local Features, semantic Hotspot targets, exits and optional transition
 overrides, World Presentation Space, default/named Camera Views, Anchors, placements, cast, props,
 environment loops, overlays, composition hooks, and required `scriptHooks` storage for zero or more
-direct lifecycle handler mappings. Issue #88 preserves compiled-project v4 while atomically replacing
-its current Room shape: every v4 producer now emits World Presentation Space and Anchor fields, and
-both TypeScript and native v4 consumers require that same shape. The canonical default remains a
+direct lifecycle handler mappings. The current compiled-project format atomically contains the resulting
+Room shape: every producer emits World Presentation Space and Anchor fields, and both TypeScript and native
+consumers require that same shape. The canonical default remains a
 1920×1080 centered View with no Anchors. Validation
 rejects duplicate nested IDs, stale Room/Character/Interactable/Feature/Layout/resource/Script
 references, incompatible Feature Trait/Property assignments, invalid owner-local Feature or Exit

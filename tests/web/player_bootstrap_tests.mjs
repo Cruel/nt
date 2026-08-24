@@ -19,7 +19,7 @@ function sha256(bytes) {
 function configBytes(packageBytes) {
   return encoder.encode(JSON.stringify({
     format: 'noveltea.player-config',
-    formatVersion: 2,
+    formatVersion: 1,
     displayName: 'Bootstrap Test',
     applicationId: 'org.example.bootstrap',
     saveNamespace: 'org.example.bootstrap',
@@ -27,7 +27,6 @@ function configBytes(packageBytes) {
     package: {
       path: 'game.ntpkg',
       sha256: sha256(packageBytes),
-      runtimePackageApi: 2,
     },
     capabilities: [],
     display: {

@@ -19,7 +19,7 @@ import type { PlatformArchiveEntry } from './platform-archive-service';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
 import {
   PLATFORM_EXPORT_MANIFEST_FORMAT,
-  PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION,
+  PLAYER_RUNTIME_API_VERSION,
   type PlatformExportManifest,
   type PlatformStageDiagnostic,
   type PlatformStageRequest,
@@ -1300,7 +1300,6 @@ export async function stagePlatformExport(
           `${JSON.stringify(
             {
               format: 'noveltea.signing-report',
-              formatVersion: 1,
               platform: 'windows',
               templateBuildId: descriptor.buildId,
               gamePackageSha256: files.find((item) => item.origin === 'runtime-package')?.sha256,
@@ -1328,7 +1327,7 @@ export async function stagePlatformExport(
     );
     const player = {
       format: 'noveltea.player-config',
-      formatVersion: 2,
+      formatVersion: PLAYER_RUNTIME_API_VERSION,
       displayName: built.model.displayName,
       applicationId: built.model.applicationId,
       saveNamespace: built.model.saveNamespace,
@@ -1337,7 +1336,7 @@ export async function stagePlatformExport(
       package: {
         path: packageFromConfig,
         sha256: packageEntry.sha256,
-        runtimePackageApi: request.runtimePackageApi,
+        playerRuntimeApiVersion: request.playerRuntimeApiVersion,
       },
       capabilities: built.model.capabilities,
       display: request.runtimeDisplay,
@@ -1357,7 +1356,6 @@ export async function stagePlatformExport(
     files.sort((a, b) => a.path.localeCompare(b.path));
     const manifest: PlatformExportManifest = {
       format: PLATFORM_EXPORT_MANIFEST_FORMAT,
-      formatVersion: PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION,
       deployment: built.model,
       files,
     };
@@ -1458,7 +1456,6 @@ export async function stagePlatformExport(
         `${JSON.stringify(
           {
             format: 'noveltea.signing-report',
-            formatVersion: 1,
             platform: 'macos',
             templateBuildId: descriptor.buildId,
             gamePackageSha256: files.find((item) => item.origin === 'runtime-package')?.sha256,

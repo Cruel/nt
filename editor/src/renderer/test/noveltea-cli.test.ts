@@ -933,8 +933,6 @@ describe('NovelTea headless CLI', () => {
     const manifest = JSON.parse(first.manifestText);
     expect(manifest).toMatchObject({
       schema: 'noveltea.agent-kit.manifest',
-      schemaVersion: 2,
-      agentKitVersion: 1,
       cliVersion: '1.0.0',
       projectWorkspaceVersion: 1,
     });
@@ -1021,7 +1019,6 @@ describe('NovelTea headless CLI', () => {
       expect(first.files[`system-layouts/${relativePath}`]).toBe(text);
     expect(JSON.parse(first.files['system-layouts/manifest.json']!)).toEqual({
       schema: 'noveltea.agent-kit.system-layouts',
-      schemaVersion: 2,
       baselines: {
         implicit: true,
         appliesTo: [
@@ -1933,13 +1930,13 @@ describe('NovelTea headless CLI', () => {
     expect(explicit.exitCode).toBe(2);
   });
 
-  it('regenerates an unsupported agent-kit manifest without changing tracked project source', async () => {
+  it('regenerates an invalid agent-kit manifest without changing tracked project source', async () => {
     const value = fixture();
     await syncNovelTeaAgentKit(value.fileSystem, root);
     const trackedRoomBefore = await value.fileSystem.readText(`${root}/records/rooms/start.json`);
     const manifestPath = `${root}/.noveltea/agent/manifest.json`;
     const staleManifest = JSON.parse(await value.fileSystem.readText(manifestPath));
-    staleManifest.schemaVersion = 999;
+    staleManifest.schema = 'noveltea.agent-kit.retired-manifest';
     await value.fileSystem.writeTextAtomic(
       manifestPath,
       `${JSON.stringify(staleManifest, null, 2)}\n`,
@@ -1948,7 +1945,9 @@ describe('NovelTea headless CLI', () => {
     const result = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).agentKitChanged).toBe(true);
-    expect(JSON.parse(await value.fileSystem.readText(manifestPath)).schemaVersion).toBe(2);
+    expect(JSON.parse(await value.fileSystem.readText(manifestPath)).schema).toBe(
+      'noveltea.agent-kit.manifest',
+    );
     expect(await value.fileSystem.readText(`${root}/records/rooms/start.json`)).toBe(
       trackedRoomBefore,
     );

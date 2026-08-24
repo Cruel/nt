@@ -10,7 +10,7 @@ This document covers the new shader authoring component. Legacy shader editor be
 
 Shaders are implemented as a typed authoring collection in the editor. The Shader editor supports inline stage source, source-asset references, interface declarations, roles, compiled output metadata, helper compile actions, and a live material-style preview.
 
-The engine has runtime shader/material metadata types and parsers under `noveltea.shader-materials.v2`, bgfx shader loading and program caching, and shader compiler/manifest support. Platform shader compilation remains a package/build workflow rather than runtime compilation on all targets.
+The engine has runtime shader/material metadata types and parsers under `noveltea.shader-materials`, bgfx shader loading and program caching, and shader compiler/manifest support. Platform shader compilation remains a package/build workflow rather than runtime compilation on all targets.
 
 ## Collection
 
@@ -288,7 +288,7 @@ result at the scope boundary.
 ## Export / Package Status
 
 `buildShaderMaterialProject()` converts authoring shaders into strict
-`noveltea.shader-materials.v2` metadata. Stage source is emitted either as inline `source_text` or as
+`noveltea.shader-materials` metadata. Stage source is emitted either as inline `source_text` or as
 a `project:/...` source path derived from a shader-source asset. Compiled maps are emitted when
 present. Runtime role membership is always the required `roles` array. Role-specific stage selection
 is always the separate required `role_bindings` object, emitted as `{}` when no overrides exist.

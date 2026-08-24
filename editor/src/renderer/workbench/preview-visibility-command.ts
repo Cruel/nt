@@ -8,17 +8,14 @@ import {
 
 interface PreviewTabStateContract {
   schema: string;
-  schemaVersion: number;
 }
 
 const previewTabStateContracts: Record<string, PreviewTabStateContract> = {
   'room-detail': {
     schema: 'noveltea.editor.tab-state.room',
-    schemaVersion: 4,
   },
   'layout-detail': {
     schema: 'noveltea.editor.tab-state.layout',
-    schemaVersion: 2,
   },
 };
 
@@ -57,7 +54,6 @@ export function setTabPreviewVisible(tab: WorkbenchTab, visible: boolean): boole
   if (
     !current ||
     current.schema !== contract.schema ||
-    current.schemaVersion !== contract.schemaVersion ||
     typeof current.payload !== 'object' ||
     current.payload === null ||
     Array.isArray(current.payload)
@@ -81,7 +77,6 @@ export function recordTabPreviewVisible(tab: WorkbenchTab, visible: boolean): bo
   if (
     !current ||
     current.schema !== contract.schema ||
-    current.schemaVersion !== contract.schemaVersion ||
     typeof current.payload !== 'object' ||
     current.payload === null ||
     Array.isArray(current.payload)

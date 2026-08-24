@@ -50,7 +50,7 @@ import {
   defaultHotspotViewState,
   parseHotspotViewTabState,
   restoreHotspotViewState,
-  type HotspotEditorViewStateV1,
+  type HotspotEditorViewState,
 } from '@/components/image-stage/hotspot-view-state';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
@@ -203,12 +203,11 @@ function BackgroundFitOption({ fit }: { fit: BackgroundFitMode }) {
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
 type RoomEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
-  schemaVersion: 4;
   payload: {
     scroll?: ScrollViewState;
     activeCategory: RoomEditorCategory;
     previewCollapsed: boolean;
-    hotspotView: HotspotEditorViewStateV1;
+    hotspotView: HotspotEditorViewState;
   };
 };
 
@@ -217,7 +216,6 @@ function parseRoomEditorTabState(
 ): RoomEditorTabState['payload'] | null {
   if (
     value.schema !== ROOM_EDITOR_TAB_STATE_SCHEMA ||
-    value.schemaVersion !== 4 ||
     typeof value.payload !== 'object' ||
     value.payload === null ||
     Array.isArray(value.payload)
@@ -594,7 +592,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
   });
-  const [hotspotView, setHotspotView] = useState<HotspotEditorViewStateV1>(() => {
+  const [hotspotView, setHotspotView] = useState<HotspotEditorViewState>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState
       ? (parseRoomEditorTabState(savedState)?.hotspotView ?? defaultHotspotViewState())
@@ -643,10 +641,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 4,
         captureTabState: () => ({
           schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 4,
           payload: {
             scroll: captureScrollViewState(scrollRef.current),
             activeCategory,

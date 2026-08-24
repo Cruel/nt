@@ -1205,9 +1205,9 @@ parse_shader_material_project_json_value(const nlohmann::json& value)
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::MissingRequiredField, "/schema",
                        "shader/material schema is missing required schema field");
     } else if (!schema_it->is_string() ||
-               schema_it->get<std::string_view>() != shader_material_schema_v2) {
+               schema_it->get<std::string_view>() != shader_material_schema) {
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidSchema, "/schema",
-                       "shader/material schema must be noveltea.shader-materials.v2");
+                       "shader/material schema must be noveltea.shader-materials");
     }
 
     const auto shaders_it = value.find("shaders");

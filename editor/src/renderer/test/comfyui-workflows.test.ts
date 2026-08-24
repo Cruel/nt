@@ -10,7 +10,7 @@ import {
   validateComfyUiWorkflowDefinitionContract,
 } from '../../shared/comfyui-workflows';
 
-const v2Manifest = {
+const currentManifest = {
   schemaVersion: COMFYUI_WORKFLOW_SCHEMA_VERSION,
   id: 'starter',
   label: 'Starter',
@@ -46,10 +46,10 @@ const v2Manifest = {
 };
 
 describe('comfyui workflow manifests', () => {
-  it('parses strict generic v2 manifests without changing the selected schema version', () => {
-    const definition = parseComfyUiWorkflowDefinition(v2Manifest, 'starter.manifest.json');
+  it('parses the strict current manifest contract', () => {
+    const definition = parseComfyUiWorkflowDefinition(currentManifest, 'starter.manifest.json');
 
-    expect(definition.schemaVersion).toBe(2);
+    expect(definition.schemaVersion).toBe(1);
     expect(definition.schemaVersion).toBe(COMFYUI_WORKFLOW_SCHEMA_VERSION);
     expect(definition.classification).toBe('image.generate');
     expect(definition.bindings.prompt).toHaveLength(2);
@@ -67,7 +67,7 @@ describe('comfyui workflow manifests', () => {
 
   it('accepts arbitrary CLI-safe public IDs and optional extensible classification', () => {
     const definition = parseComfyUiWorkflowDefinition({
-      ...v2Manifest,
+      ...currentManifest,
       classification: 'video.experimental',
       contract: {
         inputs: {
@@ -94,7 +94,7 @@ describe('comfyui workflow manifests', () => {
     ]);
 
     const unclassified = parseComfyUiWorkflowDefinition({
-      ...v2Manifest,
+      ...currentManifest,
       classification: undefined,
     });
     expect(unclassified.classification).toBeUndefined();
@@ -103,25 +103,25 @@ describe('comfyui workflow manifests', () => {
   it('rejects unsafe public IDs and malformed classifications', () => {
     expect(() =>
       parseComfyUiWorkflowDefinition({
-        ...v2Manifest,
+        ...currentManifest,
         contract: {
-          ...v2Manifest.contract,
+          ...currentManifest.contract,
           inputs: { 'bad.id': { type: 'string', required: true } },
         },
         bindings: { 'bad.id': [{ nodeId: '1', inputName: 'text' }] },
       }),
     ).toThrow('not a CLI-safe public identifier');
     expect(() =>
-      parseComfyUiWorkflowDefinition({ ...v2Manifest, classification: 'image' }),
+      parseComfyUiWorkflowDefinition({ ...currentManifest, classification: 'image' }),
     ).toThrow('not a dotted classification identifier');
   });
 
   it('validates typed defaults including boolean and integer semantics', () => {
     expect(() =>
       parseComfyUiWorkflowDefinition({
-        ...v2Manifest,
+        ...currentManifest,
         contract: {
-          ...v2Manifest.contract,
+          ...currentManifest.contract,
           inputs: {
             count: { type: 'integer', required: false, defaultValue: 1.5 },
           },
@@ -131,9 +131,9 @@ describe('comfyui workflow manifests', () => {
     ).toThrow('defaultValue must be an integer');
     expect(() =>
       parseComfyUiWorkflowDefinition({
-        ...v2Manifest,
+        ...currentManifest,
         contract: {
-          ...v2Manifest.contract,
+          ...currentManifest.contract,
           inputs: {
             enabled: { type: 'boolean', required: false, defaultValue: 'true' },
           },
@@ -146,29 +146,29 @@ describe('comfyui workflow manifests', () => {
   it('requires every declared public input and output to have graph bindings', () => {
     expect(() =>
       parseComfyUiWorkflowDefinition({
-        ...v2Manifest,
-        bindings: { ...v2Manifest.bindings, prompt: undefined },
+        ...currentManifest,
+        bindings: { ...currentManifest.bindings, prompt: undefined },
       }),
     ).toThrow();
 
     expect(() =>
       parseComfyUiWorkflowDefinition({
-        ...v2Manifest,
+        ...currentManifest,
         bindings: {
-          ...v2Manifest.bindings,
+          ...currentManifest.bindings,
           extra: [{ nodeId: '100', inputName: 'value' }],
         },
       }),
     ).toThrow('bindings.extra must be declared by contract.inputs.extra');
 
-    expect(() => parseComfyUiWorkflowDefinition({ ...v2Manifest, outputBindings: {} })).toThrow(
+    expect(() => parseComfyUiWorkflowDefinition({ ...currentManifest, outputBindings: {} })).toThrow(
       'contract.outputs.images must declare at least one graph binding',
     );
   });
 
   it('keeps unsupported future output media discoverable but reports it non-runnable', () => {
     const definition = parseComfyUiWorkflowDefinition({
-      ...v2Manifest,
+      ...currentManifest,
       contract: {
         inputs: { prompt: { type: 'string', required: true } },
         outputs: {
@@ -189,12 +189,12 @@ describe('comfyui workflow manifests', () => {
   });
 
   it('rejects unsupported schema versions and the replaced same-version shape', () => {
-    expect(() => parseComfyUiWorkflowDefinition({ ...v2Manifest, schemaVersion: 3 })).toThrow(
+    expect(() => parseComfyUiWorkflowDefinition({ ...currentManifest, schemaVersion: 3 })).toThrow(
       "schemaVersion '3' is not supported",
     );
 
     const replacedShape = {
-      schemaVersion: 2,
+      schemaVersion: 1,
       id: 'old-v2',
       label: 'Old V2',
       provider: 'comfyui',
@@ -219,7 +219,7 @@ describe('comfyui workflow manifests', () => {
   });
 
   it('rejects the retired output-node compatibility field', () => {
-    expect(() => parseComfyUiWorkflowDefinition({ ...v2Manifest, outputNodeIds: ['9'] })).toThrow(
+    expect(() => parseComfyUiWorkflowDefinition({ ...currentManifest, outputNodeIds: ['9'] })).toThrow(
       'manifest.outputNodeIds is not supported',
     );
   });
@@ -298,7 +298,7 @@ describe('comfyui workflow manifests', () => {
 
   it('resolves named output bindings independently', () => {
     const definition = parseComfyUiWorkflowDefinition({
-      ...v2Manifest,
+      ...currentManifest,
       contract: {
         inputs: { prompt: { type: 'string', required: true } },
         outputs: {

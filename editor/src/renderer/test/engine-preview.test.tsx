@@ -484,7 +484,7 @@ describe('EnginePreview', () => {
     await expect(profilerRequest).resolves.toMatchObject({ kind: 'full', sessionId: '1' });
   });
 
-  it('rejects invalid asset profiler protocol data immediately', async () => {
+  it('rejects asset profiler payloads carrying retired version fields immediately', async () => {
     const user = userEvent.setup();
     let profilerRequest: Promise<unknown> | null = null;
     render(
@@ -520,7 +520,7 @@ describe('EnginePreview', () => {
       });
     });
     await expect(rejection).resolves.toMatchObject({
-      code: 'asset-profiler.unsupported-schema',
+      code: 'asset-profiler.invalid-payload',
     });
   });
 
