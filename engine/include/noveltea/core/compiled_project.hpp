@@ -1350,11 +1350,34 @@ struct DialogueMediaMutation {
     DialogueSlotMutationAction action = DialogueSlotMutationAction::Update;
     std::optional<DialogueMediaContent> content;
 };
-struct DialogueLinePresentation {
-    std::optional<CharacterExpressionId> speaker_expression_id;
-    std::vector<DialogueStageMutation> stage;
-    std::vector<DialogueMediaMutation> media;
+struct DialogueCuePosition {
+    std::uint64_t offset = 0;
+    std::uint64_t order = 0;
+    auto operator<=>(const DialogueCuePosition&) const = default;
 };
+struct DialogueSpeakerExpressionCue {
+    DialogueCueId id;
+    DialogueCuePosition position;
+    CharacterExpressionId expression_id;
+};
+struct DialogueStageCue {
+    DialogueCueId id;
+    DialogueCuePosition position;
+    DialogueStageMutation mutation;
+};
+struct DialogueMediaCue {
+    DialogueCueId id;
+    DialogueCuePosition position;
+    DialogueMediaMutation mutation;
+};
+struct DialogueGestureCue {
+    DialogueCueId id;
+    DialogueCuePosition position;
+    DialogueStageSlotId slot_id;
+    CharacterGestureId gesture_id;
+};
+using DialogueSemanticCue = std::variant<DialogueSpeakerExpressionCue, DialogueStageCue,
+                                         DialogueMediaCue, DialogueGestureCue>;
 struct DialogueLineSegment {
     DialogueSegmentId id;
     bool autosave_safe_point;
@@ -1364,7 +1387,7 @@ struct DialogueLineSegment {
     bool show_once;
     std::optional<CharacterId> speaker;
     TextContent text;
-    DialogueLinePresentation presentation;
+    std::vector<DialogueSemanticCue> cues;
 };
 struct DialogueRunLuaSegment {
     DialogueSegmentId id;

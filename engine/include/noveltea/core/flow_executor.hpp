@@ -102,10 +102,9 @@ public:
     mark_dialogue_wait(const DialogueId& dialogue, const DialogueFramePosition& expected_position,
                        DialogueFramePosition next_position);
     [[nodiscard]] Result<void, Diagnostics>
-    apply_dialogue_presentation(const DialogueId& dialogue,
-                                const DialogueFramePosition& expected_position,
-                                const std::optional<CharacterId>& speaker,
-                                const compiled::DialogueLinePresentation& presentation);
+    apply_dialogue_cues(const DialogueId& dialogue, const DialogueFramePosition& expected_position,
+                        const std::optional<CharacterId>& speaker,
+                        const std::vector<compiled::DialogueSemanticCue>& cues);
     [[nodiscard]] Result<void, Diagnostics>
     choose_dialogue_option(const FlowFrameId& owner, const InputFlowBlockerHandle& handle,
                            const DialogueEdgeId& edge);

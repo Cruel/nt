@@ -146,7 +146,7 @@ nlohmann::json minimal_dialogue_program(std::string_view log_mode, bool line_log
                   "id": "line",
                   "kind": "line",
                   "logged": true,
-                  "presentation": {"stage": [], "media": []},
+                  "cues": [],
                   "showOnce": false,
                   "speaker": null,
                   "text": {"markup": "plain", "source": {"kind": "inline", "text": "Line"}}
@@ -165,7 +165,7 @@ nlohmann::json minimal_dialogue_program(std::string_view log_mode, bool line_log
                   "id": "done",
                   "kind": "line",
                   "logged": false,
-                  "presentation": {"stage": [], "media": []},
+                  "cues": [],
                   "showOnce": false,
                   "speaker": null,
                   "text": {"markup": "plain", "source": {"kind": "inline", "text": "Done"}}
@@ -409,23 +409,36 @@ TEST_CASE("typed Dialogue Stage and Media Slots are self-contained retained pres
            {"appearanceId", nullptr}}}},
     });
     auto& first_line = intro["program"]["blocks"][0]["segments"][0];
-    first_line["presentation"] = {
-        {"speakerExpressionId", "angry"},
-        {"stage", nlohmann::json::array({{{"slotId", "speaker-left"},
-                                          {"action", "update"},
-                                          {"position", "right"},
-                                          {"offset", {{"x", 5.0}, {"y", -3.0}}},
-                                          {"scale", 1.2}}})},
-        {"media", nlohmann::json::array({{{"slotId", "portrait"}, {"action", "hide"}}})},
-    };
+    first_line["cues"] = nlohmann::json::array({
+        {{"id", "stage-update"},
+         {"kind", "stage"},
+         {"position", {{"offset", 0}, {"order", 0}}},
+         {"mutation",
+          {{"slotId", "speaker-left"},
+           {"action", "update"},
+           {"position", "right"},
+           {"offset", {{"x", 5.0}, {"y", -3.0}}},
+           {"scale", 1.2}}}},
+        {{"id", "speaker-expression"},
+         {"kind", "speaker-expression"},
+         {"position", {{"offset", 0}, {"order", 1}}},
+         {"expressionId", "angry"}},
+        {{"id", "media-hide"},
+         {"kind", "media"},
+         {"position", {{"offset", 0}, {"order", 2}}},
+         {"mutation", {{"slotId", "portrait"}, {"action", "hide"}}}},
+    });
     auto& second_line = intro["program"]["blocks"][0]["segments"][1];
-    second_line["presentation"] = {
-        {"stage", nlohmann::json::array({{{"slotId", "speaker-left"},
-                                          {"action", "update"},
-                                          {"character", {{"kind", "character"}, {"id", "rival"}}},
-                                          {"position", "center"}}})},
-        {"media", nlohmann::json::array()},
-    };
+    second_line["cues"] = nlohmann::json::array({
+        {{"id", "stage-rival"},
+         {"kind", "stage"},
+         {"position", {{"offset", 0}, {"order", 0}}},
+         {"mutation",
+          {{"slotId", "speaker-left"},
+           {"action", "update"},
+           {"character", {{"kind", "character"}, {"id", "rival"}}},
+           {"position", "center"}}}},
+    });
 
     auto project = decode_document(std::move(document), "dialogue-presentation.json");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);

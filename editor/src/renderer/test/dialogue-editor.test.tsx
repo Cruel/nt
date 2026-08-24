@@ -216,8 +216,16 @@ describe('DialogueEditor', () => {
       const block = document.dialogues.intro.data.blocks[0]!;
       if (block.type !== 'sequence' || block.segments[0]?.type !== 'line')
         throw new Error('Expected default Dialogue line.');
-      expect(block.segments[0].presentation.stage).toEqual([{ slotId: 'stage', action: 'update' }]);
-      expect(block.segments[0].presentation.media).toEqual([{ slotId: 'media', action: 'update' }]);
+      expect(block.segments[0].cues).toEqual([
+        expect.objectContaining({
+          kind: 'stage',
+          mutation: { slotId: 'stage', action: 'update' },
+        }),
+        expect.objectContaining({
+          kind: 'media',
+          mutation: { slotId: 'media', action: 'update' },
+        }),
+      ]);
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('dialogue.replaceData');
   });

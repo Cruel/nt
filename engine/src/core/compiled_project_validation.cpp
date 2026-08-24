@@ -2094,6 +2094,7 @@ private:
             if (!blocks.contains(value.program.entry_block_id))
                 error("compiled_project.unresolved_nested_reference",
                       "Dialogue entry block is missing.", path + "/program/entryBlockId");
+            std::unordered_set<DialogueCueId> cue_ids;
             for (std::size_t block_index = 0; block_index < value.program.blocks.size();
                  ++block_index) {
                 const auto block_path = path + "/program/blocks/" + std::to_string(block_index);
@@ -2119,47 +2120,86 @@ private:
                                                 require(m_characters, *typed.speaker, "character",
                                                         segment_path + "/speaker");
                                             validate_text(typed.text, segment_path + "/text");
-                                            for (std::size_t mutation_index = 0;
-                                                 mutation_index < typed.presentation.stage.size();
-                                                 ++mutation_index) {
-                                                const auto& mutation =
-                                                    typed.presentation.stage[mutation_index];
-                                                const auto mutation_path =
-                                                    segment_path + "/presentation/stage/" +
-                                                    std::to_string(mutation_index);
-                                                if (!stage_slots.contains(mutation.slot_id))
-                                                    error("compiled_project.unresolved_nested_"
-                                                          "reference",
-                                                          "Dialogue Stage mutation references a "
-                                                          "missing Slot.",
-                                                          mutation_path + "/slotId");
-                                                if (mutation.character)
-                                                    require(m_characters, *mutation.character,
-                                                            "character",
-                                                            mutation_path + "/character");
-                                                if (mutation.scale && *mutation.scale <= 0.0)
-                                                    error("compiled_project.invalid_dialogue_"
-                                                          "presentation",
-                                                          "Dialogue Stage scale must be positive.",
-                                                          mutation_path + "/scale");
-                                            }
-                                            for (std::size_t mutation_index = 0;
-                                                 mutation_index < typed.presentation.media.size();
-                                                 ++mutation_index) {
-                                                const auto& mutation =
-                                                    typed.presentation.media[mutation_index];
-                                                const auto mutation_path =
-                                                    segment_path + "/presentation/media/" +
-                                                    std::to_string(mutation_index);
-                                                if (!media_slots.contains(mutation.slot_id))
-                                                    error("compiled_project.unresolved_nested_"
-                                                          "reference",
-                                                          "Dialogue Media mutation references a "
-                                                          "missing Slot.",
-                                                          mutation_path + "/slotId");
-                                                if (mutation.content)
-                                                    validate_media(*mutation.content,
-                                                                   mutation_path + "/content");
+                                            std::optional<DialogueCuePosition> previous_position;
+                                            for (std::size_t cue_index = 0;
+                                                 cue_index < typed.cues.size(); ++cue_index) {
+                                                const auto cue_path = segment_path + "/cues/" +
+                                                                      std::to_string(cue_index);
+                                                std::visit(
+                                                    [&](const auto& cue) {
+                                                        if (!cue_ids.insert(cue.id).second)
+                                                            error("compiled_project.duplicate_"
+                                                                  "nested_id",
+                                                                  "Duplicate Dialogue cue ID.",
+                                                                  cue_path + "/id");
+                                                        if (previous_position &&
+                                                            cue.position == *previous_position)
+                                                            error("compiled_project.duplicate_"
+                                                                  "dialogue_cue_position",
+                                                                  "Dialogue cue offset/order must "
+                                                                  "be unique within a line.",
+                                                                  cue_path + "/position");
+                                                        else if (previous_position &&
+                                                                 cue.position < *previous_position)
+                                                            error("compiled_project.invalid_"
+                                                                  "dialogue_cue_order",
+                                                                  "Dialogue cues must be ordered "
+                                                                  "by offset and order.",
+                                                                  cue_path + "/position");
+                                                        previous_position = cue.position;
+                                                        using C = std::decay_t<decltype(cue)>;
+                                                        if constexpr (std::is_same_v<
+                                                                          C, DialogueStageCue>) {
+                                                            const auto& mutation = cue.mutation;
+                                                            if (!stage_slots.contains(
+                                                                    mutation.slot_id))
+                                                                error(
+                                                                    "compiled_project.unresolved_"
+                                                                    "nested_reference",
+                                                                    "Dialogue Stage cue references "
+                                                                    "a missing Slot.",
+                                                                    cue_path + "/mutation/slotId");
+                                                            if (mutation.character)
+                                                                require(m_characters,
+                                                                        *mutation.character,
+                                                                        "character",
+                                                                        cue_path +
+                                                                            "/mutation/character");
+                                                            if (mutation.scale &&
+                                                                *mutation.scale <= 0.0)
+                                                                error(
+                                                                    "compiled_project.invalid_"
+                                                                    "dialogue_presentation",
+                                                                    "Dialogue Stage scale must be "
+                                                                    "positive.",
+                                                                    cue_path + "/mutation/scale");
+                                                        } else if constexpr (
+                                                            std::is_same_v<C, DialogueMediaCue>) {
+                                                            const auto& mutation = cue.mutation;
+                                                            if (!media_slots.contains(
+                                                                    mutation.slot_id))
+                                                                error(
+                                                                    "compiled_project.unresolved_"
+                                                                    "nested_reference",
+                                                                    "Dialogue Media cue references "
+                                                                    "a missing Slot.",
+                                                                    cue_path + "/mutation/slotId");
+                                                            if (mutation.content)
+                                                                validate_media(
+                                                                    *mutation.content,
+                                                                    cue_path + "/mutation/content");
+                                                        } else if constexpr (
+                                                            std::is_same_v<C, DialogueGestureCue>) {
+                                                            if (!stage_slots.contains(cue.slot_id))
+                                                                error("compiled_project.unresolved_"
+                                                                      "nested_reference",
+                                                                      "Dialogue Gesture cue "
+                                                                      "references "
+                                                                      "a missing Stage Slot.",
+                                                                      cue_path + "/slotId");
+                                                        }
+                                                    },
+                                                    typed.cues[cue_index]);
                                             }
                                             for (std::size_t effect = 0;
                                                  effect < typed.effects.size(); ++effect)

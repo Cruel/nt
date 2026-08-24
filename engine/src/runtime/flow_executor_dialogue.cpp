@@ -163,10 +163,10 @@ FlowExecutor::mark_dialogue_wait(const DialogueId& dialogue,
 }
 
 Result<void, Diagnostics>
-FlowExecutor::apply_dialogue_presentation(const DialogueId& dialogue,
-                                          const DialogueFramePosition& expected_position,
-                                          const std::optional<CharacterId>& speaker,
-                                          const compiled::DialogueLinePresentation& presentation)
+FlowExecutor::apply_dialogue_cues(const DialogueId& dialogue,
+                                  const DialogueFramePosition& expected_position,
+                                  const std::optional<CharacterId>& speaker,
+                                  const std::vector<compiled::DialogueSemanticCue>& cues)
 {
     if (m_state.m_execution_fault)
         return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
@@ -181,7 +181,8 @@ FlowExecutor::apply_dialogue_presentation(const DialogueId& dialogue,
 
     auto stage_slots = frame->stage_slots;
     auto media_slots = frame->media_slots;
-    for (const auto& mutation : presentation.stage) {
+    auto apply_stage =
+        [&](const compiled::DialogueStageMutation& mutation) -> Result<void, Diagnostics> {
         auto slot = std::find_if(stage_slots.begin(), stage_slots.end(),
                                  [&](const auto& value) { return value.slot == mutation.slot_id; });
         if (slot == stage_slots.end() ||
@@ -190,7 +191,7 @@ FlowExecutor::apply_dialogue_presentation(const DialogueId& dialogue,
                                         "Dialogue Stage mutation references an unknown slot"));
         if (mutation.action == compiled::DialogueSlotMutationAction::Clear) {
             slot->value.reset();
-            continue;
+            return Result<void, Diagnostics>::success();
         }
 
         std::optional<compiled::DialogueStageSlotState> value = slot->value;
@@ -252,25 +253,28 @@ FlowExecutor::apply_dialogue_presentation(const DialogueId& dialogue,
                 execution_error("execution.invalid_dialogue_stage_state",
                                 "Dialogue Stage mutation produces invalid Character presentation"));
         slot->value = std::move(value);
-    }
-
-    if (presentation.speaker_expression_id && speaker) {
+        return Result<void, Diagnostics>::success();
+    };
+    auto apply_speaker_expression =
+        [&](const CharacterExpressionId& expression) -> Result<void, Diagnostics> {
+        if (!speaker)
+            return Result<void, Diagnostics>::success();
         for (auto& slot : stage_slots) {
             const auto* slot_definition = find_stage_definition(*definition, slot.slot);
             if (!slot.value || slot_definition == nullptr || !slot_definition->speaker_sync ||
                 slot.value->character != *speaker)
                 continue;
             const auto* character = m_project.find_character(slot.value->character);
-            if (character == nullptr ||
-                !has_expression(*character, *presentation.speaker_expression_id))
+            if (character == nullptr || !has_expression(*character, expression))
                 return fail(
                     execution_error("execution.invalid_dialogue_speaker_expression",
                                     "Speaker Expression is unavailable on the speaking Character"));
-            slot.value->expression_id = *presentation.speaker_expression_id;
+            slot.value->expression_id = expression;
         }
-    }
-
-    for (const auto& mutation : presentation.media) {
+        return Result<void, Diagnostics>::success();
+    };
+    auto apply_media =
+        [&](const compiled::DialogueMediaMutation& mutation) -> Result<void, Diagnostics> {
         auto slot = std::find_if(media_slots.begin(), media_slots.end(),
                                  [&](const auto& value) { return value.slot == mutation.slot_id; });
         if (slot == media_slots.end())
@@ -278,7 +282,7 @@ FlowExecutor::apply_dialogue_presentation(const DialogueId& dialogue,
                                         "Dialogue Media mutation references an unknown slot"));
         if (mutation.action == compiled::DialogueSlotMutationAction::Clear) {
             slot->content.reset();
-            continue;
+            return Result<void, Diagnostics>::success();
         }
         if (mutation.content) {
             if (!valid_media(m_project, *mutation.content))
@@ -293,6 +297,28 @@ FlowExecutor::apply_dialogue_presentation(const DialogueId& dialogue,
             slot->visible = true;
         else if (mutation.action == compiled::DialogueSlotMutationAction::Hide)
             slot->visible = false;
+        return Result<void, Diagnostics>::success();
+    };
+
+    for (const auto& cue : cues) {
+        Result<void, Diagnostics> applied = Result<void, Diagnostics>::success();
+        if (const auto* value = std::get_if<compiled::DialogueStageCue>(&cue))
+            applied = apply_stage(value->mutation);
+        else if (const auto* value = std::get_if<compiled::DialogueMediaCue>(&cue))
+            applied = apply_media(value->mutation);
+        else if (const auto* value = std::get_if<compiled::DialogueSpeakerExpressionCue>(&cue))
+            applied = apply_speaker_expression(value->expression_id);
+        else if (const auto* value = std::get_if<compiled::DialogueGestureCue>(&cue)) {
+            const auto slot =
+                std::find_if(stage_slots.begin(), stage_slots.end(),
+                             [&](const auto& state) { return state.slot == value->slot_id; });
+            if (slot == stage_slots.end())
+                applied =
+                    fail(execution_error("execution.invalid_dialogue_gesture_slot",
+                                         "Dialogue Gesture cue references an unknown Stage Slot"));
+        }
+        if (!applied)
+            return applied;
     }
 
     frame->stage_slots = std::move(stage_slots);

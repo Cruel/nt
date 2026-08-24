@@ -1265,7 +1265,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
     }
 
-    SECTION("retired Dialogue presentation shape is rejected at the preserved version")
+    SECTION("Dialogue cues are required and the retired presentation shape is rejected")
     {
         auto missing_slots = fixture("dialogue-program");
         auto* dialogue = path_member(missing_slots, {"definitions", "dialogues", "1"});
@@ -1276,16 +1276,26 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         REQUIRE_FALSE(missing_slots_result);
         CHECK(has_code(missing_slots_result.error(), "compiled_project.missing_field"));
 
-        auto missing_presentation = fixture("dialogue-program");
-        auto* segment =
-            path_member(missing_presentation, {"definitions", "dialogues", "1", "program", "blocks",
-                                               "0", "segments", "0"});
+        auto missing_cues = fixture("dialogue-program");
+        auto* segment = path_member(missing_cues, {"definitions", "dialogues", "1", "program",
+                                                   "blocks", "0", "segments", "0"});
         REQUIRE(segment != nullptr);
-        segment->erase("presentation");
-        auto missing_presentation_result = noveltea::core::decode_compiled_project(
-            missing_presentation, "dialogue-missing-presentation.json");
-        REQUIRE_FALSE(missing_presentation_result);
-        CHECK(has_code(missing_presentation_result.error(), "compiled_project.missing_field"));
+        segment->erase("cues");
+        auto missing_cues_result =
+            noveltea::core::decode_compiled_project(missing_cues, "dialogue-missing-cues.json");
+        REQUIRE_FALSE(missing_cues_result);
+        CHECK(has_code(missing_cues_result.error(), "compiled_project.missing_field"));
+
+        auto retired = fixture("dialogue-program");
+        segment = path_member(
+            retired, {"definitions", "dialogues", "1", "program", "blocks", "0", "segments", "0"});
+        REQUIRE(segment != nullptr);
+        (*segment)["presentation"] = {{"stage", nlohmann::json::array()},
+                                      {"media", nlohmann::json::array()}};
+        auto retired_result =
+            noveltea::core::decode_compiled_project(retired, "dialogue-retired-presentation.json");
+        REQUIRE_FALSE(retired_result);
+        CHECK(has_code(retired_result.error(), "compiled_project.unknown_field"));
     }
 
     SECTION("duplicate Dialogue block ID")
