@@ -410,6 +410,79 @@ TEST_CASE("Dialogue Stage and Media Slot state round-trips through save restore"
     CHECK_FALSE(restored_frame->media_slots.front().visible);
 }
 
+TEST_CASE("Dialogue cue cursor round-trips and rejects incoherent reveal progress")
+{
+    const auto project = load_fixture("dialogue-program.json", [](nlohmann::json& document) {
+        for (auto& dialogue : document["definitions"]["dialogues"]) {
+            if (dialogue["id"] != "intro")
+                continue;
+            auto& line = dialogue["program"]["blocks"][0]["segments"][0];
+            line["cues"] = nlohmann::json::array({{{"id", "expression-1"},
+                                                   {"kind", "speaker-expression"},
+                                                   {"position", {{"offset", 2}, {"order", 0}}},
+                                                   {"expressionId", "neutral"}},
+                                                  {{"id", "expression-2"},
+                                                   {"kind", "speaker-expression"},
+                                                   {"position", {{"offset", 5}, {"order", 0}}},
+                                                   {"expressionId", "neutral"}}});
+        }
+    });
+    auto state = make_state(project);
+    REQUIRE(state.flow_stack().size() == 1);
+    auto* frame = std::get_if<DialogueFrame>(&state.flow_stack().back());
+    REQUIRE(frame != nullptr);
+    const auto dialogue = frame->dialogue;
+    const auto initial = frame->position;
+
+    FlowExecutor flow(project, state);
+    const DialogueFramePosition presenting{id<DialogueBlockId>("start"),
+                                           id<DialogueSegmentId>("inline-line"),
+                                           std::nullopt,
+                                           DialogueFramePosition::Stage::PresentSegment,
+                                           0,
+                                           false};
+    REQUIRE(flow.advance_dialogue(dialogue, initial, presenting));
+    auto blocker = flow.block_top(FlowBlockerKind::Input);
+    REQUIRE(blocker);
+    const DialogueFramePosition awaiting{id<DialogueBlockId>("start"),
+                                         id<DialogueSegmentId>("inline-line"),
+                                         std::nullopt,
+                                         DialogueFramePosition::Stage::ApplySegmentEffects,
+                                         0,
+                                         false};
+    REQUIRE(flow.mark_dialogue_wait(dialogue, presenting, awaiting));
+    REQUIRE(flow.advance_dialogue_reveal(dialogue, awaiting, 1, 2));
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    REQUIRE(encoded.value()["flowStack"].size() == 1);
+    CHECK(encoded.value()["flowStack"][0]["position"]["nextCue"] == 1);
+    CHECK(encoded.value()["flowStack"][0]["position"]["revealOffset"] == 2);
+
+    auto decoded = decode_save_state(project, encoded.value(), "dialogue-cue-cursor-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    const auto* restored_frame = std::get_if<DialogueFrame>(&restored.value().flow_stack().back());
+    REQUIRE(restored_frame != nullptr);
+    CHECK(restored_frame->position.next_cue == 1);
+    CHECK(restored_frame->position.reveal_offset == 2);
+
+    auto crossed_past_reveal = encoded.value();
+    crossed_past_reveal["flowStack"][0]["position"]["nextCue"] = 2;
+    crossed_past_reveal["flowStack"][0]["position"]["revealOffset"] = 2;
+    CHECK_FALSE(
+        decode_save_state(project, crossed_past_reveal, "dialogue-cue-crossed-past-reveal.json"));
+
+    auto unreached_before_reveal = encoded.value();
+    unreached_before_reveal["flowStack"][0]["position"]["nextCue"] = 0;
+    unreached_before_reveal["flowStack"][0]["position"]["revealOffset"] = 3;
+    CHECK_FALSE(decode_save_state(project, unreached_before_reveal,
+                                  "dialogue-cue-unreached-before-reveal.json"));
+}
+
 TEST_CASE("current save-state round-trips the Project undefined Interaction fallback stage")
 {
     const auto project = load_fixture("interaction-program.json", [](nlohmann::json& document) {

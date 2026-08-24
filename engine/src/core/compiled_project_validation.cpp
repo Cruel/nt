@@ -2197,6 +2197,113 @@ private:
                                                                       "references "
                                                                       "a missing Stage Slot.",
                                                                       cue_path + "/slotId");
+                                                        } else if constexpr (
+                                                            std::is_same_v<C, DialogueVoiceCue> ||
+                                                            std::is_same_v<
+                                                                C, DialogueSoundEffectCue>) {
+                                                            require(m_assets, cue.asset, "asset",
+                                                                    cue_path + "/asset");
+                                                            const auto asset =
+                                                                m_assets.find(cue.asset);
+                                                            if (asset != m_assets.end() &&
+                                                                m_input.assets[asset->second]
+                                                                        .kind != AssetKind::Audio)
+                                                                error("compiled_project.invalid_"
+                                                                      "asset_kind",
+                                                                      "Dialogue audio cues require "
+                                                                      "an audio Asset.",
+                                                                      cue_path + "/asset");
+                                                            if (!std::isfinite(cue.gain) ||
+                                                                cue.gain < 0.0 || cue.gain > 1.0 ||
+                                                                !std::isfinite(cue.pan) ||
+                                                                cue.pan < -1.0 || cue.pan > 1.0)
+                                                                error(
+                                                                    "compiled_project.invalid_"
+                                                                    "dialogue_audio",
+                                                                    "Dialogue audio cue mix values "
+                                                                    "are invalid.",
+                                                                    cue_path);
+                                                            if constexpr (
+                                                                std::is_same_v<
+                                                                    C, DialogueSoundEffectCue>) {
+                                                                if ((cue.wait_for_completion ||
+                                                                     cue.synchronized ||
+                                                                     cue.skip_behavior ==
+                                                                         AudioSkipBehavior::Play) &&
+                                                                    cue.causality !=
+                                                                        AudioCausality::Causal)
+                                                                    error(
+                                                                        "compiled_project.invalid_"
+                                                                        "audio_causality",
+                                                                        "Awaited, synchronized, "
+                                                                        "and "
+                                                                        "play-on-skip Dialogue SFX "
+                                                                        "must "
+                                                                        "be causal.",
+                                                                        cue_path + "/causality");
+                                                            }
+                                                        } else if constexpr (
+                                                            std::is_same_v<C, DialogueCameraCue>) {
+                                                            std::visit(
+                                                                [&](const auto& emphasis) {
+                                                                    if (emphasis.duration_ms == 0)
+                                                                        error("compiled_project."
+                                                                              "invalid_"
+                                                                              "dialogue_camera",
+                                                                              "Dialogue camera "
+                                                                              "emphasis "
+                                                                              "duration must be "
+                                                                              "positive.",
+                                                                              cue_path +
+                                                                                  "/emphasis/"
+                                                                                  "durationMs");
+                                                                    using E = std::decay_t<
+                                                                        decltype(emphasis)>;
+                                                                    if constexpr (
+                                                                        std::is_same_v<
+                                                                            E,
+                                                                            DialogueCameraShakeEmphasis>) {
+                                                                        if (!std::isfinite(
+                                                                                emphasis
+                                                                                    .frequency_hz) ||
+                                                                            emphasis.frequency_hz <=
+                                                                                0.0)
+                                                                            error(
+                                                                                "compiled_project."
+                                                                                "invalid_"
+                                                                                "dialogue_camera",
+                                                                                "Dialogue camera "
+                                                                                "shake "
+                                                                                "frequency must be "
+                                                                                "positive.",
+                                                                                cue_path +
+                                                                                    "/emphasis/"
+                                                                                    "frequencyHz");
+                                                                    } else if constexpr (
+                                                                        std::is_same_v<
+                                                                            E,
+                                                                            DialogueCameraFlashEmphasis>) {
+                                                                        if (!std::isfinite(
+                                                                                emphasis.opacity) ||
+                                                                            emphasis.opacity <
+                                                                                0.0 ||
+                                                                            emphasis.opacity >
+                                                                                1.0 ||
+                                                                            emphasis.color.empty())
+                                                                            error(
+                                                                                "compiled_project."
+                                                                                "invalid_"
+                                                                                "dialogue_camera",
+                                                                                "Dialogue camera "
+                                                                                "flash "
+                                                                                "requires a color "
+                                                                                "and "
+                                                                                "opacity in [0,1].",
+                                                                                cue_path +
+                                                                                    "/emphasis");
+                                                                    }
+                                                                },
+                                                                cue.emphasis);
                                                         }
                                                     },
                                                     typed.cues[cue_index]);

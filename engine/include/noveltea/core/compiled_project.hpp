@@ -1375,9 +1375,64 @@ struct DialogueGestureCue {
     DialogueCuePosition position;
     DialogueStageSlotId slot_id;
     CharacterGestureId gesture_id;
+    bool wait_for_completion = false;
+    bool skippable = true;
 };
-using DialogueSemanticCue = std::variant<DialogueSpeakerExpressionCue, DialogueStageCue,
-                                         DialogueMediaCue, DialogueGestureCue>;
+struct DialogueVoiceCue {
+    DialogueCueId id;
+    DialogueCuePosition position;
+    AssetId asset;
+    AudioPausePolicy pause_policy = AudioPausePolicy::Gameplay;
+    double gain = 1.0;
+    double pan = 0.0;
+    bool wait_for_completion = false;
+    AudioSkipBehavior skip_behavior = AudioSkipBehavior::Stop;
+};
+struct DialogueSoundEffectCue {
+    DialogueCueId id;
+    DialogueCuePosition position;
+    AssetId asset;
+    AudioPausePolicy pause_policy = AudioPausePolicy::Gameplay;
+    double gain = 1.0;
+    double pan = 0.0;
+    bool wait_for_completion = false;
+    AudioCausality causality = AudioCausality::Disposable;
+    bool synchronized = false;
+    AudioSkipBehavior skip_behavior = AudioSkipBehavior::Suppress;
+};
+struct DialogueCameraShakeEmphasis {
+    Vector2 amplitude;
+    double frequency_hz = 12.0;
+    std::uint64_t duration_ms = 0;
+    bool skippable = true;
+    bool wait_for_completion = false;
+};
+struct DialogueCameraPunchEmphasis {
+    Vector2 translation;
+    double zoom_delta = 0.0;
+    double rotation_degrees = 0.0;
+    std::uint64_t duration_ms = 0;
+    bool skippable = true;
+    bool wait_for_completion = false;
+};
+struct DialogueCameraFlashEmphasis {
+    std::string color;
+    double opacity = 1.0;
+    std::uint64_t duration_ms = 0;
+    bool skippable = true;
+    bool wait_for_completion = false;
+};
+using DialogueCameraEmphasis =
+    std::variant<DialogueCameraShakeEmphasis, DialogueCameraPunchEmphasis,
+                 DialogueCameraFlashEmphasis>;
+struct DialogueCameraCue {
+    DialogueCueId id;
+    DialogueCuePosition position;
+    DialogueCameraEmphasis emphasis;
+};
+using DialogueSemanticCue =
+    std::variant<DialogueSpeakerExpressionCue, DialogueStageCue, DialogueMediaCue,
+                 DialogueGestureCue, DialogueVoiceCue, DialogueSoundEffectCue, DialogueCameraCue>;
 struct DialogueLineSegment {
     DialogueSegmentId id;
     bool autosave_safe_point;

@@ -40,7 +40,8 @@ public:
     ActiveTextPresenter& operator=(const ActiveTextPresenter&) = delete;
 
     void initialize(assets::AssetManager& assets, ActiveTextPresenterShaper shape_text);
-    void advance(const core::TypedRuntimeUIViewState* view, float delta_seconds);
+    [[nodiscard]] std::optional<core::RuntimeInputMessage>
+    advance(const core::TypedRuntimeUIViewState* view, float delta_seconds);
     void refresh_layout(const core::TypedRuntimeUIViewState* view,
                         const std::optional<ActiveTextPresenterSurface>& surface);
 

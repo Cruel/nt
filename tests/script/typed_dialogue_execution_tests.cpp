@@ -455,6 +455,18 @@ TEST_CASE("typed Dialogue Stage and Media Slots are self-contained retained pres
     CHECK(initial.media_slots[0].visible);
 
     require_input_blocker(kernel->run_until_blocked(100, "en"));
+    const auto* compiled_intro = project.find_dialogue(core::DialogueId::create("intro").value());
+    REQUIRE(compiled_intro != nullptr);
+    const auto* sequence =
+        std::get_if<core::compiled::DialogueSequenceBlock>(&compiled_intro->program.blocks[0]);
+    REQUIRE(sequence != nullptr);
+    const auto* first_compiled_line =
+        std::get_if<core::compiled::DialogueLineSegment>(&sequence->segments[0]);
+    REQUIRE(first_compiled_line != nullptr);
+    auto position = active_dialogue(*kernel).position;
+    REQUIRE(kernel->flow().apply_dialogue_cues(active_dialogue(*kernel).dialogue, position,
+                                               core::CharacterId::create("hero").value(),
+                                               first_compiled_line->cues));
     auto view = kernel->dialogue_view();
     REQUIRE(view);
     REQUIRE(view.value().stage_slots.size() == 1);
@@ -475,6 +487,13 @@ TEST_CASE("typed Dialogue Stage and Media Slots are self-contained retained pres
 
     complete_input(*kernel);
     require_input_blocker(kernel->run_until_blocked(100, "en"));
+    const auto* second_compiled_line =
+        std::get_if<core::compiled::DialogueLineSegment>(&sequence->segments[1]);
+    REQUIRE(second_compiled_line != nullptr);
+    position = active_dialogue(*kernel).position;
+    REQUIRE(kernel->flow().apply_dialogue_cues(active_dialogue(*kernel).dialogue, position,
+                                               core::CharacterId::create("hero").value(),
+                                               second_compiled_line->cues));
     view = kernel->dialogue_view();
     REQUIRE(view);
     REQUIRE(view.value().stage_slots[0].presentation);

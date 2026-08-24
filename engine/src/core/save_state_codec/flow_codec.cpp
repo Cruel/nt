@@ -284,14 +284,17 @@ nlohmann::json encode_dialogue_position(const DialogueFramePosition& value)
             {"edge", encode_optional_id(value.edge)},
             {"stage", names[static_cast<std::size_t>(value.stage)]},
             {"nextEffect", value.next_effect},
-            {"awaitingCompletion", value.awaiting_completion}};
+            {"awaitingCompletion", value.awaiting_completion},
+            {"nextCue", value.next_cue},
+            {"revealOffset", value.reveal_offset}};
 }
 
 std::optional<DialogueFramePosition>
 decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_view pointer)
 {
     if (!d.object(value, pointer,
-                  {"block", "segment", "edge", "stage", "nextEffect", "awaitingCompletion"}))
+                  {"block", "segment", "edge", "stage", "nextEffect", "awaitingCompletion",
+                   "nextCue", "revealOffset"}))
         return std::nullopt;
     const auto* block = d.member(value, "block", pointer);
     const auto* segment = d.member(value, "segment", pointer);
@@ -299,6 +302,8 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
     const auto* stage = d.member(value, "stage", pointer);
     const auto* effect = d.member(value, "nextEffect", pointer);
     const auto* awaiting = d.member(value, "awaitingCompletion", pointer);
+    const auto* next_cue = d.member(value, "nextCue", pointer);
+    const auto* reveal_offset = d.member(value, "revealOffset", pointer);
     auto block_id = block ? d.id<DialogueBlockId>(*block, child(pointer, "block")) : std::nullopt;
     auto segment_id = segment
                           ? d.optional_id<DialogueSegmentId>(*segment, child(pointer, "segment"))
@@ -311,7 +316,15 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
                             : std::nullopt;
     auto awaiting_value =
         awaiting ? d.boolean(*awaiting, child(pointer, "awaitingCompletion")) : std::nullopt;
-    if (!block_id || !segment_id || !edge_id || !name || !effect_index || !awaiting_value)
+    auto next_cue_index =
+        next_cue ? d.unsigned_integer<std::size_t>(*next_cue, child(pointer, "nextCue"))
+                 : std::nullopt;
+    auto reveal_value =
+        reveal_offset
+            ? d.unsigned_integer<std::uint64_t>(*reveal_offset, child(pointer, "revealOffset"))
+            : std::nullopt;
+    if (!block_id || !segment_id || !edge_id || !name || !effect_index || !awaiting_value ||
+        !next_cue_index || !reveal_value)
         return std::nullopt;
     const std::array<std::string_view, 7> names = {
         "enter-block",     "present-segment",      "apply-segment-effects",
@@ -328,7 +341,9 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
         std::move(edge_id.value),
         static_cast<DialogueFramePosition::Stage>(std::distance(names.begin(), found)),
         *effect_index,
-        *awaiting_value};
+        *awaiting_value,
+        *next_cue_index,
+        *reveal_value};
 }
 
 nlohmann::json encode_interaction_program(const InteractionProgramRef& value)

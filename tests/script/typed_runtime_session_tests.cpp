@@ -175,6 +175,42 @@ core::CompiledProject make_faulting_scene_project(std::string source_name)
     return decode_document(std::move(document), std::move(source_name));
 }
 
+core::CompiledProject make_dialogue_cue_project(nlohmann::json cues, std::string source_name)
+{
+    auto document = load_document("dialogue-program.json");
+    for (auto& dialogue : document["definitions"]["dialogues"]) {
+        if (dialogue["id"] != "intro")
+            continue;
+        dialogue["stageSlots"] = nlohmann::json::array();
+        dialogue["mediaSlots"] = nlohmann::json::array();
+        dialogue["program"] = {
+            {"blocks",
+             nlohmann::json::array(
+                 {{{"id", "start"},
+                   {"kind", "sequence"},
+                   {"defaultSpeaker", nullptr},
+                   {"segments",
+                    nlohmann::json::array({{{"id", "line"},
+                                            {"kind", "line"},
+                                            {"autosaveSafePoint", false},
+                                            {"effects", nlohmann::json::array()},
+                                            {"logged", true},
+                                            {"showOnce", false},
+                                            {"speaker", nullptr},
+                                            {"text",
+                                             {{"markup", "plain"},
+                                              {"source", {{"kind", "inline"}, {"text", "ABCDE"}}}}},
+                                            {"cues", std::move(cues)}}})}}})},
+            {"edges", nlohmann::json::array()},
+            {"entryBlockId", "start"},
+        };
+        dialogue["completion"] = {{"kind", "end"}};
+    }
+    document["entrypoint"] = {{"kind", "dialogue"},
+                              {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}};
+    return decode_document(std::move(document), std::move(source_name));
+}
+
 template<class T> core::StrongId<T> make_id(std::string value)
 {
     auto id = core::StrongId<T>::create(std::move(value));
@@ -525,7 +561,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 35);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 36);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
@@ -2989,6 +3025,213 @@ TEST_CASE(
     REQUIRE(stopped.diagnostics.empty());
     CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{77}});
+}
+
+TEST_CASE("Dialogue reveal crosses audio cues exactly once and resumes after cancellation")
+{
+    auto project = make_dialogue_cue_project(
+        nlohmann::json::array({{{"id", "sfx-before"},
+                                {"kind", "sound-effect"},
+                                {"position", {{"offset", 1}, {"order", 0}}},
+                                {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+                                {"pausePolicy", "gameplay"},
+                                {"gain", 1.0},
+                                {"pan", 0.0},
+                                {"waitForCompletion", false},
+                                {"causality", "disposable"},
+                                {"synchronized", false},
+                                {"skipBehavior", "suppress"}},
+                               {{"id", "voice"},
+                                {"kind", "voice"},
+                                {"position", {{"offset", 2}, {"order", 0}}},
+                                {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+                                {"pausePolicy", "gameplay"},
+                                {"gain", 0.75},
+                                {"pan", -0.25},
+                                {"waitForCompletion", true},
+                                {"skipBehavior", "stop"}},
+                               {{"id", "sfx-after"},
+                                {"kind", "sound-effect"},
+                                {"position", {{"offset", 3}, {"order", 0}}},
+                                {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+                                {"pausePolicy", "gameplay"},
+                                {"gain", 0.5},
+                                {"pan", 0.25},
+                                {"waitForCompletion", false},
+                                {"causality", "causal"},
+                                {"synchronized", false},
+                                {"skipBehavior", "suppress"}}}),
+        "dialogue-cue-audio.json");
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&sources}));
+    prepare_project_scripts(runtime, project);
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    const auto& start_view = published_view(started);
+    REQUIRE(start_view.dialogue);
+    REQUIRE(start_view.dialogue->segment);
+    const auto frame = start_view.dialogue->frame;
+    const auto dialogue = start_view.dialogue->dialogue;
+    const auto segment = *start_view.dialogue->segment;
+
+    auto first = session->dispatch(core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 1, false}});
+    REQUIRE(first.diagnostics.empty());
+    REQUIRE(presentation.audio_operations.size() == 1);
+    CHECK(presentation.audio_operations.front().purpose ==
+          core::compiled::AudioPurpose::SoundEffect);
+    CHECK(presentation.audio_operations.front().causality ==
+          core::compiled::AudioCausality::Disposable);
+    REQUIRE(presentation.audio_operations.front().audio_owner);
+    const auto* cue_owner = std::get_if<core::DialoguePresentationOwner>(
+        &*presentation.audio_operations.front().audio_owner);
+    REQUIRE(cue_owner != nullptr);
+    CHECK(cue_owner->invocation == frame);
+    CHECK(cue_owner->dialogue == dialogue);
+
+    auto repeated = session->dispatch(core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 1, false}});
+    REQUIRE(repeated.diagnostics.empty());
+    CHECK(presentation.audio_operations.size() == 1);
+
+    auto voice = session->dispatch(core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 5, false}});
+    REQUIRE(voice.diagnostics.empty());
+    REQUIRE(presentation.audio_operations.size() == 2);
+    const auto awaited = presentation.audio_operations.back();
+    CHECK(awaited.purpose == core::compiled::AudioPurpose::Voice);
+    CHECK(awaited.gain == Catch::Approx(0.75));
+    CHECK(awaited.pan == Catch::Approx(-0.25));
+    REQUIRE(awaited.completion_owner);
+    REQUIRE(awaited.completion);
+    REQUIRE(std::holds_alternative<core::AudioFlowBlockerHandle>(*awaited.completion));
+
+    auto while_waiting = session->dispatch(core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 5, false}});
+    REQUIRE(while_waiting.diagnostics.empty());
+    CHECK(presentation.audio_operations.size() == 2);
+
+    auto cancelled = session->dispatch(core::RuntimeInputMessage{
+        core::CancelAudioInput{awaited.id, *awaited.completion_owner, *awaited.completion}});
+    REQUIRE(cancelled.diagnostics.empty());
+    CHECK(presentation.audio_operations.size() == 2);
+
+    auto resumed = session->dispatch(core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 5, false}});
+    REQUIRE(resumed.diagnostics.empty());
+    REQUIRE(presentation.audio_operations.size() == 3);
+    CHECK(presentation.audio_operations.back().purpose ==
+          core::compiled::AudioPurpose::SoundEffect);
+    CHECK(presentation.audio_operations.back().causality == core::compiled::AudioCausality::Causal);
+}
+
+TEST_CASE("Dialogue fast-forward suppresses unreached disposable audio and skippable camera cues")
+{
+    const auto cues = nlohmann::json::array({{{"id", "sfx"},
+                                              {"kind", "sound-effect"},
+                                              {"position", {{"offset", 1}, {"order", 0}}},
+                                              {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+                                              {"pausePolicy", "gameplay"},
+                                              {"gain", 1.0},
+                                              {"pan", 0.0},
+                                              {"waitForCompletion", false},
+                                              {"causality", "disposable"},
+                                              {"synchronized", false},
+                                              {"skipBehavior", "suppress"}},
+                                             {{"id", "voice"},
+                                              {"kind", "voice"},
+                                              {"position", {{"offset", 2}, {"order", 0}}},
+                                              {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+                                              {"pausePolicy", "gameplay"},
+                                              {"gain", 1.0},
+                                              {"pan", 0.0},
+                                              {"waitForCompletion", false},
+                                              {"skipBehavior", "stop"}},
+                                             {{"id", "camera"},
+                                              {"kind", "camera"},
+                                              {"position", {{"offset", 3}, {"order", 0}}},
+                                              {"emphasis",
+                                               {{"kind", "shake"},
+                                                {"amplitude", {{"x", 4.0}, {"y", 2.0}}},
+                                                {"frequencyHz", 12.0},
+                                                {"durationMs", 150},
+                                                {"skippable", true},
+                                                {"waitForCompletion", false}}}}});
+    auto project = make_dialogue_cue_project(cues, "dialogue-cue-fast-forward.json");
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&sources}));
+    prepare_project_scripts(runtime, project);
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    auto skipped = session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(skipped.diagnostics.empty());
+    CHECK(presentation.audio_operations.empty());
+    CHECK(presentation.presentation_operations.empty());
+}
+
+TEST_CASE("Dialogue camera cue emits one typed finite operation at its reveal position")
+{
+    auto project = make_dialogue_cue_project(
+        nlohmann::json::array({{{"id", "camera"},
+                                {"kind", "camera"},
+                                {"position", {{"offset", 1}, {"order", 0}}},
+                                {"emphasis",
+                                 {{"kind", "punch"},
+                                  {"translation", {{"x", 6.0}, {"y", -3.0}}},
+                                  {"zoomDelta", 0.15},
+                                  {"rotationDegrees", 2.0},
+                                  {"durationMs", 120},
+                                  {"skippable", true},
+                                  {"waitForCompletion", false}}}}}),
+        "dialogue-cue-camera.json");
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&sources}));
+    prepare_project_scripts(runtime, project);
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    const auto& view = published_view(started);
+    REQUIRE(view.dialogue);
+    REQUIRE(view.dialogue->segment);
+    const auto reveal = core::AdvanceDialogueRevealInput{
+        view.dialogue->frame, view.dialogue->dialogue, *view.dialogue->segment, 1, false};
+    auto crossed = session->dispatch(core::RuntimeInputMessage{reveal});
+    REQUIRE(crossed.diagnostics.empty());
+    REQUIRE(presentation.presentation_operations.size() == 1);
+    const auto* punch =
+        std::get_if<core::CameraPunchOperation>(&presentation.presentation_operations.front());
+    REQUIRE(punch != nullptr);
+    CHECK(punch->translation.x == Catch::Approx(6.0));
+    CHECK(punch->translation.y == Catch::Approx(-3.0));
+    CHECK(punch->zoom_delta == Catch::Approx(0.15));
+    CHECK(punch->rotation_degrees == Catch::Approx(2.0));
+
+    auto repeated = session->dispatch(core::RuntimeInputMessage{reveal});
+    REQUIRE(repeated.diagnostics.empty());
+    CHECK(presentation.presentation_operations.size() == 1);
 }
 
 } // namespace noveltea::script::test

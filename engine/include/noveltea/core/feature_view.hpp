@@ -39,7 +39,10 @@ struct SceneView {
 };
 
 struct DialogueView {
+    FlowFrameId frame;
     DialogueId dialogue;
+    std::optional<DialogueSegmentId> segment;
+    std::uint64_t reveal_offset = 0;
     std::optional<PresentedTextState> line;
     std::optional<DialogueChoiceState> choice;
     struct StageSlot {

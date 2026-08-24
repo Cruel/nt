@@ -733,13 +733,16 @@ resolve_layout_state_scope_owner(const SessionState& state, const PresentationOw
                           "Room Layout state requires an Active Room Context or Room-owned Mount"));
     }
     case LayoutStateScope::Flow: {
-        const auto* owner = std::get_if<ScenePresentationOwner>(&mount_owner);
-        if (!owner)
+        if (const auto* owner = std::get_if<ScenePresentationOwner>(&mount_owner))
+            return Result<LayoutStateScopeOwner, Diagnostics>::success(
+                LayoutFlowStateOwner{owner->invocation});
+        if (const auto* owner = std::get_if<DialoguePresentationOwner>(&mount_owner))
+            return Result<LayoutStateScopeOwner, Diagnostics>::success(
+                LayoutFlowStateOwner{owner->invocation});
+        else
             return Result<LayoutStateScopeOwner, Diagnostics>::failure(
                 feature_error("runtime.layout_state_scope_mismatch",
                               "Flow Layout state requires a Flow-owned Mount"));
-        return Result<LayoutStateScopeOwner, Diagnostics>::success(
-            LayoutFlowStateOwner{owner->invocation});
     }
     case LayoutStateScope::Session:
         return Result<LayoutStateScopeOwner, Diagnostics>::success(
@@ -1078,6 +1081,13 @@ bool SessionState::presentation_owner_is_active(const PresentationOwner& owner) 
                         return scene != nullptr && scene->frame_id == value.invocation &&
                                scene->scene == value.scene;
                     });
+            } else if constexpr (std::is_same_v<T, DialoguePresentationOwner>) {
+                return std::any_of(
+                    m_flow_stack.begin(), m_flow_stack.end(), [&value](const auto& f) {
+                        const auto* dialogue = std::get_if<DialogueFrame>(&f);
+                        return dialogue != nullptr && dialogue->frame_id == value.invocation &&
+                               dialogue->dialogue == value.dialogue;
+                    });
             } else if constexpr (std::is_same_v<T, CurrentRoomPresentationOwner>) {
                 const auto current = current_room_presentation_owner();
                 return current && *current == value;
@@ -1155,7 +1165,9 @@ void SessionState::remove_presentation_owned_by(const PresentationOwner& owner) 
                     return room && room->room == scoped.room;
                 } else if constexpr (std::is_same_v<T, LayoutFlowStateOwner>) {
                     const auto* flow = std::get_if<ScenePresentationOwner>(&owner);
-                    return flow && flow->invocation == scoped.flow;
+                    const auto* dialogue = std::get_if<DialoguePresentationOwner>(&owner);
+                    return (flow && flow->invocation == scoped.flow) ||
+                           (dialogue && dialogue->invocation == scoped.flow);
                 } else {
                     const auto* session = std::get_if<SessionPresentationOwner>(&owner);
                     return session && session->session == scoped.session;
@@ -1168,9 +1180,11 @@ void SessionState::remove_presentation_owned_by(const PresentationOwner& owner) 
 
 void SessionState::remove_scene_presentation(const FlowFrame& frame) noexcept
 {
-    const auto* scene = std::get_if<SceneFrame>(&frame);
-    if (scene != nullptr)
+    if (const auto* scene = std::get_if<SceneFrame>(&frame))
         remove_presentation_owned_by(ScenePresentationOwner{scene->frame_id, scene->scene});
+    else if (const auto* dialogue = std::get_if<DialogueFrame>(&frame))
+        remove_presentation_owned_by(
+            DialoguePresentationOwner{dialogue->frame_id, dialogue->dialogue});
 }
 
 Result<void, Diagnostics> SessionState::upsert_background_override(const CompiledProject& project,

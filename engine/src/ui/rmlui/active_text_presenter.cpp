@@ -37,6 +37,38 @@ ActiveTextPlaybackInput playback_input(const core::TypedRuntimeUIViewState& stat
         .page_break = page_index + 1u < active_text_page_count(document)};
 }
 
+std::uint64_t utf8_codepoint_count(std::string_view value) noexcept
+{
+    std::uint64_t count = 0;
+    for (const unsigned char byte : value)
+        if ((byte & 0xc0u) != 0x80u)
+            ++count;
+    return count;
+}
+
+std::optional<core::RuntimeInputMessage>
+dialogue_reveal_input(const core::TypedRuntimeUIViewState* view, std::size_t page_index,
+                      float reveal_progress, bool skipping)
+{
+    if (view == nullptr || !view->dialogue || !view->dialogue->line || !view->dialogue->segment)
+        return std::nullopt;
+    const auto document = active_text_document(*view);
+    const auto page_count = active_text_page_count(document);
+    page_index = std::min(page_index, page_count - 1u);
+    std::uint64_t offset = 0;
+    for (std::size_t page = 0; page < page_index; ++page)
+        offset += utf8_codepoint_count(active_text_document_page(document, page).plain_text);
+    ActiveTextLayoutOptions options;
+    options.page_index = page_index;
+    options.reveal_progress = reveal_progress;
+    offset += utf8_codepoint_count(active_text_visible_text(document, options));
+    if (offset <= view->dialogue->reveal_offset)
+        return std::nullopt;
+    return core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{view->dialogue->frame, view->dialogue->dialogue,
+                                         *view->dialogue->segment, offset, skipping}};
+}
+
 bool interactable_available(const core::TypedRuntimeUIViewState& view,
                             const core::InteractableId& interactable)
 {
@@ -149,7 +181,8 @@ bool ActiveTextPresenter::poll_font_requests()
     return !pending;
 }
 
-void ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float delta_seconds)
+std::optional<core::RuntimeInputMessage>
+ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float delta_seconds)
 {
     const std::string content_key = view ? active_text_content_key(*view) : std::string{};
     if (!content_key.empty() && content_key != m_content_key)
@@ -168,6 +201,7 @@ void ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, flo
     } else if (delta_seconds > 0.0f) {
         m_time_seconds += static_cast<double>(delta_seconds);
     }
+    return dialogue_reveal_input(view, m_page_index, m_playback.reveal_progress, false);
 }
 
 void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* view,
@@ -256,6 +290,8 @@ ActiveTextPresenter::activate(const core::TypedRuntimeUIViewState* view, float x
     if (m_playback.can_skip_reveal) {
         m_playback = skip_active_text_reveal(m_playback);
         activation.local_state_changed = true;
+        activation.input =
+            dialogue_reveal_input(view, m_page_index, m_playback.reveal_progress, true);
         return activation;
     }
     if (m_playback.can_continue) {

@@ -495,27 +495,44 @@ bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
     case DialogueFramePosition::Stage::EnterBlock:
     case DialogueFramePosition::Stage::Complete:
         return !position.segment && !position.edge && position.next_effect == 0 &&
-               !position.awaiting_completion;
+               !position.awaiting_completion && position.next_cue == 0 &&
+               position.reveal_offset == 0;
     case DialogueFramePosition::Stage::PresentSegment:
         return segment && !position.edge && position.next_effect == 0 &&
                (!position.awaiting_completion ||
-                std::holds_alternative<compiled::DialogueRunLuaSegment>(*segment));
+                std::holds_alternative<compiled::DialogueRunLuaSegment>(*segment)) &&
+               position.next_cue == 0 && position.reveal_offset == 0;
     case DialogueFramePosition::Stage::ApplySegmentEffects: {
         const auto* line = segment ? std::get_if<compiled::DialogueLineSegment>(segment) : nullptr;
-        return line && !position.edge && position.next_effect <= line->effects.size() &&
-               (!position.awaiting_completion || position.next_effect < line->effects.size());
+        if (!line || position.edge || position.next_effect > line->effects.size() ||
+            (position.awaiting_completion && position.next_effect >= line->effects.size()) ||
+            position.next_cue > line->cues.size())
+            return false;
+        const auto cue_offset = [](const compiled::DialogueSemanticCue& cue) {
+            return std::visit([](const auto& value) { return value.position.offset; }, cue);
+        };
+        if (position.next_cue > 0 &&
+            cue_offset(line->cues[position.next_cue - 1]) > position.reveal_offset)
+            return false;
+        if (position.next_cue < line->cues.size() &&
+            cue_offset(line->cues[position.next_cue]) < position.reveal_offset)
+            return false;
+        return true;
     }
     case DialogueFramePosition::Stage::PresentChoices:
         return std::holds_alternative<compiled::DialogueChoiceBlock>(*block) && !position.segment &&
-               !position.edge && position.next_effect == 0;
+               !position.edge && position.next_effect == 0 && position.next_cue == 0 &&
+               position.reveal_offset == 0;
     case DialogueFramePosition::Stage::ApplyChoiceEffects: {
         const auto* choice = edge ? std::get_if<compiled::DialogueChoiceEdge>(edge) : nullptr;
         return choice && !position.segment && position.next_effect <= choice->effects.size() &&
-               (!position.awaiting_completion || position.next_effect < choice->effects.size());
+               (!position.awaiting_completion || position.next_effect < choice->effects.size()) &&
+               position.next_cue == 0 && position.reveal_offset == 0;
     }
     case DialogueFramePosition::Stage::FollowEdge:
         return edge && !position.segment && position.next_effect == 0 &&
-               !position.awaiting_completion;
+               !position.awaiting_completion && position.next_cue == 0 &&
+               position.reveal_offset == 0;
     }
     return false;
 }
@@ -664,6 +681,11 @@ bool valid_saved_owner(const CompiledProject& project, const SaveState& save,
                 const auto* scene = frame ? std::get_if<SavedSceneFrame>(frame) : nullptr;
                 return scene != nullptr && scene->scene == value.scene &&
                        project.find_scene(value.scene) != nullptr;
+            } else if constexpr (std::is_same_v<T, SavedDialoguePresentationOwner>) {
+                const auto* frame = saved_frame(save, value.invocation);
+                const auto* dialogue = frame ? std::get_if<SavedDialogueFrame>(frame) : nullptr;
+                return dialogue != nullptr && dialogue->dialogue == value.dialogue &&
+                       project.find_dialogue(value.dialogue) != nullptr;
             } else if constexpr (std::is_same_v<T, SavedCurrentRoomPresentationOwner>) {
                 return save.active_room_visit && save.active_room_visit->room == value.room &&
                        resolved_room(project, save, value.room).has_value();
@@ -684,6 +706,9 @@ std::string saved_owner_key(const SavedPresentationOwner& owner)
             if constexpr (std::is_same_v<T, SavedScenePresentationOwner>)
                 return std::string("scene:") + std::to_string(value.invocation.value) + ":" +
                        value.scene.text();
+            else if constexpr (std::is_same_v<T, SavedDialoguePresentationOwner>)
+                return std::string("dialogue:") + std::to_string(value.invocation.value) + ":" +
+                       value.dialogue.text();
             else if constexpr (std::is_same_v<T, SavedCurrentRoomPresentationOwner>)
                 return std::string("current-room:") + value.room.text();
             else if constexpr (std::is_same_v<T, SavedRoomPresentationOwner>)

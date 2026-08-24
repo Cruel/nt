@@ -13,6 +13,25 @@ Diagnostics execution_error(std::string code, std::string message)
 
 } // namespace
 
+Result<AudioFlowBlockerHandle, Diagnostics> FlowExecutor::allocate_audio_completion_handle()
+{
+    if (m_state.m_next_blocker_handle == std::numeric_limits<std::uint64_t>::max())
+        return Result<AudioFlowBlockerHandle, Diagnostics>::failure(
+            execution_error("execution.invalid_blocker", "Flow blocker cannot be allocated"));
+    return Result<AudioFlowBlockerHandle, Diagnostics>::success(
+        AudioFlowBlockerHandle{m_state.m_next_blocker_handle++});
+}
+
+Result<PresentationFlowBlockerHandle, Diagnostics>
+FlowExecutor::allocate_presentation_completion_handle()
+{
+    if (m_state.m_next_blocker_handle == std::numeric_limits<std::uint64_t>::max())
+        return Result<PresentationFlowBlockerHandle, Diagnostics>::failure(
+            execution_error("execution.invalid_blocker", "Flow blocker cannot be allocated"));
+    return Result<PresentationFlowBlockerHandle, Diagnostics>::success(
+        PresentationFlowBlockerHandle{m_state.m_next_blocker_handle++});
+}
+
 Result<FlowBlocker, Diagnostics> FlowExecutor::block_top(FlowBlockerKind kind)
 {
     auto ready = ensure_flow_ready();

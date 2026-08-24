@@ -106,6 +106,13 @@ public:
                         const std::optional<CharacterId>& speaker,
                         const std::vector<compiled::DialogueSemanticCue>& cues);
     [[nodiscard]] Result<void, Diagnostics>
+    advance_dialogue_reveal(const DialogueId& dialogue,
+                            const DialogueFramePosition& expected_position, std::size_t next_cue,
+                            std::uint64_t reveal_offset);
+    [[nodiscard]] Result<AudioFlowBlockerHandle, Diagnostics> allocate_audio_completion_handle();
+    [[nodiscard]] Result<PresentationFlowBlockerHandle, Diagnostics>
+    allocate_presentation_completion_handle();
+    [[nodiscard]] Result<void, Diagnostics>
     choose_dialogue_option(const FlowFrameId& owner, const InputFlowBlockerHandle& handle,
                            const DialogueEdgeId& edge);
     [[nodiscard]] Result<void, Diagnostics>

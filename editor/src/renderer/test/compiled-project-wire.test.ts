@@ -299,7 +299,7 @@ function representativeWireFixture() {
                     kind: 'line',
                     speaker: null,
                     text: { markup: 'active-text', source: { kind: 'inline', text: 'Hello' } },
-                    presentation: { stage: [], media: [] },
+                    cues: [],
                     effects: [],
                     showOnce: false,
                     logged: true,

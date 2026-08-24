@@ -45,9 +45,11 @@ Dialogue default. Cue IDs are stable within the Dialogue. Every cue has a Unicod
 offset plus an explicit order for deterministic same-position sequencing.
 
 The cue stream has distinct typed classes for ActiveText presentation tokens and semantic Dialogue
-cues. Semantic cues currently cover speaker Expression changes, Stage mutations, Media mutations,
-and Character Gestures. Structured editor controls and markup source are two views over this same cue
-array; neither owns a parallel presentation blob.
+cues. Semantic cues cover speaker Expression changes, Stage mutations, Media mutations, Character
+Gestures, Voice, Sound Effects, and modest Camera emphasis (`shake`, `punch`, and `flash`). Voice and
+Sound Effect cues carry semantic audio policy rather than mixer-channel state; Gesture and Camera
+cues carry explicit wait/skippable policy. Structured editor controls and markup source are two views
+over this same cue array; neither owns a parallel presentation blob.
 
 Inline source markup uses ordinary ActiveText tags for text presentation plus `[nt-cue ...]`
 authoring tags for semantic cues. Source parsing strips both classes from the stored plain text and
@@ -70,6 +72,13 @@ whose Character matches the resolved speaker. An off-screen speaker is valid: Di
 speaker even when no Stage Slot currently contains that Character. Stage occurrence speaking state is
 derived from the resolved line speaker and `speakerSync`; configured Character speaking animation then
 uses the ordinary Character presentation machinery from `CHARACTER.md`.
+
+Voice is always a causal Dialogue-associated one-shot. Sound Effect cues choose causal or disposable
+one-shot behavior explicitly; awaited, synchronized, and play-on-skip Sound Effects must be causal.
+Both use the shared Audio Purpose/Pause Policy/gain/pan/skip contracts. Their semantic Owner is the
+exact Dialogue Flow invocation, so transient playback cannot outlive the conversation that emitted
+it. Camera cues intentionally expose only short shake/punch/flash emphasis; multi-stage camera
+choreography remains Scene work.
 
 Text source is Inline, Localized key, or synchronous Lua expression; markup is Plain or ActiveText.
 Show-once state is keyed by Dialogue ID plus Segment ID.
@@ -120,8 +129,9 @@ The Dialogue editor supports:
 - typed text-source, Character, Condition, Effect, show-once, logging, autosave, and completion fields;
 - Stage Slot and Media Slot creation/removal/configuration, initial retained state, speaker sync, and
   line-level sparse semantic cues;
-- a cue timeline for stable cue IDs, text offsets, deterministic same-position order, and Gesture
-  targeting, plus inline markup-source round-tripping over the same cue model;
+- a cue timeline for stable cue IDs, text offsets, deterministic same-position order, Gesture
+  targeting/wait/skip policy, Voice/SFX Asset and audio policy, and Camera emphasis parameters, plus
+  inline markup-source round-tripping over the same cue model;
 - derived preview and diagnostics;
 - atomic creation paths that never publish an invalid intermediate Choice block.
 
@@ -138,12 +148,24 @@ points, redirects, nested Return, and completion targets through `FlowExecutor` 
 
 Each Dialogue frame initializes every Stage/Media Slot from the immutable definition, including a
 direct Dialogue entrypoint with no Scene caller. Semantic line cues are compiled in position/order
-sequence and applied in that deterministic cross-type order. Stage/Media mutations are validated
-against copied retained slot vectors and committed only after the whole cue application succeeds, so
-an invalid later cue cannot leave a partially changed conversation presentation. The retained vectors
-survive normal line/choice progression and are discarded with the Dialogue invocation. Reveal-time
-cue crossing, fast-forward policy, voice/SFX, and Gesture execution are layered by the following cue
-runtime slice rather than by parsing text markup.
+sequence and crossed in that deterministic cross-type order as ActiveText reveal reaches each Unicode
+code-point position. RuntimeUI reports reveal progress through one typed runtime input carrying the
+exact Dialogue frame, segment, logical offset, and whether the advance is a skip. The runtime cursor
+advances a cue before issuing its external one-shot/finite operation, so replayed progress,
+completion, cancellation, and checkpoint reconstruction cannot execute the same cue twice.
+
+Stage/Media mutations and speaker Expression changes commit through `FlowExecutor`. Gesture cues use
+the semantic Character Gesture presentation operation from `CHARACTER.md`; Voice/SFX use typed Audio
+operations; Camera cues use the finite camera operation vocabulary. Awaited cue work uses a distinct
+completion handle while the line's Input blocker remains authoritative. Completion resumes crossing
+toward the stored reveal target. Cancellation leaves the already-crossed cue consumed and later
+reveal progress continues after it rather than replaying it.
+
+Fast-forward traverses the remaining cue stream before completing the line. Stateful semantic cues
+still commit once. Unreached disposable one-shots and normal stop/suppress Voice/SFX are suppressed,
+skippable Gesture/Camera emphasis is settled by omission, and non-skippable/explicit play-on-skip
+work remains subject to its declared causal/wait policy. This prevents skip from burst-playing a line
+of effects while preserving explicit barriers.
 
 `DialogueView` publishes the retained Stage/Media Slot state. Stage Slots are additionally projected
 as ordinary Character presentation actors using the #91/#92 Profile/Pose/Expression/Appearance,
@@ -155,11 +177,15 @@ world geometry; the runtime RmlUi model publishes the slot data to the Dialogue 
 Dialogue choices continue to use the specialized Dialogue choice contract and the existing Dialogue
 Layout path (`gameplay.choices`). They do not route through the Scene Choice System Layout role.
 
-The mutable cursor retains stable block, segment, edge, and effect positions across input and Lua
-suspension. Advancement is validated and atomic: a failed effect, invalid target, stale blocker, or
-disabled choice does not consume the active position. Current line and choice presentation are
-published as a typed `DialogueView`; line/choice history and typed text-log entries have one
-session-owned source of truth.
+The mutable cursor retains stable block, segment, edge, effect, next-cue, and revealed-code-point
+positions across input and Lua suspension. Save data stores only this logical cue cursor; audio
+decoder position, Gesture/Camera tween phase, ActiveText renderer progress, and backend handles are
+never serialized. Save validation rejects a cursor that claims to have crossed a cue beyond the
+revealed frontier or leaves an earlier cue uncrossed behind it. Checkpoint barriers prevent awaited
+external cue work from being captured mid-operation. Advancement is validated and atomic: a failed
+effect, invalid target, stale blocker, or disabled choice does not consume the active position.
+Current line and choice presentation are published as a typed `DialogueView`; line/choice history and
+typed text-log entries have one session-owned source of truth.
 
 ## Implementation files
 
@@ -178,7 +204,11 @@ engine/include/noveltea/core/flow_executor.hpp
 engine/include/noveltea/core/save_state.hpp
 engine/src/runtime/flow_executor_dialogue.cpp
 engine/src/runtime/runtime_executor_dialogue.cpp
+engine/src/runtime/runtime_session.cpp
 engine/src/presentation/runtime_presentation.cpp
+engine/src/runtime_presentation_bridge.cpp
+engine/src/runtime_audio_adapter.cpp
+engine/src/ui/rmlui/active_text_presenter.cpp
 engine/src/ui/rmlui/runtime_ui_data_model.cpp
 engine/src/core/save_state_codec/flow_codec.cpp
 engine/src/core/save_state_codec/validation.cpp
@@ -192,7 +222,7 @@ tests/core/save_state_tests.cpp
 ## Authoring, compiled, and state disposition
 
 - **Authoring:** collection-specific graph record with strict blocks/segments/edges, Stage/Media Slot declarations, positioned typed Line cues, entry block, settings, and completion target. ActiveText/semantic source markup is a reversible view over the same cue array.
-- **Compiled:** linked immutable `DialogueDefinition`/`DialogueProgram` with Stage/Media Slot defaults, ordered semantic Line cues, ActiveText-only runtime text, redirects, ordered choices, and safe points. The already-selected compiled-project schema version remains unchanged. The current-version wire shape requires the #93 Stage/Media Slot arrays and the #94 `cues` array; the replaced same-version Line `presentation` shape is rejected rather than treated as compatibility input.
-- **Mutable:** Dialogue frame cursor, retained Stage/Media Slot values, show-once/history/visit state, and waits in `SessionState`; the Dialogue definition itself has no Property/Trait state. Stage/Media Slot state is serialized with the Dialogue frame and semantically revalidated against immutable Character/Asset/Slot content during save decode/restore.
+- **Compiled:** linked immutable `DialogueDefinition`/`DialogueProgram` with Stage/Media Slot defaults, ordered semantic Line cues including Voice/SFX/Gesture/Camera policy, ActiveText-only runtime text, redirects, ordered choices, and safe points. The already-selected compiled-project schema version remains unchanged. The current-version wire shape requires the #93 Stage/Media Slot arrays and the positioned `cues` array; the replaced same-version Line `presentation` shape is rejected rather than treated as compatibility input.
+- **Mutable:** Dialogue frame cursor including `nextCue`/`revealOffset`, retained Stage/Media Slot values, show-once/history/visit state, and waits in `SessionState`; the Dialogue definition itself has no Property/Trait state. Stage/Media Slot state and the logical cue cursor are serialized with the Dialogue frame and semantically revalidated against immutable Character/Asset/Slot/cue content during save decode/restore. External cue realization state is never saved.
 - **Tooling only:** graph coordinates, viewport, selection, collapsed state, preview settings,
   Comment blocks/segments, categories, tags, colors, and sort keys.

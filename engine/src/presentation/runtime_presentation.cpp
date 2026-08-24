@@ -1046,18 +1046,19 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                 index > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())
                     ? std::numeric_limits<std::int32_t>::max()
                     : static_cast<std::int32_t>(index);
-            append_actor(project, world,
-                         ActorSource{ScopedActorKey{std::move(*instance.value_if())},
-                                     slot_state.value->character, slot_state.value->profile_id,
-                                     slot_state.value->pose_id, slot_state.value->expression_id,
-                                     slot_state.value->appearance_id, character->defaults.idle_id,
-                                     ActorLogicalPlacement{slot_state.value->position,
-                                                           slot_state.value->offset,
-                                                           slot_state.value->scale},
-                                     std::nullopt, std::nullopt, order, true,
-                                     slot_state.value->visible, true, speaking, true,
-                                     state.session_presentation_owner()},
-                         result, diagnostics);
+            append_actor(
+                project, world,
+                ActorSource{
+                    ScopedActorKey{std::move(*instance.value_if())}, slot_state.value->character,
+                    slot_state.value->profile_id, slot_state.value->pose_id,
+                    slot_state.value->expression_id, slot_state.value->appearance_id,
+                    character->defaults.idle_id,
+                    ActorLogicalPlacement{slot_state.value->position, slot_state.value->offset,
+                                          slot_state.value->scale},
+                    std::nullopt, std::nullopt, order, true, slot_state.value->visible, true,
+                    speaking, true,
+                    DialoguePresentationOwner{dialogue_frame->frame_id, dialogue_frame->dialogue}},
+                result, diagnostics);
         }
     }
 
@@ -1246,6 +1247,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                 scopes = {LayoutStateScope::Room, LayoutStateScope::Session};
             } else if (std::holds_alternative<ScenePresentationOwner>(mount.owner)) {
                 scopes = {LayoutStateScope::Flow, LayoutStateScope::Session};
+            } else if (std::holds_alternative<DialoguePresentationOwner>(mount.owner)) {
+                scopes = {LayoutStateScope::Flow, LayoutStateScope::Session};
             } else if (std::holds_alternative<SessionPresentationOwner>(mount.owner)) {
                 scopes = {LayoutStateScope::Session};
             }
@@ -1283,6 +1286,9 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         if (const auto* scene = std::get_if<SceneFrame>(&frame))
             result.active_audio_owners.push_back(
                 ScenePresentationOwner{scene->frame_id, scene->scene});
+        else if (const auto* dialogue = std::get_if<DialogueFrame>(&frame))
+            result.active_audio_owners.push_back(
+                DialoguePresentationOwner{dialogue->frame_id, dialogue->dialogue});
     }
     std::sort(result.active_audio_owners.begin(), result.active_audio_owners.end());
     result.active_audio_owners.erase(

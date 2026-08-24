@@ -138,6 +138,11 @@ struct SavedScenePresentationOwner {
     SceneId scene;
     auto operator<=>(const SavedScenePresentationOwner&) const = default;
 };
+struct SavedDialoguePresentationOwner {
+    SavedFlowFrameId invocation;
+    DialogueId dialogue;
+    auto operator<=>(const SavedDialoguePresentationOwner&) const = default;
+};
 struct SavedCurrentRoomPresentationOwner {
     RoomId room;
     auto operator<=>(const SavedCurrentRoomPresentationOwner&) const = default;
@@ -150,8 +155,9 @@ struct SavedSessionPresentationOwner {
     auto operator<=>(const SavedSessionPresentationOwner&) const = default;
 };
 using SavedPresentationOwner =
-    std::variant<SavedScenePresentationOwner, SavedCurrentRoomPresentationOwner,
-                 SavedRoomPresentationOwner, SavedSessionPresentationOwner>;
+    std::variant<SavedScenePresentationOwner, SavedDialoguePresentationOwner,
+                 SavedCurrentRoomPresentationOwner, SavedRoomPresentationOwner,
+                 SavedSessionPresentationOwner>;
 
 struct SavedSceneActorKey {
     SavedScenePresentationOwner owner;
