@@ -707,7 +707,19 @@ const SavedFlowFrame* saved_frame(const SaveState& save, SavedFlowFrameId id) no
         save.flow_stack.begin(), save.flow_stack.end(), [id](const SavedFlowFrame& frame) {
             return std::visit([id](const auto& value) { return value.snapshot_id == id; }, frame);
         });
-    return found == save.flow_stack.end() ? nullptr : &*found;
+    if (found != save.flow_stack.end())
+        return &*found;
+    for (const auto& detached : save.detached_flows) {
+        const auto detached_found = std::find_if(
+            detached.flow_stack.begin(), detached.flow_stack.end(),
+            [id](const SavedFlowFrame& frame) {
+                return std::visit([id](const auto& value) { return value.snapshot_id == id; },
+                                  frame);
+            });
+        if (detached_found != detached.flow_stack.end())
+            return &*detached_found;
+    }
+    return nullptr;
 }
 
 bool valid_saved_owner(const CompiledProject& project, const SaveState& save,
@@ -1804,16 +1816,246 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                       "before its awaiting Scene.");
         }
         if (scene->preserved_dialogue_caller) {
-            const auto* caller = saved_frame(save, *scene->preserved_dialogue_caller);
-            const auto caller_index =
-                caller == nullptr ? save.flow_stack.size()
-                                  : static_cast<std::size_t>(caller - save.flow_stack.data());
-            if (caller == nullptr || caller_index >= item_index ||
+            const auto caller = std::find_if(
+                save.flow_stack.begin(), save.flow_stack.begin() + item_index,
+                [&](const SavedFlowFrame& candidate) {
+                    return std::visit(
+                        [&](const auto& value) {
+                            return value.snapshot_id == *scene->preserved_dialogue_caller;
+                        },
+                        candidate);
+                });
+            if (caller == save.flow_stack.begin() + item_index ||
                 !std::holds_alternative<SavedDialogueFrame>(*caller))
                 error("save_codec.incoherent_flow",
                       "Retained Dialogue UI identity must reference a reachable caller Dialogue.");
         }
     }
+
+    const auto validate_detached_frame = [&](const SavedFlowFrame& frame) {
+        return std::visit(
+            [&project, &save](const auto& item) {
+                using T = std::decay_t<decltype(item)>;
+                if (!valid_destination(project, save, item.destination))
+                    return false;
+                if constexpr (std::is_same_v<T, SavedSceneFrame>) {
+                    const auto* scene = project.find_scene(item.scene);
+                    return scene && valid_scene_position(*scene, item.position) &&
+                           valid_scene_inputs(*scene, item.inputs);
+                } else if constexpr (std::is_same_v<T, SavedDialogueFrame>) {
+                    const auto* dialogue = project.find_dialogue(item.dialogue);
+                    return dialogue && valid_dialogue_position(*dialogue, item.position) &&
+                           valid_dialogue_presentation_state(project, save, *dialogue, item);
+                } else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
+                    const auto* program = interaction_program(project, item.program);
+                    const auto* verb = project.find_verb(item.invocation.verb);
+                    if (program == nullptr || verb == nullptr ||
+                        item.invocation.bindings.size() != verb->slots.size())
+                        return false;
+                    std::unordered_set<VerbSlotId> binding_slots;
+                    for (const auto& binding : item.invocation.bindings) {
+                        const bool known_slot =
+                            std::ranges::any_of(verb->slots, [&](const auto& slot) {
+                                return slot.id == binding.slot_id;
+                            });
+                        if (!known_slot || !binding_slots.insert(binding.slot_id).second)
+                            return false;
+                    }
+                    return (!item.position.next_instruction ||
+                            has_interaction_instruction(*program,
+                                                        *item.position.next_instruction)) &&
+                           item.position.fallback_stage <= InteractionFallbackStage::Complete &&
+                           item.position.outcome <= InteractionExecutionOutcome::Failed &&
+                           (!item.position.awaiting_completion ||
+                            item.position.next_instruction.has_value());
+                } else {
+                    if (!resolved_room(project, save, item.target_room) ||
+                        (item.source_room && !resolved_room(project, save, *item.source_room)) ||
+                        !valid_room_position(project, save, item) ||
+                        item.kind > RoomTransitionKind::DirectedRoomChange ||
+                        item.entry_cause > RoomEntryCause::DirectedRoomChange)
+                        return false;
+                    if (item.source_context &&
+                        (!item.source_room || item.source_context->room != *item.source_room ||
+                         !valid_room_visit_context(project, save, *item.source_context, false)))
+                        return false;
+                    if (item.source_room.has_value() != item.source_context.has_value())
+                        return false;
+                    if (item.kind == RoomTransitionKind::NavigationAttempt) {
+                        if (item.entry_cause != RoomEntryCause::NavigationAttempt ||
+                            !item.source_room || !item.selected_exit)
+                            return false;
+                        auto room = resolved_room(project, save, item.selected_exit->room);
+                        if (!room || item.selected_exit->room != *item.source_room)
+                            return false;
+                        const auto found =
+                            std::ranges::find_if(room->exits, [&](const compiled::RoomExit& exit) {
+                                return exit.id == item.selected_exit->exit_id;
+                            });
+                        return found != room->exits.end() && found->target == item.target_room;
+                    }
+                    if (item.selected_exit || item.entry_cause == RoomEntryCause::NavigationAttempt)
+                        return false;
+                    if (item.entry_cause == RoomEntryCause::Entrypoint)
+                        return !item.source_room && !item.source_context;
+                    return item.entry_cause == RoomEntryCause::DirectedRoomChange;
+                }
+            },
+            frame);
+    };
+
+    for (const auto& detached : save.detached_flows) {
+        if (detached.flow_stack.empty()) {
+            error("save_codec.invalid_detached_flow",
+                  "Detached Flow must contain an active stack.");
+            continue;
+        }
+        if (detached.owner == compiled::DetachedSceneOwner::Flow) {
+            if (!detached.flow_owner || saved_frame(save, *detached.flow_owner) == nullptr)
+                error("save_codec.invalid_detached_owner",
+                      "Flow-owned detached execution has no saved causal owner.");
+        } else if (detached.flow_owner) {
+            error("save_codec.invalid_detached_owner",
+                  "Only Flow-owned detached execution may carry a Flow owner.");
+        }
+        if (detached.owner == compiled::DetachedSceneOwner::ActiveRoom &&
+            (!save.active_room_visit || detached.room_entry_sequence != save.room_entry_sequence))
+            error("save_codec.invalid_detached_owner",
+                  "Active-Room-owned detached execution does not match the saved Room visit.");
+
+        for (std::size_t item_index = 0; item_index < detached.flow_stack.size(); ++item_index) {
+            const auto& frame = detached.flow_stack[item_index];
+            const auto snapshot =
+                std::visit([](const auto& value) { return value.snapshot_id.value; }, frame);
+            if (snapshot == 0 || !frame_ids.insert(snapshot).second ||
+                !validate_detached_frame(frame))
+                error("save_codec.invalid_flow_frame",
+                      "Detached Flow frame is stale, duplicate, or incoherent.");
+            const auto destination = std::visit(
+                [](const auto& value) -> ReturnDestination { return value.destination; }, frame);
+            const bool suspended_root_dialogue =
+                item_index == 0 && detached.flow_stack.size() > 1 &&
+                std::holds_alternative<SavedDialogueFrame>(frame) &&
+                std::holds_alternative<SavedSceneFrame>(detached.flow_stack[1]) &&
+                std::get<SavedSceneFrame>(detached.flow_stack[1]).dialogue_handoff &&
+                std::get<SavedSceneFrame>(detached.flow_stack[1])
+                        .dialogue_handoff->dialogue_frame.value == snapshot;
+            const bool handed_off_root_scene =
+                item_index == 1 && std::holds_alternative<SavedSceneFrame>(frame) &&
+                std::get<SavedSceneFrame>(frame).dialogue_handoff &&
+                std::get<SavedSceneFrame>(frame).dialogue_handoff->dialogue_frame.value ==
+                    std::visit([](const auto& value) { return value.snapshot_id.value; },
+                               detached.flow_stack[0]);
+            const bool destination_is_coherent =
+                item_index == 0 ? (suspended_root_dialogue
+                                       ? std::holds_alternative<CallerDestination>(destination)
+                                       : std::holds_alternative<NoReturnDestination>(destination))
+                                : (handed_off_root_scene
+                                       ? std::holds_alternative<NoReturnDestination>(destination)
+                                       : std::holds_alternative<CallerDestination>(destination));
+            if (!destination_is_coherent)
+                error("save_codec.incoherent_flow",
+                      "Detached Flow return destinations are incoherent.");
+        }
+
+        for (std::size_t item_index = 0; item_index < detached.flow_stack.size(); ++item_index) {
+            const auto* scene = std::get_if<SavedSceneFrame>(&detached.flow_stack[item_index]);
+            if (scene == nullptr)
+                continue;
+            if (scene->dialogue_handoff) {
+                const bool exact_predecessor =
+                    item_index > 0 &&
+                    std::visit(
+                        [&](const auto& value) {
+                            return value.snapshot_id == scene->dialogue_handoff->dialogue_frame;
+                        },
+                        detached.flow_stack[item_index - 1]) &&
+                    std::holds_alternative<SavedDialogueFrame>(detached.flow_stack[item_index - 1]);
+                if (!exact_predecessor)
+                    error("save_codec.incoherent_flow",
+                          "Detached Dialogue Handoff must reference its exact predecessor.");
+            }
+            if (scene->preserved_dialogue_caller) {
+                const auto caller = std::find_if(
+                    detached.flow_stack.begin(), detached.flow_stack.begin() + item_index,
+                    [&](const SavedFlowFrame& candidate) {
+                        return std::visit(
+                            [&](const auto& value) {
+                                return value.snapshot_id == *scene->preserved_dialogue_caller;
+                            },
+                            candidate);
+                    });
+                if (caller == detached.flow_stack.begin() + item_index ||
+                    !std::holds_alternative<SavedDialogueFrame>(*caller))
+                    error("save_codec.incoherent_flow",
+                          "Detached retained Dialogue UI identity is not reachable.");
+            }
+        }
+
+        if (detached.blocker) {
+            const auto owner =
+                std::visit([](const auto& value) { return value.owner.value; }, *detached.blocker);
+            const auto top = std::visit([](const auto& value) { return value.snapshot_id.value; },
+                                        detached.flow_stack.back());
+            const bool valid_duration = std::visit(
+                [](const auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, SavedDurationBlocker>)
+                        return value.remaining.count() > 0;
+                    return true;
+                },
+                *detached.blocker);
+            if (owner != top || !valid_duration)
+                error("save_codec.invalid_blocker",
+                      "Detached saved blocker does not belong to the active top frame.");
+        }
+    }
+
+    std::unordered_set<std::uint64_t> provenance_ids;
+    std::unordered_set<std::uint64_t> provenance_active_frames;
+    for (const auto& provenance : save.execution_provenance) {
+        if (provenance.id == 0 || !provenance_ids.insert(provenance.id).second)
+            error("save_codec.invalid_execution_provenance",
+                  "Execution Provenance identity is zero or duplicated.");
+        if (provenance.active_frame) {
+            if (saved_frame(save, *provenance.active_frame) == nullptr ||
+                !provenance_active_frames.insert(provenance.active_frame->value).second)
+                error("save_codec.invalid_execution_provenance",
+                      "Execution Provenance active frame is missing or duplicated.");
+            if (provenance.state == ExecutionState::Completed ||
+                provenance.state == ExecutionState::Cancelled)
+                error("save_codec.invalid_execution_provenance",
+                      "Completed or cancelled Execution Provenance cannot own an active frame.");
+        }
+        if (provenance.relationship > ExecutionRelationship::Navigation ||
+            provenance.state > ExecutionState::Failed)
+            error("save_codec.invalid_execution_provenance",
+                  "Execution Provenance relationship or state is invalid.");
+    }
+    const auto has_provenance = [&](std::uint64_t id) { return provenance_ids.contains(id); };
+    for (const auto& provenance : save.execution_provenance) {
+        if (!has_provenance(provenance.root) ||
+            (provenance.parent && !has_provenance(*provenance.parent)) ||
+            (provenance.source && !has_provenance(*provenance.source)))
+            error("save_codec.invalid_execution_provenance",
+                  "Execution Provenance has a stale causal reference.");
+        if (provenance.relationship == ExecutionRelationship::Root &&
+            (provenance.parent || provenance.source || provenance.root != provenance.id))
+            error("save_codec.invalid_execution_provenance",
+                  "Root Execution Provenance must be self-rooted without a parent or source.");
+    }
+    const auto require_active_provenance = [&](const SavedFlowFrame& frame) {
+        const auto snapshot =
+            std::visit([](const auto& value) { return value.snapshot_id.value; }, frame);
+        if (!provenance_active_frames.contains(snapshot))
+            error("save_codec.invalid_execution_provenance",
+                  "Every active Flow frame requires engine-owned Execution Provenance.");
+    };
+    for (const auto& frame : save.flow_stack)
+        require_active_provenance(frame);
+    for (const auto& detached : save.detached_flows)
+        for (const auto& frame : detached.flow_stack)
+            require_active_provenance(frame);
 
     std::unordered_set<std::string> background_owners;
     for (const auto& background : save.background_overrides) {

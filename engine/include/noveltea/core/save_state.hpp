@@ -143,6 +143,24 @@ struct SavedDurationBlocker {
 };
 using SavedFlowBlocker = std::variant<SavedInputBlocker, SavedDurationBlocker>;
 
+struct SavedDetachedFlowExecution {
+    compiled::DetachedSceneOwner owner = compiled::DetachedSceneOwner::Flow;
+    std::optional<SavedFlowFrameId> flow_owner;
+    std::uint64_t room_entry_sequence = 0;
+    std::vector<SavedFlowFrame> flow_stack;
+    std::optional<SavedFlowBlocker> blocker;
+};
+
+struct SavedExecutionProvenance {
+    std::uint64_t id = 0;
+    std::optional<SavedFlowFrameId> active_frame;
+    std::optional<std::uint64_t> parent;
+    std::uint64_t root = 0;
+    ExecutionRelationship relationship = ExecutionRelationship::Root;
+    std::optional<std::uint64_t> source;
+    ExecutionState state = ExecutionState::Running;
+};
+
 struct SavedScenePresentationOwner {
     SavedFlowFrameId invocation;
     SceneId scene;
@@ -366,6 +384,8 @@ struct SaveState {
     RuntimeMode mode;
     std::vector<SavedFlowFrame> flow_stack;
     std::optional<SavedFlowBlocker> blocker;
+    std::vector<SavedDetachedFlowExecution> detached_flows;
+    std::vector<SavedExecutionProvenance> execution_provenance;
 };
 
 [[nodiscard]] Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,

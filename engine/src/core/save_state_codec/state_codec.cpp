@@ -56,6 +56,88 @@ std::string_view room_entry_cause_name(RoomEntryCause cause) noexcept
     return "directed-room-change";
 }
 
+std::string_view execution_relationship_name(ExecutionRelationship relationship) noexcept
+{
+    switch (relationship) {
+    case ExecutionRelationship::Root:
+        return "root";
+    case ExecutionRelationship::Call:
+        return "call";
+    case ExecutionRelationship::Continue:
+        return "continue";
+    case ExecutionRelationship::Detached:
+        return "detached";
+    case ExecutionRelationship::Interaction:
+        return "interaction";
+    case ExecutionRelationship::Navigation:
+        return "navigation";
+    }
+    return "root";
+}
+
+std::optional<ExecutionRelationship>
+decode_execution_relationship(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    auto name = d.string(value, pointer);
+    if (!name)
+        return std::nullopt;
+    if (*name == "root")
+        return ExecutionRelationship::Root;
+    if (*name == "call")
+        return ExecutionRelationship::Call;
+    if (*name == "continue")
+        return ExecutionRelationship::Continue;
+    if (*name == "detached")
+        return ExecutionRelationship::Detached;
+    if (*name == "interaction")
+        return ExecutionRelationship::Interaction;
+    if (*name == "navigation")
+        return ExecutionRelationship::Navigation;
+    d.error(k_variant, "Unknown Execution Provenance relationship.", std::string(pointer));
+    return std::nullopt;
+}
+
+std::string_view execution_state_name(ExecutionState state) noexcept
+{
+    switch (state) {
+    case ExecutionState::Running:
+        return "running";
+    case ExecutionState::Waiting:
+        return "waiting";
+    case ExecutionState::Suspended:
+        return "suspended";
+    case ExecutionState::Completed:
+        return "completed";
+    case ExecutionState::Cancelled:
+        return "cancelled";
+    case ExecutionState::Failed:
+        return "failed";
+    }
+    return "running";
+}
+
+std::optional<ExecutionState> decode_execution_state(Decoder& d, const nlohmann::json& value,
+                                                     std::string_view pointer)
+{
+    auto name = d.string(value, pointer);
+    if (!name)
+        return std::nullopt;
+    if (*name == "running")
+        return ExecutionState::Running;
+    if (*name == "waiting")
+        return ExecutionState::Waiting;
+    if (*name == "suspended")
+        return ExecutionState::Suspended;
+    if (*name == "completed")
+        return ExecutionState::Completed;
+    if (*name == "cancelled")
+        return ExecutionState::Cancelled;
+    if (*name == "failed")
+        return ExecutionState::Failed;
+    d.error(k_variant, "Unknown Execution Provenance state.", std::string(pointer));
+    return std::nullopt;
+}
+
 nlohmann::json encode_room_visit(const std::optional<RoomVisitContext>& visit)
 {
     if (!visit)
@@ -476,6 +558,35 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
     nlohmann::json frames = nlohmann::json::array();
     for (const auto& value : save.flow_stack)
         frames.push_back(encode_frame(value));
+    nlohmann::json detached_flows = nlohmann::json::array();
+    for (const auto& value : save.detached_flows) {
+        nlohmann::json detached_frames = nlohmann::json::array();
+        for (const auto& frame : value.flow_stack)
+            detached_frames.push_back(encode_frame(frame));
+        const char* owner = value.owner == compiled::DetachedSceneOwner::Flow ? "flow"
+                            : value.owner == compiled::DetachedSceneOwner::ActiveRoom
+                                ? "active-room"
+                                : "runtime-session";
+        detached_flows.push_back(
+            {{"owner", owner},
+             {"flowOwner",
+              value.flow_owner ? nlohmann::json(value.flow_owner->value) : nlohmann::json(nullptr)},
+             {"roomEntrySequence", value.room_entry_sequence},
+             {"flowStack", std::move(detached_frames)},
+             {"blocker", encode_blocker(value.blocker)}});
+    }
+    nlohmann::json execution_provenance = nlohmann::json::array();
+    for (const auto& value : save.execution_provenance) {
+        execution_provenance.push_back(
+            {{"id", value.id},
+             {"activeFrame", value.active_frame ? nlohmann::json(value.active_frame->value)
+                                                : nlohmann::json(nullptr)},
+             {"parent", value.parent ? nlohmann::json(*value.parent) : nlohmann::json(nullptr)},
+             {"root", value.root},
+             {"relationship", execution_relationship_name(value.relationship)},
+             {"source", value.source ? nlohmann::json(*value.source) : nlohmann::json(nullptr)},
+             {"state", execution_state_name(value.state)}});
+    }
     return Result<nlohmann::json, Diagnostics>::success(
         {{"schema", std::string(k_schema)},
          {"metadata",
@@ -499,7 +610,9 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
          {"presentation", encode_presentation_records(save)},
          {"mode", encode_mode(save.mode)},
          {"flowStack", std::move(frames)},
-         {"blocker", encode_blocker(save.blocker)}});
+         {"blocker", encode_blocker(save.blocker)},
+         {"detachedFlows", std::move(detached_flows)},
+         {"executionProvenance", std::move(execution_provenance)}});
 }
 
 Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json& document,
@@ -526,7 +639,9 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
               "presentation",
               "mode",
               "flowStack",
-              "blocker"});
+              "blocker",
+              "detachedFlows",
+              "executionProvenance"});
     const auto* schema = d.member(document, "schema", "");
     const auto* metadata = d.member(document, "metadata", "");
     const auto* play_time = d.member(document, "playTimeMs", "");
@@ -547,6 +662,8 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     const auto* mode = d.member(document, "mode", "");
     const auto* frames = d.member(document, "flowStack", "");
     const auto* blocker = d.member(document, "blocker", "");
+    const auto* detached_flows = d.member(document, "detachedFlows", "");
+    const auto* execution_provenance = d.member(document, "executionProvenance", "");
     auto schema_name = schema ? d.string(*schema, "/schema") : std::nullopt;
     if (schema_name && *schema_name != k_schema)
         d.error(k_value, "Unsupported save schema.", "/schema");
@@ -969,6 +1086,113 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
             return decode_frame(d, value, pointer);
         });
     auto saved_blocker = blocker ? decode_blocker(d, *blocker, "/blocker") : std::nullopt;
+    auto saved_detached_flows = decode_array<SavedDetachedFlowExecution>(
+        d, detached_flows, "/detachedFlows",
+        [&d](const nlohmann::json& value,
+             const std::string& pointer) -> std::optional<SavedDetachedFlowExecution> {
+            if (!d.object(value, pointer,
+                          {"owner", "flowOwner", "roomEntrySequence", "flowStack", "blocker"}))
+                return std::nullopt;
+            const auto* owner_value = d.member(value, "owner", pointer);
+            const auto* flow_owner_value = d.member(value, "flowOwner", pointer);
+            const auto* sequence_value = d.member(value, "roomEntrySequence", pointer);
+            const auto* frames_value = d.member(value, "flowStack", pointer);
+            const auto* blocker_value = d.member(value, "blocker", pointer);
+            auto owner_name =
+                owner_value ? d.string(*owner_value, child(pointer, "owner")) : std::nullopt;
+            std::optional<compiled::DetachedSceneOwner> owner;
+            if (owner_name) {
+                if (*owner_name == "flow")
+                    owner = compiled::DetachedSceneOwner::Flow;
+                else if (*owner_name == "active-room")
+                    owner = compiled::DetachedSceneOwner::ActiveRoom;
+                else if (*owner_name == "runtime-session")
+                    owner = compiled::DetachedSceneOwner::RuntimeSession;
+                else
+                    d.error(k_value, "Unknown detached Flow owner.", child(pointer, "owner"));
+            }
+            std::optional<SavedFlowFrameId> flow_owner;
+            bool flow_owner_ok = flow_owner_value != nullptr;
+            if (flow_owner_value && !flow_owner_value->is_null()) {
+                auto number = d.unsigned_integer<std::uint64_t>(*flow_owner_value,
+                                                                child(pointer, "flowOwner"), true);
+                flow_owner_ok = number.has_value();
+                if (number)
+                    flow_owner = SavedFlowFrameId{*number};
+            }
+            auto sequence = sequence_value
+                                ? d.unsigned_integer<std::uint64_t>(
+                                      *sequence_value, child(pointer, "roomEntrySequence"))
+                                : std::nullopt;
+            auto saved_frames = decode_array<SavedFlowFrame>(
+                d, frames_value, child(pointer, "flowStack"),
+                [&d](const nlohmann::json& frame, const std::string& frame_pointer) {
+                    return decode_frame(d, frame, frame_pointer);
+                });
+            auto saved_blocker = blocker_value
+                                     ? decode_blocker(d, *blocker_value, child(pointer, "blocker"))
+                                     : std::nullopt;
+            return owner && flow_owner_ok && sequence && saved_frames && saved_blocker
+                       ? std::optional<SavedDetachedFlowExecution>(SavedDetachedFlowExecution{
+                             *owner, flow_owner, *sequence, std::move(*saved_frames),
+                             std::move(*saved_blocker)})
+                       : std::nullopt;
+        });
+    auto saved_execution_provenance = decode_array<SavedExecutionProvenance>(
+        d, execution_provenance, "/executionProvenance",
+        [&d](const nlohmann::json& value,
+             const std::string& pointer) -> std::optional<SavedExecutionProvenance> {
+            if (!d.object(
+                    value, pointer,
+                    {"id", "activeFrame", "parent", "root", "relationship", "source", "state"}))
+                return std::nullopt;
+            const auto* id_value = d.member(value, "id", pointer);
+            const auto* active_frame_value = d.member(value, "activeFrame", pointer);
+            const auto* parent_value = d.member(value, "parent", pointer);
+            const auto* root_value = d.member(value, "root", pointer);
+            const auto* relationship_value = d.member(value, "relationship", pointer);
+            const auto* source_value = d.member(value, "source", pointer);
+            const auto* state_value = d.member(value, "state", pointer);
+            auto id = id_value
+                          ? d.unsigned_integer<std::uint64_t>(*id_value, child(pointer, "id"), true)
+                          : std::nullopt;
+            auto root = root_value ? d.unsigned_integer<std::uint64_t>(*root_value,
+                                                                       child(pointer, "root"), true)
+                                   : std::nullopt;
+            auto relationship = relationship_value
+                                    ? decode_execution_relationship(d, *relationship_value,
+                                                                    child(pointer, "relationship"))
+                                    : std::nullopt;
+            auto state = state_value
+                             ? decode_execution_state(d, *state_value, child(pointer, "state"))
+                             : std::nullopt;
+            std::optional<SavedFlowFrameId> active_frame;
+            bool active_frame_ok = active_frame_value != nullptr;
+            if (active_frame_value && !active_frame_value->is_null()) {
+                auto number = d.unsigned_integer<std::uint64_t>(
+                    *active_frame_value, child(pointer, "activeFrame"), true);
+                active_frame_ok = number.has_value();
+                if (number)
+                    active_frame = SavedFlowFrameId{*number};
+            }
+            const auto decode_optional_id = [&](const nlohmann::json* field, std::string_view name,
+                                                bool& ok) -> std::optional<std::uint64_t> {
+                ok = field != nullptr;
+                if (field == nullptr || field->is_null())
+                    return std::nullopt;
+                auto number = d.unsigned_integer<std::uint64_t>(*field, child(pointer, name), true);
+                ok = number.has_value();
+                return number;
+            };
+            bool parent_ok = false;
+            bool source_ok = false;
+            auto parent = decode_optional_id(parent_value, "parent", parent_ok);
+            auto source = decode_optional_id(source_value, "source", source_ok);
+            return id && root && relationship && state && active_frame_ok && parent_ok && source_ok
+                       ? std::optional<SavedExecutionProvenance>(SavedExecutionProvenance{
+                             *id, active_frame, parent, *root, *relationship, source, *state})
+                       : std::nullopt;
+        });
     if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state ||
         !saved_next_runtime_instance_id || !saved_next_item_stack_id ||
         !saved_room_entry_sequence || !saved_runtime_rooms || !saved_runtime_characters ||
@@ -976,7 +1200,7 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
         !saved_interactables || !saved_item_stacks || !saved_active_room_visit ||
         !saved_room_visits || !saved_line_history || !saved_choice_history || !saved_log ||
         !saved_timers || !saved_completions || !saved_presentation || !saved_mode ||
-        !saved_frames || !saved_blocker)
+        !saved_frames || !saved_blocker || !saved_detached_flows || !saved_execution_provenance)
         return Result<SaveState, Diagnostics>::failure(d.take());
     return Result<SaveState, Diagnostics>::success(
         SaveState{std::move(*saved_metadata),
@@ -1013,7 +1237,9 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                   std::move(saved_presentation->active_choice),
                   std::move(*saved_mode),
                   std::move(*saved_frames),
-                  std::move(*saved_blocker)});
+                  std::move(*saved_blocker),
+                  std::move(*saved_detached_flows),
+                  std::move(*saved_execution_provenance)});
 }
 
 Result<SaveState, Diagnostics> decode_save_state_impl(const CompiledProject& project,

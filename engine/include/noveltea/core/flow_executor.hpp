@@ -29,14 +29,7 @@ using FlowRunOutcome =
 
 class FlowExecutor {
 public:
-    struct ExecutionContext {
-        RuntimeMode mode;
-        FlowStack flow_stack;
-        std::optional<FlowBlocker> blocker;
-        std::optional<Diagnostics> execution_fault;
-        bool running = false;
-        bool detached = false;
-    };
+    using ExecutionContext = FlowExecutionContext;
 
     FlowExecutor(const CompiledProject& project, SessionState& state) noexcept
         : m_project(project), m_state(state), m_standalone_world(std::in_place, project, state),
@@ -60,7 +53,8 @@ public:
     [[nodiscard]] Result<void, Diagnostics> start_transient(const SceneId& scene);
     [[nodiscard]] Result<void, Diagnostics> start_transient(const DialogueId& dialogue);
     [[nodiscard]] Result<void, Diagnostics>
-    start_detached(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs);
+    start_detached(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs,
+                   std::optional<FlowFrameId> source = std::nullopt);
     [[nodiscard]] Result<void, Diagnostics>
     start_interaction(InteractionInvocationContext invocation, InteractionProgramRef program);
     [[nodiscard]] Result<void, Diagnostics>
@@ -181,6 +175,13 @@ private:
     interactable_definition(const InteractableId& interactable) const noexcept;
     [[nodiscard]] const compiled::FeatureDefinition*
     feature_definition(const FeatureRef& feature) const noexcept;
+    [[nodiscard]] const ExecutionProvenance*
+    execution_provenance(const FlowFrameId& frame) const noexcept;
+    void record_execution_provenance(const FlowFrameId& frame, ExecutionRelationship relationship,
+                                     std::optional<FlowFrameId> source = std::nullopt,
+                                     std::optional<FlowFrameId> parent = std::nullopt) noexcept;
+    void set_execution_state(const FlowFrameId& frame, ExecutionState state) noexcept;
+    void set_stack_execution_state(const FlowStack& stack, ExecutionState state) noexcept;
     void discard_handed_off_dialogue_for_active_scene() noexcept;
     void clear_blocker_for(const FlowFrameId& owner) noexcept;
     [[nodiscard]] bool& running_flag() noexcept;

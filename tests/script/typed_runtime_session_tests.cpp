@@ -314,6 +314,51 @@ void configure_detached_duration_flow(nlohmann::json& document, std::string_view
     opening["terminal"] = {{"kind", "complete-game"}};
 }
 
+void configure_scene_fast_forward_flow(nlohmann::json& document)
+{
+    auto& opening = document["definitions"]["scenes"][1];
+    REQUIRE(opening["id"] == "opening");
+    opening["program"]["events"] = scene_events(nlohmann::json::array(
+        {{{"id", "intro-text"},
+          {"kind", "show-text"},
+          {"autosaveSafePoint", true},
+          {"speaker", nullptr},
+          {"text", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Intro"}}}}},
+          {"wait", "input"}},
+         {{"id", "skipped-audio"},
+          {"kind", "audio-cue"},
+          {"owner", "invocation"},
+          {"action", "play"},
+          {"purpose", "sound-effect"},
+          {"lifetime", "one-shot"},
+          {"pausePolicy", "gameplay"},
+          {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+          {"fadeMs", 0},
+          {"gain", 1.0},
+          {"pan", 0.0},
+          {"panSource", nullptr},
+          {"waitForCompletion", true},
+          {"causality", "causal"},
+          {"synchronized", false},
+          {"skipBehavior", "stop"},
+          {"instanceId", nullptr},
+          {"replacementGroup", nullptr}},
+         {{"id", "semantic-effect"},
+          {"kind", "set-global-property"},
+          {"property", {{"kind", "property"}, {"id", "count"}}},
+          {"value", 7}},
+         {{"id", "skippable-delay"},
+          {"kind", "wait-duration"},
+          {"durationMs", 1500},
+          {"skippable", true}},
+         {{"id", "real-barrier"}, {"kind", "wait-input"}, {"skippable", false}},
+         {{"id", "after-barrier"},
+          {"kind", "set-global-property"},
+          {"property", {{"kind", "property"}, {"id", "count"}}},
+          {"value", 9}}}));
+    opening["terminal"] = {{"kind", "complete-game"}};
+}
+
 core::CompiledProject make_dialogue_cue_project(nlohmann::json cues, std::string source_name)
 {
     auto document = load_document("dialogue-program.json");
@@ -714,7 +759,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 36);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 37);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
@@ -1572,12 +1617,35 @@ TEST_CASE("detached Scene duration work is non-awaited and advances beside foreg
     CHECK(std::holds_alternative<core::InputFlowBlocker>(
         *fixture.session->presentation_state().blocker()));
 
-    auto save = fixture.session->dispatch(
-        core::RuntimeInputMessage{core::SaveRuntimeInput{core::TypedSaveSlotId::manual(1)}});
-    CHECK(save.disposition == runtime::RuntimeInputDisposition::Failed);
-    CHECK(std::ranges::any_of(save.diagnostics, [](const core::Diagnostic& diagnostic) {
-        return diagnostic.code == "runtime.save_detached_flow_active";
-    }));
+    const auto slot = core::TypedSaveSlotId::manual(1);
+    auto save = fixture.session->dispatch(core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
+    REQUIRE(save.diagnostics.empty());
+    CHECK(save.disposition == runtime::RuntimeInputDisposition::Handled);
+    const auto encoded = fixture.saves.read_slot(slot);
+    REQUIRE(encoded);
+    auto decoded =
+        core::decode_save_state_text(fixture.project, encoded.value(), "detached-scene-save.json");
+    REQUIRE(decoded);
+    REQUIRE(decoded.value().detached_flows.size() == 1);
+    REQUIRE(decoded.value().detached_flows.front().blocker);
+    CHECK(std::holds_alternative<core::SavedDurationBlocker>(
+        *decoded.value().detached_flows.front().blocker));
+    CHECK_FALSE(decoded.value().execution_provenance.empty());
+    const auto detached_provenance = std::ranges::find_if(
+        decoded.value().execution_provenance, [](const core::SavedExecutionProvenance& provenance) {
+            return provenance.relationship == core::ExecutionRelationship::Detached;
+        });
+    REQUIRE(detached_provenance != decoded.value().execution_provenance.end());
+    REQUIRE(detached_provenance->source);
+    CHECK(detached_provenance->state == core::ExecutionState::Waiting);
+
+    commit_load_candidate(fixture, slot);
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
+    REQUIRE(fixture.session->presentation_state().blocker());
+    CHECK(std::holds_alternative<core::InputFlowBlocker>(
+        *fixture.session->presentation_state().blocker()));
 
     auto advanced = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{1000}}});
@@ -1588,6 +1656,56 @@ TEST_CASE("detached Scene duration work is non-awaited and advances beside foreg
     REQUIRE(fixture.session->presentation_state().blocker());
     CHECK(std::holds_alternative<core::InputFlowBlocker>(
         *fixture.session->presentation_state().blocker()));
+}
+
+TEST_CASE(
+    "Scene fast-forward commits semantic work once suppresses one-shots and stops at barriers")
+{
+    Fixture fixture("scene-program.json", {},
+                    [](nlohmann::json& document) { configure_scene_fast_forward_flow(document); });
+    const auto count = make_id<core::PropertyIdTag>("count");
+
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(fixture.session->presentation_state().blocker());
+    CHECK(std::holds_alternative<core::InputFlowBlocker>(
+        *fixture.session->presentation_state().blocker()));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{2}});
+    CHECK(fixture.presentation.audio_operations.empty());
+
+    auto skipped = fixture.session->dispatch(core::RuntimeInputMessage{core::FastForwardInput{}});
+    REQUIRE(skipped.diagnostics.empty());
+    CHECK(skipped.disposition == runtime::RuntimeInputDisposition::Handled);
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
+    CHECK(fixture.presentation.audio_operations.empty());
+    REQUIRE(fixture.session->presentation_state().blocker());
+    CHECK(std::holds_alternative<core::InputFlowBlocker>(
+        *fixture.session->presentation_state().blocker()));
+    REQUIRE_FALSE(fixture.session->presentation_state().flow_stack().empty());
+    const auto& scene =
+        std::get<core::SceneFrame>(fixture.session->presentation_state().flow_stack().back());
+    REQUIRE(scene.position.next_step);
+    CHECK(scene.position.next_step->text() == "real-barrier");
+    const auto checkpoint_outcomes = fixture.session->take_checkpoint_save_outcomes();
+    CHECK(std::ranges::any_of(checkpoint_outcomes, [](const core::CheckpointSaveOutcome& outcome) {
+        const auto* written = std::get_if<core::CheckpointWriteSucceeded>(&outcome);
+        return written != nullptr && written->slot.is_autosave();
+    }));
+
+    auto stopped = fixture.session->dispatch(core::RuntimeInputMessage{core::FastForwardInput{}});
+    REQUIRE(stopped.diagnostics.empty());
+    CHECK(stopped.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
+    CHECK(fixture.presentation.audio_operations.empty());
+
+    auto continued = fixture.session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(continued.diagnostics.empty());
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{9}});
+    CHECK(fixture.session->presentation_state().game_completed());
 }
 
 TEST_CASE("Flow-owned detached Scene is cancelled when its initiating Flow ends")
@@ -1609,6 +1727,45 @@ TEST_CASE("Flow-owned detached Scene is cancelled when its initiating Flow ends"
     auto advanced = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{1000}}});
     REQUIRE(advanced.diagnostics.empty());
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
+}
+
+TEST_CASE("detached Scene failure terminates only its branch and leaves foreground resumable")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        configure_detached_duration_flow(document, "runtime-session");
+        auto& closing = document["definitions"]["scenes"][0];
+        closing["program"]["events"] =
+            scene_events(nlohmann::json::array({{{"id", "detached-fault"},
+                                                 {"kind", "run-lua"},
+                                                 {"autosaveSafePoint", false},
+                                                 {"mayYield", false},
+                                                 {"source", "error('detached failure')"}}}));
+    });
+    const auto count = make_id<core::PropertyIdTag>("count");
+
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    CHECK(started.disposition == runtime::RuntimeInputDisposition::Failed);
+    REQUIRE_FALSE(started.diagnostics.empty());
+    CHECK_FALSE(fixture.session->presentation_state().execution_fault());
+    REQUIRE(fixture.session->presentation_state().blocker());
+    CHECK(std::holds_alternative<core::InputFlowBlocker>(
+        *fixture.session->presentation_state().blocker()));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
+
+    const auto failed_detached = std::ranges::find_if(
+        fixture.session->presentation_state().execution_provenance(),
+        [](const core::ExecutionProvenance& provenance) {
+            return provenance.relationship == core::ExecutionRelationship::Detached &&
+                   provenance.state == core::ExecutionState::Failed;
+        });
+    REQUIRE(failed_detached != fixture.session->presentation_state().execution_provenance().end());
+
+    auto continued = fixture.session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(continued.diagnostics.empty());
+    CHECK(fixture.session->presentation_state().game_completed());
     CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{7}});
 }
@@ -1682,12 +1839,28 @@ TEST_CASE("runtime dispatch distinguishes instruction budget yield from executio
     auto created =
         test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
-    auto faulted =
-        std::move(created).value()->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    auto session = std::move(created).value();
+    REQUIRE_FALSE(session->presentation_state().flow_stack().empty());
+    const auto faulting_frame =
+        core::flow_frame_id(session->presentation_state().flow_stack().back());
+    auto faulted = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     CHECK(faulted.disposition == runtime::RuntimeInputDisposition::Failed);
     REQUIRE_FALSE(faulted.diagnostics.empty());
     CHECK(faulted.budget.kind == runtime::RuntimeBudgetOutcomeKind::Faulted);
     CHECK_FALSE(faulted.budget.exhausted.has_value());
+    REQUIRE(session->presentation_state().execution_fault());
+    REQUIRE_FALSE(session->presentation_state().flow_stack().empty());
+    const auto& faulting_scene =
+        std::get<core::SceneFrame>(session->presentation_state().flow_stack().back());
+    REQUIRE(faulting_scene.position.next_step);
+    CHECK(faulting_scene.position.next_step->text() == "fault");
+    const auto provenance =
+        std::ranges::find_if(session->presentation_state().execution_provenance(),
+                             [faulting_frame](const core::ExecutionProvenance& item) {
+                                 return item.frame == faulting_frame;
+                             });
+    REQUIRE(provenance != session->presentation_state().execution_provenance().end());
+    CHECK(provenance->state == core::ExecutionState::Failed);
 }
 
 TEST_CASE("frame-destructive commands make later commands from the old owner stale")

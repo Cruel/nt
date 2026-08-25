@@ -61,6 +61,7 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
             return std::is_same_v<T, core::StartRuntimeInput> ||
                    std::is_same_v<T, core::AdvanceTimeInput> ||
                    std::is_same_v<T, core::ContinueInput> ||
+                   std::is_same_v<T, core::FastForwardInput> ||
                    std::is_same_v<T, core::AdvanceDialogueRevealInput> ||
                    std::is_same_v<T, core::SelectSceneChoiceInput> ||
                    std::is_same_v<T, core::SelectDialogueChoiceInput> ||
@@ -78,6 +79,47 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
                    std::is_same_v<T, core::ClearLayoutStateInput>;
         },
         input);
+}
+
+const core::compiled::SceneInstruction*
+active_scene_instruction(const core::CompiledProject& project, const core::SceneFrame& frame)
+{
+    if (!frame.position.next_step)
+        return nullptr;
+    const auto* scene = project.find_scene(frame.scene);
+    if (scene == nullptr)
+        return nullptr;
+    const auto found = std::ranges::find_if(
+        scene->program.instructions, [&](const core::compiled::SceneInstruction& instruction) {
+            return std::visit(
+                [&](const auto& value) { return value.id == *frame.position.next_step; },
+                instruction);
+        });
+    return found == scene->program.instructions.end() ? nullptr : &*found;
+}
+
+bool active_scene_wait_skippable(const core::CompiledProject& project,
+                                 const core::SceneFrame& frame) noexcept
+{
+    const auto* instruction = active_scene_instruction(project, frame);
+    if (instruction == nullptr)
+        return false;
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::ShowTextInstruction>)
+                return true;
+            else if constexpr (std::is_same_v<T, core::compiled::WaitDurationInstruction> ||
+                               std::is_same_v<T, core::compiled::WaitInputInstruction> ||
+                               std::is_same_v<T, core::compiled::WaitConditionInstruction> ||
+                               std::is_same_v<T, core::compiled::WaitOperationInstruction> ||
+                               std::is_same_v<T, core::compiled::WaitAudioInstruction> ||
+                               std::is_same_v<T, core::compiled::WaitLayoutSignalInstruction>)
+                return value.skippable;
+            else
+                return false;
+        },
+        *instruction);
 }
 
 void attach_runtime_context(core::Diagnostics& diagnostics, const RuntimeExecutor& kernel)
@@ -339,10 +381,6 @@ core::Diagnostics RuntimeSession::settle_transaction()
     // only repeats save.execution_fault and cannot produce a usable checkpoint.
     if (m_kernel->state().execution_fault())
         return {};
-    // Detached Flow restoration/provenance is completed by the later checkpoint orchestration
-    // work. Until then, never promote a checkpoint that would silently omit a live detached branch.
-    if (!m_detached_scene_executions.empty())
-        return {};
     RuntimeCheckpointFacts facts{
         .input_queue_settled = true,
         .output_queue_settled = true,
@@ -351,6 +389,14 @@ core::Diagnostics RuntimeSession::settle_transaction()
         .presentation_acknowledgements_settled = true,
         .immediate_script_invocation_active = false,
         .flow_blocker = m_kernel->state().blocker(),
+        .detached_flow_blockers =
+            [&]() {
+                std::vector<std::optional<core::FlowBlocker>> blockers;
+                blockers.reserve(m_kernel->state().m_detached_flow_executions.size());
+                for (const auto& execution : m_kernel->state().m_detached_flow_executions)
+                    blockers.push_back(execution.context.blocker);
+                return blockers;
+            }(),
         .presentation_status = m_presentation.checkpoint_status(),
         .presentation_revision = m_current_publication
                                      ? std::optional{m_current_publication->presentation.revision}
@@ -609,14 +655,14 @@ void RuntimeSession::invalidate_kernel(ScriptCancellationReason reason) noexcept
 {
     if (!m_kernel)
         return;
-    for (auto& execution : m_detached_scene_executions) {
+    for (auto& execution : m_kernel->state().m_detached_flow_executions) {
         auto foreground = m_kernel->flow().take_execution_context();
         m_kernel->flow().install_execution_context(std::move(execution.context));
         (void)m_kernel->flow().discard_detached();
         execution.context = m_kernel->flow().take_execution_context();
         m_kernel->flow().install_execution_context(std::move(foreground));
     }
-    m_detached_scene_executions.clear();
+    m_kernel->state().m_detached_flow_executions.clear();
     if (const auto* blocker = active_blocker<core::ScriptFlowBlocker>(*m_kernel))
         m_scripts.cancel(blocker->handle, reason);
     const auto generation = m_kernel->gateway().generation();
@@ -626,14 +672,15 @@ void RuntimeSession::invalidate_kernel(ScriptCancellationReason reason) noexcept
 }
 
 core::Diagnostics RuntimeSession::run_kernel(std::vector<runtime::RuntimeEvent>& events,
-                                             std::vector<core::RuntimeObservation>& observations)
+                                             std::vector<core::RuntimeObservation>& observations,
+                                             bool fast_forward)
 {
     auto semantic_wait = m_kernel->resume_scene_semantic_wait_if_ready();
     if (!semantic_wait)
         return semantic_wait.error();
     if (*semantic_wait.value_if())
         record_structural_mutation();
-    auto diagnostics = run_kernel_once(events, observations);
+    auto diagnostics = run_kernel_once(events, observations, fast_forward);
     if (!has_blocking_diagnostic(diagnostics)) {
         drain_deferred_commands(events, observations, diagnostics);
     } else {
@@ -646,15 +693,16 @@ core::Diagnostics RuntimeSession::run_kernel(std::vector<runtime::RuntimeEvent>&
 
 core::Diagnostics
 RuntimeSession::run_kernel_once(std::vector<runtime::RuntimeEvent>& events,
-                                std::vector<core::RuntimeObservation>& observations)
+                                std::vector<core::RuntimeObservation>& observations,
+                                bool fast_forward)
 {
     core::Diagnostics diagnostics;
     prune_scene_event_presentation_operations();
     const bool execution_can_advance =
         std::holds_alternative<core::FlowMode>(m_kernel->state().mode()) &&
         !m_kernel->state().blocker() && !m_kernel->state().gameplay_paused();
-    const auto outcome =
-        m_kernel->run_until_blocked(m_runtime_budget.instruction_limit, m_runtime_locale);
+    const auto outcome = m_kernel->run_until_blocked(m_runtime_budget.instruction_limit,
+                                                     m_runtime_locale, fast_forward);
     core::append_diagnostics(diagnostics, m_kernel->take_flow_diagnostics());
     if (const auto* fault = std::get_if<core::FlowFaultOutcome>(&outcome)) {
         core::append_diagnostics(diagnostics, fault->diagnostics);
@@ -806,7 +854,7 @@ bool RuntimeSession::flow_frame_alive(const core::FlowFrameId& frame) const noex
         }))
         return true;
     return std::ranges::any_of(
-        m_detached_scene_executions, [&](const DetachedSceneExecution& item) {
+        m_kernel->state().m_detached_flow_executions, [&](const core::DetachedFlowExecution& item) {
             return std::ranges::any_of(item.context.flow_stack,
                                        [&](const core::FlowFrame& candidate) {
                                            return core::flow_frame_id(candidate) == frame;
@@ -814,7 +862,8 @@ bool RuntimeSession::flow_frame_alive(const core::FlowFrameId& frame) const noex
         });
 }
 
-bool RuntimeSession::detached_owner_alive(const DetachedSceneExecution& execution) const noexcept
+bool RuntimeSession::detached_owner_alive(
+    const core::DetachedFlowExecution& execution) const noexcept
 {
     switch (execution.owner) {
     case core::compiled::DetachedSceneOwner::Flow:
@@ -838,13 +887,13 @@ core::Diagnostics RuntimeSession::start_detached_scene(const StartDetachedSceneC
     auto foreground = m_kernel->flow().take_execution_context();
     m_kernel->flow().install_execution_context(core::FlowExecutor::ExecutionContext{
         core::FlowMode{}, {}, std::nullopt, std::nullopt, false, true});
-    auto started = m_kernel->flow().start_detached(command.scene, command.inputs);
+    auto started = m_kernel->flow().start_detached(command.scene, command.inputs, source.frame);
     auto detached = m_kernel->flow().take_execution_context();
     m_kernel->flow().install_execution_context(std::move(foreground));
     if (!started)
         return std::move(started).error();
 
-    m_detached_scene_executions.push_back(DetachedSceneExecution{
+    m_kernel->state().m_detached_flow_executions.push_back(core::DetachedFlowExecution{
         command.owner, source.frame, m_kernel->state().room_entry_sequence(), std::move(detached)});
     record_structural_mutation();
     return {};
@@ -855,26 +904,26 @@ void RuntimeSession::run_detached_flows(std::vector<runtime::RuntimeEvent>& even
                                         core::Diagnostics& diagnostics,
                                         std::chrono::milliseconds elapsed)
 {
-    if (m_running_detached_flows || m_detached_scene_executions.empty())
+    auto& detached_executions = m_kernel->state().m_detached_flow_executions;
+    if (m_running_detached_flows || detached_executions.empty())
         return;
 
     m_running_detached_flows = true;
-    for (std::size_t index = 0; index < m_detached_scene_executions.size();) {
-        if (!detached_owner_alive(m_detached_scene_executions[index])) {
+    for (std::size_t index = 0; index < detached_executions.size();) {
+        if (!detached_owner_alive(detached_executions[index])) {
             auto foreground = m_kernel->flow().take_execution_context();
             m_kernel->flow().install_execution_context(
-                std::move(m_detached_scene_executions[index].context));
+                std::move(detached_executions[index].context));
             (void)m_kernel->flow().discard_detached();
-            m_detached_scene_executions[index].context = m_kernel->flow().take_execution_context();
+            detached_executions[index].context = m_kernel->flow().take_execution_context();
             m_kernel->flow().install_execution_context(std::move(foreground));
-            m_detached_scene_executions.erase(m_detached_scene_executions.begin() + index);
+            detached_executions.erase(detached_executions.begin() + index);
             record_structural_mutation();
             continue;
         }
 
         auto foreground = m_kernel->flow().take_execution_context();
-        m_kernel->flow().install_execution_context(
-            std::move(m_detached_scene_executions[index].context));
+        m_kernel->flow().install_execution_context(std::move(detached_executions[index].context));
 
         bool can_run = true;
         bool branch_failed = false;
@@ -906,15 +955,15 @@ void RuntimeSession::run_detached_flows(std::vector<runtime::RuntimeEvent>& even
         }
         auto stored_context = m_kernel->flow().take_execution_context();
         m_kernel->flow().install_execution_context(std::move(foreground));
-        m_detached_scene_executions[index].context = std::move(stored_context);
+        detached_executions[index].context = std::move(stored_context);
 
         if (!branch_diagnostics.empty()) {
             core::append_diagnostics(diagnostics, std::move(branch_diagnostics));
-            m_detached_scene_executions.erase(m_detached_scene_executions.begin() + index);
+            detached_executions.erase(detached_executions.begin() + index);
             continue;
         }
         if (branch_failed || finished) {
-            m_detached_scene_executions.erase(m_detached_scene_executions.begin() + index);
+            detached_executions.erase(detached_executions.begin() + index);
             record_structural_mutation();
             continue;
         }
@@ -2030,14 +2079,14 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                 } else if constexpr (std::is_same_v<T, core::StopRuntimeInput>) {
                     m_running = false;
                     m_command_builder.reset();
-                    for (auto& execution : m_detached_scene_executions) {
+                    for (auto& execution : m_kernel->state().m_detached_flow_executions) {
                         auto foreground = m_kernel->flow().take_execution_context();
                         m_kernel->flow().install_execution_context(std::move(execution.context));
                         (void)m_kernel->flow().discard_detached();
                         execution.context = m_kernel->flow().take_execution_context();
                         m_kernel->flow().install_execution_context(std::move(foreground));
                     }
-                    m_detached_scene_executions.clear();
+                    m_kernel->state().m_detached_flow_executions.clear();
                     if (const auto* blocker = active_blocker<core::ScriptFlowBlocker>(*m_kernel)) {
                         m_scripts.cancel(blocker->handle,
                                          runtime::ScriptCancellationReason::RuntimeStop);
@@ -2126,6 +2175,89 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         m_room_description_visible = false;
                         m_transaction_impacts.record(
                             runtime::MutationImpact::GameplayUiInvalidated);
+                    } else {
+                        result.disposition = runtime::RuntimeInputDisposition::Unhandled;
+                    }
+                } else if constexpr (std::is_same_v<T, core::FastForwardInput>) {
+                    if (m_kernel->state().active_choice()) {
+                        result.disposition = runtime::RuntimeInputDisposition::Unhandled;
+                        return;
+                    }
+                    const auto* blocker =
+                        m_kernel->state().blocker() ? &*m_kernel->state().blocker() : nullptr;
+                    const auto* scene_frame =
+                        !m_kernel->state().flow_stack().empty()
+                            ? std::get_if<core::SceneFrame>(&m_kernel->state().flow_stack().back())
+                            : nullptr;
+                    const auto* scene_completion =
+                        scene_frame ? std::get_if<core::SceneInstructionCompletionPosition>(
+                                          &scene_frame->position.substate)
+                                    : nullptr;
+                    const bool operation_wait =
+                        scene_completion && scene_completion->semantic_wait &&
+                        (std::holds_alternative<core::ScenePresentationOperationWaitTarget>(
+                             *scene_completion->semantic_wait) ||
+                         std::holds_alternative<core::SceneAudioOperationWaitTarget>(
+                             *scene_completion->semantic_wait));
+
+                    if (blocker &&
+                        (std::holds_alternative<core::PresentationFlowBlocker>(*blocker) ||
+                         std::holds_alternative<core::AudioFlowBlocker>(*blocker) ||
+                         std::holds_alternative<core::ScriptFlowBlocker>(*blocker) ||
+                         operation_wait)) {
+                        result.disposition = runtime::RuntimeInputDisposition::Unhandled;
+                    } else if (const auto* input =
+                                   blocker ? std::get_if<core::InputFlowBlocker>(blocker)
+                                           : nullptr) {
+                        const auto* dialogue = !m_kernel->state().flow_stack().empty()
+                                                   ? std::get_if<core::DialogueFrame>(
+                                                         &m_kernel->state().flow_stack().back())
+                                                   : nullptr;
+                        if (dialogue && dialogue->position.segment &&
+                            dialogue->position.stage ==
+                                core::DialogueFramePosition::Stage::ApplySegmentEffects) {
+                            result.diagnostics =
+                                advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
+                                    dialogue->frame_id, dialogue->dialogue,
+                                    *dialogue->position.segment,
+                                    std::numeric_limits<std::uint64_t>::max(), true});
+                            if (!result.diagnostics.empty() || m_dialogue_audio_wait ||
+                                m_dialogue_presentation_wait)
+                                return;
+                            input = active_blocker<core::InputFlowBlocker>(*m_kernel);
+                            if (!input) {
+                                result.diagnostics =
+                                    run_kernel(result.events, result.observations, true);
+                                return;
+                            }
+                        }
+                        if (scene_frame && !active_scene_wait_skippable(m_project, *scene_frame)) {
+                            result.disposition = runtime::RuntimeInputDisposition::Unhandled;
+                            return;
+                        }
+                        auto completed = m_kernel->complete(
+                            input->owner, core::AnyFlowBlockerHandle{input->handle});
+                        if (!completed)
+                            result.diagnostics = std::move(completed).error();
+                        else
+                            result.diagnostics =
+                                run_kernel(result.events, result.observations, true);
+                    } else if (const auto* duration =
+                                   blocker ? std::get_if<core::DurationFlowBlocker>(blocker)
+                                           : nullptr) {
+                        if (!scene_frame || !active_scene_wait_skippable(m_project, *scene_frame)) {
+                            result.disposition = runtime::RuntimeInputDisposition::Unhandled;
+                            return;
+                        }
+                        auto completed = m_kernel->complete(
+                            duration->owner, core::AnyFlowBlockerHandle{duration->handle});
+                        if (!completed)
+                            result.diagnostics = std::move(completed).error();
+                        else
+                            result.diagnostics =
+                                run_kernel(result.events, result.observations, true);
+                    } else if (!blocker) {
+                        result.diagnostics = run_kernel(result.events, result.observations, true);
                     } else {
                         result.disposition = runtime::RuntimeInputDisposition::Unhandled;
                     }
@@ -2433,10 +2565,6 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                 } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
                     if (value.slot.is_autosave()) {
                         (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});
-                    } else if (!m_detached_scene_executions.empty()) {
-                        result.diagnostics.push_back(diagnostic(
-                            "runtime.save_detached_flow_active",
-                            "Manual save is unavailable while detached Scene work is active"));
                     } else {
                         auto requested =
                             m_checkpoint_service.request(core::ManualSaveRequest{value.slot});

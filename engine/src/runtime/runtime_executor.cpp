@@ -794,7 +794,8 @@ RuntimeExecutor::cancel_script(const core::FlowFrameId& owner,
 }
 
 core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_budget,
-                                                        std::string_view runtime_locale)
+                                                        std::string_view runtime_locale,
+                                                        bool fast_forward)
 {
     if (m_state.gameplay_paused())
         return core::FlowBudgetYieldOutcome{0};
@@ -1023,6 +1024,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     auto changed = m_state.set_background(m_project, owner, value.background);
                     if (!changed)
                         return fault(changed.error());
+                    if (fast_forward && value.skippable)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     if (value.transition == core::compiled::BackgroundTransition::Fade) {
                         auto completion = advance_scene_for_presentation(frame->scene, step,
                                                                          sequential, value.wait);
@@ -1105,6 +1108,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     auto changed = m_state.set_actor(m_project, std::move(actor));
                     if (!changed)
                         return fault(changed.error());
+                    if (fast_forward && value.skippable)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     if (value.transition != core::compiled::ActorTransition::None) {
                         auto completion = advance_scene_for_presentation(frame->scene, step,
                                                                          sequential, value.wait);
@@ -1197,6 +1202,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                          value.speaker, *resolved_text, value.text.markup});
                     if (!logged)
                         return fault(logged.error());
+                    if (fast_forward) {
+                        if (value.autosave_safe_point)
+                            queue_autosave(frame->scene, step);
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    }
                     core::WaitSpec wait = std::visit(
                         [](const auto& item) -> core::WaitSpec { return item; }, value.wait);
                     auto waiting = begin(wait);
@@ -1275,6 +1285,9 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(
                             execution_error("execution.one_shot_audio_action_invalid",
                                             "One-shot Scene audio must start a new playback"));
+                    if (fast_forward &&
+                        value.skip_behavior != core::compiled::AudioSkipBehavior::Play)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     auto resolved_pan =
                         m_state.resolve_audio_pan(m_project, owner, value.pan, value.pan_source);
                     if (!resolved_pan)
@@ -1451,6 +1464,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         queue_autosave(frame->scene, step);
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::WaitDurationInstruction>) {
+                    if (fast_forward && value.skippable)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     auto waiting = begin(core::WaitSpec{value.wait});
                     if (!waiting)
                         return fault(waiting.error());
@@ -1467,6 +1482,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::WaitInputInstruction>) {
+                    if (fast_forward && value.skippable)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     auto waiting = begin(core::WaitSpec{core::InputWait{}});
                     if (!waiting)
                         return fault(waiting.error());
@@ -1477,6 +1494,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(marked.error());
                     return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
                 } else if constexpr (std::is_same_v<T, core::compiled::WaitConditionInstruction>) {
+                    if (fast_forward && value.skippable)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     auto condition = evaluate(value.wait_condition);
                     if (!condition) {
                         if (const auto* diagnostics =
@@ -1544,6 +1563,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
                 } else if constexpr (std::is_same_v<T,
                                                     core::compiled::WaitLayoutSignalInstruction>) {
+                    if (fast_forward && value.skippable)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     auto resolved_owner =
                         resolve_scene_presentation_owner(m_state, *frame, value.owner);
                     if (!resolved_owner)
@@ -1683,6 +1704,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(changed.error());
                     if (m_state.mounted_layouts() == source_state.mounted_layouts())
                         return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    if (fast_forward && value.skippable)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     if (value.transition == core::compiled::LayoutTransition::Fade) {
                         auto completion = advance_scene_for_presentation(frame->scene, step,
                                                                          sequential, value.wait);
@@ -1777,6 +1800,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                 "A finite Material Parameter transition requires an existing "
                                 "occurrence-local source value"));
                         }
+                        if (fast_forward && value.skippable)
+                            return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                         auto completion = advance_scene_for_presentation(frame->scene, step,
                                                                          sequential, value.wait);
                         if (!completion) {
@@ -2011,6 +2036,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     auto applied = m_state.apply_presentation_target(m_project, *target.value_if());
                     if (!applied)
                         return fault(applied.error());
+                    if (fast_forward && value.skippable)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     auto completion =
                         advance_scene_for_presentation(frame->scene, step, sequential, value.wait);
                     if (!completion) {

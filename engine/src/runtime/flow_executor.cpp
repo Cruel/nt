@@ -341,7 +341,64 @@ Result<void, Diagnostics> FlowExecutor::fail(Diagnostics diagnostics)
 {
     if (!m_state.m_execution_fault)
         m_state.m_execution_fault = diagnostics;
+    if (!m_state.m_flow_stack.empty())
+        set_execution_state(flow_frame_id(m_state.m_flow_stack.back()), ExecutionState::Failed);
     return Result<void, Diagnostics>::failure(std::move(diagnostics));
+}
+
+const ExecutionProvenance*
+FlowExecutor::execution_provenance(const FlowFrameId& frame) const noexcept
+{
+    const auto found = std::ranges::find_if(
+        m_state.m_execution_provenance,
+        [&](const ExecutionProvenance& provenance) { return provenance.frame == frame; });
+    return found == m_state.m_execution_provenance.end() ? nullptr : &*found;
+}
+
+void FlowExecutor::record_execution_provenance(const FlowFrameId& frame,
+                                               ExecutionRelationship relationship,
+                                               std::optional<FlowFrameId> source,
+                                               std::optional<FlowFrameId> parent) noexcept
+{
+    if (execution_provenance(frame) != nullptr)
+        return;
+    if (!parent && relationship != ExecutionRelationship::Continue)
+        parent = source;
+    FlowFrameId root = frame;
+    if (source) {
+        if (const auto* provenance = execution_provenance(*source))
+            root = provenance->root;
+    } else if (parent) {
+        if (const auto* provenance = execution_provenance(*parent))
+            root = provenance->root;
+    }
+    m_state.m_execution_provenance.push_back(
+        ExecutionProvenance{frame, parent, root, relationship, source, ExecutionState::Running});
+}
+
+void FlowExecutor::set_execution_state(const FlowFrameId& frame, ExecutionState state) noexcept
+{
+    const auto found = std::ranges::find_if(
+        m_state.m_execution_provenance,
+        [&](const ExecutionProvenance& provenance) { return provenance.frame == frame; });
+    if (found != m_state.m_execution_provenance.end())
+        found->state = state;
+}
+
+void FlowExecutor::set_stack_execution_state(const FlowStack& stack, ExecutionState state) noexcept
+{
+    for (const auto& frame : stack) {
+        const auto id = flow_frame_id(frame);
+        if (state == ExecutionState::Cancelled) {
+            const auto found = std::ranges::find_if(
+                m_state.m_execution_provenance,
+                [id](const ExecutionProvenance& provenance) { return provenance.frame == id; });
+            if (found != m_state.m_execution_provenance.end() &&
+                found->state == ExecutionState::Failed)
+                continue;
+        }
+        set_execution_state(id, state);
+    }
 }
 
 Result<void, Diagnostics> FlowExecutor::ensure_flow_ready() const
@@ -503,12 +560,14 @@ Result<void, Diagnostics> FlowExecutor::start_transient(const SceneId& scene)
                                                  std::nullopt,
                                                  std::nullopt,
                                                  std::nullopt});
+    record_execution_provenance(id, ExecutionRelationship::Root);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
 
 Result<void, Diagnostics>
-FlowExecutor::start_detached(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs)
+FlowExecutor::start_detached(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs,
+                             std::optional<FlowFrameId> source)
 {
     const auto* definition = m_project.find_scene(scene);
     if (definition == nullptr || !m_state.m_flow_stack.empty() ||
@@ -530,6 +589,7 @@ FlowExecutor::start_detached(const SceneId& scene, std::vector<compiled::SceneIn
                                                  std::nullopt,
                                                  std::nullopt,
                                                  std::nullopt});
+    record_execution_provenance(id, ExecutionRelationship::Detached, source);
     return Result<void, Diagnostics>::success();
 }
 
@@ -555,6 +615,7 @@ Result<void, Diagnostics> FlowExecutor::start_transient(const DialogueId& dialog
                       initial_dialogue_stage_slots(*definition),
                       initial_dialogue_media_slots(*definition),
                       ResumeRoomDestination{room->room}});
+    record_execution_provenance(id, ExecutionRelationship::Root);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
@@ -633,6 +694,7 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
         {first_interaction_instruction(*program), InteractionFallbackStage::SelectedProgram,
          InteractionExecutionOutcome::Pending, false},
         ResumeRoomDestination{room->room}});
+    record_execution_provenance(id, ExecutionRelationship::Interaction);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
@@ -707,6 +769,7 @@ Result<void, Diagnostics> FlowExecutor::call_interaction(InteractionInvocationCo
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
 
+    const auto caller = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id};
     FlowFrame child = InteractionFrame{id,
                                        std::move(invocation),
@@ -716,8 +779,10 @@ Result<void, Diagnostics> FlowExecutor::call_interaction(InteractionInvocationCo
                                         InteractionExecutionOutcome::Pending, false},
                                        CallerDestination{}};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+    set_execution_state(caller, ExecutionState::Suspended);
     ++m_state.m_next_frame_id;
     m_state.m_flow_stack.push_back(std::move(child));
+    record_execution_provenance(id, ExecutionRelationship::Interaction, caller);
     return Result<void, Diagnostics>::success();
 }
 
@@ -764,6 +829,7 @@ Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
                 std::holds_alternative<DialogueFrame>(m_state.m_flow_stack.back())
             ? std::optional<FlowFrameId>{flow_frame_id(m_state.m_flow_stack.back())}
             : std::nullopt;
+    const auto caller = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id};
     FlowFrame child = SceneFrame{id,
                                  scene,
@@ -774,8 +840,10 @@ Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
                                  std::nullopt,
                                  preserved_dialogue_caller};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+    set_execution_state(caller, ExecutionState::Suspended);
     ++m_state.m_next_frame_id;
     m_state.m_flow_stack.push_back(std::move(child));
+    record_execution_provenance(id, ExecutionRelationship::Call, caller);
     return Result<void, Diagnostics>::success();
 }
 
@@ -810,6 +878,8 @@ Result<bool, Diagnostics> FlowExecutor::handoff_dialogue(DialogueFramePosition n
             execution_error("execution.dialogue_handoff_already_active",
                             "Direct awaiting Scene already owns a suspended Dialogue Handoff"));
     scene_frame.dialogue_handoff = DialogueHandoffState{dialogue_id, std::move(payload)};
+    set_execution_state(dialogue_id, ExecutionState::Suspended);
+    set_execution_state(scene_frame.frame_id, ExecutionState::Running);
     std::swap(m_state.m_flow_stack[m_state.m_flow_stack.size() - 1],
               m_state.m_flow_stack[m_state.m_flow_stack.size() - 2]);
     return Result<bool, Diagnostics>::success(true);
@@ -837,9 +907,13 @@ FlowExecutor::resume_handed_off_dialogue(SceneFramePosition scene_next_position)
                                     "Scene has no exact suspended Dialogue to resume"));
 
     assign_position(m_state.m_flow_stack.back(), std::move(scene_next_position));
+    const auto scene_id = scene.frame_id;
+    const auto dialogue_id = dialogue->frame_id;
     scene.dialogue_handoff.reset();
     std::swap(m_state.m_flow_stack[m_state.m_flow_stack.size() - 1],
               m_state.m_flow_stack[m_state.m_flow_stack.size() - 2]);
+    set_execution_state(scene_id, ExecutionState::Suspended);
+    set_execution_state(dialogue_id, ExecutionState::Running);
     return Result<void, Diagnostics>::success();
 }
 
@@ -867,6 +941,7 @@ Result<void, Diagnostics> FlowExecutor::call_child(const DialogueId& dialogue,
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
 
+    const auto caller = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id};
     FlowFrame child = DialogueFrame{
         id,
@@ -876,8 +951,10 @@ Result<void, Diagnostics> FlowExecutor::call_child(const DialogueId& dialogue,
         initial_dialogue_media_slots(*definition),
         CallerDestination{}};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+    set_execution_state(caller, ExecutionState::Suspended);
     ++m_state.m_next_frame_id;
     m_state.m_flow_stack.push_back(std::move(child));
+    record_execution_provenance(id, ExecutionRelationship::Call, caller);
     return Result<void, Diagnostics>::success();
 }
 
@@ -899,6 +976,7 @@ void FlowExecutor::discard_handed_off_dialogue_for_active_scene() noexcept
     if (dialogue == nullptr || dialogue->frame_id != scene->dialogue_handoff->dialogue_frame)
         return;
     clear_blocker_for(dialogue->frame_id);
+    set_execution_state(dialogue->frame_id, ExecutionState::Cancelled);
     m_state.m_flow_stack.erase(m_state.m_flow_stack.begin() +
                                static_cast<std::ptrdiff_t>(suspended_index));
 }
@@ -918,12 +996,15 @@ Result<void, Diagnostics> FlowExecutor::return_from_flow()
             return fail(execution_error("execution.invalid_return",
                                         "Caller destination requires a caller frame"));
         clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        set_execution_state(flow_frame_id(m_state.m_flow_stack.back()), ExecutionState::Completed);
         m_state.remove_scene_presentation(m_state.m_flow_stack.back());
         m_state.m_flow_stack.pop_back();
+        set_execution_state(flow_frame_id(m_state.m_flow_stack.back()), ExecutionState::Running);
         return Result<void, Diagnostics>::success();
     }
     if (const auto* room = std::get_if<ResumeRoomDestination>(&destination)) {
         clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
         remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
         m_state.m_mode = RoomMode{room->room};
@@ -946,8 +1027,10 @@ Result<void, Diagnostics> FlowExecutor::return_from_scene(std::optional<SceneOut
             return fail(execution_error("execution.invalid_return",
                                         "Scene Return requires a caller frame"));
         clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        set_execution_state(flow_frame_id(m_state.m_flow_stack.back()), ExecutionState::Completed);
         m_state.remove_scene_presentation(m_state.m_flow_stack.back());
         m_state.m_flow_stack.pop_back();
+        set_execution_state(flow_frame_id(m_state.m_flow_stack.back()), ExecutionState::Running);
         if (auto* caller = std::get_if<SceneFrame>(&m_state.m_flow_stack.back()))
             caller->last_child_outcome = std::move(outcome);
         return Result<void, Diagnostics>::success();
@@ -957,6 +1040,7 @@ Result<void, Diagnostics> FlowExecutor::return_from_scene(std::optional<SceneOut
             return fail(execution_error("execution.invalid_scene_return_outcome",
                                         "A root transient Scene cannot return an Outcome"));
         clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
         remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
         m_state.m_mode = RoomMode{room->room};
@@ -967,6 +1051,7 @@ Result<void, Diagnostics> FlowExecutor::return_from_scene(std::optional<SceneOut
             return fail(execution_error("execution.invalid_scene_return_outcome",
                                         "A detached root Scene cannot return an Outcome"));
         clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
         remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
         m_state.m_mode = EndedMode{};
@@ -992,6 +1077,8 @@ FlowExecutor::replace_with_scene(const SceneId& scene,
     const auto destination = flow_return_destination(m_state.m_flow_stack.back());
     discard_handed_off_dialogue_for_active_scene();
     const auto old_id = flow_frame_id(m_state.m_flow_stack.back());
+    const auto old_parent = execution_provenance(old_id) ? execution_provenance(old_id)->parent
+                                                         : std::optional<FlowFrameId>{};
     const FlowFrameId id{m_state.m_next_frame_id++};
     m_state.remove_scene_presentation(m_state.m_flow_stack.back());
     m_state.m_flow_stack.back() = SceneFrame{id,
@@ -1002,6 +1089,8 @@ FlowExecutor::replace_with_scene(const SceneId& scene,
                                              std::nullopt,
                                              std::nullopt,
                                              std::nullopt};
+    set_execution_state(old_id, ExecutionState::Completed);
+    record_execution_provenance(id, ExecutionRelationship::Continue, old_id, old_parent);
     clear_blocker_for(old_id);
     return Result<void, Diagnostics>::success();
 }
@@ -1032,6 +1121,7 @@ FlowExecutor::apply_scene_terminal(const compiled::SceneTerminal& terminal)
                     return fail(execution_error("execution.scene_release_without_room",
                                                 "Release to Exploration requires a Current Room"));
                 remove_scene_presentation(m_state, m_state.m_flow_stack);
+                set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
                 m_state.m_flow_stack.clear();
                 m_state.m_blocker.reset();
                 m_state.m_mode = RoomMode{m_state.m_room_visit->room};
@@ -1041,6 +1131,7 @@ FlowExecutor::apply_scene_terminal(const compiled::SceneTerminal& terminal)
                     return fail(execution_error("execution.detached_scene_invalid_terminal",
                                                 "Detached Scene cannot Complete Game"));
                 remove_scene_presentation(m_state, m_state.m_flow_stack);
+                set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
                 m_state.m_flow_stack.clear();
                 m_state.m_blocker.reset();
                 m_state.m_game_completed = true;
@@ -1062,6 +1153,8 @@ Result<void, Diagnostics> FlowExecutor::replace_with_dialogue(const DialogueId& 
     const auto destination = flow_return_destination(m_state.m_flow_stack.back());
     discard_handed_off_dialogue_for_active_scene();
     const auto old_id = flow_frame_id(m_state.m_flow_stack.back());
+    const auto old_parent = execution_provenance(old_id) ? execution_provenance(old_id)->parent
+                                                         : std::optional<FlowFrameId>{};
     const FlowFrameId id{m_state.m_next_frame_id++};
     m_state.remove_scene_presentation(m_state.m_flow_stack.back());
     m_state.m_flow_stack.back() =
@@ -1072,6 +1165,8 @@ Result<void, Diagnostics> FlowExecutor::replace_with_dialogue(const DialogueId& 
                       initial_dialogue_stage_slots(*definition),
                       initial_dialogue_media_slots(*definition),
                       destination};
+    set_execution_state(old_id, ExecutionState::Completed);
+    record_execution_provenance(id, ExecutionRelationship::Continue, old_id, old_parent);
     clear_blocker_for(old_id);
     return Result<void, Diagnostics>::success();
 }
@@ -1085,6 +1180,7 @@ Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
     const std::optional<RoomId> source =
         source_context ? std::optional<RoomId>{source_context->room} : std::nullopt;
     if (source && *source == room) {
+        set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
         remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
         m_state.m_blocker.reset();
@@ -1097,7 +1193,11 @@ Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
     const auto first_stage =
         source ? RoomTransitionStage::SourceCanLeave : RoomTransitionStage::TargetCanEnter;
+    const auto old_id = flow_frame_id(m_state.m_flow_stack.back());
+    const auto old_parent = execution_provenance(old_id) ? execution_provenance(old_id)->parent
+                                                         : std::optional<FlowFrameId>{};
     const FlowFrameId id{m_state.m_next_frame_id++};
+    set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
     remove_scene_presentation(m_state, m_state.m_flow_stack);
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();
@@ -1110,6 +1210,7 @@ Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
                                                           source_context,
                                                           {first_stage, 0},
                                                           NoReturnDestination{}});
+    record_execution_provenance(id, ExecutionRelationship::Continue, old_id, old_parent);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
@@ -1133,6 +1234,7 @@ Result<void, Diagnostics> FlowExecutor::apply_target(const FlowTarget& target)
             else if constexpr (std::is_same_v<T, ReturnFlow>)
                 return return_from_flow();
             else {
+                set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
                 remove_scene_presentation(m_state, m_state.m_flow_stack);
                 m_state.m_flow_stack.clear();
                 m_state.m_blocker.reset();
@@ -1217,6 +1319,7 @@ Result<void, Diagnostics> FlowExecutor::discard_fault()
              transition->position.awaiting_completion);
         const std::optional<RoomId> destination =
             committed ? std::optional<RoomId>{transition->target_room} : transition->source_room;
+        set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Cancelled);
         remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
         m_state.m_blocker.reset();
@@ -1228,6 +1331,7 @@ Result<void, Diagnostics> FlowExecutor::discard_fault()
 
     const auto root_destination = flow_return_destination(m_state.m_flow_stack.front());
     const auto* resume = std::get_if<ResumeRoomDestination>(&root_destination);
+    set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Cancelled);
     remove_scene_presentation(m_state, m_state.m_flow_stack);
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();
@@ -1241,6 +1345,7 @@ Result<void, Diagnostics> FlowExecutor::discard_detached()
     if (!m_state.m_detached_flow_active)
         return Result<void, Diagnostics>::failure(
             execution_error("execution.not_detached", "Flow context is not detached"));
+    set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Cancelled);
     remove_scene_presentation(m_state, m_state.m_flow_stack);
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();

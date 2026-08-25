@@ -29,6 +29,7 @@ struct RuntimeCheckpointFacts {
     bool presentation_acknowledgements_settled = true;
     bool immediate_script_invocation_active = false;
     std::optional<core::FlowBlocker> flow_blocker;
+    std::vector<std::optional<core::FlowBlocker>> detached_flow_blockers;
     core::PresentationCheckpointStatus presentation_status;
     std::optional<core::PresentationSnapshotRevision> presentation_revision;
 };
