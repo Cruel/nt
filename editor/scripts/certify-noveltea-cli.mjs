@@ -239,6 +239,8 @@ async function runAsync(command, args, options = {}) {
     cwd: options.cwd ?? repositoryRoot,
     env: options.env ?? process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: options.detached ?? false,
+    windowsHide: options.windowsHide ?? false,
   });
   let stdout = '';
   let stderr = '';
@@ -250,16 +252,186 @@ async function runAsync(command, args, options = {}) {
   child.stderr.on('data', (chunk) => {
     stderr += chunk;
   });
+  const completion = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve(code ?? (signal === 'SIGINT' ? 130 : 1)));
+  });
   return {
     child,
     async result() {
-      const status = await new Promise((resolve, reject) => {
-        child.once('error', reject);
-        child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGINT' ? 130 : 1)));
-      });
+      const status = await completion;
       return { status, stdout, stderr };
     },
   };
+}
+
+function sendWindowsConsoleCtrlC(pid) {
+  const source = String.raw`
+using System;
+using System.Runtime.InteropServices;
+
+public static class NovelTeaConsoleSignal {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool FreeConsole();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool AttachConsole(uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetConsoleCtrlHandler(IntPtr handlerRoutine, bool add);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GenerateConsoleCtrlEvent(uint ctrlEvent, uint processGroupId);
+}`;
+  const command = [
+    `Add-Type -TypeDefinition @'\n${source}\n'@`,
+    '[NovelTeaConsoleSignal]::FreeConsole() | Out-Null',
+    `if (-not [NovelTeaConsoleSignal]::AttachConsole(${pid})) { exit 2 }`,
+    '[NovelTeaConsoleSignal]::SetConsoleCtrlHandler([IntPtr]::Zero, $true) | Out-Null',
+    'if (-not [NovelTeaConsoleSignal]::GenerateConsoleCtrlEvent(0, 0)) { exit 3 }',
+  ].join('; ');
+  const result = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', command],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+    },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0)
+    fail(
+      `Failed to send Windows console Ctrl+C to PID ${pid} (status ${result.status}).\n${result.stderr ?? ''}`,
+    );
+}
+
+function quoteWindowsArgument(value) {
+  if (!/[\s"]/u.test(value)) return value;
+  let result = '"';
+  let backslashes = 0;
+  for (const character of value) {
+    if (character === '\\') {
+      backslashes += 1;
+      continue;
+    }
+    if (character === '"') {
+      result += '\\'.repeat(backslashes * 2 + 1);
+      result += '"';
+      backslashes = 0;
+      continue;
+    }
+    result += '\\'.repeat(backslashes);
+    result += character;
+    backslashes = 0;
+  }
+  result += '\\'.repeat(backslashes * 2);
+  return `${result}"`;
+}
+
+async function runWindowsConsoleProcess(command, args, options) {
+  const pidPath = path.join(options.cwd, `windows-console-child-${process.pid}.pid`);
+  const commandLine = [command, ...args].map(quoteWindowsArgument).join(' ');
+  const source = String.raw`
+using System;
+using System.Runtime.InteropServices;
+
+public static class NovelTeaConsoleProcess {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct StartupInfo {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public int dwX;
+        public int dwY;
+        public int dwXSize;
+        public int dwYSize;
+        public int dwXCountChars;
+        public int dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ProcessInformation {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public uint dwProcessId;
+        public uint dwThreadId;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CreateProcess(
+        string applicationName,
+        string commandLine,
+        IntPtr processAttributes,
+        IntPtr threadAttributes,
+        bool inheritHandles,
+        uint creationFlags,
+        IntPtr environment,
+        string currentDirectory,
+        ref StartupInfo startupInfo,
+        out ProcessInformation processInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+    [DllImport("kernel32.dll")]
+    public static extern bool CloseHandle(IntPtr handle);
+}`;
+  const encodedCommandLine = Buffer.from(commandLine, 'utf8').toString('base64');
+  const encodedCommand = Buffer.from(command, 'utf8').toString('base64');
+  const encodedCwd = Buffer.from(options.cwd, 'utf8').toString('base64');
+  const encodedPidPath = Buffer.from(pidPath, 'utf8').toString('base64');
+  const powerShellCommand = [
+    "$ErrorActionPreference = 'Stop'",
+    `Add-Type -TypeDefinition @'\n${source}\n'@`,
+    `$applicationName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedCommand}'))`,
+    `$commandLine = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedCommandLine}'))`,
+    `$cwd = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedCwd}'))`,
+    `$pidPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPidPath}'))`,
+    '$startupInfo = New-Object NovelTeaConsoleProcess+StartupInfo',
+    '$startupInfo.cb = [Runtime.InteropServices.Marshal]::SizeOf($startupInfo)',
+    '$processInformation = New-Object NovelTeaConsoleProcess+ProcessInformation',
+    '$created = [NovelTeaConsoleProcess]::CreateProcess($applicationName, $commandLine, [IntPtr]::Zero, [IntPtr]::Zero, $false, 0x10, [IntPtr]::Zero, $cwd, [ref]$startupInfo, [ref]$processInformation)',
+    'if (-not $created) { exit 10 }',
+    'Set-Content -LiteralPath $pidPath -Value $processInformation.dwProcessId',
+    '[NovelTeaConsoleProcess]::WaitForSingleObject($processInformation.hProcess, [uint32]::MaxValue) | Out-Null',
+    '$exitCode = [uint32]0',
+    '[NovelTeaConsoleProcess]::GetExitCodeProcess($processInformation.hProcess, [ref]$exitCode) | Out-Null',
+    '[NovelTeaConsoleProcess]::CloseHandle($processInformation.hThread) | Out-Null',
+    '[NovelTeaConsoleProcess]::CloseHandle($processInformation.hProcess) | Out-Null',
+    'exit [int]$exitCode',
+  ].join('; ');
+  const invocation = await runAsync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', powerShellCommand],
+    { cwd: repositoryRoot, env: options.env, windowsHide: true },
+  );
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    try {
+      const pid = Number.parseInt((await readFile(pidPath, 'utf8')).trim(), 10);
+      if (Number.isInteger(pid) && pid > 0) return { invocation, pid };
+    } catch {
+      // The launcher writes the PID as soon as CreateProcess succeeds.
+    }
+    if (invocation.child.exitCode !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const launcherResult = await invocation.result();
+  fail(
+    `Windows console child failed to start (status ${launcherResult.status}).\n${launcherResult.stderr}`,
+  );
 }
 
 async function waitForComfyUiRequest(logPath, expectedPath, timeoutMs = 5000) {
@@ -1240,13 +1412,26 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
     ];
     await writeFile(cancellationServer.logPath, '');
     const nodeConfigRoot = path.join(tempRoot, 'comfyui-config-cancel-node');
-    const nodeInvocation = await runAsync(process.execPath, [nodeCli, ...cancelArgs], {
-      cwd: tempRoot,
-      env: { ...process.env, NOVELTEA_USER_CONFIG_ROOT: nodeConfigRoot },
-    });
+    const nodeEnvironment = {
+      ...process.env,
+      NOVELTEA_USER_CONFIG_ROOT: nodeConfigRoot,
+    };
+    const windowsNode = isWindows
+      ? await runWindowsConsoleProcess(process.execPath, [nodeCli, ...cancelArgs], {
+          cwd: tempRoot,
+          env: nodeEnvironment,
+        })
+      : null;
+    const nodeInvocation = windowsNode
+      ? windowsNode.invocation
+      : await runAsync(process.execPath, [nodeCli, ...cancelArgs], {
+          cwd: tempRoot,
+          env: nodeEnvironment,
+        });
     const nodeResultPromise = nodeInvocation.result();
     await waitForComfyUiRequest(cancellationServer.logPath, '/prompt');
-    nodeInvocation.child.kill('SIGINT');
+    if (windowsNode) sendWindowsConsoleCtrlC(windowsNode.pid);
+    else nodeInvocation.child.kill('SIGINT');
     const nodeResult = await nodeResultPromise;
     if (nodeResult.status !== 130)
       fail(`Node ComfyUI cancellation exited ${nodeResult.status}, expected 130.`);
@@ -1255,7 +1440,7 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
       fail('Node ComfyUI cancellation did not issue prompt-specific queue deletion.');
     if (requests.some((request) => request.path === '/interrupt'))
       fail('Node ComfyUI cancellation used the forbidden global /interrupt endpoint.');
-    process.stdout.write('[comfyui cancellation] Node SIGINT: PASS\n');
+    process.stdout.write('[comfyui cancellation] Node Ctrl+C: PASS\n');
 
     await writeFile(cancellationServer.logPath, '');
     const scriptcConfigRoot = path.join(tempRoot, 'comfyui-config-cancel-scriptc');
@@ -1395,6 +1580,8 @@ async function main() {
   );
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-cli-certification-'));
+  let primaryError = null;
+  let cleanupError = null;
   try {
     const { pristine } = await runDifferential(tempRoot);
     await certifyTypedShaders(tempRoot);
@@ -1428,9 +1615,28 @@ async function main() {
         linkedClosure: closure,
       })}\n`,
     );
+  } catch (error) {
+    primaryError = error;
   } finally {
-    await rm(tempRoot, { recursive: true, force: true });
+    try {
+      await rm(tempRoot, {
+        recursive: true,
+        force: true,
+        maxRetries: isWindows ? 20 : 0,
+        retryDelay: 100,
+      });
+    } catch (error) {
+      cleanupError = error;
+    }
   }
+  if (primaryError !== null) {
+    if (cleanupError !== null)
+      process.stderr.write(
+        `[certification] Temp cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : 'unknown cleanup error'}\n`,
+      );
+    throw primaryError;
+  }
+  if (cleanupError !== null) throw cleanupError;
 }
 
 await main();
