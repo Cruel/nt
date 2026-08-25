@@ -22,6 +22,8 @@ If the editor is clean, `E` becomes both baseline and working state. If local an
 
 Independent records and independent logical owners inside the same physical file, such as chapter, tag, and record-metadata state in `editor.json`, reconcile independently. After any successful manual or structural content write, the main process returns the authoritative post-commit assembled project. The renderer performs the same B/L/E reconciliation against that returned snapshot before adopting its revisions; this closes the race where a concurrent external edit could otherwise be hidden because the renderer learned the newest revision before learning the newest content. External create/delete updates clean records normally; deleting a locally dirty record conflicts.
 
+Foreground editor-owned saves do not wait for the workspace watcher's write-stability or quiet-period timers. A save performs one fresh preflight assembly for conflict/rebase decisions, reuses that loaded snapshot through the transaction commit, and performs one post-commit assembly for authoritative publication. Do not add redundant full-workspace opens to the save path: every assembly rereads and rehashes the canonical workspace and therefore scales with project size.
+
 ## Conflict state and resolution
 
 Overlapping changes preserve `B`, `L`, and `E` in ignored editor recovery state and block ordinary Save for that save unit. The conflict dialog identifies the affected unit and logical paths and offers:

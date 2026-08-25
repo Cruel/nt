@@ -675,6 +675,7 @@ export interface ProjectWorkspaceWriteOptions {
   readonly targetFiles?: readonly string[];
   readonly operationLabel?: string;
   readonly extraTargets?: readonly ProjectWorkspaceTransactionTargetInput[];
+  readonly preflightSnapshot?: LoadedProjectWorkspaceSnapshot;
 }
 
 export class ProjectWorkspaceService {
@@ -1155,27 +1156,39 @@ export class ProjectWorkspaceService {
     editorState: EditorProjectState,
     scriptSourcePathOverrides: Readonly<Record<string, string>> = {},
     options: ProjectWorkspaceWriteOptions = {},
-  ): Promise<{ workspaceRevision: string }> {
-    const opened = await this.open(projectRoot);
-    if (!opened.ok) throw new Error(opened.diagnostics[0]?.message ?? 'Workspace cannot be saved.');
-    if (!options.expectedFileRevisions && opened.snapshot.workspaceRevision !== expectedRevision)
+  ): Promise<{
+    workspaceRevision: string;
+    snapshot: LoadedProjectWorkspaceSnapshot;
+    contentProject: unknown;
+  }> {
+    let openedSnapshot = options.preflightSnapshot;
+    if (openedSnapshot) {
+      if (openedSnapshot.projectRoot !== this.fileSystem.resolvePath(projectRoot))
+        throw new Error('Preflight workspace snapshot does not belong to the save target.');
+    } else {
+      const opened = await this.open(projectRoot);
+      if (!opened.ok)
+        throw new Error(opened.diagnostics[0]?.message ?? 'Workspace cannot be saved.');
+      openedSnapshot = opened.snapshot;
+    }
+    if (!options.expectedFileRevisions && openedSnapshot.workspaceRevision !== expectedRevision)
       throw new Error('Project content changed outside the editor.');
     const projectedSourcePaths = {
-      ...opened.snapshot.scriptSourcePaths,
+      ...openedSnapshot.scriptSourcePaths,
       ...scriptSourcePathOverrides,
     };
     const projected = projectWorkspaceFiles(project, editorState, projectedSourcePaths);
     const priorProjected = projectWorkspaceFiles(
-      opened.snapshot.project,
-      opened.editorState,
-      opened.snapshot.scriptSourcePaths,
+      openedSnapshot.project,
+      openedSnapshot.project.editor,
+      openedSnapshot.scriptSourcePaths,
     );
     const candidates = new Set([...Object.keys(priorProjected), ...Object.keys(projected)]);
     const allowed = options.targetFiles ? new Set(options.targetFiles) : candidates;
     const expected =
       options.expectedFileRevisions ??
       Object.fromEntries(
-        Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+        Object.entries(openedSnapshot.fileRevisions).map(([file, revision]) => [
           file,
           revision.contentHash,
         ]),
@@ -1210,7 +1223,11 @@ export class ProjectWorkspaceService {
       refreshed.snapshot.workspaceRevision,
       editorState,
     );
-    return { workspaceRevision: refreshed.snapshot.workspaceRevision };
+    return {
+      workspaceRevision: refreshed.snapshot.workspaceRevision,
+      snapshot: refreshed.snapshot,
+      contentProject: refreshed.contentProject,
+    };
   }
   async writeEditorLocalState(
     projectRoot: string,
