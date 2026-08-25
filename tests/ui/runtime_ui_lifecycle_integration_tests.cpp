@@ -21,6 +21,7 @@
 #include <lua.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <concepts>
@@ -714,12 +715,13 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
                                       .scene = scene.value(),
                                       .step = step.value(),
                                       .options = {{scene_choice.value(), "Scene", true}}}};
-    values.view.dialogue =
-        noveltea::core::DialogueView{.dialogue = dialogue.value(),
-                                     .choice = noveltea::core::DialogueChoiceState{
-                                         .dialogue = dialogue.value(),
-                                         .block = block.value(),
-                                         .options = {{dialogue_choice.value(), "Dialogue", true}}}};
+    values.view.dialogue = noveltea::core::DialogueView{
+        .frame = std::bit_cast<noveltea::core::FlowFrameId>(std::uint64_t{1}),
+        .dialogue = dialogue.value(),
+        .choice = noveltea::core::DialogueChoiceState{
+            .dialogue = dialogue.value(),
+            .block = block.value(),
+            .options = {{dialogue_choice.value(), "Dialogue", true}}}};
     values.view.room = noveltea::core::RoomView{
         .room = room.value(),
         .placements = {{.placement = placement.value(),
@@ -1549,6 +1551,7 @@ TEST_CASE("RuntimeUI renders gameplay collections in an ordinary non-system Layo
     REQUIRE(block);
     REQUIRE(edge);
     values.view.dialogue = noveltea::core::DialogueView{
+        .frame = std::bit_cast<noveltea::core::FlowFrameId>(std::uint64_t{2}),
         .dialogue = dialogue.value(),
         .choice = noveltea::core::DialogueChoiceState{
             .dialogue = dialogue.value(),

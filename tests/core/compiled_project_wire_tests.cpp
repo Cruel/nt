@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:2c604cfa34739f0048e69b2aad9f138c");
+    CHECK(project.save_contract == "sc1:00494610d29ed5f60202474067604d7a");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -156,6 +156,48 @@ TEST_CASE("compiled Scene boundary rejects the superseded same-version wire shap
     const auto result = decode_shared_project(document, "stale-scene-wire.json");
     REQUIRE_FALSE(result);
     CHECK(has_code(result.error(), "compiled_project.unknown_field"));
+}
+
+TEST_CASE("compiled Scene boundary rejects detached targets that await foreground-only work")
+{
+    auto document = fixture("scene-program");
+    auto& closing = document["definitions"]["scenes"][0];
+    auto& opening = document["definitions"]["scenes"][1];
+    REQUIRE(closing["id"] == "closing");
+    REQUIRE(opening["id"] == "opening");
+
+    closing["program"]["events"] = nlohmann::json::array(
+        {{{"id", "await-background"},
+          {"timeline", {{"trackId", "main"}, {"startMs", 0}, {"durationMs", 100}}},
+          {"completionDependencies", nlohmann::json::array()},
+          {"instruction",
+           {{"id", "await-background"},
+            {"kind", "set-background"},
+            {"asset", nullptr},
+            {"material", nullptr},
+            {"color", "#000000"},
+            {"fit", "cover"},
+            {"transition", "fade"},
+            {"durationMs", 100},
+            {"waitForCompletion", true},
+            {"skippable", true}}}}});
+    closing["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
+    opening["program"]["events"] = nlohmann::json::array(
+        {{{"id", "detached"},
+          {"timeline", {{"trackId", "main"}, {"startMs", 0}, {"durationMs", 0}}},
+          {"completionDependencies", nlohmann::json::array()},
+          {"instruction",
+           {{"id", "detached"},
+            {"kind", "start-detached-scene"},
+            {"autosaveSafePoint", false},
+            {"scene", {{"kind", "scene"}, {"id", "closing"}}},
+            {"inputs", nlohmann::json::array()},
+            {"owner", "flow"}}}}});
+    opening["terminal"] = {{"kind", "complete-game"}};
+
+    auto result = noveltea::core::decode_compiled_project(document, "unsafe-detached-scene.json");
+    REQUIRE_FALSE(result);
+    CHECK(has_code(result.error(), "compiled_project.detached_scene_not_background_safe"));
 }
 
 TEST_CASE("compiled Layout scale policy retains explicit resolved wire values")
@@ -1442,12 +1484,26 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         auto document = fixture("scene-program");
         document["entrypoint"] = {{"kind", "scene"},
                                   {"scene", {{"kind", "scene"}, {"id", "opening"}}}};
-        auto* continuation = path_member(document, {"definitions", "scenes", "1", "continuation"});
-        REQUIRE(continuation != nullptr);
-        *continuation = {{"kind", "return"}};
+        auto* terminal = path_member(document, {"definitions", "scenes", "1", "terminal"});
+        REQUIRE(terminal != nullptr);
+        *terminal = {{"kind", "return"}, {"outcome", nullptr}};
         auto result = noveltea::core::decode_compiled_project(document, "scene.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled_project.invalid_entrypoint_continuation"));
+        CHECK(has_code(result.error(), "compiled_project.invalid_entrypoint_terminal"));
+    }
+
+    SECTION("direct Scene entrypoint requires nullable or defaulted inputs")
+    {
+        auto document = fixture("scene-program");
+        document["entrypoint"] = {{"kind", "scene"},
+                                  {"scene", {{"kind", "scene"}, {"id", "opening"}}}};
+        auto* scene = path_member(document, {"definitions", "scenes", "1"});
+        REQUIRE(scene != nullptr);
+        (*scene)["inputs"] = nlohmann::json::array(
+            {{{"id", "name"}, {"label", "Name"}, {"type", "string"}, {"nullable", false}}});
+        auto result = noveltea::core::decode_compiled_project(document, "scene.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_entrypoint_scene_input"));
     }
 
     SECTION("provisional schema is explicitly unsupported")

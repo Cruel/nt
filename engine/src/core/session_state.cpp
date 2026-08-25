@@ -643,6 +643,20 @@ std::optional<SceneStepId> first_scene_step(const compiled::SceneDefinition& sce
                       scene.program.instructions.front());
 }
 
+std::vector<compiled::SceneInputBinding>
+initial_scene_inputs(const compiled::SceneDefinition& scene)
+{
+    std::vector<compiled::SceneInputBinding> inputs;
+    inputs.reserve(scene.inputs.size());
+    for (const auto& input : scene.inputs) {
+        if (input.default_value)
+            inputs.push_back({input.id, *input.default_value});
+        else if (input.nullable)
+            inputs.push_back({input.id, RuntimeValue{std::monostate{}}});
+    }
+    return inputs;
+}
+
 Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project,
                                                   const FlowFrameId& frame_id)
 {
@@ -668,8 +682,12 @@ Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project
                 const auto* scene = project.find_scene(id);
                 if (scene == nullptr)
                     return false;
-                stack.emplace_back(SceneFrame{
-                    frame_id, id, {first_scene_step(*scene), {}}, NoReturnDestination{}});
+                stack.emplace_back(SceneFrame{frame_id,
+                                              id,
+                                              {first_scene_step(*scene), {}},
+                                              NoReturnDestination{},
+                                              initial_scene_inputs(*scene),
+                                              std::nullopt});
                 return true;
             } else {
                 const auto* dialogue = project.find_dialogue(id);

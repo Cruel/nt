@@ -122,6 +122,13 @@ private:
         core::PresentationFlowBlockerHandle completion;
     };
 
+    struct DetachedSceneExecution {
+        core::compiled::DetachedSceneOwner owner = core::compiled::DetachedSceneOwner::Flow;
+        std::optional<core::FlowFrameId> flow_owner;
+        std::uint64_t room_entry_sequence = 0;
+        core::FlowExecutor::ExecutionContext context;
+    };
+
     struct RoomDescriptionVisit {
         core::RoomId room;
         std::uint64_t visits = 0;
@@ -154,6 +161,14 @@ private:
     void drain_deferred_commands(std::vector<RuntimeEvent>& events,
                                  std::vector<core::RuntimeObservation>& observations,
                                  core::Diagnostics& diagnostics);
+    [[nodiscard]] core::Diagnostics start_detached_scene(const StartDetachedSceneCommand& command,
+                                                         const RuntimeSourceContext& source);
+    void run_detached_flows(std::vector<RuntimeEvent>& events,
+                            std::vector<core::RuntimeObservation>& observations,
+                            core::Diagnostics& diagnostics,
+                            std::chrono::milliseconds elapsed = std::chrono::milliseconds{0});
+    [[nodiscard]] bool detached_owner_alive(const DetachedSceneExecution& execution) const noexcept;
+    [[nodiscard]] bool flow_frame_alive(const core::FlowFrameId& frame) const noexcept;
     [[nodiscard]] core::Diagnostics execute_deferred_command(const DeferredRuntimeCommand& command);
     [[nodiscard]] bool
     source_owner_is_current(const DeferredRuntimeCommand& command) const noexcept;
@@ -216,6 +231,7 @@ private:
     bool m_draining_script_inputs = false;
     RuntimeBudgetConfiguration m_runtime_budget;
     bool m_draining_deferred_commands = false;
+    bool m_running_detached_flows = false;
     std::string m_runtime_locale;
     bool m_running = false;
     bool m_playback = false;
@@ -241,6 +257,7 @@ private:
     std::optional<core::AudioOperation> m_pending_audio;
     std::optional<DialogueAudioWait> m_dialogue_audio_wait;
     std::optional<DialoguePresentationWait> m_dialogue_presentation_wait;
+    std::vector<DetachedSceneExecution> m_detached_scene_executions;
     std::vector<RuntimeEvent> m_pending_events;
     std::uint64_t m_next_presentation_id = 1;
     std::uint64_t m_next_audio_id = 1;

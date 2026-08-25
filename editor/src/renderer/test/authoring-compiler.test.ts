@@ -482,7 +482,7 @@ describe('authoring compiler framework', () => {
       { ...defaultSceneStep('show-text'), id: 'disabled', enabled: false },
       { ...defaultSceneStep('comment'), id: 'note' },
     ];
-    scene.continuation = { kind: 'room', id: 'foyer' };
+    scene.terminal = { kind: 'release-to-exploration' };
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
     const room = project.rooms.foyer!.data;
     room.scriptHooks = [
@@ -524,10 +524,7 @@ describe('authoring compiler framework', () => {
       'set-layout',
       'transition-group',
     ]);
-    expect(lowered.definitions.scenes[0]!.continuation).toEqual({
-      kind: 'room',
-      room: { kind: 'room', id: 'foyer' },
-    });
+    expect(lowered.definitions.scenes[0]!.terminal).toEqual({ kind: 'release-to-exploration' });
     expect(
       lowered.definitions.rooms.find((candidate) => candidate.id === 'foyer')!.scriptHooks,
     ).toEqual([

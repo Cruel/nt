@@ -609,6 +609,12 @@ struct StructuredAssetDependencyIndex::Impl {
                                              "Scene actor cue");
                         }
                     } else if constexpr (std::is_same_v<
+                                             T, core::compiled::CallSceneSceneInstruction> ||
+                                         std::is_same_v<
+                                             T, core::compiled::StartDetachedSceneInstruction>) {
+                        append_target(output, core::compiled::Entrypoint{value.scene},
+                                      collection_diagnostics, traversal);
+                    } else if constexpr (std::is_same_v<
                                              T, core::compiled::CallDialogueSceneInstruction>) {
                         append_target(output, core::compiled::Entrypoint{value.dialogue},
                                       collection_diagnostics, traversal);
@@ -659,7 +665,17 @@ struct StructuredAssetDependencyIndex::Impl {
                 },
                 instruction);
         }
-        append_flow_target(output, scene.continuation, collection_diagnostics, traversal);
+        std::visit(
+            [&](const auto& terminal) {
+                using T = std::decay_t<decltype(terminal)>;
+                if constexpr (std::is_same_v<T, core::compiled::ContinueSceneTerminal>)
+                    append_target(output, core::compiled::Entrypoint{terminal.scene},
+                                  collection_diagnostics, traversal);
+                else if constexpr (std::is_same_v<T, core::compiled::ContinueDialogueSceneTerminal>)
+                    append_target(output, core::compiled::Entrypoint{terminal.dialogue},
+                                  collection_diagnostics, traversal);
+            },
+            scene.terminal);
     }
 
     void append_dialogue(DescriptorAccumulator& output, const core::DialogueId& id,

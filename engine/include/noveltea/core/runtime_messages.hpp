@@ -274,6 +274,7 @@ struct RuntimeStateObservation {
     RuntimeMode mode;
     std::optional<FlowFrameId> active_frame;
     std::optional<FlowBlockerKind> blocker;
+    bool game_completed = false;
     bool operator==(const RuntimeStateObservation&) const = default;
 };
 struct RoomPresentationDiagnosticObservation {

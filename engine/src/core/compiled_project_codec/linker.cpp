@@ -400,8 +400,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         (compiled::InteractionDefinition{std::move(identity), std::move(value.rules)}));
     LINK_DEFINITIONS(scenes, scenes, SceneDefinition, SceneId,
                      (compiled::SceneDefinition{std::move(identity), std::move(value.display_name),
-                                                std::move(value.stage), std::move(value.program),
-                                                std::move(value.continuation)}));
+                                                std::move(value.stage), std::move(value.inputs),
+                                                std::move(value.outcomes), std::move(value.program),
+                                                std::move(value.terminal)}));
     LINK_DEFINITIONS(
         dialogues, dialogues, DialogueDefinition, DialogueId,
         (compiled::DialogueDefinition{

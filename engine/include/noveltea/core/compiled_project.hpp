@@ -1021,6 +1021,30 @@ struct ActorCueInstruction {
     PresentationInstructionWait wait;
     bool skippable;
 };
+struct SceneInputBinding {
+    SceneInputId input_id;
+    RuntimeValue value;
+};
+struct CallSceneSceneInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    bool autosave_safe_point;
+    SceneId scene;
+    std::vector<SceneInputBinding> inputs;
+};
+enum class DetachedSceneOwner : std::uint8_t {
+    Flow,
+    ActiveRoom,
+    RuntimeSession,
+};
+struct StartDetachedSceneInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    bool autosave_safe_point;
+    SceneId scene;
+    std::vector<SceneInputBinding> inputs;
+    DetachedSceneOwner owner = DetachedSceneOwner::Flow;
+};
 struct CallDialogueSceneInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
@@ -1273,12 +1297,12 @@ struct TransitionGroupInstruction {
     std::vector<TransitionGroupMutation> children;
 };
 using SceneInstruction =
-    std::variant<SetBackgroundInstruction, ActorCueInstruction, CallDialogueSceneInstruction,
-                 ShowTextInstruction, AudioCueInstruction, SetGlobalPropertySceneInstruction,
-                 RunLuaSceneInstruction, WaitDurationInstruction, WaitInputInstruction,
-                 ConditionalBranchInstruction, ChoiceSceneInstruction, SetLayoutInstruction,
-                 MaterialParameterInstruction, PostprocessEffectInstruction,
-                 TransitionGroupInstruction>;
+    std::variant<SetBackgroundInstruction, ActorCueInstruction, CallSceneSceneInstruction,
+                 StartDetachedSceneInstruction, CallDialogueSceneInstruction, ShowTextInstruction,
+                 AudioCueInstruction, SetGlobalPropertySceneInstruction, RunLuaSceneInstruction,
+                 WaitDurationInstruction, WaitInputInstruction, ConditionalBranchInstruction,
+                 ChoiceSceneInstruction, SetLayoutInstruction, MaterialParameterInstruction,
+                 PostprocessEffectInstruction, TransitionGroupInstruction>;
 struct SceneEventTimeline {
     std::string track_id;
     std::uint64_t start_ms = 0;
@@ -1302,12 +1326,46 @@ struct BlankSceneStage {
     std::optional<LayoutId> layout;
 };
 using SceneStage = std::variant<InheritedSceneStage, StagedRoomSceneStage, BlankSceneStage>;
+enum class SceneInputType : std::uint8_t {
+    Boolean,
+    Integer,
+    Number,
+    String,
+};
+struct SceneInputDefinition {
+    SceneInputId id;
+    std::string label;
+    SceneInputType type = SceneInputType::String;
+    bool nullable = false;
+    std::optional<RuntimeValue> default_value;
+};
+struct SceneOutcomeDefinition {
+    SceneOutcomeId id;
+    std::string label;
+};
+struct ReturnSceneTerminal {
+    std::optional<SceneOutcomeId> outcome;
+};
+struct ContinueSceneTerminal {
+    SceneId scene;
+    std::vector<SceneInputBinding> inputs;
+};
+struct ContinueDialogueSceneTerminal {
+    DialogueId dialogue;
+};
+struct ReleaseToExplorationSceneTerminal {};
+struct CompleteGameSceneTerminal {};
+using SceneTerminal =
+    std::variant<ReturnSceneTerminal, ContinueSceneTerminal, ContinueDialogueSceneTerminal,
+                 ReleaseToExplorationSceneTerminal, CompleteGameSceneTerminal>;
 struct SceneDefinition {
     DefinitionIdentity<SceneId> identity;
     std::string display_name;
     SceneStage stage;
+    std::vector<SceneInputDefinition> inputs;
+    std::vector<SceneOutcomeDefinition> outcomes;
     SceneProgram program;
-    FlowTarget continuation;
+    SceneTerminal terminal;
 };
 
 struct DialogueStageSlotState {

@@ -21,14 +21,18 @@ import {
   sceneLayoutRef,
   sceneMaterialRef,
   sceneRoomRef,
+  sceneSceneRef,
   sceneStepTypeValues,
   sceneVariableRef,
   validateSceneData,
   type SceneConditionData,
   type SceneData,
   type SceneEffectData,
+  type SceneInputBinding,
+  type SceneInputDefinition,
   type SceneStepData,
   type SceneStepType,
+  type SceneTerminal,
   type SceneTransitionGroupChildData,
 } from '../../../shared/project-schema/authoring-scenes';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
@@ -65,6 +69,29 @@ function uniqueId(steps: SceneStepData[], base: string) {
   for (let index = 2; index < 1000; index += 1)
     if (!used.has(`${base}-${index}`)) return `${base}-${index}`;
   return `${base}-${Date.now()}`;
+}
+
+function sceneInputText(value: SceneInputBinding['value'] | undefined): string {
+  if (value === undefined) return '';
+  if (value === null) return 'null';
+  return String(value);
+}
+
+function parseSceneInputValue(
+  input: SceneInputDefinition,
+  text: string,
+): SceneInputBinding['value'] | undefined {
+  if (input.nullable && text === 'null') return null;
+  if (input.type === 'string') return text;
+  if (input.type === 'boolean') {
+    if (text === 'true') return true;
+    if (text === 'false') return false;
+    return undefined;
+  }
+  const value = Number(text);
+  if (!Number.isFinite(value)) return undefined;
+  if (input.type === 'integer' && !Number.isInteger(value)) return undefined;
+  return value;
 }
 function uniqueNestedId(ids: readonly string[], base: string) {
   const used = new Set(ids);
@@ -225,6 +252,10 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
       const id = Object.keys(project.dialogues)[0];
       return id ? { ...step, dialogue: sceneDialogueRef(id) } : null;
     }
+    if (step.type === 'call-scene' || step.type === 'start-detached-scene') {
+      const id = Object.keys(project.scenes).find((candidate) => candidate !== sceneId);
+      return id ? { ...step, scene: sceneSceneRef(id) } : null;
+    }
     if (step.type === 'set-variable') {
       const id = Object.keys(project.variables)[0];
       const value = project.variables[id!]?.data.defaultValue;
@@ -338,26 +369,25 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
     setSelectedId(nextId);
   };
 
-  const continuationOptions = [
+  const terminalOptions = [
     ...Object.keys(project.scenes).map((id) => ({
-      value: `scene:${id}`,
-      label: `Scene: ${project.scenes[id]!.label}`,
+      value: `continue-scene:${id}`,
+      label: `Continue/Replace Scene: ${project.scenes[id]!.label}`,
     })),
     ...Object.keys(project.dialogues).map((id) => ({
-      value: `dialogue:${id}`,
-      label: `Dialogue: ${project.dialogues[id]!.label}`,
-    })),
-    ...Object.keys(project.rooms).map((id) => ({
-      value: `room:${id}`,
-      label: `Room: ${project.rooms[id]!.label}`,
+      value: `continue-dialogue:${id}`,
+      label: `Continue/Replace Dialogue: ${project.dialogues[id]!.label}`,
     })),
     { value: 'return', label: 'Return' },
-    { value: 'end', label: 'End' },
+    { value: 'release-to-exploration', label: 'Release to Exploration' },
+    { value: 'complete-game', label: 'Complete Game' },
   ];
-  const continuationValue =
-    'id' in data.continuation
-      ? `${data.continuation.kind}:${data.continuation.id}`
-      : data.continuation.kind;
+  const terminalValue =
+    data.terminal.kind === 'continue-scene'
+      ? `continue-scene:${data.terminal.scene.$ref.id}`
+      : data.terminal.kind === 'continue-dialogue'
+        ? `continue-dialogue:${data.terminal.dialogue.$ref.id}`
+        : data.terminal.kind;
   const conditionEditor = (
     condition: SceneConditionData | undefined,
     onChange: (condition: SceneConditionData | undefined) => void,
@@ -665,27 +695,227 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
             />
           </Label>
           <Label>
-            Continuation
+            Terminal action
             <Select
-              value={continuationValue}
+              value={terminalValue}
               onValueChange={(value) => {
                 if (!value) return;
                 const [kind, id] = value.split(':');
+                const terminal: SceneTerminal =
+                  kind === 'continue-scene' && id
+                    ? { kind, scene: sceneSceneRef(id), inputs: [] }
+                    : kind === 'continue-dialogue' && id
+                      ? { kind, dialogue: sceneDialogueRef(id) }
+                      : kind === 'return'
+                        ? { kind, outcome: null }
+                        : kind === 'release-to-exploration'
+                          ? { kind }
+                          : { kind: 'complete-game' };
                 commit({
                   ...data,
-                  continuation: id
-                    ? { kind: kind as 'scene' | 'dialogue' | 'room', id }
-                    : { kind: kind as 'return' | 'end' },
+                  terminal,
                 });
               }}
             >
-              {continuationOptions.map((option) => (
+              {terminalOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
               ))}
             </Select>
           </Label>
+          {data.terminal.kind === 'return' && data.outcomes.length > 0 ? (
+            <Label>
+              Return outcome
+              <Select
+                value={data.terminal.outcome ?? '__none__'}
+                onValueChange={(outcome) =>
+                  commit({
+                    ...data,
+                    terminal: {
+                      kind: 'return',
+                      outcome: outcome === '__none__' ? null : outcome,
+                    },
+                  })
+                }
+              >
+                <SelectItem value="__none__">No outcome</SelectItem>
+                {data.outcomes.map((outcome) => (
+                  <SelectItem key={outcome.id} value={outcome.id}>
+                    {outcome.label}
+                  </SelectItem>
+                ))}
+              </Select>
+            </Label>
+          ) : null}
+          {data.terminal.kind === 'continue-scene' ? (
+            <div className="space-y-2 rounded border p-2">
+              <span className="text-xs font-medium">Continue Scene inputs</span>
+              {(
+                parseSceneData(project.scenes[data.terminal.scene.$ref.id]?.data)?.inputs ?? []
+              ).map((input) => {
+                const binding =
+                  data.terminal.kind === 'continue-scene'
+                    ? data.terminal.inputs.find((candidate) => candidate.inputId === input.id)
+                    : undefined;
+                return (
+                  <Label key={input.id}>
+                    {input.label} ({input.type})
+                    <Input
+                      value={sceneInputText(binding?.value)}
+                      placeholder={input.nullable ? 'null' : input.id}
+                      onChange={(event) => {
+                        if (data.terminal.kind !== 'continue-scene') return;
+                        const value = parseSceneInputValue(input, event.target.value);
+                        const inputs = data.terminal.inputs.filter(
+                          (candidate) => candidate.inputId !== input.id,
+                        );
+                        if (value !== undefined) inputs.push({ inputId: input.id, value });
+                        commit({ ...data, terminal: { ...data.terminal, inputs } });
+                      }}
+                    />
+                  </Label>
+                );
+              })}
+            </div>
+          ) : null}
+          <div className="space-y-2 rounded border p-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">Inputs</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const used = new Set(data.inputs.map((input) => input.id));
+                  let suffix = 1;
+                  while (used.has(`input-${suffix}`)) suffix += 1;
+                  commit({
+                    ...data,
+                    inputs: [
+                      ...data.inputs,
+                      {
+                        id: `input-${suffix}`,
+                        label: `Input ${suffix}`,
+                        type: 'string',
+                        nullable: false,
+                      },
+                    ],
+                  });
+                }}
+              >
+                Add Input
+              </Button>
+            </div>
+            {data.inputs.map((input, index) => (
+              <div
+                key={`${input.id}-${index}`}
+                className="grid grid-cols-[1fr_1fr_110px_auto] gap-2"
+              >
+                <Input
+                  value={input.id}
+                  aria-label={`Input ${index + 1} ID`}
+                  onChange={(event) => {
+                    const inputs = [...data.inputs];
+                    inputs[index] = { ...input, id: event.target.value };
+                    commit({ ...data, inputs });
+                  }}
+                />
+                <Input
+                  value={input.label}
+                  aria-label={`Input ${index + 1} label`}
+                  onChange={(event) => {
+                    const inputs = [...data.inputs];
+                    inputs[index] = { ...input, label: event.target.value };
+                    commit({ ...data, inputs });
+                  }}
+                />
+                <Select
+                  value={input.type}
+                  onValueChange={(type) => {
+                    const inputs = [...data.inputs];
+                    inputs[index] = {
+                      ...input,
+                      type: type as typeof input.type,
+                      defaultValue: undefined,
+                    };
+                    commit({ ...data, inputs });
+                  }}
+                >
+                  <SelectItem value="boolean">Boolean</SelectItem>
+                  <SelectItem value="integer">Integer</SelectItem>
+                  <SelectItem value="number">Number</SelectItem>
+                  <SelectItem value="string">String</SelectItem>
+                </Select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    commit({ ...data, inputs: data.inputs.filter((_, item) => item !== index) })
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2 rounded border p-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">Outcomes</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const used = new Set(data.outcomes.map((outcome) => outcome.id));
+                  let suffix = 1;
+                  while (used.has(`outcome-${suffix}`)) suffix += 1;
+                  commit({
+                    ...data,
+                    outcomes: [
+                      ...data.outcomes,
+                      { id: `outcome-${suffix}`, label: `Outcome ${suffix}` },
+                    ],
+                  });
+                }}
+              >
+                Add Outcome
+              </Button>
+            </div>
+            {data.outcomes.map((outcome, index) => (
+              <div key={`${outcome.id}-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                <Input
+                  value={outcome.id}
+                  aria-label={`Outcome ${index + 1} ID`}
+                  onChange={(event) => {
+                    const outcomes = [...data.outcomes];
+                    outcomes[index] = { ...outcome, id: event.target.value };
+                    commit({ ...data, outcomes });
+                  }}
+                />
+                <Input
+                  value={outcome.label}
+                  aria-label={`Outcome ${index + 1} label`}
+                  onChange={(event) => {
+                    const outcomes = [...data.outcomes];
+                    outcomes[index] = { ...outcome, label: event.target.value };
+                    commit({ ...data, outcomes });
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    commit({ ...data, outcomes: data.outcomes.filter((_, item) => item !== index) })
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
           <Label>
             Stage
             <Select
@@ -1334,6 +1564,72 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     }
                   />
                 </Label>
+              </>
+            )}
+            {(selected.type === 'call-scene' || selected.type === 'start-detached-scene') && (
+              <>
+                <Label>
+                  Scene
+                  <Select
+                    value={selected.scene.$ref.id}
+                    onValueChange={(id) => {
+                      if (id) replaceStep({ ...selected, scene: sceneSceneRef(id), inputs: [] });
+                    }}
+                  >
+                    {Object.entries(project.scenes)
+                      .filter(([id]) => id !== sceneId)
+                      .map(([id, item]) => (
+                        <SelectItem key={id} value={id}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                  </Select>
+                </Label>
+                {selected.type === 'start-detached-scene' ? (
+                  <Label>
+                    Ownership
+                    <Select
+                      value={selected.owner}
+                      onValueChange={(owner) =>
+                        replaceStep({
+                          ...selected,
+                          owner: owner as typeof selected.owner,
+                        })
+                      }
+                    >
+                      <SelectItem value="flow">Flow</SelectItem>
+                      <SelectItem value="active-room">Active Room</SelectItem>
+                      <SelectItem value="runtime-session">Runtime Session</SelectItem>
+                    </Select>
+                  </Label>
+                ) : null}
+                <div className="space-y-2 rounded border p-2">
+                  <span className="text-xs font-medium">Input bindings</span>
+                  {(parseSceneData(project.scenes[selected.scene.$ref.id]?.data)?.inputs ?? []).map(
+                    (input) => {
+                      const binding = selected.inputs.find(
+                        (candidate) => candidate.inputId === input.id,
+                      );
+                      return (
+                        <Label key={input.id}>
+                          {input.label} ({input.type})
+                          <Input
+                            value={sceneInputText(binding?.value)}
+                            placeholder={input.nullable ? 'null' : input.id}
+                            onChange={(event) => {
+                              const value = parseSceneInputValue(input, event.target.value);
+                              const inputs = selected.inputs.filter(
+                                (candidate) => candidate.inputId !== input.id,
+                              );
+                              if (value !== undefined) inputs.push({ inputId: input.id, value });
+                              replaceStep({ ...selected, inputs });
+                            }}
+                          />
+                        </Label>
+                      );
+                    },
+                  )}
+                </div>
               </>
             )}
             {selected.type === 'show-text' && (

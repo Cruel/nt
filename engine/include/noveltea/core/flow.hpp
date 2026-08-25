@@ -197,6 +197,8 @@ struct SceneFrame {
     SceneId scene;
     SceneFramePosition position;
     ReturnDestination destination;
+    std::vector<compiled::SceneInputBinding> inputs;
+    std::optional<SceneOutcomeId> last_child_outcome;
 };
 struct DialogueFrame {
     FlowFrameId frame_id;

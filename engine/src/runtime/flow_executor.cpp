@@ -34,6 +34,65 @@ std::optional<SceneStepId> first_scene_step(const compiled::SceneDefinition& sce
                       scene.program.instructions.front());
 }
 
+bool scene_input_matches(const compiled::SceneInputDefinition& input, const RuntimeValue& value)
+{
+    if (std::holds_alternative<std::monostate>(value))
+        return input.nullable;
+    switch (input.type) {
+    case compiled::SceneInputType::Boolean:
+        return std::holds_alternative<bool>(value);
+    case compiled::SceneInputType::Integer:
+        return std::holds_alternative<std::int64_t>(value);
+    case compiled::SceneInputType::Number:
+        return std::holds_alternative<std::int64_t>(value) || std::holds_alternative<double>(value);
+    case compiled::SceneInputType::String:
+        return std::holds_alternative<std::string>(value);
+    }
+    return false;
+}
+
+Result<std::vector<compiled::SceneInputBinding>, Diagnostics>
+resolve_scene_inputs(const compiled::SceneDefinition& scene,
+                     std::vector<compiled::SceneInputBinding> supplied)
+{
+    std::unordered_set<SceneInputId> seen;
+    for (const auto& binding : supplied) {
+        const auto declaration =
+            std::ranges::find_if(scene.inputs, [&](const compiled::SceneInputDefinition& input) {
+                return input.id == binding.input_id;
+            });
+        if (declaration == scene.inputs.end())
+            return Result<std::vector<compiled::SceneInputBinding>, Diagnostics>::failure(
+                execution_error("execution.unknown_scene_input",
+                                "Scene invocation supplies an undeclared input"));
+        if (!seen.insert(binding.input_id).second)
+            return Result<std::vector<compiled::SceneInputBinding>, Diagnostics>::failure(
+                execution_error("execution.duplicate_scene_input",
+                                "Scene invocation supplies an input more than once"));
+        if (!scene_input_matches(*declaration, binding.value))
+            return Result<std::vector<compiled::SceneInputBinding>, Diagnostics>::failure(
+                execution_error("execution.scene_input_type_mismatch",
+                                "Scene invocation input does not match its declared type"));
+    }
+    for (const auto& input : scene.inputs) {
+        if (seen.contains(input.id))
+            continue;
+        if (input.default_value) {
+            supplied.push_back({input.id, *input.default_value});
+            continue;
+        }
+        if (input.nullable) {
+            supplied.push_back({input.id, RuntimeValue{std::monostate{}}});
+            continue;
+        }
+        return Result<std::vector<compiled::SceneInputBinding>, Diagnostics>::failure(
+            execution_error("execution.missing_scene_input",
+                            "Scene invocation is missing a required input"));
+    }
+    return Result<std::vector<compiled::SceneInputBinding>, Diagnostics>::success(
+        std::move(supplied));
+}
+
 std::optional<InteractionInstructionId>
 first_interaction_instruction(const compiled::InteractionProgram& program)
 {
@@ -429,13 +488,44 @@ Result<void, Diagnostics> FlowExecutor::start_transient(const SceneId& scene)
         return Result<void, Diagnostics>::failure(
             execution_error("execution.invalid_transient_start",
                             "Scene transient start requires Room mode and a valid Scene"));
+    auto inputs = resolve_scene_inputs(*definition, {});
+    if (!inputs)
+        return fail(std::move(inputs).error());
     if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
     const FlowFrameId id{m_state.m_next_frame_id++};
-    m_state.m_flow_stack.emplace_back(SceneFrame{
-        id, scene, {first_scene_step(*definition), {}}, ResumeRoomDestination{room->room}});
+    m_state.m_flow_stack.emplace_back(SceneFrame{id,
+                                                 scene,
+                                                 {first_scene_step(*definition), {}},
+                                                 ResumeRoomDestination{room->room},
+                                                 std::move(*inputs.value_if()),
+                                                 std::nullopt});
     m_state.m_mode = FlowMode{};
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+FlowExecutor::start_detached(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs)
+{
+    const auto* definition = m_project.find_scene(scene);
+    if (definition == nullptr || !m_state.m_flow_stack.empty() ||
+        !std::holds_alternative<FlowMode>(m_state.m_mode) || !m_state.m_detached_flow_active)
+        return fail(execution_error("execution.invalid_detached_start",
+                                    "Detached Scene requires an empty detached Flow context"));
+    auto resolved_inputs = resolve_scene_inputs(*definition, std::move(inputs));
+    if (!resolved_inputs)
+        return fail(std::move(resolved_inputs).error());
+    if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
+        return fail(
+            execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
+    const FlowFrameId id{m_state.m_next_frame_id++};
+    m_state.m_flow_stack.emplace_back(SceneFrame{id,
+                                                 scene,
+                                                 {first_scene_step(*definition), {}},
+                                                 NoReturnDestination{},
+                                                 std::move(*resolved_inputs.value_if()),
+                                                 std::nullopt});
     return Result<void, Diagnostics>::success();
 }
 
@@ -546,6 +636,13 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
 Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
                                                    FlowFramePosition caller_next_position)
 {
+    return call_child(scene, {}, std::move(caller_next_position));
+}
+
+Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
+                                                   std::vector<compiled::SceneInputBinding> inputs,
+                                                   FlowFramePosition caller_next_position)
+{
     auto ready = ensure_flow_ready();
     if (!ready)
         return fail(ready.error());
@@ -558,13 +655,28 @@ Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
         return fail(definition == nullptr ? execution_error("execution.invalid_target",
                                                             "Child Scene target is missing")
                                           : position.error());
+    auto resolved_inputs = resolve_scene_inputs(*definition, std::move(inputs));
+    if (!resolved_inputs)
+        return fail(std::move(resolved_inputs).error());
+    constexpr std::size_t k_max_scene_call_depth = 64;
+    const auto scene_depth = static_cast<std::size_t>(
+        std::ranges::count_if(m_state.m_flow_stack, [](const FlowFrame& frame) {
+            return std::holds_alternative<SceneFrame>(frame);
+        }));
+    if (scene_depth >= k_max_scene_call_depth)
+        return fail(execution_error("execution.scene_recursion_budget_exhausted",
+                                    "Scene call recursion budget is exhausted"));
     if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
 
     const FlowFrameId id{m_state.m_next_frame_id};
-    FlowFrame child =
-        SceneFrame{id, scene, {first_scene_step(*definition), {}}, CallerDestination{}};
+    FlowFrame child = SceneFrame{id,
+                                 scene,
+                                 {first_scene_step(*definition), {}},
+                                 CallerDestination{},
+                                 std::move(*resolved_inputs.value_if()),
+                                 std::nullopt};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
     ++m_state.m_next_frame_id;
     m_state.m_flow_stack.push_back(std::move(child));
@@ -645,11 +757,58 @@ Result<void, Diagnostics> FlowExecutor::return_from_flow()
                                 "Return is invalid for a NoReturn root frame"));
 }
 
-Result<void, Diagnostics> FlowExecutor::replace_with_scene(const SceneId& scene)
+Result<void, Diagnostics> FlowExecutor::return_from_scene(std::optional<SceneOutcomeId> outcome)
+{
+    if (m_state.m_flow_stack.empty() ||
+        !std::holds_alternative<SceneFrame>(m_state.m_flow_stack.back()))
+        return fail(execution_error("execution.invalid_scene_return",
+                                    "Scene Return requires an active Scene frame"));
+    const auto destination = flow_return_destination(m_state.m_flow_stack.back());
+    if (std::holds_alternative<CallerDestination>(destination)) {
+        if (m_state.m_flow_stack.size() < 2)
+            return fail(execution_error("execution.invalid_return",
+                                        "Scene Return requires a caller frame"));
+        clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        m_state.remove_scene_presentation(m_state.m_flow_stack.back());
+        m_state.m_flow_stack.pop_back();
+        if (auto* caller = std::get_if<SceneFrame>(&m_state.m_flow_stack.back()))
+            caller->last_child_outcome = std::move(outcome);
+        return Result<void, Diagnostics>::success();
+    }
+    if (const auto* room = std::get_if<ResumeRoomDestination>(&destination)) {
+        if (outcome)
+            return fail(execution_error("execution.invalid_scene_return_outcome",
+                                        "A root transient Scene cannot return an Outcome"));
+        clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        remove_scene_presentation(m_state, m_state.m_flow_stack);
+        m_state.m_flow_stack.clear();
+        m_state.m_mode = RoomMode{room->room};
+        return Result<void, Diagnostics>::success();
+    }
+    if (m_state.m_detached_flow_active) {
+        if (outcome)
+            return fail(execution_error("execution.invalid_scene_return_outcome",
+                                        "A detached root Scene cannot return an Outcome"));
+        clear_blocker_for(flow_frame_id(m_state.m_flow_stack.back()));
+        remove_scene_presentation(m_state, m_state.m_flow_stack);
+        m_state.m_flow_stack.clear();
+        m_state.m_mode = EndedMode{};
+        return Result<void, Diagnostics>::success();
+    }
+    return fail(execution_error("execution.invalid_root_return",
+                                "Scene Return is invalid for a NoReturn root frame"));
+}
+
+Result<void, Diagnostics>
+FlowExecutor::replace_with_scene(const SceneId& scene,
+                                 std::vector<compiled::SceneInputBinding> inputs)
 {
     const auto* definition = m_project.find_scene(scene);
     if (definition == nullptr)
         return fail(execution_error("execution.invalid_target", "Scene target is missing"));
+    auto resolved_inputs = resolve_scene_inputs(*definition, std::move(inputs));
+    if (!resolved_inputs)
+        return fail(std::move(resolved_inputs).error());
     if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
@@ -657,10 +816,59 @@ Result<void, Diagnostics> FlowExecutor::replace_with_scene(const SceneId& scene)
     const auto old_id = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id++};
     m_state.remove_scene_presentation(m_state.m_flow_stack.back());
-    m_state.m_flow_stack.back() =
-        SceneFrame{id, scene, {first_scene_step(*definition), {}}, destination};
+    m_state.m_flow_stack.back() = SceneFrame{id,
+                                             scene,
+                                             {first_scene_step(*definition), {}},
+                                             destination,
+                                             std::move(*resolved_inputs.value_if()),
+                                             std::nullopt};
     clear_blocker_for(old_id);
     return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+FlowExecutor::apply_scene_terminal(const compiled::SceneTerminal& terminal)
+{
+    if (m_state.m_execution_fault)
+        return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
+    if (!std::holds_alternative<FlowMode>(m_state.m_mode) || m_state.m_flow_stack.empty() ||
+        !std::holds_alternative<SceneFrame>(m_state.m_flow_stack.back()))
+        return fail(execution_error("execution.invalid_mode",
+                                    "Scene terminal action requires an active Scene frame"));
+    return std::visit(
+        [this](const auto& value) -> Result<void, Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::ReturnSceneTerminal>) {
+                return return_from_scene(value.outcome);
+            } else if constexpr (std::is_same_v<T, compiled::ContinueSceneTerminal>) {
+                return replace_with_scene(value.scene, value.inputs);
+            } else if constexpr (std::is_same_v<T, compiled::ContinueDialogueSceneTerminal>) {
+                return replace_with_dialogue(value.dialogue);
+            } else if constexpr (std::is_same_v<T, compiled::ReleaseToExplorationSceneTerminal>) {
+                if (m_state.m_detached_flow_active)
+                    return fail(execution_error("execution.detached_scene_invalid_terminal",
+                                                "Detached Scene cannot Release to Exploration"));
+                if (!m_state.m_room_visit)
+                    return fail(execution_error("execution.scene_release_without_room",
+                                                "Release to Exploration requires a Current Room"));
+                remove_scene_presentation(m_state, m_state.m_flow_stack);
+                m_state.m_flow_stack.clear();
+                m_state.m_blocker.reset();
+                m_state.m_mode = RoomMode{m_state.m_room_visit->room};
+                return Result<void, Diagnostics>::success();
+            } else {
+                if (m_state.m_detached_flow_active)
+                    return fail(execution_error("execution.detached_scene_invalid_terminal",
+                                                "Detached Scene cannot Complete Game"));
+                remove_scene_presentation(m_state, m_state.m_flow_stack);
+                m_state.m_flow_stack.clear();
+                m_state.m_blocker.reset();
+                m_state.m_game_completed = true;
+                m_state.m_mode = EndedMode{};
+                return Result<void, Diagnostics>::success();
+            }
+        },
+        terminal);
 }
 
 Result<void, Diagnostics> FlowExecutor::replace_with_dialogue(const DialogueId& dialogue)
@@ -845,6 +1053,43 @@ Result<void, Diagnostics> FlowExecutor::discard_fault()
     m_state.m_execution_fault.reset();
     m_state.m_mode = resume ? RuntimeMode{RoomMode{resume->room}} : RuntimeMode{EndedMode{}};
     return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> FlowExecutor::discard_detached()
+{
+    if (!m_state.m_detached_flow_active)
+        return Result<void, Diagnostics>::failure(
+            execution_error("execution.not_detached", "Flow context is not detached"));
+    remove_scene_presentation(m_state, m_state.m_flow_stack);
+    m_state.m_flow_stack.clear();
+    m_state.m_blocker.reset();
+    m_state.m_execution_fault.reset();
+    m_state.m_mode = EndedMode{};
+    return Result<void, Diagnostics>::success();
+}
+
+FlowExecutor::ExecutionContext FlowExecutor::take_execution_context() noexcept
+{
+    ExecutionContext context{std::move(m_state.m_mode),    std::move(m_state.m_flow_stack),
+                             std::move(m_state.m_blocker), std::move(m_state.m_execution_fault),
+                             m_state.m_flow_running,       m_state.m_detached_flow_active};
+    m_state.m_mode = EndedMode{};
+    m_state.m_flow_stack.clear();
+    m_state.m_blocker.reset();
+    m_state.m_execution_fault.reset();
+    m_state.m_flow_running = false;
+    m_state.m_detached_flow_active = false;
+    return context;
+}
+
+void FlowExecutor::install_execution_context(ExecutionContext context) noexcept
+{
+    m_state.m_mode = std::move(context.mode);
+    m_state.m_flow_stack = std::move(context.flow_stack);
+    m_state.m_blocker = std::move(context.blocker);
+    m_state.m_execution_fault = std::move(context.execution_fault);
+    m_state.m_flow_running = context.running;
+    m_state.m_detached_flow_active = context.detached;
 }
 
 } // namespace noveltea::core

@@ -63,10 +63,7 @@ export type SharedVerbDefinition = Omit<
   'availability' | 'defaultProgram'
 >;
 export type SharedInteractionDefinition = Omit<WireDefinitions['interactions'][number], 'rules'>;
-export type SharedSceneDefinition = Omit<
-  WireDefinitions['scenes'][number],
-  'program' | 'continuation'
->;
+export type SharedSceneDefinition = Omit<WireDefinitions['scenes'][number], 'program' | 'terminal'>;
 export type SharedDialogueDefinition = Omit<
   WireDefinitions['dialogues'][number],
   'program' | 'completion'
@@ -75,7 +72,7 @@ export type SharedMapDefinition = WireDefinitions['maps'][number];
 
 /**
  * Deterministic, non-publishable intermediate. Specialized programs and
- * continuations extend it before the strict wire validator is allowed to see
+ * terminal controls extend it before the strict wire validator is allowed to see
  * the current compiled-project wire shape.
  */
 export interface CompiledProjectSharedDraft {
@@ -868,6 +865,14 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     scenes.push({
       ...definitionBase(id),
       displayName: data.displayName,
+      inputs: data.inputs.map((input) => ({
+        id: input.id,
+        label: input.label,
+        type: input.type,
+        nullable: input.nullable,
+        ...(input.defaultValue === undefined ? {} : { defaultValue: input.defaultValue }),
+      })),
+      outcomes: data.outcomes.map((outcome) => ({ ...outcome })),
       stage:
         data.stage.kind === 'inherited'
           ? { kind: 'inherited' as const }

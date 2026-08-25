@@ -174,6 +174,12 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/scenes\/\*\/data\/stage\/room\//, OWNER],
   [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/timeline\//, OWNER],
   [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/completionDependencies\//, OWNER],
+  // #97 replaces the generic Scene continuation target with explicit typed Scene inputs,
+  // Outcomes, Scene call/detached-start bindings, and terminal control. These are all owner-local
+  // execution contract fields and therefore directly affect the Scene dependency contribution.
+  [/^\/scenes\/\*\/data\/(?:inputs|outcomes|terminal)\//, OWNER],
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:scene|inputs)(?:\/|$)/, OWNER],
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/owner$/, OWNER],
   // #89 adds Project audio mixing policy and expands Scene audio cues at the preserved authoring
   // schema version. Project mix fields and the genuinely new cue dimensions all contribute to
   // runtime projection; purpose/lifetime/gain replace the retired channel/loop/volume leaves and
@@ -577,6 +583,11 @@ const legacySchemaLeafPaths = [
   '/characters/*/data/expressions/*/sprite/$ref/id' as JsonPointer,
   '/characters/*/data/expressions/*/material/$ref/collection' as JsonPointer,
   '/characters/*/data/expressions/*/material/$ref/id' as JsonPointer,
+  // #97 atomically replaces the generic Scene continuation target with explicit Scene terminal
+  // control. Retain the two removed continuation leaves solely to preserve the reviewed pre-#97
+  // field-effect sequence; all replacement terminal/input/outcome leaves are classified above.
+  '/scenes/*/data/continuation/kind' as JsonPointer,
+  '/scenes/*/data/continuation/id' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
 if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
@@ -674,7 +685,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     project: 'da3be83d',
     properties: 'c35941e2',
     rooms: 'af3ac4c1',
-    scenes: '142cac3c',
+    scenes: '17c6d9e0',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: 'e2c61a79',

@@ -4,6 +4,7 @@
 
 #include "ui/rmlui/runtime_ui_action_gateway.hpp"
 
+#include <bit>
 #include <cstddef>
 #include <functional>
 #include <optional>
@@ -509,6 +510,7 @@ TEST_CASE("RuntimeUiActionGateway rejects stale hidden and disabled typed gamepl
                                       .options = {{scene_enabled.value(), "Enabled", true},
                                                   {scene_disabled.value(), "Disabled", false}}}};
     values.view.dialogue = noveltea::core::DialogueView{
+        .frame = std::bit_cast<noveltea::core::FlowFrameId>(std::uint64_t{1}),
         .dialogue = dialogue.value(),
         .choice = noveltea::core::DialogueChoiceState{
             .dialogue = dialogue.value(),

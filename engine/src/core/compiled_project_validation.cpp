@@ -1,6 +1,7 @@
 #include "compiled_project_validation.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
@@ -1543,9 +1544,138 @@ private:
 
     void validate_scenes()
     {
+        const auto scene_input_value_matches = [](SceneInputType type, bool nullable,
+                                                  const RuntimeValue& value) {
+            if (std::holds_alternative<std::monostate>(value))
+                return nullable;
+            switch (type) {
+            case SceneInputType::Boolean:
+                return std::holds_alternative<bool>(value);
+            case SceneInputType::Integer:
+                return std::holds_alternative<std::int64_t>(value);
+            case SceneInputType::Number:
+                return std::holds_alternative<std::int64_t>(value) ||
+                       std::holds_alternative<double>(value);
+            case SceneInputType::String:
+                return std::holds_alternative<std::string>(value);
+            }
+            return false;
+        };
+        const auto validate_bindings = [&](SceneId target_id,
+                                           const std::vector<SceneInputBinding>& bindings,
+                                           const std::string& target_path) {
+            require(m_scenes, target_id, "scene", target_path + "/scene");
+            const auto target = m_scenes.find(target_id);
+            if (target == m_scenes.end())
+                return;
+            const auto& target_scene = m_input.scenes[target->second];
+            std::unordered_set<SceneInputId> supplied;
+            for (std::size_t binding_index = 0; binding_index < bindings.size(); ++binding_index) {
+                const auto& binding = bindings[binding_index];
+                const auto binding_path = target_path + "/inputs/" + std::to_string(binding_index);
+                if (!supplied.insert(binding.input_id).second)
+                    error("compiled_project.duplicate_scene_input_binding",
+                          "Scene input bindings must be unique.", binding_path + "/inputId");
+                const auto declaration = std::ranges::find_if(
+                    target_scene.inputs, [&](const SceneInputDefinition& input) {
+                        return input.id == binding.input_id;
+                    });
+                if (declaration == target_scene.inputs.end()) {
+                    error("compiled_project.unknown_scene_input",
+                          "Scene input binding names an undeclared input.",
+                          binding_path + "/inputId");
+                } else if (!scene_input_value_matches(declaration->type, declaration->nullable,
+                                                      binding.value)) {
+                    error("compiled_project.scene_input_type_mismatch",
+                          "Scene input value does not match its declaration.",
+                          binding_path + "/value");
+                }
+            }
+            for (const auto& input : target_scene.inputs) {
+                if (!input.nullable && !input.default_value && !supplied.contains(input.id))
+                    error("compiled_project.missing_scene_input",
+                          "Scene invocation is missing a required input.", target_path + "/inputs");
+            }
+        };
+        std::function<bool(SceneId, std::unordered_set<SceneId>&)> detached_scene_safe;
+        detached_scene_safe = [&](SceneId scene_id, std::unordered_set<SceneId>& visiting) {
+            const auto found = m_scenes.find(scene_id);
+            if (found == m_scenes.end())
+                return false;
+            if (!visiting.insert(scene_id).second)
+                return true;
+            const auto& candidate = m_input.scenes[found->second];
+            bool safe = true;
+            for (const auto& instruction : candidate.program.instructions) {
+                safe = safe &&
+                       std::visit(
+                           [&](const auto& value) {
+                               using T = std::decay_t<decltype(value)>;
+                               if constexpr (std::is_same_v<T, CallDialogueSceneInstruction> ||
+                                             std::is_same_v<T, ChoiceSceneInstruction> ||
+                                             std::is_same_v<T, WaitInputInstruction>)
+                                   return false;
+                               else if constexpr (std::is_same_v<T, ShowTextInstruction>)
+                                   return !std::holds_alternative<InputWait>(value.wait);
+                               else if constexpr (std::is_same_v<T, RunLuaSceneInstruction>)
+                                   return !value.may_yield;
+                               else if constexpr (std::is_same_v<T, CallSceneSceneInstruction> ||
+                                                  std::is_same_v<T, StartDetachedSceneInstruction>)
+                                   return detached_scene_safe(value.scene, visiting);
+                               else if constexpr (std::is_same_v<T, SetBackgroundInstruction> ||
+                                                  std::is_same_v<T, ActorCueInstruction> ||
+                                                  std::is_same_v<T, SetLayoutInstruction> ||
+                                                  std::is_same_v<T, MaterialParameterInstruction> ||
+                                                  std::is_same_v<T, TransitionGroupInstruction>)
+                                   return std::holds_alternative<ImmediateWait>(value.wait);
+                               else if constexpr (std::is_same_v<T, AudioCueInstruction>)
+                                   return std::holds_alternative<ImmediateWait>(value.wait);
+                               else
+                                   return true;
+                           },
+                           instruction);
+                if (!safe)
+                    break;
+            }
+            if (safe) {
+                safe = std::visit(
+                    [&](const auto& terminal) {
+                        using T = std::decay_t<decltype(terminal)>;
+                        if constexpr (std::is_same_v<T, ReturnSceneTerminal>)
+                            return true;
+                        else if constexpr (std::is_same_v<T, ContinueSceneTerminal>)
+                            return detached_scene_safe(terminal.scene, visiting);
+                        else
+                            return false;
+                    },
+                    candidate.terminal);
+            }
+            visiting.erase(scene_id);
+            return safe;
+        };
         for (std::size_t scene_index = 0; scene_index < m_input.scenes.size(); ++scene_index) {
             const auto& scene = m_input.scenes[scene_index];
             const auto path = item("/definitions/scenes", scene_index);
+            std::unordered_set<SceneInputId> input_ids;
+            for (std::size_t input_index = 0; input_index < scene.inputs.size(); ++input_index) {
+                const auto& input = scene.inputs[input_index];
+                const auto input_path = path + "/inputs/" + std::to_string(input_index);
+                if (!input_ids.insert(input.id).second)
+                    error("compiled_project.duplicate_id", "Scene input IDs must be unique.",
+                          input_path + "/id");
+                if (input.default_value &&
+                    !scene_input_value_matches(input.type, input.nullable, *input.default_value))
+                    error("compiled_project.scene_input_type_mismatch",
+                          "Scene input default does not match its declaration.",
+                          input_path + "/defaultValue");
+            }
+            std::unordered_set<SceneOutcomeId> outcome_ids;
+            for (std::size_t outcome_index = 0; outcome_index < scene.outcomes.size();
+                 ++outcome_index) {
+                if (!outcome_ids.insert(scene.outcomes[outcome_index].id).second)
+                    error("compiled_project.duplicate_id", "Scene Outcome IDs must be unique.",
+                          path + "/outcomes/" + std::to_string(outcome_index) + "/id");
+            }
             std::visit(
                 [&](const auto& stage) {
                     using Stage = std::decay_t<decltype(stage)>;
@@ -1634,6 +1764,25 @@ private:
                                           "Actor cue appearance is absent from its Character.",
                                           instruction_path + "/appearanceId");
                             }
+                        } else if constexpr (std::is_same_v<T, CallSceneSceneInstruction>) {
+                            validate_bindings(instruction.scene, instruction.inputs,
+                                              instruction_path);
+                        } else if constexpr (std::is_same_v<T, StartDetachedSceneInstruction>) {
+                            validate_bindings(instruction.scene, instruction.inputs,
+                                              instruction_path);
+                            if (instruction.owner == DetachedSceneOwner::ActiveRoom &&
+                                std::holds_alternative<SceneId>(m_input.entrypoint) &&
+                                std::get<SceneId>(m_input.entrypoint) == scene.identity.id)
+                                error("compiled_project.detached_scene_owner_unavailable",
+                                      "Active Room detached ownership requires a Current Room.",
+                                      instruction_path + "/owner");
+                            std::unordered_set<SceneId> visiting;
+                            if (!detached_scene_safe(instruction.scene, visiting))
+                                error("compiled_project.detached_scene_not_background_safe",
+                                      "Detached Scene target must be background-safe and must not "
+                                      "capture exclusive player input or await foreground-only "
+                                      "presentation/audio completion.",
+                                      instruction_path + "/scene");
                         } else if constexpr (std::is_same_v<T, CallDialogueSceneInstruction>) {
                             require(m_dialogues, instruction.dialogue, "dialogue",
                                     instruction_path + "/dialogue");
@@ -2015,7 +2164,71 @@ private:
                     },
                     scene.program.instructions[instruction_index]);
             }
-            validate_flow_target(scene.continuation, path + "/continuation");
+            std::visit(
+                [&](const auto& terminal) {
+                    using T = std::decay_t<decltype(terminal)>;
+                    if constexpr (std::is_same_v<T, ReturnSceneTerminal>) {
+                        if (terminal.outcome && !outcome_ids.contains(*terminal.outcome))
+                            error("compiled_project.unknown_scene_outcome",
+                                  "Scene Return names an undeclared Outcome.",
+                                  path + "/terminal/outcome");
+                    } else if constexpr (std::is_same_v<T, ContinueSceneTerminal>) {
+                        validate_bindings(terminal.scene, terminal.inputs, path + "/terminal");
+                    } else if constexpr (std::is_same_v<T, ContinueDialogueSceneTerminal>) {
+                        require(m_dialogues, terminal.dialogue, "dialogue",
+                                path + "/terminal/dialogue");
+                    }
+                },
+                scene.terminal);
+        }
+
+        enum class Visit : std::uint8_t {
+            Fresh,
+            Visiting,
+            Done
+        };
+        std::unordered_map<SceneId, Visit> visits;
+        std::function<bool(SceneId)> visits_unconditional_cycle;
+        visits_unconditional_cycle = [&](SceneId scene_id) {
+            const auto state = visits[scene_id];
+            if (state == Visit::Visiting)
+                return true;
+            if (state == Visit::Done)
+                return false;
+            visits[scene_id] = Visit::Visiting;
+            const auto found = m_scenes.find(scene_id);
+            if (found == m_scenes.end()) {
+                visits[scene_id] = Visit::Done;
+                return false;
+            }
+            const auto& scene = m_input.scenes[found->second];
+            const bool has_dynamic_control = std::ranges::any_of(
+                scene.program.instructions, [](const SceneInstruction& instruction) {
+                    return std::holds_alternative<ConditionalBranchInstruction>(instruction) ||
+                           std::holds_alternative<ChoiceSceneInstruction>(instruction);
+                });
+            if (!has_dynamic_control) {
+                for (const auto& instruction : scene.program.instructions) {
+                    const auto* call = std::get_if<CallSceneSceneInstruction>(&instruction);
+                    if (call != nullptr && !call->condition &&
+                        visits_unconditional_cycle(call->scene))
+                        return true;
+                }
+            }
+            if (const auto* continuation = std::get_if<ContinueSceneTerminal>(&scene.terminal);
+                continuation != nullptr && visits_unconditional_cycle(continuation->scene))
+                return true;
+            visits[scene_id] = Visit::Done;
+            return false;
+        };
+        for (std::size_t scene_index = 0; scene_index < m_input.scenes.size(); ++scene_index) {
+            const auto& scene = m_input.scenes[scene_index];
+            if (visits_unconditional_cycle(scene.identity.id)) {
+                error("compiled_project.unconditional_scene_cycle",
+                      "Scene participates in a statically unconditional Scene call/continue cycle.",
+                      item("/definitions/scenes", scene_index) + "/terminal");
+                break;
+            }
         }
     }
 
@@ -2517,10 +2730,25 @@ private:
                 using T = std::decay_t<decltype(entrypoint)>;
                 if constexpr (std::is_same_v<T, SceneId>) {
                     const auto found = m_scenes.find(entrypoint);
-                    if (found != m_scenes.end() && std::holds_alternative<ReturnFlow>(
-                                                       m_input.scenes[found->second].continuation))
-                        error("compiled_project.invalid_entrypoint_continuation",
-                              "A direct Scene entrypoint cannot return.", "/entrypoint");
+                    if (found != m_scenes.end()) {
+                        const auto& scene = m_input.scenes[found->second];
+                        const auto& terminal = scene.terminal;
+                        for (const auto& input : scene.inputs) {
+                            if (!input.nullable && !input.default_value)
+                                error("compiled_project.invalid_entrypoint_scene_input",
+                                      "A direct Scene entrypoint input must be nullable or declare "
+                                      "a default value.",
+                                      "/entrypoint");
+                        }
+                        if (std::holds_alternative<ReturnSceneTerminal>(terminal))
+                            error("compiled_project.invalid_entrypoint_terminal",
+                                  "A direct Scene entrypoint cannot Return.", "/entrypoint");
+                        if (std::holds_alternative<ReleaseToExplorationSceneTerminal>(terminal))
+                            error("compiled_project.invalid_entrypoint_terminal",
+                                  "A direct Scene entrypoint cannot Release to Exploration before "
+                                  "a Current Room exists.",
+                                  "/entrypoint");
+                    }
                 } else if constexpr (std::is_same_v<T, DialogueId>) {
                     const auto found = m_dialogues.find(entrypoint);
                     if (found != m_dialogues.end() &&

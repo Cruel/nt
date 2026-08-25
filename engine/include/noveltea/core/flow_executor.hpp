@@ -29,6 +29,15 @@ using FlowRunOutcome =
 
 class FlowExecutor {
 public:
+    struct ExecutionContext {
+        RuntimeMode mode;
+        FlowStack flow_stack;
+        std::optional<FlowBlocker> blocker;
+        std::optional<Diagnostics> execution_fault;
+        bool running = false;
+        bool detached = false;
+    };
+
     FlowExecutor(const CompiledProject& project, SessionState& state) noexcept
         : m_project(project), m_state(state), m_standalone_world(std::in_place, project, state),
           m_world(&*m_standalone_world)
@@ -51,14 +60,23 @@ public:
     [[nodiscard]] Result<void, Diagnostics> start_transient(const SceneId& scene);
     [[nodiscard]] Result<void, Diagnostics> start_transient(const DialogueId& dialogue);
     [[nodiscard]] Result<void, Diagnostics>
+    start_detached(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs);
+    [[nodiscard]] Result<void, Diagnostics>
     start_interaction(InteractionInvocationContext invocation, InteractionProgramRef program);
 
     [[nodiscard]] Result<void, Diagnostics> call_child(const SceneId& scene,
                                                        FlowFramePosition caller_next_position);
+    [[nodiscard]] Result<void, Diagnostics>
+    call_child(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs,
+               FlowFramePosition caller_next_position);
     [[nodiscard]] Result<void, Diagnostics> call_child(const DialogueId& dialogue,
                                                        std::optional<DialogueBlockId> start_block,
                                                        FlowFramePosition caller_next_position);
     [[nodiscard]] Result<void, Diagnostics> return_from_flow();
+    [[nodiscard]] Result<void, Diagnostics>
+    return_from_scene(std::optional<SceneOutcomeId> outcome);
+    [[nodiscard]] Result<void, Diagnostics>
+    apply_scene_terminal(const compiled::SceneTerminal& terminal);
     [[nodiscard]] Result<void, Diagnostics> apply_target(const FlowTarget& target);
 
     [[nodiscard]] Result<void, Diagnostics>
@@ -128,6 +146,9 @@ public:
 
     [[nodiscard]] FlowRunOutcome run_until_blocked(std::size_t instruction_budget);
     [[nodiscard]] Result<void, Diagnostics> discard_fault();
+    [[nodiscard]] Result<void, Diagnostics> discard_detached();
+    [[nodiscard]] ExecutionContext take_execution_context() noexcept;
+    void install_execution_context(ExecutionContext context) noexcept;
 
 private:
     friend struct FlowExecutorTestAccess;
@@ -136,7 +157,8 @@ private:
     [[nodiscard]] Result<void, Diagnostics> ensure_flow_ready() const;
     [[nodiscard]] Result<void, Diagnostics>
     validate_position(const FlowFrame& frame, const FlowFramePosition& position) const;
-    [[nodiscard]] Result<void, Diagnostics> replace_with_scene(const SceneId& scene);
+    [[nodiscard]] Result<void, Diagnostics>
+    replace_with_scene(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs = {});
     [[nodiscard]] Result<void, Diagnostics> replace_with_dialogue(const DialogueId& dialogue);
     [[nodiscard]] Result<void, Diagnostics> replace_with_room(const RoomId& room);
     [[nodiscard]] const compiled::RoomDefinition*

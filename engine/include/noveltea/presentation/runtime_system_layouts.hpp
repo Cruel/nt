@@ -50,6 +50,7 @@ public:
     void refresh() { publish(); }
     [[nodiscard]] bool game_active() const noexcept { return m_game_active; }
     [[nodiscard]] core::RuntimeShellScreen current_screen() const noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics> complete_game();
 
 private:
     struct StackEntry {

@@ -761,6 +761,7 @@ const verbDefinitionSchema = strict({
 });
 
 const sceneInstructionCommon = { condition: compiledConditionSchema.optional(), id };
+const compiledSceneInputBindingSchema = strict({ inputId: id, value: runtimeValueSchema });
 const compiledMaterialOccurrenceTargetSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('background') }),
   strict({
@@ -835,6 +836,21 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     slotId: id,
     transition: z.enum(['none', 'fade', 'slide']),
     waitForCompletion: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    autosaveSafePoint: z.boolean(),
+    inputs: z.array(compiledSceneInputBindingSchema),
+    kind: z.literal('call-scene'),
+    scene: sceneReferenceSchema,
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    autosaveSafePoint: z.boolean(),
+    inputs: z.array(compiledSceneInputBindingSchema),
+    kind: z.literal('start-detached-scene'),
+    owner: z.enum(['flow', 'active-room', 'runtime-session']),
+    scene: sceneReferenceSchema,
   }),
   strict({
     ...sceneInstructionCommon,
@@ -1000,12 +1016,33 @@ const sceneStageSchema = z.discriminatedUnion('kind', [
     layout: layoutReferenceSchema.nullable(),
   }),
 ]);
+const compiledSceneInputDefinitionSchema = strict({
+  defaultValue: runtimeValueSchema.optional(),
+  id,
+  label: z.string().min(1),
+  nullable: z.boolean(),
+  type: z.enum(['boolean', 'integer', 'number', 'string']),
+});
+const compiledSceneOutcomeDefinitionSchema = strict({ id, label: z.string().min(1) });
+const compiledSceneTerminalSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('return'), outcome: id.nullable() }),
+  strict({
+    inputs: z.array(compiledSceneInputBindingSchema),
+    kind: z.literal('continue-scene'),
+    scene: sceneReferenceSchema,
+  }),
+  strict({ dialogue: dialogueReferenceSchema, kind: z.literal('continue-dialogue') }),
+  strict({ kind: z.literal('release-to-exploration') }),
+  strict({ kind: z.literal('complete-game') }),
+]);
 const sceneDefinitionSchema = strict({
   id,
   displayName: z.string(),
   stage: sceneStageSchema,
+  inputs: z.array(compiledSceneInputDefinitionSchema),
+  outcomes: z.array(compiledSceneOutcomeDefinitionSchema),
   program: sceneProgramSchema,
-  continuation: compiledFlowTargetSchema,
+  terminal: compiledSceneTerminalSchema,
 });
 
 const dialogueCuePositionSchema = strict({

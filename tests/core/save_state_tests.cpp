@@ -327,6 +327,67 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     CHECK(std::holds_alternative<SavedInteractionFrame>(interaction.value().flow_stack.front()));
 }
 
+TEST_CASE("Scene inputs and returned Outcomes round-trip through save restore")
+{
+    const auto project = load_fixture("scene-program.json", [](nlohmann::json& document) {
+        auto& scenes = document["definitions"]["scenes"];
+        auto closing = std::find_if(scenes.begin(), scenes.end(), [](const nlohmann::json& scene) {
+            return scene["id"] == "closing";
+        });
+        auto opening = std::find_if(scenes.begin(), scenes.end(), [](const nlohmann::json& scene) {
+            return scene["id"] == "opening";
+        });
+        REQUIRE(closing != scenes.end());
+        REQUIRE(opening != scenes.end());
+        (*opening)["terminal"] = {{"kind", "complete-game"}};
+        (*closing)["inputs"] = nlohmann::json::array(
+            {{{"id", "name"}, {"label", "Name"}, {"type", "string"}, {"nullable", false}}});
+        (*closing)["outcomes"] = nlohmann::json::array({{{"id", "done"}, {"label", "Done"}}});
+        (*closing)["terminal"] = {{"kind", "return"}, {"outcome", "done"}};
+    });
+    auto state = make_state(project);
+    FlowExecutor flow(project, state);
+    REQUIRE(state.flow_stack().size() == 1);
+    const auto caller_position = flow_frame_position(state.flow_stack().back());
+    REQUIRE(flow.call_child(
+        id<SceneId>("closing"),
+        {compiled::SceneInputBinding{id<SceneInputId>("name"), RuntimeValue{std::string("Ada")}}},
+        caller_position));
+    REQUIRE(state.flow_stack().size() == 2);
+
+    auto active_snapshot = make_save_state(project, state);
+    REQUIRE(active_snapshot);
+    auto active_encoded = encode_save_state(project, active_snapshot.value());
+    REQUIRE(active_encoded);
+    auto active_decoded =
+        decode_save_state(project, active_encoded.value(), "scene-input-save.json");
+    REQUIRE(active_decoded);
+    auto active_restored = test_support::restore_session(project, active_decoded.value());
+    REQUIRE(active_restored);
+    REQUIRE(active_restored.value().flow_stack().size() == 2);
+    const auto& restored_child = std::get<SceneFrame>(active_restored.value().flow_stack().back());
+    REQUIRE(restored_child.inputs.size() == 1);
+    CHECK(restored_child.inputs.front().input_id == id<SceneInputId>("name"));
+    CHECK(restored_child.inputs.front().value == RuntimeValue{std::string("Ada")});
+
+    FlowExecutor restored_flow(project, active_restored.value());
+    REQUIRE(restored_flow.return_from_scene(id<SceneOutcomeId>("done")));
+    auto outcome_snapshot = make_save_state(project, active_restored.value());
+    REQUIRE(outcome_snapshot);
+    auto outcome_encoded = encode_save_state(project, outcome_snapshot.value());
+    REQUIRE(outcome_encoded);
+    auto outcome_decoded =
+        decode_save_state(project, outcome_encoded.value(), "scene-outcome-save.json");
+    REQUIRE(outcome_decoded);
+    auto outcome_restored = test_support::restore_session(project, outcome_decoded.value());
+    REQUIRE(outcome_restored);
+    REQUIRE(outcome_restored.value().flow_stack().size() == 1);
+    const auto& restored_caller =
+        std::get<SceneFrame>(outcome_restored.value().flow_stack().back());
+    REQUIRE(restored_caller.last_child_outcome);
+    CHECK(*restored_caller.last_child_outcome == id<SceneOutcomeId>("done"));
+}
+
 TEST_CASE("Dialogue Stage and Media Slot state round-trips through save restore")
 {
     const auto project = load_fixture("dialogue-program.json", [](nlohmann::json& document) {

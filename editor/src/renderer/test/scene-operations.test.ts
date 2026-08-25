@@ -21,7 +21,9 @@ describe('scene commands', () => {
         opening: {
           data: {
             kind: 'scene',
-            continuation: { kind: 'end' },
+            inputs: [],
+            outcomes: [],
+            terminal: { kind: 'complete-game' },
             stage: { kind: 'blank' },
             events: [{ type: 'comment' }],
           },

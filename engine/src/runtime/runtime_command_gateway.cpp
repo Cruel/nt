@@ -680,6 +680,24 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_child(core:
 }
 
 core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::request_detached(core::SceneId scene,
+                                        std::vector<core::compiled::SceneInputBinding> inputs,
+                                        core::compiled::DetachedSceneOwner owner)
+{
+    auto mode = require_flow_mode("Detached Scene start");
+    if (!mode)
+        return mode;
+    if (m_project.find_scene(scene) == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.unknown_scene", "Scene definition is missing"));
+    if (owner == core::compiled::DetachedSceneOwner::ActiveRoom && !m_state.room_visit())
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.detached_owner_unavailable",
+                          "Active Room detached ownership requires a Current Room"));
+    return enqueue(StartDetachedSceneCommand{std::move(scene), std::move(inputs), owner});
+}
+
+core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::request_child(core::DialogueId dialogue,
                                      std::optional<core::DialogueBlockId> start_block)
 {

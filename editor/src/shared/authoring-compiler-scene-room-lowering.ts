@@ -1,12 +1,11 @@
 import type {
   CompiledCondition,
   CompiledEffect,
-  CompiledFlowTarget,
   CompiledProjectWire,
   CompiledText,
   SceneProgram,
 } from './project-schema/compiled-project';
-import type { Condition, Effect, FlowTarget, TextContent } from './project-schema/authoring-flow';
+import type { Condition, Effect, TextContent } from './project-schema/authoring-flow';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import { resolveMaterialData } from './project-schema/authoring-materials';
@@ -14,6 +13,7 @@ import { parseShaderData, type ShaderUniformValue } from './project-schema/autho
 import {
   parseSceneData,
   type SceneStepData,
+  type SceneTerminal,
   type SceneTransitionGroupChildData,
 } from './project-schema/authoring-scenes';
 import type {
@@ -98,18 +98,27 @@ function compileEffect(effect: Effect): CompiledEffect {
   };
 }
 
-function compileFlowTarget(target: FlowTarget): CompiledFlowTarget {
-  switch (target.kind) {
-    case 'scene':
-      return { kind: 'scene', scene: { kind: 'scene', id: target.id } };
-    case 'dialogue':
-      return { kind: 'dialogue', dialogue: { kind: 'dialogue', id: target.id } };
-    case 'room':
-      return { kind: 'room', room: { kind: 'room', id: target.id } };
+function compileSceneTerminal(
+  terminal: SceneTerminal,
+): WireDefinitions['scenes'][number]['terminal'] {
+  switch (terminal.kind) {
     case 'return':
-      return { kind: 'return' };
-    case 'end':
-      return { kind: 'end' };
+      return { kind: 'return', outcome: terminal.outcome };
+    case 'continue-scene':
+      return {
+        kind: 'continue-scene',
+        scene: { kind: 'scene', id: terminal.scene.$ref.id },
+        inputs: terminal.inputs.map((binding) => ({ ...binding })),
+      };
+    case 'continue-dialogue':
+      return {
+        kind: 'continue-dialogue',
+        dialogue: { kind: 'dialogue', id: terminal.dialogue.$ref.id },
+      };
+    case 'release-to-exploration':
+      return { kind: 'release-to-exploration' };
+    case 'complete-game':
+      return { kind: 'complete-game' };
   }
 }
 
@@ -236,6 +245,23 @@ function compileSceneStep(
         durationMs: step.durationMs,
         waitForCompletion: step.waitForCompletion,
         skippable: step.skippable,
+      };
+    case 'call-scene':
+      return {
+        ...base,
+        kind: 'call-scene',
+        scene: { kind: 'scene', id: step.scene.$ref.id },
+        inputs: step.inputs.map((binding) => ({ ...binding })),
+        autosaveSafePoint: step.autosaveSafePoint,
+      };
+    case 'start-detached-scene':
+      return {
+        ...base,
+        kind: 'start-detached-scene',
+        scene: { kind: 'scene', id: step.scene.$ref.id },
+        inputs: step.inputs.map((binding) => ({ ...binding })),
+        owner: step.owner,
+        autosaveSafePoint: step.autosaveSafePoint,
       };
     case 'call-dialogue':
       return {
@@ -548,7 +574,7 @@ export function lowerSceneAndRoomPrograms(
             instruction: compileSceneStep(project, step),
           })),
       },
-      continuation: compileFlowTarget(data.continuation),
+      terminal: compileSceneTerminal(data.terminal),
     });
   }
 
