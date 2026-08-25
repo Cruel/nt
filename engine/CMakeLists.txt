@@ -148,6 +148,7 @@ target_link_libraries(noveltea_engine
         sol2::sol2
         nlohmann_json::nlohmann_json
         PNG::PNG
+        FastFloat::fast_float
         twink::twink
 )
 target_compile_definitions(noveltea_engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
