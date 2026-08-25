@@ -180,6 +180,12 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/scenes\/\*\/data\/(?:inputs|outcomes|terminal)\//, OWNER],
   [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:scene|inputs)(?:\/|$)/, OWNER],
   [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/owner$/, OWNER],
+  // #99 adds explicit Scene presentation ownership plus typed semantic waits at the preserved
+  // authoring schema version. Wait targets and pure-condition structure contribute to the owning
+  // Scene program; Lua predicate source keeps source-analysis semantics.
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/waitCondition\/source$/, SOURCE],
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/waitCondition(?:\/|$)/, OWNER],
+  [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:eventId|signalId)$/, OWNER],
   // #89 adds Project audio mixing policy and expands Scene audio cues at the preserved authoring
   // schema version. Project mix fields and the genuinely new cue dimensions all contribute to
   // runtime projection; purpose/lifetime/gain replace the retired channel/loop/volume leaves and
@@ -692,7 +698,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     project: 'da3be83d',
     properties: 'c35941e2',
     rooms: 'af3ac4c1',
-    scenes: '17c6d9e0',
+    scenes: 'b4a3b4d8',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: 'e2c61a79',

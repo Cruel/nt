@@ -173,6 +173,7 @@ TEST_CASE("compiled Scene boundary rejects detached targets that await foregroun
           {"instruction",
            {{"id", "await-background"},
             {"kind", "set-background"},
+            {"owner", "invocation"},
             {"asset", nullptr},
             {"material", nullptr},
             {"color", "#000000"},

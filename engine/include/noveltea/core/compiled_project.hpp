@@ -974,9 +974,15 @@ enum class BackgroundTransition : std::uint8_t {
     Fade,
     Cut
 };
+enum class ScenePresentationOwner : std::uint8_t {
+    Invocation,
+    ActiveRoom,
+    RuntimeSession,
+};
 struct SetBackgroundInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
+    ScenePresentationOwner owner = ScenePresentationOwner::Invocation;
     BackgroundPresentation background;
     BackgroundTransition transition;
     std::uint64_t duration_ms;
@@ -1006,6 +1012,7 @@ enum class ActorTransition : std::uint8_t {
 struct ActorCueInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
+    ScenePresentationOwner owner = ScenePresentationOwner::Invocation;
     ActorCueAction action;
     CharacterId character;
     std::optional<CharacterPresentationProfileId> profile_id;
@@ -1102,6 +1109,7 @@ using AudioPanSource = std::variant<SceneActorAudioPanSource, RoomAnchorAudioPan
 struct AudioCueInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
+    ScenePresentationOwner owner = ScenePresentationOwner::Invocation;
     AudioAction action;
     std::optional<AssetId> asset;
     AudioPurpose purpose = AudioPurpose::SoundEffect;
@@ -1140,6 +1148,33 @@ struct WaitDurationInstruction {
 struct WaitInputInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
+    bool skippable;
+};
+struct WaitConditionInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    Condition wait_condition;
+    bool skippable;
+};
+struct WaitOperationInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    SceneStepId event;
+    bool skippable;
+};
+struct WaitAudioInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    SceneStepId event;
+    bool skippable;
+};
+enum class LayoutSlot : std::uint8_t;
+struct WaitLayoutSignalInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    ScenePresentationOwner owner = ScenePresentationOwner::Invocation;
+    LayoutSlot slot;
+    LayoutSignalId signal;
     bool skippable;
 };
 struct SceneBranch {
@@ -1185,6 +1220,7 @@ enum class LayoutTransition : std::uint8_t {
 struct SetLayoutInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
+    ScenePresentationOwner owner = ScenePresentationOwner::Invocation;
     LayoutAction action;
     std::optional<LayoutId> layout;
     LayoutScaleOverrides scale_overrides;
@@ -1230,6 +1266,7 @@ enum class MaterialEasing : std::uint8_t {
 struct MaterialParameterInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
+    ScenePresentationOwner owner = ScenePresentationOwner::Invocation;
     MaterialOccurrenceInstructionTarget target;
     MaterialId material;
     std::string parameter;
@@ -1253,6 +1290,7 @@ struct PostprocessEffectParameter {
 struct PostprocessEffectInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
+    ScenePresentationOwner owner = ScenePresentationOwner::Invocation;
     PostprocessEffectAction action = PostprocessEffectAction::Upsert;
     PostprocessEffectInstanceId instance;
     std::optional<MaterialId> material;
@@ -1294,6 +1332,7 @@ using TransitionGroupMutation =
 struct TransitionGroupInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
+    ScenePresentationOwner owner = ScenePresentationOwner::Invocation;
     std::optional<std::string> color;
     std::uint64_t duration_ms;
     TransitionKind transition_kind;
@@ -1306,9 +1345,10 @@ using SceneInstruction =
                  StartDetachedSceneInstruction, CallDialogueSceneInstruction,
                  ResumeDialogueSceneInstruction, ShowTextInstruction, AudioCueInstruction,
                  SetGlobalPropertySceneInstruction, RunLuaSceneInstruction, WaitDurationInstruction,
-                 WaitInputInstruction, ConditionalBranchInstruction, ChoiceSceneInstruction,
-                 SetLayoutInstruction, MaterialParameterInstruction, PostprocessEffectInstruction,
-                 TransitionGroupInstruction>;
+                 WaitInputInstruction, WaitConditionInstruction, WaitOperationInstruction,
+                 WaitAudioInstruction, WaitLayoutSignalInstruction, ConditionalBranchInstruction,
+                 ChoiceSceneInstruction, SetLayoutInstruction, MaterialParameterInstruction,
+                 PostprocessEffectInstruction, TransitionGroupInstruction>;
 struct SceneEventTimeline {
     std::string track_id;
     std::uint64_t start_ms = 0;

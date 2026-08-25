@@ -117,6 +117,11 @@ const safePoint = { autosaveSafePoint: z.boolean().default(false) };
 
 export const sceneInputTypeValues = ['boolean', 'integer', 'number', 'string'] as const;
 export const sceneDetachedOwnerValues = ['flow', 'active-room', 'runtime-session'] as const;
+export const scenePresentationOwnerValues = [
+  'invocation',
+  'active-room',
+  'runtime-session',
+] as const;
 
 export const sceneInputDefinitionSchema = strict({
   id: entityIdSchema,
@@ -148,6 +153,7 @@ export const sceneTerminalSchema = z.discriminatedUnion('kind', [
 const setBackgroundStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('set-background'),
+  owner: z.enum(scenePresentationOwnerValues),
   asset: sceneAssetRefSchema.nullable(),
   material: sceneMaterialRefSchema.nullable(),
   color: z.string().nullable(),
@@ -160,6 +166,7 @@ const setBackgroundStepSchema = strict({
 const actorCueStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('actor-cue'),
+  owner: z.enum(scenePresentationOwnerValues),
   slotId: entityIdSchema,
   character: sceneCharacterRefSchema,
   action: z.enum(sceneCharacterActionValues),
@@ -213,6 +220,7 @@ const showTextStepSchema = strict({
 const audioCueStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('audio-cue'),
+  owner: z.enum(scenePresentationOwnerValues),
   asset: sceneAssetRefSchema.nullable(),
   purpose: z.enum(audioPurposeValues),
   action: z.enum(sceneAudioActionValues),
@@ -256,6 +264,36 @@ const waitStepSchema = z.discriminatedUnion('waitKind', [
     waitKind: z.literal('input'),
     skippable: z.boolean(),
   }),
+  strict({
+    ...commonRuntimeStep,
+    type: z.literal('wait'),
+    waitKind: z.literal('condition'),
+    waitCondition: sceneConditionSchema,
+    skippable: z.boolean(),
+  }),
+  strict({
+    ...commonRuntimeStep,
+    type: z.literal('wait'),
+    waitKind: z.literal('operation'),
+    eventId: entityIdSchema,
+    skippable: z.boolean(),
+  }),
+  strict({
+    ...commonRuntimeStep,
+    type: z.literal('wait'),
+    waitKind: z.literal('audio'),
+    eventId: entityIdSchema,
+    skippable: z.boolean(),
+  }),
+  strict({
+    ...commonRuntimeStep,
+    type: z.literal('wait'),
+    waitKind: z.literal('layout-signal'),
+    owner: z.enum(scenePresentationOwnerValues),
+    slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']),
+    signalId: entityIdSchema,
+    skippable: z.boolean(),
+  }),
 ]);
 const branchArmSchema = strict({
   id: entityIdSchema,
@@ -289,6 +327,7 @@ const layoutScaleOverridesSchema = strict({
 const setLayoutStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('set-layout'),
+  owner: z.enum(scenePresentationOwnerValues),
   layout: sceneLayoutRefSchema.nullable(),
   scaleOverrides: layoutScaleOverridesSchema.optional(),
   action: z.enum(sceneLayoutActionValues),
@@ -315,6 +354,7 @@ const materialParameterValueSchema = shaderUniformValueSchema.refine(
 const materialParameterStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('material-parameter'),
+  owner: z.enum(scenePresentationOwnerValues),
   target: materialOccurrenceTargetSchema,
   material: sceneMaterialRefSchema,
   parameter: z.string().min(1),
@@ -333,6 +373,7 @@ const postprocessParameterSchema = strict({
 const postprocessEffectStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('postprocess-effect'),
+  owner: z.enum(scenePresentationOwnerValues),
   action: z.enum(['upsert', 'remove']),
   instanceId: entityIdSchema,
   material: sceneMaterialRefSchema.nullable(),
@@ -377,6 +418,7 @@ const transitionGroupChildSchema = z.discriminatedUnion('type', [
 const transitionGroupStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('transition-group'),
+  owner: z.enum(scenePresentationOwnerValues),
   transitionKind: z.enum(sceneTransitionKindValues),
   durationMs: z.number().int().nonnegative(),
   color: z.string().nullable(),
@@ -490,6 +532,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
       return {
         ...common,
         type,
+        owner: 'invocation',
         asset: null,
         material: null,
         color: null,
@@ -503,6 +546,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
       return {
         ...common,
         type,
+        owner: 'invocation',
         slotId: 'actor',
         character: sceneCharacterRef('character'),
         action: 'show',
@@ -558,6 +602,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
       return {
         ...common,
         type,
+        owner: 'invocation',
         asset: null,
         purpose: 'sound-effect',
         action: 'play',
@@ -596,6 +641,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
       return {
         ...common,
         type,
+        owner: 'invocation',
         layout: null,
         action: 'hide',
         slot: 'overlay',
@@ -608,6 +654,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
       return {
         ...common,
         type,
+        owner: 'invocation',
         target: { kind: 'background' },
         material: sceneMaterialRef('material'),
         parameter: 'u_effect',
@@ -623,6 +670,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
       return {
         ...common,
         type,
+        owner: 'invocation',
         action: 'remove',
         instanceId: 'effect',
         material: null,
@@ -635,6 +683,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
       return {
         ...common,
         type,
+        owner: 'invocation',
         transitionKind: 'fade',
         durationMs: 1000,
         color: null,
@@ -889,7 +938,11 @@ export function validateSceneData(
         candidate.type === 'choice' ||
         candidate.type === 'call-dialogue' ||
         (candidate.type === 'show-text' && candidate.wait === 'input') ||
-        (candidate.type === 'wait' && candidate.waitKind === 'input') ||
+        (candidate.type === 'wait' &&
+          (candidate.waitKind === 'input' ||
+            candidate.waitKind === 'operation' ||
+            candidate.waitKind === 'audio' ||
+            candidate.waitKind === 'layout-signal')) ||
         (candidate.type === 'run-lua' && candidate.mayYield)
       )
         return true;
@@ -939,6 +992,43 @@ export function validateSceneData(
       }
     }
     if ('condition' in step) validateCondition(step.condition, `${path}/condition`);
+    if (step.type === 'wait') {
+      if (step.waitKind === 'condition')
+        validateCondition(step.waitCondition, `${path}/waitCondition`);
+      if (step.waitKind === 'operation' || step.waitKind === 'audio') {
+        const targetIndex = data.events.findIndex((candidate) => candidate.id === step.eventId);
+        if (targetIndex < 0 || targetIndex >= index) {
+          diagnostics.push(
+            diagnostic(
+              `${path}/eventId`,
+              `${step.waitKind === 'operation' ? 'Presentation Operation' : 'Audio'} wait must name an earlier Scene Event.`,
+            ),
+          );
+        } else {
+          const target = data.events[targetIndex]!;
+          if (
+            step.waitKind === 'operation' &&
+            !(
+              target.type === 'set-background' ||
+              target.type === 'actor-cue' ||
+              target.type === 'set-layout' ||
+              target.type === 'material-parameter' ||
+              target.type === 'transition-group'
+            )
+          )
+            diagnostics.push(
+              diagnostic(
+                `${path}/eventId`,
+                'Presentation Operation wait must name a presentation Event.',
+              ),
+            );
+          if (step.waitKind === 'audio' && target.type !== 'audio-cue')
+            diagnostics.push(
+              diagnostic(`${path}/eventId`, 'Audio wait must name an Audio Cue Event.'),
+            );
+        }
+      }
+    }
     if (step.type === 'set-background') {
       if (step.asset) requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
       if (step.material) requireRecord('materials', step.material.$ref.id, `${path}/material`);

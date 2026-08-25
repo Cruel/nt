@@ -183,11 +183,48 @@ nlohmann::json encode_scene_position(const SceneFramePosition& position)
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, SceneStepReady>)
                 substate = {{"kind", "ready"}};
-            else if constexpr (std::is_same_v<T, SceneInstructionCompletionPosition>)
+            else if constexpr (std::is_same_v<T, SceneInstructionCompletionPosition>) {
+                nlohmann::json semantic_wait = nullptr;
+                if (value.semantic_wait) {
+                    semantic_wait = std::visit(
+                        [](const auto& target) -> nlohmann::json {
+                            using W = std::decay_t<decltype(target)>;
+                            if constexpr (std::is_same_v<W, SceneConditionWaitTarget>)
+                                return {{"kind", "condition"}};
+                            else if constexpr (std::is_same_v<W,
+                                                              ScenePresentationOperationWaitTarget>)
+                                return {{"kind", "presentation-operation"},
+                                        {"event", target.event.text()}};
+                            else if constexpr (std::is_same_v<W, SceneAudioOperationWaitTarget>)
+                                return {{"kind", "audio-operation"},
+                                        {"event", target.event.text()}};
+                            else {
+                                const auto owner =
+                                    target.owner == compiled::ScenePresentationOwner::Invocation
+                                        ? "invocation"
+                                    : target.owner == compiled::ScenePresentationOwner::ActiveRoom
+                                        ? "active-room"
+                                        : "runtime-session";
+                                const auto slot = target.slot == compiled::LayoutSlot::Hud ? "hud"
+                                                  : target.slot == compiled::LayoutSlot::DialogueBox
+                                                      ? "dialogue-box"
+                                                  : target.slot == compiled::LayoutSlot::Overlay
+                                                      ? "overlay"
+                                                      : "custom";
+                                return {{"kind", "layout-signal"},
+                                        {"owner", owner},
+                                        {"slot", slot},
+                                        {"occurrence", target.occurrence},
+                                        {"signal", target.signal.text()}};
+                            }
+                        },
+                        *value.semantic_wait);
+                }
                 substate = {{"kind", "instruction-complete"},
                             {"nextStep", encode_optional_id(value.next_step)},
-                            {"autosaveSafePoint", value.autosave_safe_point}};
-            else if constexpr (std::is_same_v<T, SceneAutosavePendingPosition>)
+                            {"autosaveSafePoint", value.autosave_safe_point},
+                            {"semanticWait", std::move(semantic_wait)}};
+            } else if constexpr (std::is_same_v<T, SceneAutosavePendingPosition>)
                 substate = {{"kind", "autosave-pending"},
                             {"completedStep", value.completed_step.text()},
                             {"nextStep", encode_optional_id(value.next_step)}};
@@ -232,15 +269,91 @@ std::optional<SceneFramePosition> decode_scene_position(Decoder& d, const nlohma
         d.object(*substate, sub, {"kind"});
         decoded = SceneStepReady{};
     } else if (*name == "instruction-complete") {
-        d.object(*substate, sub, {"kind", "nextStep", "autosaveSafePoint"});
+        d.object(*substate, sub, {"kind", "nextStep", "autosaveSafePoint", "semanticWait"});
         const auto* after = d.member(*substate, "nextStep", sub);
         const auto* autosave = d.member(*substate, "autosaveSafePoint", sub);
+        const auto* semantic = d.member(*substate, "semanticWait", sub);
         auto after_id = after ? d.optional_id<SceneStepId>(*after, child(sub, "nextStep"))
                               : Decoder::OptionalId<SceneStepId>{};
         auto safe = autosave ? d.boolean(*autosave, child(sub, "autosaveSafePoint")) : std::nullopt;
-        if (!after_id || !safe)
+        if (!after_id || !safe || semantic == nullptr)
             return std::nullopt;
-        decoded = SceneInstructionCompletionPosition{std::move(after_id.value), *safe};
+        std::optional<SceneSemanticWaitTarget> semantic_wait;
+        bool semantic_ok = semantic != nullptr;
+        if (semantic && !semantic->is_null()) {
+            const auto wait_pointer = child(sub, "semanticWait");
+            const auto* wait_kind_value = d.member(*semantic, "kind", wait_pointer);
+            auto wait_kind = wait_kind_value
+                                 ? d.string(*wait_kind_value, child(wait_pointer, "kind"))
+                                 : std::nullopt;
+            semantic_ok = wait_kind.has_value();
+            if (wait_kind && *wait_kind == "condition") {
+                semantic_ok = d.object(*semantic, wait_pointer, {"kind"});
+                if (semantic_ok)
+                    semantic_wait = SceneConditionWaitTarget{};
+            } else if (wait_kind && (*wait_kind == "presentation-operation" ||
+                                     *wait_kind == "audio-operation")) {
+                semantic_ok = d.object(*semantic, wait_pointer, {"kind", "event"});
+                const auto* event = d.member(*semantic, "event", wait_pointer);
+                auto event_id =
+                    event ? d.id<SceneStepId>(*event, child(wait_pointer, "event")) : std::nullopt;
+                semantic_ok = semantic_ok && event_id.has_value();
+                if (semantic_ok)
+                    semantic_wait =
+                        *wait_kind == "presentation-operation"
+                            ? SceneSemanticWaitTarget{ScenePresentationOperationWaitTarget{
+                                  *event_id}}
+                            : SceneSemanticWaitTarget{SceneAudioOperationWaitTarget{*event_id}};
+            } else if (wait_kind && *wait_kind == "layout-signal") {
+                semantic_ok = d.object(*semantic, wait_pointer,
+                                       {"kind", "owner", "slot", "occurrence", "signal"});
+                const auto* owner_value = d.member(*semantic, "owner", wait_pointer);
+                const auto* slot_value = d.member(*semantic, "slot", wait_pointer);
+                const auto* occurrence_value = d.member(*semantic, "occurrence", wait_pointer);
+                const auto* signal_value = d.member(*semantic, "signal", wait_pointer);
+                auto owner_name = owner_value ? d.string(*owner_value, child(wait_pointer, "owner"))
+                                              : std::nullopt;
+                auto slot_name =
+                    slot_value ? d.string(*slot_value, child(wait_pointer, "slot")) : std::nullopt;
+                auto occurrence =
+                    occurrence_value
+                        ? d.unsigned_integer<std::uint64_t>(*occurrence_value,
+                                                            child(wait_pointer, "occurrence"), true)
+                        : std::nullopt;
+                auto signal_id = signal_value ? d.id<LayoutSignalId>(*signal_value,
+                                                                     child(wait_pointer, "signal"))
+                                              : std::nullopt;
+                std::optional<compiled::ScenePresentationOwner> owner;
+                if (owner_name && *owner_name == "invocation")
+                    owner = compiled::ScenePresentationOwner::Invocation;
+                else if (owner_name && *owner_name == "active-room")
+                    owner = compiled::ScenePresentationOwner::ActiveRoom;
+                else if (owner_name && *owner_name == "runtime-session")
+                    owner = compiled::ScenePresentationOwner::RuntimeSession;
+                std::optional<compiled::LayoutSlot> slot;
+                if (slot_name && *slot_name == "hud")
+                    slot = compiled::LayoutSlot::Hud;
+                else if (slot_name && *slot_name == "dialogue-box")
+                    slot = compiled::LayoutSlot::DialogueBox;
+                else if (slot_name && *slot_name == "overlay")
+                    slot = compiled::LayoutSlot::Overlay;
+                else if (slot_name && *slot_name == "custom")
+                    slot = compiled::LayoutSlot::Custom;
+                semantic_ok =
+                    semantic_ok && owner && slot && occurrence && *occurrence > 0 && signal_id;
+                if (semantic_ok)
+                    semantic_wait =
+                        SceneLayoutSignalWaitTarget{*owner, *slot, *occurrence, *signal_id};
+            } else if (wait_kind) {
+                d.error(k_variant, "Unknown Scene semantic wait '" + *wait_kind + "'.",
+                        child(wait_pointer, "kind"));
+                semantic_ok = false;
+            }
+        }
+        if (!semantic_ok)
+            return std::nullopt;
+        decoded = SceneInstructionCompletionPosition{std::move(after_id.value), *safe,
+                                                     std::move(semantic_wait)};
     } else if (*name == "autosave-pending") {
         d.object(*substate, sub, {"kind", "completedStep", "nextStep"});
         const auto* completed = d.member(*substate, "completedStep", sub);

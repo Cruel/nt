@@ -13,7 +13,7 @@ Scene is an immutable orchestration definition, not a stateful Property or Trait
 
 Current Scene authoring is an ordered sequence of stable semantic Events. The Event operation union is
 SetBackground, ActorCue, CallScene, StartDetachedScene, CallDialogue, ResumeDialogue, ShowText, AudioCue,
-SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, TransitionGroup, and Comment. Comment is editor-only and
+SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, MaterialParameter, PostprocessEffect, TransitionGroup, and Comment. Comment is editor-only and
 removed by compilation. Every runtime Event has a stable ID, an editor-visible timeline track,
 explicit start and duration values, and zero or more completion dependencies on earlier enabled
 runtime Events. Each operation contains only fields valid for its variant, including condition, wait,
@@ -115,6 +115,26 @@ State and cannot wait for decoder completion. One-shot Voice and Sound Effect cu
 awaited/synchronized, disposable, or explicitly play-on-skip as admitted by validation. UI Sound is
 always disposable, unscaled, and cannot control gameplay. The retired `channel`, `loop`, and
 `volume` Scene audio representation is not accepted by the current authoring or compiled-project shape.
+
+Every presentation-capable Scene Event also selects its lifetime owner explicitly: `invocation`,
+`active-room`, or `runtime-session`. Invocation ownership is the default authoring choice and is the
+only lifetime implicitly tied to the Scene frame. Active-Room ownership requires a Current Room and
+survives Scene return until that Room visit ends. Runtime-Session ownership survives both Scene and
+Room changes until session termination. Audio, actors, backgrounds, Layout Mounts, Material Parameters,
+and postprocess intent never transfer between these owners implicitly; longer-lived intent must select
+the longer-lived owner when it is authored. Invocation cancellation removes invocation-owned desired
+state and realization while owner-qualified Room/Session intent remains governed by those subsystem
+lifetimes.
+
+Scene `Wait` Events use typed, reconstructible semantic targets. Besides duration and semantic input,
+a Scene may wait on a pure condition, the exact finite presentation operation started by an earlier
+Event ID, the exact one-shot audio operation started by an earlier Audio Cue Event ID, or an exact
+Layout Signal. Layout Signal waits capture the mounted Layout owner, logical slot, concrete mount
+occurrence, and signal ID; a signal from a replacement mount or different owner cannot wake the wait.
+Operation/audio waits correlate through the earlier Scene Event identity rather than exposing backend
+handles to authoring. Pure-condition waits re-evaluate through the normal primitive evaluator when
+runtime state changes. These waits keep their semantic target on the Scene cursor while the ordinary
+Flow blocker remains serializable, so checkpoints reconstruct the wait without saving adapter state.
 
 The standalone targetless `Transition` action has been removed from authoring, compiler, compiled wire,
 and the native compiled program. It has no compatibility interpretation. A group never consumes

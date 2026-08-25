@@ -809,6 +809,7 @@ const transitionGroupChildSchema = z.discriminatedUnion('kind', [
 const sceneInstructionSchema = z.discriminatedUnion('kind', [
   strict({
     ...sceneInstructionCommon,
+    owner: z.enum(['invocation', 'active-room', 'runtime-session']),
     asset: assetReferenceSchema.nullable(),
     color: z.string().nullable(),
     durationMs: z.number().int().nonnegative(),
@@ -828,6 +829,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     expressionId: id.nullable(),
     appearanceId: id.nullable(),
     kind: z.literal('actor-cue'),
+    owner: z.enum(['invocation', 'active-room', 'runtime-session']),
     offset: vector2Schema,
     poseId: id.nullable(),
     position: z.enum(['left', 'center', 'right', 'custom']),
@@ -889,6 +891,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
       .nullable(),
     fadeMs: z.number().int().nonnegative(),
     kind: z.literal('audio-cue'),
+    owner: z.enum(['invocation', 'active-room', 'runtime-session']),
     waitForCompletion: z.boolean(),
     causality: z.enum(['causal', 'disposable']),
     synchronized: z.boolean(),
@@ -918,6 +921,32 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
   strict({ ...sceneInstructionCommon, kind: z.literal('wait-input'), skippable: z.boolean() }),
   strict({
     ...sceneInstructionCommon,
+    kind: z.literal('wait-condition'),
+    waitCondition: compiledConditionSchema,
+    skippable: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    eventId: id,
+    kind: z.literal('wait-operation'),
+    skippable: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    eventId: id,
+    kind: z.literal('wait-audio'),
+    skippable: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('wait-layout-signal'),
+    owner: z.enum(['invocation', 'active-room', 'runtime-session']),
+    signalId: id,
+    skippable: z.boolean(),
+    slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']),
+  }),
+  strict({
+    ...sceneInstructionCommon,
     branches: z.array(strict({ condition: compiledConditionSchema, id, targetInstructionId: id })),
     fallbackInstructionId: id,
     kind: z.literal('conditional-branch'),
@@ -944,6 +973,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     action: z.enum(['show', 'hide', 'swap']),
     durationMs: z.number().int().nonnegative(),
     kind: z.literal('set-layout'),
+    owner: z.enum(['invocation', 'active-room', 'runtime-session']),
     layout: layoutReferenceSchema.nullable(),
     scaleOverrides: layoutScaleOverridesSchema.optional(),
     skippable: z.boolean(),
@@ -954,6 +984,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
   strict({
     ...sceneInstructionCommon,
     kind: z.literal('material-parameter'),
+    owner: z.enum(['invocation', 'active-room', 'runtime-session']),
     target: compiledMaterialOccurrenceTargetSchema,
     material: materialReferenceSchema,
     parameter: z.string().min(1),
@@ -968,6 +999,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
   strict({
     ...sceneInstructionCommon,
     kind: z.literal('postprocess-effect'),
+    owner: z.enum(['invocation', 'active-room', 'runtime-session']),
     action: z.enum(['upsert', 'remove']),
     instanceId: id,
     material: materialReferenceSchema.nullable(),
@@ -984,6 +1016,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     color: z.string().nullable(),
     durationMs: z.number().int().nonnegative(),
     kind: z.literal('transition-group'),
+    owner: z.enum(['invocation', 'active-room', 'runtime-session']),
     skippable: z.boolean(),
     transitionKind: z.enum(['fade', 'cut', 'dissolve']),
     waitForCompletion: z.boolean(),

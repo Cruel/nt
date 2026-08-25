@@ -682,6 +682,48 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }
+    // Layout mount occurrences are session-local identities. A saved Scene Layout Signal wait
+    // names the exact occurrence that existed at capture time; after reconstructing mounts, rebind
+    // that semantic wait to the freshly allocated occurrence for the same stable owner and slot.
+    for (auto& flow_frame : state->m_flow_stack) {
+        auto* scene = std::get_if<SceneFrame>(&flow_frame);
+        if (scene == nullptr)
+            continue;
+        auto* completion =
+            std::get_if<SceneInstructionCompletionPosition>(&scene->position.substate);
+        auto* wait = completion && completion->semantic_wait
+                         ? std::get_if<SceneLayoutSignalWaitTarget>(&*completion->semantic_wait)
+                         : nullptr;
+        if (wait == nullptr)
+            continue;
+        std::optional<PresentationOwner> owner;
+        switch (wait->owner) {
+        case compiled::ScenePresentationOwner::Invocation:
+            owner = ScenePresentationOwner{scene->frame_id, scene->scene};
+            break;
+        case compiled::ScenePresentationOwner::ActiveRoom:
+            owner = state->current_room_presentation_owner();
+            break;
+        case compiled::ScenePresentationOwner::RuntimeSession:
+            owner = state->session_presentation_owner();
+            break;
+        }
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(
+                restore_error("save_restore.scene_layout_signal_owner_missing",
+                              "Saved Scene Layout Signal wait owner could not be reconstructed."));
+        const MountedLayoutPresentationKey key = ReservedLayoutMountKey{wait->slot};
+        const auto mounted =
+            std::ranges::find_if(state->m_mounted_layouts, [&](const DesiredMountedLayout& item) {
+                return item.owner == *owner && item.key == key;
+            });
+        if (mounted == state->m_mounted_layouts.end() || !mounted->occurrence)
+            return Result<SessionState, Diagnostics>::failure(
+                restore_error("save_restore.scene_layout_signal_mount_missing",
+                              "Saved Scene Layout Signal wait mount could not be reconstructed."));
+        wait->occurrence = mounted->occurrence->number();
+    }
+
     for (const auto& saved : save.postprocess_effects) {
         auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
         if (!owner)
