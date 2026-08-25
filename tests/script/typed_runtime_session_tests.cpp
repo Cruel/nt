@@ -2229,27 +2229,13 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
 
     auto entered = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(entered.diagnostics.empty());
-    REQUIRE(entered.presentation_predecessor);
     REQUIRE(entered.publication);
-    REQUIRE(presentation.presentation_operations.size() == 1);
-    const auto* initial = std::get_if<core::RoomNavigationTransitionOperation>(
-        &presentation.presentation_operations.front());
-    REQUIRE(initial != nullptr);
-    CHECK_FALSE(initial->target.source_room);
-    CHECK(entered.presentation_predecessor->revision == initial->common.revisions.source);
-    CHECK(entered.publication->presentation.revision == initial->common.revisions.target);
-    CHECK_FALSE(entered.presentation_predecessor->current_room);
-    CHECK(initial->target.target_room == make_id<core::RoomIdTag>("start"));
+    CHECK_FALSE(entered.presentation_predecessor);
+    CHECK(presentation.presentation_operations.empty());
     CHECK(entered.publication->presentation.current_room == make_id<core::RoomIdTag>("start"));
-    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{2}});
-
-    presentation.status = {core::CheckpointStatusRevision::from_number(3), {}};
-    auto initial_completed =
-        session->dispatch(core::RuntimeInputMessage{core::CompletePresentationInput{
-            initial->common.id, initial->completion.owner, initial->completion.blocker}});
-    REQUIRE(initial_completed.diagnostics.empty());
     CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{7}});
 
+    presentation.status = {core::CheckpointStatusRevision::from_number(3), {}};
     REQUIRE(session->gateway().request_navigation(core::compiled::RoomExitRef{
         make_id<core::RoomIdTag>("start"), make_id<core::RoomExitIdTag>("north-exit")}));
     auto navigated = session->dispatch(
@@ -2257,7 +2243,7 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     REQUIRE(navigated.diagnostics.empty());
     REQUIRE(navigated.presentation_predecessor);
     REQUIRE(navigated.publication);
-    REQUIRE(presentation.presentation_operations.size() == 2);
+    REQUIRE(presentation.presentation_operations.size() == 1);
     const auto* navigation = std::get_if<core::RoomNavigationTransitionOperation>(
         &presentation.presentation_operations.back());
     REQUIRE(navigation != nullptr);
@@ -2285,6 +2271,11 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
                           return overlay != nullptr &&
                                  overlay->room == make_id<core::RoomIdTag>("hall");
                       }));
+
+    auto navigation_during_transition = session->dispatch(core::RuntimeInputMessage{
+        core::NavigateRoomInput{make_id<core::RoomExitIdTag>("return-exit")}});
+    CHECK(navigation_during_transition.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    CHECK(navigation_during_transition.diagnostics.empty());
 
     presentation.status = {core::CheckpointStatusRevision::from_number(5), {}};
     auto navigation_completed =

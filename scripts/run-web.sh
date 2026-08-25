@@ -9,7 +9,7 @@ READBACK_GALLERY=0
 CROSS_ORIGIN_ISOLATED=0
 
 usage() {
-  echo "usage: $0 [--readback-gallery [--release|--profile]] [--project path/to/project.json] [--export-profile profile-id]" >&2
+  echo "usage: $0 [--readback-gallery [--release|--profile]] [--project path/to/project] [--export-profile profile-id]" >&2
   echo "       --release and --profile imply --readback-gallery" >&2
 }
 
@@ -118,10 +118,15 @@ else
     rm -rf "$FIXTURE_ROOT"
     echo "[run] materializing the canonical Web export fixture..."
     FIXTURE_JSON="$(pnpm -C editor run web:fixture -- --root "$FIXTURE_ROOT" --flavor release)"
-    PROJECT_PATH="$(node -e 'const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(JSON.parse(chunks.at(-1)).projectPath)' <<<"$FIXTURE_JSON")"
+    PROJECT_PATH="$(node -e 'const path=require("path"); const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(path.dirname(JSON.parse(chunks.at(-1)).projectPath))' <<<"$FIXTURE_JSON")"
     EXPORT_PROFILE_ID="$(node -e 'const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(JSON.parse(chunks.at(-1)).profileId)' <<<"$FIXTURE_JSON")"
   else
     PROJECT_PATH="$(realpath "$PROJECT_PATH")"
+    PROJECT_MANIFEST="$PROJECT_PATH/project.json"
+    [ -f "$PROJECT_MANIFEST" ] || {
+      echo "[run] NovelTea project manifest not found: $PROJECT_MANIFEST" >&2
+      exit 2
+    }
     if [ -z "$EXPORT_PROFILE_ID" ]; then
       EXPORT_PROFILE_ID="$(node -e '
         const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
@@ -129,20 +134,21 @@ else
         const selected=p.export?.selectedProfileId;
         const profile=profiles.find((x)=>x?.id===selected && x?.target==="web" && x?.buildFlavor==="release") ?? profiles.find((x)=>x?.target==="web" && x?.buildFlavor==="release");
         if (!profile?.id) process.exit(1); console.log(profile.id);
-      ' "$PROJECT_PATH")" || {
+      ' "$PROJECT_MANIFEST")" || {
         echo "[run] no release Web export profile found; pass --export-profile" >&2
         exit 2
       }
     fi
   fi
 
+  PROJECT_MANIFEST="${PROJECT_MANIFEST:-$PROJECT_PATH/project.json}"
   WEB_THREADING="$(node -e '
     const project=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
     const profiles=project.export?.profiles ?? [];
     const profile=profiles.find((item)=>item?.id===process.argv[2]);
     if (!profile || profile.target!=="web" || profile.buildFlavor!=="release") process.exit(1);
     console.log(profile.web?.threaded===true ? "threads" : "single");
-  ' "$PROJECT_PATH" "$EXPORT_PROFILE_ID")" || {
+  ' "$PROJECT_MANIFEST" "$EXPORT_PROFILE_ID")" || {
     echo "[run] Web export profile '$EXPORT_PROFILE_ID' was not found or is not a release Web profile" >&2
     exit 2
   }

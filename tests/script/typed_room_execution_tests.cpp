@@ -326,7 +326,20 @@ TEST_CASE("Room navigation preparation resolves a complete target without mutati
     CHECK(direct_entry.value().transition.policy.duration_ms == 150);
     CHECK_FALSE(direct_entry.value().transition.policy.skippable);
 
+    input.source_room.reset();
+    input.entry_cause = core::RoomEntryCause::Entrypoint;
+    auto entrypoint = core::prepare_room_navigation_target(
+        project, kernel->world(), kernel->state(), input,
+        [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
+        [](const core::TextSource&) {
+            return core::Result<std::string, core::Diagnostics>::success("resolved");
+        });
+    REQUIRE(entrypoint);
+    CHECK(entrypoint.value().transition.policy.kind == core::compiled::TransitionKind::Cut);
+    CHECK(entrypoint.value().transition.policy.duration_ms == 0);
+
     input.source_room = id<core::RoomId>("missing-room");
+    input.entry_cause = core::RoomEntryCause::DirectedRoomChange;
     auto invalid_source = core::prepare_room_navigation_target(
         project, kernel->world(), kernel->state(), input,
         [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
