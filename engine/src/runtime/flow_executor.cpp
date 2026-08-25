@@ -637,6 +637,90 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
     return Result<void, Diagnostics>::success();
 }
 
+Result<void, Diagnostics> FlowExecutor::call_interaction(InteractionInvocationContext invocation,
+                                                         InteractionProgramRef program_reference,
+                                                         FlowFramePosition caller_next_position)
+{
+    auto ready = ensure_flow_ready();
+    if (!ready)
+        return fail(ready.error());
+    const auto* program = find_interaction_program(m_project, program_reference);
+    const auto* verb = m_project.find_verb(invocation.verb);
+    const auto* room = m_state.m_room_visit ? &m_state.m_room_visit->room : nullptr;
+    const bool program_matches_verb = std::visit(
+        [this, &invocation](const auto& reference) {
+            using T = std::decay_t<decltype(reference)>;
+            if constexpr (std::is_same_v<T, VerbDefaultProgramRef>)
+                return reference.verb == invocation.verb;
+            else if constexpr (std::is_same_v<T, ProjectUndefinedProgramRef>)
+                return true;
+            else {
+                const auto* interaction = m_project.find_interaction(reference.interaction);
+                if (interaction == nullptr)
+                    return false;
+                const auto found =
+                    std::find_if(interaction->rules.begin(), interaction->rules.end(),
+                                 [&reference](const compiled::InteractionRule& rule) {
+                                     return rule.id == reference.rule;
+                                 });
+                return found != interaction->rules.end() && found->verb == invocation.verb;
+            }
+        },
+        program_reference);
+    std::unordered_set<VerbSlotId> bound_slots;
+    const bool bindings_valid =
+        verb != nullptr && invocation.bindings.size() == verb->slots.size() &&
+        std::all_of(
+            invocation.bindings.begin(), invocation.bindings.end(),
+            [this, verb, &bound_slots](const InteractionSubjectBinding& binding) {
+                const bool known_slot =
+                    std::any_of(verb->slots.begin(), verb->slots.end(),
+                                [&](const auto& slot) { return slot.id == binding.slot_id; });
+                if (!known_slot || !bound_slots.insert(binding.slot_id).second)
+                    return false;
+                return std::visit(
+                    [this](const auto& value) {
+                        using T = std::decay_t<decltype(value)>;
+                        if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>)
+                            return character_definition(value.character) != nullptr;
+                        else if constexpr (std::is_same_v<T,
+                                                          compiled::InteractableInteractionSubject>)
+                            return interactable_definition(value.interactable) != nullptr;
+                        else if constexpr (std::is_same_v<T, compiled::FeatureInteractionSubject>)
+                            return feature_definition(value.feature) != nullptr;
+                        else
+                            return m_state.item_stack(value.item_stack) != nullptr;
+                    },
+                    binding.subject);
+            });
+    auto position = validate_position(m_state.m_flow_stack.back(), caller_next_position);
+    if (program == nullptr || verb == nullptr || room == nullptr || !program_matches_verb ||
+        !bindings_valid || !position)
+        return fail(!position ? position.error()
+                              : execution_error("execution.invalid_interaction_call",
+                                                "Interaction call requires a Current Room and a "
+                                                "matching typed program"));
+    if (invocation.room && *invocation.room != *room)
+        return fail(execution_error("execution.invalid_interaction_context",
+                                    "Interaction context does not match the Current Room"));
+    if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
+        return fail(
+            execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
+
+    const FlowFrameId id{m_state.m_next_frame_id};
+    FlowFrame child = InteractionFrame{id,
+                                       std::move(invocation),
+                                       std::move(program_reference),
+                                       {first_interaction_instruction(*program),
+                                        InteractionFallbackStage::SelectedProgram,
+                                        InteractionExecutionOutcome::Pending, false},
+                                       CallerDestination{}};
+    assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+    ++m_state.m_next_frame_id;
+    m_state.m_flow_stack.push_back(std::move(child));
+    return Result<void, Diagnostics>::success();
+}
+
 Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
                                                    FlowFramePosition caller_next_position)
 {

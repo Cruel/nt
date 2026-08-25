@@ -282,6 +282,9 @@ private:
     run_room_unit(std::string_view runtime_locale);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_interaction_unit(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<void, RuntimeExecutionError>
+    interact_in_context(core::VerbId verb, std::vector<core::InteractionSubjectBinding> bindings,
+                        std::optional<core::SceneFramePosition> scene_next_position);
     [[nodiscard]] core::Result<std::optional<core::PresentationFlowCompletion>, core::Diagnostics>
     advance_scene_for_presentation(const core::SceneId& scene, const core::SceneStepId& step,
                                    std::optional<core::SceneStepId> next,

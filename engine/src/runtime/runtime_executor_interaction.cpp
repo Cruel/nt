@@ -448,16 +448,34 @@ core::Result<void, RuntimeExecutionError>
 RuntimeExecutor::interact(core::VerbId verb_id,
                           std::vector<core::InteractionSubjectBinding> bindings)
 {
+    return interact_in_context(std::move(verb_id), std::move(bindings), std::nullopt);
+}
+
+core::Result<void, RuntimeExecutionError>
+RuntimeExecutor::interact_in_context(core::VerbId verb_id,
+                                     std::vector<core::InteractionSubjectBinding> bindings,
+                                     std::optional<core::SceneFramePosition> scene_next_position)
+{
     const auto* room_mode = std::get_if<core::RoomMode>(&m_state.mode());
     const auto* verb = m_project.find_verb(verb_id);
-    if (room_mode == nullptr || verb == nullptr || !m_state.flow_stack().empty())
+    const auto* scene_frame = scene_next_position && !m_state.flow_stack().empty()
+                                  ? std::get_if<core::SceneFrame>(&m_state.flow_stack().back())
+                                  : nullptr;
+    const std::optional<core::RoomId> active_room =
+        room_mode != nullptr ? std::optional<core::RoomId>{room_mode->room}
+        : scene_frame != nullptr && m_state.room_visit()
+            ? std::optional<core::RoomId>{m_state.room_visit()->room}
+            : std::nullopt;
+    if (!active_room || verb == nullptr ||
+        (!scene_next_position && !m_state.flow_stack().empty()) ||
+        (scene_next_position && scene_frame == nullptr))
         return core::Result<void, RuntimeExecutionError>::failure(
             interaction_error("execution.invalid_interaction_invocation",
-                              "Interaction requires Room mode and a valid Verb"));
+                              "Interaction requires a Current Room and a valid Verb"));
 
     if (!m_room_presentation || m_room_presentation_dirty ||
-        m_room_presentation->presentation.visit.room != room_mode->room) {
-        auto settled = room_view({});
+        m_room_presentation->presentation.visit.room != *active_room) {
+        auto settled = refresh_room_presentation({});
         if (!settled)
             return core::Result<void, RuntimeExecutionError>::failure(settled.error());
     }
@@ -770,8 +788,14 @@ RuntimeExecutor::interact(core::VerbId verb_id,
     const core::InteractionProgramRef program =
         selected ? core::InteractionProgramRef{*selected}
                  : core::InteractionProgramRef{core::VerbDefaultProgramRef{verb_id}};
-    auto started = m_flow.start_interaction(
-        core::InteractionInvocationContext{verb_id, room_mode->room, std::move(bindings)}, program);
+    auto started =
+        scene_next_position
+            ? m_flow.call_interaction(
+                  core::InteractionInvocationContext{verb_id, *active_room, std::move(bindings)},
+                  program, std::move(*scene_next_position))
+            : m_flow.start_interaction(
+                  core::InteractionInvocationContext{verb_id, *active_room, std::move(bindings)},
+                  program);
     return started ? core::Result<void, RuntimeExecutionError>::success()
                    : core::Result<void, RuntimeExecutionError>::failure(started.error());
 }

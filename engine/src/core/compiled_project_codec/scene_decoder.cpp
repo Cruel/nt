@@ -155,6 +155,558 @@ decode_scene_input_bindings(Decoder& decoder, const nlohmann::json& value, std::
         });
 }
 
+std::optional<CharacterInitialWorldLocation>
+decode_character_world_location(Decoder& decoder, const nlohmann::json& value,
+                                std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Character world location object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "unplaced") {
+        decoder.object(value, pointer, {"kind"});
+        return UnplacedLocation{};
+    }
+    if (*kind == "room") {
+        decoder.object(value, pointer, {"kind", "room"});
+        const auto* room_value = decoder.member(value, "room", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        return room ? std::optional<CharacterInitialWorldLocation>(RoomLocation{*room})
+                    : std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Character world location kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<PropertyOwnerRef>
+decode_scene_property_owner(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Scene Property owner object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "room") {
+        decoder.object(value, pointer, {"kind", "room"});
+        const auto* member = decoder.member(value, "room", pointer);
+        auto id = member ? decode_reference<RoomId>(decoder, *member,
+                                                    pointer_child(pointer, "room"), "room")
+                         : std::nullopt;
+        return id ? std::optional<PropertyOwnerRef>(*id) : std::nullopt;
+    }
+    if (*kind == "character") {
+        decoder.object(value, pointer, {"character", "kind"});
+        const auto* member = decoder.member(value, "character", pointer);
+        auto id = member ? decode_reference<CharacterId>(
+                               decoder, *member, pointer_child(pointer, "character"), "character")
+                         : std::nullopt;
+        return id ? std::optional<PropertyOwnerRef>(*id) : std::nullopt;
+    }
+    if (*kind == "interactable") {
+        decoder.object(value, pointer, {"interactable", "kind"});
+        const auto* member = decoder.member(value, "interactable", pointer);
+        auto id = member ? decode_reference<InteractableId>(decoder, *member,
+                                                            pointer_child(pointer, "interactable"),
+                                                            "interactable")
+                         : std::nullopt;
+        return id ? std::optional<PropertyOwnerRef>(*id) : std::nullopt;
+    }
+    if (*kind == "item-stack") {
+        decoder.object(value, pointer, {"itemStack", "kind"});
+        const auto* member = decoder.member(value, "itemStack", pointer);
+        auto id = member ? decode_reference<ItemStackId>(
+                               decoder, *member, pointer_child(pointer, "itemStack"), "item-stack")
+                         : std::nullopt;
+        return id ? std::optional<PropertyOwnerRef>(*id) : std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Scene Property owner kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<SceneGameplayInstanceRef>
+decode_scene_instance_ref(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Scene Gameplay Instance reference object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "room") {
+        decoder.object(value, pointer, {"kind", "room"});
+        const auto* member = decoder.member(value, "room", pointer);
+        auto id = member ? decode_reference<RoomId>(decoder, *member,
+                                                    pointer_child(pointer, "room"), "room")
+                         : std::nullopt;
+        return id ? std::optional<SceneGameplayInstanceRef>(*id) : std::nullopt;
+    }
+    if (*kind == "character") {
+        decoder.object(value, pointer, {"character", "kind"});
+        const auto* member = decoder.member(value, "character", pointer);
+        auto id = member ? decode_reference<CharacterId>(
+                               decoder, *member, pointer_child(pointer, "character"), "character")
+                         : std::nullopt;
+        return id ? std::optional<SceneGameplayInstanceRef>(*id) : std::nullopt;
+    }
+    if (*kind == "interactable") {
+        decoder.object(value, pointer, {"interactable", "kind"});
+        const auto* member = decoder.member(value, "interactable", pointer);
+        auto id = member ? decode_reference<InteractableId>(decoder, *member,
+                                                            pointer_child(pointer, "interactable"),
+                                                            "interactable")
+                         : std::nullopt;
+        return id ? std::optional<SceneGameplayInstanceRef>(*id) : std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Scene Gameplay Instance reference kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<SceneInstanceConfigurationSource>
+decode_scene_configuration_source(Decoder& decoder, const nlohmann::json& value,
+                                  std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Scene instance configuration source object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "archetype") {
+        decoder.object(value, pointer, {"archetype", "kind"});
+        const auto* member = decoder.member(value, "archetype", pointer);
+        auto id = member ? decode_reference<ArchetypeId>(
+                               decoder, *member, pointer_child(pointer, "archetype"), "archetype")
+                         : std::nullopt;
+        return id ? std::optional<SceneInstanceConfigurationSource>(
+                        SceneArchetypeConfigurationSource{*id})
+                  : std::nullopt;
+    }
+    if (*kind == "compiled-instance" || *kind == "effective-instance") {
+        decoder.object(value, pointer, {"instance", "kind"});
+        const auto* member = decoder.member(value, "instance", pointer);
+        auto instance =
+            member ? decode_scene_instance_ref(decoder, *member, pointer_child(pointer, "instance"))
+                   : std::nullopt;
+        if (!instance)
+            return std::nullopt;
+        if (*kind == "compiled-instance")
+            return SceneCompiledInstanceConfigurationSource{std::move(*instance)};
+        return SceneEffectiveInstanceConfigurationSource{std::move(*instance)};
+    }
+    decoder.error(k_code_variant, "Unknown Scene instance configuration source kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<ItemStackPlacementPolicy>
+decode_scene_item_placement(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    return decoder.enumeration<ItemStackPlacementPolicy>(
+        value, pointer,
+        {{"coalesce", ItemStackPlacementPolicy::Coalesce},
+         {"keep-separate", ItemStackPlacementPolicy::KeepSeparate}});
+}
+
+} // namespace
+
+namespace {
+
+std::optional<SceneGameplayEffectOperation>
+decode_scene_gameplay_effect_operation(Decoder& decoder, const nlohmann::json& value,
+                                       std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Scene gameplay-effect operation object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "set-global-property") {
+        decoder.object(value, pointer, {"kind", "property", "value"});
+        const auto* property_value = decoder.member(value, "property", pointer);
+        const auto* runtime_value = decoder.member(value, "value", pointer);
+        auto property =
+            property_value
+                ? decode_reference<PropertyId>(decoder, *property_value,
+                                               pointer_child(pointer, "property"), "property")
+                : std::nullopt;
+        auto decoded = runtime_value ? decode_runtime_value(decoder, *runtime_value,
+                                                            pointer_child(pointer, "value"))
+                                     : std::nullopt;
+        return property && decoded ? std::optional<SceneGameplayEffectOperation>(SetGlobalProperty{
+                                         std::move(*property), std::move(*decoded)})
+                                   : std::nullopt;
+    }
+    if (*kind == "set-property" || *kind == "unset-property") {
+        decoder.object(
+            value, pointer,
+            *kind == "set-property"
+                ? std::initializer_list<std::string_view>{"kind", "owner", "property", "value"}
+                : std::initializer_list<std::string_view>{"kind", "owner", "property"});
+        const auto* owner_value = decoder.member(value, "owner", pointer);
+        const auto* property_value = decoder.member(value, "property", pointer);
+        auto owner = owner_value ? decode_scene_property_owner(decoder, *owner_value,
+                                                               pointer_child(pointer, "owner"))
+                                 : std::nullopt;
+        auto property =
+            property_value
+                ? decode_reference<PropertyId>(decoder, *property_value,
+                                               pointer_child(pointer, "property"), "property")
+                : std::nullopt;
+        if (!owner || !property)
+            return std::nullopt;
+        if (*kind == "unset-property")
+            return UnsetIdentityPropertySceneOperation{std::move(*owner), std::move(*property)};
+        const auto* runtime_value = decoder.member(value, "value", pointer);
+        auto decoded = runtime_value ? decode_runtime_value(decoder, *runtime_value,
+                                                            pointer_child(pointer, "value"))
+                                     : std::nullopt;
+        return decoded
+                   ? std::optional<SceneGameplayEffectOperation>(SetIdentityPropertySceneOperation{
+                         std::move(*owner), std::move(*property), std::move(*decoded)})
+                   : std::nullopt;
+    }
+    if (*kind == "move-character") {
+        decoder.object(value, pointer, {"character", "kind", "location"});
+        const auto* character_value = decoder.member(value, "character", pointer);
+        const auto* location_value = decoder.member(value, "location", pointer);
+        auto character =
+            character_value
+                ? decode_reference<CharacterId>(decoder, *character_value,
+                                                pointer_child(pointer, "character"), "character")
+                : std::nullopt;
+        auto location = location_value
+                            ? decode_character_world_location(decoder, *location_value,
+                                                              pointer_child(pointer, "location"))
+                            : std::nullopt;
+        return character && location
+                   ? std::optional<SceneGameplayEffectOperation>(
+                         MoveCharacterSceneOperation{std::move(*character), std::move(*location)})
+                   : std::nullopt;
+    }
+    if (*kind == "set-character-state" || *kind == "set-interactable-state") {
+        const bool character_kind = *kind == "set-character-state";
+        decoder.object(
+            value, pointer,
+            character_kind
+                ? std::initializer_list<std::string_view>{"character", "enabled", "kind", "visible"}
+                : std::initializer_list<std::string_view>{"enabled", "interactable", "kind",
+                                                          "visible"});
+        std::optional<bool> enabled;
+        std::optional<bool> visible;
+        if (const auto* member = json_access::member(value, "enabled"))
+            enabled = decoder.boolean(*member, pointer_child(pointer, "enabled"));
+        if (const auto* member = json_access::member(value, "visible"))
+            visible = decoder.boolean(*member, pointer_child(pointer, "visible"));
+        if (!enabled && !visible) {
+            decoder.error(k_code_variant, "Scene state operation must change enabled or visible.",
+                          std::string(pointer));
+            return std::nullopt;
+        }
+        if (character_kind) {
+            const auto* member = decoder.member(value, "character", pointer);
+            auto character =
+                member ? decode_reference<CharacterId>(
+                             decoder, *member, pointer_child(pointer, "character"), "character")
+                       : std::nullopt;
+            return character ? std::optional<SceneGameplayEffectOperation>(
+                                   SetCharacterStateSceneOperation{std::move(*character), enabled,
+                                                                   visible})
+                             : std::nullopt;
+        }
+        const auto* member = decoder.member(value, "interactable", pointer);
+        auto interactable =
+            member ? decode_reference<InteractableId>(
+                         decoder, *member, pointer_child(pointer, "interactable"), "interactable")
+                   : std::nullopt;
+        return interactable
+                   ? std::optional<SceneGameplayEffectOperation>(SetInteractableStateSceneOperation{
+                         std::move(*interactable), enabled, visible})
+                   : std::nullopt;
+    }
+    if (*kind == "move-interactable") {
+        decoder.object(value, pointer, {"interactable", "kind", "location"});
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        const auto* location_value = decoder.member(value, "location", pointer);
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        auto location = location_value ? decode_location(decoder, *location_value,
+                                                         pointer_child(pointer, "location"))
+                                       : std::nullopt;
+        return interactable && location
+                   ? std::optional<SceneGameplayEffectOperation>(MoveInteractableSceneOperation{
+                         std::move(*interactable), std::move(*location)})
+                   : std::nullopt;
+    }
+    const auto decode_quantity = [&]() -> std::optional<std::uint64_t> {
+        const auto* member = decoder.member(value, "quantity", pointer);
+        auto quantity = member ? decoder.unsigned_integer<std::uint64_t>(
+                                     *member, pointer_child(pointer, "quantity"))
+                               : std::nullopt;
+        if (quantity && *quantity == 0) {
+            decoder.error(k_code_number, "Item Stack quantity must be positive.",
+                          pointer_child(pointer, "quantity"));
+            return std::nullopt;
+        }
+        return quantity;
+    };
+    if (*kind == "split-item-stack" || *kind == "consume-item-quantity") {
+        decoder.object(value, pointer, {"kind", "quantity", "stack"});
+        const auto* stack_value = decoder.member(value, "stack", pointer);
+        auto stack = stack_value ? decode_reference<ItemStackId>(decoder, *stack_value,
+                                                                 pointer_child(pointer, "stack"),
+                                                                 "item-stack")
+                                 : std::nullopt;
+        auto quantity = decode_quantity();
+        if (!stack || !quantity)
+            return std::nullopt;
+        if (*kind == "split-item-stack")
+            return SplitItemStackSceneOperation{std::move(*stack), *quantity};
+        return ConsumeItemQuantitySceneOperation{std::move(*stack), *quantity};
+    }
+    if (*kind == "merge-item-stacks") {
+        decoder.object(value, pointer, {"donor", "kind", "receiver"});
+        const auto* receiver_value = decoder.member(value, "receiver", pointer);
+        const auto* donor_value = decoder.member(value, "donor", pointer);
+        auto receiver =
+            receiver_value
+                ? decode_reference<ItemStackId>(decoder, *receiver_value,
+                                                pointer_child(pointer, "receiver"), "item-stack")
+                : std::nullopt;
+        auto donor = donor_value ? decode_reference<ItemStackId>(decoder, *donor_value,
+                                                                 pointer_child(pointer, "donor"),
+                                                                 "item-stack")
+                                 : std::nullopt;
+        return receiver && donor
+                   ? std::optional<SceneGameplayEffectOperation>(
+                         MergeItemStacksSceneOperation{std::move(*receiver), std::move(*donor)})
+                   : std::nullopt;
+    }
+    if (*kind == "transfer-item-quantity" || *kind == "grant-item-quantity") {
+        const bool transfer = *kind == "transfer-item-quantity";
+        decoder.object(
+            value, pointer,
+            transfer ? std::initializer_list<std::string_view>{"kind", "location", "placement",
+                                                               "quantity", "stack"}
+                     : std::initializer_list<std::string_view>{"definition", "kind", "location",
+                                                               "placement", "quantity"});
+        const auto* location_value = decoder.member(value, "location", pointer);
+        const auto* placement_value = decoder.member(value, "placement", pointer);
+        auto location = location_value ? decode_location(decoder, *location_value,
+                                                         pointer_child(pointer, "location"))
+                                       : std::nullopt;
+        auto placement = placement_value
+                             ? decode_scene_item_placement(decoder, *placement_value,
+                                                           pointer_child(pointer, "placement"))
+                             : std::nullopt;
+        auto quantity = decode_quantity();
+        if (!location || !placement || !quantity)
+            return std::nullopt;
+        if (transfer) {
+            const auto* stack_value = decoder.member(value, "stack", pointer);
+            auto stack =
+                stack_value
+                    ? decode_reference<ItemStackId>(decoder, *stack_value,
+                                                    pointer_child(pointer, "stack"), "item-stack")
+                    : std::nullopt;
+            return stack ? std::optional<SceneGameplayEffectOperation>(
+                               TransferItemQuantitySceneOperation{std::move(*stack), *quantity,
+                                                                  std::move(*location), *placement})
+                         : std::nullopt;
+        }
+        const auto* definition_value = decoder.member(value, "definition", pointer);
+        auto definition = definition_value
+                              ? decode_reference<ItemDefinitionId>(
+                                    decoder, *definition_value,
+                                    pointer_child(pointer, "definition"), "item-definition")
+                              : std::nullopt;
+        return definition
+                   ? std::optional<SceneGameplayEffectOperation>(GrantItemQuantitySceneOperation{
+                         std::move(*definition), *quantity, std::move(*location), *placement})
+                   : std::nullopt;
+    }
+    if (*kind == "set-item-stack-traits") {
+        decoder.object(value, pointer, {"kind", "stack", "traits"});
+        const auto* stack_value = decoder.member(value, "stack", pointer);
+        const auto* traits_value = decoder.member(value, "traits", pointer);
+        auto stack = stack_value ? decode_reference<ItemStackId>(decoder, *stack_value,
+                                                                 pointer_child(pointer, "stack"),
+                                                                 "item-stack")
+                                 : std::nullopt;
+        auto traits =
+            traits_value
+                ? decoder.array<TraitId>(
+                      *traits_value, pointer_child(pointer, "traits"),
+                      [&](const nlohmann::json& trait, const std::string& trait_pointer) {
+                          return decode_reference<TraitId>(decoder, trait, trait_pointer, "trait");
+                      })
+                : std::nullopt;
+        return stack && traits
+                   ? std::optional<SceneGameplayEffectOperation>(
+                         SetItemStackTraitsSceneOperation{std::move(*stack), std::move(*traits)})
+                   : std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Scene gameplay-effect operation kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<SceneRuntimeWorldOperation> decode_scene_world_operation(Decoder& decoder,
+                                                                       const nlohmann::json& value,
+                                                                       std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Scene runtime-world operation object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "create-room") {
+        decoder.object(value, pointer, {"kind", "source"});
+        const auto* source_value = decoder.member(value, "source", pointer);
+        auto source = source_value ? decode_scene_configuration_source(
+                                         decoder, *source_value, pointer_child(pointer, "source"))
+                                   : std::nullopt;
+        return source ? std::optional<SceneRuntimeWorldOperation>(
+                            CreateRoomSceneWorldOperation{std::move(*source)})
+                      : std::nullopt;
+    }
+    if (*kind == "create-character") {
+        decoder.object(value, pointer, {"enabled", "kind", "location", "source", "visible"});
+        const auto* source_value = decoder.member(value, "source", pointer);
+        const auto* location_value = decoder.member(value, "location", pointer);
+        const auto* enabled_value = decoder.member(value, "enabled", pointer);
+        const auto* visible_value = decoder.member(value, "visible", pointer);
+        auto source = source_value ? decode_scene_configuration_source(
+                                         decoder, *source_value, pointer_child(pointer, "source"))
+                                   : std::nullopt;
+        auto location = location_value
+                            ? decode_character_world_location(decoder, *location_value,
+                                                              pointer_child(pointer, "location"))
+                            : std::nullopt;
+        auto enabled = enabled_value
+                           ? decoder.boolean(*enabled_value, pointer_child(pointer, "enabled"))
+                           : std::nullopt;
+        auto visible = visible_value
+                           ? decoder.boolean(*visible_value, pointer_child(pointer, "visible"))
+                           : std::nullopt;
+        return source && location && enabled && visible
+                   ? std::optional<SceneRuntimeWorldOperation>(CreateCharacterSceneWorldOperation{
+                         std::move(*source), std::move(*location), *enabled, *visible})
+                   : std::nullopt;
+    }
+    if (*kind == "create-interactable") {
+        decoder.object(value, pointer, {"enabled", "kind", "location", "source", "visible"});
+        const auto* source_value = decoder.member(value, "source", pointer);
+        const auto* location_value = decoder.member(value, "location", pointer);
+        const auto* enabled_value = decoder.member(value, "enabled", pointer);
+        const auto* visible_value = decoder.member(value, "visible", pointer);
+        auto source = source_value ? decode_scene_configuration_source(
+                                         decoder, *source_value, pointer_child(pointer, "source"))
+                                   : std::nullopt;
+        auto location = location_value ? decode_location(decoder, *location_value,
+                                                         pointer_child(pointer, "location"))
+                                       : std::nullopt;
+        auto enabled = enabled_value
+                           ? decoder.boolean(*enabled_value, pointer_child(pointer, "enabled"))
+                           : std::nullopt;
+        auto visible = visible_value
+                           ? decoder.boolean(*visible_value, pointer_child(pointer, "visible"))
+                           : std::nullopt;
+        return source && location && enabled && visible
+                   ? std::optional<SceneRuntimeWorldOperation>(
+                         CreateInteractableSceneWorldOperation{
+                             std::move(*source), std::move(*location), *enabled, *visible})
+                   : std::nullopt;
+    }
+    if (*kind == "replace-configuration") {
+        decoder.object(value, pointer, {"instance", "kind", "source"});
+        const auto* instance_value = decoder.member(value, "instance", pointer);
+        const auto* source_value = decoder.member(value, "source", pointer);
+        auto instance = instance_value
+                            ? decode_scene_instance_ref(decoder, *instance_value,
+                                                        pointer_child(pointer, "instance"))
+                            : std::nullopt;
+        auto source = source_value ? decode_scene_configuration_source(
+                                         decoder, *source_value, pointer_child(pointer, "source"))
+                                   : std::nullopt;
+        return instance && source ? std::optional<SceneRuntimeWorldOperation>(
+                                        ReplaceConfigurationSceneWorldOperation{
+                                            std::move(*instance), std::move(*source)})
+                                  : std::nullopt;
+    }
+    if (*kind == "clear-configuration" || *kind == "destroy-instance") {
+        decoder.object(value, pointer, {"instance", "kind"});
+        const auto* instance_value = decoder.member(value, "instance", pointer);
+        auto instance = instance_value
+                            ? decode_scene_instance_ref(decoder, *instance_value,
+                                                        pointer_child(pointer, "instance"))
+                            : std::nullopt;
+        if (!instance)
+            return std::nullopt;
+        if (*kind == "clear-configuration")
+            return ClearConfigurationSceneWorldOperation{std::move(*instance)};
+        return DestroyInstanceSceneWorldOperation{std::move(*instance)};
+    }
+    if (*kind == "retarget-room-exit") {
+        decoder.object(value, pointer, {"exitId", "kind", "room", "target"});
+        const auto* room_value = decoder.member(value, "room", pointer);
+        const auto* exit_value = decoder.member(value, "exitId", pointer);
+        const auto* target_value = decoder.member(value, "target", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        auto exit = exit_value
+                        ? decoder.id<RoomExitId>(*exit_value, pointer_child(pointer, "exitId"))
+                        : std::nullopt;
+        auto target = target_value
+                          ? decode_reference<RoomId>(decoder, *target_value,
+                                                     pointer_child(pointer, "target"), "room")
+                          : std::nullopt;
+        return room && exit && target
+                   ? std::optional<SceneRuntimeWorldOperation>(RetargetRoomExitSceneWorldOperation{
+                         std::move(*room), std::move(*exit), std::move(*target)})
+                   : std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Scene runtime-world operation kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
 } // namespace
 
 std::optional<SceneInstruction>
@@ -711,6 +1263,114 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                          std::move(*id), std::move(condition), std::move(*property),
                          std::move(*assignment)})
                    : std::nullopt;
+    }
+    if (*kind == "gameplay-effect-batch") {
+        SCENE_FIELDS("operations");
+        const auto* operations_value = decoder.member(value, "operations", pointer);
+        auto operations =
+            operations_value
+                ? decoder.array<SceneGameplayEffectOperation>(
+                      *operations_value, pointer_child(pointer, "operations"),
+                      [&](const nlohmann::json& operation, const std::string& operation_pointer) {
+                          return decode_scene_gameplay_effect_operation(decoder, operation,
+                                                                        operation_pointer);
+                      })
+                : std::nullopt;
+        if (operations && operations->empty()) {
+            decoder.error(k_code_number, "Gameplay Effect Batch requires at least one operation.",
+                          pointer_child(pointer, "operations"));
+            operations.reset();
+        }
+        return operations ? std::optional<SceneInstruction>(GameplayEffectBatchSceneInstruction{
+                                std::move(*id), std::move(condition), std::move(*operations)})
+                          : std::nullopt;
+    }
+    if (*kind == "runtime-world-transaction") {
+        SCENE_FIELDS("operations");
+        const auto* operations_value = decoder.member(value, "operations", pointer);
+        auto operations =
+            operations_value
+                ? decoder.array<SceneRuntimeWorldOperation>(
+                      *operations_value, pointer_child(pointer, "operations"),
+                      [&](const nlohmann::json& operation, const std::string& operation_pointer) {
+                          return decode_scene_world_operation(decoder, operation,
+                                                              operation_pointer);
+                      })
+                : std::nullopt;
+        if (operations && operations->empty()) {
+            decoder.error(k_code_number,
+                          "Runtime World Transaction requires at least one operation.",
+                          pointer_child(pointer, "operations"));
+            operations.reset();
+        }
+        return operations ? std::optional<SceneInstruction>(RuntimeWorldTransactionSceneInstruction{
+                                std::move(*id), std::move(condition), std::move(*operations)})
+                          : std::nullopt;
+    }
+    if (*kind == "directed-room-change") {
+        SCENE_FIELDS("room");
+        const auto* room_value = decoder.member(value, "room", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        return room ? std::optional<SceneInstruction>(DirectedRoomChangeSceneInstruction{
+                          std::move(*id), std::move(condition), std::move(*room)})
+                    : std::nullopt;
+    }
+    if (*kind == "navigation-attempt") {
+        SCENE_FIELDS("exitId", "room");
+        const auto* room_value = decoder.member(value, "room", pointer);
+        const auto* exit_value = decoder.member(value, "exitId", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        auto exit = exit_value
+                        ? decoder.id<RoomExitId>(*exit_value, pointer_child(pointer, "exitId"))
+                        : std::nullopt;
+        return room && exit
+                   ? std::optional<SceneInstruction>(NavigationAttemptSceneInstruction{
+                         std::move(*id), std::move(condition), std::move(*room), std::move(*exit)})
+                   : std::nullopt;
+    }
+    if (*kind == "call-interaction") {
+        SCENE_FIELDS("bindings", "verb");
+        const auto* verb_value = decoder.member(value, "verb", pointer);
+        const auto* bindings_value = decoder.member(value, "bindings", pointer);
+        auto verb = verb_value ? decode_reference<VerbId>(decoder, *verb_value,
+                                                          pointer_child(pointer, "verb"), "verb")
+                               : std::nullopt;
+        auto bindings =
+            bindings_value
+                ? decoder.array<SceneInteractionBinding>(
+                      *bindings_value, pointer_child(pointer, "bindings"),
+                      [&](const nlohmann::json& binding, const std::string& binding_pointer)
+                          -> std::optional<SceneInteractionBinding> {
+                          if (!decoder.object(binding, binding_pointer, {"slotId", "subject"}))
+                              return std::nullopt;
+                          const auto* slot_value =
+                              decoder.member(binding, "slotId", binding_pointer);
+                          const auto* subject_value =
+                              decoder.member(binding, "subject", binding_pointer);
+                          auto slot =
+                              slot_value
+                                  ? decoder.id<VerbSlotId>(*slot_value,
+                                                           pointer_child(binding_pointer, "slotId"))
+                                  : std::nullopt;
+                          auto subject = subject_value
+                                             ? decode_interaction_subject(
+                                                   decoder, *subject_value,
+                                                   pointer_child(binding_pointer, "subject"))
+                                             : std::nullopt;
+                          return slot && subject ? std::optional<SceneInteractionBinding>(
+                                                       SceneInteractionBinding{std::move(*slot),
+                                                                               std::move(*subject)})
+                                                 : std::nullopt;
+                      })
+                : std::nullopt;
+        return verb && bindings ? std::optional<SceneInstruction>(CallInteractionSceneInstruction{
+                                      std::move(*id), std::move(condition), std::move(*verb),
+                                      std::move(*bindings)})
+                                : std::nullopt;
     }
     if (*kind == "run-lua") {
         SCENE_FIELDS("autosaveSafePoint", "mayYield", "source");

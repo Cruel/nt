@@ -13,7 +13,9 @@ Scene is an immutable orchestration definition, not a stateful Property or Trait
 
 Current Scene authoring is an ordered sequence of stable semantic Events. The Event operation union is
 SetBackground, ActorCue, CallScene, StartDetachedScene, CallDialogue, ResumeDialogue, ShowText, AudioCue,
-SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, MaterialParameter, PostprocessEffect, TransitionGroup, and Comment. Comment is editor-only and
+SetVariable, GameplayEffectBatch, RuntimeWorldTransaction, DirectedRoomChange, NavigationAttempt,
+CallInteraction, RunLua, Wait, ConditionalBranch, Choice, SetLayout, MaterialParameter,
+PostprocessEffect, TransitionGroup, and Comment. Comment is editor-only and
 removed by compilation. Every runtime Event has a stable ID, an editor-visible timeline track,
 explicit start and duration values, and zero or more completion dependencies on earlier enabled
 runtime Events. Each operation contains only fields valid for its variant, including condition, wait,
@@ -30,6 +32,26 @@ returned child Outcome, and wait/correlation state. `CallScene` and `CallDialogu
 and resume the caller at its explicit next position after Return. Scene calls are runtime-depth
 bounded so data-dependent recursion cannot exhaust the native stack or grow the Flow stack without
 limit.
+
+Gameplay mutation is deliberately split from orchestration. `GameplayEffectBatch` is an immediate,
+typed transaction over admitted semantic Property, Character/Interactable Location and state, Trait,
+and Item Stack operations. Runtime validates and applies the whole batch against staged Session state,
+then publishes that state only if every operation succeeds; a failed operation therefore cannot leak
+an earlier mutation from the same batch. `RuntimeWorldTransaction` uses the same copy-on-commit
+boundary for creation, configuration replacement/clearing, exit retargeting, and instance destruction,
+while keeping those structural operations out of ordinary effect batches. Both paths use the canonical
+Runtime World / command-gateway semantics and capability groups used by gameplay Lua rather than a
+Scene-specific mutation implementation. A later Event failure never rolls back an already committed
+earlier Event.
+
+`DirectedRoomChange` and `NavigationAttempt` are orchestration Events, not transaction members.
+Directed change runs the canonical Room leave/enter lifecycle while treating guard false results as
+diagnostic-only, then returns to the same Scene invocation at its already-advanced Event cursor.
+Navigation Attempt remains guard-gated and names an eligible Current-Room exit; rejection likewise
+returns to the caller Scene without changing Current Room. Because the Scene frame stays alive across
+the child Room-transition frame, inherited Stage follows the newly committed Current Room while an
+explicit `staged-room` Stage remains bound to its authored Room. `CallInteraction` similarly invokes
+the ordinary typed Interaction matcher/program as a child and resumes the same Scene invocation.
 
 When a Dialogue called by a Scene executes `Handoff`, that exact Dialogue invocation becomes suspended
 immediately before the Scene in the Flow stack and the Scene resumes at the sequential Event already

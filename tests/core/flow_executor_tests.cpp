@@ -566,6 +566,40 @@ TEST_CASE("direct Room navigation validates exits and rejected transitions resum
     CHECK(std::get<RoomMode>(state.mode()).room == id<RoomId>("hall"));
 }
 
+TEST_CASE("Scene-directed Room changes return to the same Scene invocation")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+    const auto scene_frame = flow_frame_id(state.flow_stack().back());
+
+    REQUIRE(executor.call_directed_room_change(id<RoomId>("garden"), scene_position("opening-b")));
+    REQUIRE(state.flow_stack().size() == 2);
+    const auto& transition = std::get<RoomTransitionFrame>(state.flow_stack().back());
+    CHECK(transition.kind == RoomTransitionKind::DirectedRoomChange);
+    CHECK(std::holds_alternative<CallerDestination>(transition.destination));
+
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::TargetCanEnter));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::BeforeLeave));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::BeforeEnter));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::CommitRoomSwitch));
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("garden")));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::AfterLeave));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::AfterEnter));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::Complete));
+    REQUIRE(executor.complete_room_transition());
+
+    REQUIRE(state.flow_stack().size() == 1);
+    CHECK(std::holds_alternative<FlowMode>(state.mode()));
+    CHECK(flow_frame_id(state.flow_stack().back()) == scene_frame);
+    CHECK(std::get<SceneFrame>(state.flow_stack().back()).position.next_step ==
+          id<SceneStepId>("opening-b"));
+    REQUIRE(state.room_visit());
+    CHECK(state.room_visit()->room == id<RoomId>("garden"));
+}
+
 TEST_CASE(
     "fault discard selects precommit source postcommit target and no-source Ended destinations")
 {

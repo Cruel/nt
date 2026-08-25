@@ -157,10 +157,12 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         auto advanced = m_flow.advance_room_transition(transition.position, std::move(position));
         return advanced ? std::nullopt : fault(advanced.error());
     };
-    auto reject = [this]() -> std::optional<core::FlowRunOutcome> {
+    auto reject = [this, &transition]() -> std::optional<core::FlowRunOutcome> {
         auto rejected = m_flow.reject_room_transition();
         if (!rejected)
             return core::FlowFaultOutcome{rejected.error()};
+        if (std::holds_alternative<core::CallerDestination>(transition.destination))
+            return std::nullopt;
         return core::FlowModeChangedOutcome{m_state.mode()};
     };
     const auto transition_value = transition_context(transition);
@@ -416,6 +418,8 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         auto completed = m_flow.complete_room_transition();
         if (!completed)
             return fault(completed.error());
+        if (std::holds_alternative<core::CallerDestination>(transition.destination))
+            return std::nullopt;
         return core::FlowModeChangedOutcome{m_state.mode()};
     }
     }

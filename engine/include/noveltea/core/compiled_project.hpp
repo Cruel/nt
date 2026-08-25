@@ -1132,6 +1132,150 @@ struct SetGlobalPropertySceneInstruction {
     PropertyId property;
     RuntimeValue value;
 };
+struct SetIdentityPropertySceneOperation {
+    PropertyOwnerRef owner;
+    PropertyId property;
+    RuntimeValue value;
+};
+struct UnsetIdentityPropertySceneOperation {
+    PropertyOwnerRef owner;
+    PropertyId property;
+};
+struct MoveCharacterSceneOperation {
+    CharacterId character;
+    CharacterInitialWorldLocation location;
+};
+struct SetCharacterStateSceneOperation {
+    CharacterId character;
+    std::optional<bool> enabled;
+    std::optional<bool> visible;
+};
+struct MoveInteractableSceneOperation {
+    InteractableId interactable;
+    InteractableLocation location;
+};
+struct SetInteractableStateSceneOperation {
+    InteractableId interactable;
+    std::optional<bool> enabled;
+    std::optional<bool> visible;
+};
+struct SplitItemStackSceneOperation {
+    ItemStackId stack;
+    std::uint64_t quantity = 0;
+};
+struct MergeItemStacksSceneOperation {
+    ItemStackId receiver;
+    ItemStackId donor;
+};
+enum class ItemStackPlacementPolicy : std::uint8_t {
+    Coalesce,
+    KeepSeparate,
+};
+struct TransferItemQuantitySceneOperation {
+    ItemStackId stack;
+    std::uint64_t quantity = 0;
+    InteractableLocation location;
+    ItemStackPlacementPolicy placement = ItemStackPlacementPolicy::Coalesce;
+};
+struct GrantItemQuantitySceneOperation {
+    ItemDefinitionId definition;
+    std::uint64_t quantity = 0;
+    InteractableLocation location;
+    ItemStackPlacementPolicy placement = ItemStackPlacementPolicy::Coalesce;
+};
+struct ConsumeItemQuantitySceneOperation {
+    ItemStackId stack;
+    std::uint64_t quantity = 0;
+};
+struct SetItemStackTraitsSceneOperation {
+    ItemStackId stack;
+    std::vector<TraitId> traits;
+};
+using SceneGameplayEffectOperation = std::variant<
+    SetGlobalProperty, SetIdentityPropertySceneOperation, UnsetIdentityPropertySceneOperation,
+    MoveCharacterSceneOperation, SetCharacterStateSceneOperation, MoveInteractableSceneOperation,
+    SetInteractableStateSceneOperation, SplitItemStackSceneOperation, MergeItemStacksSceneOperation,
+    TransferItemQuantitySceneOperation, GrantItemQuantitySceneOperation,
+    ConsumeItemQuantitySceneOperation, SetItemStackTraitsSceneOperation>;
+struct GameplayEffectBatchSceneInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    std::vector<SceneGameplayEffectOperation> operations;
+};
+using SceneGameplayInstanceRef = std::variant<RoomId, CharacterId, InteractableId>;
+struct SceneArchetypeConfigurationSource {
+    ArchetypeId archetype;
+};
+struct SceneCompiledInstanceConfigurationSource {
+    SceneGameplayInstanceRef instance;
+};
+struct SceneEffectiveInstanceConfigurationSource {
+    SceneGameplayInstanceRef instance;
+};
+using SceneInstanceConfigurationSource =
+    std::variant<SceneArchetypeConfigurationSource, SceneCompiledInstanceConfigurationSource,
+                 SceneEffectiveInstanceConfigurationSource>;
+struct CreateRoomSceneWorldOperation {
+    SceneInstanceConfigurationSource source;
+};
+struct CreateCharacterSceneWorldOperation {
+    SceneInstanceConfigurationSource source;
+    CharacterInitialWorldLocation location;
+    bool enabled = true;
+    bool visible = true;
+};
+struct CreateInteractableSceneWorldOperation {
+    SceneInstanceConfigurationSource source;
+    InteractableLocation location;
+    bool enabled = true;
+    bool visible = true;
+};
+struct ReplaceConfigurationSceneWorldOperation {
+    SceneGameplayInstanceRef instance;
+    SceneInstanceConfigurationSource source;
+};
+struct ClearConfigurationSceneWorldOperation {
+    SceneGameplayInstanceRef instance;
+};
+struct RetargetRoomExitSceneWorldOperation {
+    RoomId room;
+    RoomExitId exit;
+    RoomId target;
+};
+struct DestroyInstanceSceneWorldOperation {
+    SceneGameplayInstanceRef instance;
+};
+using SceneRuntimeWorldOperation =
+    std::variant<CreateRoomSceneWorldOperation, CreateCharacterSceneWorldOperation,
+                 CreateInteractableSceneWorldOperation, ReplaceConfigurationSceneWorldOperation,
+                 ClearConfigurationSceneWorldOperation, RetargetRoomExitSceneWorldOperation,
+                 DestroyInstanceSceneWorldOperation>;
+struct RuntimeWorldTransactionSceneInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    std::vector<SceneRuntimeWorldOperation> operations;
+};
+struct DirectedRoomChangeSceneInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    RoomId room;
+};
+struct NavigationAttemptSceneInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    RoomId room;
+    RoomExitId exit;
+};
+struct SceneInteractionBinding {
+    VerbSlotId slot;
+    InteractionSubject subject;
+};
+struct CallInteractionSceneInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    VerbId verb;
+    std::vector<SceneInteractionBinding> bindings;
+};
 struct RunLuaSceneInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
@@ -1344,11 +1488,14 @@ using SceneInstruction =
     std::variant<SetBackgroundInstruction, ActorCueInstruction, CallSceneSceneInstruction,
                  StartDetachedSceneInstruction, CallDialogueSceneInstruction,
                  ResumeDialogueSceneInstruction, ShowTextInstruction, AudioCueInstruction,
-                 SetGlobalPropertySceneInstruction, RunLuaSceneInstruction, WaitDurationInstruction,
-                 WaitInputInstruction, WaitConditionInstruction, WaitOperationInstruction,
-                 WaitAudioInstruction, WaitLayoutSignalInstruction, ConditionalBranchInstruction,
-                 ChoiceSceneInstruction, SetLayoutInstruction, MaterialParameterInstruction,
-                 PostprocessEffectInstruction, TransitionGroupInstruction>;
+                 SetGlobalPropertySceneInstruction, GameplayEffectBatchSceneInstruction,
+                 RuntimeWorldTransactionSceneInstruction, DirectedRoomChangeSceneInstruction,
+                 NavigationAttemptSceneInstruction, CallInteractionSceneInstruction,
+                 RunLuaSceneInstruction, WaitDurationInstruction, WaitInputInstruction,
+                 WaitConditionInstruction, WaitOperationInstruction, WaitAudioInstruction,
+                 WaitLayoutSignalInstruction, ConditionalBranchInstruction, ChoiceSceneInstruction,
+                 SetLayoutInstruction, MaterialParameterInstruction, PostprocessEffectInstruction,
+                 TransitionGroupInstruction>;
 struct SceneEventTimeline {
     std::string track_id;
     std::uint64_t start_ms = 0;
