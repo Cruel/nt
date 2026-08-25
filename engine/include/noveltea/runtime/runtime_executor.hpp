@@ -72,6 +72,11 @@ struct PendingMaterialParameterOperation {
 };
 
 struct PendingAudioOperation {
+    struct SceneSource {
+        core::FlowFrameId invocation;
+        core::SceneId scene;
+        core::SceneStepId event;
+    };
     core::compiled::AudioAction action = core::compiled::AudioAction::Play;
     core::compiled::AudioPurpose purpose = core::compiled::AudioPurpose::SoundEffect;
     core::compiled::AudioPausePolicy pause_policy = core::compiled::AudioPausePolicy::Gameplay;
@@ -86,6 +91,7 @@ struct PendingAudioOperation {
     core::compiled::AudioCausality causality = core::compiled::AudioCausality::Causal;
     bool synchronized = false;
     core::compiled::AudioSkipBehavior skip_behavior = core::compiled::AudioSkipBehavior::Suppress;
+    std::optional<SceneSource> scene_source;
 };
 
 using PendingPresentationOperation =
@@ -153,6 +159,20 @@ public:
     {
         m_scene_event_dependency_checker = std::move(checker);
     }
+    void bind_scene_event_operation_checkers(
+        std::function<bool(const core::FlowFrameId&, const core::SceneId&,
+                           const core::SceneStepId&)>
+            presentation,
+        std::function<bool(const core::FlowFrameId&, const core::SceneId&,
+                           const core::SceneStepId&)>
+            audio)
+    {
+        m_scene_event_presentation_operation_checker = std::move(presentation);
+        m_scene_event_audio_operation_checker = std::move(audio);
+    }
+    [[nodiscard]] core::Result<bool, core::Diagnostics> resume_scene_semantic_wait_if_ready();
+    [[nodiscard]] core::Result<bool, core::Diagnostics>
+    consume_layout_signal_wait(const core::LayoutSignalInput& input);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     choose_scene_option(const core::FlowFrameId& owner, const core::InputFlowBlockerHandle& handle,
                         const core::SceneChoiceOptionId& option);
@@ -284,6 +304,10 @@ private:
     RuntimeCapabilitySet m_room_lifecycle_capabilities;
     std::function<bool(const core::FlowFrameId&, const core::SceneId&, const core::SceneStepId&)>
         m_scene_event_dependency_checker;
+    std::function<bool(const core::FlowFrameId&, const core::SceneId&, const core::SceneStepId&)>
+        m_scene_event_presentation_operation_checker;
+    std::function<bool(const core::FlowFrameId&, const core::SceneId&, const core::SceneStepId&)>
+        m_scene_event_audio_operation_checker;
     std::optional<core::RoomPresentationResolution> m_room_presentation;
     std::vector<core::SceneStageRoomPresentation> m_scene_stage_presentations;
     core::Diagnostics m_room_lifecycle_diagnostics;

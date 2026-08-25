@@ -187,6 +187,15 @@ RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvoc
                                                          const core::SceneStepId& event) {
         return scene_event_dependency_pending(owner, scene, event);
     });
+    m_kernel->bind_scene_event_operation_checkers(
+        [this](const core::FlowFrameId& owner, const core::SceneId& scene,
+               const core::SceneStepId& event) {
+            return scene_event_presentation_operation_active(owner, scene, event);
+        },
+        [this](const core::FlowFrameId& owner, const core::SceneId& scene,
+               const core::SceneStepId& event) {
+            return scene_event_audio_operation_active(owner, scene, event);
+        });
 }
 
 RuntimeSession::~RuntimeSession()
@@ -265,6 +274,29 @@ bool RuntimeSession::scene_event_dependency_pending(const core::FlowFrameId& own
                            operation.event == dependency &&
                            m_presentation.presentation_operation_active(operation.operation);
                 });
+        });
+}
+
+bool RuntimeSession::scene_event_presentation_operation_active(
+    const core::FlowFrameId& owner, const core::SceneId& scene,
+    const core::SceneStepId& event) const noexcept
+{
+    return std::ranges::any_of(m_scene_event_presentation_operations,
+                               [&](const SceneEventPresentationOperation& operation) {
+                                   return operation.owner == owner && operation.scene == scene &&
+                                          operation.event == event &&
+                                          m_presentation.presentation_operation_active(
+                                              operation.operation);
+                               });
+}
+
+bool RuntimeSession::scene_event_audio_operation_active(
+    const core::FlowFrameId& owner, const core::SceneId& scene,
+    const core::SceneStepId& event) const noexcept
+{
+    return std::ranges::any_of(
+        m_scene_event_audio_operations, [&](const SceneEventAudioOperation& operation) {
+            return operation.owner == owner && operation.scene == scene && operation.event == event;
         });
 }
 
@@ -596,6 +628,11 @@ void RuntimeSession::invalidate_kernel(ScriptCancellationReason reason) noexcept
 core::Diagnostics RuntimeSession::run_kernel(std::vector<runtime::RuntimeEvent>& events,
                                              std::vector<core::RuntimeObservation>& observations)
 {
+    auto semantic_wait = m_kernel->resume_scene_semantic_wait_if_ready();
+    if (!semantic_wait)
+        return semantic_wait.error();
+    if (*semantic_wait.value_if())
+        record_structural_mutation();
     auto diagnostics = run_kernel_once(events, observations);
     if (!has_blocking_diagnostic(diagnostics)) {
         drain_deferred_commands(events, observations, diagnostics);
@@ -732,6 +769,17 @@ void RuntimeSession::collect_runtime_actions(core::Diagnostics& diagnostics)
                     core::append_diagnostics(diagnostics, std::move(cancelled).error());
             }
             continue;
+        }
+        if (pending.scene_source) {
+            std::erase_if(m_scene_event_audio_operations,
+                          [&](const SceneEventAudioOperation& candidate) {
+                              return candidate.owner == pending.scene_source->invocation &&
+                                     candidate.scene == pending.scene_source->scene &&
+                                     candidate.event == pending.scene_source->event;
+                          });
+            m_scene_event_audio_operations.push_back({pending.scene_source->invocation,
+                                                      pending.scene_source->scene,
+                                                      pending.scene_source->event, operation.id});
         }
         if (pending.completion)
             m_pending_audio = operation;
@@ -1215,6 +1263,9 @@ core::Diagnostics RuntimeSession::complete_audio(core::AudioOperationId operatio
         *m_pending_audio->completion != completion)
         return {diagnostic("runtime.stale_audio_completion",
                            "Audio completion does not match the pending operation")};
+    std::erase_if(m_scene_event_audio_operations, [&](const SceneEventAudioOperation& candidate) {
+        return candidate.operation == operation;
+    });
     if (m_dialogue_audio_wait) {
         const auto* flow = std::get_if<core::AudioFlowBlockerHandle>(&completion);
         if (flow && m_dialogue_audio_wait->frame == owner &&
@@ -2034,7 +2085,18 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     }
                 } else if constexpr (std::is_same_v<T, core::ContinueInput>) {
                     const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
-                    if (blocker && (m_dialogue_audio_wait || m_dialogue_presentation_wait)) {
+                    const auto* scene_frame =
+                        !m_kernel->state().flow_stack().empty()
+                            ? std::get_if<core::SceneFrame>(&m_kernel->state().flow_stack().back())
+                            : nullptr;
+                    const auto* scene_completion =
+                        scene_frame ? std::get_if<core::SceneInstructionCompletionPosition>(
+                                          &scene_frame->position.substate)
+                                    : nullptr;
+                    const bool semantic_scene_wait =
+                        scene_completion != nullptr && scene_completion->semantic_wait.has_value();
+                    if (blocker && (m_dialogue_audio_wait || m_dialogue_presentation_wait ||
+                                    semantic_scene_wait)) {
                         result.disposition = runtime::RuntimeInputDisposition::Unhandled;
                     } else if (blocker) {
                         if (!m_kernel->state().flow_stack().empty()) {
@@ -2346,9 +2408,17 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         value.fields);
                     if (!validated)
                         result.diagnostics = std::move(validated).error();
-                    else
+                    else {
                         result.observations.emplace_back(core::LayoutSignalObservation{
                             value.owner, value.key, value.occurrence, value.signal, value.fields});
+                        auto consumed = m_kernel->consume_layout_signal_wait(value);
+                        if (!consumed)
+                            result.diagnostics = std::move(consumed).error();
+                        else if (*consumed.value_if()) {
+                            record_structural_mutation();
+                            result.diagnostics = run_kernel(result.events, result.observations);
+                        }
+                    }
                 } else if constexpr (std::is_same_v<T, core::CommitLayoutStateInput>) {
                     auto committed = m_kernel->state().commit_layout_state(
                         m_project, value.owner, value.key, value.occurrence, value.scope,
@@ -2404,18 +2474,21 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     result.diagnostics =
                         complete_presentation(value.operation, value.owner, value.completion,
                                               std::is_same_v<T, core::CancelPresentationInput>);
-                    if (result.diagnostics.empty() &&
-                        std::is_same_v<T, core::CompletePresentationInput>)
+                    if (result.diagnostics.empty())
                         result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::CompleteAudioInput> ||
                                      std::is_same_v<T, core::CancelAudioInput>) {
                     result.diagnostics =
                         complete_audio(value.operation, value.owner, value.completion,
                                        std::is_same_v<T, core::CancelAudioInput>);
-                    if (result.diagnostics.empty() && std::is_same_v<T, core::CompleteAudioInput>)
+                    if (result.diagnostics.empty())
                         result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::AcknowledgeAudioTerminationInput>) {
-                    result.diagnostics.clear();
+                    std::erase_if(m_scene_event_audio_operations,
+                                  [&](const SceneEventAudioOperation& candidate) {
+                                      return candidate.operation == value.operation;
+                                  });
+                    result.diagnostics = run_kernel(result.events, result.observations);
                 } else
                     static_assert(always_false<T>, "Unhandled RuntimeInputMessage alternative");
             },

@@ -1613,7 +1613,10 @@ private:
                                using T = std::decay_t<decltype(value)>;
                                if constexpr (std::is_same_v<T, CallDialogueSceneInstruction> ||
                                              std::is_same_v<T, ChoiceSceneInstruction> ||
-                                             std::is_same_v<T, WaitInputInstruction>)
+                                             std::is_same_v<T, WaitInputInstruction> ||
+                                             std::is_same_v<T, WaitOperationInstruction> ||
+                                             std::is_same_v<T, WaitAudioInstruction> ||
+                                             std::is_same_v<T, WaitLayoutSignalInstruction>)
                                    return false;
                                else if constexpr (std::is_same_v<T, ShowTextInstruction>)
                                    return !std::holds_alternative<InputWait>(value.wait);
@@ -1914,6 +1917,58 @@ private:
                                 error("compiled_project.property_type_mismatch",
                                       "Scene assignment does not match its Global Property.",
                                       instruction_path + "/value");
+                        } else if constexpr (std::is_same_v<T, WaitConditionInstruction>) {
+                            validate_condition(instruction.wait_condition,
+                                               instruction_path + "/waitCondition");
+                        } else if constexpr (std::is_same_v<T, WaitOperationInstruction> ||
+                                             std::is_same_v<T, WaitAudioInstruction>) {
+                            const auto target = std::ranges::find_if(
+                                scene.program.instructions, [&](const SceneInstruction& candidate) {
+                                    return std::visit(
+                                        [&](const auto& typed) {
+                                            return typed.id == instruction.event;
+                                        },
+                                        candidate);
+                                });
+                            if (target == scene.program.instructions.end() ||
+                                static_cast<std::size_t>(
+                                    std::distance(scene.program.instructions.begin(), target)) >=
+                                    instruction_index) {
+                                error("compiled_project.scene_wait_target_order",
+                                      "Scene semantic wait must reference an earlier Event.",
+                                      instruction_path + "/eventId");
+                            } else {
+                                const bool compatible = std::visit(
+                                    [&](const auto& typed) {
+                                        using Target = std::decay_t<decltype(typed)>;
+                                        if constexpr (std::is_same_v<T, WaitOperationInstruction>)
+                                            return std::is_same_v<Target,
+                                                                  SetBackgroundInstruction> ||
+                                                   std::is_same_v<Target, ActorCueInstruction> ||
+                                                   std::is_same_v<Target, SetLayoutInstruction> ||
+                                                   std::is_same_v<Target,
+                                                                  MaterialParameterInstruction> ||
+                                                   std::is_same_v<Target,
+                                                                  TransitionGroupInstruction>;
+                                        else if constexpr (std::is_same_v<Target,
+                                                                          AudioCueInstruction>)
+                                            return typed.lifetime == AudioLifetime::OneShot;
+                                        else
+                                            return false;
+                                    },
+                                    *target);
+                                if (!compatible)
+                                    error(
+                                        std::is_same_v<T, WaitOperationInstruction>
+                                            ? "compiled_project.scene_wait_operation_target_invalid"
+                                            : "compiled_project.scene_wait_audio_target_invalid",
+                                        std::is_same_v<T, WaitOperationInstruction>
+                                            ? "Scene Operation wait must reference a presentation "
+                                              "Event."
+                                            : "Scene Audio wait must reference a one-shot Audio "
+                                              "Cue Event.",
+                                        instruction_path + "/eventId");
+                            }
                         } else if constexpr (std::is_same_v<T, ConditionalBranchInstruction>) {
                             for (std::size_t branch = 0; branch < instruction.branches.size();
                                  ++branch) {

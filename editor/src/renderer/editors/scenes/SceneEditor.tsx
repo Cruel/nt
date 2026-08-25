@@ -63,6 +63,29 @@ function title(value: string) {
     .map((part) => `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}`)
     .join(' ');
 }
+function isPresentationOwnedStep(step: SceneStepData): step is Extract<
+  SceneStepData,
+  {
+    type:
+      | 'set-background'
+      | 'actor-cue'
+      | 'audio-cue'
+      | 'set-layout'
+      | 'material-parameter'
+      | 'postprocess-effect'
+      | 'transition-group';
+  }
+> {
+  return (
+    step.type === 'set-background' ||
+    step.type === 'actor-cue' ||
+    step.type === 'audio-cue' ||
+    step.type === 'set-layout' ||
+    step.type === 'material-parameter' ||
+    step.type === 'postprocess-effect' ||
+    step.type === 'transition-group'
+  );
+}
 function uniqueId(steps: SceneStepData[], base: string) {
   const used = new Set(steps.map((step) => step.id));
   if (!used.has(base)) return base;
@@ -1236,6 +1259,21 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 />
               </Label>
             )}
+            {isPresentationOwnedStep(selected) && (
+              <Label>
+                Presentation ownership
+                <Select
+                  value={selected.owner}
+                  onValueChange={(owner) =>
+                    replaceStep({ ...selected, owner: owner as typeof selected.owner })
+                  }
+                >
+                  <SelectItem value="invocation">Scene Invocation</SelectItem>
+                  <SelectItem value="active-room">Active Room</SelectItem>
+                  <SelectItem value="runtime-session">Runtime Session</SelectItem>
+                </Select>
+              </Label>
+            )}
             {selected.type === 'set-background' && (
               <>
                 <Label>
@@ -2075,37 +2113,53 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                   Wait kind
                   <Select
                     value={selected.waitKind}
-                    onValueChange={(kind) =>
-                      replaceStep(
-                        kind === 'input'
-                          ? {
-                              id: selected.id,
-                              label: selected.label,
-                              type: 'wait',
-                              enabled: selected.enabled,
-                              condition: selected.condition,
-                              timeline: selected.timeline,
-                              completionDependencies: selected.completionDependencies,
-                              waitKind: 'input',
-                              skippable: selected.skippable,
-                            }
-                          : {
-                              id: selected.id,
-                              label: selected.label,
-                              type: 'wait',
-                              enabled: selected.enabled,
-                              condition: selected.condition,
-                              timeline: selected.timeline,
-                              completionDependencies: selected.completionDependencies,
-                              waitKind: 'duration',
-                              durationMs: 1000,
-                              skippable: selected.skippable,
-                            },
-                      )
-                    }
+                    onValueChange={(kind) => {
+                      const common = {
+                        id: selected.id,
+                        label: selected.label,
+                        type: 'wait' as const,
+                        enabled: selected.enabled,
+                        condition: selected.condition,
+                        timeline: selected.timeline,
+                        completionDependencies: selected.completionDependencies,
+                        skippable: selected.skippable,
+                      };
+                      if (kind === 'input') replaceStep({ ...common, waitKind: 'input' });
+                      else if (kind === 'condition')
+                        replaceStep({
+                          ...common,
+                          waitKind: 'condition',
+                          waitCondition: { kind: 'always' },
+                        });
+                      else if (kind === 'operation')
+                        replaceStep({
+                          ...common,
+                          waitKind: 'operation',
+                          eventId: data.events[0]?.id ?? selected.id,
+                        });
+                      else if (kind === 'audio')
+                        replaceStep({
+                          ...common,
+                          waitKind: 'audio',
+                          eventId: data.events[0]?.id ?? selected.id,
+                        });
+                      else if (kind === 'layout-signal')
+                        replaceStep({
+                          ...common,
+                          waitKind: 'layout-signal',
+                          owner: 'invocation',
+                          slot: 'custom',
+                          signalId: 'signal',
+                        });
+                      else replaceStep({ ...common, waitKind: 'duration', durationMs: 1000 });
+                    }}
                   >
                     <SelectItem value="duration">Duration</SelectItem>
                     <SelectItem value="input">Input</SelectItem>
+                    <SelectItem value="condition">Condition</SelectItem>
+                    <SelectItem value="operation">Presentation Operation</SelectItem>
+                    <SelectItem value="audio">Audio Operation</SelectItem>
+                    <SelectItem value="layout-signal">Layout Signal</SelectItem>
                   </Select>
                 </Label>
                 {selected.waitKind === 'duration' && (
@@ -2120,6 +2174,69 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                       }
                     />
                   </Label>
+                )}
+                {selected.waitKind === 'condition' &&
+                  conditionEditor(selected.waitCondition, (waitCondition) =>
+                    waitCondition ? replaceStep({ ...selected, waitCondition }) : undefined,
+                  )}
+                {(selected.waitKind === 'operation' || selected.waitKind === 'audio') && (
+                  <Label>
+                    Event
+                    <Select
+                      value={selected.eventId}
+                      onValueChange={(eventId) => {
+                        if (eventId) replaceStep({ ...selected, eventId });
+                      }}
+                    >
+                      {data.events
+                        .filter((step) => step.id !== selected.id)
+                        .map((step) => (
+                          <SelectItem key={step.id} value={step.id}>
+                            {step.label}
+                          </SelectItem>
+                        ))}
+                    </Select>
+                  </Label>
+                )}
+                {selected.waitKind === 'layout-signal' && (
+                  <>
+                    <Label>
+                      Mount ownership
+                      <Select
+                        value={selected.owner}
+                        onValueChange={(owner) =>
+                          replaceStep({ ...selected, owner: owner as typeof selected.owner })
+                        }
+                      >
+                        <SelectItem value="invocation">Scene Invocation</SelectItem>
+                        <SelectItem value="active-room">Active Room</SelectItem>
+                        <SelectItem value="runtime-session">Runtime Session</SelectItem>
+                      </Select>
+                    </Label>
+                    <Label>
+                      Mount slot
+                      <Select
+                        value={selected.slot}
+                        onValueChange={(slot) =>
+                          replaceStep({ ...selected, slot: slot as typeof selected.slot })
+                        }
+                      >
+                        <SelectItem value="hud">HUD</SelectItem>
+                        <SelectItem value="dialogue-box">Dialogue Box</SelectItem>
+                        <SelectItem value="overlay">Overlay</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </Select>
+                    </Label>
+                    <Label>
+                      Signal ID
+                      <Input
+                        value={selected.signalId}
+                        onChange={(event) =>
+                          replaceStep({ ...selected, signalId: event.target.value })
+                        }
+                      />
+                    </Label>
+                  </>
                 )}
               </>
             )}

@@ -36,9 +36,26 @@ using ReturnDestination =
     std::variant<CallerDestination, ResumeRoomDestination, NoReturnDestination>;
 
 struct SceneStepReady {};
+struct SceneConditionWaitTarget {};
+struct ScenePresentationOperationWaitTarget {
+    SceneStepId event;
+};
+struct SceneAudioOperationWaitTarget {
+    SceneStepId event;
+};
+struct SceneLayoutSignalWaitTarget {
+    compiled::ScenePresentationOwner owner = compiled::ScenePresentationOwner::Invocation;
+    compiled::LayoutSlot slot = compiled::LayoutSlot::Custom;
+    std::uint64_t occurrence = 0;
+    LayoutSignalId signal;
+};
+using SceneSemanticWaitTarget =
+    std::variant<SceneConditionWaitTarget, ScenePresentationOperationWaitTarget,
+                 SceneAudioOperationWaitTarget, SceneLayoutSignalWaitTarget>;
 struct SceneInstructionCompletionPosition {
     std::optional<SceneStepId> next_step;
     bool autosave_safe_point = false;
+    std::optional<SceneSemanticWaitTarget> semantic_wait;
 };
 struct SceneAutosavePendingPosition {
     SceneStepId completed_step;

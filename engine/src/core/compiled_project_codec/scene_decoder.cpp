@@ -4,6 +4,17 @@ namespace noveltea::core::compiled::wire::detail {
 
 namespace {
 
+std::optional<ScenePresentationOwner> decode_scene_presentation_owner(Decoder& decoder,
+                                                                      const nlohmann::json& value,
+                                                                      std::string_view pointer)
+{
+    return decoder.enumeration<ScenePresentationOwner>(
+        value, pointer,
+        {{"invocation", ScenePresentationOwner::Invocation},
+         {"active-room", ScenePresentationOwner::ActiveRoom},
+         {"runtime-session", ScenePresentationOwner::RuntimeSession}});
+}
+
 std::optional<MaterialParameterValue> decode_material_parameter_value(Decoder& decoder,
                                                                       const nlohmann::json& value,
                                                                       std::string_view pointer)
@@ -165,13 +176,14 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         return std::nullopt;
 #define SCENE_FIELDS(...) decoder.object(value, pointer, {"condition", "id", "kind", __VA_ARGS__})
     if (*kind == "set-background") {
-        SCENE_FIELDS("asset", "color", "durationMs", "fit", "material", "skippable", "transition",
-                     "waitForCompletion");
+        SCENE_FIELDS("asset", "color", "durationMs", "fit", "material", "owner", "skippable",
+                     "transition", "waitForCompletion");
         const auto* asset_value = decoder.member(value, "asset", pointer);
         const auto* color_value = decoder.member(value, "color", pointer);
         const auto* duration_value = decoder.member(value, "durationMs", pointer);
         const auto* fit_value = decoder.member(value, "fit", pointer);
         const auto* material_value = decoder.member(value, "material", pointer);
+        const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* skippable_value = decoder.member(value, "skippable", pointer);
         const auto* transition_value = decoder.member(value, "transition", pointer);
         const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
@@ -210,6 +222,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                      {"fade", BackgroundTransition::Fade},
                                      {"cut", BackgroundTransition::Cut}})
                               : std::nullopt;
+        auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
+                                                                   pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
                                              *duration_value, pointer_child(pointer, "durationMs"))
                                        : std::nullopt;
@@ -235,10 +250,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         PresentationInstructionWait wait =
             waits && *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
                             : PresentationInstructionWait{ImmediateWait{}};
-        return asset_ok && color_ok && duration && fit && material_ok && skippable && transition &&
-                       waits
+        return asset_ok && color_ok && duration && fit && material_ok && owner && skippable &&
+                       transition && waits
                    ? std::optional<SceneInstruction>(SetBackgroundInstruction{
-                         std::move(*id), std::move(condition),
+                         std::move(*id), std::move(condition), *owner,
                          BackgroundPresentation{std::move(asset), std::move(color), *fit,
                                                 std::move(material)},
                          *transition, *duration, std::move(wait), *skippable})
@@ -246,7 +261,7 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
     }
     if (*kind == "actor-cue") {
         SCENE_FIELDS("action", "appearanceId", "character", "durationMs", "expressionId", "offset",
-                     "poseId", "position", "profileId", "scale", "skippable", "slotId",
+                     "owner", "poseId", "position", "profileId", "scale", "skippable", "slotId",
                      "transition", "waitForCompletion");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* character_value = decoder.member(value, "character", pointer);
@@ -255,6 +270,7 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         const auto* expression_value = decoder.member(value, "expressionId", pointer);
         const auto* appearance_value = decoder.member(value, "appearanceId", pointer);
         const auto* offset_value = decoder.member(value, "offset", pointer);
+        const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* pose_value = decoder.member(value, "poseId", pointer);
         const auto* position_value = decoder.member(value, "position", pointer);
         const auto* scale_value = decoder.member(value, "scale", pointer);
@@ -301,6 +317,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         auto offset = offset_value
                           ? decode_vector2(decoder, *offset_value, pointer_child(pointer, "offset"))
                           : std::nullopt;
+        auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
+                                                                   pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         std::optional<CharacterPoseId> pose;
         bool pose_ok = pose_value != nullptr;
         if (pose_value && !pose_value->is_null()) {
@@ -362,14 +381,15 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
             }
         }
         if (!action || !character || !profile_ok || !expression_ok || !appearance_ok || !offset ||
-            !pose_ok || !position || !scale || !skippable || !slot || !transition || !duration ||
-            !waits)
+            !owner || !pose_ok || !position || !scale || !skippable || !slot || !transition ||
+            !duration || !waits)
             return std::nullopt;
         PresentationInstructionWait wait =
             *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
                    : PresentationInstructionWait{ImmediateWait{}};
         return ActorCueInstruction{std::move(*id),
                                    std::move(condition),
+                                   *owner,
                                    *action,
                                    std::move(*character),
                                    std::move(profile),
@@ -497,12 +517,13 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
     }
     if (*kind == "audio-cue") {
         SCENE_FIELDS("action", "asset", "causality", "fadeMs", "gain", "instanceId", "lifetime",
-                     "pan", "panSource", "pausePolicy", "purpose", "replacementGroup",
+                     "owner", "pan", "panSource", "pausePolicy", "purpose", "replacementGroup",
                      "skipBehavior", "synchronized", "waitForCompletion");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* asset_value = decoder.member(value, "asset", pointer);
         const auto* purpose_value = decoder.member(value, "purpose", pointer);
         const auto* lifetime_value = decoder.member(value, "lifetime", pointer);
+        const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* pause_value = decoder.member(value, "pausePolicy", pointer);
         const auto* gain_value = decoder.member(value, "gain", pointer);
         const auto* pan_value = decoder.member(value, "pan", pointer);
@@ -542,6 +563,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                              {{"desired-loop", AudioLifetime::DesiredLoop},
                                               {"one-shot", AudioLifetime::OneShot}})
                                        : std::nullopt;
+        auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
+                                                                   pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         auto pause_policy = pause_value ? decoder.enumeration<AudioPausePolicy>(
                                               *pause_value, pointer_child(pointer, "pausePolicy"),
                                               {{"gameplay", AudioPausePolicy::Gameplay},
@@ -645,14 +669,15 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                pointer_child(pointer, "replacementGroup"), true);
             replacement_ok = replacement_group.has_value();
         }
-        if (!action || !asset_ok || !purpose || !lifetime || !pause_policy || !gain || !pan ||
-            !pan_source_ok || !fade || !waits || !causality || !synchronized || !skip ||
+        if (!action || !asset_ok || !purpose || !lifetime || !owner || !pause_policy || !gain ||
+            !pan || !pan_source_ok || !fade || !waits || !causality || !synchronized || !skip ||
             !instance_ok || !replacement_ok)
             return std::nullopt;
         AudioInstructionWait wait = *waits ? AudioInstructionWait{AudioCompletionWait{}}
                                            : AudioInstructionWait{ImmediateWait{}};
         return AudioCueInstruction{std::move(*id),
                                    std::move(condition),
+                                   *owner,
                                    *action,
                                    std::move(asset),
                                    *purpose,
@@ -742,6 +767,70 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         return skippable ? std::optional<SceneInstruction>(WaitInputInstruction{
                                std::move(*id), std::move(condition), *skippable})
                          : std::nullopt;
+    }
+    if (*kind == "wait-condition") {
+        SCENE_FIELDS("skippable", "waitCondition");
+        const auto* wait_condition_value = decoder.member(value, "waitCondition", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
+        auto wait_condition = wait_condition_value
+                                  ? decode_condition_impl(decoder, *wait_condition_value,
+                                                          pointer_child(pointer, "waitCondition"))
+                                  : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        return wait_condition && skippable
+                   ? std::optional<SceneInstruction>(
+                         WaitConditionInstruction{std::move(*id), std::move(condition),
+                                                  std::move(*wait_condition), *skippable})
+                   : std::nullopt;
+    }
+    if (*kind == "wait-operation" || *kind == "wait-audio") {
+        SCENE_FIELDS("eventId", "skippable");
+        const auto* event_value = decoder.member(value, "eventId", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
+        auto event = event_value
+                         ? decoder.id<SceneStepId>(*event_value, pointer_child(pointer, "eventId"))
+                         : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        if (!event || !skippable)
+            return std::nullopt;
+        if (*kind == "wait-operation")
+            return WaitOperationInstruction{std::move(*id), std::move(condition), std::move(*event),
+                                            *skippable};
+        return WaitAudioInstruction{std::move(*id), std::move(condition), std::move(*event),
+                                    *skippable};
+    }
+    if (*kind == "wait-layout-signal") {
+        SCENE_FIELDS("owner", "signalId", "skippable", "slot");
+        const auto* owner_value = decoder.member(value, "owner", pointer);
+        const auto* signal_value = decoder.member(value, "signalId", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
+        const auto* slot_value = decoder.member(value, "slot", pointer);
+        auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
+                                                                   pointer_child(pointer, "owner"))
+                                 : std::nullopt;
+        auto signal = signal_value ? decoder.id<LayoutSignalId>(*signal_value,
+                                                                pointer_child(pointer, "signalId"))
+                                   : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        auto slot =
+            slot_value
+                ? decoder.enumeration<LayoutSlot>(*slot_value, pointer_child(pointer, "slot"),
+                                                  {{"hud", LayoutSlot::Hud},
+                                                   {"dialogue-box", LayoutSlot::DialogueBox},
+                                                   {"overlay", LayoutSlot::Overlay},
+                                                   {"custom", LayoutSlot::Custom}})
+                : std::nullopt;
+        return owner && signal && skippable && slot
+                   ? std::optional<SceneInstruction>(
+                         WaitLayoutSignalInstruction{std::move(*id), std::move(condition), *owner,
+                                                     *slot, std::move(*signal), *skippable})
+                   : std::nullopt;
     }
     if (*kind == "conditional-branch") {
         SCENE_FIELDS("branches", "fallbackInstructionId");
@@ -878,11 +967,12 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                    : std::nullopt;
     }
     if (*kind == "set-layout") {
-        SCENE_FIELDS("action", "durationMs", "layout", "scaleOverrides", "skippable", "slot",
-                     "transition", "waitForCompletion");
+        SCENE_FIELDS("action", "durationMs", "layout", "owner", "scaleOverrides", "skippable",
+                     "slot", "transition", "waitForCompletion");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* duration_value = decoder.member(value, "durationMs", pointer);
         const auto* layout_value = decoder.member(value, "layout", pointer);
+        const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* skippable_value = decoder.member(value, "skippable", pointer);
         const auto* slot_value = decoder.member(value, "slot", pointer);
         const auto* transition_value = decoder.member(value, "transition", pointer);
@@ -909,6 +999,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                    {"overlay", LayoutSlot::Overlay},
                                                    {"custom", LayoutSlot::Custom}})
                 : std::nullopt;
+        auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
+                                                                   pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         auto transition =
             transition_value
                 ? decoder.enumeration<LayoutTransition>(
@@ -951,19 +1044,20 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         PresentationInstructionWait wait =
             waits && *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
                             : PresentationInstructionWait{ImmediateWait{}};
-        return action && duration && layout_ok && scale_overrides_ok && skippable && slot &&
-                       transition && waits
+        return action && duration && layout_ok && owner && scale_overrides_ok && skippable &&
+                       slot && transition && waits
                    ? std::optional<SceneInstruction>(
-                         SetLayoutInstruction{std::move(*id), std::move(condition), *action,
+                         SetLayoutInstruction{std::move(*id), std::move(condition), *owner, *action,
                                               std::move(layout), std::move(scale_overrides), *slot,
                                               *transition, *duration, std::move(wait), *skippable})
                    : std::nullopt;
     }
     if (*kind == "material-parameter") {
-        SCENE_FIELDS("clock", "durationMs", "easing", "material", "parameter", "skippable",
+        SCENE_FIELDS("clock", "durationMs", "easing", "material", "owner", "parameter", "skippable",
                      "target", "transition", "value", "waitForCompletion");
         const auto* target_value = decoder.member(value, "target", pointer);
         const auto* material_value = decoder.member(value, "material", pointer);
+        const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* parameter_value = decoder.member(value, "parameter", pointer);
         const auto* parameter_payload = decoder.member(value, "value", pointer);
         const auto* transition_value = decoder.member(value, "transition", pointer);
@@ -1033,6 +1127,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                 ? decode_reference<MaterialId>(decoder, *material_value,
                                                pointer_child(pointer, "material"), "material")
                 : std::nullopt;
+        auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
+                                                                   pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         auto parameter = parameter_value
                              ? decoder.string(*parameter_value, pointer_child(pointer, "parameter"))
                              : std::nullopt;
@@ -1085,21 +1182,23 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         PresentationInstructionWait wait =
             waits && *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
                             : PresentationInstructionWait{ImmediateWait{}};
-        return target && material && parameter && !parameter->empty() && parameter_data &&
+        return target && material && owner && parameter && !parameter->empty() && parameter_data &&
                        transition && duration && easing && clock && waits && skippable
                    ? std::optional<SceneInstruction>(MaterialParameterInstruction{
-                         std::move(*id), std::move(condition), std::move(*target),
+                         std::move(*id), std::move(condition), *owner, std::move(*target),
                          std::move(*material), std::move(*parameter), std::move(*parameter_data),
                          *transition, *duration, *easing, *clock, std::move(wait), *skippable})
                    : std::nullopt;
     }
     if (*kind == "postprocess-effect") {
-        SCENE_FIELDS("action", "clock", "instanceId", "material", "order", "parameters", "scope");
+        SCENE_FIELDS("action", "clock", "instanceId", "material", "order", "owner", "parameters",
+                     "scope");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* instance_value = decoder.member(value, "instanceId", pointer);
         const auto* material_value = decoder.member(value, "material", pointer);
         const auto* scope_value = decoder.member(value, "scope", pointer);
         const auto* order_value = decoder.member(value, "order", pointer);
+        const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* clock_value = decoder.member(value, "clock", pointer);
         const auto* parameters_value = decoder.member(value, "parameters", pointer);
         auto action = action_value ? decoder.enumeration<PostprocessEffectAction>(
@@ -1144,6 +1243,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                {{"gameplay", MaterialClock::Gameplay},
                                 {"unscaled-presentation", MaterialClock::UnscaledPresentation}})
                          : std::nullopt;
+        auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
+                                                                   pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         auto parameters =
             parameters_value
                 ? decoder.array<PostprocessEffectParameter>(
@@ -1179,7 +1281,7 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                             "/name");
             }
         }
-        if (action && material_ok && parameters &&
+        if (action && material_ok && owner && parameters &&
             ((*action == PostprocessEffectAction::Remove) != !material.has_value())) {
             decoder.error(
                 k_code_variant,
@@ -1194,18 +1296,20 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                           pointer_child(pointer, "parameters"));
             parameters.reset();
         }
-        return action && instance && material_ok && scope && order && clock && parameters
+        return action && instance && material_ok && owner && scope && order && clock && parameters
                    ? std::optional<SceneInstruction>(PostprocessEffectInstruction{
-                         std::move(*id), std::move(condition), *action, std::move(*instance),
-                         std::move(material), *scope, *order, *clock, std::move(*parameters)})
+                         std::move(*id), std::move(condition), *owner, *action,
+                         std::move(*instance), std::move(material), *scope, *order, *clock,
+                         std::move(*parameters)})
                    : std::nullopt;
     }
     if (*kind == "transition-group") {
-        SCENE_FIELDS("children", "color", "durationMs", "skippable", "transitionKind",
+        SCENE_FIELDS("children", "color", "durationMs", "owner", "skippable", "transitionKind",
                      "waitForCompletion");
         const auto* children_value = decoder.member(value, "children", pointer);
         const auto* color_value = decoder.member(value, "color", pointer);
         const auto* duration_value = decoder.member(value, "durationMs", pointer);
+        const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* skippable_value = decoder.member(value, "skippable", pointer);
         const auto* transition_value = decoder.member(value, "transitionKind", pointer);
         const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
@@ -1486,6 +1590,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         auto duration = duration_value ? decoder.unsigned_integer<std::uint64_t>(
                                              *duration_value, pointer_child(pointer, "durationMs"))
                                        : std::nullopt;
+        auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
+                                                                   pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         auto skippable =
             skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
                             : std::nullopt;
@@ -1512,7 +1619,7 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                         [](const auto& typed) -> const TransitionGroupChildId& { return typed.id; },
                         child);
                 });
-        if (!children || !color_ok || !duration || !skippable || !transition || !waits)
+        if (!children || !color_ok || !duration || !owner || !skippable || !transition || !waits)
             return std::nullopt;
         if (*transition == TransitionKind::Cut && (*duration != 0 || *waits || color.has_value())) {
             decoder.error(
@@ -1535,9 +1642,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         PresentationInstructionWait wait =
             *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
                    : PresentationInstructionWait{ImmediateWait{}};
-        return TransitionGroupInstruction{std::move(*id), std::move(condition), std::move(color),
-                                          *duration,      *transition,          std::move(wait),
-                                          *skippable,     std::move(*children)};
+        return TransitionGroupInstruction{
+            std::move(*id), std::move(condition), *owner,     std::move(color),    *duration,
+            *transition,    std::move(wait),      *skippable, std::move(*children)};
     }
 #undef SCENE_FIELDS
     decoder.object(value, pointer, {"condition", "id", "kind"});

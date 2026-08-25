@@ -62,6 +62,50 @@ find_choice_option(const core::compiled::ChoiceSceneInstruction& choice,
     return found == choice.options.end() ? nullptr : &*found;
 }
 
+core::Result<core::PresentationOwner, core::Diagnostics>
+resolve_scene_presentation_owner(const core::SessionState& state, const core::SceneFrame& frame,
+                                 core::compiled::ScenePresentationOwner requested)
+{
+    switch (requested) {
+    case core::compiled::ScenePresentationOwner::Invocation:
+        return core::Result<core::PresentationOwner, core::Diagnostics>::success(
+            core::ScenePresentationOwner{frame.frame_id, frame.scene});
+    case core::compiled::ScenePresentationOwner::ActiveRoom: {
+        const auto owner = state.current_room_presentation_owner();
+        if (!owner)
+            return core::Result<core::PresentationOwner, core::Diagnostics>::failure(
+                execution_error("execution.scene_active_room_owner_unavailable",
+                                "Scene operation requested Active Room ownership without an "
+                                "active Room Context"));
+        return core::Result<core::PresentationOwner, core::Diagnostics>::success(*owner);
+    }
+    case core::compiled::ScenePresentationOwner::RuntimeSession:
+        return core::Result<core::PresentationOwner, core::Diagnostics>::success(
+            state.session_presentation_owner());
+    }
+    return core::Result<core::PresentationOwner, core::Diagnostics>::failure(
+        execution_error("execution.invalid_scene_presentation_owner",
+                        "Scene operation has an invalid presentation owner"));
+}
+
+core::Result<core::ActorPresentationKey, core::Diagnostics>
+scene_actor_key(const core::SceneFrame& frame, core::compiled::ScenePresentationOwner requested,
+                const core::PresentationOwner& owner, const core::ActorSlotId& slot)
+{
+    if (requested == core::compiled::ScenePresentationOwner::Invocation)
+        return core::Result<core::ActorPresentationKey, core::Diagnostics>::success(
+            core::SceneActorKey{std::get<core::ScenePresentationOwner>(owner), slot});
+
+    auto instance = core::StrongId<core::ScopedActorInstanceTag>::create(
+        "scene-" + frame.scene.text() + "-actor-" + slot.text());
+    return instance
+               ? core::Result<core::ActorPresentationKey, core::Diagnostics>::success(
+                     core::ScopedActorKey{std::move(*instance.value_if())})
+               : core::Result<core::ActorPresentationKey, core::Diagnostics>::failure(
+                     execution_error("execution.invalid_scene_actor_identity",
+                                     "Scene actor slot could not form a stable scoped identity"));
+}
+
 } // namespace
 
 RuntimeExecutor::RuntimeExecutor(const core::CompiledProject& project,
@@ -148,7 +192,8 @@ RuntimeExecutor::advance_scene_for_presentation(const core::SceneId& scene,
                             : waiting.error());
 
     auto marked = m_flow.mark_scene_wait(
-        scene, step, core::SceneInstructionCompletionPosition{std::move(next), false});
+        scene, step,
+        core::SceneInstructionCompletionPosition{std::move(next), false, std::nullopt});
     if (!marked)
         return core::Result<std::optional<core::PresentationFlowCompletion>,
                             core::Diagnostics>::failure(marked.error());
@@ -375,6 +420,92 @@ RuntimeExecutor::advance(const core::FlowFrameId& owner,
                          std::chrono::milliseconds elapsed)
 {
     return m_primitives.advance(owner, handle, elapsed);
+}
+
+core::Result<bool, core::Diagnostics> RuntimeExecutor::resume_scene_semantic_wait_if_ready()
+{
+    const auto* blocker =
+        m_state.blocker() ? std::get_if<core::InputFlowBlocker>(&*m_state.blocker()) : nullptr;
+    const auto* frame = !m_state.flow_stack().empty()
+                            ? std::get_if<core::SceneFrame>(&m_state.flow_stack().back())
+                            : nullptr;
+    if (blocker == nullptr || frame == nullptr)
+        return core::Result<bool, core::Diagnostics>::success(false);
+    const auto* completion =
+        std::get_if<core::SceneInstructionCompletionPosition>(&frame->position.substate);
+    if (completion == nullptr || !completion->semantic_wait)
+        return core::Result<bool, core::Diagnostics>::success(false);
+
+    bool ready = false;
+    if (std::holds_alternative<core::SceneConditionWaitTarget>(*completion->semantic_wait)) {
+        if (!frame->position.next_step)
+            return core::Result<bool, core::Diagnostics>::failure(
+                execution_error("execution.scene_condition_wait_position_missing",
+                                "Scene condition wait lost its Event position"));
+        const auto* scene = m_project.find_scene(frame->scene);
+        const auto* instruction =
+            scene ? find_instruction(*scene, *frame->position.next_step) : nullptr;
+        const auto* wait = instruction
+                               ? std::get_if<core::compiled::WaitConditionInstruction>(instruction)
+                               : nullptr;
+        if (wait == nullptr)
+            return core::Result<bool, core::Diagnostics>::failure(
+                execution_error("execution.scene_condition_wait_instruction_missing",
+                                "Scene condition wait no longer names a condition wait Event"));
+        auto evaluated = evaluate(wait->wait_condition);
+        if (!evaluated) {
+            if (const auto* diagnostics = std::get_if<core::Diagnostics>(&evaluated.error()))
+                return core::Result<bool, core::Diagnostics>::failure(*diagnostics);
+            return core::Result<bool, core::Diagnostics>::failure(
+                script_diagnostics(std::get<ScriptInvocationError>(evaluated.error())));
+        }
+        ready = evaluated.value_if() != nullptr && *evaluated.value_if();
+    } else if (const auto* target = std::get_if<core::ScenePresentationOperationWaitTarget>(
+                   &*completion->semantic_wait)) {
+        ready = !m_scene_event_presentation_operation_checker ||
+                !m_scene_event_presentation_operation_checker(frame->frame_id, frame->scene,
+                                                              target->event);
+    } else if (const auto* target =
+                   std::get_if<core::SceneAudioOperationWaitTarget>(&*completion->semantic_wait)) {
+        ready =
+            !m_scene_event_audio_operation_checker ||
+            !m_scene_event_audio_operation_checker(frame->frame_id, frame->scene, target->event);
+    }
+    if (!ready)
+        return core::Result<bool, core::Diagnostics>::success(false);
+    auto completed = complete(blocker->owner, core::AnyFlowBlockerHandle{blocker->handle});
+    return completed ? core::Result<bool, core::Diagnostics>::success(true)
+                     : core::Result<bool, core::Diagnostics>::failure(completed.error());
+}
+
+core::Result<bool, core::Diagnostics>
+RuntimeExecutor::consume_layout_signal_wait(const core::LayoutSignalInput& input)
+{
+    const auto* blocker =
+        m_state.blocker() ? std::get_if<core::InputFlowBlocker>(&*m_state.blocker()) : nullptr;
+    const auto* frame = !m_state.flow_stack().empty()
+                            ? std::get_if<core::SceneFrame>(&m_state.flow_stack().back())
+                            : nullptr;
+    if (blocker == nullptr || frame == nullptr)
+        return core::Result<bool, core::Diagnostics>::success(false);
+    const auto* completion =
+        std::get_if<core::SceneInstructionCompletionPosition>(&frame->position.substate);
+    const auto* target =
+        completion && completion->semantic_wait
+            ? std::get_if<core::SceneLayoutSignalWaitTarget>(&*completion->semantic_wait)
+            : nullptr;
+    if (target == nullptr)
+        return core::Result<bool, core::Diagnostics>::success(false);
+    auto resolved_owner = resolve_scene_presentation_owner(m_state, *frame, target->owner);
+    if (!resolved_owner)
+        return core::Result<bool, core::Diagnostics>::failure(resolved_owner.error());
+    const core::MountedLayoutPresentationKey key = core::ReservedLayoutMountKey{target->slot};
+    if (input.owner != *resolved_owner.value_if() || input.key != key ||
+        input.occurrence.number() != target->occurrence || input.signal != target->signal)
+        return core::Result<bool, core::Diagnostics>::success(false);
+    auto completed = complete(blocker->owner, core::AnyFlowBlockerHandle{blocker->handle});
+    return completed ? core::Result<bool, core::Diagnostics>::success(true)
+                     : core::Result<bool, core::Diagnostics>::failure(completed.error());
 }
 
 core::Result<ScriptInvocationOutcome, ScriptInvocationError>
@@ -651,8 +782,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                 }
 
                 if constexpr (std::is_same_v<T, core::compiled::SetBackgroundInstruction>) {
-                    const core::PresentationOwner owner =
-                        core::ScenePresentationOwner{frame->frame_id, frame->scene};
+                    auto resolved_owner =
+                        resolve_scene_presentation_owner(m_state, *frame, value.owner);
+                    if (!resolved_owner)
+                        return fault(resolved_owner.error());
+                    const core::PresentationOwner owner = *resolved_owner.value_if();
                     const core::DesiredBackgroundOverride desired{owner, value.background};
                     const auto current =
                         std::find_if(m_state.background_overrides().begin(),
@@ -691,9 +825,15 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     if (character == nullptr)
                         return fault(execution_error("execution.invalid_actor_character",
                                                      "Actor cue Character is missing"));
-                    const core::ScenePresentationOwner owner{frame->frame_id, frame->scene};
-                    const core::ActorPresentationKey key =
-                        core::SceneActorKey{owner, value.slot_id};
+                    auto resolved_owner =
+                        resolve_scene_presentation_owner(m_state, *frame, value.owner);
+                    if (!resolved_owner)
+                        return fault(resolved_owner.error());
+                    const core::PresentationOwner owner = *resolved_owner.value_if();
+                    auto resolved_key = scene_actor_key(*frame, value.owner, owner, value.slot_id);
+                    if (!resolved_key)
+                        return fault(resolved_key.error());
+                    const core::ActorPresentationKey key = *resolved_key.value_if();
                     const auto* current = m_state.actor(key, owner);
                     const bool same_character =
                         current != nullptr && current->character == value.character;
@@ -844,10 +984,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     const auto* wait_outcome = waiting.value_if();
                     if (wait_outcome != nullptr &&
                         std::holds_alternative<core::WaitBlocked>(*wait_outcome)) {
-                        auto marked =
-                            m_flow.mark_scene_wait(frame->scene, step,
-                                                   core::SceneInstructionCompletionPosition{
-                                                       sequential, value.autosave_safe_point});
+                        auto marked = m_flow.mark_scene_wait(
+                            frame->scene, step,
+                            core::SceneInstructionCompletionPosition{
+                                sequential, value.autosave_safe_point, std::nullopt});
                         if (!marked)
                             return fault(marked.error());
                         return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
@@ -860,8 +1000,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                          value.action == core::compiled::AudioAction::FadeIn;
                     const bool desired =
                         value.lifetime == core::compiled::AudioLifetime::DesiredLoop;
-                    const core::ScenePresentationOwner scene_owner{frame->frame_id, frame->scene};
-                    const core::PresentationOwner owner{scene_owner};
+                    auto resolved_owner =
+                        resolve_scene_presentation_owner(m_state, *frame, value.owner);
+                    if (!resolved_owner)
+                        return fault(resolved_owner.error());
+                    const core::PresentationOwner owner = *resolved_owner.value_if();
                     if (desired) {
                         if (!value.instance_id)
                             return fault(execution_error(
@@ -937,11 +1080,13 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         std::chrono::milliseconds{value.fade_ms}, value.gain,
                         *resolved_pan.value_if(), value.pan_source, completion,
                         core::AudioOperationTarget{core::NewAudioPlaybackTarget{}}, value.causality,
-                        value.synchronized, value.skip_behavior});
+                        value.synchronized, value.skip_behavior,
+                        PendingAudioOperation::SceneSource{frame->frame_id, frame->scene, step}});
                     if (completion) {
-                        auto marked = m_flow.mark_scene_wait(
-                            frame->scene, step,
-                            core::SceneInstructionCompletionPosition{sequential, false});
+                        auto marked =
+                            m_flow.mark_scene_wait(frame->scene, step,
+                                                   core::SceneInstructionCompletionPosition{
+                                                       sequential, false, std::nullopt});
                         if (!marked)
                             return fault(marked.error());
                         return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
@@ -973,10 +1118,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                             return fault(execution_error("execution.scene_yield_forbidden",
                                                          "Scene RunLua instruction may not yield"));
                         }
-                        auto marked =
-                            m_flow.mark_scene_wait(frame->scene, step,
-                                                   core::SceneInstructionCompletionPosition{
-                                                       sequential, value.autosave_safe_point});
+                        auto marked = m_flow.mark_scene_wait(
+                            frame->scene, step,
+                            core::SceneInstructionCompletionPosition{
+                                sequential, value.autosave_safe_point, std::nullopt});
                         if (!marked)
                             return fault(marked.error());
                         return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
@@ -991,9 +1136,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     const auto* wait_outcome = waiting.value_if();
                     if (wait_outcome != nullptr &&
                         std::holds_alternative<core::WaitBlocked>(*wait_outcome)) {
-                        auto marked = m_flow.mark_scene_wait(
-                            frame->scene, step,
-                            core::SceneInstructionCompletionPosition{sequential, false});
+                        auto marked =
+                            m_flow.mark_scene_wait(frame->scene, step,
+                                                   core::SceneInstructionCompletionPosition{
+                                                       sequential, false, std::nullopt});
                         if (!marked)
                             return fault(marked.error());
                         return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
@@ -1005,7 +1151,108 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(waiting.error());
                     auto marked = m_flow.mark_scene_wait(
                         frame->scene, step,
-                        core::SceneInstructionCompletionPosition{sequential, false});
+                        core::SceneInstructionCompletionPosition{sequential, false, std::nullopt});
+                    if (!marked)
+                        return fault(marked.error());
+                    return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
+                } else if constexpr (std::is_same_v<T, core::compiled::WaitConditionInstruction>) {
+                    auto condition = evaluate(value.wait_condition);
+                    if (!condition) {
+                        if (const auto* diagnostics =
+                                std::get_if<core::Diagnostics>(&condition.error()))
+                            return fault(*diagnostics);
+                        return fault(
+                            script_diagnostics(std::get<ScriptInvocationError>(condition.error())));
+                    }
+                    if (const auto* ready = condition.value_if(); ready != nullptr && *ready)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    auto waiting = begin(core::WaitSpec{core::InputWait{}});
+                    if (!waiting)
+                        return fault(waiting.error());
+                    auto marked = m_flow.mark_scene_wait(
+                        frame->scene, step,
+                        core::SceneInstructionCompletionPosition{
+                            sequential, false,
+                            core::SceneSemanticWaitTarget{core::SceneConditionWaitTarget{}}});
+                    if (!marked)
+                        return fault(marked.error());
+                    return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
+                } else if constexpr (std::is_same_v<T, core::compiled::WaitOperationInstruction>) {
+                    const bool active = m_scene_event_presentation_operation_checker &&
+                                        m_scene_event_presentation_operation_checker(
+                                            frame->frame_id, frame->scene, value.event);
+                    if (!active)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    auto waiting = begin(core::WaitSpec{core::InputWait{}});
+                    if (!waiting)
+                        return fault(waiting.error());
+                    auto marked = m_flow.mark_scene_wait(
+                        frame->scene, step,
+                        core::SceneInstructionCompletionPosition{
+                            sequential, false,
+                            core::SceneSemanticWaitTarget{
+                                core::ScenePresentationOperationWaitTarget{value.event}}});
+                    if (!marked)
+                        return fault(marked.error());
+                    return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
+                } else if constexpr (std::is_same_v<T, core::compiled::WaitAudioInstruction>) {
+                    const bool pending = std::ranges::any_of(
+                        m_pending_audio_operations, [&](const PendingAudioOperation& operation) {
+                            return operation.scene_source &&
+                                   operation.scene_source->invocation == frame->frame_id &&
+                                   operation.scene_source->scene == frame->scene &&
+                                   operation.scene_source->event == value.event;
+                        });
+                    const bool active =
+                        pending || (m_scene_event_audio_operation_checker &&
+                                    m_scene_event_audio_operation_checker(
+                                        frame->frame_id, frame->scene, value.event));
+                    if (!active)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    auto waiting = begin(core::WaitSpec{core::InputWait{}});
+                    if (!waiting)
+                        return fault(waiting.error());
+                    auto marked = m_flow.mark_scene_wait(
+                        frame->scene, step,
+                        core::SceneInstructionCompletionPosition{
+                            sequential, false,
+                            core::SceneSemanticWaitTarget{
+                                core::SceneAudioOperationWaitTarget{value.event}}});
+                    if (!marked)
+                        return fault(marked.error());
+                    return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::WaitLayoutSignalInstruction>) {
+                    auto resolved_owner =
+                        resolve_scene_presentation_owner(m_state, *frame, value.owner);
+                    if (!resolved_owner)
+                        return fault(resolved_owner.error());
+                    const core::PresentationOwner owner = *resolved_owner.value_if();
+                    const core::MountedLayoutPresentationKey key =
+                        core::ReservedLayoutMountKey{value.slot};
+                    const auto mounted = std::ranges::find_if(
+                        m_state.mounted_layouts(), [&](const core::DesiredMountedLayout& item) {
+                            return item.owner == owner && item.key == key;
+                        });
+                    if (mounted == m_state.mounted_layouts().end() || !mounted->occurrence)
+                        return fault(execution_error(
+                            "execution.scene_layout_signal_mount_missing",
+                            "Scene Layout Signal wait requires a live mounted Layout occurrence"));
+                    if (std::ranges::find(mounted->connected_signals, value.signal) ==
+                        mounted->connected_signals.end())
+                        return fault(execution_error(
+                            "execution.scene_layout_signal_not_connected",
+                            "Scene Layout Signal wait requires the exact signal to be connected"));
+                    auto waiting = begin(core::WaitSpec{core::InputWait{}});
+                    if (!waiting)
+                        return fault(waiting.error());
+                    auto marked = m_flow.mark_scene_wait(
+                        frame->scene, step,
+                        core::SceneInstructionCompletionPosition{
+                            sequential, false,
+                            core::SceneSemanticWaitTarget{core::SceneLayoutSignalWaitTarget{
+                                value.owner, value.slot, mounted->occurrence->number(),
+                                value.signal}}});
                     if (!marked)
                         return fault(marked.error());
                     return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
@@ -1091,8 +1338,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(marked.error());
                     return core::FlowBlockedOutcome{*m_state.blocker()};
                 } else if constexpr (std::is_same_v<T, core::compiled::SetLayoutInstruction>) {
-                    const core::PresentationOwner owner =
-                        core::ScenePresentationOwner{frame->frame_id, frame->scene};
+                    auto resolved_owner =
+                        resolve_scene_presentation_owner(m_state, *frame, value.owner);
+                    if (!resolved_owner)
+                        return fault(resolved_owner.error());
+                    const core::PresentationOwner owner = *resolved_owner.value_if();
                     const core::MountedLayoutPresentationKey key =
                         core::ReservedLayoutMountKey{value.slot};
                     const core::SessionState source_state = m_state;
@@ -1133,39 +1383,51 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T,
                                                     core::compiled::MaterialParameterInstruction>) {
-                    const core::ScenePresentationOwner scene_owner{frame->frame_id, frame->scene};
-                    const core::PresentationOwner owner{scene_owner};
+                    auto resolved_owner =
+                        resolve_scene_presentation_owner(m_state, *frame, value.owner);
+                    if (!resolved_owner)
+                        return fault(resolved_owner.error());
+                    const core::PresentationOwner owner = *resolved_owner.value_if();
                     const auto occurrence = std::visit(
-                        [&](const auto& target) -> core::MaterialOccurrence {
+                        [&](const auto& target)
+                            -> core::Result<core::MaterialOccurrence, core::Diagnostics> {
                             using Target = std::decay_t<decltype(target)>;
                             if constexpr (std::is_same_v<Target,
                                                          core::compiled::
                                                              BackgroundMaterialInstructionTarget>) {
-                                return core::BackgroundMaterialOccurrence{};
+                                return core::Result<core::MaterialOccurrence, core::Diagnostics>::
+                                    success(core::BackgroundMaterialOccurrence{});
                             } else if constexpr (std::is_same_v<
                                                      Target, core::compiled::
                                                                  ActorMaterialInstructionTarget>) {
-                                return core::ActorMaterialOccurrence{
-                                    core::ActorPresentationKey{
-                                        core::SceneActorKey{scene_owner, target.slot}},
-                                    target.layer};
+                                auto key = scene_actor_key(*frame, value.owner, owner, target.slot);
+                                return key ? core::Result<core::MaterialOccurrence,
+                                                          core::Diagnostics>::
+                                                 success(core::ActorMaterialOccurrence{
+                                                     *key.value_if(), target.layer})
+                                           : core::Result<core::MaterialOccurrence,
+                                                          core::Diagnostics>::failure(key.error());
                             } else if constexpr (std::is_same_v<
                                                      Target, core::compiled::
                                                                  LayoutMaterialInstructionTarget>) {
-                                return core::LayoutMaterialOccurrence{
-                                    core::MountedLayoutPresentationKey{
-                                        core::ReservedLayoutMountKey{target.slot}},
-                                    value.material};
+                                return core::Result<core::MaterialOccurrence, core::Diagnostics>::
+                                    success(core::LayoutMaterialOccurrence{
+                                        core::MountedLayoutPresentationKey{
+                                            core::ReservedLayoutMountKey{target.slot}},
+                                        value.material});
                             } else {
-                                return core::PostprocessMaterialOccurrence{target.instance};
+                                return core::Result<core::MaterialOccurrence, core::Diagnostics>::
+                                    success(core::PostprocessMaterialOccurrence{target.instance});
                             }
                         },
                         value.target);
+                    if (!occurrence)
+                        return fault(occurrence.error());
                     const auto clock = value.clock == core::compiled::MaterialClock::Gameplay
                                            ? core::MaterialClockPolicy::Gameplay
                                            : core::MaterialClockPolicy::UnscaledPresentation;
                     const auto* current = m_state.material_parameter(
-                        occurrence, owner, value.material, value.parameter);
+                        *occurrence.value_if(), owner, value.material, value.parameter);
                     if (current && current->binding)
                         return fault(
                             execution_error("execution.material_parameter_binding_authoritative",
@@ -1181,9 +1443,9 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     if (current)
                         source_value = current->value;
                     auto changed = m_state.upsert_material_parameter(
-                        m_project, core::DesiredMaterialParameter{owner, occurrence, value.material,
-                                                                  value.parameter, value.value,
-                                                                  std::nullopt, clock});
+                        m_project, core::DesiredMaterialParameter{
+                                       owner, *occurrence.value_if(), value.material,
+                                       value.parameter, value.value, std::nullopt, clock});
                     if (!changed)
                         return fault(changed.error());
                     if (value.transition == core::compiled::MaterialParameterTransition::Tween) {
@@ -1211,7 +1473,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         stage_pending_presentation(
                             PendingMaterialParameterOperation{
                                 core::MaterialParameterOperationTarget{
-                                    owner, occurrence, value.material, value.parameter},
+                                    owner, *occurrence.value_if(), value.material, value.parameter},
                                 std::move(*source_value), value.value,
                                 std::chrono::milliseconds{value.duration_ms}, value.skippable,
                                 clock, easing, *completion.value_if()},
@@ -1225,8 +1487,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T,
                                                     core::compiled::PostprocessEffectInstruction>) {
-                    const core::PresentationOwner owner =
-                        core::ScenePresentationOwner{frame->frame_id, frame->scene};
+                    auto resolved_owner =
+                        resolve_scene_presentation_owner(m_state, *frame, value.owner);
+                    if (!resolved_owner)
+                        return fault(resolved_owner.error());
+                    const core::PresentationOwner owner = *resolved_owner.value_if();
                     if (value.action == core::compiled::PostprocessEffectAction::Remove) {
                         auto removed = m_state.remove_postprocess_effect(value.instance, owner);
                         if (!removed)
@@ -1265,8 +1530,11 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T,
                                                     core::compiled::TransitionGroupInstruction>) {
-                    const core::PresentationOwner owner =
-                        core::ScenePresentationOwner{frame->frame_id, frame->scene};
+                    auto resolved_owner =
+                        resolve_scene_presentation_owner(m_state, *frame, value.owner);
+                    if (!resolved_owner)
+                        return fault(resolved_owner.error());
+                    const core::PresentationOwner owner = *resolved_owner.value_if();
                     const core::PresentationTargetDraft source_target{
                         m_state.background_overrides(), m_state.camera_views(), m_state.actors(),
                         m_state.mounted_layouts()};
@@ -1304,9 +1572,13 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                             failure(execution_error(
                                                 "execution.invalid_actor_character",
                                                 "TransitionGroup Actor Character is missing"));
-                                    const core::ActorPresentationKey key = core::SceneActorKey{
-                                        std::get<core::ScenePresentationOwner>(owner),
-                                        item.slot_id};
+                                    auto resolved_key =
+                                        scene_actor_key(*frame, value.owner, owner, item.slot_id);
+                                    if (!resolved_key)
+                                        return core::Result<
+                                            core::TransitionGroupTargetMutation,
+                                            core::Diagnostics>::failure(resolved_key.error());
+                                    const core::ActorPresentationKey key = *resolved_key.value_if();
                                     const auto* current = m_state.actor(key, owner);
                                     const bool same_character =
                                         current != nullptr && current->character == item.character;

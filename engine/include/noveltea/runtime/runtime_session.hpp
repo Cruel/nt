@@ -107,6 +107,12 @@ private:
         core::SceneStepId event;
         core::PresentationOperationId operation;
     };
+    struct SceneEventAudioOperation {
+        core::FlowFrameId owner;
+        core::SceneId scene;
+        core::SceneStepId event;
+        core::AudioOperationId operation;
+    };
 
     struct DialogueCueWait {
         core::FlowFrameId frame;
@@ -195,6 +201,13 @@ private:
     [[nodiscard]] bool
     scene_event_dependency_pending(const core::FlowFrameId& owner, const core::SceneId& scene,
                                    const core::SceneStepId& event) const noexcept;
+    [[nodiscard]] bool
+    scene_event_presentation_operation_active(const core::FlowFrameId& owner,
+                                              const core::SceneId& scene,
+                                              const core::SceneStepId& event) const noexcept;
+    [[nodiscard]] bool
+    scene_event_audio_operation_active(const core::FlowFrameId& owner, const core::SceneId& scene,
+                                       const core::SceneStepId& event) const noexcept;
     void record_scene_event_presentation_operation(core::PresentationOperationId operation);
     void prune_scene_event_presentation_operations();
     void assert_owner_thread() const noexcept;
@@ -254,6 +267,7 @@ private:
     bool m_room_description_visible = false;
     std::optional<PendingPresentationCompletion> m_pending_presentation;
     std::vector<SceneEventPresentationOperation> m_scene_event_presentation_operations;
+    std::vector<SceneEventAudioOperation> m_scene_event_audio_operations;
     std::optional<core::AudioOperation> m_pending_audio;
     std::optional<DialogueAudioWait> m_dialogue_audio_wait;
     std::optional<DialoguePresentationWait> m_dialogue_presentation_wait;

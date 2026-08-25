@@ -218,6 +218,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'set-background',
+        owner: step.owner,
         asset: assetRef(step.asset),
         material: materialRef(step.material),
         color: step.color,
@@ -231,6 +232,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'actor-cue',
+        owner: step.owner,
         slotId: step.slotId,
         character: characterRef(step.character)!,
         action: step.action,
@@ -290,6 +292,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'audio-cue',
+        owner: step.owner,
         asset: assetRef(step.asset),
         purpose: step.purpose,
         action: step.action,
@@ -331,9 +334,42 @@ function compileSceneStep(
         autosaveSafePoint: step.autosaveSafePoint,
       };
     case 'wait':
-      return step.waitKind === 'duration'
-        ? { ...base, kind: 'wait-duration', durationMs: step.durationMs, skippable: step.skippable }
-        : { ...base, kind: 'wait-input', skippable: step.skippable };
+      switch (step.waitKind) {
+        case 'duration':
+          return {
+            ...base,
+            kind: 'wait-duration',
+            durationMs: step.durationMs,
+            skippable: step.skippable,
+          };
+        case 'input':
+          return { ...base, kind: 'wait-input', skippable: step.skippable };
+        case 'condition':
+          return {
+            ...base,
+            kind: 'wait-condition',
+            waitCondition: compileCondition(step.waitCondition),
+            skippable: step.skippable,
+          };
+        case 'operation':
+          return {
+            ...base,
+            kind: 'wait-operation',
+            eventId: step.eventId,
+            skippable: step.skippable,
+          };
+        case 'audio':
+          return { ...base, kind: 'wait-audio', eventId: step.eventId, skippable: step.skippable };
+        case 'layout-signal':
+          return {
+            ...base,
+            kind: 'wait-layout-signal',
+            owner: step.owner,
+            slot: step.slot,
+            signalId: step.signalId,
+            skippable: step.skippable,
+          };
+      }
     case 'conditional-branch':
       return {
         ...base,
@@ -365,6 +401,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'set-layout',
+        owner: step.owner,
         layout: layoutRef(step.layout),
         action: step.action,
         ...(step.scaleOverrides ? { scaleOverrides: { ...step.scaleOverrides } } : {}),
@@ -378,6 +415,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'material-parameter',
+        owner: step.owner,
         target: { ...step.target },
         material: materialRef(step.material)!,
         parameter: step.parameter,
@@ -398,6 +436,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'postprocess-effect',
+        owner: step.owner,
         action: step.action,
         instanceId: step.instanceId,
         material: materialRef(step.material),
@@ -418,6 +457,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'transition-group',
+        owner: step.owner,
         transitionKind: step.transitionKind,
         durationMs: step.durationMs,
         color: step.color,

@@ -99,6 +99,7 @@ core::CompiledProject make_awaited_audio_cue_project(std::string source_name)
     opening["program"]["events"] =
         scene_events(nlohmann::json::array({{{"id", "audio"},
                                              {"kind", "audio-cue"},
+                                             {"owner", "invocation"},
                                              {"action", "fade-in"},
                                              {"purpose", "voice"},
                                              {"lifetime", "one-shot"},
@@ -117,6 +118,37 @@ core::CompiledProject make_awaited_audio_cue_project(std::string source_name)
     return decode_document(std::move(document), std::move(source_name));
 }
 
+core::CompiledProject make_audio_semantic_wait_project(std::string source_name)
+{
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["events"] = scene_events(nlohmann::json::array(
+        {{{"id", "audio"},
+          {"kind", "audio-cue"},
+          {"owner", "invocation"},
+          {"action", "play"},
+          {"purpose", "sound-effect"},
+          {"lifetime", "one-shot"},
+          {"pausePolicy", "gameplay"},
+          {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+          {"fadeMs", 0},
+          {"gain", 1.0},
+          {"pan", 0.0},
+          {"panSource", nullptr},
+          {"waitForCompletion", false},
+          {"causality", "causal"},
+          {"synchronized", false},
+          {"skipBehavior", "stop"},
+          {"instanceId", nullptr},
+          {"replacementGroup", nullptr}},
+         {{"id", "wait-audio"}, {"kind", "wait-audio"}, {"eventId", "audio"}, {"skippable", false}},
+         {{"id", "after-audio"},
+          {"kind", "set-global-property"},
+          {"property", {{"kind", "property"}, {"id", "count"}}},
+          {"value", 9}}}));
+    return decode_document(std::move(document), std::move(source_name));
+}
+
 core::CompiledProject make_transition_group_project(std::string source_name,
                                                     bool wait_for_completion)
 {
@@ -125,6 +157,7 @@ core::CompiledProject make_transition_group_project(std::string source_name,
     opening["program"]["events"] = scene_events(
         nlohmann::json::array({{{"id", "transition"},
                                 {"kind", "transition-group"},
+                                {"owner", "invocation"},
                                 {"children", nlohmann::json::array({{{"id", "background"},
                                                                      {"kind", "set-background"},
                                                                      {"asset", nullptr},
@@ -150,6 +183,7 @@ core::CompiledProject make_transition_dependency_project(std::string source_name
     opening["program"]["events"] = scene_events(
         nlohmann::json::array({{{"id", "transition"},
                                 {"kind", "transition-group"},
+                                {"owner", "invocation"},
                                 {"children", nlohmann::json::array({{{"id", "background"},
                                                                      {"kind", "set-background"},
                                                                      {"asset", nullptr},
@@ -171,6 +205,36 @@ core::CompiledProject make_transition_dependency_project(std::string source_name
                                 {"value", 9}}}));
     opening["program"]["events"][2]["completionDependencies"] =
         nlohmann::json::array({"transition"});
+    return decode_document(std::move(document), std::move(source_name));
+}
+
+core::CompiledProject make_transition_operation_wait_project(std::string source_name)
+{
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["events"] = scene_events(
+        nlohmann::json::array({{{"id", "transition"},
+                                {"kind", "transition-group"},
+                                {"owner", "invocation"},
+                                {"children", nlohmann::json::array({{{"id", "background"},
+                                                                     {"kind", "set-background"},
+                                                                     {"asset", nullptr},
+                                                                     {"material", nullptr},
+                                                                     {"color", "#556677"},
+                                                                     {"fit", "cover"}}})},
+                                {"transitionKind", "fade"},
+                                {"durationMs", 250},
+                                {"color", "#000000"},
+                                {"skippable", true},
+                                {"waitForCompletion", false}},
+                               {{"id", "wait-transition"},
+                                {"kind", "wait-operation"},
+                                {"eventId", "transition"},
+                                {"skippable", false}},
+                               {{"id", "after-transition"},
+                                {"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "count"}}},
+                                {"value", 9}}}));
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -1855,6 +1919,81 @@ TEST_CASE("Scene completion dependencies wait only for the referenced non-blocki
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(overlapped.diagnostics.empty());
     CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{5}});
+
+    presentation.active_presentation_operations.clear();
+    auto completed = session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(completed.diagnostics.empty());
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{9}});
+}
+
+TEST_CASE(
+    "Scene exact audio wait catches same-pass playback and resumes on its terminal acknowledgement")
+{
+    auto project = make_audio_semantic_wait_project("audio-semantic-wait.json");
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&sources}));
+    REQUIRE(scripts.execute("function initialize_fixture() end", "audio-semantic-wait-startup"));
+    prepare_project_scripts(scripts, project);
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+    const auto count = make_id<core::PropertyIdTag>("count");
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(presentation.audio_operations.size() == 1);
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{2}});
+    REQUIRE(session->presentation_state().blocker());
+    CHECK(std::holds_alternative<core::InputFlowBlocker>(*session->presentation_state().blocker()));
+
+    auto ignored_continue = session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(ignored_continue.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{2}});
+
+    auto completed = session->dispatch(core::RuntimeInputMessage{
+        core::AcknowledgeAudioTerminationInput{presentation.audio_operations.front().id}});
+    REQUIRE(completed.diagnostics.empty());
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{9}});
+}
+
+TEST_CASE("Scene exact operation wait blocks only on its referenced finite operation")
+{
+    auto project = make_transition_operation_wait_project("transition-operation-wait.json");
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&sources}));
+    REQUIRE(
+        scripts.execute("function initialize_fixture() end", "transition-operation-wait-startup"));
+    prepare_project_scripts(scripts, project);
+    FakePresentationRuntime presentation;
+    presentation.track_presentation_liveness = true;
+    core::TypedMemorySaveSlotStore saves;
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+    const auto count = make_id<core::PropertyIdTag>("count");
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(presentation.presentation_operations.size() == 1);
+    REQUIRE(presentation.active_presentation_operations.size() == 1);
+
+    auto waiting = session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(waiting.diagnostics.empty());
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{2}});
+    REQUIRE(session->presentation_state().blocker());
+    CHECK(std::holds_alternative<core::InputFlowBlocker>(*session->presentation_state().blocker()));
+
+    auto ignored_continue = session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(ignored_continue.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{2}});
 
     presentation.active_presentation_operations.clear();
     auto completed = session->dispatch(
