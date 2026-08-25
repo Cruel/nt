@@ -650,7 +650,7 @@ async function certifyNativeOperations(tempRoot, pristine) {
   await resetCase(pristine, root);
   const playback = `${JSON.stringify({
     schema: 'noveltea.editor.playback',
-    version: 2,
+    version: 1,
     id: 'certification-empty',
     steps: [],
   })}\n`;

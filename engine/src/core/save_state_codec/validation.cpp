@@ -701,6 +701,99 @@ bool valid_room_visit_context(const CompiledProject& project, const SaveState& s
     return false;
 }
 
+bool valid_detached_frame(const CompiledProject& project, const SaveState& save,
+                          const SavedSceneFrame& frame)
+{
+    if (!valid_destination(project, save, frame.destination))
+        return false;
+    const auto* scene = project.find_scene(frame.scene);
+    return scene && valid_scene_position(*scene, frame.position) &&
+           valid_scene_inputs(*scene, frame.inputs);
+}
+
+bool valid_detached_frame(const CompiledProject& project, const SaveState& save,
+                          const SavedDialogueFrame& frame)
+{
+    if (!valid_destination(project, save, frame.destination))
+        return false;
+    const auto* dialogue = project.find_dialogue(frame.dialogue);
+    return dialogue && valid_dialogue_position(*dialogue, frame.position) &&
+           valid_dialogue_presentation_state(project, save, *dialogue, frame);
+}
+
+bool valid_detached_frame(const CompiledProject& project, const SaveState& save,
+                          const SavedInteractionFrame& frame)
+{
+    if (!valid_destination(project, save, frame.destination))
+        return false;
+    const auto* program = interaction_program(project, frame.program);
+    const auto* verb = project.find_verb(frame.invocation.verb);
+    if (program == nullptr || verb == nullptr ||
+        frame.invocation.bindings.size() != verb->slots.size())
+        return false;
+
+    std::unordered_set<VerbSlotId> binding_slots;
+    for (const auto& binding : frame.invocation.bindings) {
+        const bool known_slot = std::ranges::any_of(
+            verb->slots, [&](const auto& slot) { return slot.id == binding.slot_id; });
+        if (!known_slot || !binding_slots.insert(binding.slot_id).second)
+            return false;
+    }
+
+    return (!frame.position.next_instruction ||
+            has_interaction_instruction(*program, *frame.position.next_instruction)) &&
+           frame.position.fallback_stage <= InteractionFallbackStage::Complete &&
+           frame.position.outcome <= InteractionExecutionOutcome::Failed &&
+           (!frame.position.awaiting_completion || frame.position.next_instruction.has_value());
+}
+
+bool valid_detached_frame(const CompiledProject& project, const SaveState& save,
+                          const SavedRoomTransitionFrame& frame)
+{
+    if (!valid_destination(project, save, frame.destination) ||
+        !resolved_room(project, save, frame.target_room) ||
+        (frame.source_room && !resolved_room(project, save, *frame.source_room)) ||
+        !valid_room_position(project, save, frame) ||
+        frame.kind > RoomTransitionKind::DirectedRoomChange ||
+        frame.entry_cause > RoomEntryCause::DirectedRoomChange)
+        return false;
+    if (frame.source_context &&
+        (!frame.source_room || frame.source_context->room != *frame.source_room ||
+         !valid_room_visit_context(project, save, *frame.source_context, false)))
+        return false;
+    if (frame.source_room.has_value() != frame.source_context.has_value())
+        return false;
+    if (frame.kind == RoomTransitionKind::NavigationAttempt) {
+        if (frame.entry_cause != RoomEntryCause::NavigationAttempt || !frame.source_room ||
+            !frame.selected_exit)
+            return false;
+        auto room = resolved_room(project, save, frame.selected_exit->room);
+        if (!room || frame.selected_exit->room != *frame.source_room)
+            return false;
+        const auto found = std::ranges::find_if(room->exits, [&](const compiled::RoomExit& exit) {
+            return exit.id == frame.selected_exit->exit_id;
+        });
+        return found != room->exits.end() && found->target == frame.target_room;
+    }
+    if (frame.selected_exit || frame.entry_cause == RoomEntryCause::NavigationAttempt)
+        return false;
+    if (frame.entry_cause == RoomEntryCause::Entrypoint)
+        return !frame.source_room && !frame.source_context;
+    return frame.entry_cause == RoomEntryCause::DirectedRoomChange;
+}
+
+bool valid_detached_frame(const CompiledProject& project, const SaveState& save,
+                          const SavedFlowFrame& frame)
+{
+    if (const auto* scene = std::get_if<SavedSceneFrame>(&frame))
+        return valid_detached_frame(project, save, *scene);
+    if (const auto* dialogue = std::get_if<SavedDialogueFrame>(&frame))
+        return valid_detached_frame(project, save, *dialogue);
+    if (const auto* interaction = std::get_if<SavedInteractionFrame>(&frame))
+        return valid_detached_frame(project, save, *interaction);
+    return valid_detached_frame(project, save, std::get<SavedRoomTransitionFrame>(frame));
+}
+
 const SavedFlowFrame* saved_frame(const SaveState& save, SavedFlowFrameId id) noexcept
 {
     const auto found = std::find_if(
@@ -1832,78 +1925,6 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         }
     }
 
-    const auto validate_detached_frame = [&](const SavedFlowFrame& frame) {
-        return std::visit(
-            [&project, &save](const auto& item) {
-                using T = std::decay_t<decltype(item)>;
-                if (!valid_destination(project, save, item.destination))
-                    return false;
-                if constexpr (std::is_same_v<T, SavedSceneFrame>) {
-                    const auto* scene = project.find_scene(item.scene);
-                    return scene && valid_scene_position(*scene, item.position) &&
-                           valid_scene_inputs(*scene, item.inputs);
-                } else if constexpr (std::is_same_v<T, SavedDialogueFrame>) {
-                    const auto* dialogue = project.find_dialogue(item.dialogue);
-                    return dialogue && valid_dialogue_position(*dialogue, item.position) &&
-                           valid_dialogue_presentation_state(project, save, *dialogue, item);
-                } else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
-                    const auto* program = interaction_program(project, item.program);
-                    const auto* verb = project.find_verb(item.invocation.verb);
-                    if (program == nullptr || verb == nullptr ||
-                        item.invocation.bindings.size() != verb->slots.size())
-                        return false;
-                    std::unordered_set<VerbSlotId> binding_slots;
-                    for (const auto& binding : item.invocation.bindings) {
-                        const bool known_slot =
-                            std::ranges::any_of(verb->slots, [&](const auto& slot) {
-                                return slot.id == binding.slot_id;
-                            });
-                        if (!known_slot || !binding_slots.insert(binding.slot_id).second)
-                            return false;
-                    }
-                    return (!item.position.next_instruction ||
-                            has_interaction_instruction(*program,
-                                                        *item.position.next_instruction)) &&
-                           item.position.fallback_stage <= InteractionFallbackStage::Complete &&
-                           item.position.outcome <= InteractionExecutionOutcome::Failed &&
-                           (!item.position.awaiting_completion ||
-                            item.position.next_instruction.has_value());
-                } else {
-                    if (!resolved_room(project, save, item.target_room) ||
-                        (item.source_room && !resolved_room(project, save, *item.source_room)) ||
-                        !valid_room_position(project, save, item) ||
-                        item.kind > RoomTransitionKind::DirectedRoomChange ||
-                        item.entry_cause > RoomEntryCause::DirectedRoomChange)
-                        return false;
-                    if (item.source_context &&
-                        (!item.source_room || item.source_context->room != *item.source_room ||
-                         !valid_room_visit_context(project, save, *item.source_context, false)))
-                        return false;
-                    if (item.source_room.has_value() != item.source_context.has_value())
-                        return false;
-                    if (item.kind == RoomTransitionKind::NavigationAttempt) {
-                        if (item.entry_cause != RoomEntryCause::NavigationAttempt ||
-                            !item.source_room || !item.selected_exit)
-                            return false;
-                        auto room = resolved_room(project, save, item.selected_exit->room);
-                        if (!room || item.selected_exit->room != *item.source_room)
-                            return false;
-                        const auto found =
-                            std::ranges::find_if(room->exits, [&](const compiled::RoomExit& exit) {
-                                return exit.id == item.selected_exit->exit_id;
-                            });
-                        return found != room->exits.end() && found->target == item.target_room;
-                    }
-                    if (item.selected_exit || item.entry_cause == RoomEntryCause::NavigationAttempt)
-                        return false;
-                    if (item.entry_cause == RoomEntryCause::Entrypoint)
-                        return !item.source_room && !item.source_context;
-                    return item.entry_cause == RoomEntryCause::DirectedRoomChange;
-                }
-            },
-            frame);
-    };
-
     for (const auto& detached : save.detached_flows) {
         if (detached.flow_stack.empty()) {
             error("save_codec.invalid_detached_flow",
@@ -1928,7 +1949,7 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
             const auto snapshot =
                 std::visit([](const auto& value) { return value.snapshot_id.value; }, frame);
             if (snapshot == 0 || !frame_ids.insert(snapshot).second ||
-                !validate_detached_frame(frame))
+                !valid_detached_frame(project, save, frame))
                 error("save_codec.invalid_flow_frame",
                       "Detached Flow frame is stale, duplicate, or incoherent.");
             const auto destination = std::visit(

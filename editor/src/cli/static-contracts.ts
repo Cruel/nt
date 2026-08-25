@@ -1,6 +1,7 @@
 import { NOVELTEA_VERSION } from '../shared/product-version';
 
 export const NOVELTEA_CLI_VERSION = NOVELTEA_VERSION;
+export const NOVELTEA_CLI_JSON_PROTOCOL_VERSION = 1 as const;
 
 export const NOVELTEA_CLI_HELP = `NovelTea headless CLI
 

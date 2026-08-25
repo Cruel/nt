@@ -1,7 +1,11 @@
 import { mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { NOVELTEA_CLI_HELP, NOVELTEA_CLI_VERSION } from '../src/cli/static-contracts';
+import {
+  NOVELTEA_CLI_HELP,
+  NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+  NOVELTEA_CLI_VERSION,
+} from '../src/cli/static-contracts';
 import { runNovelTeaScriptcProcess } from './noveltea-scriptc-process';
 
 declare function nativeInvokeToFile(
@@ -129,6 +133,7 @@ function staticFastPath(argv: readonly string[]): HostResult | null {
           success: false,
           exitCode: 2,
           diagnostics: [{ code: 'CLI_USAGE', severity: 'error', path: '/', message }],
+          protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
         })}\n`,
         '',
       ];
@@ -146,6 +151,7 @@ function staticFastPath(argv: readonly string[]): HostResult | null {
           exitCode: 0,
           diagnostics: [],
           help: NOVELTEA_CLI_HELP,
+          protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
         })}\n`
       : NOVELTEA_CLI_HELP;
     return [0, stdout, ''];
@@ -157,6 +163,7 @@ function staticFastPath(argv: readonly string[]): HostResult | null {
         exitCode: 0,
         diagnostics: [],
         version: NOVELTEA_CLI_VERSION,
+        protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
       })}\n`
     : `${NOVELTEA_CLI_VERSION}\n`;
   return [0, stdout, ''];
