@@ -220,7 +220,7 @@ export async function uploadComfyUiImageInput(
       throw new ComfyUiRunError(
         'COMFYUI_UPLOAD_FAILED',
         `/inputs/${input.id}`,
-        `ComfyUI image upload for '${input.id}' failed with HTTP ${response.status}.`,
+        `ComfyUI image upload for '${input.id}' failed.`,
       );
     let value: unknown;
     try {

@@ -1336,7 +1336,6 @@ export async function stagePlatformExport(
       package: {
         path: packageFromConfig,
         sha256: packageEntry.sha256,
-        playerRuntimeApiVersion: request.playerRuntimeApiVersion,
       },
       capabilities: built.model.capabilities,
       display: request.runtimeDisplay,

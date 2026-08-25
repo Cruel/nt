@@ -1183,7 +1183,11 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
         node.result.stderr !== native.result.stderr ||
         canonicalComfyUiResult(node.result) !== canonicalComfyUiResult(native.result)
       )
-        fail(`ComfyUI failure differential '${failureCase.mode}' differs.`);
+        fail(
+          `ComfyUI failure differential '${failureCase.mode}' differs.\n` +
+            `Node: status=${node.result.status}\nstdout:\n${node.result.stdout}\nstderr:\n${node.result.stderr}\n` +
+            `ScriptC: status=${native.result.status}\nstdout:\n${native.result.stdout}\nstderr:\n${native.result.stderr}`,
+        );
       if (canonicalComfyUiRequests(node.requests) !== canonicalComfyUiRequests(native.requests))
         fail(`ComfyUI failure differential '${failureCase.mode}' request trace differs.`);
       process.stdout.write(`[comfyui differential] ${failureCase.mode}: PASS\n`);
