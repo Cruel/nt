@@ -206,7 +206,7 @@ make_headless_running_game_input(nlohmann::json gameplay,
         manifest["entries"] = std::move(entries);
         manifest["shader_variants"] = std::move(variants);
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
-                                        {"schema", "noveltea.shader-materials.v2"},
+                                        {"schema", "noveltea.shader-materials"},
                                         {"sources_stripped", true}};
     }
 
