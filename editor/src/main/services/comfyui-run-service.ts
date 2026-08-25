@@ -713,7 +713,11 @@ export async function runComfyUiWorkflow(options: {
       boundedMessage(submission, 'ComfyUI did not return a prompt id.'),
     );
   const promptId = (submission as { prompt_id: string }).prompt_id;
-  const onAbort = () => void cancelPrompt(config, promptId);
+  let cancellation: Promise<void> | null = null;
+  const pendingCancellation = () => cancellation;
+  const onAbort = () => {
+    cancellation ??= cancelPrompt(config, promptId);
+  };
   options.signal?.addEventListener('abort', onAbort, { once: true });
   if (options.signal?.aborted) onAbort();
   options.onProgress?.('queued', `Queued ComfyUI prompt ${promptId}.`, { promptId, clientId });
@@ -791,5 +795,7 @@ export async function runComfyUiWorkflow(options: {
     };
   } finally {
     options.signal?.removeEventListener('abort', onAbort);
+    const pending = pendingCancellation();
+    if (pending) await pending;
   }
 }

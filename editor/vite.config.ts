@@ -314,7 +314,7 @@ export default defineConfig({
       entry: {
         noveltea: 'scripts/noveltea.ts',
         'project-compile': 'scripts/compile-project.ts',
-        'materialize-android-export-fixture': 'scripts/materialize-android-export-fixture.ts',
+        'materialize-platform-export-fixture': 'scripts/materialize-platform-export-fixture.ts',
         'generate-compiled-project-goldens': 'scripts/generate-compiled-project-goldens.ts',
       },
       format: 'esm',

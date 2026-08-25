@@ -42,7 +42,7 @@ const fixtureTool = path.join(
   editorRoot,
   'dist-electron',
   'tools',
-  'materialize-android-export-fixture.mjs',
+  'materialize-platform-export-fixture.mjs',
 );
 const bgfxInclude = path.join(
   repositoryRoot,

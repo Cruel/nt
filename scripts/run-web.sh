@@ -125,8 +125,8 @@ else
     if [ -z "$EXPORT_PROFILE_ID" ]; then
       EXPORT_PROFILE_ID="$(node -e '
         const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
-        const profiles=p.settings?.platformExport?.profiles ?? [];
-        const selected=p.settings?.platformExport?.selectedProfileId;
+        const profiles=p.export?.profiles ?? [];
+        const selected=p.export?.selectedProfileId;
         const profile=profiles.find((x)=>x?.id===selected && x?.target==="web" && x?.buildFlavor==="release") ?? profiles.find((x)=>x?.target==="web" && x?.buildFlavor==="release");
         if (!profile?.id) process.exit(1); console.log(profile.id);
       ' "$PROJECT_PATH")" || {
@@ -138,7 +138,7 @@ else
 
   WEB_THREADING="$(node -e '
     const project=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
-    const profiles=project.settings?.platformExport?.profiles ?? [];
+    const profiles=project.export?.profiles ?? [];
     const profile=profiles.find((item)=>item?.id===process.argv[2]);
     if (!profile || profile.target!=="web" || profile.buildFlavor!=="release") process.exit(1);
     console.log(profile.web?.threaded===true ? "threads" : "single");

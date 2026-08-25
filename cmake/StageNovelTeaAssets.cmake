@@ -5,7 +5,7 @@ endif()
 set(_tmp "${NOVELTEA_RUNTIME_ASSET_ROOT}.tmp")
 file(REMOVE_RECURSE "${_tmp}")
 file(MAKE_DIRECTORY "${_tmp}")
-file(MAKE_DIRECTORY "${_tmp}/project" "${_tmp}/system")
+file(MAKE_DIRECTORY "${_tmp}/project" "${_tmp}/project/projects" "${_tmp}/system")
 if(NOVELTEA_PROJECT_ASSET_SOURCE)
     file(COPY "${NOVELTEA_PROJECT_ASSET_SOURCE}/" DESTINATION "${_tmp}/project")
 endif()
@@ -61,52 +61,49 @@ if(EXISTS "${_transition_template}")
     file(REMOVE "${_tmp}/project/projects/runtime_transition_readback.template.json")
 endif()
 
-set(_compiled_package_source "${NOVELTEA_PROJECT_ASSET_SOURCE}/projects/runtime_presentation_package")
-if(EXISTS "${_compiled_package_source}/game")
-    set(_compiled_package_tmp "${_tmp}/runtime_presentation_package_export")
-    file(REMOVE_RECURSE "${_compiled_package_tmp}")
-    file(MAKE_DIRECTORY "${_compiled_package_tmp}")
-    file(COPY "${_compiled_package_source}/" DESTINATION "${_compiled_package_tmp}")
-    file(COPY_FILE
-        "${CMAKE_CURRENT_LIST_DIR}/../editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json"
-        "${_compiled_package_tmp}/game")
-    file(READ "${_compiled_package_tmp}/game" _compiled_demo_game)
-    string(REPLACE
-        "\"assets\":[]"
-        "\"assets\":[{\"aliases\":[],\"id\":\"demo-notification\",\"kind\":\"audio\",\"path\":\"audio/notification.mp3\"}]"
-        _compiled_demo_game
-        "${_compiled_demo_game}")
-    string(REPLACE
-        "\"background\":{\"asset\":null,\"color\":null,\"fit\":\"cover\",\"material\":null}"
-        "\"background\":{\"asset\":null,\"color\":\"#204060\",\"fit\":\"cover\",\"material\":null}"
-        _compiled_demo_game
-        "${_compiled_demo_game}")
-    string(REPLACE
-        "\"saveContract\":\"sc1:3a00b6888fd0dc16349f15985ba1cbea\""
-        "\"saveContract\":\"sc1:92ae23f3684d8ccda09c0da3fe01e7b1\""
-        _compiled_demo_game
-        "${_compiled_demo_game}")
-    file(WRITE "${_compiled_package_tmp}/game" "${_compiled_demo_game}")
-    file(MAKE_DIRECTORY "${_compiled_package_tmp}/audio")
-    file(COPY_FILE
-        "${NOVELTEA_PROJECT_ASSET_SOURCE}/audio/notification.mp3"
-        "${_compiled_package_tmp}/audio/notification.mp3")
-    file(REMOVE "${_compiled_package_tmp}/shader-materials.json")
+set(_compiled_package_tmp "${_tmp}/runtime_presentation_package_export")
+file(REMOVE_RECURSE "${_compiled_package_tmp}")
+file(MAKE_DIRECTORY "${_compiled_package_tmp}")
+file(COPY_FILE
+    "${CMAKE_CURRENT_LIST_DIR}/../editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json"
+    "${_compiled_package_tmp}/game")
+file(READ "${_compiled_package_tmp}/game" _compiled_demo_game)
+string(REPLACE
+    "\"assets\":[]"
+    "\"assets\":[{\"aliases\":[],\"id\":\"demo-notification\",\"kind\":\"audio\",\"path\":\"audio/notification.mp3\"}]"
+    _compiled_demo_game
+    "${_compiled_demo_game}")
+string(REPLACE
+    "\"background\":{\"asset\":null,\"color\":null,\"fit\":\"cover\",\"material\":null}"
+    "\"background\":{\"asset\":null,\"color\":\"#204060\",\"fit\":\"cover\",\"material\":null}"
+    _compiled_demo_game
+    "${_compiled_demo_game}")
+string(REPLACE
+    "\"saveContract\":\"sc1:3a00b6888fd0dc16349f15985ba1cbea\""
+    "\"saveContract\":\"sc1:92ae23f3684d8ccda09c0da3fe01e7b1\""
+    _compiled_demo_game
+    "${_compiled_demo_game}")
+file(WRITE "${_compiled_package_tmp}/game" "${_compiled_demo_game}")
+file(MAKE_DIRECTORY "${_compiled_package_tmp}/audio")
+set(_compiled_package_notification_source
+    "${CMAKE_CURRENT_LIST_DIR}/../apps/sandbox/assets/audio/notification.mp3")
+file(COPY_FILE
+    "${_compiled_package_notification_source}"
+    "${_compiled_package_tmp}/audio/notification.mp3")
 
-    file(GLOB_RECURSE _compiled_package_files RELATIVE "${_compiled_package_tmp}" "${_compiled_package_tmp}/*")
-    list(SORT _compiled_package_files)
-    set(_compiled_package_entries_json "")
-    set(_compiled_package_shader_variants_json "")
-    set(_compiled_package_entry_separator "")
-    set(_compiled_package_variant_separator "")
-    foreach(_entry IN LISTS _compiled_package_files)
-        if(NOT IS_DIRECTORY "${_compiled_package_tmp}/${_entry}")
-            file(SIZE "${_compiled_package_tmp}/${_entry}" _entry_size)
-            string(APPEND _compiled_package_entries_json "${_compiled_package_entry_separator}    { \"path\": \"${_entry}\", \"size\": ${_entry_size} }")
-            set(_compiled_package_entry_separator ",\n")
-        endif()
-    endforeach()
-    file(WRITE "${_compiled_package_tmp}/manifest.json"
+file(GLOB_RECURSE _compiled_package_files RELATIVE "${_compiled_package_tmp}" "${_compiled_package_tmp}/*")
+list(SORT _compiled_package_files)
+set(_compiled_package_entries_json "")
+set(_compiled_package_shader_variants_json "")
+set(_compiled_package_entry_separator "")
+foreach(_entry IN LISTS _compiled_package_files)
+    if(NOT IS_DIRECTORY "${_compiled_package_tmp}/${_entry}")
+        file(SIZE "${_compiled_package_tmp}/${_entry}" _entry_size)
+        string(APPEND _compiled_package_entries_json "${_compiled_package_entry_separator}    { \"path\": \"${_entry}\", \"size\": ${_entry_size} }")
+        set(_compiled_package_entry_separator ",\n")
+    endif()
+endforeach()
+file(WRITE "${_compiled_package_tmp}/manifest.json"
 "{
   \"format\": \"noveltea.runtime-package\",
   \"runtime_api_version\": 1,
@@ -134,21 +131,20 @@ ${_compiled_package_entries_json}
   \"checksums\": {}
 }
 ")
-    file(GLOB_RECURSE _compiled_package_files RELATIVE "${_compiled_package_tmp}" "${_compiled_package_tmp}/*")
-    list(SORT _compiled_package_files)
-    execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E tar
-            cf "${_tmp}/project/projects/runtime_presentation_package.ntpkg"
-            --format=zip
-            ${_compiled_package_files}
-        WORKING_DIRECTORY "${_compiled_package_tmp}"
-        RESULT_VARIABLE _compiled_package_result
-    )
-    if(NOT _compiled_package_result EQUAL 0)
-        message(FATAL_ERROR "Failed to generate runtime_presentation_package.ntpkg")
-    endif()
-    file(REMOVE_RECURSE "${_compiled_package_tmp}")
+file(GLOB_RECURSE _compiled_package_files RELATIVE "${_compiled_package_tmp}" "${_compiled_package_tmp}/*")
+list(SORT _compiled_package_files)
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E tar
+        cf "${_tmp}/project/projects/runtime_presentation_package.ntpkg"
+        --format=zip
+        ${_compiled_package_files}
+    WORKING_DIRECTORY "${_compiled_package_tmp}"
+    RESULT_VARIABLE _compiled_package_result
+)
+if(NOT _compiled_package_result EQUAL 0)
+    message(FATAL_ERROR "Failed to generate runtime_presentation_package.ntpkg")
 endif()
+file(REMOVE_RECURSE "${_compiled_package_tmp}")
 file(REMOVE_RECURSE "${NOVELTEA_RUNTIME_ASSET_ROOT}")
 file(RENAME "${_tmp}" "${NOVELTEA_RUNTIME_ASSET_ROOT}")
 file(WRITE "${NOVELTEA_STAGE_STAMP}" "staged\n")

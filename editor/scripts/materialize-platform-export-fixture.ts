@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const root = value('--root');
   if (!root)
     throw new Error(
-      'Usage: materialize-android-export-fixture --root <directory> [--target android|web] [--revision <n>]',
+      'Usage: materialize-platform-export-fixture --root <directory> [--target android|web] [--revision <n>]',
     );
   const target = value('--target') ?? 'android';
   if (target !== 'android' && target !== 'web')

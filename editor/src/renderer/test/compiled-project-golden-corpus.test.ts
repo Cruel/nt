@@ -20,9 +20,7 @@ function golden(name: string): string {
   return readFileSync(
     resolve('src/renderer/test/fixtures/compiled-project-golden', `${name}.json`),
     'utf8',
-  )
-    .trimEnd()
-    .replace('"schemaVersion":4', '"schemaVersion":1');
+  ).trimEnd();
 }
 
 function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWire {
