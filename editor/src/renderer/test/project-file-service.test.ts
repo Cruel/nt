@@ -195,6 +195,44 @@ describe('project-file-service workspace-v1', () => {
     ).toMatchObject({ description: 'After' });
   });
 
+  it('does not multiply full workspace scans for one scoped content save', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Fast Save', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await service.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const candidate = structuredClone(initial.snapshot.project);
+    candidate.project.name = 'Saved';
+    const openSpy = vi.spyOn(ProjectWorkspaceService.prototype, 'open');
+    try {
+      const result = await saveProjectContent(
+        root,
+        initial.snapshot.workspaceRevision,
+        candidate,
+        initial.editorState,
+        initial.snapshot.scriptSourcePaths,
+        {
+          expectedFileRevisions: Object.fromEntries(
+            Object.entries(initial.snapshot.fileRevisions).map(([file, revision]) => [
+              file,
+              revision.contentHash,
+            ]),
+          ),
+          saveUnitIds: ['project:settings'],
+          baselineProject: initial.snapshot.project,
+          affectedPaths: ['/project/name'],
+          operationLabel: 'save Project Settings',
+        },
+      );
+
+      expect(result.success).toBe(true);
+      expect(openSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      openSpy.mockRestore();
+    }
+  });
+
   it('fails closed instead of saving through a structurally unreadable external source', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Fail Closed', projectDirectory: root });

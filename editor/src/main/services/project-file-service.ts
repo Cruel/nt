@@ -56,6 +56,19 @@ function mutationFailureDiagnostic(error: ProjectWorkspaceMutationError): ToolDi
   };
 }
 
+function contentSaveConflictDiagnostic(): ToolDiagnostic {
+  return createProjectValidationDiagnostic({
+    code: 'editor.content-save.content-conflict',
+    severity: 'error',
+    category: 'Project save',
+    path: '/',
+    message:
+      'Project content changed outside the editor. The selected save units were not written so the external changes remain untouched.',
+    boundaries: ['authoring'],
+    ownerPaths: ['/'],
+  });
+}
+
 function isSafeGeneratedAssetTrashPath(value: string): boolean {
   return (
     value.startsWith('.noveltea/trash/assets/') &&
@@ -224,6 +237,7 @@ async function writeWorkspaceProject(
   scriptSourcePaths: Readonly<Record<string, string>> = {},
   commitOptions?: ProjectWorkspaceCommitOptions,
   assertAuthority?: () => void,
+  preflightSnapshot?: LoadedProjectWorkspaceSnapshot,
 ): Promise<{
   workspaceRevision: string;
   fileRevisions: Record<string, `sha256:${string}`>;
@@ -233,27 +247,31 @@ async function writeWorkspaceProject(
   assetTrashMoves: import('../../shared/project-asset-audit').ProjectAssetTrashMove[];
 }> {
   const workspace = workspaceService();
-  const opened = await workspace.open(projectRoot);
-  if (!opened.ok)
-    throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
-  if (!commitOptions && opened.snapshot.workspaceRevision !== expectedWorkspaceRevision)
+  let openedSnapshot = preflightSnapshot;
+  if (!openedSnapshot) {
+    const opened = await workspace.open(projectRoot);
+    if (!opened.ok)
+      throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
+    openedSnapshot = opened.snapshot;
+  }
+  if (!commitOptions && openedSnapshot.workspaceRevision !== expectedWorkspaceRevision)
     throw new Error('Project content changed outside the editor.');
   const content = stripEditorProjectState(project);
   if (!isRecord(content)) throw new Error('Project content root must be an object.');
   const candidate = authoringProjectSchema.safeParse({ ...content, editor: editorState });
   if (!candidate.success) throw new Error('Project content is invalid.');
-  const sourcePaths = { ...opened.snapshot.scriptSourcePaths, ...scriptSourcePaths };
+  const sourcePaths = { ...openedSnapshot.scriptSourcePaths, ...scriptSourcePaths };
   const baseline = commitOptions?.baselineProject
     ? authoringProjectSchema.safeParse(commitOptions.baselineProject)
     : null;
   const projectForWrite =
     commitOptions?.structural && commitOptions.affectedPaths
-      ? candidateAtPaths(opened.snapshot, candidate.data, commitOptions.affectedPaths)
+      ? candidateAtPaths(openedSnapshot, candidate.data, commitOptions.affectedPaths)
       : commitOptions && !commitOptions.structural && commitOptions.affectedPaths?.length
-        ? candidateAtPaths(opened.snapshot, candidate.data, commitOptions.affectedPaths)
+        ? candidateAtPaths(openedSnapshot, candidate.data, commitOptions.affectedPaths)
         : commitOptions && !commitOptions.structural
           ? await scopedCandidate(
-              opened.snapshot,
+              openedSnapshot,
               candidate.data,
               sourcePaths,
               commitOptions.saveUnitIds ?? [],
@@ -290,7 +308,7 @@ async function writeWorkspaceProject(
         operation: 'delete',
         expectedRevision:
           commitOptions.expectedFileRevisions[assetPath] ??
-          opened.snapshot.fileRevisions[assetPath]?.contentHash ??
+          openedSnapshot.fileRevisions[assetPath]?.contentHash ??
           PROJECT_WORKSPACE_ABSENT_REVISION,
       });
       assetTrashMoves.push({ projectRelativePath: assetPath, trashRelativePath });
@@ -330,23 +348,23 @@ async function writeWorkspaceProject(
       ? changedProjectionFiles(
           baseline.data,
           projectForWrite,
-          opened.snapshot.scriptSourcePaths,
+          openedSnapshot.scriptSourcePaths,
           sourcePaths,
         )
       : commitOptions.structural
         ? undefined
         : await filesForSaveUnits(
-            opened.snapshot,
+            openedSnapshot,
             projectForWrite,
             sourcePaths,
             commitOptions.saveUnitIds ?? [],
           );
-  const expectedFileRevisions = scopedExpectedRevisions(opened.snapshot, commitOptions);
+  const expectedFileRevisions = scopedExpectedRevisions(openedSnapshot, commitOptions);
   const structuralPathsAreUnchanged =
     commitOptions?.structural &&
     baseline?.success &&
     commitOptions.affectedPaths?.every((pointer) => {
-      const disk = valueAtPointer(opened.snapshot.project, pointer);
+      const disk = valueAtPointer(openedSnapshot.project, pointer);
       const base = valueAtPointer(baseline.data, pointer);
       return (
         disk.present === base.present && JSON.stringify(disk.value) === JSON.stringify(base.value)
@@ -355,7 +373,7 @@ async function writeWorkspaceProject(
   if (structuralPathsAreUnchanged)
     for (const file of targetFiles ?? []) {
       expectedFileRevisions[file] =
-        opened.snapshot.fileRevisions[file]?.contentHash ?? PROJECT_WORKSPACE_ABSENT_REVISION;
+        openedSnapshot.fileRevisions[file]?.contentHash ?? PROJECT_WORKSPACE_ABSENT_REVISION;
     }
   else if (commitOptions?.structural && baseline?.success && commitOptions.affectedPaths)
     throw new ProjectWorkspaceMutationError(
@@ -375,16 +393,15 @@ async function writeWorkspaceProject(
       targetFiles,
       operationLabel: commitOptions?.operationLabel ?? 'project save',
       extraTargets,
+      preflightSnapshot: openedSnapshot,
     },
   );
-  const refreshed = await workspace.open(projectRoot);
-  if (!refreshed.ok) throw new Error('Saved workspace could not be reopened.');
   return {
     workspaceRevision: written.workspaceRevision,
-    fileRevisions: snapshotFileRevisions(refreshed.snapshot),
-    contentProject: refreshed.contentProject,
-    editorState: refreshed.editorState,
-    scriptSourcePaths: { ...refreshed.snapshot.scriptSourcePaths },
+    fileRevisions: snapshotFileRevisions(written.snapshot),
+    contentProject: written.contentProject,
+    editorState: editorStateForWrite,
+    scriptSourcePaths: { ...written.snapshot.scriptSourcePaths },
     assetTrashMoves,
   };
 }
@@ -630,7 +647,16 @@ export async function saveProject(
     const opened = await workspaceService().open(root);
     if (!opened.ok)
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
-    await writeWorkspaceProject(root, normalized, editor, opened.snapshot.workspaceRevision);
+    await writeWorkspaceProject(
+      root,
+      normalized,
+      editor,
+      opened.snapshot.workspaceRevision,
+      {},
+      undefined,
+      undefined,
+      opened.snapshot,
+    );
     const absolute = path.resolve(projectFilePath);
     return {
       ok: true,
@@ -743,16 +769,7 @@ export async function saveProjectContent(
     if (!opened.ok)
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
     if (!commitOptions && opened.snapshot.workspaceRevision !== expectedWorkspaceRevision) {
-      const diagnostic = createProjectValidationDiagnostic({
-        code: 'editor.content-save.content-conflict',
-        severity: 'error',
-        category: 'Project save',
-        path: '/',
-        message:
-          'Project content changed outside the editor. The selected save units were not written so the external changes remain untouched.',
-        boundaries: ['authoring'],
-        ownerPaths: ['/'],
-      });
+      const diagnostic = contentSaveConflictDiagnostic();
       return {
         ok: false,
         success: false,
@@ -791,6 +808,7 @@ export async function saveProjectContent(
       scriptSourcePaths,
       commitOptions,
       assertAuthority,
+      opened.snapshot,
     );
     return {
       ok: true,
