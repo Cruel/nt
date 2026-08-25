@@ -305,15 +305,13 @@ export const usePreferencesStore = create<PreferencesState>()(
   ),
 );
 
-let sharedPreferencesInitialized = false;
-
 export async function initializeSharedPreferencesPersistence(): Promise<() => void> {
-  if (sharedPreferencesInitialized) return () => undefined;
-  sharedPreferencesInitialized = true;
-
   const persisted = await window.noveltea.loadUserPreferences();
   usePreferencesStore.setState(sharedPreferencesState(persisted, usePreferencesStore.getState()));
-  let serialized = JSON.stringify(sharedPreferencesSnapshot(usePreferencesStore.getState()));
+  const initialSnapshot = sharedPreferencesSnapshot(usePreferencesStore.getState());
+  let serialized = JSON.stringify(initialSnapshot);
+  if (JSON.stringify(persisted) !== serialized)
+    void window.noveltea.saveUserPreferences(initialSnapshot);
 
   return usePreferencesStore.subscribe((state) => {
     const snapshot = sharedPreferencesSnapshot(state);

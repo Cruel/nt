@@ -317,7 +317,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
             {"textScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}}}}}}};
     const auto envelope = [&](std::string kind, nlohmann::json data) {
         return nlohmann::json{{"protocol", "noveltea.focused-editor-document"},
-                              {"protocolVersion", 2},
+                              {"protocolVersion", 1},
                               {"requestId", "fixture-request"},
                               {"applySequence", 7},
                               {"projectInstanceId", "fixture-project"},
@@ -471,7 +471,7 @@ TEST_CASE("focused editor envelope enforces nested source and collection limits"
 {
     const std::string revision = "sha256:" + std::string(64, 'a');
     nlohmann::json request = {{"protocol", "noveltea.focused-editor-document"},
-                              {"protocolVersion", 2},
+                              {"protocolVersion", 1},
                               {"requestId", "limits"},
                               {"applySequence", 1},
                               {"projectInstanceId", "project"},

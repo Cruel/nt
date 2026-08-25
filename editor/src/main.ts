@@ -700,12 +700,7 @@ void app.whenReady().then(async () => {
       if (!mainWindow) return null;
       const result = await dialog.showOpenDialog(mainWindow, {
         title: 'Open NovelTea Project',
-        properties: ['openFile'],
-        filters: [
-          { name: 'NovelTea Project', extensions: ['json', 'game'] },
-          { name: 'JSON Files', extensions: ['json'] },
-          { name: 'All Files', extensions: ['*'] },
-        ],
+        properties: ['openDirectory'],
       });
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
