@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <locale>
 #include <sstream>
 
 #include <RmlUi/Core/Event.h>
@@ -36,7 +35,6 @@ RMLUI_RTTI_Define(NtActiveTextElement) RMLUI_RTTI_Define(NtMapViewElement)
     std::optional<double> parse_number(std::string_view value)
     {
         std::istringstream stream{std::string(value)};
-        stream.imbue(std::locale::classic());
         stream >> std::noskipws;
         double parsed = 0.0;
         if (!(stream >> parsed) || stream.peek() != std::char_traits<char>::eof() ||
