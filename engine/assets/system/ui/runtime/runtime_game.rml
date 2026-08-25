@@ -56,15 +56,15 @@
         </div>
 
         <div id="rt_text_panel"
-             data-if="gameplay.active_text_available || gameplay.choices.size > 0"
-             data-style-pointer-events="gameplay.can_continue || gameplay.choices.size > 0 ? 'auto' : 'none'">
+             data-if="gameplay.active_text_available || gameplay.dialogue.choices.size > 0"
+             data-style-pointer-events="gameplay.can_continue || gameplay.dialogue.choices.size > 0 ? 'auto' : 'none'">
             <nt-active-text id="rt_body"></nt-active-text>
             <div id="rt_options">
-                <button data-for="choice : gameplay.choices"
+                <button data-for="choice : gameplay.dialogue.choices"
                         class="option"
                         data-class-disabled="!choice.enabled"
                         data-attrif-disabled="!choice.enabled"
-                        data-event-click="ui_choose(choice.kind, choice.id)">
+                        data-event-click="ui_choose('dialogue', choice.id)">
                     {{ choice.label }}
                 </button>
             </div>

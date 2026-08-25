@@ -120,13 +120,16 @@ constexpr const char* kBinderCharacterizationDocument = R"RML(
       <button class="continue" data-if="gameplay.can_continue" data-event-click="ui_continue()">Continue</button>
     </div>
     <div id="rt_options">
-      <button class="model-option" data-for="choice : gameplay.choices"
+      <button class="model-option" data-for="choice : gameplay.scene.choices"
               data-class-disabled="!choice.enabled" data-attrif-disabled="!choice.enabled"
-              data-event-click="ui_choose(choice.kind, choice.id)">{{ choice.label }}</button>
+              data-event-click="ui_choose('scene', choice.id)">{{ choice.label }}</button>
+      <button class="model-dialogue-option" data-for="choice : gameplay.dialogue.choices"
+              data-class-disabled="!choice.enabled" data-attrif-disabled="!choice.enabled"
+              data-event-click="ui_choose('dialogue', choice.id)">{{ choice.label }}</button>
     </div>
     <div id="rt_text_panel"
-         data-if="gameplay.active_text_available || gameplay.choices.size > 0"
-         data-style-pointer-events="gameplay.can_continue || gameplay.choices.size > 0 ? 'auto' : 'none'"></div>
+         data-if="gameplay.active_text_available || gameplay.dialogue.choices.size > 0"
+         data-style-pointer-events="gameplay.can_continue || gameplay.dialogue.choices.size > 0 ? 'auto' : 'none'"></div>
     <div id="rt_actors">
       <div class="model-actor" data-for="actor : gameplay.actors"
            data-attr-data-character-id="actor.character_id"
@@ -314,7 +317,7 @@ constexpr const char* kDataModelDocument = R"RML(
            data-class-available="gameplay.available"
            data-attr-data-mode="gameplay.mode"
            data-style-width="'37px'">probe</div>
-      <div id="choices"><span class="model-choice" data-for="choice : gameplay.choices">{{ choice.label }}</span></div>
+      <div id="choices"><span class="model-choice" data-for="choice : gameplay.scene.choices">{{ choice.label }}</span></div>
       <button id="choose" data-event-click="ui_choose('scene', 'choice-enabled')">Choose</button>
       <button id="assign" data-event-click="project.title = 'Mutated'">Assign</button>
     </section>
@@ -1331,6 +1334,9 @@ TEST_CASE("RuntimeUI renders gameplay collections in an ordinary non-system Layo
     const auto scene_choice = noveltea::core::SceneChoiceOptionId::create("scene-enabled");
     const auto scene_choice_disabled =
         noveltea::core::SceneChoiceOptionId::create("scene-disabled");
+    const auto dialogue = noveltea::core::DialogueId::create("dialogue");
+    const auto block = noveltea::core::DialogueBlockId::create("block");
+    const auto edge = noveltea::core::DialogueEdgeId::create("edge");
     const auto character = noveltea::core::CharacterId::create("alice");
     const auto pose = noveltea::core::CharacterPoseId::create("idle");
     const auto expression = noveltea::core::CharacterExpressionId::create("smile");
@@ -1350,6 +1356,9 @@ TEST_CASE("RuntimeUI renders gameplay collections in an ordinary non-system Layo
     REQUIRE(scene_step);
     REQUIRE(scene_choice);
     REQUIRE(scene_choice_disabled);
+    REQUIRE(dialogue);
+    REQUIRE(block);
+    REQUIRE(edge);
     REQUIRE(character);
     REQUIRE(pose);
     REQUIRE(expression);
@@ -1384,6 +1393,13 @@ TEST_CASE("RuntimeUI renders gameplay collections in an ordinary non-system Layo
             .options = {
                 {.option = scene_choice.value(), .label = "Open <door>", .enabled = true},
                 {.option = scene_choice_disabled.value(), .label = "Locked", .enabled = false}}}};
+    values.view.dialogue = noveltea::core::DialogueView{
+        .frame = std::bit_cast<noveltea::core::FlowFrameId>(std::uint64_t{2}),
+        .dialogue = dialogue.value(),
+        .choice = noveltea::core::DialogueChoiceState{
+            .dialogue = dialogue.value(),
+            .block = block.value(),
+            .options = {{.edge = edge.value(), .label = "Dialogue choice", .enabled = true}}}};
     values.view.room = noveltea::core::RoomView{
         .room = room.value(),
         .description = "Room body",
@@ -1475,6 +1491,10 @@ TEST_CASE("RuntimeUI renders gameplay collections in an ordinary non-system Layo
     CHECK_FALSE(enabled_option->HasAttribute("disabled"));
     CHECK(disabled_option->HasAttribute("disabled"));
     CHECK(disabled_option->IsClassSet("disabled"));
+    Rml::ElementList dialogue_options;
+    document->GetElementsByClassName(dialogue_options, "model-dialogue-option");
+    REQUIRE(dialogue_options.size() == 2);
+    REQUIRE(find_inner(dialogue_options, "Dialogue choice"));
     CHECK(driver->element("binder-characterization", "rt_text_panel")
               ->GetComputedValues()
               .pointer_events() == Rml::Style::PointerEvents::Auto);
@@ -1544,27 +1564,14 @@ TEST_CASE("RuntimeUI renders gameplay collections in an ordinary non-system Layo
 
     values.revision = 2;
     values.view.scene.reset();
-    const auto dialogue = noveltea::core::DialogueId::create("dialogue");
-    const auto block = noveltea::core::DialogueBlockId::create("block");
-    const auto edge = noveltea::core::DialogueEdgeId::create("edge");
-    REQUIRE(dialogue);
-    REQUIRE(block);
-    REQUIRE(edge);
-    values.view.dialogue = noveltea::core::DialogueView{
-        .frame = std::bit_cast<noveltea::core::FlowFrameId>(std::uint64_t{2}),
-        .dialogue = dialogue.value(),
-        .choice = noveltea::core::DialogueChoiceState{
-            .dialogue = dialogue.value(),
-            .block = block.value(),
-            .options = {{.edge = edge.value(), .label = "Dialogue choice", .enabled = true}}}};
     values.view.can_continue = false;
     values.view.room->description.clear();
     REQUIRE(ui.apply_gameplay_ui_values(values));
     document->GetContext()->Update();
-    options.clear();
-    document->GetElementsByClassName(options, "model-option");
-    REQUIRE(options.size() == 2);
-    REQUIRE(find_inner(options, "Dialogue choice"));
+    dialogue_options.clear();
+    document->GetElementsByClassName(dialogue_options, "model-dialogue-option");
+    REQUIRE(dialogue_options.size() == 2);
+    REQUIRE(find_inner(dialogue_options, "Dialogue choice"));
     CHECK_FALSE(continue_buttons.front()->IsVisible());
 }
 

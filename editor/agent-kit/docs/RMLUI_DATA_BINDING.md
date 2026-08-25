@@ -123,8 +123,12 @@ gameplay.notification: string
 gameplay.can_continue: bool
 gameplay.active_text_available: bool
 
-gameplay.choices[]:
-  kind: 'scene' | 'dialogue'
+gameplay.scene.choices[]:
+  id: string
+  label: string
+  enabled: bool
+
+gameplay.dialogue.choices[]:
   id: string
   label: string
   enabled: bool
@@ -204,7 +208,7 @@ gameplay.text_log.entries[]:
   body_rml: string
 ```
 
-`gameplay.choices` uses Scene choices when present, otherwise Dialogue choices; the sets are not merged. `gameplay.room.objects` and `gameplay.inventory.items` omit invisible entries. Room exits include disabled exits, so filter with `exit.enabled` when appropriate. Clearing gameplay resets the gameplay projection rather than leaving old values visible.
+Scene and Dialogue choices are projected independently. `gameplay.scene.choices` may temporarily overlay the game while `gameplay.dialogue.choices` remains available to the Dialogue layout underneath. `gameplay.room.objects` and `gameplay.inventory.items` omit invisible entries. Room exits include disabled exits, so filter with `exit.enabled` when appropriate. Clearing gameplay resets the gameplay projection rather than leaving old values visible.
 
 ### `shell`
 
@@ -304,9 +308,9 @@ Argument vocabularies are closed where applicable:
 Do not invent dotted callback names, call internal engine functions, or assume a callback will operate on a stale/disabled item. Prefer passing IDs and tokens directly from the current model item, as in:
 
 ```xml
-<button data-for="choice : gameplay.choices"
+<button data-for="choice : gameplay.dialogue.choices"
         data-attrif-disabled="!choice.enabled"
-        data-event-click="ui_choose(choice.kind, choice.id)">
+        data-event-click="ui_choose('dialogue', choice.id)">
   {{ choice.label }}
 </button>
 ```
