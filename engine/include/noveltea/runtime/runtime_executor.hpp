@@ -15,6 +15,16 @@
 #include <string_view>
 #include <variant>
 
+namespace noveltea::core {
+
+[[nodiscard]] Result<CharacterGestureOperation, Diagnostics> make_character_gesture_operation(
+    const CompiledProject& project, const RuntimePresentationSnapshot& snapshot,
+    const ActorPresentationKey& actor, const CharacterGestureId& gesture,
+    PresentationOperationId operation,
+    std::optional<PresentationFlowCompletion> completion = std::nullopt, bool skippable = true);
+
+} // namespace noveltea::core
+
 namespace noveltea::runtime {
 
 using RuntimeExecutionError = std::variant<core::Diagnostics, ScriptInvocationError>;

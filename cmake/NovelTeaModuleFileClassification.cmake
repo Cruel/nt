@@ -146,6 +146,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
     engine/src/runtime/runtime_executor_map.cpp
     engine/src/runtime/runtime_executor_room.cpp
     engine/src/runtime/runtime_session.cpp
+    engine/src/runtime/runtime_presentation_operation_requests.cpp
     engine/src/runtime/runtime_world.cpp
 )
 

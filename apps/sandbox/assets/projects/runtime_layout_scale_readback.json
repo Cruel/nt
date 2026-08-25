@@ -1,6 +1,6 @@
 {
   "schema": "noveltea.compiled.project",
-  "schemaVersion": 4,
+  "schemaVersion": 1,
   "saveContract": "sc1:de1e3725769ba83f2b235bd5d3cfe2e3",
   "project": {
     "id": "runtime-layout-scale-readback",
@@ -71,6 +71,7 @@
   },
   "resources": {
     "assets": [],
+    "materialInterfaces": [],
     "scripts": [
       {
         "id": "bootstrap",
@@ -156,42 +157,67 @@
       {
         "id": "probe",
         "displayName": "Scale Probe",
-        "defaultBackground": {
-          "asset": null,
-          "color": "#101820",
-          "fit": "cover",
-          "material": null
+        "inputs": [],
+        "outcomes": [],
+        "stage": {
+          "kind": "blank",
+          "background": {
+            "asset": null,
+            "color": "#101820",
+            "fit": "cover",
+            "material": null
+          },
+          "layout": null
         },
-        "defaultLayout": null,
         "program": {
-          "instructions": [
+          "events": [
             {
               "id": "initial-publication-boundary",
-              "kind": "wait-duration",
-              "durationMs": 1,
-              "skippable": true
+              "completionDependencies": [],
+              "instruction": {
+                "id": "initial-publication-boundary",
+                "kind": "wait-duration",
+                "durationMs": 1,
+                "skippable": true
+              },
+              "timeline": { "trackId": "main", "startMs": 0, "durationMs": 1 }
             },
             {
               "id": "mount-layouts",
-              "kind": "run-lua",
-              "autosaveSafePoint": false,
-              "mayYield": false,
-              "source": "local function mount(instance, layout, options)\n  local ok, err = noveltea.layouts.mount(instance, layout, options)\n  assert(ok and err == nil)\nend\nmount('first', 'inherited-first', {owner='scene', plane='world-overlay', order=0, input='none', composition='world'})\nmount('middle', 'ignored-middle', {owner='scene', plane='world-overlay', order=1, input='none', composition='world', ui_scale='ignore'})\nmount('last', 'inherited-last', {owner='scene', plane='world-overlay', order=2, input='none', composition='world'})"
+              "completionDependencies": [],
+              "instruction": {
+                "id": "mount-layouts",
+                "kind": "run-lua",
+                "autosaveSafePoint": false,
+                "mayYield": false,
+                "source": "local function mount(instance, layout, options)\n  local ok, err = noveltea.layouts.mount(instance, layout, options)\n  assert(ok and err == nil)\nend\nmount('first', 'inherited-first', {owner='scene', plane='world-overlay', order=0, input='none', composition='world'})\nmount('middle', 'ignored-middle', {owner='scene', plane='world-overlay', order=1, input='none', composition='world', ui_scale='ignore'})\nmount('last', 'inherited-last', {owner='scene', plane='world-overlay', order=2, input='none', composition='world'})"
+              },
+              "timeline": { "trackId": "main", "startMs": 1, "durationMs": 0 }
             },
             {
               "id": "mounted-publication-boundary",
-              "kind": "wait-duration",
-              "durationMs": 1,
-              "skippable": true
+              "completionDependencies": [],
+              "instruction": {
+                "id": "mounted-publication-boundary",
+                "kind": "wait-duration",
+                "durationMs": 1,
+                "skippable": true
+              },
+              "timeline": { "trackId": "main", "startMs": 1, "durationMs": 1 }
             },
             {
               "id": "hold",
-              "kind": "wait-input",
-              "skippable": false
+              "completionDependencies": [],
+              "instruction": {
+                "id": "hold",
+                "kind": "wait-input",
+                "skippable": false
+              },
+              "timeline": { "trackId": "main", "startMs": 2, "durationMs": 0 }
             }
           ]
         },
-        "continuation": { "kind": "end" }
+        "terminal": { "kind": "complete-game" }
       }
     ]
   },
