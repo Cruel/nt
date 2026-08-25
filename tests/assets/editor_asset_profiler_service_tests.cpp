@@ -58,7 +58,6 @@ TEST_CASE("Editor asset profiler retains one ordered filtered change history",
         thread.join();
 
     const auto full = service.capture_on_owner();
-    CHECK(full.schema_version == core::asset_profiler_snapshot_schema_version);
     REQUIRE(full.session_id.value != 0);
     REQUIRE(full.retained_changes.size() == thread_count * events_per_thread);
     CHECK(full.latest_sequence.value == full.retained_changes.size());
@@ -69,7 +68,6 @@ TEST_CASE("Editor asset profiler retains one ordered filtered change history",
 
     const auto delta = service.capture_delta_on_owner(full.session_id, {128});
     REQUIRE(delta);
-    CHECK(delta.value().schema_version == core::asset_profiler_snapshot_schema_version);
     CHECK(delta.value().changes.size() == full.retained_changes.size() - 128);
     CHECK(delta.value().changes.front().sequence.value == 129);
     CHECK_FALSE(delta.value().history_gap);

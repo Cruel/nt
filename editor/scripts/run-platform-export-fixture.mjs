@@ -12,7 +12,7 @@ const tool = path.join(
   editorRoot,
   'dist-electron',
   'tools',
-  'materialize-android-export-fixture.mjs',
+  'materialize-platform-export-fixture.mjs',
 );
 const forwardedArgs = process.argv.slice(2);
 const targetIndex = forwardedArgs.indexOf('--target');

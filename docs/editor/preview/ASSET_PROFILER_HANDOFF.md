@@ -21,7 +21,7 @@ the job executor, residency manager, request orchestrators, or recorder.
 
 ## Snapshot And Delta Contract
 
-`AssetProfilerSnapshot` is schema version `3`. It contains a nonzero session ID, latest sequence,
+`AssetProfilerSnapshot` uses the current unversioned profiler payload shape. It contains a nonzero session ID, latest sequence,
 session-relative capture timestamp, complete current/peak memory snapshot, cumulative user-facing
 outcomes, authoritative current asset inventory, inventory revision, retained sequence-ordered
 changes, earliest retained sequence, lost-change count, and `history_complete`.
@@ -129,7 +129,7 @@ strings; C++ ordinals are not wire values.
 The full payload has exactly these top-level keys:
 
 ```text
-kind, schemaVersion, sessionId, latestSequence, capturedAtNs, memory, outcomes, assets,
+kind, sessionId, latestSequence, capturedAtNs, memory, outcomes, assets,
 inventoryRevision, retainedChanges, earliestRetainedSequence, lostChangeCount, historyComplete
 ```
 

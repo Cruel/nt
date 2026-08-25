@@ -40,8 +40,8 @@
     "noveltea": "node scripts/run-noveltea-cli.mjs",
     "noveltea:build": "node scripts/build-noveltea-cli.mjs",
     "noveltea:certify": "node scripts/certify-noveltea-cli.mjs",
-    "android:fixture": "node scripts/run-android-fixture.mjs",
-    "web:fixture": "node scripts/run-android-fixture.mjs --target web",
+    "android:fixture": "node scripts/run-platform-export-fixture.mjs",
+    "web:fixture": "node scripts/run-platform-export-fixture.mjs --target web",
     "goldens:compiled-project": "vp pack && node dist-electron/tools/generate-compiled-project-goldens.mjs",
     "engine:preview:build": "node scripts/build-engine-preview.mjs",
     "engine:preview:clean": "node -e \"require('node:fs').rmSync('../build/web-editor-preview/apps/editor_preview',{recursive:true,force:true})\""
