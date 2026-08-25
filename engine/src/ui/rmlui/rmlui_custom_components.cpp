@@ -1,8 +1,8 @@
 #include "ui/rmlui/rmlui_custom_components.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <cmath>
+#include <locale>
 #include <sstream>
 
 #include <RmlUi/Core/Event.h>
@@ -35,9 +35,11 @@ RMLUI_RTTI_Define(NtActiveTextElement) RMLUI_RTTI_Define(NtMapViewElement)
 
     std::optional<double> parse_number(std::string_view value)
     {
+        std::istringstream stream{std::string(value)};
+        stream.imbue(std::locale::classic());
+        stream >> std::noskipws;
         double parsed = 0.0;
-        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
-        if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
+        if (!(stream >> parsed) || stream.peek() != std::char_traits<char>::eof() ||
             !std::isfinite(parsed))
             return std::nullopt;
         return parsed;

@@ -591,8 +591,20 @@ void RuntimeUI::State::install_shell_lua_api()
         return dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}});
     });
     lua_State* mount_lua_state = lua_state;
-    game.set_function("mount_context", [this,
-                                        mount_lua_state](sol::optional<std::string> document_id) {
+    const auto resolve_mount_context =
+        [this](const sol::table& mount) -> const RuntimeUiLayoutMountContext* {
+        const sol::optional<std::string> document_id = mount["document_id"];
+        const sol::optional<std::uint64_t> occurrence = mount["occurrence"];
+        if (!document_id || !occurrence)
+            return nullptr;
+        const auto found = layout_mount_contexts.find(*document_id);
+        if (found == layout_mount_contexts.end() ||
+            found->second.occurrence.number() != *occurrence)
+            return nullptr;
+        return &found->second;
+    };
+    game.set_function("mount_context", [this, mount_lua_state, resolve_mount_context](
+                                           sol::optional<std::string> document_id) {
         sol::state_view lua(mount_lua_state);
         const std::optional<std::string> selected =
             document_id ? std::optional<std::string>{*document_id} : active_layout_mount_document;
@@ -601,24 +613,31 @@ void RuntimeUI::State::install_shell_lua_api()
         const auto found = layout_mount_contexts.find(*selected);
         if (found == layout_mount_contexts.end())
             return sol::make_object(lua, sol::lua_nil);
-        const auto context = std::make_shared<const RuntimeUiLayoutMountContext>(found->second);
         sol::table mount = lua.create_table();
         mount["document_id"] = *selected;
-        mount["occurrence"] = context->occurrence.number();
+        mount["occurrence"] = found->second.occurrence.number();
         mount["null"] = mount_layout_state_null(lua);
-        mount.set_function("input", [context, mount_lua_state](sol::table, std::string name) {
+        mount.set_function(
+            "input", [resolve_mount_context, mount_lua_state](sol::table mount, std::string name) {
+                sol::state_view lua(mount_lua_state);
+                const auto* context = resolve_mount_context(mount);
+                if (!context)
+                    return sol::make_object(lua, sol::lua_nil);
+                auto id = core::LayoutInputId::create(std::move(name));
+                if (!id)
+                    return sol::make_object(lua, sol::lua_nil);
+                const auto input =
+                    std::find_if(context->inputs.begin(), context->inputs.end(),
+                                 [&](const auto& value) { return value.input == *id.value_if(); });
+                return input == context->inputs.end() ? sol::make_object(lua, sol::lua_nil)
+                                                      : mount_lua_value(lua, input->value);
+            });
+        mount.set_function("state", [resolve_mount_context,
+                                     mount_lua_state](sol::table mount, std::string scope_name) {
             sol::state_view lua(mount_lua_state);
-            auto id = core::LayoutInputId::create(std::move(name));
-            if (!id)
+            const auto* context = resolve_mount_context(mount);
+            if (!context)
                 return sol::make_object(lua, sol::lua_nil);
-            const auto input =
-                std::find_if(context->inputs.begin(), context->inputs.end(),
-                             [&](const auto& value) { return value.input == *id.value_if(); });
-            return input == context->inputs.end() ? sol::make_object(lua, sol::lua_nil)
-                                                  : mount_lua_value(lua, input->value);
-        });
-        mount.set_function("state", [context, mount_lua_state](sol::table, std::string scope_name) {
-            sol::state_view lua(mount_lua_state);
             const auto scope = mount_layout_state_scope(scope_name);
             if (!scope || !context->state_shape)
                 return sol::make_object(lua, sol::lua_nil);
@@ -629,8 +648,12 @@ void RuntimeUI::State::install_shell_lua_api()
                        ? sol::make_object(lua, sol::lua_nil)
                        : mount_persistable_lua_value(lua, *found->value);
         });
-        mount.set_function("commit_state", [this, context](sol::table, std::string scope_name,
-                                                           sol::object value) {
+        mount.set_function("commit_state", [this, resolve_mount_context](sol::table mount,
+                                                                         std::string scope_name,
+                                                                         sol::object value) {
+            const auto* context = resolve_mount_context(mount);
+            if (!context)
+                return false;
             const auto scope = mount_layout_state_scope(scope_name);
             if (!scope || !context->state_shape)
                 return false;
@@ -642,38 +665,46 @@ void RuntimeUI::State::install_shell_lua_api()
                 core::CommitLayoutStateInput{context->owner, context->key, context->occurrence,
                                              *scope, std::move(*converted)}});
         });
-        mount.set_function("clear_state", [this, context](sol::table, std::string scope_name) {
-            const auto scope = mount_layout_state_scope(scope_name);
-            return scope && context->state_shape &&
-                   dispatch_layout_typed_input(
-                       core::RuntimeInputMessage{core::ClearLayoutStateInput{
-                           context->owner, context->key, context->occurrence, *scope}});
-        });
-        mount.set_function("signal", [this, context](sol::table, std::string name,
-                                                     sol::optional<sol::table> payload) {
-            auto signal = core::LayoutSignalId::create(std::move(name));
-            if (!signal ||
-                std::find(context->connected_signals.begin(), context->connected_signals.end(),
-                          *signal.value_if()) == context->connected_signals.end())
-                return false;
-            std::vector<core::LayoutSignalFieldValue> fields;
-            if (payload) {
-                for (const auto& entry : *payload) {
-                    const sol::object key = entry.first;
-                    const sol::object value = entry.second;
-                    if (key.get_type() != sol::type::string)
-                        return false;
-                    auto field = core::LayoutSignalFieldId::create(key.as<std::string>());
-                    auto runtime_value = mount_runtime_value(value);
-                    if (!field || !runtime_value)
-                        return false;
-                    fields.push_back({std::move(*field.value_if()), std::move(*runtime_value)});
+        mount.set_function(
+            "clear_state", [this, resolve_mount_context](sol::table mount, std::string scope_name) {
+                const auto* context = resolve_mount_context(mount);
+                if (!context)
+                    return false;
+                const auto scope = mount_layout_state_scope(scope_name);
+                return scope && context->state_shape &&
+                       dispatch_layout_typed_input(
+                           core::RuntimeInputMessage{core::ClearLayoutStateInput{
+                               context->owner, context->key, context->occurrence, *scope}});
+            });
+        mount.set_function(
+            "signal", [this, resolve_mount_context](sol::table mount, std::string name,
+                                                    sol::optional<sol::table> payload) {
+                const auto* context = resolve_mount_context(mount);
+                if (!context)
+                    return false;
+                auto signal = core::LayoutSignalId::create(std::move(name));
+                if (!signal ||
+                    std::find(context->connected_signals.begin(), context->connected_signals.end(),
+                              *signal.value_if()) == context->connected_signals.end())
+                    return false;
+                std::vector<core::LayoutSignalFieldValue> fields;
+                if (payload) {
+                    for (const auto& entry : *payload) {
+                        const sol::object key = entry.first;
+                        const sol::object value = entry.second;
+                        if (key.get_type() != sol::type::string)
+                            return false;
+                        auto field = core::LayoutSignalFieldId::create(key.as<std::string>());
+                        auto runtime_value = mount_runtime_value(value);
+                        if (!field || !runtime_value)
+                            return false;
+                        fields.push_back({std::move(*field.value_if()), std::move(*runtime_value)});
+                    }
                 }
-            }
-            return dispatch_layout_typed_input(core::RuntimeInputMessage{
-                core::LayoutSignalInput{context->owner, context->key, context->occurrence,
-                                        std::move(*signal.value_if()), std::move(fields)}});
-        });
+                return dispatch_layout_typed_input(core::RuntimeInputMessage{
+                    core::LayoutSignalInput{context->owner, context->key, context->occurrence,
+                                            std::move(*signal.value_if()), std::move(fields)}});
+            });
         return sol::make_object(lua, std::move(mount));
     });
 
