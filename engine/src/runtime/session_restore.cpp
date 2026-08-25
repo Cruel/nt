@@ -407,22 +407,37 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_next_logical_timer_id = next_timer_id;
 
     std::uint64_t max_frame_id = 0;
+    std::size_t saved_frame_count = save.flow_stack.size();
     for (const auto& frame : save.flow_stack)
         max_frame_id = std::max(max_frame_id, saved_frame_number(frame));
-    if (save.flow_stack.size() >= std::numeric_limits<std::uint64_t>::max() - max_frame_id)
+    for (const auto& detached : save.detached_flows) {
+        saved_frame_count += detached.flow_stack.size();
+        for (const auto& frame : detached.flow_stack)
+            max_frame_id = std::max(max_frame_id, saved_frame_number(frame));
+    }
+    saved_frame_count += static_cast<std::size_t>(std::ranges::count_if(
+        save.execution_provenance,
+        [](const SavedExecutionProvenance& provenance) { return !provenance.active_frame; }));
+    if (saved_frame_count >= std::numeric_limits<std::uint64_t>::max() - max_frame_id)
         return Result<SessionState, Diagnostics>::failure(restore_error(
             "save_restore.handle_overflow", "Flow frame handles cannot be reconstructed."));
     std::unordered_map<std::uint64_t, FlowFrameId> frame_ids;
     std::uint64_t next_frame_id = max_frame_id + 1;
-    state->m_flow_stack.reserve(save.flow_stack.size());
-    for (const auto& saved_frame : save.flow_stack) {
-        const auto snapshot_id = saved_frame_number(saved_frame);
-        const auto live_id = next_frame_id++;
-        frame_ids.emplace(snapshot_id, FlowFrameId{live_id});
-        state->m_flow_stack.push_back(std::visit(
-            [live_id](const auto& frame) -> FlowFrame {
+    const auto allocate_stack_ids = [&](const std::vector<SavedFlowFrame>& stack) {
+        for (const auto& frame : stack)
+            frame_ids.emplace(saved_frame_number(frame), FlowFrameId{next_frame_id++});
+    };
+    allocate_stack_ids(save.flow_stack);
+    for (const auto& detached : save.detached_flows)
+        allocate_stack_ids(detached.flow_stack);
+
+    const auto restore_frame = [&](const SavedFlowFrame& saved_frame) -> FlowFrame {
+        const auto live = frame_ids.find(saved_frame_number(saved_frame));
+        assert(live != frame_ids.end());
+        const FlowFrameId id = live->second;
+        return std::visit(
+            [id](const auto& frame) -> FlowFrame {
                 using T = std::decay_t<decltype(frame)>;
-                const FlowFrameId id{live_id};
                 if constexpr (std::is_same_v<T, SavedSceneFrame>)
                     return SceneFrame{id,
                                       frame.scene,
@@ -453,57 +468,140 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
                                                frame.position,
                                                frame.destination};
             },
-            saved_frame));
-    }
-    for (std::size_t index = 0; index < save.flow_stack.size(); ++index) {
-        const auto* saved_scene = std::get_if<SavedSceneFrame>(&save.flow_stack[index]);
-        if (saved_scene == nullptr)
-            continue;
-        auto* scene = std::get_if<SceneFrame>(&state->m_flow_stack[index]);
-        if (scene == nullptr)
-            return Result<SessionState, Diagnostics>::failure(restore_error(
-                "save_restore.invalid_flow", "Saved Scene frame could not be reconstructed."));
-        if (saved_scene->dialogue_handoff) {
-            const auto dialogue =
-                frame_ids.find(saved_scene->dialogue_handoff->dialogue_frame.value);
-            if (dialogue == frame_ids.end())
-                return Result<SessionState, Diagnostics>::failure(
-                    restore_error("save_restore.invalid_flow",
-                                  "Saved Dialogue Handoff identity could not be reconstructed."));
-            scene->dialogue_handoff =
-                DialogueHandoffState{dialogue->second, saved_scene->dialogue_handoff->payload};
+            saved_frame);
+    };
+    const auto restore_stack = [&](const std::vector<SavedFlowFrame>& saved_stack,
+                                   FlowStack& stack) -> Result<void, Diagnostics> {
+        stack.clear();
+        stack.reserve(saved_stack.size());
+        for (const auto& saved_frame : saved_stack)
+            stack.push_back(restore_frame(saved_frame));
+        for (std::size_t index = 0; index < saved_stack.size(); ++index) {
+            const auto* saved_scene = std::get_if<SavedSceneFrame>(&saved_stack[index]);
+            if (saved_scene == nullptr)
+                continue;
+            auto* scene = std::get_if<SceneFrame>(&stack[index]);
+            if (scene == nullptr)
+                return Result<void, Diagnostics>::failure(restore_error(
+                    "save_restore.invalid_flow", "Saved Scene frame could not be reconstructed."));
+            if (saved_scene->dialogue_handoff) {
+                const auto dialogue =
+                    frame_ids.find(saved_scene->dialogue_handoff->dialogue_frame.value);
+                if (dialogue == frame_ids.end())
+                    return Result<void, Diagnostics>::failure(restore_error(
+                        "save_restore.invalid_flow",
+                        "Saved Dialogue Handoff identity could not be reconstructed."));
+                scene->dialogue_handoff =
+                    DialogueHandoffState{dialogue->second, saved_scene->dialogue_handoff->payload};
+            }
+            if (saved_scene->preserved_dialogue_caller) {
+                const auto caller = frame_ids.find(saved_scene->preserved_dialogue_caller->value);
+                if (caller == frame_ids.end())
+                    return Result<void, Diagnostics>::failure(restore_error(
+                        "save_restore.invalid_flow",
+                        "Saved preserved Dialogue caller could not be reconstructed."));
+                scene->preserved_dialogue_caller = caller->second;
+            }
         }
-        if (saved_scene->preserved_dialogue_caller) {
-            const auto caller = frame_ids.find(saved_scene->preserved_dialogue_caller->value);
-            if (caller == frame_ids.end())
-                return Result<SessionState, Diagnostics>::failure(
-                    restore_error("save_restore.invalid_flow",
-                                  "Saved preserved Dialogue caller could not be reconstructed."));
-            scene->preserved_dialogue_caller = caller->second;
-        }
-    }
-    state->m_next_frame_id = next_frame_id;
+        return Result<void, Diagnostics>::success();
+    };
+
+    auto foreground_stack = restore_stack(save.flow_stack, state->m_flow_stack);
+    if (!foreground_stack)
+        return Result<SessionState, Diagnostics>::failure(foreground_stack.error());
     state->m_next_blocker_handle = 1;
-    if (save.blocker) {
+    const auto restore_blocker = [&](const std::optional<SavedFlowBlocker>& saved_blocker)
+        -> Result<std::optional<FlowBlocker>, Diagnostics> {
+        if (!saved_blocker)
+            return Result<std::optional<FlowBlocker>, Diagnostics>::success(std::nullopt);
         const auto owner_snapshot =
-            std::visit([](const auto& blocker) { return blocker.owner.value; }, *save.blocker);
+            std::visit([](const auto& blocker) { return blocker.owner.value; }, *saved_blocker);
         const auto owner = frame_ids.find(owner_snapshot);
         if (owner == frame_ids.end())
-            return Result<SessionState, Diagnostics>::failure(restore_error(
+            return Result<std::optional<FlowBlocker>, Diagnostics>::failure(restore_error(
                 "save_restore.invalid_blocker", "Saved blocker owner could not be reconstructed."));
         const FlowFrameId owner_id = owner->second;
-        state->m_blocker = std::visit(
-            [owner_id](const auto& blocker) -> FlowBlocker {
+        const auto handle = state->m_next_blocker_handle++;
+        return Result<std::optional<FlowBlocker>, Diagnostics>::success(std::visit(
+            [owner_id, handle](const auto& blocker) -> FlowBlocker {
                 using T = std::decay_t<decltype(blocker)>;
                 if constexpr (std::is_same_v<T, SavedInputBlocker>)
-                    return InputFlowBlocker{owner_id, InputFlowBlockerHandle{1}};
+                    return InputFlowBlocker{owner_id, InputFlowBlockerHandle{handle}};
                 else
-                    return DurationFlowBlocker{owner_id, DurationFlowBlockerHandle{1},
+                    return DurationFlowBlocker{owner_id, DurationFlowBlockerHandle{handle},
                                                blocker.remaining};
             },
-            *save.blocker);
-        state->m_next_blocker_handle = 2;
+            *saved_blocker));
+    };
+    auto foreground_blocker = restore_blocker(save.blocker);
+    if (!foreground_blocker)
+        return Result<SessionState, Diagnostics>::failure(foreground_blocker.error());
+    state->m_blocker = std::move(*foreground_blocker.value_if());
+
+    state->m_detached_flow_executions.clear();
+    state->m_detached_flow_executions.reserve(save.detached_flows.size());
+    for (const auto& saved_detached : save.detached_flows) {
+        FlowStack stack;
+        auto restored_stack = restore_stack(saved_detached.flow_stack, stack);
+        if (!restored_stack)
+            return Result<SessionState, Diagnostics>::failure(restored_stack.error());
+        auto blocker = restore_blocker(saved_detached.blocker);
+        if (!blocker)
+            return Result<SessionState, Diagnostics>::failure(blocker.error());
+        std::optional<FlowFrameId> flow_owner;
+        if (saved_detached.flow_owner) {
+            const auto owner = frame_ids.find(saved_detached.flow_owner->value);
+            if (owner == frame_ids.end())
+                return Result<SessionState, Diagnostics>::failure(
+                    restore_error("save_restore.invalid_detached_owner",
+                                  "Detached Flow owner could not be reconstructed."));
+            flow_owner = owner->second;
+        }
+        state->m_detached_flow_executions.push_back(DetachedFlowExecution{
+            saved_detached.owner, flow_owner, saved_detached.room_entry_sequence,
+            FlowExecutionContext{FlowMode{}, std::move(stack), std::move(*blocker.value_if()),
+                                 std::nullopt, false, true}});
     }
+
+    std::unordered_map<std::uint64_t, FlowFrameId> provenance_ids;
+    provenance_ids.reserve(save.execution_provenance.size());
+    for (const auto& saved_provenance : save.execution_provenance) {
+        if (saved_provenance.active_frame) {
+            const auto active = frame_ids.find(saved_provenance.active_frame->value);
+            if (active == frame_ids.end())
+                return Result<SessionState, Diagnostics>::failure(
+                    restore_error("save_restore.invalid_execution_provenance",
+                                  "Execution Provenance active frame could not be reconstructed."));
+            provenance_ids.emplace(saved_provenance.id, active->second);
+        } else {
+            provenance_ids.emplace(saved_provenance.id, FlowFrameId{next_frame_id++});
+        }
+    }
+    state->m_execution_provenance.clear();
+    state->m_execution_provenance.reserve(save.execution_provenance.size());
+    for (const auto& saved_provenance : save.execution_provenance) {
+        const auto frame = provenance_ids.find(saved_provenance.id);
+        const auto root = provenance_ids.find(saved_provenance.root);
+        const auto parent = saved_provenance.parent ? provenance_ids.find(*saved_provenance.parent)
+                                                    : provenance_ids.end();
+        const auto source = saved_provenance.source ? provenance_ids.find(*saved_provenance.source)
+                                                    : provenance_ids.end();
+        if (frame == provenance_ids.end() || root == provenance_ids.end() ||
+            (saved_provenance.parent && parent == provenance_ids.end()) ||
+            (saved_provenance.source && source == provenance_ids.end()))
+            return Result<SessionState, Diagnostics>::failure(
+                restore_error("save_restore.invalid_execution_provenance",
+                              "Execution Provenance causal identity could not be reconstructed."));
+        state->m_execution_provenance.push_back(ExecutionProvenance{
+            frame->second,
+            saved_provenance.parent ? std::optional{parent->second} : std::nullopt,
+            root->second,
+            saved_provenance.relationship,
+            saved_provenance.source ? std::optional{source->second} : std::nullopt,
+            saved_provenance.state,
+        });
+    }
+    state->m_next_frame_id = next_frame_id;
 
     state->m_background_overrides.clear();
     state->m_camera_views.clear();
@@ -685,43 +783,54 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     // Layout mount occurrences are session-local identities. A saved Scene Layout Signal wait
     // names the exact occurrence that existed at capture time; after reconstructing mounts, rebind
     // that semantic wait to the freshly allocated occurrence for the same stable owner and slot.
-    for (auto& flow_frame : state->m_flow_stack) {
-        auto* scene = std::get_if<SceneFrame>(&flow_frame);
-        if (scene == nullptr)
-            continue;
-        auto* completion =
-            std::get_if<SceneInstructionCompletionPosition>(&scene->position.substate);
-        auto* wait = completion && completion->semantic_wait
-                         ? std::get_if<SceneLayoutSignalWaitTarget>(&*completion->semantic_wait)
-                         : nullptr;
-        if (wait == nullptr)
-            continue;
-        std::optional<PresentationOwner> owner;
-        switch (wait->owner) {
-        case compiled::ScenePresentationOwner::Invocation:
-            owner = ScenePresentationOwner{scene->frame_id, scene->scene};
-            break;
-        case compiled::ScenePresentationOwner::ActiveRoom:
-            owner = state->current_room_presentation_owner();
-            break;
-        case compiled::ScenePresentationOwner::RuntimeSession:
-            owner = state->session_presentation_owner();
-            break;
+    const auto rebind_layout_signal_waits = [&](FlowStack& stack) -> Result<void, Diagnostics> {
+        for (auto& flow_frame : stack) {
+            auto* scene = std::get_if<SceneFrame>(&flow_frame);
+            if (scene == nullptr)
+                continue;
+            auto* completion =
+                std::get_if<SceneInstructionCompletionPosition>(&scene->position.substate);
+            auto* wait = completion && completion->semantic_wait
+                             ? std::get_if<SceneLayoutSignalWaitTarget>(&*completion->semantic_wait)
+                             : nullptr;
+            if (wait == nullptr)
+                continue;
+            std::optional<PresentationOwner> owner;
+            switch (wait->owner) {
+            case compiled::ScenePresentationOwner::Invocation:
+                owner = ScenePresentationOwner{scene->frame_id, scene->scene};
+                break;
+            case compiled::ScenePresentationOwner::ActiveRoom:
+                owner = state->current_room_presentation_owner();
+                break;
+            case compiled::ScenePresentationOwner::RuntimeSession:
+                owner = state->session_presentation_owner();
+                break;
+            }
+            if (!owner)
+                return Result<void, Diagnostics>::failure(restore_error(
+                    "save_restore.scene_layout_signal_owner_missing",
+                    "Saved Scene Layout Signal wait owner could not be reconstructed."));
+            const MountedLayoutPresentationKey key = ReservedLayoutMountKey{wait->slot};
+            const auto mounted = std::ranges::find_if(
+                state->m_mounted_layouts, [&](const DesiredMountedLayout& item) {
+                    return item.owner == *owner && item.key == key;
+                });
+            if (mounted == state->m_mounted_layouts.end() || !mounted->occurrence)
+                return Result<void, Diagnostics>::failure(restore_error(
+                    "save_restore.scene_layout_signal_mount_missing",
+                    "Saved Scene Layout Signal wait mount could not be reconstructed."));
+            wait->occurrence = mounted->occurrence->number();
         }
-        if (!owner)
-            return Result<SessionState, Diagnostics>::failure(
-                restore_error("save_restore.scene_layout_signal_owner_missing",
-                              "Saved Scene Layout Signal wait owner could not be reconstructed."));
-        const MountedLayoutPresentationKey key = ReservedLayoutMountKey{wait->slot};
-        const auto mounted =
-            std::ranges::find_if(state->m_mounted_layouts, [&](const DesiredMountedLayout& item) {
-                return item.owner == *owner && item.key == key;
-            });
-        if (mounted == state->m_mounted_layouts.end() || !mounted->occurrence)
-            return Result<SessionState, Diagnostics>::failure(
-                restore_error("save_restore.scene_layout_signal_mount_missing",
-                              "Saved Scene Layout Signal wait mount could not be reconstructed."));
-        wait->occurrence = mounted->occurrence->number();
+        return Result<void, Diagnostics>::success();
+    };
+    auto foreground_waits = rebind_layout_signal_waits(state->m_flow_stack);
+    if (!foreground_waits)
+        return Result<SessionState, Diagnostics>::failure(foreground_waits.error());
+    for (auto& detached : state->m_detached_flow_executions) {
+        auto waits = rebind_layout_signal_waits(detached.context.flow_stack);
+        if (!waits)
+            return Result<SessionState, Diagnostics>::failure(waits.error());
     }
 
     for (const auto& saved : save.postprocess_effects) {

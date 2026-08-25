@@ -621,7 +621,6 @@ void RuntimePreviewController::stop_all_preview_audio(float fade_seconds)
 std::string RuntimePreviewController::fast_forward_to_input()
 {
     constexpr int max_steps = 800;
-    constexpr double tick_seconds = 1.0 / 60.0;
     int applied = 0;
     std::string reason = "stabilization-limit";
     for (; applied < max_steps; ++applied) {
@@ -669,12 +668,7 @@ std::string RuntimePreviewController::fast_forward_to_input()
             reason = "action-available";
             break;
         }
-        if (view->can_continue) {
-            if (!continue_dialogue()) {
-                reason = "error";
-                break;
-            }
-        } else if (!step(tick_seconds)) {
+        if (!m_preview_host->dispatch(core::RuntimeInputMessage{core::FastForwardInput{}})) {
             reason = view->mode == "ended" ? "game-end" : "explicit-input";
             break;
         }

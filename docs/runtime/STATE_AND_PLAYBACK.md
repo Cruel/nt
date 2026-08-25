@@ -165,6 +165,22 @@ Reconstructible desired actor idles, environment loops, Layouts, validated Layou
 desired audio remain checkpoint-safe; backend transition progress, tween progress, audio voices,
 decoder positions, arbitrary Lua tables, and RmlUi state are never runtime checkpoint facts.
 
+Detached Scene execution is part of `SessionState`, not a RuntimeSession side channel. A detached
+branch may therefore participate in a checkpoint when its Flow stack is reconstructible: input and
+duration waits are saved as logical blockers, while causal presentation/audio blockers, execution in
+progress, faulted branches, and opaque script suspension reject candidate projection. Save/restore
+uses one frame-identity mapping across foreground and detached stacks so handoffs, Flow-owned
+presentation, Layout State ownership, and detached Flow ownership remain exact after fresh runtime
+IDs are allocated. Active-Room-owned detached branches additionally retain the Room entry sequence
+that bounds their lifetime.
+
+The same checkpoint carries engine-generated Execution Provenance for active and historical Flow
+invocations. Provenance stores causal parent/root/source relationships, the relationship kind, and
+lifecycle state while referring to active saved Flow frames only where one still exists. Restore
+recreates historical identities as fresh runtime IDs and reconnects the graph without rerunning
+completed Events, Dialogue cues, lifecycle hooks, or detached work. Authored and compiled Project
+documents contain no provenance fields.
+
 Save/load requests travel through `SaveRuntimeInput` and `LoadRuntimeInput`. Unsupported or unsafe
 save points return typed outcomes/diagnostics. `SaveDocument` and controller checkpoint JSON no
 longer exist.
@@ -191,6 +207,14 @@ Supported commands include lifecycle/time, continue, stable dialogue/scene choic
 interactable selection, typed interaction invocation, and declared debug state changes. Unsupported
 selector clicks, index-only ambiguous targets, arbitrary playback Lua, and old assertion forms fail
 validation rather than taking a compatibility path.
+
+`FastForwardInput` is also a semantic Runtime Session input. It advances Scene/Dialogue semantic work
+in order, crosses cues once, suppresses skipped disposable one-shots, and settles authored skippable
+waits. It returns unhandled at genuine player/control barriers rather than fabricating a choice,
+navigation decision, operation completion, or script result. Interactive preview first snaps any
+already-active skippable finite presentation through the coordinator and feeds the resulting exact
+completion input back through RuntimeSession, then continues with `FastForwardInput`; recorder and
+headless tests therefore remain on the same semantic input/publication seam.
 
 Recorder begin/end/clear/undo/replay are typed session inputs. Replayed steps therefore exercise the
 same runtime state machine as live actions.

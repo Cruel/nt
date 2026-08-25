@@ -151,7 +151,8 @@ public:
     cancel_script(const core::FlowFrameId& owner, const core::ScriptInvocationHandle& invocation);
 
     [[nodiscard]] core::FlowRunOutcome run_until_blocked(std::size_t instruction_budget,
-                                                         std::string_view runtime_locale = {});
+                                                         std::string_view runtime_locale = {},
+                                                         bool fast_forward = false);
     void bind_scene_event_dependency_checker(
         std::function<bool(const core::FlowFrameId&, const core::SceneId&,
                            const core::SceneStepId&)>

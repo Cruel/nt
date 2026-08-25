@@ -84,10 +84,10 @@ cannot capture exclusive player input, yield Lua, await foreground presentation/
 handoff into foreground-only Dialogue/terminal control. Active-Room ownership additionally requires a
 Current Room. Flow-owned work is cancelled when its initiating Flow ends; Active-Room work is cancelled
 when that Room visit ends; Runtime-Session work lives until session termination. Detached launches
-share the runtime command budget and deterministic ordering rules. Checkpoint promotion is deferred
-while detached work is live until the later detached restoration/provenance contract can persist that
-work without loss. Broader presentation/audio lifetime orchestration remains governed by the subsystem
-ownership contracts described in the later Scene orchestration work.
+share the runtime command budget and deterministic ordering rules. Reconstructible detached work is
+checkpointed with its Flow stack, logical blocker, owner, and Execution Provenance; active causal
+presentation/audio work and suspended Lua remain checkpoint barriers. Broader presentation/audio
+lifetime orchestration remains governed by the subsystem ownership contracts described below.
 
 ## Invocation Stage
 
@@ -200,6 +200,16 @@ supersedes only that background, actor key, or mounted Layout key; different act
 may remain active concurrently. Skip, reset, owner termination, or project reload discards transient
 realization and leaves the already-published target authoritative.
 
+Fast-forward is a semantic runtime operation rather than accelerated wall-clock playback. It crosses
+Scene Events in authored order, applies gameplay/world mutations exactly once, resolves Scene Text
+without waiting for reveal/input, settles skippable logical waits and finite presentation at their
+already-published target, and suppresses one-shot audio whose skip policy says not to play. It stops
+at choices, non-skippable waits, non-skippable finite operations, opaque/suspended Lua, and other
+causal work that cannot be settled without an external completion. Preview uses the same runtime
+input after first asking the presentation coordinator to snap any already-active skippable finite
+operation and dispatch its exact terminal acknowledgement; it does not simulate skipping by issuing
+fixed-rate ticks.
+
 ## Authoring, compiled, and state disposition
 
 - **Authoring:** collection-specific Scene record with typed inputs and Outcomes, one explicit Stage,
@@ -208,15 +218,36 @@ realization and leaves the already-published target authoritative.
 - **Compiled:** immutable `SceneDefinition` plus `SceneProgram.events`; each compiled Event wraps one
   typed instruction with its stable ID, timeline metadata, and completion dependencies.
 - **Mutable:** Scene `FlowFrame`, Stage initialization, actor/presentation state, logical waits,
-  optional exact Dialogue handoff/retained-UI identity, and invocation-local execution data in
-  `SessionState`; the Scene definition itself has no
-  Property/Trait state.
+  optional exact Dialogue handoff/retained-UI identity, detached Flow contexts, engine-owned
+  Execution Provenance, and invocation-local execution data in `SessionState`; the Scene definition
+  itself has no Property/Trait state.
 - **Tooling only:** comments, selected Event, scrub position/playback state, categories, tags, colors,
   and sort keys. Authored track/start/duration values are contract data, not editor-only annotations.
 
 Conditions and Lua text expressions are synchronous. RunLua may yield through an engine-owned handle
 bound to the Scene frame. Lua coroutine state is never saved. Autosaves occur only at compiler-marked
 safe points.
+
+Execution Provenance is generated only by the runtime. Every active or historical Flow invocation has
+a runtime identity plus parent, causal root, relationship (`root`, `call`, `continue`, `detached`,
+`interaction`, or `navigation`), optional source identity, and lifecycle state. Authors and compiled
+Project data cannot provide or override those identities. A child call suspends its caller; return
+completes the child and resumes the caller; Continue/Replace completes the replaced invocation while
+retaining it as the causal source and inheriting its parent/root; detached work records its initiating
+source without becoming foreground control.
+
+Scene failure is fail-stop at the current Event: the cursor is not advanced and already-committed
+earlier Events remain committed. Awaited child/operation failures propagate through the owning Flow.
+A detached failure marks that detached invocation failed and removes only that branch; it does not
+fault or rewind the foreground Flow. Cancellation records cancellation rather than manufacturing a
+successful return Outcome.
+
+Checkpoint projection includes reconstructible detached Flow stacks, logical input/duration blockers,
+Scene/Dialogue cursors and handoffs, invocation-owned desired presentation, and Execution Provenance.
+Frame and provenance identities are remapped atomically during restore while preserving causal
+relationships. Active finite presentation/audio operations and suspended Lua remain checkpoint
+barriers; decoder/backend progress is never serialized. Completed safe-point Events and Dialogue
+Handoffs request deferred autosave only after their semantic state is committed.
 
 ## Authoring implementation
 

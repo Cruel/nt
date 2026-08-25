@@ -132,6 +132,12 @@ to fresh runtime frame IDs and rejects stale or incoherent relations. If the awa
 returns, or tail-replaces instead of resuming the Dialogue, the suspended Dialogue is discarded with
 that handled path so it cannot become unreachable live Flow state.
 
+A successful Handoff is also an eligible semantic checkpoint boundary. The Dialogue cursor advances
+once before control is transferred, the exact Dialogue and awaiting Scene identities remain linked in
+engine-owned Execution Provenance, and deferred autosave is requested only after that relationship is
+committed. Cancellation/discard records the Dialogue invocation as cancelled rather than synthesizing
+a successful Dialogue or Scene Outcome.
+
 Autosave after a line or choice occurs after its effects complete and only at the resulting
 compiler-marked safe point.
 

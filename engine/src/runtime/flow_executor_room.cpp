@@ -94,6 +94,7 @@ Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
                                                           *source_context,
                                                           {RoomTransitionStage::SourceCanLeave, 0},
                                                           NoReturnDestination{}});
+    record_execution_provenance(id, ExecutionRelationship::Navigation);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
@@ -127,8 +128,10 @@ Result<void, Diagnostics> FlowExecutor::call_navigation(const RoomId& target,
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
 
+    const auto caller = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+    set_execution_state(caller, ExecutionState::Suspended);
     ++m_state.m_next_frame_id;
     m_state.m_flow_stack.emplace_back(RoomTransitionFrame{id,
                                                           source_context->room,
@@ -139,6 +142,7 @@ Result<void, Diagnostics> FlowExecutor::call_navigation(const RoomId& target,
                                                           *source_context,
                                                           {RoomTransitionStage::SourceCanLeave, 0},
                                                           CallerDestination{}});
+    record_execution_provenance(id, ExecutionRelationship::Navigation, caller);
     return Result<void, Diagnostics>::success();
 }
 
@@ -167,8 +171,10 @@ FlowExecutor::call_directed_room_change(const RoomId& target,
 
     const auto first_stage =
         source ? RoomTransitionStage::SourceCanLeave : RoomTransitionStage::TargetCanEnter;
+    const auto caller = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+    set_execution_state(caller, ExecutionState::Suspended);
     ++m_state.m_next_frame_id;
     m_state.m_flow_stack.emplace_back(RoomTransitionFrame{id,
                                                           source,
@@ -179,6 +185,7 @@ FlowExecutor::call_directed_room_change(const RoomId& target,
                                                           source_context,
                                                           {first_stage, 0},
                                                           CallerDestination{}});
+    record_execution_provenance(id, ExecutionRelationship::Navigation, caller);
     return Result<void, Diagnostics>::success();
 }
 
@@ -260,7 +267,11 @@ Result<void, Diagnostics> FlowExecutor::reject_room_transition()
             return fail(execution_error("execution.invalid_return",
                                         "Room transition caller destination requires a caller"));
         clear_blocker_for(transition->frame_id);
+        set_execution_state(flow_frame_id(m_state.m_flow_stack.back()), ExecutionState::Completed);
         m_state.m_flow_stack.pop_back();
+        if (!m_state.m_flow_stack.empty())
+            set_execution_state(flow_frame_id(m_state.m_flow_stack.back()),
+                                ExecutionState::Running);
         return Result<void, Diagnostics>::success();
     }
     m_state.m_flow_stack.clear();
@@ -285,7 +296,11 @@ Result<void, Diagnostics> FlowExecutor::complete_room_transition()
             return fail(execution_error("execution.invalid_return",
                                         "Room transition caller destination requires a caller"));
         clear_blocker_for(transition->frame_id);
+        set_execution_state(flow_frame_id(m_state.m_flow_stack.back()), ExecutionState::Completed);
         m_state.m_flow_stack.pop_back();
+        if (!m_state.m_flow_stack.empty())
+            set_execution_state(flow_frame_id(m_state.m_flow_stack.back()),
+                                ExecutionState::Running);
         return Result<void, Diagnostics>::success();
     }
     m_state.m_flow_stack.clear();

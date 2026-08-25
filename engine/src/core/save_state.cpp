@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <type_traits>
+#include <unordered_map>
 
 namespace noveltea::core {
 namespace {
@@ -11,33 +12,33 @@ void add_preflight_error(Diagnostics& diagnostics, std::string code, std::string
     diagnostics.push_back(Diagnostic{.code = std::move(code), .message = std::move(message)});
 }
 
-std::optional<SavedFlowFrameId> saved_owner(const FlowStack& stack,
+using SavedFrameMap = std::unordered_map<std::uint64_t, SavedFlowFrameId>;
+
+std::optional<SavedFlowFrameId> saved_owner(const SavedFrameMap& frame_ids,
                                             const FlowFrameId& owner) noexcept
 {
-    for (std::size_t index = 0; index < stack.size(); ++index) {
-        if (flow_frame_id(stack[index]) == owner)
-            return SavedFlowFrameId{index + 1};
-    }
-    return std::nullopt;
+    const auto found = frame_ids.find(owner.number());
+    return found == frame_ids.end() ? std::nullopt : std::optional{found->second};
 }
 
-SavedFlowFrame save_frame(const FlowStack& stack, const FlowFrame& frame, std::size_t index)
+SavedFlowFrame save_frame(const SavedFrameMap& frame_ids, const FlowFrame& frame,
+                          SavedFlowFrameId snapshot_id)
 {
-    const SavedFlowFrameId snapshot_id{index + 1};
     return std::visit(
-        [&stack, snapshot_id](const auto& value) -> SavedFlowFrame {
+        [&frame_ids, snapshot_id](const auto& value) -> SavedFlowFrame {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, SceneFrame>) {
                 std::optional<SavedDialogueHandoffState> handoff;
                 if (value.dialogue_handoff) {
                     if (const auto dialogue =
-                            saved_owner(stack, value.dialogue_handoff->dialogue_frame))
+                            saved_owner(frame_ids, value.dialogue_handoff->dialogue_frame))
                         handoff =
                             SavedDialogueHandoffState{*dialogue, value.dialogue_handoff->payload};
                 }
-                const auto preserved = value.preserved_dialogue_caller
-                                           ? saved_owner(stack, *value.preserved_dialogue_caller)
-                                           : std::nullopt;
+                const auto preserved =
+                    value.preserved_dialogue_caller
+                        ? saved_owner(frame_ids, *value.preserved_dialogue_caller)
+                        : std::nullopt;
                 return SavedSceneFrame{snapshot_id,        value.scene,  value.position,
                                        value.destination,  value.inputs, value.last_child_outcome,
                                        std::move(handoff), preserved};
@@ -56,15 +57,45 @@ SavedFlowFrame save_frame(const FlowStack& stack, const FlowFrame& frame, std::s
         frame);
 }
 
+Result<std::optional<SavedFlowBlocker>, Diagnostics>
+save_blocker(const SavedFrameMap& frame_ids, const std::optional<FlowBlocker>& blocker)
+{
+    if (!blocker)
+        return Result<std::optional<SavedFlowBlocker>, Diagnostics>::success(std::nullopt);
+    const auto owner = saved_owner(frame_ids, flow_blocker_owner(*blocker));
+    if (!owner)
+        return Result<std::optional<SavedFlowBlocker>, Diagnostics>::failure(Diagnostics{
+            Diagnostic{.code = "save.invalid_blocker_owner",
+                       .message = "The active blocker is not owned by a saved flow frame"}});
+    if (std::holds_alternative<InputFlowBlocker>(*blocker))
+        return Result<std::optional<SavedFlowBlocker>, Diagnostics>::success(
+            SavedFlowBlocker{SavedInputBlocker{*owner}});
+    if (const auto* duration = std::get_if<DurationFlowBlocker>(&*blocker))
+        return Result<std::optional<SavedFlowBlocker>, Diagnostics>::success(
+            SavedFlowBlocker{SavedDurationBlocker{*owner, duration->remaining}});
+    if (std::holds_alternative<PresentationFlowBlocker>(*blocker))
+        return Result<std::optional<SavedFlowBlocker>, Diagnostics>::failure(Diagnostics{
+            Diagnostic{.code = "save.presentation_blocker_active",
+                       .message = "An active presentation operation is not serializable"}});
+    if (std::holds_alternative<AudioFlowBlocker>(*blocker))
+        return Result<std::optional<SavedFlowBlocker>, Diagnostics>::failure(
+            Diagnostics{Diagnostic{.code = "save.audio_blocker_active",
+                                   .message = "An active audio operation is not serializable"}});
+    return Result<std::optional<SavedFlowBlocker>, Diagnostics>::failure(
+        Diagnostics{Diagnostic{.code = "save.opaque_script_suspension",
+                               .message = "Opaque Lua coroutine suspension is not serializable"}});
+}
+
 Result<std::optional<SavedPresentationOwner>, Diagnostics>
-save_presentation_owner(const SessionState& session, const PresentationOwner& owner)
+save_presentation_owner(const SessionState& session, const SavedFrameMap& frame_ids,
+                        const PresentationOwner& owner)
 {
     return std::visit(
-        [&session](
+        [&session, &frame_ids](
             const auto& value) -> Result<std::optional<SavedPresentationOwner>, Diagnostics> {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, ScenePresentationOwner>) {
-                const auto invocation = saved_owner(session.flow_stack(), value.invocation);
+                const auto invocation = saved_owner(frame_ids, value.invocation);
                 if (!invocation)
                     return Result<std::optional<SavedPresentationOwner>, Diagnostics>::failure(
                         Diagnostics{Diagnostic{
@@ -73,7 +104,7 @@ save_presentation_owner(const SessionState& session, const PresentationOwner& ow
                 return Result<std::optional<SavedPresentationOwner>, Diagnostics>::success(
                     SavedPresentationOwner{SavedScenePresentationOwner{*invocation, value.scene}});
             } else if constexpr (std::is_same_v<T, DialoguePresentationOwner>) {
-                const auto invocation = saved_owner(session.flow_stack(), value.invocation);
+                const auto invocation = saved_owner(frame_ids, value.invocation);
                 if (!invocation)
                     return Result<std::optional<SavedPresentationOwner>, Diagnostics>::failure(
                         Diagnostics{Diagnostic{
@@ -110,14 +141,14 @@ save_presentation_owner(const SessionState& session, const PresentationOwner& ow
         owner);
 }
 
-Result<SavedActorPresentationKey, Diagnostics> save_actor_key(const SessionState& session,
+Result<SavedActorPresentationKey, Diagnostics> save_actor_key(const SavedFrameMap& frame_ids,
                                                               const ActorPresentationKey& key)
 {
     return std::visit(
-        [&session](const auto& value) -> Result<SavedActorPresentationKey, Diagnostics> {
+        [&frame_ids](const auto& value) -> Result<SavedActorPresentationKey, Diagnostics> {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, SceneActorKey>) {
-                const auto invocation = saved_owner(session.flow_stack(), value.owner.invocation);
+                const auto invocation = saved_owner(frame_ids, value.owner.invocation);
                 if (!invocation)
                     return Result<SavedActorPresentationKey, Diagnostics>::failure(Diagnostics{
                         Diagnostic{.code = "save.invalid_actor_owner",
@@ -132,7 +163,7 @@ Result<SavedActorPresentationKey, Diagnostics> save_actor_key(const SessionState
 }
 
 Result<SavedMaterialOccurrence, Diagnostics>
-save_material_occurrence(const SessionState& session, const MaterialOccurrence& occurrence)
+save_material_occurrence(const SavedFrameMap& frame_ids, const MaterialOccurrence& occurrence)
 {
     return std::visit(
         [&](const auto& value) -> Result<SavedMaterialOccurrence, Diagnostics> {
@@ -141,7 +172,7 @@ save_material_occurrence(const SessionState& session, const MaterialOccurrence& 
                 return Result<SavedMaterialOccurrence, Diagnostics>::success(
                     SavedBackgroundMaterialOccurrence{});
             else if constexpr (std::is_same_v<T, ActorMaterialOccurrence>) {
-                auto key = save_actor_key(session, value.key);
+                auto key = save_actor_key(frame_ids, value.key);
                 if (!key)
                     return Result<SavedMaterialOccurrence, Diagnostics>::failure(key.error());
                 return Result<SavedMaterialOccurrence, Diagnostics>::success(
@@ -204,8 +235,35 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
     if (session.m_blocker && std::holds_alternative<ScriptFlowBlocker>(*session.m_blocker))
         add_preflight_error(diagnostics, "save.opaque_script_suspension",
                             "Opaque Lua coroutine suspension is not serializable");
+    for (const auto& detached : session.m_detached_flow_executions) {
+        if (detached.context.execution_fault)
+            add_preflight_error(diagnostics, "save.detached_execution_fault",
+                                "A faulted detached Flow cannot be saved");
+        if (detached.context.running)
+            add_preflight_error(diagnostics, "save.detached_execution_in_progress",
+                                "A detached Flow cannot be saved while it is executing");
+        if (detached.context.blocker &&
+            std::holds_alternative<ScriptFlowBlocker>(*detached.context.blocker))
+            add_preflight_error(diagnostics, "save.opaque_detached_script_suspension",
+                                "Detached Lua coroutine suspension is not serializable");
+        if (detached.context.blocker &&
+            (std::holds_alternative<PresentationFlowBlocker>(*detached.context.blocker) ||
+             std::holds_alternative<AudioFlowBlocker>(*detached.context.blocker)))
+            add_preflight_error(diagnostics, "save.detached_causal_operation_active",
+                                "Detached causal presentation/audio work is not reconstructible");
+    }
     if (!diagnostics.empty())
         return Result<SaveState, Diagnostics>::failure(std::move(diagnostics));
+
+    SavedFrameMap frame_ids;
+    std::uint64_t next_snapshot_id = 1;
+    const auto register_stack = [&](const FlowStack& stack) {
+        for (const auto& frame : stack)
+            frame_ids.emplace(flow_frame_id(frame).number(), SavedFlowFrameId{next_snapshot_id++});
+    };
+    register_stack(session.m_flow_stack);
+    for (const auto& detached : session.m_detached_flow_executions)
+        register_stack(detached.context.flow_stack);
 
     SaveState save{
         .metadata = {.project = project.identity().id,
@@ -245,6 +303,8 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .mode = session.m_mode,
         .flow_stack = {},
         .blocker = std::nullopt,
+        .detached_flows = {},
+        .execution_provenance = {},
     };
 
     save.runtime_rooms.reserve(session.m_runtime_rooms.size());
@@ -288,12 +348,12 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         save.pending_timer_completions.push_back(
             SavedLogicalTimerCompletion{{completion.id.number()}, completion.occurrences});
     save.flow_stack.reserve(session.m_flow_stack.size());
-    for (std::size_t index = 0; index < session.m_flow_stack.size(); ++index)
+    for (const auto& frame : session.m_flow_stack)
         save.flow_stack.push_back(
-            save_frame(session.m_flow_stack, session.m_flow_stack[index], index));
+            save_frame(frame_ids, frame, *saved_owner(frame_ids, flow_frame_id(frame))));
 
     for (const auto& background : session.m_background_overrides) {
-        auto owner = save_presentation_owner(session, background.owner);
+        auto owner = save_presentation_owner(session, frame_ids, background.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
@@ -301,19 +361,19 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 SavedBackgroundOverride{**owner.value_if(), background.background});
     }
     for (const auto& camera : session.m_camera_views) {
-        auto owner = save_presentation_owner(session, camera.owner);
+        auto owner = save_presentation_owner(session, frame_ids, camera.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
             save.camera_views.push_back(SavedCameraView{**owner.value_if(), camera.view});
     }
     for (const auto& actor : session.m_actors) {
-        auto owner = save_presentation_owner(session, actor.owner);
+        auto owner = save_presentation_owner(session, frame_ids, actor.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (!*owner.value_if())
             continue;
-        auto key = save_actor_key(session, actor.key);
+        auto key = save_actor_key(frame_ids, actor.key);
         if (!key)
             return Result<SaveState, Diagnostics>::failure(key.error());
         save.actors.push_back(SavedActorPresentation{
@@ -322,7 +382,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             actor.presentation_complete});
     }
     for (const auto& prop : session.m_presentation_props) {
-        auto owner = save_presentation_owner(session, prop.owner);
+        auto owner = save_presentation_owner(session, frame_ids, prop.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
@@ -331,7 +391,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 prop.bounds, prop.plane, prop.order, prop.visible});
     }
     for (const auto& environment : session.m_presentation_environments) {
-        auto owner = save_presentation_owner(session, environment.owner);
+        auto owner = save_presentation_owner(session, frame_ids, environment.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
@@ -342,12 +402,12 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 environment.visible});
     }
     for (const auto& parameter : session.m_material_parameters) {
-        auto owner = save_presentation_owner(session, parameter.owner);
+        auto owner = save_presentation_owner(session, frame_ids, parameter.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (!*owner.value_if())
             continue;
-        auto occurrence = save_material_occurrence(session, parameter.occurrence);
+        auto occurrence = save_material_occurrence(frame_ids, parameter.occurrence);
         if (!occurrence)
             return Result<SaveState, Diagnostics>::failure(occurrence.error());
         save.material_parameters.push_back(SavedMaterialParameter{
@@ -355,7 +415,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             parameter.parameter, parameter.value, parameter.binding, parameter.clock});
     }
     for (const auto& effect : session.m_postprocess_effects) {
-        auto owner = save_presentation_owner(session, effect.owner);
+        auto owner = save_presentation_owner(session, frame_ids, effect.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
@@ -366,7 +426,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
     for (const auto& layout : session.m_mounted_layouts) {
         if (is_authored_room_overlay_default(project, layout))
             continue;
-        auto owner = save_presentation_owner(session, layout.owner);
+        auto owner = save_presentation_owner(session, frame_ids, layout.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
@@ -393,7 +453,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                     return Result<SavedLayoutStateScopeOwner, Diagnostics>::success(
                         SavedRoomLayoutStateOwner{owner.room});
                 } else if constexpr (std::is_same_v<T, LayoutFlowStateOwner>) {
-                    const auto flow = saved_owner(session.flow_stack(), owner.flow);
+                    const auto flow = saved_owner(frame_ids, owner.flow);
                     if (!flow)
                         return Result<SavedLayoutStateScopeOwner, Diagnostics>::failure(
                             Diagnostics{Diagnostic{
@@ -418,7 +478,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             SavedLayoutStateSlot{*saved_scope_owner.value_if(), slot.key, slot.layout, slot.value});
     }
     for (const auto& audio : session.m_desired_audio) {
-        auto owner = save_presentation_owner(session, audio.owner);
+        auto owner = save_presentation_owner(session, frame_ids, audio.owner);
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
@@ -428,28 +488,63 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 audio.replacement_key});
     }
 
-    if (session.m_blocker) {
-        const auto owner =
-            saved_owner(session.m_flow_stack, flow_blocker_owner(*session.m_blocker));
-        if (!owner)
-            return Result<SaveState, Diagnostics>::failure(Diagnostics{
-                Diagnostic{.code = "save.invalid_blocker_owner",
-                           .message = "The active blocker is not owned by a saved flow frame"}});
-        if (const auto* input = std::get_if<InputFlowBlocker>(&*session.m_blocker)) {
-            (void)input;
-            save.blocker = SavedInputBlocker{*owner};
-        } else if (const auto* duration = std::get_if<DurationFlowBlocker>(&*session.m_blocker)) {
-            save.blocker = SavedDurationBlocker{*owner, duration->remaining};
-        } else if (std::holds_alternative<PresentationFlowBlocker>(*session.m_blocker)) {
-            add_preflight_error(diagnostics, "save.presentation_blocker_active",
-                                "An active presentation operation is not serializable");
-        } else if (std::holds_alternative<AudioFlowBlocker>(*session.m_blocker)) {
-            add_preflight_error(diagnostics, "save.audio_blocker_active",
-                                "An active audio operation is not serializable");
-        } else if (std::holds_alternative<ScriptFlowBlocker>(*session.m_blocker)) {
-            add_preflight_error(diagnostics, "save.opaque_script_suspension",
-                                "Opaque Lua coroutine suspension is not serializable");
-        }
+    auto foreground_blocker = save_blocker(frame_ids, session.m_blocker);
+    if (!foreground_blocker)
+        return Result<SaveState, Diagnostics>::failure(foreground_blocker.error());
+    save.blocker = std::move(*foreground_blocker.value_if());
+
+    save.detached_flows.reserve(session.m_detached_flow_executions.size());
+    for (const auto& detached : session.m_detached_flow_executions) {
+        SavedDetachedFlowExecution saved{
+            .owner = detached.owner,
+            .flow_owner =
+                detached.flow_owner ? saved_owner(frame_ids, *detached.flow_owner) : std::nullopt,
+            .room_entry_sequence = detached.room_entry_sequence,
+            .flow_stack = {},
+            .blocker = std::nullopt,
+        };
+        if (detached.owner == compiled::DetachedSceneOwner::Flow && !saved.flow_owner)
+            return Result<SaveState, Diagnostics>::failure(Diagnostics{Diagnostic{
+                .code = "save.invalid_detached_owner",
+                .message = "Flow-owned detached Scene owner is not part of the saved ancestry"}});
+        saved.flow_stack.reserve(detached.context.flow_stack.size());
+        for (const auto& frame : detached.context.flow_stack)
+            saved.flow_stack.push_back(
+                save_frame(frame_ids, frame, *saved_owner(frame_ids, flow_frame_id(frame))));
+        auto blocker = save_blocker(frame_ids, detached.context.blocker);
+        if (!blocker)
+            return Result<SaveState, Diagnostics>::failure(blocker.error());
+        saved.blocker = std::move(*blocker.value_if());
+        save.detached_flows.push_back(std::move(saved));
+    }
+
+    std::unordered_map<std::uint64_t, std::uint64_t> provenance_ids;
+    provenance_ids.reserve(session.m_execution_provenance.size());
+    for (std::size_t index = 0; index < session.m_execution_provenance.size(); ++index)
+        provenance_ids.emplace(session.m_execution_provenance[index].frame.number(), index + 1);
+    save.execution_provenance.reserve(session.m_execution_provenance.size());
+    for (const auto& provenance : session.m_execution_provenance) {
+        const auto id = provenance_ids.find(provenance.frame.number());
+        const auto root = provenance_ids.find(provenance.root.number());
+        const auto parent = provenance.parent ? provenance_ids.find(provenance.parent->number())
+                                              : provenance_ids.end();
+        const auto source = provenance.source ? provenance_ids.find(provenance.source->number())
+                                              : provenance_ids.end();
+        if (id == provenance_ids.end() || root == provenance_ids.end() ||
+            (provenance.parent && parent == provenance_ids.end()) ||
+            (provenance.source && source == provenance_ids.end()))
+            return Result<SaveState, Diagnostics>::failure(Diagnostics{Diagnostic{
+                .code = "save.invalid_execution_provenance",
+                .message = "Execution Provenance references an unknown causal identity"}});
+        save.execution_provenance.push_back(SavedExecutionProvenance{
+            .id = id->second,
+            .active_frame = saved_owner(frame_ids, provenance.frame),
+            .parent = provenance.parent ? std::optional{parent->second} : std::nullopt,
+            .root = root->second,
+            .relationship = provenance.relationship,
+            .source = provenance.source ? std::optional{source->second} : std::nullopt,
+            .state = provenance.state,
+        });
     }
     if (!diagnostics.empty())
         return Result<SaveState, Diagnostics>::failure(std::move(diagnostics));

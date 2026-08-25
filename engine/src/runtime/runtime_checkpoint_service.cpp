@@ -136,19 +136,20 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
                                        core::CheckpointBarrierKind::ImmediateScriptInvocation),
                           "checkpoint.immediate_script_invocation",
                           "A Lua invocation is still executing.");
-    if (facts.flow_blocker) {
-        const auto kind = core::flow_blocker_kind(*facts.flow_blocker);
+    const auto add_flow_blocker = [&](const std::optional<core::FlowBlocker>& blocker) {
+        if (!blocker)
+            return;
+        const auto kind = core::flow_blocker_kind(*blocker);
         if (kind == core::FlowBlockerKind::Presentation || kind == core::FlowBlockerKind::Audio ||
             kind == core::FlowBlockerKind::Script) {
-            const auto owner = core::flow_blocker_owner(*facts.flow_blocker);
+            const auto owner = core::flow_blocker_owner(*blocker);
             add_barrier_issue(
                 issues, core::CheckpointReadinessReason::FlowStateNotSerializable,
                 make_barrier(owner.number(), core::FlowCheckpointBarrierSource{owner, kind},
                              core::CheckpointBarrierKind::UnserializableFlow),
                 "checkpoint.flow_not_serializable", "The active Flow blocker is not serializable.");
             if (kind == core::FlowBlockerKind::Script) {
-                const auto invocation =
-                    std::get<core::ScriptFlowBlocker>(*facts.flow_blocker).handle;
+                const auto invocation = std::get<core::ScriptFlowBlocker>(*blocker).handle;
                 add_barrier_issue(
                     issues, core::CheckpointReadinessReason::SuspendedScriptInvocationActive,
                     make_barrier(invocation.number(),
@@ -158,7 +159,10 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
                     "A suspended Lua invocation cannot be checkpointed.");
             }
         }
-    }
+    };
+    add_flow_blocker(facts.flow_blocker);
+    for (const auto& blocker : facts.detached_flow_blockers)
+        add_flow_blocker(blocker);
     for (const auto& barrier : facts.presentation_status.active_barriers)
         issues.push_back(core::CheckpointReadinessIssue{
             core::CheckpointReadinessReason::PresentationBarrierActive, barrier,

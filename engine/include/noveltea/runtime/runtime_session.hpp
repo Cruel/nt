@@ -128,13 +128,6 @@ private:
         core::PresentationFlowBlockerHandle completion;
     };
 
-    struct DetachedSceneExecution {
-        core::compiled::DetachedSceneOwner owner = core::compiled::DetachedSceneOwner::Flow;
-        std::optional<core::FlowFrameId> flow_owner;
-        std::uint64_t room_entry_sequence = 0;
-        core::FlowExecutor::ExecutionContext context;
-    };
-
     struct RoomDescriptionVisit {
         core::RoomId room;
         std::uint64_t visits = 0;
@@ -157,10 +150,11 @@ private:
     accept_audio(const core::AudioOperation& operation);
 
     [[nodiscard]] core::Diagnostics run_kernel(std::vector<RuntimeEvent>& events,
-                                               std::vector<core::RuntimeObservation>& observations);
+                                               std::vector<core::RuntimeObservation>& observations,
+                                               bool fast_forward = false);
     [[nodiscard]] core::Diagnostics
     run_kernel_once(std::vector<RuntimeEvent>& events,
-                    std::vector<core::RuntimeObservation>& observations);
+                    std::vector<core::RuntimeObservation>& observations, bool fast_forward = false);
     void collect_runtime_actions(core::Diagnostics& diagnostics);
     void stage_gateway_events();
     void drain_pending_events(std::vector<RuntimeEvent>& events);
@@ -173,7 +167,8 @@ private:
                             std::vector<core::RuntimeObservation>& observations,
                             core::Diagnostics& diagnostics,
                             std::chrono::milliseconds elapsed = std::chrono::milliseconds{0});
-    [[nodiscard]] bool detached_owner_alive(const DetachedSceneExecution& execution) const noexcept;
+    [[nodiscard]] bool
+    detached_owner_alive(const core::DetachedFlowExecution& execution) const noexcept;
     [[nodiscard]] bool flow_frame_alive(const core::FlowFrameId& frame) const noexcept;
     [[nodiscard]] core::Diagnostics execute_deferred_command(const DeferredRuntimeCommand& command);
     [[nodiscard]] bool
@@ -271,7 +266,6 @@ private:
     std::optional<core::AudioOperation> m_pending_audio;
     std::optional<DialogueAudioWait> m_dialogue_audio_wait;
     std::optional<DialoguePresentationWait> m_dialogue_presentation_wait;
-    std::vector<DetachedSceneExecution> m_detached_scene_executions;
     std::vector<RuntimeEvent> m_pending_events;
     std::uint64_t m_next_presentation_id = 1;
     std::uint64_t m_next_audio_id = 1;

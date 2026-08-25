@@ -59,6 +59,7 @@ Result<FlowBlocker, Diagnostics> FlowExecutor::block_top(FlowBlockerKind kind)
         return InputFlowBlocker{owner, InputFlowBlockerHandle{handle}};
     }();
     m_state.m_blocker = blocker;
+    set_execution_state(owner, ExecutionState::Waiting);
     return Result<FlowBlocker, Diagnostics>::success(std::move(blocker));
 }
 
@@ -95,6 +96,7 @@ FlowExecutor::advance_duration_blocker(const FlowFrameId& owner,
         return Result<bool, Diagnostics>::failure(execution_error(
             "execution.stale_blocker", "Duration wait update does not match the active blocker"));
     if (elapsed >= blocker->remaining) {
+        set_execution_state(owner, ExecutionState::Running);
         m_state.m_blocker.reset();
         return Result<bool, Diagnostics>::success(true);
     }
@@ -120,6 +122,7 @@ Result<void, Diagnostics> FlowExecutor::resume_blocker(const FlowFrameId& owner,
     auto valid = validate_blocker(owner, handle);
     if (!valid)
         return valid;
+    set_execution_state(owner, ExecutionState::Running);
     m_state.m_blocker.reset();
     return Result<void, Diagnostics>::success();
 }

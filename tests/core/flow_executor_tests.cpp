@@ -500,6 +500,64 @@ TEST_CASE("terminal replacement preserves depth and destination while invalidati
     CHECK(state.flow_stack().empty());
 }
 
+TEST_CASE("execution provenance records causal ancestry and lifecycle automatically")
+{
+    const auto project = make_project(id<SceneId>("opening"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+
+    REQUIRE(state.execution_provenance().size() == 1);
+    const auto root = flow_frame_id(state.flow_stack().back());
+    const auto& root_provenance = state.execution_provenance().front();
+    CHECK(root_provenance.frame == root);
+    CHECK_FALSE(root_provenance.parent);
+    CHECK(root_provenance.root == root);
+    CHECK(root_provenance.relationship == ExecutionRelationship::Root);
+    CHECK_FALSE(root_provenance.source);
+    CHECK(root_provenance.state == ExecutionState::Running);
+
+    REQUIRE(executor.call_child(id<SceneId>("nested"), scene_position("opening-b")));
+    const auto child = flow_frame_id(state.flow_stack().back());
+    REQUIRE(state.execution_provenance().size() == 2);
+    const auto child_provenance = std::ranges::find_if(
+        state.execution_provenance(),
+        [child](const ExecutionProvenance& provenance) { return provenance.frame == child; });
+    REQUIRE(child_provenance != state.execution_provenance().end());
+    REQUIRE(child_provenance->parent);
+    REQUIRE(child_provenance->source);
+    CHECK(*child_provenance->parent == root);
+    CHECK(*child_provenance->source == root);
+    CHECK(child_provenance->root == root);
+    CHECK(child_provenance->relationship == ExecutionRelationship::Call);
+    CHECK(child_provenance->state == ExecutionState::Running);
+    CHECK(state.execution_provenance().front().state == ExecutionState::Suspended);
+
+    auto blocker = executor.block_top(FlowBlockerKind::Input);
+    REQUIRE(blocker);
+    CHECK(child_provenance->state == ExecutionState::Waiting);
+    REQUIRE(executor.resume_blocker(child, flow_blocker_handle(blocker.value())));
+    CHECK(child_provenance->state == ExecutionState::Running);
+
+    REQUIRE(executor.return_from_scene(id<SceneOutcomeId>("ok")));
+    CHECK(child_provenance->state == ExecutionState::Completed);
+    CHECK(state.execution_provenance().front().state == ExecutionState::Running);
+
+    const auto continued_from = flow_frame_id(state.flow_stack().back());
+    REQUIRE(executor.apply_target(FlowTarget{id<SceneId>("nested")}));
+    const auto continued = flow_frame_id(state.flow_stack().back());
+    const auto continued_provenance = std::ranges::find_if(
+        state.execution_provenance(), [continued](const ExecutionProvenance& provenance) {
+            return provenance.frame == continued;
+        });
+    REQUIRE(continued_provenance != state.execution_provenance().end());
+    REQUIRE(continued_provenance->source);
+    CHECK(*continued_provenance->source == continued_from);
+    CHECK_FALSE(continued_provenance->parent);
+    CHECK(continued_provenance->root == root);
+    CHECK(continued_provenance->relationship == ExecutionRelationship::Continue);
+    CHECK(continued_provenance->state == ExecutionState::Running);
+}
+
 TEST_CASE("invalid terminal targets preserve the active frame and fail stop execution")
 {
     const auto project = make_project(id<SceneId>("opening"));

@@ -1450,6 +1450,7 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         snapshot.value().mode = RoomMode{id<RoomId>("start")};
         snapshot.value().flow_stack.clear();
         snapshot.value().blocker.reset();
+        snapshot.value().execution_provenance.clear();
         snapshot.value().room_visits = {{id<RoomId>("start"), 1}};
         snapshot.value().room_entry_sequence = 1;
         snapshot.value().active_room_visit = RoomVisitContext{
@@ -1477,6 +1478,18 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
             {},
             {},
             CallerDestination{}});
+        REQUIRE(snapshot.value().execution_provenance.size() == 1);
+        auto& root_provenance = snapshot.value().execution_provenance.front();
+        root_provenance.state = ExecutionState::Suspended;
+        snapshot.value().execution_provenance.push_back(SavedExecutionProvenance{
+            .id = 2,
+            .active_frame = SavedFlowFrameId{2},
+            .parent = root_provenance.id,
+            .root = root_provenance.id,
+            .relationship = ExecutionRelationship::Call,
+            .source = root_provenance.id,
+            .state = ExecutionState::Waiting,
+        });
         snapshot.value().blocker = SavedInputBlocker{SavedFlowFrameId{2}};
         auto restored = test_support::restore_session(project, snapshot.value());
         REQUIRE(restored);

@@ -21,8 +21,9 @@
 #include <vector>
 
 namespace noveltea::runtime {
+class RuntimeSession;
 class RuntimeWorld;
-}
+} // namespace noveltea::runtime
 
 namespace noveltea::core {
 
@@ -58,6 +59,50 @@ struct FlowMode {};
 struct EndedMode {};
 using RuntimeMode = std::variant<RoomMode, FlowMode, EndedMode>;
 
+struct FlowExecutionContext {
+    RuntimeMode mode;
+    FlowStack flow_stack;
+    std::optional<FlowBlocker> blocker;
+    std::optional<Diagnostics> execution_fault;
+    bool running = false;
+    bool detached = false;
+};
+
+struct DetachedFlowExecution {
+    compiled::DetachedSceneOwner owner = compiled::DetachedSceneOwner::Flow;
+    std::optional<FlowFrameId> flow_owner;
+    std::uint64_t room_entry_sequence = 0;
+    FlowExecutionContext context;
+};
+
+enum class ExecutionRelationship : std::uint8_t {
+    Root,
+    Call,
+    Continue,
+    Detached,
+    Interaction,
+    Navigation,
+};
+
+enum class ExecutionState : std::uint8_t {
+    Running,
+    Waiting,
+    Suspended,
+    Completed,
+    Cancelled,
+    Failed,
+};
+
+struct ExecutionProvenance {
+    FlowFrameId frame;
+    std::optional<FlowFrameId> parent;
+    FlowFrameId root;
+    ExecutionRelationship relationship = ExecutionRelationship::Root;
+    std::optional<FlowFrameId> source;
+    ExecutionState state = ExecutionState::Running;
+    auto operator<=>(const ExecutionProvenance&) const = default;
+};
+
 namespace session_state_detail {
 
 class FlowState {
@@ -76,6 +121,8 @@ protected:
     std::uint64_t m_next_blocker_handle = 1;
     bool m_flow_running = false;
     bool m_detached_flow_active = false;
+    std::vector<DetachedFlowExecution> m_detached_flow_executions;
+    std::vector<ExecutionProvenance> m_execution_provenance;
     bool m_game_completed = false;
 };
 
@@ -171,6 +218,10 @@ public:
     [[nodiscard]] bool game_completed() const noexcept { return m_game_completed; }
     [[nodiscard]] const FlowStack& flow_stack() const noexcept { return m_flow_stack; }
     [[nodiscard]] const std::optional<FlowBlocker>& blocker() const noexcept { return m_blocker; }
+    [[nodiscard]] const std::vector<ExecutionProvenance>& execution_provenance() const noexcept
+    {
+        return m_execution_provenance;
+    }
     [[nodiscard]] const std::optional<Diagnostics>& execution_fault() const noexcept
     {
         return m_execution_fault;
@@ -494,6 +545,7 @@ public:
 private:
     friend class FlowExecutor;
     friend class PropertyResolver;
+    friend class runtime::RuntimeSession;
     friend class runtime::RuntimeWorld;
     friend Result<SaveState, Diagnostics> make_save_state(const CompiledProject&,
                                                           const SessionState&);
@@ -513,6 +565,21 @@ private:
                         std::move(interactables), std::move(item_stacks)),
           PresentationState(presentation_session, shell_presentation_scope)
     {
+        if (!m_flow_stack.empty()) {
+            const auto root = flow_frame_id(m_flow_stack.front());
+            m_execution_provenance.reserve(m_flow_stack.size());
+            for (std::size_t index = 0; index < m_flow_stack.size(); ++index) {
+                const auto frame = flow_frame_id(m_flow_stack[index]);
+                const auto parent = index == 0
+                                        ? std::optional<FlowFrameId>{}
+                                        : std::optional{flow_frame_id(m_flow_stack[index - 1])};
+                m_execution_provenance.push_back(ExecutionProvenance{
+                    frame, parent, root,
+                    index == 0 ? ExecutionRelationship::Root : ExecutionRelationship::Call, parent,
+                    index + 1 == m_flow_stack.size() ? ExecutionState::Running
+                                                     : ExecutionState::Suspended});
+            }
+        }
     }
 
     [[nodiscard]] static Result<RoomVisitInstanceId, Diagnostics> allocate_room_visit_instance_id();
