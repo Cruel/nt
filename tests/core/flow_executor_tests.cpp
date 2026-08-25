@@ -254,6 +254,86 @@ TEST_CASE("child calls advance callers atomically and nested returns preserve ex
     CHECK(state.flow_stack().empty());
 }
 
+TEST_CASE("Dialogue Handoff resumes the exact awaiting Scene and can repeat on one invocation")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+    REQUIRE(
+        executor.call_child(id<DialogueId>("greeting"), std::nullopt, scene_position("opening-b")));
+    const auto dialogue_id = flow_frame_id(state.flow_stack().back());
+    const DialogueFramePosition dialogue_next{id<DialogueBlockId>("entry"), std::nullopt,
+                                              std::nullopt, DialogueFramePosition::Stage::Complete,
+                                              0};
+
+    auto first = executor.handoff_dialogue(dialogue_next, RuntimeValue{std::string("first")});
+    REQUIRE(first);
+    REQUIRE(*first.value_if());
+    REQUIRE(state.flow_stack().size() == 2);
+    const auto& awaiting_scene = std::get<SceneFrame>(state.flow_stack().back());
+    REQUIRE(awaiting_scene.dialogue_handoff);
+    CHECK(awaiting_scene.dialogue_handoff->dialogue_frame == dialogue_id);
+    REQUIRE(awaiting_scene.dialogue_handoff->payload);
+    CHECK(std::get<std::string>(*awaiting_scene.dialogue_handoff->payload) == "first");
+
+    REQUIRE(executor.resume_handed_off_dialogue(scene_position("opening-b")));
+    REQUIRE(state.flow_stack().size() == 2);
+    CHECK(flow_frame_id(state.flow_stack().back()) == dialogue_id);
+    CHECK_FALSE(std::get<SceneFrame>(state.flow_stack().front()).dialogue_handoff);
+
+    auto second = executor.handoff_dialogue(dialogue_next, RuntimeValue{std::int64_t{2}});
+    REQUIRE(second);
+    REQUIRE(*second.value_if());
+    CHECK(std::get<SceneFrame>(state.flow_stack().back()).dialogue_handoff->dialogue_frame ==
+          dialogue_id);
+    REQUIRE(executor.resume_handed_off_dialogue(scene_position("opening-b")));
+    CHECK(flow_frame_id(state.flow_stack().back()) == dialogue_id);
+}
+
+TEST_CASE("Dialogue Handoff without a direct awaiting Scene advances once and remains active")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<DialogueId>("greeting")));
+    const auto dialogue_id = flow_frame_id(state.flow_stack().back());
+    const DialogueFramePosition dialogue_next{id<DialogueBlockId>("entry"), std::nullopt,
+                                              std::nullopt, DialogueFramePosition::Stage::Complete,
+                                              0};
+
+    auto handed_off = executor.handoff_dialogue(dialogue_next, std::nullopt);
+    REQUIRE(handed_off);
+    CHECK_FALSE(*handed_off.value_if());
+    REQUIRE(state.flow_stack().size() == 1);
+    CHECK(flow_frame_id(state.flow_stack().back()) == dialogue_id);
+    CHECK(std::get<DialogueFrame>(state.flow_stack().back()).position == dialogue_next);
+}
+
+TEST_CASE("awaiting Scene termination discards a suspended handed-off Dialogue")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+    REQUIRE(
+        executor.call_child(id<DialogueId>("greeting"), std::nullopt, scene_position("opening-b")));
+    const DialogueFramePosition dialogue_next{id<DialogueBlockId>("entry"), std::nullopt,
+                                              std::nullopt, DialogueFramePosition::Stage::Complete,
+                                              0};
+    auto handed_off = executor.handoff_dialogue(dialogue_next, std::nullopt);
+    REQUIRE(handed_off);
+    REQUIRE(*handed_off.value_if());
+    REQUIRE(state.flow_stack().size() == 2);
+
+    REQUIRE(executor.return_from_scene(std::nullopt));
+    CHECK(state.flow_stack().empty());
+    CHECK(std::get<RoomMode>(state.mode()).room == id<RoomId>("hall"));
+}
+
 TEST_CASE("Scene Return resumes its caller and publishes an optional declared Outcome")
 {
     const auto project = make_project(id<RoomId>("hall"));

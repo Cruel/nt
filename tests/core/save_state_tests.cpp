@@ -471,6 +471,45 @@ TEST_CASE("Dialogue Stage and Media Slot state round-trips through save restore"
     CHECK_FALSE(restored_frame->media_slots.front().visible);
 }
 
+TEST_CASE("Dialogue Handoff identity and payload round-trip through save restore")
+{
+    const auto project = load_fixture("dialogue-program.json", [](nlohmann::json& document) {
+        document["entrypoint"] = {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", "start"}}}};
+    });
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+    const SceneFramePosition after_call{std::nullopt, SceneStepReady{}};
+    REQUIRE(executor.call_child(id<DialogueId>("intro"), std::nullopt, after_call));
+    const DialogueFramePosition dialogue_next{id<DialogueBlockId>("start"),
+                                              id<DialogueSegmentId>("inline-line"), std::nullopt,
+                                              DialogueFramePosition::Stage::PresentSegment, 0};
+    auto handed_off =
+        executor.handoff_dialogue(dialogue_next, RuntimeValue{std::string("payload")});
+    REQUIRE(handed_off);
+    REQUIRE(*handed_off.value_if());
+    REQUIRE(state.flow_stack().size() == 2);
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    auto decoded = decode_save_state(project, encoded.value(), "dialogue-handoff-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    REQUIRE(restored.value().flow_stack().size() == 2);
+
+    const auto& restored_dialogue = std::get<DialogueFrame>(restored.value().flow_stack().front());
+    const auto& restored_scene = std::get<SceneFrame>(restored.value().flow_stack().back());
+    CHECK(restored_dialogue.position == dialogue_next);
+    REQUIRE(restored_scene.dialogue_handoff);
+    CHECK(restored_scene.dialogue_handoff->dialogue_frame == restored_dialogue.frame_id);
+    REQUIRE(restored_scene.dialogue_handoff->payload);
+    CHECK(std::get<std::string>(*restored_scene.dialogue_handoff->payload) == "payload");
+}
+
 TEST_CASE("Dialogue cue cursor round-trips and rejects incoherent reveal progress")
 {
     const auto project = load_fixture("dialogue-program.json", [](nlohmann::json& document) {

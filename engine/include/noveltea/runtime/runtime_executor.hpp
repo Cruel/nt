@@ -210,6 +210,12 @@ public:
         m_room_presentation_diagnostics.clear();
         return diagnostics;
     }
+    [[nodiscard]] core::Diagnostics take_flow_diagnostics() noexcept
+    {
+        auto diagnostics = std::move(m_flow_diagnostics);
+        m_flow_diagnostics.clear();
+        return diagnostics;
+    }
     [[nodiscard]] std::vector<PendingAudioOperation> take_pending_audio_operations() noexcept
     {
         auto pending = std::move(m_pending_audio_operations);
@@ -250,6 +256,8 @@ private:
     invoke_script(std::string_view source, std::string_view chunk_name);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_dialogue_unit(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<core::DialogueView, core::Diagnostics>
+    dialogue_view(const core::DialogueFrame& frame) const;
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_room_unit(std::string_view runtime_locale);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
@@ -280,6 +288,7 @@ private:
     std::vector<core::SceneStageRoomPresentation> m_scene_stage_presentations;
     core::Diagnostics m_room_lifecycle_diagnostics;
     core::Diagnostics m_room_presentation_diagnostics;
+    core::Diagnostics m_flow_diagnostics;
     std::string m_room_presentation_locale;
     bool m_room_presentation_dirty = true;
     std::optional<PendingPresentationOperation> m_pending_presentation_operation;

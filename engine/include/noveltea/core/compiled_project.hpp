@@ -1052,6 +1052,11 @@ struct CallDialogueSceneInstruction {
     DialogueId dialogue;
     std::optional<DialogueBlockId> start_block_id;
 };
+struct ResumeDialogueSceneInstruction {
+    SceneStepId id;
+    std::optional<Condition> condition;
+    bool autosave_safe_point;
+};
 struct ShowTextInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
@@ -1298,11 +1303,12 @@ struct TransitionGroupInstruction {
 };
 using SceneInstruction =
     std::variant<SetBackgroundInstruction, ActorCueInstruction, CallSceneSceneInstruction,
-                 StartDetachedSceneInstruction, CallDialogueSceneInstruction, ShowTextInstruction,
-                 AudioCueInstruction, SetGlobalPropertySceneInstruction, RunLuaSceneInstruction,
-                 WaitDurationInstruction, WaitInputInstruction, ConditionalBranchInstruction,
-                 ChoiceSceneInstruction, SetLayoutInstruction, MaterialParameterInstruction,
-                 PostprocessEffectInstruction, TransitionGroupInstruction>;
+                 StartDetachedSceneInstruction, CallDialogueSceneInstruction,
+                 ResumeDialogueSceneInstruction, ShowTextInstruction, AudioCueInstruction,
+                 SetGlobalPropertySceneInstruction, RunLuaSceneInstruction, WaitDurationInstruction,
+                 WaitInputInstruction, ConditionalBranchInstruction, ChoiceSceneInstruction,
+                 SetLayoutInstruction, MaterialParameterInstruction, PostprocessEffectInstruction,
+                 TransitionGroupInstruction>;
 struct SceneEventTimeline {
     std::string track_id;
     std::uint64_t start_ms = 0;
@@ -1529,7 +1535,24 @@ struct DialogueRunLuaSegment {
     bool may_yield;
     std::string source;
 };
-using DialogueSegment = std::variant<DialogueLineSegment, DialogueRunLuaSegment>;
+enum class DialogueChildSceneUiPolicy : std::uint8_t {
+    Preserve,
+    Conceal,
+};
+struct DialogueCallSceneSegment {
+    DialogueSegmentId id;
+    std::optional<Condition> condition;
+    SceneId scene;
+    std::vector<SceneInputBinding> inputs;
+    DialogueChildSceneUiPolicy ui_policy = DialogueChildSceneUiPolicy::Conceal;
+};
+struct DialogueHandoffSegment {
+    DialogueSegmentId id;
+    std::optional<Condition> condition;
+    std::optional<RuntimeValue> payload;
+};
+using DialogueSegment = std::variant<DialogueLineSegment, DialogueRunLuaSegment,
+                                     DialogueCallSceneSegment, DialogueHandoffSegment>;
 struct DialogueSequenceBlock {
     DialogueBlockId id;
     std::optional<CharacterId> default_speaker;

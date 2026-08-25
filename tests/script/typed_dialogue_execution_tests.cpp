@@ -300,6 +300,43 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
     CHECK(kernel->state().presented_text()->text == "Epilogue.");
 }
 
+TEST_CASE("Dialogue child Scene UI policy preserves or conceals the exact caller Dialogue")
+{
+    const auto run_case = [](bool preserve) {
+        RuntimeFixture fixture;
+        auto project =
+            decode_document(load_document("dialogue-program.json"), "dialogue-child-scene-ui.json");
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
+        REQUIRE(created);
+        auto kernel = std::move(created).value();
+        REQUIRE(std::holds_alternative<core::DialogueFrame>(kernel->state().flow_stack().back()));
+        const auto caller_id = core::flow_frame_id(kernel->state().flow_stack().back());
+        const auto caller_position =
+            std::get<core::DialogueFrame>(kernel->state().flow_stack().back()).position;
+
+        REQUIRE(kernel->flow().call_child(core::SceneId::create("opening").value(), {},
+                                          caller_position, preserve));
+        REQUIRE(kernel->state().flow_stack().size() == 2);
+        const auto& scene = std::get<core::SceneFrame>(kernel->state().flow_stack().back());
+        CHECK(scene.preserved_dialogue_caller ==
+              (preserve ? std::optional<core::FlowFrameId>{caller_id} : std::nullopt));
+
+        auto ui = kernel->runtime_ui_view("en");
+        REQUIRE(ui);
+        REQUIRE(ui.value().scene);
+        if (preserve) {
+            REQUIRE(ui.value().dialogue);
+            CHECK(ui.value().dialogue->frame == caller_id);
+            CHECK(ui.value().dialogue->dialogue == core::DialogueId::create("intro").value());
+        } else {
+            CHECK_FALSE(ui.value().dialogue);
+        }
+    };
+
+    SECTION("preserve") { run_case(true); }
+    SECTION("conceal") { run_case(false); }
+}
+
 TEST_CASE("typed Dialogue show-once and disabled-choice policy are deterministic")
 {
     SECTION("show-once line is skipped after its first recorded presentation")

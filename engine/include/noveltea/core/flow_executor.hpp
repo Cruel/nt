@@ -68,10 +68,14 @@ public:
                                                        FlowFramePosition caller_next_position);
     [[nodiscard]] Result<void, Diagnostics>
     call_child(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs,
-               FlowFramePosition caller_next_position);
+               FlowFramePosition caller_next_position, bool preserve_dialogue_caller_ui = false);
     [[nodiscard]] Result<void, Diagnostics> call_child(const DialogueId& dialogue,
                                                        std::optional<DialogueBlockId> start_block,
                                                        FlowFramePosition caller_next_position);
+    [[nodiscard]] Result<bool, Diagnostics> handoff_dialogue(DialogueFramePosition next_position,
+                                                             std::optional<RuntimeValue> payload);
+    [[nodiscard]] Result<void, Diagnostics>
+    resume_handed_off_dialogue(SceneFramePosition scene_next_position);
     [[nodiscard]] Result<void, Diagnostics> return_from_flow();
     [[nodiscard]] Result<void, Diagnostics>
     return_from_scene(std::optional<SceneOutcomeId> outcome);
@@ -169,6 +173,7 @@ private:
     interactable_definition(const InteractableId& interactable) const noexcept;
     [[nodiscard]] const compiled::FeatureDefinition*
     feature_definition(const FeatureRef& feature) const noexcept;
+    void discard_handed_off_dialogue_for_active_scene() noexcept;
     void clear_blocker_for(const FlowFrameId& owner) noexcept;
     [[nodiscard]] bool& running_flag() noexcept;
 

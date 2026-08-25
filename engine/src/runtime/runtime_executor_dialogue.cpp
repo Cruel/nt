@@ -256,6 +256,51 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
             return core::FlowBlockedOutcome{blocked->blocker};
         }
 
+        if (const auto* call = std::get_if<core::compiled::DialogueCallSceneSegment>(segment)) {
+            if (call->condition) {
+                auto condition = evaluate(*call->condition);
+                if (!condition)
+                    return fault(execution_diagnostics(condition.error()));
+                const auto* value = condition.value_if();
+                if (value == nullptr)
+                    return fault(
+                        execution_error("execution.invalid_condition_result",
+                                        "Dialogue child Scene condition produced no value"));
+                if (!*value)
+                    return commit(next);
+            }
+            auto called = m_flow.call_child(
+                call->scene, call->inputs, next,
+                call->ui_policy == core::compiled::DialogueChildSceneUiPolicy::Preserve);
+            return called ? std::nullopt : fault(called.error());
+        }
+
+        if (const auto* handoff = std::get_if<core::compiled::DialogueHandoffSegment>(segment)) {
+            if (handoff->condition) {
+                auto condition = evaluate(*handoff->condition);
+                if (!condition)
+                    return fault(execution_diagnostics(condition.error()));
+                const auto* value = condition.value_if();
+                if (value == nullptr)
+                    return fault(execution_error("execution.invalid_condition_result",
+                                                 "Dialogue Handoff condition produced no value"));
+                if (!*value)
+                    return commit(next);
+            }
+            auto handed_off = m_flow.handoff_dialogue(next, handoff->payload);
+            if (!handed_off)
+                return fault(handed_off.error());
+            if (!*handed_off.value_if()) {
+                m_flow_diagnostics.push_back(core::Diagnostic{
+                    .code = "execution.dialogue_handoff_without_awaiting_scene",
+                    .message = "Dialogue Handoff has no direct awaiting Scene; Dialogue continues.",
+                    .severity = core::ErrorSeverity::Warning});
+                return std::nullopt;
+            }
+            m_gateway.request_autosave_safe_point();
+            return core::FlowPresentationBoundaryOutcome{};
+        }
+
         const auto* script = std::get_if<core::compiled::DialogueRunLuaSegment>(segment);
         if (script == nullptr)
             return fault(execution_error("execution.invalid_dialogue_segment",
@@ -459,20 +504,26 @@ core::Result<core::DialogueView, core::Diagnostics> RuntimeExecutor::dialogue_vi
     if (frame == nullptr)
         return core::Result<core::DialogueView, core::Diagnostics>::failure(execution_error(
             "execution.dialogue_view_unavailable", "Active flow frame is not a Dialogue"));
-    core::DialogueView view{.frame = frame->frame_id,
-                            .dialogue = frame->dialogue,
-                            .segment = frame->position.segment,
-                            .reveal_offset = frame->position.reveal_offset,
+    return dialogue_view(*frame);
+}
+
+core::Result<core::DialogueView, core::Diagnostics>
+RuntimeExecutor::dialogue_view(const core::DialogueFrame& frame) const
+{
+    core::DialogueView view{.frame = frame.frame_id,
+                            .dialogue = frame.dialogue,
+                            .segment = frame.position.segment,
+                            .reveal_offset = frame.position.reveal_offset,
                             .line = m_state.presented_text(),
                             .choice = std::nullopt,
                             .stage_slots = {},
                             .media_slots = {}};
-    const auto* definition = m_project.find_dialogue(frame->dialogue);
+    const auto* definition = m_project.find_dialogue(frame.dialogue);
     if (definition == nullptr)
         return core::Result<core::DialogueView, core::Diagnostics>::failure(execution_error(
             "execution.dialogue_view_unavailable", "Active Dialogue definition is missing"));
-    view.stage_slots.reserve(frame->stage_slots.size());
-    for (const auto& state : frame->stage_slots) {
+    view.stage_slots.reserve(frame.stage_slots.size());
+    for (const auto& state : frame.stage_slots) {
         const auto slot =
             std::find_if(definition->stage_slots.begin(), definition->stage_slots.end(),
                          [&state](const auto& candidate) { return candidate.id == state.slot; });
@@ -482,12 +533,12 @@ core::Result<core::DialogueView, core::Diagnostics> RuntimeExecutor::dialogue_vi
                               view.line->speaker && state.value->character == *view.line->speaker;
         view.stage_slots.push_back({state.slot, state.value, slot->speaker_sync, speaking});
     }
-    view.media_slots.reserve(frame->media_slots.size());
-    for (const auto& state : frame->media_slots)
+    view.media_slots.reserve(frame.media_slots.size());
+    for (const auto& state : frame.media_slots)
         view.media_slots.push_back({state.slot, state.content, state.visible});
     if (m_state.active_choice()) {
         const auto* choice = std::get_if<core::DialogueChoiceState>(&*m_state.active_choice());
-        if (choice != nullptr && choice->dialogue == frame->dialogue)
+        if (choice != nullptr && choice->dialogue == frame.dialogue)
             view.choice = *choice;
     }
     return core::Result<core::DialogueView, core::Diagnostics>::success(std::move(view));

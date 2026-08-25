@@ -2300,6 +2300,58 @@ private:
                     },
                     media);
             };
+            const auto dialogue_scene_input_matches = [](SceneInputType type, bool nullable,
+                                                         const RuntimeValue& runtime_value) {
+                if (std::holds_alternative<std::monostate>(runtime_value))
+                    return nullable;
+                switch (type) {
+                case SceneInputType::Boolean:
+                    return std::holds_alternative<bool>(runtime_value);
+                case SceneInputType::Integer:
+                    return std::holds_alternative<std::int64_t>(runtime_value);
+                case SceneInputType::Number:
+                    return std::holds_alternative<std::int64_t>(runtime_value) ||
+                           std::holds_alternative<double>(runtime_value);
+                case SceneInputType::String:
+                    return std::holds_alternative<std::string>(runtime_value);
+                }
+                return false;
+            };
+            const auto validate_dialogue_scene_call = [&](const DialogueCallSceneSegment& call,
+                                                          const std::string& call_path) {
+                require(m_scenes, call.scene, "scene", call_path + "/scene");
+                const auto found = m_scenes.find(call.scene);
+                if (found == m_scenes.end())
+                    return;
+                const auto& target = m_input.scenes[found->second];
+                std::unordered_set<SceneInputId> supplied;
+                for (std::size_t input_index = 0; input_index < call.inputs.size(); ++input_index) {
+                    const auto& binding = call.inputs[input_index];
+                    const auto binding_path = call_path + "/inputs/" + std::to_string(input_index);
+                    if (!supplied.insert(binding.input_id).second)
+                        error("compiled_project.duplicate_scene_input_binding",
+                              "Scene input bindings must be unique.", binding_path + "/inputId");
+                    const auto declaration =
+                        std::ranges::find_if(target.inputs, [&](const SceneInputDefinition& input) {
+                            return input.id == binding.input_id;
+                        });
+                    if (declaration == target.inputs.end()) {
+                        error("compiled_project.unknown_scene_input",
+                              "Dialogue child Scene input names an undeclared input.",
+                              binding_path + "/inputId");
+                    } else if (!dialogue_scene_input_matches(
+                                   declaration->type, declaration->nullable, binding.value)) {
+                        error("compiled_project.scene_input_type_mismatch",
+                              "Dialogue child Scene input value does not match its declaration.",
+                              binding_path + "/value");
+                    }
+                }
+                for (const auto& input : target.inputs)
+                    if (!input.nullable && !input.default_value && !supplied.contains(input.id))
+                        error("compiled_project.missing_scene_input",
+                              "Dialogue child Scene invocation is missing a required input.",
+                              call_path + "/inputs");
+            };
             if (value.default_speaker)
                 require(m_characters, *value.default_speaker, "character",
                         path + "/defaultSpeaker");
@@ -2552,6 +2604,9 @@ private:
                                                 validate_effect(typed.effects[effect],
                                                                 segment_path + "/effects/" +
                                                                     std::to_string(effect));
+                                        } else if constexpr (std::is_same_v<
+                                                                 S, DialogueCallSceneSegment>) {
+                                            validate_dialogue_scene_call(typed, segment_path);
                                         }
                                     },
                                     block.segments[segment]);

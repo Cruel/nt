@@ -42,6 +42,7 @@ export const sceneStepTypeValues = [
   'call-scene',
   'start-detached-scene',
   'call-dialogue',
+  'resume-dialogue',
   'show-text',
   'audio-cue',
   'set-variable',
@@ -195,6 +196,11 @@ const callDialogueStepSchema = strict({
   type: z.literal('call-dialogue'),
   dialogue: sceneDialogueRefSchema,
   startBlockId: entityIdSchema.nullable(),
+});
+const resumeDialogueStepSchema = strict({
+  ...commonRuntimeStep,
+  ...safePoint,
+  type: z.literal('resume-dialogue'),
 });
 const showTextStepSchema = strict({
   ...commonRuntimeStep,
@@ -396,6 +402,7 @@ export const sceneStepDataSchema = z.discriminatedUnion('type', [
   callSceneStepSchema,
   startDetachedSceneStepSchema,
   callDialogueStepSchema,
+  resumeDialogueStepSchema,
   showTextStepSchema,
   audioCueStepSchema,
   setVariableStepSchema,
@@ -536,6 +543,8 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         startBlockId: null,
         autosaveSafePoint: false,
       };
+    case 'resume-dialogue':
+      return { ...common, type, autosaveSafePoint: true };
     case 'show-text':
       return {
         ...common,

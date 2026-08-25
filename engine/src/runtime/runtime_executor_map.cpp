@@ -359,12 +359,32 @@ RuntimeExecutor::runtime_ui_view(std::string_view runtime_locale)
     }
     if (!m_state.flow_stack().empty()) {
         if (std::holds_alternative<core::SceneFrame>(m_state.flow_stack().back())) {
+            const auto& scene_frame = std::get<core::SceneFrame>(m_state.flow_stack().back());
             auto scene = scene_view();
             auto* value = scene.value_if();
             if (value == nullptr)
                 return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::failure(
                     scene.error());
             view.scene = std::move(*value);
+            if (scene_frame.preserved_dialogue_caller) {
+                const auto retained = std::ranges::find_if(
+                    m_state.flow_stack(), [&](const core::FlowFrame& candidate) {
+                        return core::flow_frame_id(candidate) ==
+                               *scene_frame.preserved_dialogue_caller;
+                    });
+                if (retained == m_state.flow_stack().end() ||
+                    !std::holds_alternative<core::DialogueFrame>(*retained))
+                    return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::
+                        failure(map_error(
+                            "execution.dialogue_ui_retention_invalid",
+                            "Scene retained Dialogue UI identity is no longer reachable"));
+                auto dialogue = dialogue_view(std::get<core::DialogueFrame>(*retained));
+                auto* dialogue_value = dialogue.value_if();
+                if (dialogue_value == nullptr)
+                    return core::Result<core::TypedRuntimeUIViewState,
+                                        RuntimeExecutionError>::failure(dialogue.error());
+                view.dialogue = std::move(*dialogue_value);
+            }
         } else if (std::holds_alternative<core::DialogueFrame>(m_state.flow_stack().back())) {
             auto dialogue = dialogue_view();
             auto* value = dialogue.value_if();

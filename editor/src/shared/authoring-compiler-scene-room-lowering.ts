@@ -271,6 +271,12 @@ function compileSceneStep(
         startBlockId: step.startBlockId,
         autosaveSafePoint: step.autosaveSafePoint,
       };
+    case 'resume-dialogue':
+      return {
+        ...base,
+        kind: 'resume-dialogue',
+        autosaveSafePoint: step.autosaveSafePoint,
+      };
     case 'show-text':
       return {
         ...base,

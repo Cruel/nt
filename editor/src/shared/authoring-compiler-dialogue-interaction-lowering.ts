@@ -333,6 +333,29 @@ export function lowerDialogueAndInteractionPrograms(
             source: segment.source,
             mayYield: segment.mayYield,
           });
+        } else if (segment.type === 'call-scene') {
+          segments.push({
+            id: segment.id,
+            kind: 'call-scene',
+            ...(segment.condition === undefined
+              ? {}
+              : { condition: compileCondition(segment.condition) }),
+            scene: { kind: 'scene', id: segment.scene.$ref.id },
+            inputs: segment.inputs.map((binding) => ({
+              inputId: binding.inputId,
+              value: binding.value,
+            })),
+            uiPolicy: segment.uiPolicy,
+          });
+        } else if (segment.type === 'handoff') {
+          segments.push({
+            id: segment.id,
+            kind: 'handoff',
+            ...(segment.condition === undefined
+              ? {}
+              : { condition: compileCondition(segment.condition) }),
+            ...(segment.payload === undefined ? {} : { payload: segment.payload }),
+          });
         } else {
           segments.push({
             id: segment.id,

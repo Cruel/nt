@@ -112,6 +112,26 @@ Dialogue completion uses the shared closed FlowTarget variant: Scene, Dialogue, 
 Scene `CallDialogue` pushes a Dialogue frame and resumes the caller after Return. A direct Dialogue
 entrypoint may not complete with Return because it has no caller.
 
+A Sequence may also contain `CallScene` and `Handoff` segments. `CallScene` pushes a child Scene and
+records the exact Dialogue invocation as its caller. The child binds Scene inputs with the same typed
+rules as a Scene call. Its UI policy is explicit: `conceal` exposes only the child Scene while it runs;
+`preserve` keeps the exact caller Dialogue view available alongside the child Scene. Returning from
+the child resumes the exact saved Dialogue cursor.
+
+`Handoff` is cooperative control transfer rather than a named branch. When the active Dialogue has a
+direct awaiting Scene caller, Handoff advances the Dialogue cursor exactly once, records the
+engine-owned Dialogue frame identity plus an optional scalar payload, and reactivates that Scene at
+its already-authored next sequential Event. A later Scene `ResumeDialogue` Event swaps control back to
+that exact suspended Dialogue invocation; the same Dialogue/Scene pair may repeat this cycle. Authors
+never create routing names or invocation IDs for this mechanism. If no direct awaiting Scene exists,
+the runtime emits a warning diagnostic, leaves the Dialogue active at its advanced cursor, and
+continues normally.
+
+The handoff relation and optional payload are checkpoint data. Restore remaps the saved frame identity
+to fresh runtime frame IDs and rejects stale or incoherent relations. If the awaiting Scene terminates,
+returns, or tail-replaces instead of resuming the Dialogue, the suspended Dialogue is discarded with
+that handled path so it cannot become unreachable live Flow state.
+
 Autosave after a line or choice occurs after its effects complete and only at the resulting
 compiler-marked safe point.
 
@@ -125,6 +145,7 @@ The Dialogue editor supports:
 
 - creation, selection, type replacement, deletion, and safe stable-ID rename for blocks;
 - dense Sequence transcript editing and safe segment-ID rename;
+- child Scene target/input/UI-policy editing and Handoff payload/condition editing;
 - ordered Choice edge creation, editing, reordering, deletion, and safe edge-ID rename;
 - typed text-source, Character, Condition, Effect, show-once, logging, autosave, and completion fields;
 - Stage Slot and Media Slot creation/removal/configuration, initial retained state, speaker sync, and
@@ -142,7 +163,7 @@ adapter emits the current `noveltea.dialogue-preview` document from Dialogue dat
 ## Typed runtime execution
 
 The additive typed execution kernel is the sole Dialogue executor on the `CompiledProject` path. It
-executes Sequence, Choice, and Redirect blocks; Line and RunLua segments; Next and Choice edges;
+executes Sequence, Choice, and Redirect blocks; Line, RunLua, CallScene, and Handoff segments; Next and Choice edges;
 conditions, text sources, ordered effects, disabled-choice policy, history/show-once, logging, safe
 points, redirects, nested Return, and completion targets through `FlowExecutor` and `SessionState`.
 
