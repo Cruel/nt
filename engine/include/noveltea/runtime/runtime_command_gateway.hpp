@@ -276,6 +276,10 @@ public:
     [[nodiscard]] std::vector<RuntimeEvent> take_events() noexcept;
     [[nodiscard]] const std::vector<RuntimeEvent>& events() const noexcept { return m_events; }
     [[nodiscard]] MutationImpactJournal take_mutation_impacts() noexcept;
+    void merge_mutation_impacts(const MutationImpactJournal& impacts) noexcept
+    {
+        m_mutations.merge(impacts);
+    }
     [[nodiscard]] bool has_frame_sensitive_command() const noexcept;
     void clear_transient_state() noexcept;
 

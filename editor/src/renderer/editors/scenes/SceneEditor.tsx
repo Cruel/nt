@@ -63,6 +63,41 @@ function title(value: string) {
     .map((part) => `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}`)
     .join(' ');
 }
+
+function JsonOperationsEditor({
+  value,
+  onCommit,
+}: {
+  value: unknown;
+  onCommit: (value: unknown) => void;
+}) {
+  const serialized = JSON.stringify(value, null, 2);
+  const [draft, setDraft] = useState(serialized);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(serialized);
+    setError(null);
+  }, [serialized]);
+  return (
+    <div className="space-y-1.5">
+      <textarea
+        className="min-h-48 w-full rounded-md border bg-background px-3 py-2 font-mono text-xs"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          try {
+            onCommit(JSON.parse(draft));
+            setError(null);
+          } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Invalid JSON.');
+          }
+        }}
+        spellCheck={false}
+      />
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
 function isPresentationOwnedStep(step: SceneStepData): step is Extract<
   SceneStepData,
   {
@@ -289,6 +324,28 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
           typeof value === 'string')
         ? { ...step, variable: sceneVariableRef(id), value }
         : null;
+    }
+    if (step.type === 'gameplay-effect-batch') {
+      const id = Object.keys(project.variables)[0];
+      const value = project.variables[id!]?.data.defaultValue;
+      return id &&
+        (value === null ||
+          typeof value === 'boolean' ||
+          typeof value === 'number' ||
+          typeof value === 'string')
+        ? {
+            ...step,
+            operations: [{ kind: 'set-variable', variable: sceneVariableRef(id), value }],
+          }
+        : step;
+    }
+    if (step.type === 'directed-room-change' || step.type === 'navigation-attempt') {
+      const id = Object.keys(project.rooms)[0];
+      return id ? { ...step, room: sceneRoomRef(id) } : null;
+    }
+    if (step.type === 'call-interaction') {
+      const id = Object.keys(project.verbs)[0];
+      return id ? { ...step, verb: { $ref: { collection: 'verbs', id } } } : null;
     }
     if (step.type === 'material-parameter') {
       const materialId = Object.keys(project.materials).find(
@@ -2083,6 +2140,107 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     value={String(selected.value)}
                     onChange={(event) =>
                       replaceStep({ ...selected, value: scalar(event.target.value) })
+                    }
+                  />
+                </Label>
+              </>
+            )}
+            {selected.type === 'gameplay-effect-batch' && (
+              <Label>
+                Atomic gameplay operations
+                <JsonOperationsEditor
+                  value={selected.operations}
+                  onCommit={(operations) =>
+                    replaceStep({
+                      ...selected,
+                      operations: operations as typeof selected.operations,
+                    })
+                  }
+                />
+              </Label>
+            )}
+            {selected.type === 'runtime-world-transaction' && (
+              <Label>
+                Atomic runtime-world operations
+                <JsonOperationsEditor
+                  value={selected.operations}
+                  onCommit={(operations) =>
+                    replaceStep({
+                      ...selected,
+                      operations: operations as typeof selected.operations,
+                    })
+                  }
+                />
+              </Label>
+            )}
+            {selected.type === 'directed-room-change' && (
+              <Label>
+                Target Room
+                <Select
+                  value={selected.room.$ref.id}
+                  onValueChange={(id) => id && replaceStep({ ...selected, room: sceneRoomRef(id) })}
+                >
+                  {Object.entries(project.rooms).map(([id, room]) => (
+                    <SelectItem key={id} value={id}>
+                      {room.label || id}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </Label>
+            )}
+            {selected.type === 'navigation-attempt' && (
+              <>
+                <Label>
+                  Target Room
+                  <Select
+                    value={selected.room.$ref.id}
+                    onValueChange={(id) =>
+                      id && replaceStep({ ...selected, room: sceneRoomRef(id) })
+                    }
+                  >
+                    {Object.entries(project.rooms).map(([id, room]) => (
+                      <SelectItem key={id} value={id}>
+                        {room.label || id}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </Label>
+                <Label>
+                  Current Room Exit ID
+                  <Input
+                    value={selected.exitId}
+                    onChange={(event) => replaceStep({ ...selected, exitId: event.target.value })}
+                  />
+                </Label>
+              </>
+            )}
+            {selected.type === 'call-interaction' && (
+              <>
+                <Label>
+                  Verb
+                  <Select
+                    value={selected.verb.$ref.id}
+                    onValueChange={(id) =>
+                      id &&
+                      replaceStep({
+                        ...selected,
+                        verb: { $ref: { collection: 'verbs', id } },
+                      })
+                    }
+                  >
+                    {Object.entries(project.verbs).map(([id, verb]) => (
+                      <SelectItem key={id} value={id}>
+                        {verb.label || id}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </Label>
+                <Label>
+                  Typed subject bindings
+                  <JsonOperationsEditor
+                    value={selected.bindings}
+                    onCommit={(bindings) =>
+                      replaceStep({ ...selected, bindings: bindings as typeof selected.bindings })
                     }
                   />
                 </Label>

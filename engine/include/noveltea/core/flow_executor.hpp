@@ -63,6 +63,9 @@ public:
     start_detached(const SceneId& scene, std::vector<compiled::SceneInputBinding> inputs);
     [[nodiscard]] Result<void, Diagnostics>
     start_interaction(InteractionInvocationContext invocation, InteractionProgramRef program);
+    [[nodiscard]] Result<void, Diagnostics>
+    call_interaction(InteractionInvocationContext invocation, InteractionProgramRef program,
+                     FlowFramePosition caller_next_position);
 
     [[nodiscard]] Result<void, Diagnostics> call_child(const SceneId& scene,
                                                        FlowFramePosition caller_next_position);
@@ -85,6 +88,11 @@ public:
 
     [[nodiscard]] Result<void, Diagnostics>
     start_navigation(const RoomId& target, const compiled::RoomExitRef& selected_exit);
+    [[nodiscard]] Result<void, Diagnostics>
+    call_navigation(const RoomId& target, const compiled::RoomExitRef& selected_exit,
+                    FlowFramePosition caller_next_position);
+    [[nodiscard]] Result<void, Diagnostics>
+    call_directed_room_change(const RoomId& target, FlowFramePosition caller_next_position);
     [[nodiscard]] Result<void, Diagnostics> advance_room_transition(RoomTransitionStage stage,
                                                                     std::size_t next_effect = 0);
     [[nodiscard]] Result<void, Diagnostics>

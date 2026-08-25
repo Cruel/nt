@@ -24,6 +24,7 @@ const typedReference = <Collection extends string>(collection: Collection) =>
   });
 
 const assetReferenceSchema = typedReference('asset');
+const archetypeReferenceSchema = typedReference('archetype');
 const characterReferenceSchema = typedReference('character');
 const dialogueReferenceSchema = typedReference('dialogue');
 const interactableReferenceSchema = typedReference('interactable');
@@ -806,6 +807,134 @@ const transitionGroupChildSchema = z.discriminatedUnion('kind', [
     slot: z.enum(['overlay', 'custom']),
   }),
 ]);
+const scenePropertyOwnerSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
+  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
+  strict({ kind: z.literal('item-stack'), itemStack: itemStackReferenceSchema }),
+]);
+const sceneCharacterLocationSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('unplaced') }),
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
+]);
+const sceneGameplayEffectOperationSchema = z.discriminatedUnion('kind', [
+  strict({
+    kind: z.literal('set-global-property'),
+    property: propertyReferenceSchema,
+    value: runtimeValueSchema,
+  }),
+  strict({
+    kind: z.literal('set-property'),
+    owner: scenePropertyOwnerSchema,
+    property: propertyReferenceSchema,
+    value: runtimeValueSchema,
+  }),
+  strict({
+    kind: z.literal('unset-property'),
+    owner: scenePropertyOwnerSchema,
+    property: propertyReferenceSchema,
+  }),
+  strict({
+    kind: z.literal('move-character'),
+    character: characterReferenceSchema,
+    location: sceneCharacterLocationSchema,
+  }),
+  strict({
+    kind: z.literal('set-character-state'),
+    character: characterReferenceSchema,
+    enabled: z.boolean().optional(),
+    visible: z.boolean().optional(),
+  }),
+  strict({
+    kind: z.literal('move-interactable'),
+    interactable: interactableReferenceSchema,
+    location: interactableLocationSchema,
+  }),
+  strict({
+    kind: z.literal('set-interactable-state'),
+    interactable: interactableReferenceSchema,
+    enabled: z.boolean().optional(),
+    visible: z.boolean().optional(),
+  }),
+  strict({
+    kind: z.literal('split-item-stack'),
+    stack: itemStackReferenceSchema,
+    quantity: z.number().int().positive(),
+  }),
+  strict({
+    kind: z.literal('merge-item-stacks'),
+    receiver: itemStackReferenceSchema,
+    donor: itemStackReferenceSchema,
+  }),
+  strict({
+    kind: z.literal('transfer-item-quantity'),
+    stack: itemStackReferenceSchema,
+    quantity: z.number().int().positive(),
+    location: interactableLocationSchema,
+    placement: z.enum(['coalesce', 'keep-separate']),
+  }),
+  strict({
+    kind: z.literal('grant-item-quantity'),
+    definition: itemDefinitionReferenceSchema,
+    quantity: z.number().int().positive(),
+    location: interactableLocationSchema,
+    placement: z.enum(['coalesce', 'keep-separate']),
+  }),
+  strict({
+    kind: z.literal('consume-item-quantity'),
+    stack: itemStackReferenceSchema,
+    quantity: z.number().int().positive(),
+  }),
+  strict({
+    kind: z.literal('set-item-stack-traits'),
+    stack: itemStackReferenceSchema,
+    traits: z.array(traitReferenceSchema),
+  }),
+]);
+const sceneGameplayInstanceRefSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
+  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
+]);
+const sceneInstanceConfigurationSourceSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('archetype'), archetype: archetypeReferenceSchema }),
+  strict({ kind: z.literal('compiled-instance'), instance: sceneGameplayInstanceRefSchema }),
+  strict({ kind: z.literal('effective-instance'), instance: sceneGameplayInstanceRefSchema }),
+]);
+const sceneRuntimeWorldOperationSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('create-room'), source: sceneInstanceConfigurationSourceSchema }),
+  strict({
+    kind: z.literal('create-character'),
+    source: sceneInstanceConfigurationSourceSchema,
+    location: sceneCharacterLocationSchema,
+    enabled: z.boolean(),
+    visible: z.boolean(),
+  }),
+  strict({
+    kind: z.literal('create-interactable'),
+    source: sceneInstanceConfigurationSourceSchema,
+    location: interactableLocationSchema,
+    enabled: z.boolean(),
+    visible: z.boolean(),
+  }),
+  strict({
+    kind: z.literal('replace-configuration'),
+    instance: sceneGameplayInstanceRefSchema,
+    source: sceneInstanceConfigurationSourceSchema,
+  }),
+  strict({ kind: z.literal('clear-configuration'), instance: sceneGameplayInstanceRefSchema }),
+  strict({
+    kind: z.literal('retarget-room-exit'),
+    room: roomReferenceSchema,
+    exitId: id,
+    target: roomReferenceSchema,
+  }),
+  strict({ kind: z.literal('destroy-instance'), instance: sceneGameplayInstanceRefSchema }),
+]);
+const sceneInteractionBindingSchema = strict({
+  slotId: id,
+  subject: compiledInteractionSubjectSchema,
+});
 const sceneInstructionSchema = z.discriminatedUnion('kind', [
   strict({
     ...sceneInstructionCommon,
@@ -904,6 +1033,33 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     kind: z.literal('set-global-property'),
     property: propertyReferenceSchema,
     value: runtimeValueSchema,
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('gameplay-effect-batch'),
+    operations: z.array(sceneGameplayEffectOperationSchema).min(1),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('runtime-world-transaction'),
+    operations: z.array(sceneRuntimeWorldOperationSchema).min(1),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('directed-room-change'),
+    room: roomReferenceSchema,
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('navigation-attempt'),
+    room: roomReferenceSchema,
+    exitId: id,
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('call-interaction'),
+    verb: verbReferenceSchema,
+    bindings: z.array(sceneInteractionBindingSchema),
   }),
   strict({
     ...sceneInstructionCommon,

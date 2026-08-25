@@ -106,6 +106,227 @@ scene_actor_key(const core::SceneFrame& frame, core::compiled::ScenePresentation
                                      "Scene actor slot could not form a stable scoped identity"));
 }
 
+core::GameplayInstanceRef
+runtime_instance_ref(const core::compiled::SceneGameplayInstanceRef& instance)
+{
+    return std::visit([](const auto& value) -> core::GameplayInstanceRef { return value; },
+                      instance);
+}
+
+RuntimeInstanceConfigurationRequest
+runtime_configuration_request(const core::compiled::SceneInstanceConfigurationSource& source)
+{
+    return std::visit(
+        [](const auto& value) -> RuntimeInstanceConfigurationRequest {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::SceneArchetypeConfigurationSource>)
+                return ArchetypeInstanceConfiguration{value.archetype};
+            else if constexpr (std::is_same_v<
+                                   T, core::compiled::SceneCompiledInstanceConfigurationSource>)
+                return CompiledInstanceConfiguration{runtime_instance_ref(value.instance)};
+            else
+                return EffectiveInstanceConfiguration{runtime_instance_ref(value.instance)};
+        },
+        source);
+}
+
+ItemStackPlacementPolicy
+runtime_item_placement(core::compiled::ItemStackPlacementPolicy placement) noexcept
+{
+    return placement == core::compiled::ItemStackPlacementPolicy::Coalesce
+               ? ItemStackPlacementPolicy::Coalesce
+               : ItemStackPlacementPolicy::KeepSeparate;
+}
+
+void record_direct_world_mutation(MutationImpactJournal& impacts) noexcept
+{
+    impacts.record(MutationImpact::StructuralStateChanged);
+    impacts.record(MutationImpact::GameplayUiInvalidated);
+    impacts.record(MutationImpact::PresentationInvalidated);
+    impacts.record(MutationImpact::CheckpointReadinessInvalidated);
+    impacts.record(MutationImpact::RoomPresentationInvalidated);
+}
+
+RuntimeCapabilityGroup
+scene_gameplay_operation_capability(const core::compiled::SceneGameplayEffectOperation& operation)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::SetGlobalProperty> ||
+                          std::is_same_v<T, core::compiled::SetIdentityPropertySceneOperation> ||
+                          std::is_same_v<T, core::compiled::UnsetIdentityPropertySceneOperation>)
+                return RuntimeCapabilityGroup::Properties;
+            else if constexpr (std::is_same_v<T, core::compiled::MoveCharacterSceneOperation> ||
+                               std::is_same_v<T, core::compiled::SetCharacterStateSceneOperation>)
+                return RuntimeCapabilityGroup::Character;
+            else if constexpr (std::is_same_v<T, core::compiled::MoveInteractableSceneOperation> ||
+                               std::is_same_v<T,
+                                              core::compiled::SetInteractableStateSceneOperation>)
+                return RuntimeCapabilityGroup::Interactable;
+            else
+                return RuntimeCapabilityGroup::ItemStack;
+        },
+        operation);
+}
+
+RuntimeCapabilityGroup
+scene_world_operation_capability(const core::compiled::SceneRuntimeWorldOperation& operation)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::CreateRoomSceneWorldOperation> ||
+                          std::is_same_v<T, core::compiled::RetargetRoomExitSceneWorldOperation>)
+                return RuntimeCapabilityGroup::Room;
+            else if constexpr (std::is_same_v<T,
+                                              core::compiled::CreateCharacterSceneWorldOperation>)
+                return RuntimeCapabilityGroup::Character;
+            else if constexpr (std::is_same_v<
+                                   T, core::compiled::CreateInteractableSceneWorldOperation>)
+                return RuntimeCapabilityGroup::Interactable;
+            else
+                return RuntimeCapabilityGroup::Game;
+        },
+        operation);
+}
+
+core::Result<void, core::Diagnostics>
+apply_scene_gameplay_operation(const core::compiled::SceneGameplayEffectOperation& operation,
+                               RuntimeCommandGateway& gateway, RuntimeWorld& world,
+                               MutationImpactJournal& impacts)
+{
+    return std::visit(
+        [&](const auto& value) -> core::Result<void, core::Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::SetGlobalProperty>) {
+                return gateway.set_global_property(value.property_id, value.value);
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::SetIdentityPropertySceneOperation>) {
+                return gateway.set_property(value.owner, value.property, value.value);
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::UnsetIdentityPropertySceneOperation>) {
+                return gateway.unset_property(value.owner, value.property);
+            } else if constexpr (std::is_same_v<T, core::compiled::MoveCharacterSceneOperation>) {
+                auto changed = world.move_character(value.character, value.location);
+                if (changed)
+                    record_direct_world_mutation(impacts);
+                return changed;
+            } else if constexpr (std::is_same_v<T,
+                                                core::compiled::SetCharacterStateSceneOperation>) {
+                if (value.enabled) {
+                    auto changed = world.set_character_enabled(value.character, *value.enabled);
+                    if (!changed)
+                        return changed;
+                }
+                if (value.visible) {
+                    auto changed = world.set_character_visible(value.character, *value.visible);
+                    if (!changed)
+                        return changed;
+                }
+                record_direct_world_mutation(impacts);
+                return core::Result<void, core::Diagnostics>::success();
+            } else if constexpr (std::is_same_v<T,
+                                                core::compiled::MoveInteractableSceneOperation>) {
+                auto changed = world.move_interactable(value.interactable, value.location);
+                if (changed)
+                    record_direct_world_mutation(impacts);
+                return changed;
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::SetInteractableStateSceneOperation>) {
+                if (value.enabled) {
+                    auto changed =
+                        world.set_interactable_enabled(value.interactable, *value.enabled);
+                    if (!changed)
+                        return changed;
+                }
+                if (value.visible) {
+                    auto changed =
+                        world.set_interactable_visible(value.interactable, *value.visible);
+                    if (!changed)
+                        return changed;
+                }
+                record_direct_world_mutation(impacts);
+                return core::Result<void, core::Diagnostics>::success();
+            } else if constexpr (std::is_same_v<T, core::compiled::SplitItemStackSceneOperation>) {
+                auto changed = gateway.split_item_stack(value.stack, value.quantity);
+                return changed ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(changed.error());
+            } else if constexpr (std::is_same_v<T, core::compiled::MergeItemStacksSceneOperation>) {
+                auto changed = gateway.merge_item_stacks(value.receiver, value.donor);
+                return changed ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(changed.error());
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::TransferItemQuantitySceneOperation>) {
+                auto changed =
+                    gateway.transfer_item_quantity(value.stack, value.quantity, value.location,
+                                                   runtime_item_placement(value.placement));
+                return changed ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(changed.error());
+            } else if constexpr (std::is_same_v<T,
+                                                core::compiled::GrantItemQuantitySceneOperation>) {
+                auto changed =
+                    gateway.grant_item_quantity(value.definition, value.quantity, value.location,
+                                                runtime_item_placement(value.placement));
+                return changed ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(changed.error());
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::ConsumeItemQuantitySceneOperation>) {
+                auto changed = gateway.consume_item_quantity(value.stack, value.quantity);
+                return changed ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(changed.error());
+            } else {
+                auto changed = gateway.set_item_stack_traits(value.stack, value.traits);
+                return changed ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(changed.error());
+            }
+        },
+        operation);
+}
+
+core::Result<void, core::Diagnostics>
+apply_scene_world_operation(const core::compiled::SceneRuntimeWorldOperation& operation,
+                            RuntimeCommandGateway& gateway)
+{
+    return std::visit(
+        [&](const auto& value) -> core::Result<void, core::Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::CreateRoomSceneWorldOperation>) {
+                auto created = gateway.create_room(runtime_configuration_request(value.source));
+                return created ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(created.error());
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::CreateCharacterSceneWorldOperation>) {
+                auto created =
+                    gateway.create_character(runtime_configuration_request(value.source),
+                                             value.location, value.enabled, value.visible);
+                return created ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(created.error());
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::CreateInteractableSceneWorldOperation>) {
+                auto created =
+                    gateway.create_interactable(runtime_configuration_request(value.source),
+                                                value.location, value.enabled, value.visible);
+                return created ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(created.error());
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::ReplaceConfigurationSceneWorldOperation>) {
+                return gateway.replace_instance_configuration(
+                    runtime_instance_ref(value.instance),
+                    runtime_configuration_request(value.source));
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::ClearConfigurationSceneWorldOperation>) {
+                return gateway.clear_instance_configuration(runtime_instance_ref(value.instance));
+            } else if constexpr (std::is_same_v<
+                                     T, core::compiled::RetargetRoomExitSceneWorldOperation>) {
+                return gateway.retarget_room_exit(value.room, value.exit, value.target);
+            } else {
+                return gateway.destroy_instance(runtime_instance_ref(value.instance));
+            }
+        },
+        operation);
+}
+
 } // namespace
 
 RuntimeExecutor::RuntimeExecutor(const core::CompiledProject& project,
@@ -1104,6 +1325,106 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                             script_diagnostics(std::get<ScriptInvocationError>(changed.error())));
                     }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::GameplayEffectBatchSceneInstruction>) {
+                    const core::SceneId scene_id = frame->scene;
+                    core::SessionState staged_state = m_state;
+                    RuntimeWorld staged_world(m_project, staged_state);
+                    RuntimeCommandGateway staged_gateway(m_project, staged_state, staged_world,
+                                                         m_gateway.generation());
+                    MutationImpactJournal impacts;
+                    for (const auto& operation : value.operations) {
+                        const auto capability = scene_gameplay_operation_capability(operation);
+                        if (!m_gameplay_capabilities.can_command(capability))
+                            return fault(execution_error(
+                                "execution.scene_gameplay_capability_denied",
+                                "Scene Gameplay Effect Batch requires an unavailable gameplay "
+                                "capability"));
+                        auto changed = apply_scene_gameplay_operation(operation, staged_gateway,
+                                                                      staged_world, impacts);
+                        if (!changed)
+                            return fault(changed.error());
+                    }
+                    impacts.merge(staged_gateway.take_mutation_impacts());
+                    m_state = std::move(staged_state);
+                    m_gateway.merge_mutation_impacts(impacts);
+                    if (impacts.contains(MutationImpact::RoomPresentationInvalidated))
+                        m_room_presentation_dirty = true;
+                    return commit(scene_id, step, {sequential, core::SceneStepReady{}});
+                } else if constexpr (std::is_same_v<
+                                         T,
+                                         core::compiled::RuntimeWorldTransactionSceneInstruction>) {
+                    const core::SceneId scene_id = frame->scene;
+                    core::SessionState staged_state = m_state;
+                    RuntimeWorld staged_world(m_project, staged_state);
+                    RuntimeCommandGateway staged_gateway(m_project, staged_state, staged_world,
+                                                         m_gateway.generation());
+                    for (const auto& operation : value.operations) {
+                        const auto capability = scene_world_operation_capability(operation);
+                        if (!m_gameplay_capabilities.can_command(capability))
+                            return fault(execution_error(
+                                "execution.scene_world_capability_denied",
+                                "Scene Runtime World Transaction requires an unavailable gameplay "
+                                "capability"));
+                        auto changed = apply_scene_world_operation(operation, staged_gateway);
+                        if (!changed)
+                            return fault(changed.error());
+                    }
+                    auto impacts = staged_gateway.take_mutation_impacts();
+                    m_state = std::move(staged_state);
+                    m_gateway.merge_mutation_impacts(impacts);
+                    if (impacts.contains(MutationImpact::RoomPresentationInvalidated))
+                        m_room_presentation_dirty = true;
+                    return commit(scene_id, step, {sequential, core::SceneStepReady{}});
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::DirectedRoomChangeSceneInstruction>) {
+                    if (!m_gameplay_capabilities.can_command(RuntimeCapabilityGroup::Room))
+                        return fault(execution_error(
+                            "execution.scene_room_capability_denied",
+                            "Scene Directed Room Change requires the Room gameplay capability"));
+                    auto called = m_flow.call_directed_room_change(
+                        value.room, core::SceneFramePosition{sequential, core::SceneStepReady{}});
+                    if (!called)
+                        return fault(called.error());
+                    m_room_presentation_dirty = true;
+                    return std::nullopt;
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::NavigationAttemptSceneInstruction>) {
+                    if (!m_gameplay_capabilities.can_command(RuntimeCapabilityGroup::Room))
+                        return fault(execution_error(
+                            "execution.scene_room_capability_denied",
+                            "Scene Navigation Attempt requires the Room gameplay capability"));
+                    if (!m_state.room_visit())
+                        return fault(execution_error("execution.navigation_without_room",
+                                                     "Navigation Attempt requires a Current Room"));
+                    auto called = m_flow.call_navigation(
+                        value.room,
+                        core::compiled::RoomExitRef{m_state.room_visit()->room, value.exit},
+                        core::SceneFramePosition{sequential, core::SceneStepReady{}});
+                    if (!called)
+                        return fault(called.error());
+                    return std::nullopt;
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::CallInteractionSceneInstruction>) {
+                    if (!m_gameplay_capabilities.can_command(RuntimeCapabilityGroup::Flow))
+                        return fault(execution_error(
+                            "execution.scene_flow_capability_denied",
+                            "Scene Interaction call requires the Flow gameplay capability"));
+                    std::vector<core::InteractionSubjectBinding> bindings;
+                    bindings.reserve(value.bindings.size());
+                    for (const auto& binding : value.bindings)
+                        bindings.push_back({binding.slot, binding.subject});
+                    auto called = interact_in_context(
+                        value.verb, std::move(bindings),
+                        core::SceneFramePosition{sequential, core::SceneStepReady{}});
+                    if (!called) {
+                        if (const auto* diagnostics =
+                                std::get_if<core::Diagnostics>(&called.error()))
+                            return fault(*diagnostics);
+                        return fault(execution_error("execution.scene_interaction_failed",
+                                                     "Scene Interaction call failed"));
+                    }
+                    return std::nullopt;
                 } else if constexpr (std::is_same_v<T, core::compiled::RunLuaSceneInstruction>) {
                     auto invoked = invoke_script(value.source, "scene-run-lua");
                     if (!invoked)

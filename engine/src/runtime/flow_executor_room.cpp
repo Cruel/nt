@@ -12,6 +12,23 @@ Diagnostics execution_error(std::string code, std::string message)
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
+void assign_position(FlowFrame& frame, FlowFramePosition position)
+{
+    std::visit(
+        [&position](auto& value) {
+            using Frame = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<Frame, SceneFrame>)
+                value.position = std::get<SceneFramePosition>(std::move(position));
+            else if constexpr (std::is_same_v<Frame, DialogueFrame>)
+                value.position = std::get<DialogueFramePosition>(std::move(position));
+            else if constexpr (std::is_same_v<Frame, InteractionFrame>)
+                value.position = std::get<InteractionFramePosition>(std::move(position));
+            else
+                value.position = std::get<RoomTransitionPosition>(std::move(position));
+        },
+        frame);
+}
+
 RoomTransitionStage next_stage(const RoomTransitionFrame& transition) noexcept
 {
     switch (transition.position.stage) {
@@ -78,6 +95,90 @@ Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
                                                           {RoomTransitionStage::SourceCanLeave, 0},
                                                           NoReturnDestination{}});
     m_state.m_mode = FlowMode{};
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> FlowExecutor::call_navigation(const RoomId& target,
+                                                        const compiled::RoomExitRef& selected_exit,
+                                                        FlowFramePosition caller_next_position)
+{
+    auto ready = ensure_flow_ready();
+    if (!ready)
+        return fail(ready.error());
+    const auto* source_context = m_state.m_room_visit ? &*m_state.m_room_visit : nullptr;
+    const auto* source = source_context ? room_definition(source_context->room) : nullptr;
+    const auto* target_room = room_definition(target);
+    auto position = validate_position(m_state.m_flow_stack.back(), caller_next_position);
+    if (source == nullptr || target_room == nullptr || source_context == nullptr || !position ||
+        selected_exit.room != source_context->room)
+        return fail(!position ? position.error()
+                              : execution_error("execution.invalid_navigation",
+                                                "Navigation Attempt requires a valid exit from the "
+                                                "Current Room"));
+    const auto found =
+        std::find_if(source->exits.begin(), source->exits.end(),
+                     [&selected_exit, &target](const compiled::RoomExit& exit) {
+                         return exit.id == selected_exit.exit_id && exit.target == target;
+                     });
+    if (found == source->exits.end())
+        return fail(execution_error("execution.invalid_navigation",
+                                    "Selected Room exit does not lead to the target Room"));
+    if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
+        return fail(
+            execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
+
+    const FlowFrameId id{m_state.m_next_frame_id};
+    assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+    ++m_state.m_next_frame_id;
+    m_state.m_flow_stack.emplace_back(RoomTransitionFrame{id,
+                                                          source_context->room,
+                                                          target,
+                                                          selected_exit,
+                                                          RoomTransitionKind::NavigationAttempt,
+                                                          RoomEntryCause::NavigationAttempt,
+                                                          *source_context,
+                                                          {RoomTransitionStage::SourceCanLeave, 0},
+                                                          CallerDestination{}});
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+FlowExecutor::call_directed_room_change(const RoomId& target,
+                                        FlowFramePosition caller_next_position)
+{
+    auto ready = ensure_flow_ready();
+    if (!ready)
+        return fail(ready.error());
+    if (room_definition(target) == nullptr)
+        return fail(execution_error("execution.invalid_target", "Room target is missing"));
+    auto position = validate_position(m_state.m_flow_stack.back(), caller_next_position);
+    if (!position)
+        return fail(position.error());
+    const std::optional<RoomVisitContext> source_context = m_state.m_room_visit;
+    const std::optional<RoomId> source =
+        source_context ? std::optional<RoomId>{source_context->room} : std::nullopt;
+    if (source && *source == target) {
+        assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+        return Result<void, Diagnostics>::success();
+    }
+    if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
+        return fail(
+            execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
+
+    const auto first_stage =
+        source ? RoomTransitionStage::SourceCanLeave : RoomTransitionStage::TargetCanEnter;
+    const FlowFrameId id{m_state.m_next_frame_id};
+    assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
+    ++m_state.m_next_frame_id;
+    m_state.m_flow_stack.emplace_back(RoomTransitionFrame{id,
+                                                          source,
+                                                          target,
+                                                          std::nullopt,
+                                                          RoomTransitionKind::DirectedRoomChange,
+                                                          RoomEntryCause::DirectedRoomChange,
+                                                          source_context,
+                                                          {first_stage, 0},
+                                                          CallerDestination{}});
     return Result<void, Diagnostics>::success();
 }
 
@@ -153,6 +254,15 @@ Result<void, Diagnostics> FlowExecutor::reject_room_transition()
         return fail(execution_error("execution.invalid_room_rejection",
                                     "Only a pre-commit Navigation Attempt may be rejected"));
     const RoomId source = *transition->source_room;
+    const auto destination = transition->destination;
+    if (std::holds_alternative<CallerDestination>(destination)) {
+        if (m_state.m_flow_stack.size() < 2)
+            return fail(execution_error("execution.invalid_return",
+                                        "Room transition caller destination requires a caller"));
+        clear_blocker_for(transition->frame_id);
+        m_state.m_flow_stack.pop_back();
+        return Result<void, Diagnostics>::success();
+    }
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();
     m_state.m_mode = RoomMode{source};
@@ -169,6 +279,15 @@ Result<void, Diagnostics> FlowExecutor::complete_room_transition()
         return fail(execution_error("execution.incomplete_room_transition",
                                     "Room mode begins only after all transition stages complete"));
     const RoomId target = transition->target_room;
+    const auto destination = transition->destination;
+    if (std::holds_alternative<CallerDestination>(destination)) {
+        if (m_state.m_flow_stack.size() < 2)
+            return fail(execution_error("execution.invalid_return",
+                                        "Room transition caller destination requires a caller"));
+        clear_blocker_for(transition->frame_id);
+        m_state.m_flow_stack.pop_back();
+        return Result<void, Diagnostics>::success();
+    }
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();
     m_state.m_mode = RoomMode{target};

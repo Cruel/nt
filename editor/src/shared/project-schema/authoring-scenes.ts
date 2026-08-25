@@ -24,8 +24,18 @@ import {
   textContentSchema,
   textSourceSchema,
   variableRefSchema,
+  verbRefSchema,
 } from './authoring-flow';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { archetypeRefSchema } from './authoring-archetypes';
+import { characterInitialWorldLocationSchema } from './authoring-characters';
+import { interactionSubjectSchema } from './authoring-features';
+import { interactableLocationSchema } from './authoring-interactables';
+import {
+  itemDefinitionRefSchema,
+  itemStackRefSchema,
+  MAX_ITEM_STACK_QUANTITY,
+} from './authoring-items';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { resolveMaterialData } from './authoring-materials';
 import {
@@ -46,6 +56,11 @@ export const sceneStepTypeValues = [
   'show-text',
   'audio-cue',
   'set-variable',
+  'gameplay-effect-batch',
+  'runtime-world-transaction',
+  'directed-room-change',
+  'navigation-attempt',
+  'call-interaction',
   'run-lua',
   'wait',
   'conditional-branch',
@@ -100,6 +115,147 @@ export const sceneTextSourceSchema = textSourceSchema;
 export const sceneTextContentSchema = textContentSchema;
 export const sceneConditionSchema = conditionSchema;
 export const sceneEffectSchema = effectSchema;
+
+const sceneTraitRefSchema = strict({
+  $ref: strict({ collection: z.literal('traits'), id: entityIdSchema }),
+});
+const scenePropertyRefSchema = strict({
+  $ref: strict({ collection: z.literal('properties'), id: entityIdSchema }),
+});
+const scenePropertyOwnerSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('room'), room: roomRefSchema }),
+  strict({ kind: z.literal('character'), character: characterRefSchema }),
+  strict({
+    kind: z.literal('interactable'),
+    interactable: strict({
+      $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
+    }),
+  }),
+  strict({ kind: z.literal('item-stack'), itemStack: itemStackRefSchema }),
+]);
+const sceneGameplayEffectOperationSchema = z.discriminatedUnion('kind', [
+  strict({
+    kind: z.literal('set-variable'),
+    variable: variableRefSchema,
+    value: runtimeScalarSchema,
+  }),
+  strict({
+    kind: z.literal('set-property'),
+    owner: scenePropertyOwnerSchema,
+    property: scenePropertyRefSchema,
+    value: runtimeScalarSchema,
+  }),
+  strict({
+    kind: z.literal('unset-property'),
+    owner: scenePropertyOwnerSchema,
+    property: scenePropertyRefSchema,
+  }),
+  strict({
+    kind: z.literal('move-character'),
+    character: characterRefSchema,
+    location: characterInitialWorldLocationSchema,
+  }),
+  strict({
+    kind: z.literal('set-character-state'),
+    character: characterRefSchema,
+    enabled: z.boolean().optional(),
+    visible: z.boolean().optional(),
+  }),
+  strict({
+    kind: z.literal('move-interactable'),
+    interactable: strict({
+      $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
+    }),
+    location: interactableLocationSchema,
+  }),
+  strict({
+    kind: z.literal('set-interactable-state'),
+    interactable: strict({
+      $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
+    }),
+    enabled: z.boolean().optional(),
+    visible: z.boolean().optional(),
+  }),
+  strict({
+    kind: z.literal('split-item-stack'),
+    stack: itemStackRefSchema,
+    quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
+  }),
+  strict({
+    kind: z.literal('merge-item-stacks'),
+    receiver: itemStackRefSchema,
+    donor: itemStackRefSchema,
+  }),
+  strict({
+    kind: z.literal('transfer-item-quantity'),
+    stack: itemStackRefSchema,
+    quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
+    location: interactableLocationSchema,
+    placement: z.enum(['coalesce', 'keep-separate']),
+  }),
+  strict({
+    kind: z.literal('grant-item-quantity'),
+    definition: itemDefinitionRefSchema,
+    quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
+    location: interactableLocationSchema,
+    placement: z.enum(['coalesce', 'keep-separate']),
+  }),
+  strict({
+    kind: z.literal('consume-item-quantity'),
+    stack: itemStackRefSchema,
+    quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
+  }),
+  strict({
+    kind: z.literal('set-item-stack-traits'),
+    stack: itemStackRefSchema,
+    traits: z.array(sceneTraitRefSchema),
+  }),
+]);
+const sceneGameplayInstanceRefSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('room'), room: roomRefSchema }),
+  strict({ kind: z.literal('character'), character: characterRefSchema }),
+  strict({
+    kind: z.literal('interactable'),
+    interactable: strict({
+      $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
+    }),
+  }),
+]);
+const sceneInstanceConfigurationSourceSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('archetype'), archetype: archetypeRefSchema }),
+  strict({ kind: z.literal('compiled-instance'), instance: sceneGameplayInstanceRefSchema }),
+  strict({ kind: z.literal('effective-instance'), instance: sceneGameplayInstanceRefSchema }),
+]);
+const sceneRuntimeWorldOperationSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('create-room'), source: sceneInstanceConfigurationSourceSchema }),
+  strict({
+    kind: z.literal('create-character'),
+    source: sceneInstanceConfigurationSourceSchema,
+    location: characterInitialWorldLocationSchema,
+    enabled: z.boolean(),
+    visible: z.boolean(),
+  }),
+  strict({
+    kind: z.literal('create-interactable'),
+    source: sceneInstanceConfigurationSourceSchema,
+    location: interactableLocationSchema,
+    enabled: z.boolean(),
+    visible: z.boolean(),
+  }),
+  strict({
+    kind: z.literal('replace-configuration'),
+    instance: sceneGameplayInstanceRefSchema,
+    source: sceneInstanceConfigurationSourceSchema,
+  }),
+  strict({ kind: z.literal('clear-configuration'), instance: sceneGameplayInstanceRefSchema }),
+  strict({
+    kind: z.literal('retarget-room-exit'),
+    room: roomRefSchema,
+    exitId: entityIdSchema,
+    target: roomRefSchema,
+  }),
+  strict({ kind: z.literal('destroy-instance'), instance: sceneGameplayInstanceRefSchema }),
+]);
 
 const commonRuntimeStep = {
   id: entityIdSchema,
@@ -242,6 +398,33 @@ const setVariableStepSchema = strict({
   type: z.literal('set-variable'),
   variable: sceneVariableRefSchema,
   value: runtimeScalarSchema,
+});
+const gameplayEffectBatchStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('gameplay-effect-batch'),
+  operations: z.array(sceneGameplayEffectOperationSchema).min(1),
+});
+const runtimeWorldTransactionStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('runtime-world-transaction'),
+  operations: z.array(sceneRuntimeWorldOperationSchema).min(1),
+});
+const directedRoomChangeStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('directed-room-change'),
+  room: roomRefSchema,
+});
+const navigationAttemptStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('navigation-attempt'),
+  room: roomRefSchema,
+  exitId: entityIdSchema,
+});
+const callInteractionStepSchema = strict({
+  ...commonRuntimeStep,
+  type: z.literal('call-interaction'),
+  verb: verbRefSchema,
+  bindings: z.array(strict({ slotId: entityIdSchema, subject: interactionSubjectSchema })),
 });
 const runLuaStepSchema = strict({
   ...commonRuntimeStep,
@@ -448,6 +631,11 @@ export const sceneStepDataSchema = z.discriminatedUnion('type', [
   showTextStepSchema,
   audioCueStepSchema,
   setVariableStepSchema,
+  gameplayEffectBatchStepSchema,
+  runtimeWorldTransactionStepSchema,
+  directedRoomChangeStepSchema,
+  navigationAttemptStepSchema,
+  callInteractionStepSchema,
   runLuaStepSchema,
   waitStepSchema,
   conditionalBranchStepSchema,
@@ -621,6 +809,38 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
       };
     case 'set-variable':
       return { ...common, type, variable: sceneVariableRef('variable'), value: false };
+    case 'gameplay-effect-batch':
+      return {
+        ...common,
+        type,
+        operations: [
+          { kind: 'set-variable', variable: sceneVariableRef('variable'), value: false },
+        ],
+      };
+    case 'runtime-world-transaction':
+      return {
+        ...common,
+        type,
+        operations: [
+          {
+            kind: 'retarget-room-exit',
+            room: sceneRoomRef('room'),
+            exitId: 'exit',
+            target: sceneRoomRef('target-room'),
+          },
+        ],
+      };
+    case 'directed-room-change':
+      return { ...common, type, room: sceneRoomRef('room') };
+    case 'navigation-attempt':
+      return { ...common, type, room: sceneRoomRef('room'), exitId: 'exit' };
+    case 'call-interaction':
+      return {
+        ...common,
+        type,
+        verb: { $ref: { collection: 'verbs', id: 'verb' } },
+        bindings: [],
+      };
     case 'run-lua':
       return { ...common, type, source: '-- Lua', mayYield: true, autosaveSafePoint: false };
     case 'wait':
@@ -937,6 +1157,9 @@ export function validateSceneData(
       if (
         candidate.type === 'choice' ||
         candidate.type === 'call-dialogue' ||
+        candidate.type === 'call-interaction' ||
+        candidate.type === 'directed-room-change' ||
+        candidate.type === 'navigation-attempt' ||
         (candidate.type === 'show-text' && candidate.wait === 'input') ||
         (candidate.type === 'wait' &&
           (candidate.waitKind === 'input' ||
@@ -1232,6 +1455,143 @@ export function validateSceneData(
     }
     if (step.type === 'set-variable')
       validateVariableValue(step.variable.$ref.id, step.value, `${path}/value`);
+    if (step.type === 'gameplay-effect-batch') {
+      step.operations.forEach((operation, operationIndex) => {
+        const operationPath = `${path}/operations/${operationIndex}`;
+        if (operation.kind === 'set-variable')
+          validateVariableValue(
+            operation.variable.$ref.id,
+            operation.value,
+            `${operationPath}/value`,
+          );
+        if (operation.kind === 'set-property' || operation.kind === 'unset-property') {
+          requireRecord('properties', operation.property.$ref.id, `${operationPath}/property`);
+          const owner = operation.owner;
+          if (owner.kind === 'room')
+            requireRecord('rooms', owner.room.$ref.id, `${operationPath}/owner/room`);
+          else if (owner.kind === 'character')
+            requireRecord(
+              'characters',
+              owner.character.$ref.id,
+              `${operationPath}/owner/character`,
+            );
+          else if (owner.kind === 'interactable')
+            requireRecord(
+              'interactables',
+              owner.interactable.$ref.id,
+              `${operationPath}/owner/interactable`,
+            );
+          else
+            requireRecord(
+              'itemStacks',
+              owner.itemStack.$ref.id,
+              `${operationPath}/owner/itemStack`,
+            );
+        }
+        if (operation.kind === 'move-character' || operation.kind === 'set-character-state')
+          requireRecord('characters', operation.character.$ref.id, `${operationPath}/character`);
+        if (operation.kind === 'move-interactable' || operation.kind === 'set-interactable-state')
+          requireRecord(
+            'interactables',
+            operation.interactable.$ref.id,
+            `${operationPath}/interactable`,
+          );
+        if (
+          operation.kind === 'split-item-stack' ||
+          operation.kind === 'transfer-item-quantity' ||
+          operation.kind === 'consume-item-quantity' ||
+          operation.kind === 'set-item-stack-traits'
+        )
+          requireRecord('itemStacks', operation.stack.$ref.id, `${operationPath}/stack`);
+        if (operation.kind === 'merge-item-stacks') {
+          requireRecord('itemStacks', operation.receiver.$ref.id, `${operationPath}/receiver`);
+          requireRecord('itemStacks', operation.donor.$ref.id, `${operationPath}/donor`);
+        }
+        if (operation.kind === 'grant-item-quantity')
+          requireRecord(
+            'itemDefinitions',
+            operation.definition.$ref.id,
+            `${operationPath}/definition`,
+          );
+        if (operation.kind === 'set-item-stack-traits')
+          operation.traits.forEach((trait, traitIndex) =>
+            requireRecord('traits', trait.$ref.id, `${operationPath}/traits/${traitIndex}`),
+          );
+      });
+    }
+    if (step.type === 'runtime-world-transaction') {
+      step.operations.forEach((operation, operationIndex) => {
+        const operationPath = `${path}/operations/${operationIndex}`;
+        const requireInstance = (
+          instance:
+            | { kind: 'room'; room: { $ref: { id: string } } }
+            | { kind: 'character'; character: { $ref: { id: string } } }
+            | { kind: 'interactable'; interactable: { $ref: { id: string } } },
+          instancePath: string,
+        ) => {
+          if (instance.kind === 'room')
+            requireRecord('rooms', instance.room.$ref.id, `${instancePath}/room`);
+          else if (instance.kind === 'character')
+            requireRecord('characters', instance.character.$ref.id, `${instancePath}/character`);
+          else
+            requireRecord(
+              'interactables',
+              instance.interactable.$ref.id,
+              `${instancePath}/interactable`,
+            );
+        };
+        const requireSource = (
+          source:
+            | { kind: 'archetype'; archetype: { $ref: { id: string } } }
+            | {
+                kind: 'compiled-instance' | 'effective-instance';
+                instance:
+                  | { kind: 'room'; room: { $ref: { id: string } } }
+                  | { kind: 'character'; character: { $ref: { id: string } } }
+                  | { kind: 'interactable'; interactable: { $ref: { id: string } } };
+              },
+          sourcePath: string,
+        ) => {
+          if (source.kind === 'archetype')
+            requireRecord('archetypes', source.archetype.$ref.id, `${sourcePath}/archetype`);
+          else requireInstance(source.instance, `${sourcePath}/instance`);
+        };
+        if ('source' in operation) requireSource(operation.source, `${operationPath}/source`);
+        if ('instance' in operation)
+          requireInstance(operation.instance, `${operationPath}/instance`);
+        if (operation.kind === 'retarget-room-exit') {
+          requireRecord('rooms', operation.room.$ref.id, `${operationPath}/room`);
+          requireRecord('rooms', operation.target.$ref.id, `${operationPath}/target`);
+        }
+      });
+    }
+    if (step.type === 'directed-room-change' || step.type === 'navigation-attempt')
+      requireRecord('rooms', step.room.$ref.id, `${path}/room`);
+    if (step.type === 'call-interaction') {
+      requireRecord('verbs', step.verb.$ref.id, `${path}/verb`);
+      step.bindings.forEach((binding, bindingIndex) => {
+        const subjectPath = `${path}/bindings/${bindingIndex}/subject`;
+        const subject = binding.subject;
+        if (subject.kind === 'character')
+          requireRecord('characters', subject.character.$ref.id, `${subjectPath}/character`);
+        else if (subject.kind === 'interactable')
+          requireRecord(
+            'interactables',
+            subject.interactable.$ref.id,
+            `${subjectPath}/interactable`,
+          );
+        else if (subject.kind === 'item-stack')
+          requireRecord('itemStacks', subject.itemStack.$ref.id, `${subjectPath}/itemStack`);
+        else if (subject.feature.ownerKind === 'room')
+          requireRecord('rooms', subject.feature.room.$ref.id, `${subjectPath}/feature/room`);
+        else
+          requireRecord(
+            'interactables',
+            subject.feature.interactable.$ref.id,
+            `${subjectPath}/feature/interactable`,
+          );
+      });
+    }
     if (step.type === 'set-layout') {
       if (step.layout) requireRecord('layouts', step.layout.$ref.id, `${path}/layout`);
       if (step.action === 'hide' && step.layout !== null)

@@ -186,6 +186,13 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/waitCondition\/source$/, SOURCE],
   [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/waitCondition(?:\/|$)/, OWNER],
   [/^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:eventId|signalId)$/, OWNER],
+  // #100 adds typed Scene gameplay/runtime-world transactions plus Room/Interaction orchestration
+  // at the preserved authoring schema version. Every new field is part of the owning Scene runtime
+  // program and therefore contributes to that Scene's dependency and preview invalidation surface.
+  [
+    /^\/scenes\/\*\/data\/(?:steps|events)\/\*\/(?:operations|bindings|verb|room|exitId)(?:\/|$)/,
+    OWNER,
+  ],
   // #89 adds Project audio mixing policy and expands Scene audio cues at the preserved authoring
   // schema version. Project mix fields and the genuinely new cue dimensions all contribute to
   // runtime projection; purpose/lifetime/gain replace the retired channel/loop/volume leaves and
@@ -698,7 +705,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     project: 'da3be83d',
     properties: 'c35941e2',
     rooms: 'af3ac4c1',
-    scenes: 'b4a3b4d8',
+    scenes: '21280450',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: 'e2c61a79',

@@ -20,7 +20,7 @@ namespace {
 
 using TypedExecutionKernel = runtime::RuntimeExecutor;
 
-core::CompiledProject load_fixture(std::string_view filename)
+nlohmann::json load_fixture_document(std::string_view filename)
 {
     std::ifstream input(std::string(NOVELTEA_SOURCE_DIR) +
                         "/editor/src/renderer/test/fixtures/compiled-project-golden/" +
@@ -30,9 +30,19 @@ core::CompiledProject load_fixture(std::string_view filename)
                              std::istreambuf_iterator<char>());
     auto document = nlohmann::json::parse(source, nullptr, false);
     REQUIRE_FALSE(document.is_discarded());
+    return document;
+}
+
+core::CompiledProject decode_fixture_document(nlohmann::json document, std::string_view filename)
+{
     auto decoded = core::decode_compiled_project(document, std::string(filename));
     REQUIRE(decoded);
     return std::move(decoded).value();
+}
+
+core::CompiledProject load_fixture(std::string_view filename)
+{
+    return decode_fixture_document(load_fixture_document(filename), filename);
 }
 
 struct RuntimeFixture {
@@ -108,6 +118,53 @@ TEST_CASE("typed execution kernel composes Scene primitives Lua waits and host s
     auto events = kernel->gateway().take_events();
     REQUIRE(events.size() == 1);
     CHECK(std::holds_alternative<runtime::NotificationEvent>(events.front()));
+}
+
+TEST_CASE("Scene gameplay effect batches commit atomically and preserve earlier commits")
+{
+    RuntimeFixture fixture;
+    auto document = load_fixture_document("scene-program.json");
+    auto& scenes = document["definitions"]["scenes"];
+    auto opening = std::find_if(scenes.begin(), scenes.end(), [](const nlohmann::json& scene) {
+        return scene.value("id", "") == "opening";
+    });
+    REQUIRE(opening != scenes.end());
+    (*opening)["program"]["events"] = nlohmann::json::array(
+        {{{"completionDependencies", nlohmann::json::array()},
+          {"id", "first-commit"},
+          {"instruction",
+           {{"id", "first-commit"},
+            {"kind", "gameplay-effect-batch"},
+            {"operations",
+             nlohmann::json::array({{{"kind", "set-global-property"},
+                                     {"property", {{"id", "count"}, {"kind", "property"}}},
+                                     {"value", 4}}})}}},
+          {"timeline", {{"durationMs", 0}, {"startMs", 0}, {"trackId", "main"}}}},
+         {{"completionDependencies", nlohmann::json::array()},
+          {"id", "atomic-failure"},
+          {"instruction",
+           {{"id", "atomic-failure"},
+            {"kind", "gameplay-effect-batch"},
+            {"operations",
+             nlohmann::json::array({{{"kind", "set-global-property"},
+                                     {"property", {{"id", "count"}, {"kind", "property"}}},
+                                     {"value", 9}},
+                                    {{"kind", "set-global-property"},
+                                     {"property", {{"id", "flag"}, {"kind", "property"}}},
+                                     {"value", 7}}})}}},
+          {"timeline", {{"durationMs", 0}, {"startMs", 0}, {"trackId", "main"}}}}});
+    (*opening)["terminal"] = {{"kind", "complete-game"}};
+
+    auto project = decode_fixture_document(std::move(document), "scene-atomic-batch.json");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+
+    const auto outcome = kernel->run_until_blocked(8, "en");
+    CHECK(std::holds_alternative<core::FlowFaultOutcome>(outcome));
+    const auto count = core::PropertyId::create("count").value();
+    REQUIRE(kernel->gateway().global_property(count));
+    CHECK(kernel->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{4}});
 }
 
 TEST_CASE("typed execution kernel initializes each frame category from compiled fixtures")
