@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vite-plus/test';
+import { describe, it, expect, beforeEach, vi } from 'vite-plus/test';
 import {
+  initializeSharedPreferencesPersistence,
   selectEditorPreferencesAreDefaults,
   usePreferencesStore,
 } from '@/stores/preferences-store';
@@ -133,5 +134,18 @@ describe('preferences-store', () => {
     expect(parsed.state.theme).toBeUndefined();
     expect(parsed.state.previewFpsCap).toBeUndefined();
     expect(parsed.state.previewRmlUiRasterSnap).toBeUndefined();
+  });
+
+  it('keeps file persistence active when initialization is mounted again', async () => {
+    const firstDispose = await initializeSharedPreferencesPersistence();
+    firstDispose();
+    const secondDispose = await initializeSharedPreferencesPersistence();
+    const save = window.noveltea.saveUserPreferences as ReturnType<typeof vi.fn>;
+    save.mockClear();
+
+    usePreferencesStore.getState().setTheme('dark');
+
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ theme: 'dark' }));
+    secondDispose();
   });
 });

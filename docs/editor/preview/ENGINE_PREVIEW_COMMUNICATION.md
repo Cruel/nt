@@ -522,7 +522,7 @@ The focused native envelope is closed and versioned:
 ```ts
 {
   protocol: 'noveltea.focused-editor-document',
-  protocolVersion: 2,
+  protocolVersion: 1,
   requestId,
   applySequence,
   projectInstanceId,

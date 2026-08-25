@@ -628,7 +628,7 @@ thead, tbody, tfoot {
       const proposedGeneration = proposedFocusedResourceGeneration(document);
       const envelope = {
         protocol: 'noveltea.focused-editor-document',
-        protocolVersion: 2,
+        protocolVersion: 1,
         requestId: message.requestId,
         applySequence: message.applySequence,
         projectInstanceId: document.projectInstanceId,
@@ -1203,7 +1203,7 @@ thead, tbody, tfoot {
 
     function assetProfilerPayloadShape(payload, expectedKind) {
       if (!(payload && typeof payload === 'object' && payload.kind === expectedKind &&
-        payload.schemaVersion === 3 && canonicalUnsignedDecimal(payload.sessionId) &&
+        canonicalUnsignedDecimal(payload.sessionId) &&
         canonicalUnsignedDecimal(payload.latestSequence) && canonicalUnsignedDecimal(payload.capturedAtNs) &&
         payload.memory && typeof payload.memory === 'object' && payload.outcomes && typeof payload.outcomes === 'object' &&
         canonicalUnsignedDecimal(payload.inventoryRevision) &&
@@ -1266,9 +1266,7 @@ thead, tbody, tfoot {
         return;
       }
       if (!assetProfilerPayloadShape(result.payload, mode)) {
-        failCommand(message, result.payload && result.payload.schemaVersion !== 3
-          ? `Unsupported asset profiler schema ${String(result.payload.schemaVersion)}.`
-          : 'Asset profiler payload failed widget validation.', { category: 'asset-profiler' });
+        failCommand(message, 'Asset profiler payload failed widget validation.', { category: 'asset-profiler' });
         return;
       }
       send({ version: protocolVersion, type: 'runtime-asset-profiler', requestId: message.requestId, payload: result.payload });
