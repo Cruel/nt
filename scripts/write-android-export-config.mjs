@@ -66,7 +66,6 @@ async function main() {
       temporaryPath,
       `${JSON.stringify({
         format: 'noveltea.editor-export-local-state',
-        formatVersion: 1,
         templateRoots: [],
         toolchains: { androidSdk, javaHome },
         signing: {},
