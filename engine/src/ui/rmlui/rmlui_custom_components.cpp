@@ -2,7 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
+
+#include <fast_float/fast_float.h>
 
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/Factory.h>
@@ -34,10 +35,10 @@ RMLUI_RTTI_Define(NtActiveTextElement) RMLUI_RTTI_Define(NtMapViewElement)
 
     std::optional<double> parse_number(std::string_view value)
     {
-        std::istringstream stream{std::string(value)};
-        stream >> std::noskipws;
         double parsed = 0.0;
-        if (!(stream >> parsed) || stream.peek() != std::char_traits<char>::eof() ||
+        const auto result =
+            fast_float::from_chars(value.data(), value.data() + value.size(), parsed);
+        if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
             !std::isfinite(parsed))
             return std::nullopt;
         return parsed;

@@ -388,6 +388,25 @@ if(NOT TARGET noveltea_text_freetype
         "are required for the NovelTea engine.")
 endif()
 
+# --- fast_float: locale-independent floating-point parsing ---
+
+if(EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+    include(FetchContent)
+    set(FASTFLOAT_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        fast_float
+        URL https://github.com/fastfloat/fast_float/archive/refs/tags/v8.2.8.tar.gz
+        URL_HASH SHA512=0e6a7ed5d4fe692718527577bb1214bdd7eb2f6ca5fb8494d4918e0995a50061ae7e5c784053766b94e7ef8b20ba180f756015dda31b39618dc66dc1e779a429
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(fast_float)
+else()
+    find_package(FastFloat CONFIG REQUIRED)
+endif()
+if(NOT TARGET FastFloat::fast_float)
+    message(FATAL_ERROR "FastFloat::fast_float is required for NovelTea floating-point parsing")
+endif()
+
 # --- Twink: mandatory backend-local interpolation dependency ---
 
 include(FetchContent)
