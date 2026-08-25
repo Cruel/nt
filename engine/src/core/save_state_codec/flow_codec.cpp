@@ -711,13 +711,25 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                 for (const auto& binding : value.inputs)
                     inputs.push_back({{"inputId", binding.input_id.text()},
                                       {"value", encode_value(binding.value)}});
+                nlohmann::json handoff = nullptr;
+                if (value.dialogue_handoff) {
+                    handoff = nlohmann::json{
+                        {"dialogueFrame", value.dialogue_handoff->dialogue_frame.value}};
+                    if (value.dialogue_handoff->payload)
+                        handoff["payload"] = encode_value(*value.dialogue_handoff->payload);
+                }
                 return {{"kind", "scene"},
                         {"id", value.snapshot_id.value},
                         {"scene", value.scene.text()},
                         {"position", encode_scene_position(value.position)},
                         {"destination", encode_destination(value.destination)},
                         {"inputs", std::move(inputs)},
-                        {"lastChildOutcome", encode_optional_id(value.last_child_outcome)}};
+                        {"lastChildOutcome", encode_optional_id(value.last_child_outcome)},
+                        {"dialogueHandoff", std::move(handoff)},
+                        {"preservedDialogueCaller",
+                         value.preserved_dialogue_caller
+                             ? nlohmann::json(value.preserved_dialogue_caller->value)
+                             : nlohmann::json(nullptr)}};
             } else if constexpr (std::is_same_v<T, SavedDialogueFrame>) {
                 nlohmann::json stage_slots = nlohmann::json::array();
                 for (const auto& slot : value.stage_slots)
@@ -818,12 +830,15 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         return std::nullopt;
     if (*name == "scene") {
         d.object(value, pointer,
-                 {"kind", "id", "scene", "position", "destination", "inputs", "lastChildOutcome"});
+                 {"kind", "id", "scene", "position", "destination", "inputs", "lastChildOutcome",
+                  "dialogueHandoff", "preservedDialogueCaller"});
         const auto* scene = d.member(value, "scene", pointer);
         const auto* position = d.member(value, "position", pointer);
         const auto* destination = d.member(value, "destination", pointer);
         const auto* inputs = d.member(value, "inputs", pointer);
         const auto* outcome = d.member(value, "lastChildOutcome", pointer);
+        const auto* handoff = d.member(value, "dialogueHandoff", pointer);
+        const auto* preserved = d.member(value, "preservedDialogueCaller", pointer);
         auto scene_id = scene ? d.id<SceneId>(*scene, child(pointer, "scene")) : std::nullopt;
         auto saved_position = position
                                   ? decode_scene_position(d, *position, child(pointer, "position"))
@@ -857,14 +872,49 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         auto last_child_outcome =
             outcome ? d.optional_id<SceneOutcomeId>(*outcome, child(pointer, "lastChildOutcome"))
                     : Decoder::OptionalId<SceneOutcomeId>{};
-        return scene_id && saved_position && saved_destination && last_child_outcome.valid
+        std::optional<SavedDialogueHandoffState> decoded_handoff;
+        bool handoff_ok = handoff != nullptr;
+        if (handoff && !handoff->is_null()) {
+            const auto handoff_path = child(pointer, "dialogueHandoff");
+            if (!d.object(*handoff, handoff_path, {"dialogueFrame", "payload"}))
+                return std::nullopt;
+            const auto* dialogue_frame = d.member(*handoff, "dialogueFrame", handoff_path);
+            auto frame = dialogue_frame
+                             ? d.unsigned_integer<std::uint64_t>(
+                                   *dialogue_frame, child(handoff_path, "dialogueFrame"), true)
+                             : std::nullopt;
+            std::optional<RuntimeValue> payload;
+            bool payload_ok = true;
+            if (const auto it = handoff->find("payload"); it != handoff->end()) {
+                payload = decode_value(d, *it, child(handoff_path, "payload"));
+                payload_ok = payload.has_value();
+            }
+            if (frame && payload_ok)
+                decoded_handoff = SavedDialogueHandoffState{{*frame}, std::move(payload)};
+            else
+                handoff_ok = false;
+        }
+        std::optional<SavedFlowFrameId> preserved_frame;
+        bool preserved_ok = preserved != nullptr;
+        if (preserved && !preserved->is_null()) {
+            auto frame = d.unsigned_integer<std::uint64_t>(
+                *preserved, child(pointer, "preservedDialogueCaller"), true);
+            if (frame)
+                preserved_frame = SavedFlowFrameId{*frame};
+            else
+                preserved_ok = false;
+        }
+        return scene_id && saved_position && saved_destination && last_child_outcome.valid &&
+                       handoff_ok && preserved_ok
                    ? std::optional<SavedFlowFrame>(
                          SavedSceneFrame{{*snapshot},
                                          std::move(*scene_id),
                                          std::move(*saved_position),
                                          std::move(*saved_destination),
                                          std::move(decoded_inputs),
-                                         std::move(last_child_outcome.value)})
+                                         std::move(last_child_outcome.value),
+                                         std::move(decoded_handoff),
+                                         preserved_frame})
                    : std::nullopt;
     }
     if (*name == "dialogue") {

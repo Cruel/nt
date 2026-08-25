@@ -687,6 +687,8 @@ Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project
                                               {first_scene_step(*scene), {}},
                                               NoReturnDestination{},
                                               initial_scene_inputs(*scene),
+                                              std::nullopt,
+                                              std::nullopt,
                                               std::nullopt});
                 return true;
             } else {

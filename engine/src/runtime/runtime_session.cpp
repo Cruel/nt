@@ -17,6 +17,14 @@ namespace {
 
 template<class> inline constexpr bool always_false = false;
 
+bool has_blocking_diagnostic(const core::Diagnostics& diagnostics) noexcept
+{
+    return std::ranges::any_of(diagnostics, [](const core::Diagnostic& diagnostic) {
+        return diagnostic.severity == core::ErrorSeverity::Error ||
+               diagnostic.severity == core::ErrorSeverity::Fatal;
+    });
+}
+
 core::Diagnostics as_diagnostics(RuntimeExecutionError error)
 {
     if (auto* diagnostics = std::get_if<core::Diagnostics>(&error))
@@ -589,12 +597,12 @@ core::Diagnostics RuntimeSession::run_kernel(std::vector<runtime::RuntimeEvent>&
                                              std::vector<core::RuntimeObservation>& observations)
 {
     auto diagnostics = run_kernel_once(events, observations);
-    if (diagnostics.empty()) {
+    if (!has_blocking_diagnostic(diagnostics)) {
         drain_deferred_commands(events, observations, diagnostics);
     } else {
         m_kernel->gateway().command_queue().clear();
     }
-    if (diagnostics.empty() && !m_running_detached_flows)
+    if (!has_blocking_diagnostic(diagnostics) && !m_running_detached_flows)
         run_detached_flows(events, observations, diagnostics);
     return diagnostics;
 }
@@ -610,8 +618,9 @@ RuntimeSession::run_kernel_once(std::vector<runtime::RuntimeEvent>& events,
         !m_kernel->state().blocker() && !m_kernel->state().gameplay_paused();
     const auto outcome =
         m_kernel->run_until_blocked(m_runtime_budget.instruction_limit, m_runtime_locale);
+    core::append_diagnostics(diagnostics, m_kernel->take_flow_diagnostics());
     if (const auto* fault = std::get_if<core::FlowFaultOutcome>(&outcome)) {
-        diagnostics = fault->diagnostics;
+        core::append_diagnostics(diagnostics, fault->diagnostics);
         if (m_transaction_budget_outcome.kind != runtime::RuntimeBudgetOutcomeKind::CycleRejected) {
             m_transaction_budget_outcome = {.kind = runtime::RuntimeBudgetOutcomeKind::Faulted,
                                             .exhausted = std::nullopt,
@@ -631,7 +640,7 @@ RuntimeSession::run_kernel_once(std::vector<runtime::RuntimeEvent>& events,
     drain_pending_events(events);
 
     drain_script_inputs(events, observations, diagnostics);
-    if (diagnostics.empty() && execution_can_advance)
+    if (!has_blocking_diagnostic(diagnostics) && execution_can_advance)
         record_structural_mutation();
     return diagnostics;
 }

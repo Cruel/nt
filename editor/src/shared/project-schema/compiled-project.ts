@@ -862,6 +862,11 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
   strict({
     ...sceneInstructionCommon,
     autosaveSafePoint: z.boolean(),
+    kind: z.literal('resume-dialogue'),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    autosaveSafePoint: z.boolean(),
     kind: z.literal('show-text'),
     speaker: characterReferenceSchema.nullable(),
     text: compiledTextSchema,
@@ -1181,6 +1186,20 @@ const dialogueSegmentSchema = z.discriminatedUnion('kind', [
     kind: z.literal('run-lua'),
     mayYield: z.boolean(),
     source: z.string().min(1),
+  }),
+  strict({
+    condition: compiledConditionSchema.optional(),
+    id,
+    inputs: z.array(compiledSceneInputBindingSchema),
+    kind: z.literal('call-scene'),
+    scene: sceneReferenceSchema,
+    uiPolicy: z.enum(['preserve', 'conceal']),
+  }),
+  strict({
+    condition: compiledConditionSchema.optional(),
+    id,
+    kind: z.literal('handoff'),
+    payload: runtimeValueSchema.optional(),
   }),
 ]);
 const dialogueBlockSchema = z.discriminatedUnion('kind', [

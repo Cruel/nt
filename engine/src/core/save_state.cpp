@@ -21,16 +21,27 @@ std::optional<SavedFlowFrameId> saved_owner(const FlowStack& stack,
     return std::nullopt;
 }
 
-SavedFlowFrame save_frame(const FlowFrame& frame, std::size_t index)
+SavedFlowFrame save_frame(const FlowStack& stack, const FlowFrame& frame, std::size_t index)
 {
     const SavedFlowFrameId snapshot_id{index + 1};
     return std::visit(
-        [snapshot_id](const auto& value) -> SavedFlowFrame {
+        [&stack, snapshot_id](const auto& value) -> SavedFlowFrame {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, SceneFrame>)
-                return SavedSceneFrame{snapshot_id,       value.scene,  value.position,
-                                       value.destination, value.inputs, value.last_child_outcome};
-            else if constexpr (std::is_same_v<T, DialogueFrame>)
+            if constexpr (std::is_same_v<T, SceneFrame>) {
+                std::optional<SavedDialogueHandoffState> handoff;
+                if (value.dialogue_handoff) {
+                    if (const auto dialogue =
+                            saved_owner(stack, value.dialogue_handoff->dialogue_frame))
+                        handoff =
+                            SavedDialogueHandoffState{*dialogue, value.dialogue_handoff->payload};
+                }
+                const auto preserved = value.preserved_dialogue_caller
+                                           ? saved_owner(stack, *value.preserved_dialogue_caller)
+                                           : std::nullopt;
+                return SavedSceneFrame{snapshot_id,        value.scene,  value.position,
+                                       value.destination,  value.inputs, value.last_child_outcome,
+                                       std::move(handoff), preserved};
+            } else if constexpr (std::is_same_v<T, DialogueFrame>)
                 return SavedDialogueFrame{snapshot_id,       value.dialogue,    value.position,
                                           value.stage_slots, value.media_slots, value.destination};
             else if constexpr (std::is_same_v<T, InteractionFrame>)
@@ -278,7 +289,8 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             SavedLogicalTimerCompletion{{completion.id.number()}, completion.occurrences});
     save.flow_stack.reserve(session.m_flow_stack.size());
     for (std::size_t index = 0; index < session.m_flow_stack.size(); ++index)
-        save.flow_stack.push_back(save_frame(session.m_flow_stack[index], index));
+        save.flow_stack.push_back(
+            save_frame(session.m_flow_stack, session.m_flow_stack[index], index));
 
     for (const auto& background : session.m_background_overrides) {
         auto owner = save_presentation_owner(session, background.owner);

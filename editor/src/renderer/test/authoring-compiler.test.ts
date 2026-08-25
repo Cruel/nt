@@ -425,6 +425,7 @@ describe('authoring compiler framework', () => {
         dialogue: { $ref: { collection: 'dialogues', id: 'intro' } },
         startBlockId: 'start',
       },
+      { ...defaultSceneStep('resume-dialogue'), id: 'resume-dialogue' },
       { ...defaultSceneStep('show-text'), id: 'text' },
       {
         ...defaultSceneStep('audio-cue'),
@@ -513,6 +514,7 @@ describe('authoring compiler framework', () => {
       'set-background',
       'actor-cue',
       'call-dialogue',
+      'resume-dialogue',
       'show-text',
       'audio-cue',
       'set-global-property',
@@ -737,6 +739,18 @@ describe('authoring compiler framework', () => {
             condition: { kind: 'always' },
             mayYield: true,
           },
+          {
+            ...defaultDialogueSegment('call-scene', 'child-scene'),
+            scene: { $ref: { collection: 'scenes', id: 'opening' } },
+            inputs: [],
+            uiPolicy: 'preserve',
+            condition: { kind: 'always' },
+          },
+          {
+            ...defaultDialogueSegment('handoff', 'handoff'),
+            condition: { kind: 'always' },
+            payload: 'resume-token',
+          },
           { ...defaultDialogueSegment('comment', 'note') },
         ],
       },
@@ -954,6 +968,14 @@ describe('authoring compiler framework', () => {
           ],
         },
         { id: 'script', kind: 'run-lua' },
+        {
+          id: 'child-scene',
+          kind: 'call-scene',
+          scene: { kind: 'scene', id: 'opening' },
+          inputs: [],
+          uiPolicy: 'preserve',
+        },
+        { id: 'handoff', kind: 'handoff', payload: 'resume-token' },
       ],
     });
     expect(loweredDialogue.program.edges.map((edge) => edge.kind)).toEqual(['next', 'choice']);

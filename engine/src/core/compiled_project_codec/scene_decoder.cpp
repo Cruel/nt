@@ -451,6 +451,16 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                       std::move(*dialogue), std::move(block)})
                    : std::nullopt;
     }
+    if (*kind == "resume-dialogue") {
+        SCENE_FIELDS("autosaveSafePoint");
+        const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
+        auto safe = safe_value
+                        ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
+                        : std::nullopt;
+        return safe ? std::optional<SceneInstruction>(ResumeDialogueSceneInstruction{
+                          std::move(*id), std::move(condition), *safe})
+                    : std::nullopt;
+    }
     if (*kind == "show-text") {
         SCENE_FIELDS("autosaveSafePoint", "speaker", "text", "wait");
         const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);

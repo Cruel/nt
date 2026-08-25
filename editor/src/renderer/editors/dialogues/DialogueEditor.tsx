@@ -62,6 +62,7 @@ import {
   serializeDialogueCueMarkup,
 } from '../../../shared/project-schema/dialogue-cue-markup';
 import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
+import { parseSceneData } from '../../../shared/project-schema/authoring-scenes';
 import {
   inlineTextContent,
   type FlowTarget,
@@ -285,6 +286,23 @@ function scalar(value: string): null | boolean | number | string {
   if (trimmed === 'false') return false;
   if (trimmed !== '' && Number.isFinite(Number(trimmed))) return Number(trimmed);
   return value;
+}
+
+function dialogueSceneInputValue(
+  input: { type: 'boolean' | 'integer' | 'number' | 'string'; nullable: boolean },
+  value: string,
+): null | boolean | number | string | undefined {
+  if (input.nullable && value === 'null') return null;
+  if (input.type === 'string') return value;
+  if (input.type === 'boolean') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return undefined;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) return undefined;
+  if (input.type === 'integer' && !Number.isInteger(number)) return undefined;
+  return number;
 }
 
 function StableIdInput({
@@ -934,7 +952,12 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
       candidate.type === 'sequence' ? candidate.segments.map((segment) => segment.id) : [],
     );
     const id = nextUniqueId(ids, type === 'line' ? 'line' : type);
-    const segment = defaultDialogueSegment(type, id);
+    let segment = defaultDialogueSegment(type, id);
+    if (segment.type === 'call-scene') {
+      const firstSceneId = Object.keys(project?.scenes ?? {})[0];
+      if (firstSceneId)
+        segment = { ...segment, scene: { $ref: { collection: 'scenes', id: firstSceneId } } };
+    }
     replaceBlock({ ...block, segments: [...block.segments, segment] });
     setSelectedSegmentId(id);
   }
@@ -1003,7 +1026,16 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     type: DialogueSegmentData['type'],
   ) {
     if (segment.type === type) return;
-    replaceSegment(block, defaultDialogueSegment(type, segment.id));
+    let replacement = defaultDialogueSegment(type, segment.id);
+    if (replacement.type === 'call-scene') {
+      const firstSceneId = Object.keys(project?.scenes ?? {})[0];
+      if (firstSceneId)
+        replacement = {
+          ...replacement,
+          scene: { $ref: { collection: 'scenes', id: firstSceneId } },
+        };
+    }
+    replaceSegment(block, replacement);
   }
 
   function moveSegment(block: DialogueSequenceBlockData, id: string, direction: -1 | 1) {
@@ -3500,6 +3532,120 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                     />{' '}
                     May yield
                   </label>
+                  <ConditionEditor
+                    condition={activeSegment.condition}
+                    variableOptions={variables}
+                    onChange={(condition) =>
+                      replaceSegment(activeBlock, { ...activeSegment, condition })
+                    }
+                  />
+                </>
+              ) : null}
+              {activeSegment.type === 'call-scene' ? (
+                <>
+                  <Label>
+                    Child Scene
+                    <Select
+                      value={activeSegment.scene.$ref.id}
+                      onValueChange={(sceneId) =>
+                        replaceSegment(activeBlock, {
+                          ...activeSegment,
+                          scene: { $ref: { collection: 'scenes', id: String(sceneId) } },
+                          inputs: [],
+                        })
+                      }
+                    >
+                      {Object.entries(project.scenes).map(([id, scene]) => (
+                        <SelectItem key={id} value={id}>
+                          {scene.label}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </Label>
+                  <Label>
+                    Caller UI while child runs
+                    <Select
+                      value={activeSegment.uiPolicy}
+                      onValueChange={(uiPolicy) =>
+                        replaceSegment(activeBlock, {
+                          ...activeSegment,
+                          uiPolicy: uiPolicy as typeof activeSegment.uiPolicy,
+                        })
+                      }
+                    >
+                      <SelectItem value="conceal">Conceal Dialogue UI</SelectItem>
+                      <SelectItem value="preserve">Preserve Dialogue UI</SelectItem>
+                    </Select>
+                  </Label>
+                  <div className="space-y-2 rounded border p-2">
+                    <span className="text-xs font-medium">Input bindings</span>
+                    {(
+                      parseSceneData(project.scenes[activeSegment.scene.$ref.id]?.data)?.inputs ??
+                      []
+                    ).map((input) => {
+                      const binding = activeSegment.inputs.find(
+                        (candidate) => candidate.inputId === input.id,
+                      );
+                      return (
+                        <Label key={input.id}>
+                          {input.label} ({input.type})
+                          <Input
+                            value={binding?.value === undefined ? '' : String(binding.value)}
+                            placeholder={input.nullable ? 'null' : input.id}
+                            onChange={(event) => {
+                              const value = dialogueSceneInputValue(input, event.target.value);
+                              const inputs = activeSegment.inputs.filter(
+                                (candidate) => candidate.inputId !== input.id,
+                              );
+                              if (value !== undefined) inputs.push({ inputId: input.id, value });
+                              replaceSegment(activeBlock, { ...activeSegment, inputs });
+                            }}
+                          />
+                        </Label>
+                      );
+                    })}
+                  </div>
+                  <ConditionEditor
+                    condition={activeSegment.condition}
+                    variableOptions={variables}
+                    onChange={(condition) =>
+                      replaceSegment(activeBlock, { ...activeSegment, condition })
+                    }
+                  />
+                </>
+              ) : null}
+              {activeSegment.type === 'handoff' ? (
+                <>
+                  <label className="flex items-center gap-2">
+                    <Switch
+                      checked={activeSegment.payload !== undefined}
+                      onCheckedChange={(checked) =>
+                        replaceSegment(activeBlock, {
+                          ...activeSegment,
+                          ...(checked ? { payload: null } : { payload: undefined }),
+                        })
+                      }
+                    />{' '}
+                    Include typed payload
+                  </label>
+                  {activeSegment.payload !== undefined ? (
+                    <Label>
+                      Payload
+                      <Input
+                        value={String(activeSegment.payload)}
+                        onChange={(event) =>
+                          replaceSegment(activeBlock, {
+                            ...activeSegment,
+                            payload: scalar(event.currentTarget.value),
+                          })
+                        }
+                      />
+                    </Label>
+                  ) : null}
+                  <p className="text-xs text-muted-foreground">
+                    Handoff resumes the next sequential Event in the directly awaiting Scene. No
+                    authored routing ID is used.
+                  </p>
                   <ConditionEditor
                     condition={activeSegment.condition}
                     variableOptions={variables}

@@ -805,6 +805,15 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                                  std::move(substate)});
                     return called ? std::nullopt
                                   : std::optional<core::FlowRunOutcome>{fault(called.error())};
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::ResumeDialogueSceneInstruction>) {
+                    auto resumed = m_flow.resume_handed_off_dialogue(
+                        core::SceneFramePosition{sequential, core::SceneStepReady{}});
+                    if (!resumed)
+                        return fault(resumed.error());
+                    if (value.autosave_safe_point)
+                        m_gateway.request_autosave_safe_point();
+                    return core::FlowPresentationBoundaryOutcome{};
                 } else if constexpr (std::is_same_v<T, core::compiled::ShowTextInstruction>) {
                     auto text = resolve(value.text.source, runtime_locale);
                     if (!text) {

@@ -429,7 +429,9 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
                                       frame.position,
                                       frame.destination,
                                       frame.inputs,
-                                      frame.last_child_outcome};
+                                      frame.last_child_outcome,
+                                      std::nullopt,
+                                      std::nullopt};
                 else if constexpr (std::is_same_v<T, SavedDialogueFrame>)
                     return DialogueFrame{id,
                                          frame.dialogue,
@@ -452,6 +454,33 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
                                                frame.destination};
             },
             saved_frame));
+    }
+    for (std::size_t index = 0; index < save.flow_stack.size(); ++index) {
+        const auto* saved_scene = std::get_if<SavedSceneFrame>(&save.flow_stack[index]);
+        if (saved_scene == nullptr)
+            continue;
+        auto* scene = std::get_if<SceneFrame>(&state->m_flow_stack[index]);
+        if (scene == nullptr)
+            return Result<SessionState, Diagnostics>::failure(restore_error(
+                "save_restore.invalid_flow", "Saved Scene frame could not be reconstructed."));
+        if (saved_scene->dialogue_handoff) {
+            const auto dialogue =
+                frame_ids.find(saved_scene->dialogue_handoff->dialogue_frame.value);
+            if (dialogue == frame_ids.end())
+                return Result<SessionState, Diagnostics>::failure(
+                    restore_error("save_restore.invalid_flow",
+                                  "Saved Dialogue Handoff identity could not be reconstructed."));
+            scene->dialogue_handoff =
+                DialogueHandoffState{dialogue->second, saved_scene->dialogue_handoff->payload};
+        }
+        if (saved_scene->preserved_dialogue_caller) {
+            const auto caller = frame_ids.find(saved_scene->preserved_dialogue_caller->value);
+            if (caller == frame_ids.end())
+                return Result<SessionState, Diagnostics>::failure(
+                    restore_error("save_restore.invalid_flow",
+                                  "Saved preserved Dialogue caller could not be reconstructed."));
+            scene->preserved_dialogue_caller = caller->second;
+        }
     }
     state->m_next_frame_id = next_frame_id;
     state->m_next_blocker_handle = 1;

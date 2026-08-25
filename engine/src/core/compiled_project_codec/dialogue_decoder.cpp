@@ -4,6 +4,31 @@ namespace noveltea::core::compiled::wire::detail {
 
 namespace {
 
+std::optional<std::vector<SceneInputBinding>>
+decode_dialogue_scene_input_bindings(Decoder& decoder, const nlohmann::json& value,
+                                     std::string_view pointer)
+{
+    return decoder.array<SceneInputBinding>(
+        value, pointer,
+        [&](const nlohmann::json& binding,
+            const std::string& binding_pointer) -> std::optional<SceneInputBinding> {
+            if (!decoder.object(binding, binding_pointer, {"inputId", "value"}))
+                return std::nullopt;
+            const auto* input_value = decoder.member(binding, "inputId", binding_pointer);
+            const auto* runtime_value = decoder.member(binding, "value", binding_pointer);
+            auto input = input_value ? decoder.id<SceneInputId>(
+                                           *input_value, pointer_child(binding_pointer, "inputId"))
+                                     : std::nullopt;
+            auto decoded_value = runtime_value
+                                     ? decode_runtime_value(decoder, *runtime_value,
+                                                            pointer_child(binding_pointer, "value"))
+                                     : std::nullopt;
+            return input && decoded_value ? std::optional<SceneInputBinding>(SceneInputBinding{
+                                                std::move(*input), std::move(*decoded_value)})
+                                          : std::nullopt;
+        });
+}
+
 std::optional<ActorPosition> decode_dialogue_actor_position(Decoder& decoder,
                                                             const nlohmann::json& value,
                                                             std::string_view pointer)
@@ -694,6 +719,45 @@ decode_dialogue_segment(Decoder& decoder, const nlohmann::json& value, std::stri
                    ? std::optional<DialogueSegment>(DialogueRunLuaSegment{
                          std::move(*id), std::move(condition), *may_yield, std::move(*source)})
                    : std::nullopt;
+    }
+    if (*kind == "call-scene") {
+        decoder.object(value, pointer, {"condition", "id", "inputs", "kind", "scene", "uiPolicy"});
+        const auto* scene_value = decoder.member(value, "scene", pointer);
+        const auto* inputs_value = decoder.member(value, "inputs", pointer);
+        const auto* policy_value = decoder.member(value, "uiPolicy", pointer);
+        auto scene = scene_value
+                         ? decode_reference<SceneId>(decoder, *scene_value,
+                                                     pointer_child(pointer, "scene"), "scene")
+                         : std::nullopt;
+        auto inputs = inputs_value ? decode_dialogue_scene_input_bindings(
+                                         decoder, *inputs_value, pointer_child(pointer, "inputs"))
+                                   : std::nullopt;
+        auto policy = policy_value ? decoder.enumeration<DialogueChildSceneUiPolicy>(
+                                         *policy_value, pointer_child(pointer, "uiPolicy"),
+                                         {{"preserve", DialogueChildSceneUiPolicy::Preserve},
+                                          {"conceal", DialogueChildSceneUiPolicy::Conceal}})
+                                   : std::nullopt;
+        if (inputs)
+            decoder.duplicate_ids(*inputs, pointer_child(pointer, "inputs"),
+                                  [](const SceneInputBinding& binding) -> const SceneInputId& {
+                                      return binding.input_id;
+                                  });
+        return scene && inputs && policy ? std::optional<DialogueSegment>(DialogueCallSceneSegment{
+                                               std::move(*id), std::move(condition),
+                                               std::move(*scene), std::move(*inputs), *policy})
+                                         : std::nullopt;
+    }
+    if (*kind == "handoff") {
+        decoder.object(value, pointer, {"condition", "id", "kind", "payload"});
+        std::optional<RuntimeValue> payload;
+        bool payload_ok = true;
+        if (const auto it = value.find("payload"); it != value.end()) {
+            payload = decode_runtime_value(decoder, *it, pointer_child(pointer, "payload"));
+            payload_ok = payload.has_value();
+        }
+        return payload_ok ? std::optional<DialogueSegment>(DialogueHandoffSegment{
+                                std::move(*id), std::move(condition), std::move(payload)})
+                          : std::nullopt;
     }
     decoder.object(value, pointer, {"condition", "id", "kind"});
     decoder.error(k_code_variant, "Unknown Dialogue segment variant '" + *kind + "'.",

@@ -192,6 +192,12 @@ struct RoomTransitionPosition {
 using FlowFramePosition = std::variant<SceneFramePosition, DialogueFramePosition,
                                        InteractionFramePosition, RoomTransitionPosition>;
 
+struct DialogueHandoffState {
+    FlowFrameId dialogue_frame;
+    std::optional<RuntimeValue> payload;
+    bool operator==(const DialogueHandoffState&) const = default;
+};
+
 struct SceneFrame {
     FlowFrameId frame_id;
     SceneId scene;
@@ -199,6 +205,8 @@ struct SceneFrame {
     ReturnDestination destination;
     std::vector<compiled::SceneInputBinding> inputs;
     std::optional<SceneOutcomeId> last_child_outcome;
+    std::optional<DialogueHandoffState> dialogue_handoff;
+    std::optional<FlowFrameId> preserved_dialogue_caller;
 };
 struct DialogueFrame {
     FlowFrameId frame_id;

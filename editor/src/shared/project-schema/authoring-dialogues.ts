@@ -7,6 +7,8 @@ import {
   effectSchema,
   flowTargetSchema,
   inlineTextContent,
+  runtimeScalarSchema,
+  sceneRefSchema,
   textContentSchema,
   type CharacterRef,
   type Condition,
@@ -15,6 +17,7 @@ import {
   type TextContent,
 } from './authoring-flow';
 import { parseCharacterData } from './authoring-characters';
+import { parseSceneData } from './authoring-scenes';
 import {
   audioCausalityValues,
   audioPausePolicyValues,
@@ -28,7 +31,13 @@ const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const dialogueBlockTypeValues = ['sequence', 'choice', 'redirect', 'comment'] as const;
 export type DialogueBlockType = (typeof dialogueBlockTypeValues)[number];
 
-export const dialogueSegmentTypeValues = ['line', 'run-lua', 'comment'] as const;
+export const dialogueSegmentTypeValues = [
+  'line',
+  'run-lua',
+  'call-scene',
+  'handoff',
+  'comment',
+] as const;
 export type DialogueSegmentType = (typeof dialogueSegmentTypeValues)[number];
 
 export const dialogueEdgeKindValues = ['next', 'choice'] as const;
@@ -52,6 +61,7 @@ export const dialogueEffectDataSchema = effectSchema;
 export const dialogueCompletionTargetSchema = flowTargetSchema;
 
 export const dialogueActorPositionValues = ['left', 'center', 'right'] as const;
+export const dialogueChildSceneUiPolicyValues = ['preserve', 'conceal'] as const;
 
 const dialogueStageSlotStateSchema = strict({
   character: dialogueCharacterRefSchema,
@@ -251,6 +261,27 @@ const runLuaSegmentSchema = strict({
   mayYield: z.boolean(),
 });
 
+const dialogueSceneInputBindingSchema = strict({
+  inputId: entityIdSchema,
+  value: runtimeScalarSchema,
+});
+
+const callSceneSegmentSchema = strict({
+  id: entityIdSchema,
+  type: z.literal('call-scene'),
+  condition: dialogueConditionDataSchema.optional(),
+  scene: sceneRefSchema,
+  inputs: z.array(dialogueSceneInputBindingSchema),
+  uiPolicy: z.enum(dialogueChildSceneUiPolicyValues),
+});
+
+const handoffSegmentSchema = strict({
+  id: entityIdSchema,
+  type: z.literal('handoff'),
+  condition: dialogueConditionDataSchema.optional(),
+  payload: runtimeScalarSchema.optional(),
+});
+
 const commentSegmentSchema = strict({
   id: entityIdSchema,
   type: z.literal('comment'),
@@ -260,6 +291,8 @@ const commentSegmentSchema = strict({
 export const dialogueSegmentDataSchema = z.discriminatedUnion('type', [
   lineSegmentSchema,
   runLuaSegmentSchema,
+  callSceneSegmentSchema,
+  handoffSegmentSchema,
   commentSegmentSchema,
 ]);
 
@@ -400,7 +433,17 @@ export function defaultDialogueSegment<T extends DialogueSegmentType = 'line'>(
         }
       : type === 'run-lua'
         ? { id, type, source: '-- Lua', mayYield: true }
-        : { id, type, text: '' };
+        : type === 'call-scene'
+          ? {
+              id,
+              type,
+              scene: { $ref: { collection: 'scenes', id: 'scene' } },
+              inputs: [],
+              uiPolicy: 'conceal',
+            }
+          : type === 'handoff'
+            ? { id, type }
+            : { id, type, text: '' };
   return segment as Extract<DialogueSegmentData, { type: T }>;
 }
 
@@ -600,6 +643,58 @@ export function validateDialogueData(
       if (effect.kind === 'set-variable') {
         validateVariableValue(effect.variable.$ref.id, effect.value, `${path}/${index}/value`);
       }
+    });
+  };
+  const validateSceneCall = (
+    segment: Extract<DialogueSegmentData, { type: 'call-scene' }>,
+    path: string,
+  ) => {
+    const sceneId = segment.scene.$ref.id;
+    requireRecord('scenes', sceneId, `${path}/scene`);
+    const scene = parseSceneData(project.scenes[sceneId]?.data);
+    if (!scene) return;
+    const supplied = new Set<string>();
+    segment.inputs.forEach((binding, inputIndex) => {
+      const bindingPath = `${path}/inputs/${inputIndex}`;
+      if (supplied.has(binding.inputId))
+        diagnostics.push(
+          diagnostic(`${bindingPath}/inputId`, `Duplicate Scene input '${binding.inputId}'.`),
+        );
+      supplied.add(binding.inputId);
+      const declaration = scene.inputs.find((input) => input.id === binding.inputId);
+      if (!declaration) {
+        diagnostics.push(
+          diagnostic(
+            `${bindingPath}/inputId`,
+            `Scene '${sceneId}' has no input '${binding.inputId}'.`,
+          ),
+        );
+        return;
+      }
+      const value = binding.value;
+      const valid =
+        value === null
+          ? declaration.nullable
+          : declaration.type === 'boolean'
+            ? typeof value === 'boolean'
+            : declaration.type === 'string'
+              ? typeof value === 'string'
+              : declaration.type === 'integer'
+                ? typeof value === 'number' && Number.isInteger(value)
+                : typeof value === 'number' && Number.isFinite(value);
+      if (!valid)
+        diagnostics.push(
+          diagnostic(
+            `${bindingPath}/value`,
+            `Scene input '${binding.inputId}' does not match type '${declaration.type}'.`,
+          ),
+        );
+    });
+    scene.inputs.forEach((input) => {
+      if (!input.nullable && input.defaultValue === undefined && !supplied.has(input.id))
+        diagnostics.push(
+          diagnostic(`${path}/inputs`, `Missing required Scene input '${input.id}'.`),
+        );
     });
   };
 
@@ -826,6 +921,11 @@ export function validateDialogueData(
               ),
             );
         } else if (segment.type === 'run-lua') {
+          validateCondition(segment.condition, `${segmentPath}/condition`);
+        } else if (segment.type === 'call-scene') {
+          validateCondition(segment.condition, `${segmentPath}/condition`);
+          validateSceneCall(segment, segmentPath);
+        } else if (segment.type === 'handoff') {
           validateCondition(segment.condition, `${segmentPath}/condition`);
         }
       });

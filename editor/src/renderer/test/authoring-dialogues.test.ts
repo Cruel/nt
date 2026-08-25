@@ -12,6 +12,7 @@ import {
 } from '../../shared/project-schema/authoring-dialogues';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   parseDialogueCueMarkup,
@@ -486,5 +487,65 @@ describe('authoring dialogues schema', () => {
       choices: [expect.objectContaining({ targetLabel: 'Sequence' })],
       preview: { background: 'checker' },
     });
+  });
+
+  it('validates and previews Dialogue child Scene and Handoff segments', () => {
+    const project = createAuthoringProject();
+    const scene = defaultSceneData('Child');
+    scene.inputs = [
+      { id: 'flag', label: 'Flag', type: 'boolean', nullable: false },
+      { id: 'note', label: 'Note', type: 'string', nullable: true },
+    ];
+    project.scenes.child = { id: 'child', label: 'Child', data: scene };
+    const data = defaultDialogueData('Intro');
+    const block = data.blocks[0]!;
+    if (block.type !== 'sequence') throw new Error('Expected default Sequence block.');
+    block.segments = [
+      {
+        ...defaultDialogueSegment('call-scene', 'child-call'),
+        scene: { $ref: { collection: 'scenes', id: 'child' } },
+        inputs: [{ inputId: 'flag', value: true }],
+        uiPolicy: 'preserve',
+      },
+      { ...defaultDialogueSegment('handoff', 'handoff'), payload: 'token' },
+    ];
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data };
+
+    expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual([]);
+    expect(
+      buildDialoguePreviewDocumentData(project, 'intro', {
+        selectedBlockId: block.id,
+        selectedSegmentId: 'child-call',
+      }),
+    ).toMatchObject({
+      selectedSegment: {
+        id: 'child-call',
+        type: 'call-scene',
+        scene: { $ref: { collection: 'scenes', id: 'child' } },
+        inputs: [{ inputId: 'flag', value: true }],
+        uiPolicy: 'preserve',
+      },
+    });
+
+    if (block.segments[0]?.type !== 'call-scene') throw new Error('Expected child Scene segment.');
+    block.segments[0] = {
+      ...block.segments[0],
+      inputs: [
+        { inputId: 'flag', value: 'wrong' },
+        { inputId: 'missing', value: true },
+      ],
+    };
+    expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: expect.stringContaining('/inputs/0/value'),
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: expect.stringContaining('/inputs/1/inputId'),
+          severity: 'error',
+        }),
+      ]),
+    );
   });
 });

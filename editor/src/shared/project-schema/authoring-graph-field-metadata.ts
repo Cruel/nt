@@ -252,6 +252,13 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // independent dependency-graph identity.
   [/^\/dialogues\/\*\/data\/(?:stageSlots|mediaSlots)(?:\/|$)/, OWNER],
   [/^\/dialogues\/\*\/data\/blocks\/\*\/segments\/\*\/cues(?:\/|$)/, OWNER],
+  // #98 adds Dialogue child-Scene bindings/UI policy and Handoff payload at the preserved authoring
+  // schema version. These leaves alter the owning Dialogue runtime program but do not introduce a
+  // separately addressable dependency-graph node.
+  [
+    /^\/dialogues\/\*\/data\/blocks\/\*\/segments\/\*\/(?:scene|inputs|uiPolicy|payload)(?:\/|$)/,
+    OWNER,
+  ],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
 ]);
 
@@ -670,7 +677,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
     characters: 'ea350f01',
-    dialogues: '730f0063',
+    dialogues: 'c3f27078',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
     interactables: '86412986',

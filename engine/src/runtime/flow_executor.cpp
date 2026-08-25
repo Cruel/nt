@@ -500,6 +500,8 @@ Result<void, Diagnostics> FlowExecutor::start_transient(const SceneId& scene)
                                                  {first_scene_step(*definition), {}},
                                                  ResumeRoomDestination{room->room},
                                                  std::move(*inputs.value_if()),
+                                                 std::nullopt,
+                                                 std::nullopt,
                                                  std::nullopt});
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
@@ -525,6 +527,8 @@ FlowExecutor::start_detached(const SceneId& scene, std::vector<compiled::SceneIn
                                                  {first_scene_step(*definition), {}},
                                                  NoReturnDestination{},
                                                  std::move(*resolved_inputs.value_if()),
+                                                 std::nullopt,
+                                                 std::nullopt,
                                                  std::nullopt});
     return Result<void, Diagnostics>::success();
 }
@@ -641,7 +645,8 @@ Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
 
 Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
                                                    std::vector<compiled::SceneInputBinding> inputs,
-                                                   FlowFramePosition caller_next_position)
+                                                   FlowFramePosition caller_next_position,
+                                                   bool preserve_dialogue_caller_ui)
 {
     auto ready = ensure_flow_ready();
     if (!ready)
@@ -670,16 +675,87 @@ Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
 
+    const std::optional<FlowFrameId> preserved_dialogue_caller =
+        preserve_dialogue_caller_ui &&
+                std::holds_alternative<DialogueFrame>(m_state.m_flow_stack.back())
+            ? std::optional<FlowFrameId>{flow_frame_id(m_state.m_flow_stack.back())}
+            : std::nullopt;
     const FlowFrameId id{m_state.m_next_frame_id};
     FlowFrame child = SceneFrame{id,
                                  scene,
                                  {first_scene_step(*definition), {}},
                                  CallerDestination{},
                                  std::move(*resolved_inputs.value_if()),
-                                 std::nullopt};
+                                 std::nullopt,
+                                 std::nullopt,
+                                 preserved_dialogue_caller};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
     ++m_state.m_next_frame_id;
     m_state.m_flow_stack.push_back(std::move(child));
+    return Result<void, Diagnostics>::success();
+}
+
+Result<bool, Diagnostics> FlowExecutor::handoff_dialogue(DialogueFramePosition next_position,
+                                                         std::optional<RuntimeValue> payload)
+{
+    auto ready = ensure_flow_ready();
+    if (!ready)
+        return Result<bool, Diagnostics>::failure(ready.error());
+    if (m_state.m_flow_stack.empty() ||
+        !std::holds_alternative<DialogueFrame>(m_state.m_flow_stack.back()))
+        return Result<bool, Diagnostics>::failure(
+            execution_error("execution.invalid_dialogue_handoff",
+                            "Dialogue Handoff requires an active Dialogue frame"));
+    auto valid = validate_position(m_state.m_flow_stack.back(), next_position);
+    if (!valid)
+        return Result<bool, Diagnostics>::failure(valid.error());
+
+    auto& dialogue_frame = std::get<DialogueFrame>(m_state.m_flow_stack.back());
+    const auto dialogue_id = dialogue_frame.frame_id;
+    const bool has_direct_scene =
+        std::holds_alternative<CallerDestination>(dialogue_frame.destination) &&
+        m_state.m_flow_stack.size() >= 2 &&
+        std::holds_alternative<SceneFrame>(m_state.m_flow_stack[m_state.m_flow_stack.size() - 2]);
+    assign_position(m_state.m_flow_stack.back(), std::move(next_position));
+    if (!has_direct_scene)
+        return Result<bool, Diagnostics>::success(false);
+
+    auto& scene_frame = std::get<SceneFrame>(m_state.m_flow_stack[m_state.m_flow_stack.size() - 2]);
+    if (scene_frame.dialogue_handoff)
+        return Result<bool, Diagnostics>::failure(
+            execution_error("execution.dialogue_handoff_already_active",
+                            "Direct awaiting Scene already owns a suspended Dialogue Handoff"));
+    scene_frame.dialogue_handoff = DialogueHandoffState{dialogue_id, std::move(payload)};
+    std::swap(m_state.m_flow_stack[m_state.m_flow_stack.size() - 1],
+              m_state.m_flow_stack[m_state.m_flow_stack.size() - 2]);
+    return Result<bool, Diagnostics>::success(true);
+}
+
+Result<void, Diagnostics>
+FlowExecutor::resume_handed_off_dialogue(SceneFramePosition scene_next_position)
+{
+    auto ready = ensure_flow_ready();
+    if (!ready)
+        return fail(ready.error());
+    if (m_state.m_flow_stack.size() < 2 ||
+        !std::holds_alternative<SceneFrame>(m_state.m_flow_stack.back()))
+        return fail(execution_error("execution.dialogue_resume_unavailable",
+                                    "Resume Dialogue requires an active Scene Handoff"));
+    auto& scene = std::get<SceneFrame>(m_state.m_flow_stack.back());
+    auto valid = validate_position(m_state.m_flow_stack.back(), scene_next_position);
+    if (!valid)
+        return fail(valid.error());
+    const auto handoff = scene.dialogue_handoff;
+    auto* dialogue =
+        std::get_if<DialogueFrame>(&m_state.m_flow_stack[m_state.m_flow_stack.size() - 2]);
+    if (!handoff || dialogue == nullptr || dialogue->frame_id != handoff->dialogue_frame)
+        return fail(execution_error("execution.dialogue_resume_unavailable",
+                                    "Scene has no exact suspended Dialogue to resume"));
+
+    assign_position(m_state.m_flow_stack.back(), std::move(scene_next_position));
+    scene.dialogue_handoff.reset();
+    std::swap(m_state.m_flow_stack[m_state.m_flow_stack.size() - 1],
+              m_state.m_flow_stack[m_state.m_flow_stack.size() - 2]);
     return Result<void, Diagnostics>::success();
 }
 
@@ -727,6 +803,22 @@ void FlowExecutor::clear_blocker_for(const FlowFrameId& owner) noexcept
         m_state.m_blocker.reset();
 }
 
+void FlowExecutor::discard_handed_off_dialogue_for_active_scene() noexcept
+{
+    if (m_state.m_flow_stack.size() < 2)
+        return;
+    auto* scene = std::get_if<SceneFrame>(&m_state.m_flow_stack.back());
+    if (scene == nullptr || !scene->dialogue_handoff)
+        return;
+    const auto suspended_index = m_state.m_flow_stack.size() - 2;
+    const auto* dialogue = std::get_if<DialogueFrame>(&m_state.m_flow_stack[suspended_index]);
+    if (dialogue == nullptr || dialogue->frame_id != scene->dialogue_handoff->dialogue_frame)
+        return;
+    clear_blocker_for(dialogue->frame_id);
+    m_state.m_flow_stack.erase(m_state.m_flow_stack.begin() +
+                               static_cast<std::ptrdiff_t>(suspended_index));
+}
+
 bool& FlowExecutor::running_flag() noexcept { return m_state.m_flow_running; }
 
 Result<void, Diagnostics> FlowExecutor::return_from_flow()
@@ -764,6 +856,7 @@ Result<void, Diagnostics> FlowExecutor::return_from_scene(std::optional<SceneOut
         return fail(execution_error("execution.invalid_scene_return",
                                     "Scene Return requires an active Scene frame"));
     const auto destination = flow_return_destination(m_state.m_flow_stack.back());
+    discard_handed_off_dialogue_for_active_scene();
     if (std::holds_alternative<CallerDestination>(destination)) {
         if (m_state.m_flow_stack.size() < 2)
             return fail(execution_error("execution.invalid_return",
@@ -813,6 +906,7 @@ FlowExecutor::replace_with_scene(const SceneId& scene,
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
     const auto destination = flow_return_destination(m_state.m_flow_stack.back());
+    discard_handed_off_dialogue_for_active_scene();
     const auto old_id = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id++};
     m_state.remove_scene_presentation(m_state.m_flow_stack.back());
@@ -821,6 +915,8 @@ FlowExecutor::replace_with_scene(const SceneId& scene,
                                              {first_scene_step(*definition), {}},
                                              destination,
                                              std::move(*resolved_inputs.value_if()),
+                                             std::nullopt,
+                                             std::nullopt,
                                              std::nullopt};
     clear_blocker_for(old_id);
     return Result<void, Diagnostics>::success();
@@ -880,6 +976,7 @@ Result<void, Diagnostics> FlowExecutor::replace_with_dialogue(const DialogueId& 
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
     const auto destination = flow_return_destination(m_state.m_flow_stack.back());
+    discard_handed_off_dialogue_for_active_scene();
     const auto old_id = flow_frame_id(m_state.m_flow_stack.back());
     const FlowFrameId id{m_state.m_next_frame_id++};
     m_state.remove_scene_presentation(m_state.m_flow_stack.back());

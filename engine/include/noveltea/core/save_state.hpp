@@ -89,6 +89,12 @@ struct SavedFlowFrameId {
     auto operator<=>(const SavedFlowFrameId&) const = default;
 };
 
+struct SavedDialogueHandoffState {
+    SavedFlowFrameId dialogue_frame;
+    std::optional<RuntimeValue> payload;
+    bool operator==(const SavedDialogueHandoffState&) const = default;
+};
+
 struct SavedSceneFrame {
     SavedFlowFrameId snapshot_id;
     SceneId scene;
@@ -96,6 +102,8 @@ struct SavedSceneFrame {
     ReturnDestination destination;
     std::vector<compiled::SceneInputBinding> inputs;
     std::optional<SceneOutcomeId> last_child_outcome;
+    std::optional<SavedDialogueHandoffState> dialogue_handoff;
+    std::optional<SavedFlowFrameId> preserved_dialogue_caller;
 };
 struct SavedDialogueFrame {
     SavedFlowFrameId snapshot_id;

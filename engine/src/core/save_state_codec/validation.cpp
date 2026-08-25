@@ -1765,11 +1765,54 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                   "Flow frame is stale, duplicate, or incoherent.");
         const auto destination = std::visit(
             [](const auto& value) -> const ReturnDestination& { return value.destination; }, frame);
+        const bool suspended_root_dialogue =
+            item_index == 0 && save.flow_stack.size() > 1 &&
+            std::holds_alternative<SavedDialogueFrame>(frame) &&
+            std::holds_alternative<SavedSceneFrame>(save.flow_stack[1]) &&
+            std::get<SavedSceneFrame>(save.flow_stack[1]).dialogue_handoff &&
+            std::get<SavedSceneFrame>(save.flow_stack[1]).dialogue_handoff->dialogue_frame.value ==
+                snapshot;
+        const bool handed_off_root_scene =
+            item_index == 1 && std::holds_alternative<SavedSceneFrame>(frame) &&
+            std::get<SavedSceneFrame>(frame).dialogue_handoff &&
+            std::get<SavedSceneFrame>(frame).dialogue_handoff->dialogue_frame.value ==
+                std::visit([](const auto& value) { return value.snapshot_id.value; },
+                           save.flow_stack[0]);
         const bool destination_is_coherent =
-            item_index == 0 ? !std::holds_alternative<CallerDestination>(destination)
-                            : std::holds_alternative<CallerDestination>(destination);
+            item_index == 0
+                ? (suspended_root_dialogue
+                       ? std::holds_alternative<CallerDestination>(destination)
+                       : !std::holds_alternative<CallerDestination>(destination))
+                : (handed_off_root_scene ? !std::holds_alternative<CallerDestination>(destination)
+                                         : std::holds_alternative<CallerDestination>(destination));
         if (!destination_is_coherent)
             error("save_codec.incoherent_flow", "Flow return destinations are incoherent.");
+    }
+
+    for (std::size_t item_index = 0; item_index < save.flow_stack.size(); ++item_index) {
+        const auto* scene = std::get_if<SavedSceneFrame>(&save.flow_stack[item_index]);
+        if (scene == nullptr)
+            continue;
+        if (scene->dialogue_handoff) {
+            const auto* dialogue = saved_frame(save, scene->dialogue_handoff->dialogue_frame);
+            const bool exact_predecessor =
+                item_index > 0 && dialogue == &save.flow_stack[item_index - 1] &&
+                dialogue != nullptr && std::holds_alternative<SavedDialogueFrame>(*dialogue);
+            if (!exact_predecessor)
+                error("save_codec.incoherent_flow",
+                      "Dialogue Handoff must reference the exact suspended Dialogue immediately "
+                      "before its awaiting Scene.");
+        }
+        if (scene->preserved_dialogue_caller) {
+            const auto* caller = saved_frame(save, *scene->preserved_dialogue_caller);
+            const auto caller_index =
+                caller == nullptr ? save.flow_stack.size()
+                                  : static_cast<std::size_t>(caller - save.flow_stack.data());
+            if (caller == nullptr || caller_index >= item_index ||
+                !std::holds_alternative<SavedDialogueFrame>(*caller))
+                error("save_codec.incoherent_flow",
+                      "Retained Dialogue UI identity must reference a reachable caller Dialogue.");
+        }
     }
 
     std::unordered_set<std::string> background_owners;

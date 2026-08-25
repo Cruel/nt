@@ -313,7 +313,8 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                             if constexpr (std::is_same_v<T, core::compiled::DialogueRunLuaSegment>)
                                 certify_chunk(diagnostics, scripts, segment.source,
                                               path + "/source");
-                            else {
+                            else if constexpr (std::is_same_v<
+                                                   T, core::compiled::DialogueLineSegment>) {
                                 certify_text(diagnostics, scripts, segment.text, path + "/text");
                                 for (std::size_t e = 0; e < segment.effects.size(); ++e)
                                     certify_effect(diagnostics, scripts, segment.effects[e],

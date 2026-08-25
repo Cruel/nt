@@ -12,7 +12,7 @@ Scene is an immutable orchestration definition, not a stateful Property or Trait
 ## Program
 
 Current Scene authoring is an ordered sequence of stable semantic Events. The Event operation union is
-SetBackground, ActorCue, CallScene, StartDetachedScene, CallDialogue, ShowText, AudioCue,
+SetBackground, ActorCue, CallScene, StartDetachedScene, CallDialogue, ResumeDialogue, ShowText, AudioCue,
 SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, TransitionGroup, and Comment. Comment is editor-only and
 removed by compilation. Every runtime Event has a stable ID, an editor-visible timeline track,
 explicit start and duration values, and zero or more completion dependencies on earlier enabled
@@ -30,6 +30,14 @@ returned child Outcome, and wait/correlation state. `CallScene` and `CallDialogu
 and resume the caller at its explicit next position after Return. Scene calls are runtime-depth
 bounded so data-dependent recursion cannot exhaust the native stack or grow the Flow stack without
 limit.
+
+When a Dialogue called by a Scene executes `Handoff`, that exact Dialogue invocation becomes suspended
+immediately before the Scene in the Flow stack and the Scene resumes at the sequential Event already
+following `CallDialogue`. `ResumeDialogue` is the only Scene Event that cooperatively returns control to
+that suspended invocation. It matches engine-owned frame identity rather than an authored routing ID,
+advances the Scene cursor before resuming, and may be used repeatedly with subsequent Handoffs. Scene
+termination or tail replacement discards its suspended handed-off Dialogue rather than leaving an
+unreachable child invocation alive.
 
 Every Scene has exactly one explicit terminal action. `Return` resumes a valid caller and may carry one
 Outcome declared by the returning Scene. `Continue/Replace Scene` and `Continue/Replace Dialogue`
@@ -157,8 +165,9 @@ realization and leaves the already-published target authoritative.
   action.
 - **Compiled:** immutable `SceneDefinition` plus `SceneProgram.events`; each compiled Event wraps one
   typed instruction with its stable ID, timeline metadata, and completion dependencies.
-- **Mutable:** Scene `FlowFrame`, Stage initialization, actor/presentation state, logical waits, and
-  invocation-local execution data in `SessionState`; the Scene definition itself has no
+- **Mutable:** Scene `FlowFrame`, Stage initialization, actor/presentation state, logical waits,
+  optional exact Dialogue handoff/retained-UI identity, and invocation-local execution data in
+  `SessionState`; the Scene definition itself has no
   Property/Trait state.
 - **Tooling only:** comments, selected Event, scrub position/playback state, categories, tags, colors,
   and sort keys. Authored track/start/duration values are contract data, not editor-only annotations.
