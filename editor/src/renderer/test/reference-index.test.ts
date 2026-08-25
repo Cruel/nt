@@ -19,20 +19,29 @@ describe('authoring reference index', () => {
     );
   });
 
-  it('indexes Scene continuations and Dialogue completion targets', () => {
+  it('indexes Scene terminal targets and Dialogue completion targets', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
     const scene = defaultSceneData('Opening');
-    scene.continuation = { kind: 'room', id: 'foyer' };
+    scene.terminal = {
+      kind: 'continue-scene',
+      scene: { $ref: { collection: 'scenes', id: 'next' } },
+      inputs: [],
+    };
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
+    project.scenes.next = { id: 'next', label: 'Next', data: defaultSceneData('Next') };
     const dialogue = defaultDialogueData('Intro');
     dialogue.completion = { kind: 'room', id: 'foyer' };
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
 
     expect(findUsages(buildReferenceIndex(project), { collection: 'rooms', id: 'foyer' })).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'flow-target', path: '/scenes/opening/data/continuation' }),
         expect.objectContaining({ kind: 'flow-target', path: '/dialogues/intro/data/completion' }),
+      ]),
+    );
+    expect(findUsages(buildReferenceIndex(project), { collection: 'scenes', id: 'next' })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/scenes/opening/data/terminal/scene/$ref' }),
       ]),
     );
   });

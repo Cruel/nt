@@ -535,7 +535,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
         }
 
         if (!frame->position.next_step) {
-            auto applied = m_flow.apply_target(scene->continuation);
+            auto applied = m_flow.apply_scene_terminal(scene->terminal);
             if (!applied)
                 return fault(applied.error());
             ++executed;
@@ -766,6 +766,29 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                    : std::optional<core::FlowRunOutcome>{
                                          core::FlowPresentationBoundaryOutcome{}};
                     }
+                    return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                } else if constexpr (std::is_same_v<T, core::compiled::CallSceneSceneInstruction>) {
+                    core::SceneStepSubstate substate =
+                        value.autosave_safe_point
+                            ? core::SceneStepSubstate{core::SceneAutosavePendingPosition{
+                                  step, sequential}}
+                            : core::SceneStepSubstate{core::SceneStepReady{}};
+                    auto called = m_flow.call_child(
+                        value.scene, value.inputs,
+                        core::SceneFramePosition{value.autosave_safe_point
+                                                     ? std::optional<core::SceneStepId>{step}
+                                                     : sequential,
+                                                 std::move(substate)});
+                    return called ? std::nullopt
+                                  : std::optional<core::FlowRunOutcome>{fault(called.error())};
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::StartDetachedSceneInstruction>) {
+                    auto queued =
+                        m_gateway.request_detached(value.scene, value.inputs, value.owner);
+                    if (!queued)
+                        return fault(queued.error());
+                    if (value.autosave_safe_point)
+                        queue_autosave(frame->scene, step);
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T,
                                                     core::compiled::CallDialogueSceneInstruction>) {
@@ -1231,7 +1254,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         }
                     }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
-                } else {
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::TransitionGroupInstruction>) {
                     const core::PresentationOwner owner =
                         core::ScenePresentationOwner{frame->frame_id, frame->scene};
                     const core::PresentationTargetDraft source_target{
@@ -1403,6 +1427,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                      *m_state.blocker()}}
                                : std::optional<core::FlowRunOutcome>{
                                      core::FlowPresentationBoundaryOutcome{}};
+                } else {
+                    static_assert(std::is_same_v<T, void>, "Unhandled Scene instruction");
                 }
             },
             *instruction);

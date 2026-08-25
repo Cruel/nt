@@ -150,9 +150,11 @@ core::LoadedCompiledPackage collector_package()
                                                {"height", 64}});
     document["definitions"]["rooms"][2]["background"]["asset"] = {{"id", "image-alt"},
                                                                   {"kind", "asset"}};
-    document["definitions"]["scenes"][0]["defaultBackground"]["asset"] = {{"id", "image-main"},
-                                                                          {"kind", "asset"}};
-    document["definitions"]["scenes"][0]["continuation"] = {
+    document["definitions"]["scenes"][0]["stage"]["background"]["asset"] = {{"id", "image-main"},
+                                                                            {"kind", "asset"}};
+    document["definitions"]["scenes"][0]["terminal"] = {
+        {"kind", "continue-dialogue"}, {"dialogue", {{"id", "intro"}, {"kind", "dialogue"}}}};
+    document["definitions"]["dialogues"][0]["completion"] = {
         {"kind", "scene"}, {"scene", {{"id", "opening"}, {"kind", "scene"}}}};
     auto use_verb = document["definitions"]["verbs"][0];
     use_verb["id"] = "use";

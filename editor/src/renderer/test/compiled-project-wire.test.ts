@@ -274,7 +274,9 @@ function representativeWireFixture() {
             background: { asset: null, material: null, color: '#000000', fit: 'cover' },
             layout: null,
           },
-          continuation: { kind: 'end' },
+          inputs: [],
+          outcomes: [],
+          terminal: { kind: 'complete-game' },
           program: {
             events: [
               {
@@ -568,7 +570,9 @@ describe('CompiledProject Wire V4', () => {
         background: { asset: null, material: null, color: null, fit: 'cover' },
         layout: null,
       },
-      continuation: { kind: 'end' },
+      inputs: [],
+      outcomes: [],
+      terminal: { kind: 'complete-game' },
       program: {
         events: [
           {

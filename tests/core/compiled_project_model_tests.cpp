@@ -114,7 +114,7 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::guard), Condition>);
     STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::priority), std::int64_t>);
     STATIC_REQUIRE(std::variant_size_v<compiled::SubjectSelector> == 6);
-    STATIC_REQUIRE(std::variant_size_v<compiled::SceneInstruction> == 15);
+    STATIC_REQUIRE(std::variant_size_v<compiled::SceneInstruction> == 17);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueSegment> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueBlock> == 3);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueEdge> == 2);
@@ -129,30 +129,34 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, compiled::SceneInstruction>,
                                   compiled::ActorCueInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<2, compiled::SceneInstruction>,
-                                  compiled::CallDialogueSceneInstruction>);
+                                  compiled::CallSceneSceneInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<3, compiled::SceneInstruction>,
-                                  compiled::ShowTextInstruction>);
+                                  compiled::StartDetachedSceneInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<4, compiled::SceneInstruction>,
-                                  compiled::AudioCueInstruction>);
+                                  compiled::CallDialogueSceneInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<5, compiled::SceneInstruction>,
-                                  compiled::SetGlobalPropertySceneInstruction>);
+                                  compiled::ShowTextInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<6, compiled::SceneInstruction>,
-                                  compiled::RunLuaSceneInstruction>);
+                                  compiled::AudioCueInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<7, compiled::SceneInstruction>,
-                                  compiled::WaitDurationInstruction>);
+                                  compiled::SetGlobalPropertySceneInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<8, compiled::SceneInstruction>,
-                                  compiled::WaitInputInstruction>);
+                                  compiled::RunLuaSceneInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<9, compiled::SceneInstruction>,
-                                  compiled::ConditionalBranchInstruction>);
+                                  compiled::WaitDurationInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<10, compiled::SceneInstruction>,
-                                  compiled::ChoiceSceneInstruction>);
+                                  compiled::WaitInputInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<11, compiled::SceneInstruction>,
-                                  compiled::SetLayoutInstruction>);
+                                  compiled::ConditionalBranchInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<12, compiled::SceneInstruction>,
-                                  compiled::MaterialParameterInstruction>);
+                                  compiled::ChoiceSceneInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<13, compiled::SceneInstruction>,
-                                  compiled::PostprocessEffectInstruction>);
+                                  compiled::SetLayoutInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<14, compiled::SceneInstruction>,
+                                  compiled::MaterialParameterInstruction>);
+    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<15, compiled::SceneInstruction>,
+                                  compiled::PostprocessEffectInstruction>);
+    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<16, compiled::SceneInstruction>,
                                   compiled::TransitionGroupInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, compiled::InteractionInstruction>,
                                   compiled::ApplyEffectInstruction>);

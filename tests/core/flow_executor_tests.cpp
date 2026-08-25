@@ -86,8 +86,10 @@ compiled::SceneDefinition make_scene(SceneId scene_id, std::string first, std::s
         .stage = compiled::BlankSceneStage{{std::nullopt, std::nullopt,
                                             compiled::BackgroundFit::Cover, std::nullopt},
                                            std::nullopt},
+        .inputs = {},
+        .outcomes = {{id<SceneOutcomeId>("ok"), "OK"}},
         .program = {std::move(instructions), std::move(events)},
-        .continuation = EndFlow{},
+        .terminal = compiled::CompleteGameSceneTerminal{},
     };
 }
 
@@ -250,6 +252,94 @@ TEST_CASE("child calls advance callers atomically and nested returns preserve ex
     REQUIRE(executor.return_from_flow());
     CHECK(std::get<RoomMode>(state.mode()).room == id<RoomId>("hall"));
     CHECK(state.flow_stack().empty());
+}
+
+TEST_CASE("Scene Return resumes its caller and publishes an optional declared Outcome")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+    REQUIRE(executor.call_child(id<SceneId>("nested"), scene_position("opening-b")));
+    REQUIRE(state.flow_stack().size() == 2);
+
+    REQUIRE(executor.return_from_scene(id<SceneOutcomeId>("ok")));
+    REQUIRE(state.flow_stack().size() == 1);
+    const auto& caller = std::get<SceneFrame>(state.flow_stack().back());
+    REQUIRE(caller.last_child_outcome);
+    CHECK(*caller.last_child_outcome == id<SceneOutcomeId>("ok"));
+    CHECK(caller.position.next_step == id<SceneStepId>("opening-b"));
+}
+
+TEST_CASE("Scene Continue replaces the invocation while preserving its original destination")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+
+    REQUIRE(
+        executor.apply_scene_terminal(compiled::ContinueSceneTerminal{id<SceneId>("nested"), {}}));
+    REQUIRE(state.flow_stack().size() == 1);
+    const auto& replacement = std::get<SceneFrame>(state.flow_stack().back());
+    CHECK(replacement.scene == id<SceneId>("nested"));
+    const auto* destination = std::get_if<ResumeRoomDestination>(&replacement.destination);
+    REQUIRE(destination != nullptr);
+    CHECK(destination->room == id<RoomId>("hall"));
+
+    REQUIRE(executor.return_from_scene(std::nullopt));
+    CHECK(std::get<RoomMode>(state.mode()).room == id<RoomId>("hall"));
+    CHECK(state.flow_stack().empty());
+}
+
+TEST_CASE("Scene Release returns to Current Room without completing the game")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+
+    REQUIRE(executor.apply_scene_terminal(compiled::ReleaseToExplorationSceneTerminal{}));
+    CHECK(std::get<RoomMode>(state.mode()).room == id<RoomId>("hall"));
+    CHECK(state.flow_stack().empty());
+    CHECK_FALSE(state.game_completed());
+}
+
+TEST_CASE("Scene Complete Game ends the session and records completed-playthrough semantics")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+
+    REQUIRE(executor.apply_scene_terminal(compiled::CompleteGameSceneTerminal{}));
+    CHECK(std::holds_alternative<EndedMode>(state.mode()));
+    CHECK(state.flow_stack().empty());
+    CHECK(state.game_completed());
+}
+
+TEST_CASE("Scene call recursion is bounded at runtime")
+{
+    const auto project = make_project(id<RoomId>("hall"));
+    auto state = make_state(project);
+    FlowExecutor executor(project, state);
+    finish_initial_room_transition(executor);
+    REQUIRE(executor.start_transient(id<SceneId>("opening")));
+
+    REQUIRE(executor.call_child(id<SceneId>("nested"), scene_position("opening-b")));
+    for (std::size_t depth = 2; depth < 64; ++depth) {
+        CAPTURE(depth);
+        auto called = executor.call_child(id<SceneId>("nested"), scene_position("nested-b"));
+        REQUIRE(called);
+    }
+    auto exhausted = executor.call_child(id<SceneId>("nested"), scene_position("nested-b"));
+    REQUIRE_FALSE(exhausted);
+    REQUIRE_FALSE(exhausted.error().empty());
+    CHECK(exhausted.error().front().code == "execution.scene_recursion_budget_exhausted");
 }
 
 TEST_CASE("invalid child targets and positions fault without partially advancing the caller")

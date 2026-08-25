@@ -28,7 +28,8 @@ SavedFlowFrame save_frame(const FlowFrame& frame, std::size_t index)
         [snapshot_id](const auto& value) -> SavedFlowFrame {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, SceneFrame>)
-                return SavedSceneFrame{snapshot_id, value.scene, value.position, value.destination};
+                return SavedSceneFrame{snapshot_id,       value.scene,  value.position,
+                                       value.destination, value.inputs, value.last_child_outcome};
             else if constexpr (std::is_same_v<T, DialogueFrame>)
                 return SavedDialogueFrame{snapshot_id,       value.dialogue,    value.position,
                                           value.stage_slots, value.media_slots, value.destination};

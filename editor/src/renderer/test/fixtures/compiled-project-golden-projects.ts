@@ -48,6 +48,7 @@ import {
   sceneDialogueRef,
   sceneLayoutRef,
   sceneMaterialRef,
+  sceneSceneRef,
   sceneVariableRef,
 } from '../../../shared/project-schema/authoring-scenes';
 import { defaultScriptModuleData } from '../../../shared/project-schema/authoring-script-modules';
@@ -1014,7 +1015,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
     },
     { ...defaultSceneStep('comment'), id: 'editor-note', text: 'Must not compile.' },
   ];
-  opening.continuation = { kind: 'scene', id: 'closing' };
+  opening.terminal = { kind: 'continue-scene', scene: sceneSceneRef('closing'), inputs: [] };
   project.scenes.opening = {
     id: 'opening',
     label: 'Opening',
@@ -1029,7 +1030,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       text: { markup: 'plain', source: { kind: 'inline', text: 'Closing.' } },
     },
   ];
-  closing.continuation = { kind: 'dialogue', id: 'intro' };
+  closing.terminal = { kind: 'continue-dialogue', dialogue: sceneDialogueRef('intro') };
   project.scenes.closing = { id: 'closing', label: 'Closing', data: closing };
   project.entrypoint = { kind: 'scene', id: 'opening' };
   return project;

@@ -222,6 +222,34 @@ core::CompiledProject make_faulting_scene_project(std::string source_name)
     return decode_document(std::move(document), std::move(source_name));
 }
 
+void configure_detached_duration_flow(nlohmann::json& document, std::string_view owner)
+{
+    auto& closing = document["definitions"]["scenes"][0];
+    auto& opening = document["definitions"]["scenes"][1];
+    REQUIRE(closing["id"] == "closing");
+    REQUIRE(opening["id"] == "opening");
+    closing["program"]["events"] = scene_events(nlohmann::json::array(
+        {{{"id", "delay"}, {"kind", "wait-duration"}, {"durationMs", 1000}, {"skippable", true}},
+         {{"id", "detached-effect"},
+          {"kind", "set-global-property"},
+          {"property", {{"kind", "property"}, {"id", "count"}}},
+          {"value", 9}}}));
+    closing["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
+    opening["program"]["events"] = scene_events(nlohmann::json::array(
+        {{{"id", "start-detached"},
+          {"kind", "start-detached-scene"},
+          {"autosaveSafePoint", false},
+          {"scene", {{"kind", "scene"}, {"id", "closing"}}},
+          {"inputs", nlohmann::json::array()},
+          {"owner", owner}},
+         {{"id", "foreground-effect"},
+          {"kind", "set-global-property"},
+          {"property", {{"kind", "property"}, {"id", "count"}}},
+          {"value", 7}},
+         {{"id", "foreground-input"}, {"kind", "wait-input"}, {"skippable", false}}}));
+    opening["terminal"] = {{"kind", "complete-game"}};
+}
+
 core::CompiledProject make_dialogue_cue_project(nlohmann::json cues, std::string source_name)
 {
     auto document = load_document("dialogue-program.json");
@@ -1462,6 +1490,63 @@ TEST_CASE("deferred runtime commands execute inside one outer transaction")
         fixture.session->checkpoint_service().readiness().issues.end(), [](const auto& issue) {
             return issue.reason == core::CheckpointReadinessReason::RuntimeQueueUnsettled;
         }));
+}
+
+TEST_CASE("detached Scene duration work is non-awaited and advances beside foreground Flow")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        configure_detached_duration_flow(document, "flow");
+    });
+    const auto count = make_id<core::PropertyIdTag>("count");
+
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
+    REQUIRE(fixture.session->presentation_state().blocker());
+    CHECK(std::holds_alternative<core::InputFlowBlocker>(
+        *fixture.session->presentation_state().blocker()));
+
+    auto save = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::SaveRuntimeInput{core::TypedSaveSlotId::manual(1)}});
+    CHECK(save.disposition == runtime::RuntimeInputDisposition::Failed);
+    CHECK(std::ranges::any_of(save.diagnostics, [](const core::Diagnostic& diagnostic) {
+        return diagnostic.code == "runtime.save_detached_flow_active";
+    }));
+
+    auto advanced = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{1000}}});
+    REQUIRE(advanced.diagnostics.empty());
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{9}});
+    REQUIRE(fixture.session->presentation_state().blocker());
+    CHECK(std::holds_alternative<core::InputFlowBlocker>(
+        *fixture.session->presentation_state().blocker()));
+}
+
+TEST_CASE("Flow-owned detached Scene is cancelled when its initiating Flow ends")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        configure_detached_duration_flow(document, "flow");
+        auto& opening = document["definitions"]["scenes"][1];
+        opening["program"]["events"].erase(opening["program"]["events"].begin() + 2);
+    });
+    const auto count = make_id<core::PropertyIdTag>("count");
+
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    CHECK(fixture.session->presentation_state().game_completed());
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
+
+    auto advanced = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{1000}}});
+    REQUIRE(advanced.diagnostics.empty());
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
 }
 
 TEST_CASE("deferred command self-enqueue is bounded by the transaction command budget")

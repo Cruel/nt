@@ -327,6 +327,11 @@ core::Result<void, core::Diagnostics> RuntimeSystemLayouts::return_to_title()
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Result<void, core::Diagnostics> RuntimeSystemLayouts::complete_game()
+{
+    return return_to_title();
+}
+
 core::Result<void, core::Diagnostics>
 RuntimeSystemLayouts::request_confirmation(core::RuntimeShellConfirmation confirmation)
 {

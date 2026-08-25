@@ -477,6 +477,46 @@ bool valid_scene_position(const compiled::SceneDefinition& scene,
         position.substate);
 }
 
+bool valid_scene_inputs(const compiled::SceneDefinition& scene,
+                        const std::vector<compiled::SceneInputBinding>& bindings)
+{
+    if (bindings.size() != scene.inputs.size())
+        return false;
+    std::unordered_set<SceneInputId> seen;
+    for (const auto& binding : bindings) {
+        if (!seen.insert(binding.input_id).second)
+            return false;
+        const auto declaration =
+            std::ranges::find_if(scene.inputs, [&](const compiled::SceneInputDefinition& input) {
+                return input.id == binding.input_id;
+            });
+        if (declaration == scene.inputs.end())
+            return false;
+        if (std::holds_alternative<std::monostate>(binding.value)) {
+            if (!declaration->nullable)
+                return false;
+            continue;
+        }
+        const bool matches = [&] {
+            switch (declaration->type) {
+            case compiled::SceneInputType::Boolean:
+                return std::holds_alternative<bool>(binding.value);
+            case compiled::SceneInputType::Integer:
+                return std::holds_alternative<std::int64_t>(binding.value);
+            case compiled::SceneInputType::Number:
+                return std::holds_alternative<std::int64_t>(binding.value) ||
+                       std::holds_alternative<double>(binding.value);
+            case compiled::SceneInputType::String:
+                return std::holds_alternative<std::string>(binding.value);
+            }
+            return false;
+        }();
+        if (!matches)
+            return false;
+    }
+    return true;
+}
+
 bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
                              const DialogueFramePosition& position)
 {
@@ -1622,7 +1662,8 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                     return false;
                 if constexpr (std::is_same_v<T, SavedSceneFrame>) {
                     const auto* scene = project.find_scene(item.scene);
-                    return scene && valid_scene_position(*scene, item.position);
+                    return scene && valid_scene_position(*scene, item.position) &&
+                           valid_scene_inputs(*scene, item.inputs);
                 } else if constexpr (std::is_same_v<T, SavedDialogueFrame>) {
                     const auto* dialogue = project.find_dialogue(item.dialogue);
                     return dialogue && valid_dialogue_position(*dialogue, item.position) &&

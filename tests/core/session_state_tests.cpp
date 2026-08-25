@@ -987,12 +987,10 @@ TEST_CASE("feature views are a closed typed vocabulary without mutable state own
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<5, FeatureView>, MapView>);
 
     FeatureView scene = SceneView{.scene = id<SceneId>("opening")};
-    FeatureView dialogue = DialogueView{.dialogue = id<DialogueId>("intro")};
     FeatureView interaction = InteractionView{.verb = id<VerbId>("look")};
     FeatureView inventory = InventoryView{};
     FeatureView map = MapView{.map = id<MapId>("house")};
     CHECK(std::holds_alternative<SceneView>(scene));
-    CHECK(std::holds_alternative<DialogueView>(dialogue));
     CHECK(std::holds_alternative<InteractionView>(interaction));
     CHECK(std::holds_alternative<InventoryView>(inventory));
     CHECK(std::holds_alternative<MapView>(map));

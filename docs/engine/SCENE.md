@@ -12,8 +12,8 @@ Scene is an immutable orchestration definition, not a stateful Property or Trait
 ## Program
 
 Current Scene authoring is an ordered sequence of stable semantic Events. The Event operation union is
-SetBackground, ActorCue, CallDialogue, ShowText, AudioCue, SetVariable, RunLua, Wait,
-ConditionalBranch, Choice, SetLayout, TransitionGroup, and Comment. Comment is editor-only and
+SetBackground, ActorCue, CallScene, StartDetachedScene, CallDialogue, ShowText, AudioCue,
+SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, TransitionGroup, and Comment. Comment is editor-only and
 removed by compilation. Every runtime Event has a stable ID, an editor-visible timeline track,
 explicit start and duration values, and zero or more completion dependencies on earlier enabled
 runtime Events. Each operation contains only fields valid for its variant, including condition, wait,
@@ -25,10 +25,39 @@ Event cursor advances; explicit completion dependencies are the authored vocabul
 later work that must wait for earlier operation completion. The editor may render the ordered Events
 as tracks and overlapping clips without introducing author-visible handlers or edges.
 
-A Scene frame holds the mutable Event cursor, Stage-initialization state, and wait/correlation state.
-`CallDialogue` pushes a Dialogue frame and resumes at the next Scene Event after Return. A final Scene/Dialogue continuation
-tail-replaces; Room enters Room mode; Return pops; End clears execution and enters Ended mode. Return
-is invalid for a direct project entrypoint.
+A Scene frame holds the mutable Event cursor, Stage-initialization state, bound typed inputs, the last
+returned child Outcome, and wait/correlation state. `CallScene` and `CallDialogue` push a child frame
+and resume the caller at its explicit next position after Return. Scene calls are runtime-depth
+bounded so data-dependent recursion cannot exhaust the native stack or grow the Flow stack without
+limit.
+
+Every Scene has exactly one explicit terminal action. `Return` resumes a valid caller and may carry one
+Outcome declared by the returning Scene. `Continue/Replace Scene` and `Continue/Replace Dialogue`
+tail-replace the current invocation while preserving its original return destination. `Release to
+Exploration` clears foreground Flow and resumes the existing Current Room; it is invalid when no
+Current Room exists. `Complete Game` marks the playthrough complete, ends the Runtime Session's
+foreground execution, and causes the host shell to return to the title/start screen without the
+ordinary unsaved-progress confirmation. There is no implicit Scene fallthrough and Scene does not use
+the generic Flow `End` target.
+
+Scene inputs are named, typed (`boolean`, `integer`, `number`, or `string`), optionally nullable, and
+may declare defaults. Calls and Scene-to-Scene Continue bind inputs explicitly. A direct project
+Scene entrypoint therefore requires every non-nullable input to have a default. Outcomes are named
+declarations local to the Scene and are valid only on Return.
+
+`StartDetachedScene` records an explicit `flow`, `active-room`, or `runtime-session` owner and enters
+the engine's deterministic deferred-command FIFO rather than recursively re-entering execution. The
+launch is non-awaited: the foreground Flow advances independently while each detached invocation owns
+its own Flow stack and blocker state over the same authoritative Runtime Session. Duration waits are
+therefore allowed and advance independently. Detached targets are validated as background-safe: they
+cannot capture exclusive player input, yield Lua, await foreground presentation/audio completion, or
+handoff into foreground-only Dialogue/terminal control. Active-Room ownership additionally requires a
+Current Room. Flow-owned work is cancelled when its initiating Flow ends; Active-Room work is cancelled
+when that Room visit ends; Runtime-Session work lives until session termination. Detached launches
+share the runtime command budget and deterministic ordering rules. Checkpoint promotion is deferred
+while detached work is live until the later detached restoration/provenance contract can persist that
+work without loss. Broader presentation/audio lifetime orchestration remains governed by the subsystem
+ownership contracts described in the later Scene orchestration work.
 
 ## Invocation Stage
 
@@ -55,8 +84,8 @@ or moves Gameplay Instances.
 
 A Scene is an ordered program of engine actions. It is not itself a visual transition, and the word
 `Transition` does not mean transferring execution from one `SceneDefinition` to another. Scene-to-
-Scene execution transfer is controlled by branches, child calls, and the Scene's terminal
-`FlowTarget`.
+Scene execution transfer is controlled by branches, child calls, detached launches, and the Scene's
+typed terminal action.
 
 Current presentation-changing Scene actions include:
 
@@ -123,8 +152,9 @@ realization and leaves the already-published target authoritative.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring:** collection-specific Scene record with one explicit Stage, strict ordered Events,
-  Event timeline metadata/completion dependencies, and explicit terminal continuation.
+- **Authoring:** collection-specific Scene record with typed inputs and Outcomes, one explicit Stage,
+  strict ordered Events, Event timeline metadata/completion dependencies, and one explicit terminal
+  action.
 - **Compiled:** immutable `SceneDefinition` plus `SceneProgram.events`; each compiled Event wraps one
   typed instruction with its stable ID, timeline metadata, and completion dependencies.
 - **Mutable:** Scene `FlowFrame`, Stage initialization, actor/presentation state, logical waits, and
@@ -141,8 +171,9 @@ safe points.
 
 The authoritative Scene authoring boundary lives in
 `editor/src/shared/project-schema/authoring-scenes.ts`. A Scene record contains its display name, one
-Stage (`inherited`, `staged-room`, or `blank`), a non-empty ordered Event sequence, and an explicit
-terminal `FlowTarget`. The former same-version `defaultBackground`, `defaultLayout`, and `steps`
+Stage (`inherited`, `staged-room`, or `blank`), typed input and Outcome declarations, a non-empty
+ordered Event sequence, and one explicit typed terminal action. The former same-version generic
+Scene `continuation` field is not accepted. The earlier same-version `defaultBackground`, `defaultLayout`, and `steps`
 shape is not accepted. Preview selection and scrub/play state are not serialized into Scene data.
 
 Every Event operation is a strict discriminated-union member. An Event stores only fields valid for its type;
@@ -153,8 +184,8 @@ where they are meaningful.
 
 The editor supports Stage configuration, ordered creation, selection, duplication, deletion,
 reordering, type replacement, variant-specific editing, track/start/duration editing, completion
-dependencies, overlapping clip visualization, scrubbing, timeline playback, explicit continuation
-editing, diagnostics, undo/redo, and a derived Scene preview. The preview receives its selected Event
+dependencies, overlapping clip visualization, scrubbing, timeline playback, input/Outcome and
+terminal editing, Scene-call input bindings, detached ownership, diagnostics, undo/redo, and a derived Scene preview. The preview receives its selected Event
 and derived timeline data from editor state and emits `noveltea.scene-preview`; it does not mutate or
 annotate the authoring record with transient playback state.
 

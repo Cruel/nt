@@ -14,7 +14,6 @@ import {
   conditionSchema,
   dialogueRefSchema,
   effectSchema,
-  flowTargetSchema,
   inlineTextContent,
   layoutRefSchema,
   materialRefSchema,
@@ -40,6 +39,8 @@ const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const sceneStepTypeValues = [
   'set-background',
   'actor-cue',
+  'call-scene',
+  'start-detached-scene',
   'call-dialogue',
   'show-text',
   'audio-cue',
@@ -94,7 +95,6 @@ export const sceneVariableRefSchema = variableRefSchema;
 export const sceneRoomRefSchema = roomRefSchema;
 export const sceneSceneRefSchema = sceneRefSchema;
 export const sceneScriptRefSchema = scriptRefSchema;
-export const sceneFlowTargetSchema = flowTargetSchema;
 export const sceneTextSourceSchema = textSourceSchema;
 export const sceneTextContentSchema = textContentSchema;
 export const sceneConditionSchema = conditionSchema;
@@ -113,6 +113,36 @@ const commonRuntimeStep = {
   completionDependencies: z.array(entityIdSchema).default([]),
 };
 const safePoint = { autosaveSafePoint: z.boolean().default(false) };
+
+export const sceneInputTypeValues = ['boolean', 'integer', 'number', 'string'] as const;
+export const sceneDetachedOwnerValues = ['flow', 'active-room', 'runtime-session'] as const;
+
+export const sceneInputDefinitionSchema = strict({
+  id: entityIdSchema,
+  label: z.string().min(1),
+  type: z.enum(sceneInputTypeValues),
+  nullable: z.boolean(),
+  defaultValue: runtimeScalarSchema.optional(),
+});
+export const sceneOutcomeDefinitionSchema = strict({
+  id: entityIdSchema,
+  label: z.string().min(1),
+});
+export const sceneInputBindingSchema = strict({
+  inputId: entityIdSchema,
+  value: runtimeScalarSchema,
+});
+export const sceneTerminalSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('return'), outcome: entityIdSchema.nullable() }),
+  strict({
+    kind: z.literal('continue-scene'),
+    scene: sceneSceneRefSchema,
+    inputs: z.array(sceneInputBindingSchema),
+  }),
+  strict({ kind: z.literal('continue-dialogue'), dialogue: sceneDialogueRefSchema }),
+  strict({ kind: z.literal('release-to-exploration') }),
+  strict({ kind: z.literal('complete-game') }),
+]);
 
 const setBackgroundStepSchema = strict({
   ...commonRuntimeStep,
@@ -143,6 +173,21 @@ const actorCueStepSchema = strict({
   durationMs: z.number().int().nonnegative(),
   waitForCompletion: z.boolean(),
   skippable: z.boolean(),
+});
+const callSceneStepSchema = strict({
+  ...commonRuntimeStep,
+  ...safePoint,
+  type: z.literal('call-scene'),
+  scene: sceneSceneRefSchema,
+  inputs: z.array(sceneInputBindingSchema),
+});
+const startDetachedSceneStepSchema = strict({
+  ...commonRuntimeStep,
+  ...safePoint,
+  type: z.literal('start-detached-scene'),
+  scene: sceneSceneRefSchema,
+  inputs: z.array(sceneInputBindingSchema),
+  owner: z.enum(sceneDetachedOwnerValues),
 });
 const callDialogueStepSchema = strict({
   ...commonRuntimeStep,
@@ -348,6 +393,8 @@ const commentStepSchema = strict({
 export const sceneStepDataSchema = z.discriminatedUnion('type', [
   setBackgroundStepSchema,
   actorCueStepSchema,
+  callSceneStepSchema,
+  startDetachedSceneStepSchema,
   callDialogueStepSchema,
   showTextStepSchema,
   audioCueStepSchema,
@@ -382,8 +429,10 @@ export const sceneDataSchema = strict({
   kind: z.literal('scene'),
   displayName: z.string(),
   stage: sceneStageSchema,
+  inputs: z.array(sceneInputDefinitionSchema),
+  outcomes: z.array(sceneOutcomeDefinitionSchema),
   events: z.array(sceneStepDataSchema).min(1),
-  continuation: sceneFlowTargetSchema,
+  terminal: sceneTerminalSchema,
 });
 
 export type SceneAssetRef = z.infer<typeof sceneAssetRefSchema>;
@@ -391,7 +440,10 @@ export type SceneCharacterRef = z.infer<typeof sceneCharacterRefSchema>;
 export type SceneDialogueRef = z.infer<typeof sceneDialogueRefSchema>;
 export type SceneLayoutRef = z.infer<typeof sceneLayoutRefSchema>;
 export type SceneVariableRef = z.infer<typeof sceneVariableRefSchema>;
-export type SceneFlowTarget = z.infer<typeof sceneFlowTargetSchema>;
+export type SceneInputDefinition = z.infer<typeof sceneInputDefinitionSchema>;
+export type SceneOutcomeDefinition = z.infer<typeof sceneOutcomeDefinitionSchema>;
+export type SceneInputBinding = z.infer<typeof sceneInputBindingSchema>;
+export type SceneTerminal = z.infer<typeof sceneTerminalSchema>;
 export type SceneConditionData = z.infer<typeof sceneConditionSchema>;
 export type SceneEffectData = z.infer<typeof sceneEffectSchema>;
 export type SceneTransitionGroupChildData = z.infer<typeof transitionGroupChildSchema>;
@@ -458,6 +510,23 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         durationMs: 0,
         waitForCompletion: false,
         skippable: true,
+      };
+    case 'call-scene':
+      return {
+        ...common,
+        type,
+        scene: sceneSceneRef('scene'),
+        inputs: [],
+        autosaveSafePoint: false,
+      };
+    case 'start-detached-scene':
+      return {
+        ...common,
+        type,
+        scene: sceneSceneRef('scene'),
+        inputs: [],
+        owner: 'flow',
+        autosaveSafePoint: false,
       };
     case 'call-dialogue':
       return {
@@ -600,8 +669,10 @@ export function defaultSceneData(label = 'Scene'): SceneData {
       background: { asset: null, material: null, color: '#0f172a', fit: 'cover' },
       layout: null,
     },
+    inputs: [],
+    outcomes: [],
     events: [defaultSceneStep()],
-    continuation: { kind: 'end' },
+    terminal: { kind: 'complete-game' },
   };
 }
 
@@ -625,6 +696,7 @@ export const sceneVariableRef = (id: string) => ({
   $ref: { collection: 'variables' as const, id },
 });
 export const sceneRoomRef = (id: string) => ({ $ref: { collection: 'rooms' as const, id } });
+export const sceneSceneRef = (id: string) => ({ $ref: { collection: 'scenes' as const, id } });
 
 export function validateSceneData(
   project: AuthoringProject,
@@ -662,6 +734,61 @@ export function validateSceneData(
         validateVariableValue(effect.variable.$ref.id, effect.value, `${path}/${index}/value`);
       }
     });
+  };
+  const sceneInputAccepts = (input: SceneInputDefinition, value: unknown) => {
+    if (value === null) return input.nullable;
+    switch (input.type) {
+      case 'boolean':
+        return typeof value === 'boolean';
+      case 'integer':
+        return typeof value === 'number' && Number.isInteger(value);
+      case 'number':
+        return typeof value === 'number' && Number.isFinite(value);
+      case 'string':
+        return typeof value === 'string';
+    }
+  };
+  const validateInputBindings = (
+    targetId: string,
+    bindings: readonly SceneInputBinding[],
+    path: string,
+  ) => {
+    requireRecord('scenes', targetId, `${path}/scene`);
+    const target = parseSceneData(project.scenes[targetId]?.data);
+    if (!target) return;
+    const supplied = new Set<string>();
+    bindings.forEach((binding, index) => {
+      if (supplied.has(binding.inputId))
+        diagnostics.push(
+          diagnostic(
+            `${path}/inputs/${index}/inputId`,
+            `Duplicate Scene input binding '${binding.inputId}'.`,
+          ),
+        );
+      supplied.add(binding.inputId);
+      const input = target.inputs.find((candidate) => candidate.id === binding.inputId);
+      if (!input) {
+        diagnostics.push(
+          diagnostic(
+            `${path}/inputs/${index}/inputId`,
+            `Scene '${targetId}' does not declare input '${binding.inputId}'.`,
+          ),
+        );
+      } else if (!sceneInputAccepts(input, binding.value)) {
+        diagnostics.push(
+          diagnostic(
+            `${path}/inputs/${index}/value`,
+            `Value does not match Scene input '${binding.inputId}' type '${input.type}'.`,
+          ),
+        );
+      }
+    });
+    for (const input of target.inputs) {
+      if (!input.nullable && input.defaultValue === undefined && !supplied.has(input.id))
+        diagnostics.push(
+          diagnostic(`${path}/inputs`, `Scene '${targetId}' requires input '${input.id}'.`),
+        );
+    }
   };
   const validateMaterialParameter = (
     materialId: string,
@@ -721,6 +848,65 @@ export function validateSceneData(
     if (data.stage.layout)
       requireRecord('layouts', data.stage.layout.$ref.id, `${base}/stage/layout`);
   }
+  const inputIds = new Set<string>();
+  data.inputs.forEach((input, index) => {
+    const path = `${base}/inputs/${index}`;
+    if (inputIds.has(input.id))
+      diagnostics.push(diagnostic(`${path}/id`, `Duplicate Scene input ID '${input.id}'.`));
+    inputIds.add(input.id);
+    if (input.defaultValue !== undefined && !sceneInputAccepts(input, input.defaultValue))
+      diagnostics.push(
+        diagnostic(
+          `${path}/defaultValue`,
+          `Default value does not match Scene input type '${input.type}'.`,
+        ),
+      );
+  });
+  const outcomeIds = new Set<string>();
+  data.outcomes.forEach((outcome, index) => {
+    if (outcomeIds.has(outcome.id))
+      diagnostics.push(
+        diagnostic(`${base}/outcomes/${index}/id`, `Duplicate Scene Outcome ID '${outcome.id}'.`),
+      );
+    outcomeIds.add(outcome.id);
+  });
+  const detachedSceneSafe = (targetSceneId: string, visiting = new Set<string>()): boolean => {
+    const target = parseSceneData(project.scenes[targetSceneId]?.data);
+    if (!target) return false;
+    if (visiting.has(targetSceneId)) return true;
+    visiting.add(targetSceneId);
+    const unsafe = target.events.some((candidate) => {
+      if (
+        candidate.type === 'choice' ||
+        candidate.type === 'call-dialogue' ||
+        (candidate.type === 'show-text' && candidate.wait === 'input') ||
+        (candidate.type === 'wait' && candidate.waitKind === 'input') ||
+        (candidate.type === 'run-lua' && candidate.mayYield)
+      )
+        return true;
+      if (
+        (candidate.type === 'set-background' ||
+          candidate.type === 'actor-cue' ||
+          candidate.type === 'set-layout' ||
+          candidate.type === 'material-parameter' ||
+          candidate.type === 'transition-group' ||
+          candidate.type === 'audio-cue') &&
+        candidate.waitForCompletion
+      )
+        return true;
+      if (candidate.type === 'call-scene' || candidate.type === 'start-detached-scene')
+        return !detachedSceneSafe(candidate.scene.$ref.id, visiting);
+      return false;
+    });
+    let terminalSafe = false;
+    if (!unsafe) {
+      if (target.terminal.kind === 'return') terminalSafe = true;
+      else if (target.terminal.kind === 'continue-scene')
+        terminalSafe = detachedSceneSafe(target.terminal.scene.$ref.id, visiting);
+    }
+    visiting.delete(targetSceneId);
+    return !unsafe && terminalSafe;
+  };
   data.events.forEach((step, index) => {
     const path = `${base}/events/${index}`;
     if (ids.has(step.id))
@@ -803,6 +989,28 @@ export function validateSceneData(
           diagnostic(
             `${path}/transition`,
             'Slide is valid only for show, hide, and move actor actions.',
+          ),
+        );
+    }
+    if (step.type === 'call-scene' || step.type === 'start-detached-scene')
+      validateInputBindings(step.scene.$ref.id, step.inputs, path);
+    if (step.type === 'start-detached-scene') {
+      if (!detachedSceneSafe(step.scene.$ref.id))
+        diagnostics.push(
+          diagnostic(
+            `${path}/scene`,
+            `Detached Scene '${step.scene.$ref.id}' contains foreground-only or exclusive player-input work.`,
+          ),
+        );
+      if (
+        step.owner === 'active-room' &&
+        project.entrypoint?.kind === 'scene' &&
+        sceneId === project.entrypoint.id
+      )
+        diagnostics.push(
+          diagnostic(
+            `${path}/owner`,
+            'Active Room detached ownership is unavailable before a Current Room exists.',
           ),
         );
     }
@@ -1221,9 +1429,84 @@ export function validateSceneData(
       }
     }
   });
-  const target = data.continuation;
-  if (target.kind === 'scene') requireRecord('scenes', target.id, `${base}/continuation/id`);
-  if (target.kind === 'dialogue') requireRecord('dialogues', target.id, `${base}/continuation/id`);
-  if (target.kind === 'room') requireRecord('rooms', target.id, `${base}/continuation/id`);
+  const terminal = data.terminal;
+  if (terminal.kind === 'return') {
+    if (terminal.outcome !== null && !outcomeIds.has(terminal.outcome))
+      diagnostics.push(
+        diagnostic(
+          `${base}/terminal/outcome`,
+          `Return Outcome '${terminal.outcome}' is not declared by this Scene.`,
+        ),
+      );
+    if (project.entrypoint?.kind === 'scene' && project.entrypoint.id === sceneId)
+      diagnostics.push(
+        diagnostic(
+          `${base}/terminal`,
+          'A project-entrypoint Scene cannot Return without a caller.',
+        ),
+      );
+  }
+  if (project.entrypoint?.kind === 'scene' && project.entrypoint.id === sceneId) {
+    for (let index = 0; index < data.inputs.length; index += 1) {
+      const input = data.inputs[index]!;
+      if (!input.nullable && input.defaultValue === undefined)
+        diagnostics.push(
+          diagnostic(
+            `${base}/inputs/${index}`,
+            `Project-entrypoint Scene input '${input.id}' requires a default value or nullable type.`,
+          ),
+        );
+    }
+  }
+  if (terminal.kind === 'continue-scene')
+    validateInputBindings(terminal.scene.$ref.id, terminal.inputs, `${base}/terminal`);
+  if (terminal.kind === 'continue-dialogue')
+    requireRecord('dialogues', terminal.dialogue.$ref.id, `${base}/terminal/dialogue`);
+  if (
+    terminal.kind === 'release-to-exploration' &&
+    project.entrypoint?.kind === 'scene' &&
+    project.entrypoint.id === sceneId
+  )
+    diagnostics.push(
+      diagnostic(
+        `${base}/terminal`,
+        'A project-entrypoint Scene cannot release to Exploration before a Current Room exists.',
+      ),
+    );
+
+  const unconditionalTargets = (candidateId: string): string[] => {
+    const candidate = parseSceneData(project.scenes[candidateId]?.data);
+    if (!candidate) return [];
+    const hasDynamicControl = candidate.events.some(
+      (step) => step.type === 'conditional-branch' || step.type === 'choice',
+    );
+    const called = hasDynamicControl
+      ? []
+      : candidate.events.flatMap((step) =>
+          step.type === 'call-scene' && step.enabled && step.condition === undefined
+            ? [step.scene.$ref.id]
+            : [],
+        );
+    if (candidate.terminal.kind === 'continue-scene') called.push(candidate.terminal.scene.$ref.id);
+    return called;
+  };
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const findCycle = (candidateId: string): boolean => {
+    if (visiting.has(candidateId)) return true;
+    if (visited.has(candidateId)) return false;
+    visiting.add(candidateId);
+    for (const targetId of unconditionalTargets(candidateId)) if (findCycle(targetId)) return true;
+    visiting.delete(candidateId);
+    visited.add(candidateId);
+    return false;
+  };
+  if (findCycle(sceneId))
+    diagnostics.push(
+      diagnostic(
+        `${base}/terminal`,
+        'Scene participates in a statically unconditional Scene call/continue cycle.',
+      ),
+    );
   return diagnostics;
 }

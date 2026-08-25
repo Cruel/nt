@@ -16,6 +16,9 @@ function summarizeStep(project: AuthoringProject, step: SceneStepData): Record<s
       };
     case 'actor-cue':
       return { ...step, characterLabel: project.characters[step.character.$ref.id]?.label ?? null };
+    case 'call-scene':
+    case 'start-detached-scene':
+      return { ...step, sceneLabel: project.scenes[step.scene.$ref.id]?.label ?? null };
     case 'call-dialogue':
       return { ...step, dialogueLabel: project.dialogues[step.dialogue.$ref.id]?.label ?? null };
     case 'audio-cue':
@@ -95,7 +98,9 @@ export function buildScenePreviewDocumentData(
       tracks: [...new Set(data.events.map((step) => step.timeline.trackId))],
     },
     stage: data.stage,
-    continuation: data.continuation,
+    inputs: data.inputs,
+    outcomes: data.outcomes,
+    terminal: data.terminal,
     diagnostics: validateSceneData(project, sceneId, record),
   };
 }

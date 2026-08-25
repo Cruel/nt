@@ -706,13 +706,19 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
     return std::visit(
         [](const auto& value) -> nlohmann::json {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, SavedSceneFrame>)
+            if constexpr (std::is_same_v<T, SavedSceneFrame>) {
+                nlohmann::json inputs = nlohmann::json::array();
+                for (const auto& binding : value.inputs)
+                    inputs.push_back({{"inputId", binding.input_id.text()},
+                                      {"value", encode_value(binding.value)}});
                 return {{"kind", "scene"},
                         {"id", value.snapshot_id.value},
                         {"scene", value.scene.text()},
                         {"position", encode_scene_position(value.position)},
-                        {"destination", encode_destination(value.destination)}};
-            else if constexpr (std::is_same_v<T, SavedDialogueFrame>) {
+                        {"destination", encode_destination(value.destination)},
+                        {"inputs", std::move(inputs)},
+                        {"lastChildOutcome", encode_optional_id(value.last_child_outcome)}};
+            } else if constexpr (std::is_same_v<T, SavedDialogueFrame>) {
                 nlohmann::json stage_slots = nlohmann::json::array();
                 for (const auto& slot : value.stage_slots)
                     stage_slots.push_back(encode_dialogue_stage_state(slot));
@@ -811,10 +817,13 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
     if (!name || !snapshot)
         return std::nullopt;
     if (*name == "scene") {
-        d.object(value, pointer, {"kind", "id", "scene", "position", "destination"});
+        d.object(value, pointer,
+                 {"kind", "id", "scene", "position", "destination", "inputs", "lastChildOutcome"});
         const auto* scene = d.member(value, "scene", pointer);
         const auto* position = d.member(value, "position", pointer);
         const auto* destination = d.member(value, "destination", pointer);
+        const auto* inputs = d.member(value, "inputs", pointer);
+        const auto* outcome = d.member(value, "lastChildOutcome", pointer);
         auto scene_id = scene ? d.id<SceneId>(*scene, child(pointer, "scene")) : std::nullopt;
         auto saved_position = position
                                   ? decode_scene_position(d, *position, child(pointer, "position"))
@@ -822,11 +831,40 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         auto saved_destination =
             destination ? decode_destination(d, *destination, child(pointer, "destination"))
                         : std::nullopt;
-        return scene_id && saved_position && saved_destination
-                   ? std::optional<SavedFlowFrame>(SavedSceneFrame{{*snapshot},
-                                                                   std::move(*scene_id),
-                                                                   std::move(*saved_position),
-                                                                   std::move(*saved_destination)})
+        std::vector<compiled::SceneInputBinding> decoded_inputs;
+        if (!inputs || !inputs->is_array()) {
+            if (inputs)
+                d.error(k_type, "Expected an array.", child(pointer, "inputs"));
+            return std::nullopt;
+        }
+        for (std::size_t item = 0; item < inputs->size(); ++item) {
+            const auto* binding = json_access::element(*inputs, item);
+            const auto binding_path = index(child(pointer, "inputs"), item);
+            if (!binding || !d.object(*binding, binding_path, {"inputId", "value"}))
+                return std::nullopt;
+            const auto* input = d.member(*binding, "inputId", binding_path);
+            const auto* runtime_value = d.member(*binding, "value", binding_path);
+            auto input_id =
+                input ? d.id<SceneInputId>(*input, child(binding_path, "inputId")) : std::nullopt;
+            auto decoded_value = runtime_value
+                                     ? decode_value(d, *runtime_value, child(binding_path, "value"))
+                                     : std::nullopt;
+            if (!input_id || !decoded_value)
+                return std::nullopt;
+            decoded_inputs.push_back(
+                compiled::SceneInputBinding{std::move(*input_id), std::move(*decoded_value)});
+        }
+        auto last_child_outcome =
+            outcome ? d.optional_id<SceneOutcomeId>(*outcome, child(pointer, "lastChildOutcome"))
+                    : Decoder::OptionalId<SceneOutcomeId>{};
+        return scene_id && saved_position && saved_destination && last_child_outcome.valid
+                   ? std::optional<SavedFlowFrame>(
+                         SavedSceneFrame{{*snapshot},
+                                         std::move(*scene_id),
+                                         std::move(*saved_position),
+                                         std::move(*saved_destination),
+                                         std::move(decoded_inputs),
+                                         std::move(last_child_outcome.value)})
                    : std::nullopt;
     }
     if (*name == "dialogue") {

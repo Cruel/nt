@@ -75,6 +75,8 @@ protected:
     std::uint64_t m_next_frame_id;
     std::uint64_t m_next_blocker_handle = 1;
     bool m_flow_running = false;
+    bool m_detached_flow_active = false;
+    bool m_game_completed = false;
 };
 
 class GameplayState {
@@ -166,6 +168,7 @@ public:
     [[nodiscard]] static Result<SessionState, Diagnostics> create(const CompiledProject& project);
 
     [[nodiscard]] const RuntimeMode& mode() const noexcept { return m_mode; }
+    [[nodiscard]] bool game_completed() const noexcept { return m_game_completed; }
     [[nodiscard]] const FlowStack& flow_stack() const noexcept { return m_flow_stack; }
     [[nodiscard]] const std::optional<FlowBlocker>& blocker() const noexcept { return m_blocker; }
     [[nodiscard]] const std::optional<Diagnostics>& execution_fault() const noexcept

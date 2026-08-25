@@ -568,7 +568,7 @@ TEST_CASE("typed Dialogue nested Return resumes its caller and failed effects do
                {"kind", "call-dialogue"},
                {"startBlockId", "final"}}}},
         });
-        opening["continuation"] = {{"kind", "end"}};
+        opening["terminal"] = {{"kind", "complete-game"}};
         document["entrypoint"] = {{"kind", "scene"},
                                   {"scene", {{"kind", "scene"}, {"id", "opening"}}}};
         auto project = decode_document(std::move(document), "dialogue-nested-return.json");

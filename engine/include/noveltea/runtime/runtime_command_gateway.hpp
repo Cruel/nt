@@ -144,6 +144,9 @@ public:
     request_transient(core::DialogueId dialogue);
     [[nodiscard]] core::Result<void, core::Diagnostics> request_child(core::SceneId scene);
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_detached(core::SceneId scene, std::vector<core::compiled::SceneInputBinding> inputs,
+                     core::compiled::DetachedSceneOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     request_child(core::DialogueId dialogue,
                   std::optional<core::DialogueBlockId> start_block = std::nullopt);
     [[nodiscard]] core::Result<void, core::Diagnostics>

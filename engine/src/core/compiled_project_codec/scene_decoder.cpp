@@ -120,6 +120,30 @@ bool decode_layout_scale_overrides(Decoder& decoder, const nlohmann::json& owner
     return true;
 }
 
+std::optional<std::vector<SceneInputBinding>>
+decode_scene_input_bindings(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    return decoder.array<SceneInputBinding>(
+        value, pointer,
+        [&](const nlohmann::json& binding,
+            const std::string& binding_pointer) -> std::optional<SceneInputBinding> {
+            if (!decoder.object(binding, binding_pointer, {"inputId", "value"}))
+                return std::nullopt;
+            const auto* input_value = decoder.member(binding, "inputId", binding_pointer);
+            const auto* runtime_value = decoder.member(binding, "value", binding_pointer);
+            auto input = input_value ? decoder.id<SceneInputId>(
+                                           *input_value, pointer_child(binding_pointer, "inputId"))
+                                     : std::nullopt;
+            auto decoded_value = runtime_value
+                                     ? decode_runtime_value(decoder, *runtime_value,
+                                                            pointer_child(binding_pointer, "value"))
+                                     : std::nullopt;
+            return input && decoded_value ? std::optional<SceneInputBinding>(SceneInputBinding{
+                                                std::move(*input), std::move(*decoded_value)})
+                                          : std::nullopt;
+        });
+}
+
 } // namespace
 
 std::optional<SceneInstruction>
@@ -360,6 +384,46 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                    *duration,
                                    std::move(wait),
                                    *skippable};
+    }
+    if (*kind == "call-scene" || *kind == "start-detached-scene") {
+        const bool detached = *kind == "start-detached-scene";
+        if (detached)
+            SCENE_FIELDS("autosaveSafePoint", "inputs", "owner", "scene");
+        else
+            SCENE_FIELDS("autosaveSafePoint", "inputs", "scene");
+        const auto* safe_value = decoder.member(value, "autosaveSafePoint", pointer);
+        const auto* inputs_value = decoder.member(value, "inputs", pointer);
+        const auto* scene_value = decoder.member(value, "scene", pointer);
+        auto safe = safe_value
+                        ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
+                        : std::nullopt;
+        auto inputs = inputs_value ? decode_scene_input_bindings(decoder, *inputs_value,
+                                                                 pointer_child(pointer, "inputs"))
+                                   : std::nullopt;
+        auto scene = scene_value
+                         ? decode_reference<SceneId>(decoder, *scene_value,
+                                                     pointer_child(pointer, "scene"), "scene")
+                         : std::nullopt;
+        if (!safe || !inputs || !scene)
+            return std::nullopt;
+        decoder.duplicate_ids(*inputs, pointer_child(pointer, "inputs"),
+                              [](const SceneInputBinding& binding) -> const SceneInputId& {
+                                  return binding.input_id;
+                              });
+        if (!detached)
+            return CallSceneSceneInstruction{std::move(*id), std::move(condition), *safe,
+                                             std::move(*scene), std::move(*inputs)};
+        const auto* owner_value = decoder.member(value, "owner", pointer);
+        auto owner = owner_value ? decoder.enumeration<DetachedSceneOwner>(
+                                       *owner_value, pointer_child(pointer, "owner"),
+                                       {{"flow", DetachedSceneOwner::Flow},
+                                        {"active-room", DetachedSceneOwner::ActiveRoom},
+                                        {"runtime-session", DetachedSceneOwner::RuntimeSession}})
+                                 : std::nullopt;
+        return owner ? std::optional<SceneInstruction>(StartDetachedSceneInstruction{
+                           std::move(*id), std::move(condition), *safe, std::move(*scene),
+                           std::move(*inputs), *owner})
+                     : std::nullopt;
     }
     if (*kind == "call-dialogue") {
         SCENE_FIELDS("autosaveSafePoint", "dialogue", "startBlockId");
@@ -1475,13 +1539,17 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
 std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::json& value,
                                             std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"continuation", "displayName", "id", "program", "stage"}))
+    if (!decoder.object(
+            value, pointer,
+            {"displayName", "id", "inputs", "outcomes", "program", "stage", "terminal"}))
         return std::nullopt;
     auto identity = decode_definition_identity<SceneId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
     const auto* stage_value = decoder.member(value, "stage", pointer);
+    const auto* inputs_value = decoder.member(value, "inputs", pointer);
+    const auto* outcomes_value = decoder.member(value, "outcomes", pointer);
     const auto* program_value = decoder.member(value, "program", pointer);
-    const auto* continuation_value = decoder.member(value, "continuation", pointer);
+    const auto* terminal_value = decoder.member(value, "terminal", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
@@ -1529,6 +1597,85 @@ std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::js
                           pointer_child(stage_pointer, "kind"));
         }
     }
+    auto inputs =
+        inputs_value
+            ? decoder.array<SceneInputDefinition>(
+                  *inputs_value, pointer_child(pointer, "inputs"),
+                  [&](const nlohmann::json& input,
+                      const std::string& input_pointer) -> std::optional<SceneInputDefinition> {
+                      if (!decoder.object(input, input_pointer,
+                                          {"defaultValue", "id", "label", "nullable", "type"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(input, "id", input_pointer);
+                      const auto* label_value = decoder.member(input, "label", input_pointer);
+                      const auto* nullable_value = decoder.member(input, "nullable", input_pointer);
+                      const auto* type_value = decoder.member(input, "type", input_pointer);
+                      auto input_id = id_value ? decoder.id<SceneInputId>(
+                                                     *id_value, pointer_child(input_pointer, "id"))
+                                               : std::nullopt;
+                      auto label =
+                          label_value
+                              ? decoder.string(*label_value, pointer_child(input_pointer, "label"))
+                              : std::nullopt;
+                      auto nullable =
+                          nullable_value ? decoder.boolean(*nullable_value,
+                                                           pointer_child(input_pointer, "nullable"))
+                                         : std::nullopt;
+                      auto type = type_value
+                                      ? decoder.enumeration<SceneInputType>(
+                                            *type_value, pointer_child(input_pointer, "type"),
+                                            {{"boolean", SceneInputType::Boolean},
+                                             {"integer", SceneInputType::Integer},
+                                             {"number", SceneInputType::Number},
+                                             {"string", SceneInputType::String}})
+                                      : std::nullopt;
+                      std::optional<RuntimeValue> default_value;
+                      bool default_ok = true;
+                      if (const auto* default_json = json_access::member(input, "defaultValue")) {
+                          default_value = decode_runtime_value(
+                              decoder, *default_json, pointer_child(input_pointer, "defaultValue"));
+                          default_ok = default_value.has_value();
+                      }
+                      return input_id && label && nullable && type && default_ok
+                                 ? std::optional<SceneInputDefinition>(SceneInputDefinition{
+                                       std::move(*input_id), std::move(*label), *type, *nullable,
+                                       std::move(default_value)})
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
+    if (inputs)
+        decoder.duplicate_ids(
+            *inputs, pointer_child(pointer, "inputs"),
+            [](const SceneInputDefinition& input) -> const SceneInputId& { return input.id; });
+    auto outcomes =
+        outcomes_value
+            ? decoder.array<SceneOutcomeDefinition>(
+                  *outcomes_value, pointer_child(pointer, "outcomes"),
+                  [&](const nlohmann::json& outcome,
+                      const std::string& outcome_pointer) -> std::optional<SceneOutcomeDefinition> {
+                      if (!decoder.object(outcome, outcome_pointer, {"id", "label"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(outcome, "id", outcome_pointer);
+                      const auto* label_value = decoder.member(outcome, "label", outcome_pointer);
+                      auto outcome_id = id_value
+                                            ? decoder.id<SceneOutcomeId>(
+                                                  *id_value, pointer_child(outcome_pointer, "id"))
+                                            : std::nullopt;
+                      auto label = label_value
+                                       ? decoder.string(*label_value,
+                                                        pointer_child(outcome_pointer, "label"))
+                                       : std::nullopt;
+                      return outcome_id && label
+                                 ? std::optional<SceneOutcomeDefinition>(SceneOutcomeDefinition{
+                                       std::move(*outcome_id), std::move(*label)})
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
+    if (outcomes)
+        decoder.duplicate_ids(*outcomes, pointer_child(pointer, "outcomes"),
+                              [](const SceneOutcomeDefinition& outcome) -> const SceneOutcomeId& {
+                                  return outcome.id;
+                              });
     std::optional<SceneProgram> program;
     if (program_value &&
         decoder.object(*program_value, pointer_child(pointer, "program"), {"events"})) {
@@ -1635,14 +1782,73 @@ std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::js
             program = SceneProgram{std::move(instructions), std::move(metadata)};
         }
     }
-    auto continuation = continuation_value
-                            ? decode_flow_target_impl(decoder, *continuation_value,
-                                                      pointer_child(pointer, "continuation"))
-                            : std::nullopt;
-    if (!identity || !display || !stage || !program || !continuation)
+    std::optional<SceneTerminal> terminal;
+    if (terminal_value && terminal_value->is_object()) {
+        const auto terminal_pointer = pointer_child(pointer, "terminal");
+        const auto* kind_value = decoder.member(*terminal_value, "kind", terminal_pointer);
+        auto kind = kind_value
+                        ? decoder.string(*kind_value, pointer_child(terminal_pointer, "kind"))
+                        : std::nullopt;
+        if (kind && *kind == "return") {
+            if (decoder.object(*terminal_value, terminal_pointer, {"kind", "outcome"})) {
+                const auto* outcome_value =
+                    decoder.member(*terminal_value, "outcome", terminal_pointer);
+                std::optional<SceneOutcomeId> outcome;
+                bool outcome_ok = outcome_value != nullptr;
+                if (outcome_value && !outcome_value->is_null()) {
+                    outcome = decoder.id<SceneOutcomeId>(
+                        *outcome_value, pointer_child(terminal_pointer, "outcome"));
+                    outcome_ok = outcome.has_value();
+                }
+                if (outcome_ok)
+                    terminal = ReturnSceneTerminal{std::move(outcome)};
+            }
+        } else if (kind && *kind == "continue-scene") {
+            if (decoder.object(*terminal_value, terminal_pointer, {"inputs", "kind", "scene"})) {
+                const auto* target_value =
+                    decoder.member(*terminal_value, "scene", terminal_pointer);
+                const auto* bindings_value =
+                    decoder.member(*terminal_value, "inputs", terminal_pointer);
+                auto target = target_value ? decode_reference<SceneId>(
+                                                 decoder, *target_value,
+                                                 pointer_child(terminal_pointer, "scene"), "scene")
+                                           : std::nullopt;
+                auto bindings =
+                    bindings_value
+                        ? decode_scene_input_bindings(decoder, *bindings_value,
+                                                      pointer_child(terminal_pointer, "inputs"))
+                        : std::nullopt;
+                if (target && bindings)
+                    terminal = ContinueSceneTerminal{std::move(*target), std::move(*bindings)};
+            }
+        } else if (kind && *kind == "continue-dialogue") {
+            if (decoder.object(*terminal_value, terminal_pointer, {"dialogue", "kind"})) {
+                const auto* target_value =
+                    decoder.member(*terminal_value, "dialogue", terminal_pointer);
+                auto target = target_value
+                                  ? decode_reference<DialogueId>(
+                                        decoder, *target_value,
+                                        pointer_child(terminal_pointer, "dialogue"), "dialogue")
+                                  : std::nullopt;
+                if (target)
+                    terminal = ContinueDialogueSceneTerminal{std::move(*target)};
+            }
+        } else if (kind && *kind == "release-to-exploration") {
+            if (decoder.object(*terminal_value, terminal_pointer, {"kind"}))
+                terminal = ReleaseToExplorationSceneTerminal{};
+        } else if (kind && *kind == "complete-game") {
+            if (decoder.object(*terminal_value, terminal_pointer, {"kind"}))
+                terminal = CompleteGameSceneTerminal{};
+        } else if (kind) {
+            decoder.error(k_code_variant, "Unknown Scene terminal variant '" + *kind + "'.",
+                          pointer_child(terminal_pointer, "kind"));
+        }
+    }
+    if (!identity || !display || !stage || !inputs || !outcomes || !program || !terminal)
         return std::nullopt;
-    return SceneDefinition{std::move(*identity), std::move(*display), std::move(*stage),
-                           std::move(*program), std::move(*continuation)};
+    return SceneDefinition{std::move(*identity), std::move(*display),  std::move(*stage),
+                           std::move(*inputs),   std::move(*outcomes), std::move(*program),
+                           std::move(*terminal)};
 }
 
 } // namespace noveltea::core::compiled::wire::detail

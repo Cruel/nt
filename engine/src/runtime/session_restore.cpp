@@ -424,7 +424,12 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
                 using T = std::decay_t<decltype(frame)>;
                 const FlowFrameId id{live_id};
                 if constexpr (std::is_same_v<T, SavedSceneFrame>)
-                    return SceneFrame{id, frame.scene, frame.position, frame.destination};
+                    return SceneFrame{id,
+                                      frame.scene,
+                                      frame.position,
+                                      frame.destination,
+                                      frame.inputs,
+                                      frame.last_child_outcome};
                 else if constexpr (std::is_same_v<T, SavedDialogueFrame>)
                     return DialogueFrame{id,
                                          frame.dialogue,

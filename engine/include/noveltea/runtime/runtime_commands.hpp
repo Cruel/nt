@@ -78,6 +78,13 @@ struct CallChildSceneCommand {
     auto operator<=>(const CallChildSceneCommand&) const = default;
 };
 
+struct StartDetachedSceneCommand {
+    core::SceneId scene;
+    std::vector<core::compiled::SceneInputBinding> inputs;
+    core::compiled::DetachedSceneOwner owner = core::compiled::DetachedSceneOwner::Flow;
+    bool operator==(const StartDetachedSceneCommand&) const = default;
+};
+
 struct CallChildDialogueCommand {
     core::DialogueId dialogue;
     std::optional<core::DialogueBlockId> start_block;
@@ -193,15 +200,15 @@ struct SetReservedLayoutCommand {
 using DeferredRuntimeCommandPayload = std::variant<
     MoveInteractableCommand, SetInteractableWorldStateCommand, SetCharacterWorldStateCommand,
     NavigateRoomCommand, StartTransientSceneCommand, StartTransientDialogueCommand,
-    CallChildSceneCommand, CallChildDialogueCommand, TailReplaceFlowCommand, RequestAutosaveCommand,
-    UpsertBackgroundOverrideCommand, RemoveBackgroundOverrideCommand,
-    UpsertActorPresentationCommand, RemoveActorPresentationCommand, UpsertPresentationPropCommand,
-    RemovePresentationPropCommand, UpsertPresentationEnvironmentCommand,
-    RemovePresentationEnvironmentCommand, RemovePresentationEnvironmentsByStopKeyCommand,
-    UpsertMaterialParameterCommand, RemoveMaterialParameterCommand, UpsertPostprocessEffectCommand,
-    RemovePostprocessEffectCommand, UpsertDesiredAudioCommand, RemoveDesiredAudioCommand,
-    RemoveDesiredAudioPurposeCommand, UpsertMountedLayoutCommand, RemoveMountedLayoutCommand,
-    SetReservedLayoutCommand>;
+    CallChildSceneCommand, StartDetachedSceneCommand, CallChildDialogueCommand,
+    TailReplaceFlowCommand, RequestAutosaveCommand, UpsertBackgroundOverrideCommand,
+    RemoveBackgroundOverrideCommand, UpsertActorPresentationCommand, RemoveActorPresentationCommand,
+    UpsertPresentationPropCommand, RemovePresentationPropCommand,
+    UpsertPresentationEnvironmentCommand, RemovePresentationEnvironmentCommand,
+    RemovePresentationEnvironmentsByStopKeyCommand, UpsertMaterialParameterCommand,
+    RemoveMaterialParameterCommand, UpsertPostprocessEffectCommand, RemovePostprocessEffectCommand,
+    UpsertDesiredAudioCommand, RemoveDesiredAudioCommand, RemoveDesiredAudioPurposeCommand,
+    UpsertMountedLayoutCommand, RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
 
 struct DeferredRuntimeCommand {
     RuntimeCommandSequence sequence;

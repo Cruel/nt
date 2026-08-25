@@ -827,7 +827,20 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
     }
     if (runtime_replaced)
         bind_runtime_ui_input_sink();
+    const bool game_completed =
+        result.publication &&
+        std::ranges::any_of(result.publication->observations.values, [](const auto& observation) {
+            const auto* state = std::get_if<core::RuntimeStateObservation>(&observation);
+            return state != nullptr && state->game_completed;
+        });
     m_dispatch_active = false;
+    if (result.accepted() && game_completed && m_system_layouts.game_active()) {
+        auto returned = m_system_layouts.complete_game();
+        if (!returned) {
+            core::append_diagnostics(result.diagnostics, std::move(returned).error());
+            result.disposition = runtime::RuntimeInputDisposition::Failed;
+        }
+    }
     return result;
 }
 

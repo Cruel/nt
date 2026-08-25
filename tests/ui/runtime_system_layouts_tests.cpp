@@ -202,6 +202,20 @@ TEST_CASE("system Layout workflow supports nested pause settings confirmation an
     CHECK_FALSE(layouts.game_active());
 }
 
+TEST_CASE("completed game returns directly to title without confirmation")
+{
+    FakeSystemLayoutHost host;
+    RuntimeSystemLayouts layouts(host);
+    REQUIRE(layouts.initialize(false));
+    REQUIRE(layouts.game_active());
+
+    REQUIRE(layouts.complete_game());
+    CHECK(host.dispatched<core::ResetRuntimeInput>());
+    CHECK(host.dispatched<core::StopRuntimeInput>());
+    CHECK(layouts.current_screen() == core::RuntimeShellScreen::Title);
+    CHECK_FALSE(layouts.game_active());
+}
+
 TEST_CASE("system Layout workflow routes typed save load and settings commands")
 {
     FakeSystemLayoutHost host;

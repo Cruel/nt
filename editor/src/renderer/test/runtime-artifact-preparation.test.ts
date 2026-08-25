@@ -409,7 +409,7 @@ describe('Prepared Runtime Artifact module', () => {
   it('exports typed scenes through the compiled runtime artifact', async () => {
     const project = roomProject();
     const scene = defaultSceneData('Opening');
-    scene.continuation = { kind: 'room', id: 'kitchen' };
+    scene.terminal = { kind: 'complete-game' };
     scene.events = [
       { ...defaultSceneStep('comment', 'Opening line'), text: 'The room fades in.' },
       {

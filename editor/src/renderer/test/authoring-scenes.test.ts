@@ -22,7 +22,9 @@ describe('authoring scenes v2', () => {
       expect.objectContaining({
         kind: 'scene',
         displayName: 'Opening',
-        continuation: { kind: 'end' },
+        inputs: [],
+        outcomes: [],
+        terminal: { kind: 'complete-game' },
         events: [
           expect.objectContaining({ id: 'start', type: 'comment', label: 'Start', text: '' }),
         ],
@@ -128,7 +130,7 @@ describe('authoring scenes v2', () => {
     );
   });
 
-  it('validates references, branch targets, and continuation targets', () => {
+  it('validates references, branch targets, and terminal targets', () => {
     const project = createAuthoringProject();
     const data = defaultSceneData('Opening');
     data.events = [
@@ -144,14 +146,75 @@ describe('authoring scenes v2', () => {
         branches: [{ id: 'arm', condition: { kind: 'always' }, targetStepId: 'missing' }],
       },
     ];
-    data.continuation = { kind: 'room', id: 'missing-room' };
+    data.terminal = {
+      kind: 'continue-scene',
+      scene: { $ref: { collection: 'scenes', id: 'missing-scene' } },
+      inputs: [],
+    };
     project.scenes.opening = { id: 'opening', label: 'Opening', data };
     expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: '/scenes/opening/data/events/0/dialogue' }),
         expect.objectContaining({ path: '/scenes/opening/data/events/1/branches/0/targetStepId' }),
         expect.objectContaining({ path: '/scenes/opening/data/events/1/fallbackStepId' }),
-        expect.objectContaining({ path: '/scenes/opening/data/continuation/id' }),
+        expect.objectContaining({ path: '/scenes/opening/data/terminal/scene' }),
+      ]),
+    );
+  });
+
+  it('rejects a required input on a direct Scene entrypoint without a default', () => {
+    const project = createAuthoringProject();
+    const data = defaultSceneData('Opening');
+    data.inputs = [{ id: 'name', label: 'Name', type: 'string', nullable: false }];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
+    project.entrypoint = { kind: 'scene', id: 'opening' };
+
+    expect(validateSceneData(project, 'opening', project.scenes.opening!)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: '/scenes/opening/data/inputs/0' })]),
+    );
+  });
+
+  it('rejects detached targets that await foreground-only work through nested Scenes', () => {
+    const project = createAuthoringProject();
+    const unsafe = defaultSceneData('Unsafe');
+    unsafe.events = [
+      {
+        ...defaultSceneStep('set-background'),
+        id: 'await-background',
+        transition: 'fade',
+        durationMs: 100,
+        waitForCompletion: true,
+      },
+    ];
+    unsafe.terminal = { kind: 'return', outcome: null };
+    project.scenes.unsafe = { id: 'unsafe', label: 'Unsafe', data: unsafe };
+
+    const wrapper = defaultSceneData('Wrapper');
+    wrapper.events = [
+      {
+        ...defaultSceneStep('call-scene'),
+        id: 'nested',
+        scene: { $ref: { collection: 'scenes', id: 'unsafe' } },
+        inputs: [],
+      },
+    ];
+    wrapper.terminal = { kind: 'return', outcome: null };
+    project.scenes.wrapper = { id: 'wrapper', label: 'Wrapper', data: wrapper };
+
+    const opening = defaultSceneData('Opening');
+    opening.events = [
+      {
+        ...defaultSceneStep('start-detached-scene'),
+        id: 'detached',
+        scene: { $ref: { collection: 'scenes', id: 'wrapper' } },
+        inputs: [],
+      },
+    ];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: opening };
+
+    expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/scene' }),
       ]),
     );
   });

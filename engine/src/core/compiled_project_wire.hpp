@@ -139,8 +139,10 @@ struct SceneDefinition {
     DefinitionIdentity<SceneId> identity;
     std::string display_name;
     SceneStage stage;
+    std::vector<SceneInputDefinition> inputs;
+    std::vector<SceneOutcomeDefinition> outcomes;
     SceneProgram program;
-    FlowTarget continuation;
+    SceneTerminal terminal;
 };
 struct DialogueDefinition {
     DefinitionIdentity<DialogueId> identity;
