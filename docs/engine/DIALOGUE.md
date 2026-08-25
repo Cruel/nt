@@ -202,7 +202,7 @@ world geometry; the runtime RmlUi model publishes the slot data to the Dialogue 
 `gameplay.dialogue.stage_slots` and `gameplay.dialogue.media_slots`.
 
 Dialogue choices continue to use the specialized Dialogue choice contract and the existing Dialogue
-Layout path (`gameplay.choices`). They do not route through the Scene Choice System Layout role.
+Layout path (`gameplay.dialogue.choices`). They do not route through the Scene Choice System Layout role.
 
 The mutable cursor retains stable block, segment, edge, effect, next-cue, and revealed-code-point
 positions across input and Lua suspension. Save data stores only this logical cue cursor; audio

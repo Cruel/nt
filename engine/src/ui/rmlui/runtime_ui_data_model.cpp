@@ -371,11 +371,9 @@ std::uint64_t event_slot_number_arg(const Rml::VariantList& arguments, std::size
 }
 
 struct ChoiceProjection {
-    std::string kind;
     std::string id;
     std::string label;
     bool enabled = false;
-    std::string get_kind() { return kind; }
     std::string get_id() { return id; }
     std::string get_label() { return label; }
     bool get_enabled() { return enabled; }
@@ -522,12 +520,19 @@ struct DialogueMediaSlotProjection {
 struct DialogueProjection {
     bool available = false;
     std::string id;
+    std::vector<ChoiceProjection> choices;
     std::vector<DialogueStageSlotProjection> stage_slots;
     std::vector<DialogueMediaSlotProjection> media_slots;
     bool get_available() { return available; }
     std::string get_id() { return id; }
+    std::vector<ChoiceProjection>& get_choices() { return choices; }
     std::vector<DialogueStageSlotProjection>& get_stage_slots() { return stage_slots; }
     std::vector<DialogueMediaSlotProjection>& get_media_slots() { return media_slots; }
+};
+
+struct SceneProjection {
+    std::vector<ChoiceProjection> choices;
+    std::vector<ChoiceProjection>& get_choices() { return choices; }
 };
 
 struct RoomProjection {
@@ -619,10 +624,9 @@ struct GameplayProjection {
     std::string notification;
     bool can_continue = false;
     bool active_text_available = false;
-    std::vector<ChoiceProjection> choices;
     bool scene_text_available = false;
-    std::vector<ChoiceProjection> scene_choices;
     std::vector<ActorProjection> actors;
+    SceneProjection scene;
     DialogueProjection dialogue;
     RoomProjection room;
     InventoryProjection inventory;
@@ -635,10 +639,9 @@ struct GameplayProjection {
     std::string get_notification() { return notification; }
     bool get_can_continue() { return can_continue; }
     bool get_active_text_available() { return active_text_available; }
-    std::vector<ChoiceProjection>& get_choices() { return choices; }
     bool get_scene_text_available() { return scene_text_available; }
-    std::vector<ChoiceProjection>& get_scene_choices() { return scene_choices; }
     std::vector<ActorProjection>& get_actors() { return actors; }
+    SceneProjection& get_scene() { return scene; }
     DialogueProjection& get_dialogue() { return dialogue; }
     RoomProjection& get_room() { return room; }
     InventoryProjection& get_inventory() { return inventory; }
@@ -794,9 +797,9 @@ struct RuntimeUiDataModel::Impl {
         bool ok = true;
 #define NT_MEMBER(TYPE, NAME)                                                                      \
     std::pair { #NAME, &TYPE::get_##NAME }
-        ok &= register_struct<ChoiceProjection>(
-            c, NT_MEMBER(ChoiceProjection, kind), NT_MEMBER(ChoiceProjection, id),
-            NT_MEMBER(ChoiceProjection, label), NT_MEMBER(ChoiceProjection, enabled));
+        ok &= register_struct<ChoiceProjection>(c, NT_MEMBER(ChoiceProjection, id),
+                                                NT_MEMBER(ChoiceProjection, label),
+                                                NT_MEMBER(ChoiceProjection, enabled));
         ok &= register_struct<ActorProjection>(
             c, NT_MEMBER(ActorProjection, character_id), NT_MEMBER(ActorProjection, instance_id),
             NT_MEMBER(ActorProjection, pose_id), NT_MEMBER(ActorProjection, expression_id),
@@ -897,15 +900,16 @@ struct RuntimeUiDataModel::Impl {
         ok &= register_struct<TextLogProjection>(c, NT_MEMBER(TextLogProjection, entries));
         ok &= register_struct<DialogueProjection>(
             c, NT_MEMBER(DialogueProjection, available), NT_MEMBER(DialogueProjection, id),
-            NT_MEMBER(DialogueProjection, stage_slots), NT_MEMBER(DialogueProjection, media_slots));
+            NT_MEMBER(DialogueProjection, choices), NT_MEMBER(DialogueProjection, stage_slots),
+            NT_MEMBER(DialogueProjection, media_slots));
+        ok &= register_struct<SceneProjection>(c, NT_MEMBER(SceneProjection, choices));
         ok &= register_struct<GameplayProjection>(
             c, NT_MEMBER(GameplayProjection, available), NT_MEMBER(GameplayProjection, mode),
             NT_MEMBER(GameplayProjection, title), NT_MEMBER(GameplayProjection, notification),
             NT_MEMBER(GameplayProjection, can_continue),
             NT_MEMBER(GameplayProjection, active_text_available),
-            NT_MEMBER(GameplayProjection, choices),
             NT_MEMBER(GameplayProjection, scene_text_available),
-            NT_MEMBER(GameplayProjection, scene_choices), NT_MEMBER(GameplayProjection, actors),
+            NT_MEMBER(GameplayProjection, actors), NT_MEMBER(GameplayProjection, scene),
             NT_MEMBER(GameplayProjection, dialogue), NT_MEMBER(GameplayProjection, room),
             NT_MEMBER(GameplayProjection, inventory), NT_MEMBER(GameplayProjection, interaction),
             NT_MEMBER(GameplayProjection, command_builder),
@@ -1155,11 +1159,11 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
 
     if (view.scene && view.scene->choice) {
         for (const auto& option : view.scene->choice->options)
-            out.scene_choices.push_back(
-                {"scene", option.option.text(), option.label, option.enabled});
-    } else if (view.dialogue && view.dialogue->choice) {
+            out.scene.choices.push_back({option.option.text(), option.label, option.enabled});
+    }
+    if (view.dialogue && view.dialogue->choice) {
         for (const auto& option : view.dialogue->choice->options)
-            out.choices.push_back({"dialogue", option.edge.text(), option.label, option.enabled});
+            out.dialogue.choices.push_back({option.edge.text(), option.label, option.enabled});
     }
     out.dialogue.available = view.dialogue.has_value();
     if (view.dialogue) {

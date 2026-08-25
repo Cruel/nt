@@ -115,8 +115,8 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(rml.find("<nt-active-text id=\"rt_body\"") != std::string::npos);
     CHECK(rml.find("{{ gameplay.title }}") != std::string::npos);
     CHECK(rml.find("{{ gameplay.notification }}") != std::string::npos);
-    CHECK(rml.find("data-for=\"choice : gameplay.choices\"") != std::string::npos);
-    CHECK(rml.find("data-event-click=\"ui_choose(choice.kind, choice.id)\"") != std::string::npos);
+    CHECK(rml.find("data-for=\"choice : gameplay.dialogue.choices\"") != std::string::npos);
+    CHECK(rml.find("data-event-click=\"ui_choose('dialogue', choice.id)\"") != std::string::npos);
     CHECK(rml.find("data-for=\"object : gameplay.room.objects\"") != std::string::npos);
     CHECK(rml.find("data-for=\"item : gameplay.inventory.items\"") != std::string::npos);
     CHECK(rml.find("data-for=\"exit : gameplay.room.exits\"") != std::string::npos);
@@ -135,6 +135,15 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(rcss.find(".nav-slot-northwest") != std::string::npos);
     CHECK(rcss.find(".nav-slot-southeast") != std::string::npos);
     CHECK(rcss.find(".nav-slot-south { left: 80px; bottom: 0; }") != std::string::npos);
+
+    const auto scene_choice_rml = read_source_file(hud_root / "scene-choice.rml");
+    REQUIRE_FALSE(scene_choice_rml.empty());
+    CHECK(scene_choice_rml.find("data-for=\"choice : gameplay.scene.choices\"") !=
+          std::string::npos);
+    CHECK(scene_choice_rml.find("gameplay.scene.choices.size > 0") != std::string::npos);
+    CHECK(scene_choice_rml.find("data-event-click=\"ui_choose('scene', choice.id)\"") !=
+          std::string::npos);
+    CHECK(scene_choice_rml.find("gameplay.scene_choices") == std::string::npos);
 
     const auto builder_rml = read_source_file(hud_root / "command-builder.rml");
     const auto builder_rcss = read_source_file(hud_root / "command-builder.rcss");

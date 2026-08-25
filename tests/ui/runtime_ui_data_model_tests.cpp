@@ -27,7 +27,7 @@ constexpr const char* kDataModelDocument = R"RML(
       <div id="gameplay-probe" data-if="gameplay.available"
            data-class-available="gameplay.available"
            data-attr-data-mode="gameplay.mode"></div>
-      <span class="choice" data-for="choice : gameplay.choices">{{ choice.label }}</span>
+      <span class="choice" data-for="choice : gameplay.scene.choices">{{ choice.label }}</span>
       <button id="assign" data-event-click="project.title = 'Mutated'">Assign</button>
     </section>
   </body>

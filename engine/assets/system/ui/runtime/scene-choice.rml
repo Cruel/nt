@@ -4,11 +4,12 @@
     <link type="text/rcss" href="system|/ui/runtime/scene-presentation.rcss"/>
 </head>
 <body data-model="noveltea">
-    <div id="scene_choice_panel" data-if="gameplay.scene_choices.size > 0">
-        <button data-for="choice : gameplay.scene_choices"
+    <div id="scene_choice_panel"
+         data-if="gameplay.scene.choices.size > 0">
+        <button data-for="choice : gameplay.scene.choices"
                 data-class-disabled="!choice.enabled"
                 data-attrif-disabled="!choice.enabled"
-                data-event-click="ui_choose(choice.kind, choice.id)">
+                data-event-click="ui_choose('scene', choice.id)">
             {{ choice.label }}
         </button>
     </div>

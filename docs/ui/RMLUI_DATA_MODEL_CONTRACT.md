@@ -57,7 +57,8 @@ Initial values are `NovelTea`, empty subtitle, and `Start`.
 | `gameplay.notification` | string | Typed runtime notification when nonempty, otherwise Interaction notification; empty when gameplay is unavailable. |
 | `gameplay.can_continue` | bool | Current typed Continue availability. |
 | `gameplay.active_text_available` | bool | Current ActiveText source is nonempty, with Scene then Dialogue then Room precedence. |
-| `gameplay.choices` | array | Effective Scene choices, otherwise Dialogue choices; never merged. |
+| `gameplay.scene.choices` | array | Current Scene choices in source order. These remain independent of Dialogue choices. |
+| `gameplay.dialogue.choices` | array | Current Dialogue choices in source order. These remain projected while Scene choices are active. |
 | `gameplay.actors` | array | Visible Scene actors in source order. |
 | `gameplay.room.available` | bool | Current view contains a Room. |
 | `gameplay.room.has_enabled_exits` | bool | At least one Room exit is enabled. |
@@ -84,7 +85,7 @@ Initial values are `NovelTea`, empty subtitle, and `Start`.
 
 Collection members are exact:
 
-- `gameplay.choices[]`: `kind` (`scene` or `dialogue`), `id`, `label`, `enabled`.
+- `gameplay.scene.choices[]` and `gameplay.dialogue.choices[]`: `id`, `label`, `enabled`.
 - `gameplay.actors[]`: `character_id`, `instance_id`, `pose_id`, `expression_id`,
   `presentation_complete`.
 - `gameplay.room.exits[]`: `id`, `target_id`, `direction`, `label`, `enabled`, `glyph`.
@@ -106,6 +107,11 @@ Collection members are exact:
 
 Clearing gameplay resets all gameplay scalars and arrays rather than leaving the prior declarative
 state visible.
+
+Scene and Dialogue choices intentionally remain independent. The built-in Game HUD binds
+`gameplay.dialogue.choices`, while the dedicated Scene Choice System Layout Role binds
+`gameplay.scene.choices`. A Scene choice overlay therefore does not remove or replace Dialogue
+choice presentation underneath it.
 
 ## `shell`
 

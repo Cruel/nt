@@ -1385,7 +1385,7 @@ describe('NovelTea headless CLI', () => {
       if (!members.includes(member)) members.push(member);
     }
     expect(registeredMembers).toEqual({
-      ChoiceProjection: ['kind', 'id', 'label', 'enabled'],
+      ChoiceProjection: ['id', 'label', 'enabled'],
       ActorProjection: [
         'character_id',
         'instance_id',
@@ -1434,7 +1434,8 @@ describe('NovelTea headless CLI', () => {
         'expression_id',
         'appearance_id',
       ],
-      DialogueProjection: ['available', 'id', 'stage_slots', 'media_slots'],
+      DialogueProjection: ['available', 'id', 'choices', 'stage_slots', 'media_slots'],
+      SceneProjection: ['choices'],
       RoomProjection: ['available', 'has_enabled_exits', 'exits', 'objects'],
       InventoryProjection: ['items'],
       InteractionProjection: [
@@ -1477,10 +1478,9 @@ describe('NovelTea headless CLI', () => {
         'notification',
         'can_continue',
         'active_text_available',
-        'choices',
         'scene_text_available',
-        'scene_choices',
         'actors',
+        'scene',
         'dialogue',
         'room',
         'inventory',
