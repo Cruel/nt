@@ -1,6 +1,6 @@
 {
   "schema": "noveltea.compiled.project",
-  "schemaVersion": 4,
+  "schemaVersion": 1,
   "saveContract": "@SAVE_CONTRACT@",
   "project": {
     "id": "runtime-transition-readback",
@@ -43,7 +43,17 @@
       { "role": "text-log", "layout": null },
       { "role": "modal", "layout": null },
       { "role": "debug-overlay", "layout": null }
-    ]
+    ],
+    "audio": {
+      "purposes": {
+        "music": { "volume": 1, "muted": false },
+        "ambience": { "volume": 1, "muted": false },
+        "voice": { "volume": 1, "muted": false },
+        "sound-effect": { "volume": 1, "muted": false },
+        "ui-sound": { "volume": 1, "muted": false }
+      },
+      "voiceDucking": { "enabled": false, "musicGain": 0.5, "ambienceGain": 0.5 }
+    }
   },
   "entrypoint": {
     "kind": "scene",
@@ -61,6 +71,7 @@
   },
   "resources": {
     "assets": [],
+    "materialInterfaces": [],
     "scripts": [
       {
         "id": "bootstrap",
@@ -155,90 +166,29 @@
       {
         "id": "probe",
         "displayName": "Transition Probe",
-        "defaultBackground": {
-          "asset": null,
-          "color": "#ff0000",
-          "fit": "cover",
-          "material": null
+        "inputs": [],
+        "outcomes": [],
+        "stage": {
+          "kind": "blank",
+          "background": {
+            "asset": null,
+            "color": "#ff0000",
+            "fit": "cover",
+            "material": null
+          },
+          "layout": null
         },
-        "defaultLayout": null,
-        "continuation": { "kind": "end" },
         "program": {
-          "instructions": [
-            {
-              "id": "game-ui-layout",
-              "kind": "set-layout",
-              "action": "swap",
-              "layout": { "kind": "layout", "id": "game-ui-marker" },
-              "slot": "hud",
-              "transition": "none",
-              "durationMs": 0,
-              "skippable": true,
-              "waitForCompletion": false
-            },
-            {
-              "id": "source-background",
-              "kind": "set-background",
-              "asset": null,
-              "material": null,
-              "color": "#ff0000",
-              "fit": "cover",
-              "transition": "cut",
-              "durationMs": 0,
-              "skippable": true,
-              "waitForCompletion": false
-            },
-            {
-              "id": "source-layout",
-              "kind": "set-layout",
-              "action": "swap",
-              "layout": { "kind": "layout", "id": "source-overlay" },
-              "slot": "overlay",
-              "transition": "none",
-              "durationMs": 0,
-              "skippable": true,
-              "waitForCompletion": false
-            },
-            {
-              "id": "source-publication-boundary",
-              "kind": "wait-duration",
-              "durationMs": 1,
-              "skippable": true
-            },
-            {
-              "id": "transition",
-              "kind": "transition-group",
-              "transitionKind": "@TRANSITION_KIND@",
-              "durationMs": @DURATION_MS@,
-              "color": @TRANSITION_COLOR@,
-              "skippable": true,
-              "waitForCompletion": @WAIT_FOR_COMPLETION@,
-              "children": [
-                {
-                  "id": "background",
-                  "kind": "set-background",
-                  "asset": null,
-                  "material": null,
-                  "color": "#0000ff",
-                  "fit": "cover"
-                },
-                {
-                  "id": "layout",
-                  "kind": "set-layout",
-                  "action": "swap",
-                  "layout": { "kind": "layout", "id": "target-overlay" },
-                  "plane": "world-overlay",
-                  "slot": "overlay"
-                }
-              ]
-            },
-            {
-              "id": "wait",
-              "kind": "wait-input",
-              "skippable": false
-            }
+          "events": [
+            { "id": "game-ui-layout", "completionDependencies": [], "instruction": { "id": "game-ui-layout", "kind": "set-layout", "action": "swap", "layout": { "kind": "layout", "id": "game-ui-marker" }, "owner": "invocation", "slot": "hud", "transition": "none", "durationMs": 0, "skippable": true, "waitForCompletion": false }, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 } },
+            { "id": "source-background", "completionDependencies": [], "instruction": { "id": "source-background", "kind": "set-background", "asset": null, "material": null, "color": "#ff0000", "fit": "cover", "owner": "invocation", "transition": "cut", "durationMs": 0, "skippable": true, "waitForCompletion": false }, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 } },
+            { "id": "source-layout", "completionDependencies": [], "instruction": { "id": "source-layout", "kind": "set-layout", "action": "swap", "layout": { "kind": "layout", "id": "source-overlay" }, "owner": "invocation", "slot": "overlay", "transition": "none", "durationMs": 0, "skippable": true, "waitForCompletion": false }, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 } },
+            { "id": "source-publication-boundary", "completionDependencies": [], "instruction": { "id": "source-publication-boundary", "kind": "wait-duration", "durationMs": 1, "skippable": true }, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 1 } },
+            { "id": "transition", "completionDependencies": [], "instruction": { "id": "transition", "kind": "transition-group", "owner": "invocation", "transitionKind": "@TRANSITION_KIND@", "durationMs": @DURATION_MS@, "color": @TRANSITION_COLOR@, "skippable": true, "waitForCompletion": @WAIT_FOR_COMPLETION@, "children": [ { "id": "background", "kind": "set-background", "asset": null, "material": null, "color": "#0000ff", "fit": "cover" }, { "id": "layout", "kind": "set-layout", "action": "swap", "layout": { "kind": "layout", "id": "target-overlay" }, "plane": "world-overlay", "slot": "overlay" } ] }, "timeline": { "trackId": "main", "startMs": 1, "durationMs": @DURATION_MS@ } },
+            { "id": "wait", "completionDependencies": [], "instruction": { "id": "wait", "kind": "wait-input", "skippable": false }, "timeline": { "trackId": "main", "startMs": @DURATION_MS@, "durationMs": 0 } }
           ]
-        }
+        },
+        "terminal": { "kind": "complete-game" }
       }
     ]
   },
