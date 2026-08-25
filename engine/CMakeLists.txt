@@ -172,7 +172,8 @@ set(NOVELTEA_PREBUILT_SHADER_ASSET_ROOT "" CACHE PATH "Prebuilt shader asset roo
 set(NOVELTEA_SHADER_VARIANTS "" CACHE STRING "Semicolon-separated shader variants to build or stage")
 set(NOVELTEA_CLI_EXECUTABLE "" CACHE FILEPATH "Host NovelTea CLI executable used for shader compilation")
 set(NOVELTEA_BGFX_SHADER_INCLUDE_DIR "" CACHE PATH "Directory containing bgfx_shader.sh")
-set(NOVELTEA_RUNTIME_ASSET_STAMP "${CMAKE_BINARY_DIR}/generated-assets/runtime-assets.stamp")
+set(NOVELTEA_RUNTIME_ASSET_STAMP "${CMAKE_BINARY_DIR}/generated-assets/runtime-assets.stamp"
+    CACHE INTERNAL "NovelTea runtime asset staging stamp")
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     set(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS_DEFAULT OFF)
 else()

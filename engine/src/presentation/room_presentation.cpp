@@ -75,9 +75,11 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
     assert(resolved != nullptr);
 
     const compiled::RoomNavigationTransition policy =
-        input.explicit_transition ? *input.explicit_transition
-        : selected != nullptr && selected->transition
-            ? *selected->transition
+        input.explicit_transition                     ? *input.explicit_transition
+        : selected != nullptr && selected->transition ? *selected->transition
+        : input.entry_cause == RoomEntryCause::Entrypoint
+            ? compiled::RoomNavigationTransition{compiled::TransitionKind::Cut, 0, std::nullopt,
+                                                 true}
             : project.settings().room_navigation_transition;
     std::optional<RoomVisitContext> source_visit;
     if (settled_state.room_visit() && input.source_room &&

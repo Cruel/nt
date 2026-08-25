@@ -2283,11 +2283,19 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             result.diagnostics = run_kernel(result.events, result.observations);
                     }
                 } else if constexpr (std::is_same_v<T, core::NavigateRoomInput>) {
-                    auto changed = m_kernel->navigate(value.exit);
-                    if (!changed)
-                        result.diagnostics = std::move(changed).error();
-                    else
-                        result.diagnostics = run_kernel(result.events, result.observations);
+                    const bool room_transition_active =
+                        !m_kernel->state().flow_stack().empty() &&
+                        std::holds_alternative<core::RoomTransitionFrame>(
+                            m_kernel->state().flow_stack().back());
+                    if (room_transition_active) {
+                        result.disposition = runtime::RuntimeInputDisposition::Unhandled;
+                    } else {
+                        auto changed = m_kernel->navigate(value.exit);
+                        if (!changed)
+                            result.diagnostics = std::move(changed).error();
+                        else
+                            result.diagnostics = run_kernel(result.events, result.observations);
+                    }
                 } else if constexpr (std::is_same_v<T, core::SelectInteractionSubjectsInput>) {
                     if (m_selection != value.subjects || m_verb_menu_open) {
                         m_selection = value.subjects;

@@ -137,13 +137,16 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(rcss.find(".nav-slot-south { left: 80px; bottom: 0; }") != std::string::npos);
 
     const auto scene_choice_rml = read_source_file(hud_root / "scene-choice.rml");
+    const auto scene_presentation_rcss = read_source_file(hud_root / "scene-presentation.rcss");
     REQUIRE_FALSE(scene_choice_rml.empty());
+    REQUIRE_FALSE(scene_presentation_rcss.empty());
     CHECK(scene_choice_rml.find("data-for=\"choice : gameplay.scene.choices\"") !=
           std::string::npos);
     CHECK(scene_choice_rml.find("gameplay.scene.choices.size > 0") != std::string::npos);
     CHECK(scene_choice_rml.find("data-event-click=\"ui_choose('scene', choice.id)\"") !=
           std::string::npos);
     CHECK(scene_choice_rml.find("gameplay.scene_choices") == std::string::npos);
+    CHECK(scene_presentation_rcss.find("pointer-events: none") != std::string::npos);
 
     const auto builder_rml = read_source_file(hud_root / "command-builder.rml");
     const auto builder_rcss = read_source_file(hud_root / "command-builder.rcss");
