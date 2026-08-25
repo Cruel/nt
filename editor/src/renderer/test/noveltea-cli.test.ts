@@ -517,7 +517,7 @@ describe('NovelTea headless CLI', () => {
         reads += 1;
         return JSON.stringify({
           schema: 'noveltea.editor.playback',
-          version: 2,
+          version: 1,
           id: 'stdin-test',
           steps: [],
         });

@@ -1,6 +1,9 @@
-export { NOVELTEA_CLI_HELP, NOVELTEA_CLI_VERSION } from './static-contracts';
-
-export const NOVELTEA_CLI_JSON_PROTOCOL_VERSION = 1 as const;
+export {
+  NOVELTEA_CLI_HELP,
+  NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+  NOVELTEA_CLI_VERSION,
+} from './static-contracts';
+import { NOVELTEA_CLI_JSON_PROTOCOL_VERSION } from './static-contracts';
 
 export const NOVELTEA_CLI_EXIT_CODES = {
   success: 0,

@@ -474,7 +474,7 @@ const playbackInputSchema = z.discriminatedUnion('type', [
 const playbackSpecSchema = z
   .object({
     schema: z.literal('noveltea.editor.playback'),
-    version: z.literal(2),
+    version: z.literal(1),
     id: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
     steps: z
       .array(

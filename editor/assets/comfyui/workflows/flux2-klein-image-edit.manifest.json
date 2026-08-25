@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "id": "flux2-klein-image-edit",
   "label": "Flux 2 Klein Image Edit",
   "provider": "comfyui",

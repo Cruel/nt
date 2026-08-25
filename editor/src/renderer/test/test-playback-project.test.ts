@@ -79,7 +79,7 @@ describe('authoring test playback project adapter', () => {
     expect((await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke')).spec).toMatchObject({
       id: 'smoke',
       schema: 'noveltea.editor.playback',
-      version: 2,
+      version: 1,
       steps: [
         { index: 0, input: { type: 'advance-time', microseconds: 250000 } },
         { index: 1, input: { type: 'continue' } },

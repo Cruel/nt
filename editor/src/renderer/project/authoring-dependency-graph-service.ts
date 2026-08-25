@@ -738,13 +738,16 @@ function directOwnerAdmission(
     const root = segments[0];
     const id = segments[1];
     if (!root || !id) continue;
+    const ownerMetadataChanged = segments.length === 3 && segments[2] === 'label';
     if (root === 'properties') {
       const ownerPath = buildJsonPointer(['properties', id]);
       const previous = publication.previousProject?.properties[id];
       const current = publication.project.properties[id];
       if (
         (previous || current) &&
-        (!ownerPaths.has(ownerPath) || Boolean(previous) !== Boolean(current))
+        (ownerMetadataChanged ||
+          !ownerPaths.has(ownerPath) ||
+          Boolean(previous) !== Boolean(current))
       )
         contributionKeys.add(propertyDefinitionContributionKey(id));
       continue;
@@ -755,7 +758,9 @@ function directOwnerAdmission(
       const current = publication.project.traits[id];
       if (
         (previous || current) &&
-        (!ownerPaths.has(ownerPath) || Boolean(previous) !== Boolean(current))
+        (ownerMetadataChanged ||
+          !ownerPaths.has(ownerPath) ||
+          Boolean(previous) !== Boolean(current))
       )
         contributionKeys.add(traitDefinitionContributionKey(id));
       continue;
@@ -766,7 +771,12 @@ function directOwnerAdmission(
     const previous = publication.previousProject?.[collection][id];
     const current = publication.project[collection][id];
     if (!previous && !current) continue;
-    if (ownerPaths.has(ownerPath) && Boolean(previous) === Boolean(current)) continue;
+    if (
+      !ownerMetadataChanged &&
+      ownerPaths.has(ownerPath) &&
+      Boolean(previous) === Boolean(current)
+    )
+      continue;
     const key = recordContributionKey(collection, id);
     contributionKeys.add(key);
     if (Boolean(previous) !== Boolean(current)) sourceAnalysisOwnerKeys.add(key);
