@@ -32,10 +32,7 @@ import {
   defaultShaderData,
   shaderRoleValues,
 } from '../../../../shared/project-schema/authoring-shaders';
-import {
-  defaultTestData,
-  testEntrypointCollectionValues,
-} from '../../../../shared/project-schema/authoring-tests';
+import { defaultTestData } from '../../../../shared/project-schema/authoring-tests';
 import {
   defaultVariableData,
   variableTypeValues,
@@ -533,40 +530,9 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     category: 'testing',
     supportLevel: 'typed',
     summary: 'Playback test scenarios.',
-    currentScope: 'Creates a test with optional scene, room, or dialogue entrypoint.',
+    currentScope: 'Creates a semantic playback test for the project entrypoint.',
     ...visual('tests'),
-    defaultOptions: () => ({ entrypoint: '__none__' }),
-    renderOptions: ({ project, draft, setOption }) => (
-      <div className="space-y-1">
-        <Label>Entrypoint</Label>
-        <Select
-          value={String(draft.options.entrypoint ?? '__none__')}
-          onValueChange={(value) => setOption('entrypoint', String(value))}
-        >
-          <SelectItem value="__none__">No entrypoint</SelectItem>
-          {testEntrypointCollectionValues.flatMap((collection) =>
-            Object.entries(project[collection]).map(([id, record]) => (
-              <SelectItem key={`${collection}:${id}`} value={`${collection}:${id}`}>
-                {record.label || id} ({collection}/{id})
-              </SelectItem>
-            )),
-          )}
-        </Select>
-      </div>
-    ),
-    buildPayload: ({ draft }) => {
-      const data = defaultTestData(draft.basics.label);
-      const entrypoint = selected(draft.options.entrypoint);
-      if (entrypoint) {
-        const [collection, id] = entrypoint.split(':') as [
-          'scenes' | 'rooms' | 'dialogues',
-          string,
-        ];
-        if (collection === 'scenes') data.entrypoint = ref('scenes', id);
-        else if (collection === 'rooms') data.entrypoint = ref('rooms', id);
-        else data.entrypoint = ref('dialogues', id);
-      }
-      return { data };
-    },
+    defaultOptions: () => ({}),
+    buildPayload: ({ draft }) => ({ data: defaultTestData(draft.basics.label) }),
   },
 ];

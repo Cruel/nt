@@ -272,6 +272,12 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/dialogues\/\*\/data\/blocks\/\*\/segments\/\*\/(?:scene|inputs|uiPolicy|payload)(?:\/|$)/,
     OWNER,
   ],
+  // #102 cuts editor-authored Tests over to semantic runtime identities. These editor-only fields
+  // select an already-compiled runtime input and do not alter the Authoring dependency graph.
+  [
+    /^\/tests\/\*\/data\/steps\/\*\/(?:dialogueChoice\/edgeId|sceneChoice\/optionId|navigate\/exitId|saveSlot\/slotId)$/,
+    NONE,
+  ],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
 ]);
 
@@ -608,6 +614,44 @@ const legacySchemaLeafPaths = [
   // field-effect sequence; all replacement terminal/input/outcome leaves are classified above.
   '/scenes/*/data/continuation/kind' as JsonPointer,
   '/scenes/*/data/continuation/id' as JsonPointer,
+  // #102 removes provisional Test-local setup/assertion/UI-gesture forms and replaces the executable
+  // step vocabulary with semantic runtime identities. Retain the removed same-version leaves only
+  // for alignment with the reviewed pre-#102 graph-effect sequence; the four replacement semantic
+  // identity leaves are explicitly `none` above because Tests are editor-only runtime inputs.
+  '/tests/*/data/checkScript' as JsonPointer,
+  '/tests/*/data/entrypoint/$ref/collection' as JsonPointer,
+  '/tests/*/data/entrypoint/$ref/id' as JsonPointer,
+  '/tests/*/data/fixedDeltaSeconds' as JsonPointer,
+  '/tests/*/data/initScript' as JsonPointer,
+  '/tests/*/data/startingInventory/*/$ref/collection' as JsonPointer,
+  '/tests/*/data/startingInventory/*/$ref/id' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/enabled' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/entity/$ref/collection' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/entity/$ref/id' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/expected' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/expected/*' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/id' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/key' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/label' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/type' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/value' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/variable/$ref/collection' as JsonPointer,
+  '/tests/*/data/steps/*/assertions/*/variable/$ref/id' as JsonPointer,
+  '/tests/*/data/steps/*/checkScript' as JsonPointer,
+  '/tests/*/data/steps/*/deltaSeconds' as JsonPointer,
+  '/tests/*/data/steps/*/dialogueOption/optionIndex' as JsonPointer,
+  '/tests/*/data/steps/*/initScript' as JsonPointer,
+  '/tests/*/data/steps/*/loadSave/payload' as JsonPointer,
+  '/tests/*/data/steps/*/loadSave/payload/*' as JsonPointer,
+  '/tests/*/data/steps/*/loadSave/slotId' as JsonPointer,
+  '/tests/*/data/steps/*/navigate/direction' as JsonPointer,
+  '/tests/*/data/steps/*/navigate/target/$ref/collection' as JsonPointer,
+  '/tests/*/data/steps/*/navigate/target/$ref/id' as JsonPointer,
+  '/tests/*/data/steps/*/setEntrypoint/entrypoint/$ref/collection' as JsonPointer,
+  '/tests/*/data/steps/*/setEntrypoint/entrypoint/$ref/id' as JsonPointer,
+  '/tests/*/data/steps/*/uiClick/documentId' as JsonPointer,
+  '/tests/*/data/steps/*/uiClick/selector' as JsonPointer,
+  '/tests/*/data/steps/*/uiClick/target' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
 if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
@@ -710,7 +754,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scripts: 'f3482815',
     settings: 'e2c61a79',
     shaders: '94d3aa6e',
-    tests: '9cbe2906',
+    tests: '260b9d4f',
     traits: 'e06af863',
     undefinedInteractionProgram: '132464ef',
     variables: '9ac2af8d',

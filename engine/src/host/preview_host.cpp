@@ -466,15 +466,30 @@ bool PreviewHost::continue_dialogue()
     return running_game_available() && dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
 }
 
-bool PreviewHost::select_dialogue_option(int option_index)
+bool PreviewHost::select_dialogue_choice(const core::DialogueEdgeId& edge)
 {
     const auto& current = publication();
     const auto* view = current ? &current->gameplay_ui : nullptr;
-    if (!view || !view->dialogue || !view->dialogue->choice || option_index < 0 ||
-        static_cast<std::size_t>(option_index) >= view->dialogue->choice->options.size())
+    if (!view || !view->dialogue || !view->dialogue->choice)
         return false;
-    return dispatch(core::RuntimeInputMessage{core::SelectDialogueChoiceInput{
-        view->dialogue->choice->options[static_cast<std::size_t>(option_index)].edge}});
+    const auto selected = std::find_if(
+        view->dialogue->choice->options.begin(), view->dialogue->choice->options.end(),
+        [&](const auto& candidate) { return candidate.enabled && candidate.edge == edge; });
+    return selected != view->dialogue->choice->options.end() &&
+           dispatch(core::RuntimeInputMessage{core::SelectDialogueChoiceInput{selected->edge}});
+}
+
+bool PreviewHost::select_scene_choice(const core::SceneChoiceOptionId& option)
+{
+    const auto& current = publication();
+    const auto* view = current ? &current->gameplay_ui : nullptr;
+    if (!view || !view->scene || !view->scene->choice)
+        return false;
+    const auto selected = std::find_if(
+        view->scene->choice->options.begin(), view->scene->choice->options.end(),
+        [&](const auto& candidate) { return candidate.enabled && candidate.option == option; });
+    return selected != view->scene->choice->options.end() &&
+           dispatch(core::RuntimeInputMessage{core::SelectSceneChoiceInput{selected->option}});
 }
 
 bool PreviewHost::navigate(const core::RoomExitId& exit)

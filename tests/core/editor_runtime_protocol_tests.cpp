@@ -603,6 +603,37 @@ TEST_CASE("editor playback protocol rejects invalid cardinality indexes and fiel
                                            {"payload", nlohmann::json::object()}}}}}));
 }
 
+TEST_CASE("editor playback protocol requires stable choice and navigation identities")
+{
+    const nlohmann::json canonical = {
+        {"schema", playback_schema},
+        {"version", 1},
+        {"id", "stable-identities"},
+        {"steps",
+         nlohmann::json::array(
+             {{{"index", 0}, {"input", {{"type", "dialogue-choice"}, {"edge", "accept"}}}},
+              {{"index", 1}, {"input", {{"type", "scene-choice"}, {"option", "investigate"}}}},
+              {{"index", 2}, {"input", {{"type", "navigate"}, {"exit", "north-exit"}}}}})}};
+    auto decoded = decode_editor_playback(canonical);
+    REQUIRE(decoded);
+    REQUIRE(decoded.value().steps.size() == 3);
+    CHECK(std::get<SelectDialogueChoiceInput>(decoded.value().steps[0].input).edge.text() ==
+          "accept");
+    CHECK(std::get<SelectSceneChoiceInput>(decoded.value().steps[1].input).option.text() ==
+          "investigate");
+    CHECK(std::get<NavigateRoomInput>(decoded.value().steps[2].input).exit.text() == "north-exit");
+
+    auto retired_dialogue = canonical;
+    retired_dialogue["steps"][0]["input"] = {{"type", "dialogue-choice"}, {"optionIndex", 0}};
+    CHECK_FALSE(decode_editor_playback(retired_dialogue));
+    auto retired_scene = canonical;
+    retired_scene["steps"][1]["input"] = {{"type", "scene-choice"}, {"optionIndex", 0}};
+    CHECK_FALSE(decode_editor_playback(retired_scene));
+    auto retired_navigation = canonical;
+    retired_navigation["steps"][2]["input"] = {{"type", "navigate"}, {"direction", 0}};
+    CHECK_FALSE(decode_editor_playback(retired_navigation));
+}
+
 TEST_CASE("typed debug snapshot encoder has stable external shape")
 {
     TypedRuntimeUIViewState view;

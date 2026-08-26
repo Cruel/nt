@@ -1352,8 +1352,11 @@ thead, tbody, tfoot {
         case 'runtime-fast-forward-to-input':
           finishRuntimeFastForward(message);
           return true;
-        case 'runtime-dialogue-option':
-          finishRuntimeCommand('noveltea_runtime_dialogue_option', 'number', ['number'], [message.optionIndex], `Runtime dialogue option ${message.optionIndex} was not handled in the current runtime mode.`);
+        case 'runtime-dialogue-choice':
+          finishRuntimeCommand('noveltea_runtime_dialogue_choice', 'number', ['string'], [message.edgeId], `Runtime Dialogue choice '${message.edgeId}' was not handled in the current runtime mode.`);
+          return true;
+        case 'runtime-scene-choice':
+          finishRuntimeCommand('noveltea_runtime_scene_choice', 'number', ['string'], [message.optionId], `Runtime Scene choice '${message.optionId}' was not handled in the current runtime mode.`);
           return true;
         case 'runtime-navigate':
           finishRuntimeCommand('noveltea_runtime_navigate', 'number', ['string'], [message.exitId], `Runtime Room exit '${message.exitId}' was not handled in the current runtime mode.`);

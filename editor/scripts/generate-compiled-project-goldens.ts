@@ -4,6 +4,10 @@ import { pathToFileURL } from 'node:url';
 import { compileAuthoringProject } from '../src/shared/authoring-compiler';
 import { projectWorkspaceFiles } from '../src/shared/project-workspace';
 import {
+  canonicalExplorationGoldenProject,
+  canonicalLinearGoldenProject,
+  canonicalFlowGoldenProject,
+  canonicalVocabularyGoldenProject,
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
   traitPropertiesLocalizationGoldenProject,
@@ -15,6 +19,10 @@ import {
 
 const fixtures = [
   ['minimal', minimalGoldenProject],
+  ['canonical-exploration', canonicalExplorationGoldenProject],
+  ['canonical-linear', canonicalLinearGoldenProject],
+  ['canonical-flow', canonicalFlowGoldenProject],
+  ['canonical-vocabulary', canonicalVocabularyGoldenProject],
   ['comprehensive', comprehensiveGoldenProject],
   ['trait-properties-localization', traitPropertiesLocalizationGoldenProject],
   ['resources', resourceGoldenProject],

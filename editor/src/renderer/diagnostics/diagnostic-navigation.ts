@@ -404,26 +404,6 @@ export function resolveProjectDiagnosticTarget(
     if (scope === 'data' && field === 'steps') {
       const stepIndex = indexedSegment(segments[4]);
       const stepId = arrayItemId(data, 'steps', stepIndex);
-      if (stepId && segments[5] === 'assertions') {
-        const steps = data?.steps;
-        const step = Array.isArray(steps) && stepIndex !== null ? steps[stepIndex] : null;
-        const assertionId =
-          typeof step === 'object' && step !== null && !Array.isArray(step)
-            ? arrayItemId(
-                step as Record<string, unknown>,
-                'assertions',
-                indexedSegment(segments[6]),
-              )
-            : null;
-        if (assertionId)
-          return rowTarget(tab, `test.assertion.${assertionId}`, {
-            kind: 'test-assertion',
-            stepIndex,
-            stepId,
-            assertionIndex: indexedSegment(segments[6]),
-            assertionId,
-          });
-      }
       if (stepId)
         return rowTarget(tab, `test.step.${stepId}`, { kind: 'test-step', stepIndex, stepId });
     }

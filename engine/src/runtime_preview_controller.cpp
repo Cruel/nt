@@ -142,22 +142,22 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
     const auto& view = publication.gameplay_ui;
     const auto& presentation = publication.presentation;
     const auto* checkpoint = published_checkpoint(publication);
-    nlohmann::json dialogue_options = nlohmann::json::array();
+    nlohmann::json choices = nlohmann::json::array();
     nlohmann::json dialogue_stage_slots = nlohmann::json::array();
     nlohmann::json dialogue_media_slots = nlohmann::json::array();
     if (view.dialogue && view.dialogue->choice) {
-        for (std::size_t index = 0; index < view.dialogue->choice->options.size(); ++index) {
-            const auto& option = view.dialogue->choice->options[index];
-            dialogue_options.push_back({{"index", static_cast<int>(index)},
-                                        {"label", option.label},
-                                        {"enabled", option.enabled}});
+        for (const auto& option : view.dialogue->choice->options) {
+            choices.push_back({{"kind", "dialogue"},
+                               {"id", option.edge.text()},
+                               {"label", option.label},
+                               {"enabled", option.enabled}});
         }
     } else if (view.scene && view.scene->choice) {
-        for (std::size_t index = 0; index < view.scene->choice->options.size(); ++index) {
-            const auto& option = view.scene->choice->options[index];
-            dialogue_options.push_back({{"index", static_cast<int>(index)},
-                                        {"label", option.label},
-                                        {"enabled", option.enabled}});
+        for (const auto& option : view.scene->choice->options) {
+            choices.push_back({{"kind", "scene"},
+                               {"id", option.option.text()},
+                               {"label", option.label},
+                               {"enabled", option.enabled}});
         }
     }
     if (view.dialogue) {
@@ -295,7 +295,7 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
 
     std::string waiting_kind = "none";
     std::string waiting_reason;
-    if (!dialogue_options.empty()) {
+    if (!choices.empty()) {
         waiting_kind = "choice";
         waiting_reason = "runtime choices are available";
     } else if (!navigation.empty()) {
@@ -374,7 +374,7 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
         {"waiting", std::move(waiting)},
         {"availableInputs",
          {{"continue", view.can_continue},
-          {"dialogueOptions", std::move(dialogue_options)},
+          {"choices", std::move(choices)},
           {"navigation", std::move(navigation)},
           {"actions", std::move(actions)},
           {"verbOffers", std::move(verb_offers)},
@@ -461,9 +461,16 @@ bool RuntimePreviewController::dispatch(RuntimePreviewHandle handle,
 
 bool RuntimePreviewController::continue_dialogue() { return m_preview_host->continue_dialogue(); }
 
-bool RuntimePreviewController::select_dialogue_option(int option_index)
+bool RuntimePreviewController::select_dialogue_choice(std::string edge_id)
 {
-    return m_preview_host->select_dialogue_option(option_index);
+    auto edge = core::DialogueEdgeId::create(std::move(edge_id));
+    return edge && m_preview_host->select_dialogue_choice(*edge.value_if());
+}
+
+bool RuntimePreviewController::select_scene_choice(std::string option_id)
+{
+    auto option = core::SceneChoiceOptionId::create(std::move(option_id));
+    return option && m_preview_host->select_scene_choice(*option.value_if());
 }
 
 bool RuntimePreviewController::navigate(std::string exit_id)

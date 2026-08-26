@@ -1025,7 +1025,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         lifecycle: {
           canEnter: compileCondition(data.lifecycle.canEnter),
           canLeave: compileCondition(data.lifecycle.canLeave),
-          hooks: [],
         },
         overlays: data.overlays.map((overlay) => ({
           id: overlay.id,

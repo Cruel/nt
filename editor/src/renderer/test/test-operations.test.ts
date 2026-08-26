@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createInitialCommandBusState, executeCommand, undoCommand } from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import {
-  defaultTestData,
-  defaultTestStep,
-  testSceneRef,
-} from '../../shared/project-schema/authoring-tests';
+import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 
 describe('test commands', () => {
   it('creates typed test data through entity.createRecord', () => {
@@ -38,7 +34,7 @@ describe('test commands', () => {
     let state = createInitialCommandBusState(toJsonValue(project));
 
     const invalid = defaultTestData('Smoke');
-    invalid.entrypoint = testSceneRef('missing');
+    invalid.steps = [{ ...defaultTestStep('load'), saveSlot: { slotId: '' } }];
     expect(
       executeCommand(state, {
         type: 'test.replaceData',

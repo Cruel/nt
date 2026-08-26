@@ -12,27 +12,24 @@ import {
 
 export type RecordedRuntimeInputKind =
   | 'continue'
-  | 'dialogue-option'
+  | 'dialogue-choice'
+  | 'scene-choice'
   | 'navigate'
   | 'select-subjects'
   | 'primary-activate'
   | 'open-verb-menu'
   | 'clear-subject-selection'
-  | 'run-interaction'
-  | 'ui-click';
+  | 'run-interaction';
 
 export interface RecordedRuntimeActionInput {
   type: string;
-  optionIndex?: number;
+  edgeId?: string;
+  optionId?: string;
   exitId?: string;
-  direction?: number;
   subjects?: RecordedInteractionSubject[];
   subject?: RecordedInteractionSubject;
   verbId?: string;
   bindings?: Array<{ slotId: string; subject: RecordedInteractionSubject }>;
-  documentId?: string;
-  target?: string;
-  selector?: string;
 }
 
 export type RecordedInteractionSubject =
@@ -124,23 +121,32 @@ export function lowerRecordedRuntimeActionToTestStep(
         action,
         index,
       );
-    case 'dialogue-option':
+    case 'dialogue-choice':
+      if (!input.edgeId?.trim()) return null;
       return withStepIdentity(
         {
-          ...defaultTestStep('dialogue-option', action.label || `Choice ${input.optionIndex ?? 0}`),
-          dialogueOption: { optionIndex: Math.max(0, Math.trunc(input.optionIndex ?? 0)) },
+          ...defaultTestStep('dialogue-choice', action.label || `Dialogue choice ${input.edgeId}`),
+          dialogueChoice: { edgeId: input.edgeId },
+        },
+        action,
+        index,
+      );
+    case 'scene-choice':
+      if (!input.optionId?.trim()) return null;
+      return withStepIdentity(
+        {
+          ...defaultTestStep('scene-choice', action.label || `Scene choice ${input.optionId}`),
+          sceneChoice: { optionId: input.optionId },
         },
         action,
         index,
       );
     case 'navigate':
+      if (!input.exitId?.trim()) return null;
       return withStepIdentity(
         {
-          ...defaultTestStep('navigate', action.label || `Navigate ${input.direction ?? 0}`),
-          navigate: {
-            direction: Math.min(7, Math.max(0, Math.trunc(input.direction ?? 0))),
-            target: null,
-          },
+          ...defaultTestStep('navigate', action.label || `Navigate ${input.exitId}`),
+          navigate: { exitId: input.exitId },
         },
         action,
         index,
@@ -196,21 +202,6 @@ export function lowerRecordedRuntimeActionToTestStep(
         action,
         index,
       );
-    case 'ui-click': {
-      const selector = input.selector?.trim() || input.target?.trim() || '#nt-title-start';
-      return withStepIdentity(
-        {
-          ...defaultTestStep('ui-click', action.label || `Click ${selector}`),
-          uiClick: {
-            documentId: input.documentId?.trim() || 'runtime_title',
-            target: input.target?.trim() || selector,
-            selector,
-          },
-        },
-        action,
-        index,
-      );
-    }
     default:
       return null;
   }

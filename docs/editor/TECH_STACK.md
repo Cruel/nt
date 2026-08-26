@@ -247,7 +247,7 @@ Use cases:
 - Variables editor.
 - Asset list/details table.
 - Problems/diagnostics table.
-- Test list and assertion table.
+- Test list and semantic playback-step table.
 - Material uniforms table.
 - Shader variants table.
 - Reference/usages results.
@@ -290,7 +290,7 @@ Good candidates for TanStack Form:
 - Character pose/expression records.
 - Export/package profiles.
 - Complex action/interaction editors.
-- Test assertion editors.
+- Test semantic input editors.
 
 Form validation should reuse zod schemas where possible. Do not duplicate schema
 rules across form components and command handlers.

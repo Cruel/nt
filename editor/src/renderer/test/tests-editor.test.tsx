@@ -7,7 +7,6 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 
 vi.mock('@/components/source/SourceEditor', () => ({
@@ -51,6 +50,8 @@ beforeEach(() => {
 describe('TestsEditor', () => {
   it('renders typed test data and readiness diagnostics', async () => {
     const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.entrypoint = { kind: 'room', id: 'foyer' };
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -62,14 +63,8 @@ describe('TestsEditor', () => {
 
     expect(screen.getByText('Smoke')).toBeInTheDocument();
     expect(screen.getByText('smoke')).toBeInTheDocument();
-    expect(screen.getByText('not runnable')).toBeInTheDocument();
-    await waitFor(() =>
-      expect(
-        screen.getAllByText('Choose an entrypoint before this test can run.').length,
-      ).toBeGreaterThanOrEqual(1),
-    );
+    await waitFor(() => expect(screen.getByText('runnable')).toBeInTheDocument());
     expect(screen.getByText('Selected step')).toBeInTheDocument();
-    expect(screen.getByText('Assertions')).toBeInTheDocument();
   });
 
   it('commits metadata and step edits through test.replaceData', async () => {
@@ -100,11 +95,11 @@ describe('TestsEditor', () => {
     });
   });
 
-  it('commits assertion edits through test.replaceData', async () => {
+  it('commits semantic identity edits through test.replaceData', async () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
-    data.steps = [{ ...defaultTestStep('continue'), id: 'continue', label: 'Continue' }];
-    data.preview.selectedStepId = 'continue';
+    data.steps = [{ ...defaultTestStep('dialogue-choice'), id: 'choose', label: 'Choose route' }];
+    data.preview.selectedStepId = 'choose';
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -114,29 +109,44 @@ describe('TestsEditor', () => {
 
     render(<TestsEditor tab={tab} />);
 
-    fireEvent.click(screen.getByText('Add Assertion'));
+    fireEvent.change(screen.getByLabelText('Dialogue edge ID'), { target: { value: 'accept' } });
     await waitFor(() => {
       const document = useProjectStore.getState().document as {
         tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
       };
-      expect(document.tests.smoke.data.steps[0]?.assertions).toHaveLength(1);
+      expect(document.tests.smoke.data.steps[0]?.dialogueChoice.edgeId).toBe('accept');
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
+  });
 
-    fireEvent.click(screen.getByText('Duplicate Assertion'));
-    await waitFor(() => {
-      const document = useProjectStore.getState().document as {
-        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
-      };
-      expect(document.tests.smoke.data.steps[0]?.assertions).toHaveLength(2);
+  it('runs semantic tests against the prepared compiled project', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.entrypoint = { kind: 'room', id: 'foyer' };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    const runPlaybackSpec = vi.mocked(window.noveltea.runPlaybackSpec);
+    runPlaybackSpec.mockClear();
+
+    render(<TestsEditor tab={tab} />);
+
+    await waitFor(() => expect(screen.getByText('runnable')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Run Test'));
+
+    await waitFor(() => expect(runPlaybackSpec).toHaveBeenCalledOnce());
+    expect(runPlaybackSpec.mock.calls[0]?.[0]).toMatchObject({
+      schema: 'noveltea.compiled.project',
+      schemaVersion: 1,
     });
   });
 
   it('opens the playback panel and stores readiness reports when a test cannot run', async () => {
     const project = createAuthoringProject();
-    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     const data = defaultTestData('Smoke');
-    data.entrypoint = { $ref: { collection: 'scenes', id: 'opening' } };
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -155,33 +165,6 @@ describe('TestsEditor', () => {
       } | null;
       expect(report).toMatchObject({ id: 'smoke', passed: false });
       expect(report?.diagnostics?.some((item) => item.severity === 'error')).toBe(true);
-    });
-  });
-
-  it('blocks ui-click tests instead of routing to the legacy UI playback API', async () => {
-    const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    project.entrypoint = { kind: 'room', id: 'foyer' };
-    const data = defaultTestData('Title Start');
-    data.steps = [{ ...defaultTestStep('ui-click'), id: 'title-start', label: 'Title Start' }];
-    data.preview.selectedStepId = 'title-start';
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
-    });
-
-    render(<TestsEditor tab={tab} />);
-
-    expect(screen.getByText('not runnable')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('runtime_title')).toBeInTheDocument();
-    expect(screen.getAllByDisplayValue('#nt-title-start').length).toBeGreaterThanOrEqual(1);
-
-    fireEvent.click(screen.getByText('Run Test'));
-    await waitFor(() => {
-      expect(window.noveltea.runUiPlaybackSpec).not.toHaveBeenCalled();
-      expect(useWorkspaceStore.getState().lastPlaybackReport).toMatchObject({ passed: false });
     });
   });
 });

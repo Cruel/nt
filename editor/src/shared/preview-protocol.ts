@@ -170,8 +170,9 @@ export interface RuntimeDebugInventoryItemSnapshot {
   location?: RuntimeDebugEntityRef;
 }
 
-export interface RuntimeDebugDialogueOptionSnapshot {
-  index: number;
+export interface RuntimeDebugChoiceSnapshot {
+  kind: 'dialogue' | 'scene';
+  id: string;
   label: string;
   enabled: boolean;
 }
@@ -220,7 +221,7 @@ export type PreviewClickableTarget =
 
 export interface RuntimeDebugAvailableInputsSnapshot {
   continue: boolean;
-  dialogueOptions: RuntimeDebugDialogueOptionSnapshot[];
+  choices: RuntimeDebugChoiceSnapshot[];
   navigation: RuntimeDebugNavigationSnapshot[];
   actions: RuntimeDebugActionSnapshot[];
   verbOffers: RuntimeDebugVerbOfferSnapshot[];
@@ -356,7 +357,8 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-step'; requestId: string; deltaSeconds?: number }
   | { version: 1; type: 'runtime-continue'; requestId: string }
   | { version: 1; type: 'runtime-fast-forward-to-input'; requestId: string }
-  | { version: 1; type: 'runtime-dialogue-option'; requestId: string; optionIndex: number }
+  | { version: 1; type: 'runtime-dialogue-choice'; requestId: string; edgeId: string }
+  | { version: 1; type: 'runtime-scene-choice'; requestId: string; optionId: string }
   | { version: 1; type: 'runtime-navigate'; requestId: string; exitId: string }
   | {
       version: 1;
@@ -731,13 +733,12 @@ function isRuntimeDebugInventoryItemSnapshot(
   );
 }
 
-function isRuntimeDebugDialogueOptionSnapshot(
-  value: unknown,
-): value is RuntimeDebugDialogueOptionSnapshot {
+function isRuntimeDebugChoiceSnapshot(value: unknown): value is RuntimeDebugChoiceSnapshot {
   if (!isRecord(value)) return false;
   return (
-    typeof value.index === 'number' &&
-    Number.isInteger(value.index) &&
+    (value.kind === 'dialogue' || value.kind === 'scene') &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
     typeof value.label === 'string' &&
     typeof value.enabled === 'boolean'
   );
@@ -816,8 +817,8 @@ function isRuntimeDebugAvailableInputsSnapshot(
   if (!isRecord(value)) return false;
   return (
     typeof value.continue === 'boolean' &&
-    Array.isArray(value.dialogueOptions) &&
-    value.dialogueOptions.every(isRuntimeDebugDialogueOptionSnapshot) &&
+    Array.isArray(value.choices) &&
+    value.choices.every(isRuntimeDebugChoiceSnapshot) &&
     Array.isArray(value.navigation) &&
     value.navigation.every(isRuntimeDebugNavigationSnapshot) &&
     Array.isArray(value.actions) &&
@@ -1095,8 +1096,10 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
           Number.isFinite(value.deltaSeconds) &&
           value.deltaSeconds >= 0)
       );
-    case 'runtime-dialogue-option':
-      return typeof value.optionIndex === 'number' && Number.isInteger(value.optionIndex);
+    case 'runtime-dialogue-choice':
+      return typeof value.edgeId === 'string' && value.edgeId.length > 0;
+    case 'runtime-scene-choice':
+      return typeof value.optionId === 'string' && value.optionId.length > 0;
     case 'runtime-navigate':
       return typeof value.exitId === 'string' && value.exitId.length > 0;
     case 'runtime-select-subjects':

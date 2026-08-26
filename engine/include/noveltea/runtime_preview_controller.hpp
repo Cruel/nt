@@ -41,7 +41,8 @@ public:
     bool dispatch(RuntimePreviewHandle handle, core::RuntimeInputMessage input);
 
     bool continue_dialogue();
-    bool select_dialogue_option(int option_index);
+    bool select_dialogue_choice(std::string edge_id);
+    bool select_scene_choice(std::string option_id);
     bool navigate(std::string exit_id);
     bool select_subjects(std::vector<core::compiled::InteractionSubject> subjects);
     bool primary_activate(core::compiled::InteractionSubject subject);

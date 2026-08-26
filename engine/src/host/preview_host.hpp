@@ -104,7 +104,8 @@ public:
     [[nodiscard]] bool dispatch(core::RuntimeInputMessage input);
 
     [[nodiscard]] bool continue_dialogue();
-    [[nodiscard]] bool select_dialogue_option(int option_index);
+    [[nodiscard]] bool select_dialogue_choice(const core::DialogueEdgeId& edge);
+    [[nodiscard]] bool select_scene_choice(const core::SceneChoiceOptionId& option);
     [[nodiscard]] bool navigate(const core::RoomExitId& exit);
     [[nodiscard]] bool select_subjects(std::vector<core::compiled::InteractionSubject> subjects);
     [[nodiscard]] bool primary_activate(core::compiled::InteractionSubject subject);

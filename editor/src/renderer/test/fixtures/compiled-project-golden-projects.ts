@@ -2,6 +2,7 @@ import {
   assetDataFromImportMetadata,
   type AssetKind,
 } from '../../../shared/project-schema/authoring-assets';
+import { defaultArchetypeData } from '../../../shared/project-schema/authoring-archetypes';
 import {
   characterAssetRef,
   characterMaterialRef,
@@ -48,6 +49,7 @@ import {
   sceneDialogueRef,
   sceneLayoutRef,
   sceneMaterialRef,
+  sceneRoomRef,
   sceneSceneRef,
   sceneVariableRef,
 } from '../../../shared/project-schema/authoring-scenes';
@@ -128,6 +130,134 @@ export function minimalGoldenProject(): AuthoringProject {
   room.description = { markup: 'plain', source: { kind: 'inline', text: 'Minimal room.' } };
   project.rooms.start = { id: 'start', label: 'Start', data: room };
   project.entrypoint = { kind: 'room', id: 'start' };
+  return project;
+}
+
+export function canonicalLinearGoldenProject(): AuthoringProject {
+  const project = createAuthoringProject({
+    id: 'golden-canonical-linear',
+    name: 'Golden Canonical Linear',
+  });
+  project.settings.ui.systemLayouts = {};
+
+  const dialogue = defaultDialogueData('Conversation');
+  dialogue.blocks[0] = {
+    ...dialogue.blocks[0]!,
+    type: 'sequence',
+    defaultSpeaker: null,
+    segments: [
+      {
+        ...defaultDialogueSegment('line', 'opening-line'),
+        text: { markup: 'plain', source: { kind: 'inline', text: 'A linear conversation.' } },
+        autosaveSafePoint: true,
+      },
+    ],
+  };
+  dialogue.completion = { kind: 'return' };
+  project.dialogues.conversation = {
+    id: 'conversation',
+    label: 'Conversation',
+    data: dialogue,
+  };
+
+  const scene = defaultSceneData('Opening');
+  scene.stage = {
+    kind: 'blank',
+    background: { asset: null, material: null, color: '#0f172a', fit: 'cover' },
+    layout: null,
+  };
+  scene.events = [
+    {
+      ...defaultSceneStep('call-dialogue'),
+      id: 'conversation',
+      dialogue: sceneDialogueRef('conversation'),
+      startBlockId: 'start',
+      autosaveSafePoint: true,
+    },
+  ];
+  scene.terminal = { kind: 'complete-game' };
+  project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
+  project.entrypoint = { kind: 'scene', id: 'opening' };
+  return project;
+}
+
+export function canonicalFlowGoldenProject(): AuthoringProject {
+  const project = comprehensiveGoldenProject();
+  renameProject(project, 'golden-canonical-flow', 'Golden Canonical Flow');
+
+  const dialogue = defaultDialogueData('Repeated Handoff');
+  dialogue.blocks[0] = {
+    ...dialogue.blocks[0]!,
+    type: 'sequence',
+    defaultSpeaker: null,
+    segments: [
+      {
+        ...defaultDialogueSegment('line', 'first-line'),
+        text: { markup: 'plain', source: { kind: 'inline', text: 'Before the flashback.' } },
+      },
+      { ...defaultDialogueSegment('handoff', 'first-handoff'), payload: 'first' },
+      {
+        ...defaultDialogueSegment('line', 'second-line'),
+        text: { markup: 'plain', source: { kind: 'inline', text: 'After the flashback.' } },
+      },
+      { ...defaultDialogueSegment('handoff', 'second-handoff'), payload: 2 },
+      {
+        ...defaultDialogueSegment('line', 'third-line'),
+        text: { markup: 'plain', source: { kind: 'inline', text: 'After the second handoff.' } },
+      },
+    ],
+  };
+  dialogue.completion = { kind: 'return' };
+  project.dialogues.handoff = { id: 'handoff', label: 'Repeated Handoff', data: dialogue };
+
+  const flashback = defaultSceneData('Flashback');
+  flashback.stage = { kind: 'staged-room', room: sceneRoomRef('hall') };
+  flashback.events = [
+    {
+      ...defaultSceneStep('show-text'),
+      id: 'memory',
+      text: { markup: 'plain', source: { kind: 'inline', text: 'A staged memory.' } },
+      wait: 'input',
+    },
+  ];
+  flashback.terminal = { kind: 'return', outcome: null };
+  project.scenes.flashback = { id: 'flashback', label: 'Flashback', data: flashback };
+
+  const parent = defaultSceneData('Handoff Parent');
+  parent.stage = {
+    kind: 'blank',
+    background: { asset: null, material: null, color: '#111827', fit: 'cover' },
+    layout: null,
+  };
+  parent.events = [
+    {
+      ...defaultSceneStep('call-dialogue'),
+      id: 'dialogue',
+      dialogue: sceneDialogueRef('handoff'),
+      startBlockId: 'start',
+    },
+    {
+      ...defaultSceneStep('call-scene'),
+      id: 'flashback',
+      scene: sceneSceneRef('flashback'),
+      inputs: [],
+    },
+    { ...defaultSceneStep('resume-dialogue'), id: 'resume-first' },
+    {
+      ...defaultSceneStep('show-text'),
+      id: 'between-handoffs',
+      text: { markup: 'plain', source: { kind: 'inline', text: 'Between handoffs.' } },
+      wait: 'input',
+    },
+    { ...defaultSceneStep('resume-dialogue'), id: 'resume-second' },
+  ];
+  parent.terminal = { kind: 'complete-game' };
+  project.scenes['handoff-parent'] = {
+    id: 'handoff-parent',
+    label: 'Handoff Parent',
+    data: parent,
+  };
+  project.entrypoint = { kind: 'scene', id: 'handoff-parent' };
   return project;
 }
 
@@ -1583,5 +1713,810 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     label: 'Actions',
     data: interaction,
   };
+  return project;
+}
+
+export function canonicalVocabularyGoldenProject(): AuthoringProject {
+  const project = interactionProgramGoldenProject();
+  renameProject(project, 'golden-canonical-vocabulary', 'Golden Canonical Vocabulary');
+
+  const hero = project.characters.hero!.data;
+  hero.profiles[0]!.animationClips.push({
+    id: 'nod-clip',
+    label: 'Nod',
+    clock: 'gameplay',
+    frames: [{ durationMs: 100, layers: [] }],
+  });
+  hero.gestures.push({
+    id: 'nod',
+    label: 'Nod',
+    profiles: [
+      {
+        profileId: 'stage',
+        clipId: 'nod-clip',
+        cues: [
+          {
+            kind: 'presentation',
+            id: 'nod-presentation',
+            atMs: 25,
+            event: 'impact',
+          },
+          {
+            kind: 'audio',
+            id: 'nod-audio',
+            atMs: 50,
+            asset: characterAssetRef('audio-voice'),
+            gain: 0.5,
+            pan: 0,
+          },
+        ],
+      },
+    ],
+  });
+
+  project.archetypes['room-template'] = {
+    id: 'room-template',
+    label: 'Room Template',
+    data: defaultArchetypeData('room'),
+  };
+  project.archetypes['character-template'] = {
+    id: 'character-template',
+    label: 'Character Template',
+    data: defaultArchetypeData('character'),
+  };
+  project.archetypes['interactable-template'] = {
+    id: 'interactable-template',
+    label: 'Interactable Template',
+    data: defaultArchetypeData('interactable'),
+  };
+
+  const spare = defaultItemStackData('credits');
+  spare.quantity = 10;
+  spare.location = {
+    kind: 'inventory',
+    inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+  };
+  project.itemStacks['wallet-spare'] = {
+    id: 'wallet-spare',
+    label: 'Spare credits',
+    data: spare,
+  };
+
+  const selectorVerb = defaultVerbData('Selector Vocabulary');
+  const selectorText = {
+    source: { kind: 'inline' as const, text: 'subject' },
+    markup: 'plain' as const,
+  };
+  selectorVerb.slots = [
+    {
+      id: 'subject',
+      label: selectorText,
+      prompt: selectorText,
+      selectors: [
+        { kind: 'any-subject' },
+        { kind: 'family', family: 'feature' },
+        { kind: 'trait', trait: { $ref: { collection: 'traits', id: 'feature-enabled' } } },
+        {
+          kind: 'item-definition',
+          itemDefinition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
+        },
+        { kind: 'qualified-pattern', family: 'interactable', pattern: 'key*' },
+        {
+          kind: 'exact',
+          subject: { kind: 'interactable', interactable: interactableReference('key') },
+        },
+      ],
+    },
+  ];
+  selectorVerb.bindingOrder = ['subject'];
+  project.verbs['selector-vocabulary'] = {
+    id: 'selector-vocabulary',
+    label: 'Selector Vocabulary',
+    data: selectorVerb,
+  };
+
+  const statefulLayout = defaultLayoutData('Stateful Overlay', 'document');
+  statefulLayout.target = 'room-overlay';
+  statefulLayout.contract = {
+    inputs: {},
+    signals: {
+      confirm: {
+        fields: { accepted: { type: 'boolean', nullable: false, required: true } },
+      },
+    },
+    state: {
+      type: 'object',
+      nullable: false,
+      fields: {
+        page: {
+          required: true,
+          shape: { type: 'integer', nullable: false, defaultValue: 0 },
+        },
+      },
+      defaultValue: { page: 0 },
+    },
+  };
+  project.layouts['stateful-overlay'] = {
+    id: 'stateful-overlay',
+    label: 'Stateful Overlay',
+    data: statefulLayout,
+  };
+
+  const decoratorShader = defaultShaderData('Layout Decorator Shader');
+  decoratorShader.roles = ['rmlui-decorator'];
+  decoratorShader.uniforms = [
+    { name: 'u_tint', type: 'color', default: { r: 1, g: 1, b: 1, a: 1 } },
+  ];
+  project.shaders['layout-decorator-shader'] = {
+    id: 'layout-decorator-shader',
+    label: 'Layout Decorator Shader',
+    data: decoratorShader,
+  };
+  const decoratorMaterial = defaultMaterialData(
+    'Layout Decorator Material',
+    'layout-decorator-shader',
+  );
+  decoratorMaterial.role = 'rmlui-decorator';
+  project.materials['layout-decorator-material'] = {
+    id: 'layout-decorator-material',
+    label: 'Layout Decorator Material',
+    data: decoratorMaterial,
+  };
+
+  const backgroundSafe = defaultSceneData('Background Safe');
+  backgroundSafe.stage = { kind: 'inherited' };
+  backgroundSafe.events = [
+    {
+      ...defaultSceneStep('set-variable'),
+      id: 'background-safe-effect',
+      variable: sceneVariableRef('flag'),
+      value: true,
+    },
+  ];
+  backgroundSafe.terminal = { kind: 'return', outcome: null };
+  project.scenes['background-safe'] = {
+    id: 'background-safe',
+    label: 'Background Safe',
+    data: backgroundSafe,
+  };
+
+  const vocabulary = defaultSceneData('Canonical Vocabulary');
+  vocabulary.stage = { kind: 'staged-room', room: sceneRoomRef('hall') };
+  vocabulary.events = [
+    {
+      ...defaultSceneStep('call-scene'),
+      id: 'call-scene',
+      scene: sceneSceneRef('background-safe'),
+      inputs: [],
+    },
+    {
+      ...defaultSceneStep('start-detached-scene'),
+      id: 'start-detached-scene',
+      scene: sceneSceneRef('background-safe'),
+      inputs: [],
+      owner: 'runtime-session',
+    },
+    { ...defaultSceneStep('resume-dialogue'), id: 'resume-dialogue' },
+    {
+      ...defaultSceneStep('gameplay-effect-batch'),
+      id: 'gameplay-effects',
+      operations: [
+        { kind: 'set-variable', variable: sceneVariableRef('flag'), value: true },
+        {
+          kind: 'set-property',
+          owner: { kind: 'room', room: sceneRoomRef('start') },
+          property: { $ref: { collection: 'properties', id: 'mood' } },
+          value: 'tense',
+        },
+        {
+          kind: 'unset-property',
+          owner: { kind: 'room', room: sceneRoomRef('start') },
+          property: { $ref: { collection: 'properties', id: 'mood' } },
+        },
+        {
+          kind: 'move-character',
+          character: sceneCharacterRef('hero'),
+          location: { kind: 'room', room: roomReference('hall') },
+        },
+        {
+          kind: 'set-character-state',
+          character: sceneCharacterRef('hero'),
+          enabled: true,
+          visible: false,
+        },
+        {
+          kind: 'move-interactable',
+          interactable: interactableReference('key'),
+          location: { kind: 'room', room: roomReference('hall') },
+        },
+        {
+          kind: 'set-interactable-state',
+          interactable: interactableReference('key'),
+          enabled: true,
+          visible: false,
+        },
+        {
+          kind: 'split-item-stack',
+          stack: { $ref: { collection: 'itemStacks', id: 'wallet' } },
+          quantity: 5,
+        },
+        {
+          kind: 'merge-item-stacks',
+          receiver: { $ref: { collection: 'itemStacks', id: 'wallet' } },
+          donor: { $ref: { collection: 'itemStacks', id: 'wallet-spare' } },
+        },
+        {
+          kind: 'transfer-item-quantity',
+          stack: { $ref: { collection: 'itemStacks', id: 'wallet' } },
+          quantity: 3,
+          location: { kind: 'room', room: roomReference('hall') },
+          placement: 'keep-separate',
+        },
+        {
+          kind: 'grant-item-quantity',
+          definition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
+          quantity: 4,
+          location: {
+            kind: 'inventory',
+            inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+          },
+          placement: 'coalesce',
+        },
+        {
+          kind: 'consume-item-quantity',
+          stack: { $ref: { collection: 'itemStacks', id: 'wallet' } },
+          quantity: 2,
+        },
+        {
+          kind: 'set-item-stack-traits',
+          stack: { $ref: { collection: 'itemStacks', id: 'wallet' } },
+          traits: [{ $ref: { collection: 'traits', id: 'currency' } }],
+        },
+      ],
+    },
+    {
+      ...defaultSceneStep('runtime-world-transaction'),
+      id: 'runtime-world',
+      operations: [
+        {
+          kind: 'create-room',
+          source: {
+            kind: 'archetype',
+            archetype: { $ref: { collection: 'archetypes', id: 'room-template' } },
+          },
+        },
+        {
+          kind: 'create-character',
+          source: {
+            kind: 'compiled-instance',
+            instance: { kind: 'character', character: sceneCharacterRef('hero') },
+          },
+          location: { kind: 'room', room: roomReference('start') },
+          enabled: true,
+          visible: true,
+        },
+        {
+          kind: 'create-interactable',
+          source: {
+            kind: 'effective-instance',
+            instance: { kind: 'interactable', interactable: interactableReference('key') },
+          },
+          location: { kind: 'room', room: roomReference('start') },
+          enabled: true,
+          visible: true,
+        },
+        {
+          kind: 'replace-configuration',
+          instance: { kind: 'room', room: sceneRoomRef('hall') },
+          source: {
+            kind: 'archetype',
+            archetype: { $ref: { collection: 'archetypes', id: 'room-template' } },
+          },
+        },
+        {
+          kind: 'clear-configuration',
+          instance: { kind: 'character', character: sceneCharacterRef('hero') },
+        },
+        {
+          kind: 'retarget-room-exit',
+          room: sceneRoomRef('hall'),
+          exitId: 'east-exit',
+          target: sceneRoomRef('start'),
+        },
+        {
+          kind: 'destroy-instance',
+          instance: { kind: 'interactable', interactable: interactableReference('dust') },
+        },
+      ],
+    },
+    {
+      ...defaultSceneStep('directed-room-change'),
+      id: 'directed-room-change',
+      room: sceneRoomRef('hall'),
+    },
+    {
+      ...defaultSceneStep('navigation-attempt'),
+      id: 'navigation-attempt',
+      room: sceneRoomRef('start'),
+      exitId: 'north-exit',
+    },
+    {
+      ...defaultSceneStep('call-interaction'),
+      id: 'call-interaction',
+      verb: verbReference('inspect'),
+      bindings: [
+        {
+          slotId: 'target',
+          subject: {
+            kind: 'feature',
+            feature: { ownerKind: 'room', room: roomReference('start'), featureId: 'door' },
+          },
+        },
+      ],
+    },
+    {
+      ...defaultSceneStep('set-background'),
+      id: 'background',
+      owner: 'runtime-session',
+      asset: sceneAssetRef('image-main'),
+      material: sceneMaterialRef('sprite-material'),
+      transition: 'fade',
+      durationMs: 100,
+      waitForCompletion: false,
+    },
+    {
+      ...defaultSceneStep('audio-cue'),
+      id: 'audio',
+      owner: 'active-room',
+      asset: sceneAssetRef('audio-voice'),
+      waitForCompletion: false,
+    },
+    {
+      ...defaultSceneStep('set-layout'),
+      id: 'layout-signal-source',
+      owner: 'invocation',
+      layout: sceneLayoutRef('stateful-overlay'),
+      slot: 'custom',
+      action: 'show',
+    },
+    {
+      ...defaultSceneStep('actor-cue'),
+      id: 'actor-slot-source',
+      slotId: 'hero-stage',
+      character: sceneCharacterRef('hero'),
+      action: 'show',
+      profileId: 'stage',
+      poseId: 'default',
+      expressionId: 'neutral',
+      position: 'center',
+    },
+    {
+      ...defaultSceneStep('material-parameter'),
+      id: 'actor-material',
+      target: { kind: 'actor', slotId: 'hero-stage', layerId: 'body' },
+      material: sceneMaterialRef('sprite-material'),
+      parameter: 'u_tint',
+      value: { r: 1, g: 1, b: 1, a: 1 },
+    },
+    {
+      ...defaultSceneStep('material-parameter'),
+      id: 'layout-material',
+      target: { kind: 'layout', slot: 'custom' },
+      material: sceneMaterialRef('layout-decorator-material'),
+      parameter: 'u_tint',
+      value: { r: 0.5, g: 0.5, b: 0.5, a: 1 },
+    },
+    {
+      ...defaultSceneStep('transition-group'),
+      id: 'transition-children',
+      transitionKind: 'cut',
+      durationMs: 0,
+      waitForCompletion: false,
+      children: [
+        {
+          id: 'transition-background',
+          type: 'set-background',
+          asset: sceneAssetRef('image-main'),
+          material: sceneMaterialRef('sprite-material'),
+          color: null,
+          fit: 'cover',
+        },
+        { id: 'transition-clear-background', type: 'clear-background' },
+        {
+          id: 'transition-actor',
+          type: 'actor-cue',
+          slotId: 'hero-stage',
+          character: sceneCharacterRef('hero'),
+          action: 'show',
+          profileId: 'stage',
+          poseId: 'default',
+          expressionId: 'neutral',
+          appearanceId: null,
+          position: 'center',
+          offset: { x: 0, y: 0 },
+          scale: 1,
+        },
+        {
+          id: 'transition-layout',
+          type: 'set-layout',
+          layout: sceneLayoutRef('stateful-overlay'),
+          action: 'show',
+          slot: 'custom',
+        },
+      ],
+    },
+    {
+      id: 'wait-condition',
+      label: 'Wait Condition',
+      enabled: true,
+      type: 'wait',
+      timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+      completionDependencies: [],
+      waitKind: 'condition',
+      waitCondition: {
+        kind: 'variable-comparison',
+        variable: variableReference('flag'),
+        operator: 'truthy',
+      },
+      skippable: true,
+    },
+    {
+      id: 'wait-operation',
+      label: 'Wait Operation',
+      enabled: true,
+      type: 'wait',
+      timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+      completionDependencies: [],
+      waitKind: 'operation',
+      eventId: 'background',
+      skippable: true,
+    },
+    {
+      id: 'wait-audio',
+      label: 'Wait Audio',
+      enabled: true,
+      type: 'wait',
+      timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+      completionDependencies: [],
+      waitKind: 'audio',
+      eventId: 'audio',
+      skippable: true,
+    },
+    {
+      id: 'wait-layout-signal',
+      label: 'Wait Layout Signal',
+      enabled: true,
+      type: 'wait',
+      timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+      completionDependencies: [],
+      waitKind: 'layout-signal',
+      owner: 'invocation',
+      slot: 'custom',
+      signalId: 'confirm',
+      skippable: false,
+    },
+  ];
+  vocabulary.terminal = { kind: 'release-to-exploration' };
+  project.scenes.vocabulary = { id: 'vocabulary', label: 'Canonical Vocabulary', data: vocabulary };
+
+  const inherited = defaultSceneData('Inherited Stage');
+  inherited.stage = { kind: 'inherited' };
+  inherited.events = [
+    {
+      ...defaultSceneStep('show-text'),
+      id: 'inherited-text',
+      text: { markup: 'plain', source: { kind: 'inline', text: 'Inherited.' } },
+      wait: 'immediate',
+    },
+  ];
+  inherited.outcomes = [{ id: 'done', label: 'Done' }];
+  inherited.terminal = { kind: 'return', outcome: 'done' };
+  project.scenes['inherited-return'] = {
+    id: 'inherited-return',
+    label: 'Inherited Stage',
+    data: inherited,
+  };
+
+  const dialogue = defaultDialogueData('Cue Vocabulary');
+  dialogue.defaultSpeaker = characterReference('hero');
+  dialogue.stageSlots = [
+    {
+      id: 'hero-stage',
+      label: 'Hero Stage',
+      speakerSync: true,
+      initial: {
+        character: characterReference('hero'),
+        profileId: 'stage',
+        poseId: 'default',
+        expressionId: 'neutral',
+        appearanceId: null,
+        position: 'left',
+        offset: { x: 0, y: 0 },
+        scale: 1,
+        visible: true,
+      },
+    },
+  ];
+  dialogue.mediaSlots = [
+    {
+      id: 'portrait',
+      label: 'Portrait',
+      initial: { kind: 'image', asset: assetReference('image-main') },
+      visible: true,
+    },
+    {
+      id: 'character-media',
+      label: 'Character Media',
+      initial: {
+        kind: 'character',
+        character: characterReference('hero'),
+        profileId: 'stage',
+        poseId: 'default',
+        expressionId: 'neutral',
+        appearanceId: null,
+      },
+      visible: false,
+    },
+  ];
+  dialogue.blocks[0] = {
+    ...dialogue.blocks[0]!,
+    type: 'sequence',
+    defaultSpeaker: characterReference('hero'),
+    segments: [
+      {
+        ...defaultDialogueSegment('line', 'cue-line'),
+        speaker: characterReference('hero'),
+        text: { markup: 'plain', source: { kind: 'inline', text: 'ABCDE' } },
+        cues: [
+          {
+            id: 'expression',
+            kind: 'speaker-expression',
+            position: { offset: 0, order: 0 },
+            expressionId: 'neutral',
+          },
+          {
+            id: 'stage',
+            kind: 'stage',
+            position: { offset: 1, order: 0 },
+            mutation: { slotId: 'hero-stage', action: 'hide' },
+          },
+          {
+            id: 'media',
+            kind: 'media',
+            position: { offset: 2, order: 0 },
+            mutation: { slotId: 'portrait', action: 'show' },
+          },
+          {
+            id: 'voice',
+            kind: 'voice',
+            position: { offset: 3, order: 0 },
+            asset: assetReference('audio-voice'),
+            pausePolicy: 'gameplay',
+            gain: 1,
+            pan: 0,
+            waitForCompletion: false,
+            skipBehavior: 'stop',
+          },
+          {
+            id: 'gesture',
+            kind: 'gesture',
+            position: { offset: 3, order: 1 },
+            slotId: 'hero-stage',
+            gestureId: 'nod',
+            waitForCompletion: false,
+            skippable: true,
+          },
+          {
+            id: 'sound',
+            kind: 'sound-effect',
+            position: { offset: 4, order: 0 },
+            asset: assetReference('audio-voice'),
+            pausePolicy: 'owner',
+            gain: 0.5,
+            pan: 0.25,
+            waitForCompletion: false,
+            causality: 'disposable',
+            synchronized: false,
+            skipBehavior: 'suppress',
+          },
+          {
+            id: 'camera-shake',
+            kind: 'camera',
+            position: { offset: 5, order: 0 },
+            emphasis: {
+              kind: 'shake',
+              amplitude: { x: 2, y: 3 },
+              frequencyHz: 12,
+              durationMs: 100,
+              skippable: true,
+              waitForCompletion: false,
+            },
+          },
+          {
+            id: 'camera-punch',
+            kind: 'camera',
+            position: { offset: 5, order: 1 },
+            emphasis: {
+              kind: 'punch',
+              translation: { x: 4, y: -2 },
+              zoomDelta: 0.1,
+              rotationDegrees: 2,
+              durationMs: 80,
+              skippable: true,
+              waitForCompletion: false,
+            },
+          },
+          {
+            id: 'camera-flash',
+            kind: 'camera',
+            position: { offset: 5, order: 2 },
+            emphasis: {
+              kind: 'flash',
+              color: '#ffffff',
+              opacity: 0.75,
+              durationMs: 60,
+              skippable: true,
+              waitForCompletion: false,
+            },
+          },
+        ],
+      },
+      {
+        ...defaultDialogueSegment('call-scene', 'call-flashback'),
+        scene: sceneSceneRef('inherited-return'),
+        uiPolicy: 'preserve',
+      },
+      { ...defaultDialogueSegment('handoff', 'handoff'), payload: 'resume-me' },
+    ],
+  };
+  dialogue.completion = { kind: 'return' };
+  project.dialogues['cue-vocabulary'] = {
+    id: 'cue-vocabulary',
+    label: 'Cue Vocabulary',
+    data: dialogue,
+  };
+
+  const roomFeatureRule = project.interactions.actions!.data.rules.find(
+    (rule) => rule.id === 'room-feature',
+  );
+  if (roomFeatureRule) {
+    roomFeatureRule.program.instructions = [
+      {
+        id: 'call-scene',
+        kind: 'call-scene',
+        scene: sceneSceneRef('background-safe'),
+      },
+    ];
+  }
+
+  return project;
+}
+
+export function canonicalExplorationGoldenProject(): AuthoringProject {
+  const project = canonicalVocabularyGoldenProject();
+  renameProject(project, 'golden-canonical-exploration', 'Golden Canonical Exploration');
+
+  delete project.scenes.vocabulary;
+  delete project.dialogues['cue-vocabulary'];
+  delete project.materials['layout-decorator-material'];
+  delete project.shaders['layout-decorator-shader'];
+  const coinHotspots = project.interactables.coin?.data.presentation.hotspots;
+  if (coinHotspots?.kind === 'custom')
+    coinHotspots.hotspots = coinHotspots.hotspots.map((hotspot) => ({
+      ...hotspot,
+      highlight: hotspot.highlight.kind === 'material' ? { kind: 'default' } : hotspot.highlight,
+    }));
+  delete project.materials['hotspot-overlay'];
+  delete project.shaders['hotspot-overlay-shader'];
+
+  project.scripts.bootstrap!.data = {
+    kind: 'script-module',
+    source: {
+      kind: 'inline-lua',
+      source:
+        "local ready = false\nreturn { on_ready = function() ready = true end, before_enter_start = function(...) local ok, err = Game.set_prop('flag', ready); assert(ok, err); if type(before_enter_start) == 'function' then before_enter_start(...) end end, after_enter_start = function(...) if type(after_enter_start) == 'function' then after_enter_start(...) end end, before_leave_start = function(...) if type(before_leave_start) == 'function' then before_leave_start(...) end end, after_leave_start = function(...) local ok, err = Game.set_prop('count', 3); assert(ok, err); if type(after_leave_start) == 'function' then after_leave_start(...) end end }\n",
+    },
+  };
+
+  const mutation = defaultSceneData('Exploration Mutation');
+  mutation.stage = { kind: 'inherited' };
+  mutation.events = [
+    {
+      ...defaultSceneStep('runtime-world-transaction'),
+      id: 'create-runtime-world',
+      operations: [
+        {
+          kind: 'create-room',
+          source: {
+            kind: 'archetype',
+            archetype: { $ref: { collection: 'archetypes', id: 'room-template' } },
+          },
+        },
+        {
+          kind: 'create-interactable',
+          source: {
+            kind: 'effective-instance',
+            instance: { kind: 'interactable', interactable: interactableReference('dust') },
+          },
+          location: { kind: 'room', room: roomReference('start') },
+          enabled: true,
+          visible: true,
+        },
+      ],
+    },
+    {
+      ...defaultSceneStep('gameplay-effect-batch'),
+      id: 'mutate-gameplay',
+      operations: [
+        { kind: 'set-variable', variable: sceneVariableRef('flag'), value: true },
+        {
+          kind: 'move-interactable',
+          interactable: interactableReference('key'),
+          location: {
+            kind: 'inventory',
+            inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+          },
+        },
+        {
+          kind: 'set-interactable-state',
+          interactable: interactableReference('key'),
+          enabled: true,
+          visible: false,
+        },
+        {
+          kind: 'grant-item-quantity',
+          definition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
+          quantity: 7,
+          location: {
+            kind: 'inventory',
+            inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+          },
+          placement: 'keep-separate',
+        },
+        {
+          kind: 'set-property',
+          owner: { kind: 'interactable', interactable: interactableReference('key') },
+          property: { $ref: { collection: 'properties', id: 'note' } },
+          value: 'mutated',
+        },
+      ],
+    },
+    {
+      ...defaultSceneStep('set-layout'),
+      id: 'mount-stateful-layout',
+      owner: 'runtime-session',
+      layout: sceneLayoutRef('stateful-overlay'),
+      action: 'show',
+      slot: 'custom',
+      waitForCompletion: false,
+    },
+    {
+      ...defaultSceneStep('show-text'),
+      id: 'mutation-complete',
+      text: { markup: 'plain', source: { kind: 'inline', text: 'Mutation complete.' } },
+      wait: 'input',
+      autosaveSafePoint: true,
+    },
+  ];
+  mutation.terminal = { kind: 'release-to-exploration' };
+  project.scenes['exploration-mutation'] = {
+    id: 'exploration-mutation',
+    label: 'Exploration Mutation',
+    data: mutation,
+  };
+
+  const interaction = project.interactions.actions!.data.rules.find(
+    (rule) => rule.id === 'any-context',
+  );
+  if (interaction)
+    interaction.program.instructions = [
+      {
+        id: 'exploration-scene',
+        kind: 'call-scene',
+        scene: sceneSceneRef('exploration-mutation'),
+      },
+    ];
+
+  project.entrypoint = { kind: 'room', id: 'start' };
   return project;
 }
