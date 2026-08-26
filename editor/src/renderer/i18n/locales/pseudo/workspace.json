@@ -475,8 +475,10 @@
     "roomTitle": "⟦Background hotspots⟧",
     "mode": {
       "label": "⟦Hotspot mode⟧",
+      "none": "⟦None⟧",
       "alpha": "⟦Alpha⟧",
       "custom": "⟦Custom⟧",
+      "noneDescription": "⟦This Interactable has no pointer hotspot.⟧",
       "alphaTitle": "⟦Default alpha hotspot⟧",
       "customTitle": "⟦Custom hotspots⟧"
     },

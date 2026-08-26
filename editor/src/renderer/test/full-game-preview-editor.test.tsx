@@ -11,6 +11,7 @@ import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import type { PreviewClickableTarget } from '../../shared/preview-protocol';
 
@@ -397,9 +398,6 @@ describe('FullGamePreviewEditor', () => {
     expect(
       await screen.findByText('Project changed since this Play session was loaded.'),
     ).toBeInTheDocument();
-    expect(
-      screen.getAllByText('The running game is using an older runtime snapshot.').length,
-    ).toBeGreaterThan(0);
     expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount);
   });
 
@@ -453,7 +451,7 @@ describe('FullGamePreviewEditor', () => {
       await screen.findByText('Project changed since this Play session was loaded.'),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByText('Restart with Latest Project'));
+    await user.click(screen.getByLabelText('Restart with latest project'));
     await waitFor(() =>
       expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(
         initialLoadCount + 1,
@@ -488,32 +486,143 @@ describe('FullGamePreviewEditor', () => {
       useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
 
+    expect(await screen.findByLabelText('Play blockers')).toBeInTheDocument();
+    const blocker = screen.getByRole('button', {
+      name: /Play blocker \d+: Choose a gameplay entrypoint before running or packaging the project\./,
+    });
+    await user.hover(blocker);
     expect(
       await screen.findByText(
         'Choose a gameplay entrypoint before running or packaging the project.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('Reload engine preview')).toBeDisabled();
-    expect(screen.getByLabelText('Reset runtime')).toBeDisabled();
-    expect(screen.getByLabelText('Restart with latest project')).toBeDisabled();
+    expect(screen.getByLabelText('Reset game runtime')).toBeDisabled();
+    expect(screen.queryByLabelText('Restart with latest project')).not.toBeInTheDocument();
     expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount);
 
+    const corrected = cloneProject(project);
+    corrected.project = { ...corrected.project, name: 'Corrected Project' };
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(project);
+      useProjectStore.getState().loadUnsavedProjectDocument(corrected);
       useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
     await waitFor(() =>
       expect(
-        screen.queryByText('Choose a gameplay entrypoint before running or packaging the project.'),
+        screen.queryByRole('button', {
+          name: /Play blocker \d+: Choose a gameplay entrypoint before running or packaging the project\./,
+        }),
       ).not.toBeInTheDocument(),
     );
-    expect(screen.getByLabelText('Restart with latest project')).toBeEnabled();
+    expect(await screen.findByLabelText('Restart with latest project')).toBeEnabled();
 
     await user.click(screen.getByLabelText('Restart with latest project'));
     await waitFor(() =>
       expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(
         initialLoadCount + 1,
       ),
+    );
+  });
+
+  it('automatically loads after initial blockers are fixed without showing a ready-to-load state', async () => {
+    const blocked = projectWithEntrypoint();
+    blocked.entrypoint = null;
+    useProjectStore.getState().loadUnsavedProjectDocument(blocked);
+
+    const view = await renderConnectedPreviewInPane(false);
+    expect(await screen.findByLabelText('Play blockers')).toBeInTheDocument();
+    expect(requests(view.editorPort, 'runtime-load-compiled-project')).toHaveLength(0);
+    expect(screen.queryByLabelText('Load latest project')).not.toBeInTheDocument();
+
+    view.rerender(
+      <div data-workbench-editor-pane="tab:full-game-preview" data-hidden="true" aria-hidden="true">
+        <FullGamePreviewEditor />
+      </div>,
+    );
+    await waitFor(() =>
+      expect(view.editorPort.sent).toContainEqual({
+        version: 1,
+        type: 'set-preview-activity',
+        requestId: expect.any(String),
+        active: false,
+        visible: false,
+      }),
+    );
+    await resolveLatest(view.editorPort, view.previewPort, 'set-preview-activity');
+
+    await act(async () => {
+      useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
+      useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+    });
+    await waitFor(() =>
+      expect(requests(view.editorPort, 'runtime-load-compiled-project')).toHaveLength(1),
+    );
+    expect(screen.queryByText('Project is ready to load for Play.')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Load latest project')).not.toBeInTheDocument();
+    await resolveLatest(view.editorPort, view.previewPort, 'runtime-load-compiled-project');
+    await waitFor(() =>
+      expect(requests(view.editorPort, 'runtime-request-debug-snapshot').length).toBeGreaterThan(0),
+    );
+    const snapshotCountBeforeReturn = requests(
+      view.editorPort,
+      'runtime-request-debug-snapshot',
+    ).length;
+
+    view.rerender(
+      <div data-workbench-editor-pane="tab:full-game-preview">
+        <FullGamePreviewEditor />
+      </div>,
+    );
+    await waitFor(() =>
+      expect(view.editorPort.sent).toContainEqual({
+        version: 1,
+        type: 'set-preview-activity',
+        requestId: expect.any(String),
+        active: true,
+        visible: true,
+      }),
+    );
+    await resolveLatest(view.editorPort, view.previewPort, 'set-preview-activity');
+    expect(
+      requests(view.editorPort, 'runtime-request-debug-snapshot').length,
+    ).toBeGreaterThanOrEqual(snapshotCountBeforeReturn);
+    expect(screen.queryByText('Project is ready to load for Play.')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Load latest project')).not.toBeInTheDocument();
+  });
+
+  it('collapses duplicate Alpha hotspot blockers into one compact actionable icon', async () => {
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+
+    const blocked = cloneProject(project);
+    const interactable = defaultInteractableData('New Interactable');
+    interactable.presentation.hotspots = {
+      kind: 'sprite-alpha',
+      hotspot: defaultHotspotBehavior('New Interactable'),
+    };
+    blocked.interactables['new-interactable'] = {
+      id: 'new-interactable',
+      label: 'New Interactable',
+      data: interactable,
+    };
+    await act(async () => {
+      useProjectStore.getState().loadUnsavedProjectDocument(blocked);
+    });
+
+    expect(await screen.findByLabelText('Play blockers')).toBeInTheDocument();
+    const alphaBlockers = screen.getAllByRole('button', {
+      name: /Play blocker \d+: Alpha hotspot mode requires a sprite image\./,
+    });
+    expect(alphaBlockers).toHaveLength(1);
+    expect(alphaBlockers[0]).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Add a sprite or switch hotspot mode.'),
     );
   });
 
@@ -585,8 +694,17 @@ describe('FullGamePreviewEditor', () => {
     const { editorPort } = await renderConnectedPreview();
 
     expect(screen.getByLabelText('Reload engine preview')).toBeInTheDocument();
-    expect(screen.getByLabelText('Restart with latest project')).toBeInTheDocument();
-    expect(screen.getByLabelText('Reset runtime')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reload engine preview')).toHaveAttribute(
+      'title',
+      'Reload engine preview',
+    );
+    expect(screen.queryByLabelText('Restart with latest project')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Load latest project')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Reset game runtime')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reset game runtime')).toHaveAttribute(
+      'title',
+      'Reset game runtime',
+    );
     expect(screen.queryByLabelText('Start runtime')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Stop runtime')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Step runtime')).not.toBeInTheDocument();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel as ResizePanel } from 'react-resizable-panels';
 import {
+  AlertCircle,
   AlertTriangle,
   Binary,
   Braces,
@@ -1791,73 +1792,93 @@ function RecorderPanel({
 }
 
 function CompiledProjectStaleWarning({
-  onReloadLatest,
-  disabled,
   project,
   blockers,
   freshness,
+  actionAvailable,
+  onReloadLatest,
 }: {
-  onReloadLatest: () => void;
-  disabled: boolean;
   project: AuthoringProject | null;
   blockers: ProjectValidationDiagnostic[];
   freshness: CompiledProjectFreshness;
+  actionAvailable: boolean;
+  onReloadLatest: () => void;
 }) {
   const hasLoadedRuntime = freshness === 'stale';
+  const distinctBlockers = [
+    ...new Map(
+      blockers.map((diagnostic) => [`${diagnostic.path}\u0000${diagnostic.message}`, diagnostic]),
+    ).values(),
+  ];
+  const blockerCount = distinctBlockers.length;
+  const reloadLabel = hasLoadedRuntime ? 'Restart with latest project' : 'Load latest project';
   return (
-    <div className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-      <div className="flex items-start gap-2">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="font-medium">
-            {hasLoadedRuntime
-              ? 'Project changed since this Play session was loaded.'
-              : 'Current project cannot be loaded for Play.'}
-          </div>
-          <div className="mt-0.5 text-[11px]">
-            {blockers.length > 0
+    <div className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-900 dark:text-amber-200">
+      <div className="flex min-w-0 items-center gap-2">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="min-w-0 truncate font-medium">
+            {blockerCount > 0
               ? hasLoadedRuntime
-                ? 'The running game remains on the last valid runtime snapshot until these blockers are corrected.'
-                : 'Correct these runtime-package blockers, then load the project without reopening it.'
-              : 'The running game is using an older runtime snapshot.'}
-          </div>
-          {blockers.length > 0 ? (
-            <div className="mt-2 space-y-1">
-              {blockers.slice(0, 4).map((diagnostic) => {
-                const target = project
-                  ? resolveProjectDiagnosticTarget(project, diagnostic.path)
-                  : null;
-                return target ? (
-                  <button
-                    key={`${diagnostic.code}:${diagnostic.path}`}
-                    type="button"
-                    className="block w-full rounded border border-amber-500/30 bg-background/60 px-2 py-1 text-left text-[11px] hover:bg-background"
-                    onClick={() => navigateToWorkbenchTarget(target)}
-                  >
-                    {diagnostic.message}
-                    <span className="ml-1 font-mono text-[10px] opacity-70">{diagnostic.path}</span>
-                  </button>
-                ) : (
-                  <div
-                    key={`${diagnostic.code}:${diagnostic.path}`}
-                    className="rounded border border-amber-500/30 bg-background/60 px-2 py-1 text-[11px]"
-                  >
-                    {diagnostic.message}
-                  </div>
-                );
-              })}
-            </div>
+                ? `Project changed; ${blockerCount} error${blockerCount === 1 ? '' : 's'} block restart.`
+                : `${blockerCount} project error${blockerCount === 1 ? '' : 's'} block Play.`
+              : hasLoadedRuntime
+                ? 'Project changed since this Play session was loaded.'
+                : 'Project is ready to load for Play.'}
+          </span>
+          {blockerCount > 0 ? (
+            <TooltipProvider delay={150}>
+              <div className="flex shrink-0 items-center gap-0.5" aria-label="Play blockers">
+                {distinctBlockers.slice(0, 6).map((diagnostic, index) => {
+                  const target = project
+                    ? resolveProjectDiagnosticTarget(project, diagnostic.path)
+                    : null;
+                  const icon = (
+                    <button
+                      type="button"
+                      aria-label={`Play blocker ${index + 1}: ${diagnostic.message}`}
+                      className={`flex h-5 w-5 items-center justify-center rounded-sm ${target ? 'hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-500' : 'cursor-default'}`}
+                      onClick={target ? () => navigateToWorkbenchTarget(target) : undefined}
+                    >
+                      <AlertCircle className="h-3.5 w-3.5" />
+                    </button>
+                  );
+                  return (
+                    <Tooltip key={`${diagnostic.code}:${diagnostic.path}:${index}`}>
+                      <TooltipTrigger render={icon} />
+                      <TooltipContent side="bottom" align="center" className="max-w-80 space-y-1">
+                        <div>{diagnostic.message}</div>
+                        {diagnostic.path ? (
+                          <div className="break-all font-mono text-[10px] opacity-75">
+                            {diagnostic.path}
+                          </div>
+                        ) : null}
+                        {target ? (
+                          <div className="text-[10px] opacity-75">Click to open.</div>
+                        ) : null}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+                {blockerCount > 6 ? (
+                  <span className="pl-0.5 text-[10px] font-medium">+{blockerCount - 6}</span>
+                ) : null}
+              </div>
+            </TooltipProvider>
           ) : null}
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 shrink-0 bg-background/80"
-          disabled={disabled}
-          onClick={onReloadLatest}
-        >
-          {hasLoadedRuntime ? 'Restart with Latest Project' : 'Load Project'}
-        </Button>
+        {blockerCount === 0 && actionAvailable ? (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="shrink-0 text-current hover:bg-amber-500/20"
+            onClick={onReloadLatest}
+            aria-label={reloadLabel}
+            title={reloadLabel}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -1913,7 +1934,7 @@ function RuntimeInspector({
   onOpenSavedTest: () => void;
 }) {
   const mutationDisabled = mode === 'recording';
-  const runtimeDisabled = controlsContext?.connectionState !== 'ready';
+  const projectReloadAvailable = canReloadLatestProject;
   return (
     <aside className="flex h-full min-h-0 w-full flex-col bg-background">
       <div className="shrink-0 border-b bg-background px-3 py-2">
@@ -1954,11 +1975,11 @@ function RuntimeInspector({
       </div>
       {compiledProjectState.freshness === 'stale' || runtimeBlockers.length > 0 ? (
         <CompiledProjectStaleWarning
-          onReloadLatest={onReloadLatestProject}
-          disabled={runtimeDisabled || !canReloadLatestProject}
           project={project}
           blockers={runtimeBlockers}
           freshness={compiledProjectState.freshness}
+          actionAvailable={projectReloadAvailable}
+          onReloadLatest={onReloadLatestProject}
         />
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -2021,19 +2042,15 @@ function RuntimeInspector({
 function FullGamePreviewTransportBar({
   context,
   compiledProjectState,
-  canReloadLatestProject,
   project,
   snapshot,
-  onReloadLatestProject,
   onRuntimeCommand,
   runtimeBlockers,
 }: {
   context: EnginePreviewControlsContext;
   compiledProjectState: FullGamePreviewCompiledProjectState;
-  canReloadLatestProject: boolean;
   project: AuthoringProject | null;
   snapshot: RuntimeDebugSnapshot | null;
-  onReloadLatestProject: () => void;
   onRuntimeCommand: (
     command: RuntimeCommandFactory,
     label: string,
@@ -2065,24 +2082,17 @@ function FullGamePreviewTransportBar({
           runtimeDisabled || currentRuntimeBlocked || compiledProjectState.freshness === 'stale'
         }
         aria-label="Reload engine preview"
+        title="Reload engine preview"
       >
         <RefreshCw className="h-4 w-4" />
-      </Button>
-      <Button
-        size="sm"
-        variant={compiledProjectState.freshness === 'stale' ? 'secondary' : 'ghost'}
-        onClick={onReloadLatestProject}
-        disabled={runtimeDisabled || !canReloadLatestProject}
-        aria-label="Restart with latest project"
-      >
-        <PackagePlus className="h-4 w-4" />
       </Button>
       <Button
         size="sm"
         variant="ghost"
         onClick={() => onRuntimeCommand(() => context.controller.runtimeReset(), 'Runtime reset')}
         disabled={runtimeDisabled || currentRuntimeBlocked}
-        aria-label="Reset runtime"
+        aria-label="Reset game runtime"
+        title="Reset game runtime"
       >
         <RotateCcw className="h-4 w-4" />
       </Button>
@@ -2385,9 +2395,18 @@ export function FullGamePreviewEditor() {
       !previewControls ||
       previewControls.connectionState !== 'ready' ||
       compiledProjectPreparationPending ||
-      previewReadyGeneration === 0 ||
-      bootstrappedReadyGenerationRef.current >= previewReadyGeneration
+      previewReadyGeneration === 0
     ) {
+      return;
+    }
+
+    const runtimeAlreadyLoaded = compiledProjectState.loadedSourceFingerprint !== null;
+    if (runtimeAlreadyLoaded && bootstrappedReadyGenerationRef.current >= previewReadyGeneration) {
+      return;
+    }
+
+    if (!runtimeAlreadyLoaded && !canReloadLatestProject) {
+      bootstrappedReadyGenerationRef.current = previewReadyGeneration;
       return;
     }
 
@@ -2410,7 +2429,9 @@ export function FullGamePreviewEditor() {
     };
   }, [
     loadCompiledProjectIntoPreview,
+    canReloadLatestProject,
     compiledProjectPreparationPending,
+    compiledProjectState.loadedSourceFingerprint,
     previewControls,
     previewReadyGeneration,
     requestDebugSnapshot,
@@ -2455,20 +2476,22 @@ export function FullGamePreviewEditor() {
     exportedCompiledProject.blockers,
   ]);
 
-  const reloadLatestCompiledProject = useCallback(() => {
-    const context = controlsRef.current;
-    if (!context || context.connectionState !== 'ready' || !canReloadLatestProject) return;
-    void loadCompiledProjectIntoPreview(context)
-      .then((loaded) => {
-        if (loaded) requestDebugSnapshot(context);
-      })
-      .catch((error: Error) => {
-        setState((current) => ({
-          ...current,
-          eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
-        }));
-      });
-  }, [canReloadLatestProject, loadCompiledProjectIntoPreview, requestDebugSnapshot]);
+  const reloadLatestCompiledProject = useCallback(
+    (context: EnginePreviewControlsContext | null = controlsRef.current) => {
+      if (!context || !canReloadLatestProject) return;
+      void loadCompiledProjectIntoPreview(context)
+        .then((loaded) => {
+          if (loaded) requestDebugSnapshot(context);
+        })
+        .catch((error: Error) => {
+          setState((current) => ({
+            ...current,
+            eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
+          }));
+        });
+    },
+    [canReloadLatestProject, loadCompiledProjectIntoPreview, requestDebugSnapshot],
+  );
 
   const startRecording = useCallback(() => {
     setMode('recording');
@@ -2621,7 +2644,9 @@ export function FullGamePreviewEditor() {
         <div className="h-full min-w-0">
           <EnginePreview
             audioEnabled
-            previewActivityRefreshOnVisible="runtime-debug"
+            previewActivityRefreshOnVisible={
+              compiledProjectState.loadedSourceFingerprint ? 'runtime-debug' : 'none'
+            }
             onPreviewMessage={handlePreviewMessage}
             onControlsContextChange={handlePreviewControlsChange}
             renderControls={(context) => {
@@ -2629,10 +2654,8 @@ export function FullGamePreviewEditor() {
                 <FullGamePreviewTransportBar
                   context={context}
                   compiledProjectState={compiledProjectState}
-                  canReloadLatestProject={canReloadLatestProject}
                   project={project}
                   snapshot={state.snapshot}
-                  onReloadLatestProject={reloadLatestCompiledProject}
                   onRuntimeCommand={handleRuntimeCommand}
                   runtimeBlockers={exportedCompiledProject.blockers}
                 />
@@ -2651,7 +2674,7 @@ export function FullGamePreviewEditor() {
         <RuntimeInspector
           state={state}
           project={project}
-          controlsContext={controlsRef.current}
+          controlsContext={previewControls}
           compiledProjectState={compiledProjectState}
           canReloadLatestProject={canReloadLatestProject}
           runtimeBlockers={exportedCompiledProject.blockers}
@@ -2661,7 +2684,7 @@ export function FullGamePreviewEditor() {
           onTargetTestIdChange={setTargetTestId}
           onModeChange={setMode}
           onCommand={handleRuntimeCommand}
-          onReloadLatestProject={reloadLatestCompiledProject}
+          onReloadLatestProject={() => reloadLatestCompiledProject()}
           onRecorderStart={startRecording}
           onRecorderStop={stopRecording}
           onRecorderClear={clearRecording}

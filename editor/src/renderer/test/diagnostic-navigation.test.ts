@@ -148,6 +148,18 @@ describe('diagnostic navigation', () => {
       )?.target?.id,
     ).toBe('interactable.hotspot.handle');
     expect(
+      resolveProjectDiagnosticTarget(project, '/interactables/door/data/presentation/hotspots/kind')
+        ?.target,
+    ).toMatchObject({ id: 'interactable.hotspot-mode', focus: true, flash: true });
+    expect(
+      resolveProjectDiagnosticTarget(project, '/interactables/door/data/presentation/sprite')
+        ?.target?.id,
+    ).toBe('interactable.sprite');
+    expect(
+      resolveProjectDiagnosticTarget(project, '/interactables/door/data/presentation/material')
+        ?.target?.id,
+    ).toBe('interactable.material');
+    expect(
       resolveProjectDiagnosticTarget(
         project,
         '/interactions/inspect/data/rules/0/slots/0/selectors/0/subject/feature',

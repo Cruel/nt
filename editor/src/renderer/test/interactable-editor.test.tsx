@@ -1,13 +1,16 @@
-import { act, render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { InteractableEditor } from '@/editors/interactables/InteractableEditor';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import {
   captureWorkbenchTabState,
   clearWorkbenchTabStates,
+  restoreWorkbenchTabState,
   useWorkbenchTabStateStore,
 } from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
@@ -55,6 +58,10 @@ describe('InteractableEditor', () => {
     };
     const data = defaultInteractableData('Door');
     data.presentation.sprite = { $ref: { collection: 'assets', id: 'sprite' } };
+    data.presentation.hotspots = {
+      kind: 'sprite-alpha',
+      hotspot: defaultHotspotBehavior('Door'),
+    };
     project.interactables.door = {
       id: 'door',
       label: 'Door',
@@ -150,6 +157,81 @@ describe('InteractableEditor', () => {
         },
       },
     });
+  });
+
+  it('captures and restores Interactable editor scroll position', async () => {
+    const project = createAuthoringProject();
+    project.interactables.door = {
+      id: 'door',
+      label: 'Door',
+      traits: [],
+      properties: {},
+      data: defaultInteractableData('Door'),
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const view = render(<InteractableEditor tab={tab} />);
+    const scrollContainer = view.container.querySelector<HTMLElement>(
+      '[data-interactable-editor-scroll]',
+    )!;
+    scrollContainer.scrollTop = 96;
+    scrollContainer.scrollLeft = 7;
+
+    captureWorkbenchTabState(tab.id);
+
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      schema: 'noveltea.editor.tab-state.interactable',
+      payload: { scroll: { scrollTop: 96, scrollLeft: 7 } },
+    });
+
+    scrollContainer.scrollTop = 0;
+    scrollContainer.scrollLeft = 0;
+    act(() => restoreWorkbenchTabState(tab.id));
+    await waitFor(() => expect(scrollContainer.scrollTop).toBe(96));
+    expect(scrollContainer.scrollLeft).toBe(7);
+  });
+
+  it('uses searchable record selectors and filters the sprite selector to image Assets', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.assets.sprite = {
+      id: 'sprite',
+      label: 'Door Sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/door.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1234,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.assets.sound = {
+      id: 'sound',
+      label: 'Door Sound',
+      data: {
+        kind: 'audio',
+        source: { type: 'project-file', path: 'assets/audio/door.ogg' },
+        aliases: [],
+        byteSize: 12,
+        contentHash: `sha256:${'b'.repeat(64)}`,
+        imageMetadata: null,
+      },
+    };
+    project.interactables.door = {
+      id: 'door',
+      label: 'Door',
+      traits: [],
+      properties: {},
+      data: defaultInteractableData('Door'),
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    render(<InteractableEditor tab={tab} />);
+
+    await user.click(screen.getByRole('button', { name: /choose sprite/i }));
+    expect(await screen.findByText('Choose Interactable sprite')).toBeInTheDocument();
+    expect(screen.getByText('Door Sprite')).toBeInTheDocument();
+    expect(screen.queryByText('Door Sound')).not.toBeInTheDocument();
   });
 
   it('selects an exact hotspot when workbench diagnostic navigation targets it', () => {

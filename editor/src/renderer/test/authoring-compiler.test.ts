@@ -15,6 +15,7 @@ import { lowerDialogueAndInteractionPrograms } from '../../shared/authoring-comp
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
+import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import {
   defaultDialogueBlock,
   defaultDialogueData,
@@ -25,6 +26,7 @@ import { defaultInteractionProgram } from '../../shared/project-schema/authoring
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
@@ -101,6 +103,64 @@ describe('authoring compiler framework', () => {
       { name: 'validate-wire', status: 'completed' },
       { name: 'serialize', status: 'completed' },
     ]);
+  });
+
+  it('rejects unattached Interactable Archetypes whose effective hotspot presentation requires a missing sprite', () => {
+    const project = validProject();
+    project.archetypes['invalid-interactable'] = {
+      id: 'invalid-interactable',
+      label: 'Invalid Interactable',
+      data: {
+        ...defaultArchetypeData('interactable'),
+        overrides: {
+          '/data/presentation/hotspots': {
+            kind: 'sprite-alpha',
+            hotspot: defaultHotspotBehavior('Invalid Interactable'),
+          },
+        },
+      },
+    };
+    project.archetypes['invalid-custom-interactable'] = {
+      id: 'invalid-custom-interactable',
+      label: 'Invalid Custom Interactable',
+      data: {
+        ...defaultArchetypeData('interactable'),
+        overrides: {
+          '/data/presentation/hotspots': {
+            kind: 'custom',
+            hotspots: [
+              {
+                ...defaultHotspotBehavior('Invalid Custom Interactable'),
+                shape: {
+                  kind: 'rect',
+                  bounds: { x: 0, y: 0, width: 1, height: 1 },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'error',
+          code: 'AUTHORING_HOTSPOT_AUTHORING_SOURCE_IMAGE_REQUIRED',
+          jsonPointer:
+            '/archetypes/invalid-interactable/data/effectiveConfiguration/data/presentation/hotspots/kind',
+        }),
+        expect.objectContaining({
+          severity: 'error',
+          code: 'AUTHORING_HOTSPOT_AUTHORING_SOURCE_IMAGE_REQUIRED',
+          jsonPointer:
+            '/archetypes/invalid-custom-interactable/data/effectiveConfiguration/data/presentation/hotspots/kind',
+        }),
+      ]),
+    );
   });
 
   it('lowers typed Layout contracts deterministically without emitting empty contracts', () => {
@@ -1111,7 +1171,7 @@ describe('authoring compiler framework', () => {
     ]);
   });
 
-  it('lowers the default Interactable hotspot as an owner semantic target', () => {
+  it('compiles a newly created Interactable without requiring a sprite or hotspot', () => {
     const project = validProject();
     project.interactables.key = {
       id: 'key',
@@ -1119,13 +1179,38 @@ describe('authoring compiler framework', () => {
       data: defaultInteractableData('Key'),
     };
 
-    const result = lowerSharedAuthoringProject(project);
+    const result = compileAuthoringProject(project);
 
-    expect(result.diagnostics).toEqual([]);
-    expect(result.draft?.definitions.interactables[0]?.presentation.hotspots).toMatchObject({
-      kind: 'sprite-alpha',
-      hotspot: { target: { kind: 'owner' } },
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    expect(result.project.definitions.interactables[0]?.presentation).toMatchObject({
+      sprite: null,
+      material: null,
+      hotspots: { kind: 'none' },
     });
+  });
+
+  it('blocks compilation when Alpha hotspot mode has no sprite', () => {
+    const project = validProject();
+    const data = defaultInteractableData('Key');
+    data.presentation.hotspots = {
+      kind: 'sprite-alpha',
+      hotspot: defaultHotspotBehavior('Key'),
+    };
+    project.interactables.key = { id: 'key', label: 'Key', data };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'AUTHORING_HOTSPOT_AUTHORING_SOURCE_IMAGE_REQUIRED',
+        severity: 'error',
+        jsonPointer: '/interactables/key/data/presentation/hotspots/kind',
+      }),
+    );
   });
 
   it('lowers Item Definitions and declared Item Stacks without changing the compiled schema version', () => {

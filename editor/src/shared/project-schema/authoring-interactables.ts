@@ -2,11 +2,7 @@ import { z } from 'zod';
 import { assetRefSchema, materialRefSchema, roomRefSchema } from './authoring-flow';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import {
-  defaultHotspotBehavior,
-  hotspotCommonShape,
-  rectHotspotShapeSchema,
-} from './authoring-hotspots';
+import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
 
@@ -18,6 +14,7 @@ export const interactableHotspotBehaviorSchema = strict({
   target: interactableHotspotTargetSchema,
 });
 export const interactableHotspotsSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('none') }),
   strict({ kind: z.literal('sprite-alpha'), hotspot: interactableHotspotBehaviorSchema }),
   strict({
     kind: z.literal('custom'),
@@ -85,7 +82,7 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
     presentation: {
       sprite: null,
       material: null,
-      hotspots: { kind: 'sprite-alpha', hotspot: defaultHotspotBehavior(label) },
+      hotspots: { kind: 'none' },
     },
     features: [],
     inventories: [],

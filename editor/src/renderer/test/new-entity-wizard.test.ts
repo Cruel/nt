@@ -122,14 +122,46 @@ describe('new entity wizard registry', () => {
 
   it('creates typed entity records without placeholder payloads', () => {
     const project = createAuthoringProject();
-    expect(newEntityWizardDefinition('interactables').supportLevel).toBe('typed');
+    const interactableDefinition = newEntityWizardDefinition('interactables');
+    expect(interactableDefinition.supportLevel).toBe('typed');
+    expect(interactableDefinition.basicFields).toBe('identity-only');
     expect(
-      newEntityWizardDefinition('interactables').buildPayload({
+      interactableDefinition.buildPayload({
         project,
         draft: draft('interactables'),
       }),
     ).toMatchObject({
-      data: { kind: 'interactable', initialState: { enabled: true, visible: true } },
+      data: {
+        kind: 'interactable',
+        presentation: { sprite: null, hotspots: { kind: 'none' } },
+        initialState: { enabled: true, visible: true },
+      },
+    });
+    project.assets.key = {
+      id: 'key',
+      label: 'Key Sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/key.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    expect(
+      interactableDefinition.buildPayload({
+        project,
+        draft: draft('interactables', { spriteId: 'key' }),
+      }),
+    ).toMatchObject({
+      data: {
+        presentation: {
+          sprite: { $ref: { collection: 'assets', id: 'key' } },
+          hotspots: { kind: 'sprite-alpha' },
+        },
+      },
     });
     expect(newEntityWizardDefinition('verbs').supportLevel).toBe('typed');
     expect(newEntityWizardDefinition('interactions').supportLevel).toBe('typed');

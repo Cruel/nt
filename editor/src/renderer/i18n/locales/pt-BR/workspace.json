@@ -511,8 +511,10 @@
     "roomTitle": "Hotspots do plano de fundo",
     "mode": {
       "label": "Modo de hotspot",
+      "none": "Nenhum",
       "alpha": "Alfa",
       "custom": "Personalizado",
+      "noneDescription": "Este interagível não possui hotspot de ponteiro.",
       "alphaTitle": "Hotspot alfa padrão",
       "customTitle": "Hotspots personalizados"
     },

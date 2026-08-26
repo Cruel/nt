@@ -398,13 +398,14 @@ private:
                 if constexpr (std::is_same_v<T, SpriteAlphaHotspots>)
                     return definition.hotspot.id == reference.hotspot_id ? &definition.hotspot
                                                                          : nullptr;
-                else {
+                else if constexpr (std::is_same_v<T, CustomInteractableHotspots>) {
                     const auto found = std::ranges::find_if(
                         definition.hotspots, [&](const InteractableCustomHotspot& value) {
                             return value.id == reference.hotspot_id;
                         });
                     return found == definition.hotspots.end() ? nullptr : &*found;
-                }
+                } else
+                    return nullptr;
             },
             owner->presentation.hotspots);
     }
@@ -1316,20 +1317,28 @@ private:
                     using T = std::decay_t<decltype(definition)>;
                     if constexpr (std::is_same_v<T, SpriteAlphaHotspots>)
                         return true;
-                    else
+                    else if constexpr (std::is_same_v<T, CustomInteractableHotspots>)
                         return !definition.hotspots.empty();
+                    else
+                        return false;
                 },
                 value.presentation.hotspots);
             if (requires_sprite && !value.presentation.sprite)
                 error("compiled_project.hotspot_source_image_required",
                       "Interactable hotspots require a sprite image Asset.",
                       path + "/presentation/sprite");
-            else if (requires_sprite && value.presentation.sprite) {
+            else if (value.presentation.sprite) {
                 const auto* source = asset(*value.presentation.sprite);
-                if (source && source->kind != AssetKind::Image)
-                    error("compiled_project.hotspot_source_image_invalid",
-                          "Interactable hotspot source Asset must be an image.",
-                          path + "/presentation/sprite");
+                if (source && source->kind != AssetKind::Image) {
+                    if (requires_sprite)
+                        error("compiled_project.hotspot_source_image_invalid",
+                              "Interactable hotspot source Asset must be an image.",
+                              path + "/presentation/sprite");
+                    else
+                        error("compiled_project.invalid_asset_kind",
+                              "Interactable sprite must use an image Asset.",
+                              path + "/presentation/sprite");
+                }
             }
             std::unordered_set<HotspotId> hotspot_ids;
             std::visit(
@@ -1358,7 +1367,7 @@ private:
                         const auto hotspot_path = path + "/presentation/hotspots/hotspot";
                         validate_hotspot_common(hotspot.condition, hotspot.highlight, hotspot_path);
                         validate_target(hotspot, hotspot_path);
-                    } else {
+                    } else if constexpr (std::is_same_v<T, CustomInteractableHotspots>) {
                         for (std::size_t hotspot_index = 0;
                              hotspot_index < definition.hotspots.size(); ++hotspot_index) {
                             const auto& hotspot = definition.hotspots[hotspot_index];

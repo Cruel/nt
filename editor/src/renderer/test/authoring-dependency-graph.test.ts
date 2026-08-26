@@ -42,6 +42,7 @@ import { authoringCollectionKeys } from '../../shared/project-schema/authoring-c
 import { assertAuthoringGraphFieldMetadataComplete } from '../../shared/project-schema/authoring-graph-field-metadata';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultVariableData, variableRef } from '../../shared/project-schema/authoring-variables';
@@ -319,6 +320,10 @@ describe('authoring structural dependency graph and queries', () => {
     };
     const item = defaultInteractableData('Item');
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'sprite' } };
+    item.presentation.hotspots = {
+      kind: 'sprite-alpha',
+      hotspot: defaultHotspotBehavior('Item'),
+    };
     item.features.push({
       id: 'handle',
       label: 'Handle',
@@ -326,8 +331,6 @@ describe('authoring structural dependency graph and queries', () => {
       properties: {},
       inventories: [],
     });
-    if (item.presentation.hotspots.kind !== 'sprite-alpha')
-      throw new Error('Expected sprite alpha');
     item.presentation.hotspots.hotspot.target = { kind: 'owner-feature', featureId: 'handle' };
     project.interactables.item = { id: 'item', label: 'Item', data: item };
 

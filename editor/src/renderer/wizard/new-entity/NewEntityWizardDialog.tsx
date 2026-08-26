@@ -27,6 +27,8 @@ import {
   isValidEntityId,
   type AuthoringProject,
 } from '../../../shared/project-schema/authoring-project';
+import { resolveArchetypeConfiguration } from '../../../shared/project-schema/authoring-archetypes';
+import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import {
   defaultNewEntityWizardCollection,
   isNewEntityWizardCollection,
@@ -161,7 +163,10 @@ export function NewEntityWizardDialog({
   }
 
   function setOption(key: string, value: string | boolean | number | null) {
-    replaceDraft({ ...draft!, options: { ...draft!.options, [key]: value } });
+    setDraft((current) =>
+      current ? { ...current, options: { ...current.options, [key]: value } } : current,
+    );
+    setError(null);
   }
 
   function submit() {
@@ -179,9 +184,43 @@ export function NewEntityWizardDialog({
     const extra = definition.buildPayload({ project: activeProject, draft: activeDraft });
     const commandStore = useCommandStore.getState();
     const setEntrypoint = collection === 'rooms' && activeDraft.options.setEntrypoint;
-    if (setEntrypoint) {
+    const interactableArchetypeId =
+      collection === 'interactables' &&
+      typeof activeDraft.options.archetypeId === 'string' &&
+      activeDraft.options.archetypeId !== '__none__'
+        ? activeDraft.options.archetypeId
+        : null;
+    const inheritInteractableSprite =
+      collection === 'interactables' && activeDraft.options.spriteId === '__inherit__';
+    let effectiveInteractableData = null;
+    if (interactableArchetypeId) {
+      const createdData = parseInteractableData(extra.data);
+      const archetype = resolveArchetypeConfiguration(activeProject, interactableArchetypeId);
+      const inheritedData =
+        createdData && archetype
+          ? parseInteractableData({
+              ...(archetype.data as object),
+              initialState: createdData.initialState,
+            })
+          : null;
+      if (!createdData || !inheritedData) {
+        setError('Selected Interactable Archetype does not resolve to a valid configuration.');
+        return;
+      }
+      effectiveInteractableData = {
+        ...inheritedData,
+        presentation: inheritInteractableSprite
+          ? inheritedData.presentation
+          : {
+              ...inheritedData.presentation,
+              sprite: createdData.presentation.sprite,
+            },
+      };
+    }
+    const useTransaction = Boolean(setEntrypoint || interactableArchetypeId);
+    if (useTransaction) {
       commandStore.beginTransaction({
-        label: `Create ${metadata.singularLabel} and set entrypoint`,
+        label: `Create ${metadata.singularLabel}`,
         ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
       });
     }
@@ -201,9 +240,43 @@ export function NewEntityWizardDialog({
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (!result.ok || failure) {
-      if (setEntrypoint) commandStore.cancelTransaction();
+      if (useTransaction) commandStore.cancelTransaction();
       setError(failure?.message ?? 'Create command failed.');
       return;
+    }
+    if (interactableArchetypeId && effectiveInteractableData) {
+      const archetypeResult = executeCommand({
+        type: 'gameplay-instance.setArchetype',
+        label: 'Set Interactable archetype',
+        payload: {
+          collection: 'interactables',
+          entityId,
+          archetypeId: interactableArchetypeId,
+        },
+        ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
+      });
+      const archetypeFailure = archetypeResult.diagnostics.find(
+        (diagnostic) => diagnostic.severity === 'error',
+      );
+      if (!archetypeResult.ok || archetypeFailure) {
+        commandStore.cancelTransaction();
+        setError(archetypeFailure?.message ?? 'Setting the Interactable Archetype failed.');
+        return;
+      }
+      const presentationResult = executeCommand({
+        type: 'interactable.replaceData',
+        label: 'Set Interactable creation presentation',
+        payload: { interactableId: entityId, data: effectiveInteractableData },
+        ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
+      });
+      const presentationFailure = presentationResult.diagnostics.find(
+        (diagnostic) => diagnostic.severity === 'error',
+      );
+      if (!presentationResult.ok || presentationFailure) {
+        commandStore.cancelTransaction();
+        setError(presentationFailure?.message ?? 'Applying the Interactable presentation failed.');
+        return;
+      }
     }
     if (setEntrypoint) {
       const entrypointResult = executeCommand({
@@ -220,6 +293,8 @@ export function NewEntityWizardDialog({
         setError(entrypointFailure?.message ?? 'Setting the project entrypoint failed.');
         return;
       }
+    }
+    if (useTransaction) {
       const committed = commandStore.commitTransaction();
       const commitFailure = committed.diagnostics.find(
         (diagnostic) => diagnostic.severity === 'error',
@@ -335,38 +410,42 @@ export function NewEntityWizardDialog({
                         placeholder="lowercase-kebab-id"
                       />
                     </FieldRow>
-                    <FieldRow>
-                      <FieldLabel>Tags</FieldLabel>
-                      <TagInput
-                        value={draft.basics.tags}
-                        onChange={(tags) => updateBasics({ tags })}
-                        suggestions={tagSuggestions}
-                        placeholder="Add tag"
-                      />
-                    </FieldRow>
-                    <FieldRow>
-                      <FieldLabel>Color</FieldLabel>
-                      <Input
-                        aria-label="Entity color"
-                        value={draft.basics.color}
-                        onChange={(event) => updateBasics({ color: event.currentTarget.value })}
-                        placeholder="#64748b or empty"
-                      />
-                    </FieldRow>
-                    <FieldRow>
-                      <FieldLabel>Parent</FieldLabel>
-                    </FieldRow>
-                    <FieldRow>
-                      <FieldLabel>Description</FieldLabel>
-                      <Input
-                        aria-label="Entity description"
-                        value={draft.basics.description}
-                        onChange={(event) =>
-                          updateBasics({ description: event.currentTarget.value })
-                        }
-                        placeholder="Optional description"
-                      />
-                    </FieldRow>
+                    {definition.basicFields !== 'identity-only' ? (
+                      <>
+                        <FieldRow>
+                          <FieldLabel>Tags</FieldLabel>
+                          <TagInput
+                            value={draft.basics.tags}
+                            onChange={(tags) => updateBasics({ tags })}
+                            suggestions={tagSuggestions}
+                            placeholder="Add tag"
+                          />
+                        </FieldRow>
+                        <FieldRow>
+                          <FieldLabel>Color</FieldLabel>
+                          <Input
+                            aria-label="Entity color"
+                            value={draft.basics.color}
+                            onChange={(event) => updateBasics({ color: event.currentTarget.value })}
+                            placeholder="#64748b or empty"
+                          />
+                        </FieldRow>
+                        <FieldRow>
+                          <FieldLabel>Parent</FieldLabel>
+                        </FieldRow>
+                        <FieldRow>
+                          <FieldLabel>Description</FieldLabel>
+                          <Input
+                            aria-label="Entity description"
+                            value={draft.basics.description}
+                            onChange={(event) =>
+                              updateBasics({ description: event.currentTarget.value })
+                            }
+                            placeholder="Optional description"
+                          />
+                        </FieldRow>
+                      </>
+                    ) : null}
                   </div>
                 </CardContent>
               </Card>

@@ -32,6 +32,7 @@ export interface NewEntityWizardTypeDefinition {
   currentScope: string;
   icon: ComponentType<{ className?: string }>;
   iconClassName: string;
+  basicFields?: 'full' | 'identity-only';
   defaultOptions?: (project: AuthoringProject) => Record<string, string | boolean | number | null>;
   renderOptions?: (props: {
     project: AuthoringProject;

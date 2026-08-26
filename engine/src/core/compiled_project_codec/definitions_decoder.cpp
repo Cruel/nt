@@ -2321,8 +2321,11 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                     std::move(common->condition), common->input_order,
                     std::move(common->highlight), std::move(*target)};
             };
-            if (kind && *kind == "sprite-alpha" &&
-                decoder.object(*hotspots_value, hotspots_pointer, {"hotspot", "kind"})) {
+            if (kind && *kind == "none" &&
+                decoder.object(*hotspots_value, hotspots_pointer, {"kind"})) {
+                hotspots = NoInteractableHotspots{};
+            } else if (kind && *kind == "sprite-alpha" &&
+                       decoder.object(*hotspots_value, hotspots_pointer, {"hotspot", "kind"})) {
                 const auto* hotspot_value =
                     decoder.member(*hotspots_value, "hotspot", hotspots_pointer);
                 auto hotspot = hotspot_value

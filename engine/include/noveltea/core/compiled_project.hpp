@@ -631,13 +631,15 @@ struct InteractableHotspotBehavior {
 struct InteractableCustomHotspot : InteractableHotspotBehavior {
     RectHotspotShape shape;
 };
+struct NoInteractableHotspots {};
 struct SpriteAlphaHotspots {
     InteractableHotspotBehavior hotspot;
 };
 struct CustomInteractableHotspots {
     std::vector<InteractableCustomHotspot> hotspots;
 };
-using InteractableHotspots = std::variant<SpriteAlphaHotspots, CustomInteractableHotspots>;
+using InteractableHotspots =
+    std::variant<NoInteractableHotspots, SpriteAlphaHotspots, CustomInteractableHotspots>;
 struct RoomPlacementPresentation {
     std::optional<TextContent> label;
     std::optional<LayoutId> layout;

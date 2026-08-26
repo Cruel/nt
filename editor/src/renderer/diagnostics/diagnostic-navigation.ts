@@ -310,6 +310,7 @@ export function resolveProjectDiagnosticTarget(
     const tab = buildInteractableDetailTabForRecord(id, recordLabel(project, 'interactables', id));
     const data = dataRecord(project, 'interactables', id);
     if (scope === 'data' && field === 'presentation' && segments[4] === 'hotspots') {
+      if (segments[5] === 'kind') return fieldTarget(tab, 'interactable.hotspot-mode');
       const hotspotContainer = data?.presentation;
       const presentation =
         typeof hotspotContainer === 'object' && hotspotContainer !== null
@@ -332,6 +333,10 @@ export function resolveProjectDiagnosticTarget(
       }
       return target(tab, 'interactable.hotspots');
     }
+    if (scope === 'data' && field === 'presentation' && segments[4] === 'sprite')
+      return fieldTarget(tab, 'interactable.sprite');
+    if (scope === 'data' && field === 'presentation' && segments[4] === 'material')
+      return fieldTarget(tab, 'interactable.material');
     return target(tab, 'interactable.summary');
   }
 

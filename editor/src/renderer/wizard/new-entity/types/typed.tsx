@@ -1,13 +1,23 @@
+import { useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
+import {
+  buildCommandPaletteItems,
+  filterSelectorItems,
+  type SelectorItem,
+} from '@/workspace/command-palette-search';
 import {
   defaultArchetypeData,
   gameplayInstanceKindValues,
+  parseArchetypeData,
   type GameplayInstanceKind,
 } from '../../../../shared/project-schema/authoring-archetypes';
 import { defaultCharacterData } from '../../../../shared/project-schema/authoring-characters';
 import { defaultInteractableData } from '../../../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../../../shared/project-schema/authoring-hotspots';
 import {
   defaultItemDefinitionData,
   defaultItemStackData,
@@ -39,7 +49,8 @@ import {
   type VariableType,
 } from '../../../../shared/project-schema/authoring-variables';
 import { visualForCollection } from '../../../workspace/collection-visuals';
-import type { NewEntityWizardTypeDefinition } from './common';
+import type { AuthoringProject } from '../../../../shared/project-schema/authoring-project';
+import type { NewEntityWizardDraft, NewEntityWizardTypeDefinition } from './common';
 import { ref, selected } from './common';
 
 function visual(collection: NewEntityWizardTypeDefinition['collection']) {
@@ -60,6 +71,158 @@ function recordOptions<T extends string>(
           {record.label || id} ({id})
         </SelectItem>
       ))}
+    </>
+  );
+}
+
+function choiceItem(id: string, title: string, subtitle: string): SelectorItem {
+  return {
+    id,
+    kind: 'record',
+    title,
+    subtitle,
+    tags: [],
+    collectionTerms: [subtitle],
+    actionTerms: [],
+  };
+}
+
+function InteractableWizardOptions({
+  project,
+  draft,
+  setOption,
+}: {
+  project: AuthoringProject;
+  draft: NewEntityWizardDraft;
+  setOption: (key: string, value: string | boolean | number | null) => void;
+}) {
+  const [archetypeOpen, setArchetypeOpen] = useState(false);
+  const [spriteOpen, setSpriteOpen] = useState(false);
+  const selectorItems = useMemo(() => buildCommandPaletteItems(project), [project]);
+  const archetypeItems = useMemo(
+    () =>
+      filterSelectorItems(selectorItems, {
+        collections: ['archetypes'],
+        includeActions: false,
+      }).filter((item) => {
+        const record = item.entityId ? project.archetypes[item.entityId] : null;
+        return record ? parseArchetypeData(record.data)?.instanceKind === 'interactable' : false;
+      }),
+    [project.archetypes, selectorItems],
+  );
+  const imageAssetItems = useMemo(
+    () =>
+      filterSelectorItems(selectorItems, {
+        collections: ['assets'],
+        assetKinds: ['image'],
+        includeActions: false,
+      }),
+    [selectorItems],
+  );
+  const archetypeId = String(draft.options.archetypeId ?? '__none__');
+  const spriteId = String(draft.options.spriteId ?? '__none__');
+  const selectedArchetype = archetypeItems.find((item) => item.entityId === archetypeId);
+  const selectedSprite = imageAssetItems.find((item) => item.entityId === spriteId);
+  const archetypeChoices = useMemo(
+    () => [choiceItem('choice:no-archetype', 'No archetype', 'Archetype'), ...archetypeItems],
+    [archetypeItems],
+  );
+  const spriteChoices = useMemo(
+    () => [
+      ...(archetypeId !== '__none__'
+        ? [choiceItem('choice:inherit-sprite', 'From archetype', 'Sprite')]
+        : []),
+      choiceItem('choice:no-sprite', 'No sprite', 'Sprite'),
+      ...imageAssetItems,
+    ],
+    [archetypeId, imageAssetItems],
+  );
+
+  const setArchetype = (nextId: string) => {
+    setOption('archetypeId', nextId);
+    if (nextId !== '__none__' && spriteId === '__none__') setOption('spriteId', '__inherit__');
+    else if (nextId === '__none__' && spriteId === '__inherit__') setOption('spriteId', '__none__');
+  };
+
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label>Archetype</Label>
+          <Button
+            type="button"
+            aria-label="Interactable archetype"
+            variant="outline"
+            className="h-auto w-full justify-start px-3 py-2 text-left"
+            onClick={() => setArchetypeOpen(true)}
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">
+                {selectedArchetype?.title ?? 'No archetype'}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {selectedArchetype?.entityId ?? `${archetypeItems.length} compatible archetypes`}
+              </span>
+            </span>
+          </Button>
+        </div>
+        <div className="space-y-1">
+          <Label>Sprite</Label>
+          <Button
+            type="button"
+            aria-label="Interactable sprite"
+            variant="outline"
+            className="h-auto w-full justify-start px-3 py-2 text-left"
+            onClick={() => setSpriteOpen(true)}
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">
+                {spriteId === '__inherit__'
+                  ? 'From archetype'
+                  : (selectedSprite?.title ?? 'No sprite')}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {spriteId === '__inherit__'
+                  ? 'Use the Archetype presentation sprite'
+                  : (selectedSprite?.entityId ?? `${imageAssetItems.length} image assets`)}
+              </span>
+            </span>
+          </Button>
+        </div>
+      </div>
+      <SearchSelectorDialog
+        open={archetypeOpen}
+        title="Choose Interactable Archetype"
+        placeholder="Search Interactable Archetypes..."
+        emptyMessage="No compatible Interactable Archetypes match your search."
+        items={archetypeChoices}
+        selectedId={selectedArchetype?.id ?? 'choice:no-archetype'}
+        onOpenChange={setArchetypeOpen}
+        onSelect={(item) =>
+          setArchetype(
+            item.id === 'choice:no-archetype' ? '__none__' : (item.entityId ?? '__none__'),
+          )
+        }
+      />
+      <SearchSelectorDialog
+        open={spriteOpen}
+        title="Choose Interactable sprite"
+        placeholder="Search image assets..."
+        emptyMessage="No image assets match your search."
+        items={spriteChoices}
+        selectedId={
+          spriteId === '__inherit__'
+            ? 'choice:inherit-sprite'
+            : (selectedSprite?.id ?? 'choice:no-sprite')
+        }
+        leadingMediaSize={{ width: 80, height: 48 }}
+        onOpenChange={setSpriteOpen}
+        onSelect={(item) => {
+          if (item.id === 'choice:inherit-sprite') setOption('spriteId', '__inherit__');
+          else if (item.id === 'choice:no-sprite') setOption('spriteId', '__none__');
+          else if (item.entityId) setOption('spriteId', item.entityId);
+        }}
+      />
     </>
   );
 }
@@ -132,10 +295,24 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     category: 'world',
     supportLevel: 'typed',
     summary: 'Unique world or inventory definitions with explicit initial state.',
-    currentScope: 'Creates an Interactable initially located nowhere, enabled, and visible.',
+    currentScope: 'Creates an Interactable from an optional Archetype and sprite.',
     ...visual('interactables'),
-    defaultOptions: () => ({}),
-    buildPayload: ({ draft }) => ({ data: defaultInteractableData(draft.basics.label) }),
+    basicFields: 'identity-only',
+    defaultOptions: () => ({ archetypeId: '__none__', spriteId: '__none__' }),
+    renderOptions: (props) => <InteractableWizardOptions {...props} />,
+    buildPayload: ({ draft }) => {
+      const data = defaultInteractableData(draft.basics.label);
+      const spriteId =
+        draft.options.spriteId === '__inherit__' ? null : selected(draft.options.spriteId);
+      if (spriteId) {
+        data.presentation.sprite = ref('assets', spriteId);
+        data.presentation.hotspots = {
+          kind: 'sprite-alpha',
+          hotspot: defaultHotspotBehavior(draft.basics.label),
+        };
+      }
+      return { data };
+    },
   },
   {
     collection: 'variables',

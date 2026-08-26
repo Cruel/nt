@@ -199,8 +199,13 @@ thead, tbody, tfoot {
       if (status) status.style.display = 'none';
     }
 
+    let latestNativeErrorDiagnostic = null;
+
     function send(message) {
       if (message && message.type === 'fps-counter' && (!previewActivityActive || !previewActivityVisible)) return;
+      if (message && message.type === 'preview-diagnostic' && message.diagnostic && message.diagnostic.severity === 'error') {
+        latestNativeErrorDiagnostic = message.diagnostic;
+      }
       if (port) port.postMessage(message);
     }
 
@@ -1097,8 +1102,20 @@ thead, tbody, tfoot {
         failCommand(message, `Could not write compiled project into preview filesystem: ${error && error.message ? error.message : String(error)}`, { category: 'compiled-project' });
         return;
       }
+      latestNativeErrorDiagnostic = null;
       const ok = Module.ccall('noveltea_runtime_load_project', 'number', ['string'], [editorCompiledProjectLogicalPath]);
       if (!ok) {
+        if (latestNativeErrorDiagnostic && typeof latestNativeErrorDiagnostic.message === 'string' && latestNativeErrorDiagnostic.message.length > 0) {
+          showFailure(latestNativeErrorDiagnostic.message);
+          send({
+            version: protocolVersion,
+            type: 'command-result',
+            requestId: message.requestId,
+            ok: false,
+            error: latestNativeErrorDiagnostic.message,
+          });
+          return;
+        }
         failCommand(message, 'Compiled project failed to load. Check compiler diagnostics and engine logs.', { category: 'compiled-project' });
         return;
       }

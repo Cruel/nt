@@ -1072,6 +1072,34 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
                        "compiled_project.hotspot_source_image_required"));
     }
 
+    SECTION("Interactable hotspot mode none accepts a missing sprite")
+    {
+        auto document = fixture("interaction-program");
+        auto* key =
+            test_support::json_object_by_id(document["definitions"]["interactables"], "key");
+        REQUIRE(key != nullptr);
+        (*key)["presentation"]["sprite"] = nullptr;
+        (*key)["presentation"]["hotspots"] = nlohmann::json{{"kind", "none"}};
+
+        auto result = noveltea::core::decode_compiled_project(document, "hotspot-none.json");
+        REQUIRE(result);
+    }
+
+    SECTION("Interactable sprites remain image-only when hotspot mode is none")
+    {
+        auto document = fixture("interaction-program");
+        auto* key =
+            test_support::json_object_by_id(document["definitions"]["interactables"], "key");
+        REQUIRE(key != nullptr);
+        (*key)["presentation"]["hotspots"] = nlohmann::json{{"kind", "none"}};
+        (*key)["presentation"]["sprite"] = nlohmann::json{{"id", "audio-voice"}, {"kind", "asset"}};
+
+        auto result = noveltea::core::decode_compiled_project(
+            document, "interactable-none-audio-sprite.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_asset_kind"));
+    }
+
     SECTION("exact Feature selectors require existing owner-qualified Features")
     {
         auto missing = fixture("interaction-program");

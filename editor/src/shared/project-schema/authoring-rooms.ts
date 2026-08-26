@@ -19,6 +19,8 @@ import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, roomHotspotTargetSchema } from './authoring-features';
 import { parseCharacterData } from './authoring-characters';
+import { parseInteractableData } from './authoring-interactables';
+import { resolveGameplayInstanceRecord } from './authoring-archetypes';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -579,11 +581,25 @@ export function validateRoomData(
   });
   data.interactables.forEach((entry, index) => {
     const path = `${base}/interactables/${index}`;
-    if (!project.interactables[entry.interactable.$ref.id])
+    const interactableRecord = project.interactables[entry.interactable.$ref.id];
+    const effectiveRecord = interactableRecord
+      ? resolveGameplayInstanceRecord(project, 'interactable', interactableRecord)
+      : null;
+    const interactable = effectiveRecord ? parseInteractableData(effectiveRecord.data) : null;
+    if (!interactableRecord)
       diagnostics.push(
         diagnostic(
           `${path}/interactable/$ref`,
           `Missing Interactable definition '${entry.interactable.$ref.id}'.`,
+        ),
+      );
+    else if (entry.visible && interactable && !interactable.presentation.sprite)
+      diagnostics.push(
+        diagnostic(
+          `${path}/interactable/$ref`,
+          `Visible Interactable '${entry.interactable.$ref.id}' has no sprite and will not render.`,
+          'warning',
+          'room.interactable.sprite-missing',
         ),
       );
     if (!placements.has(entry.placementId))

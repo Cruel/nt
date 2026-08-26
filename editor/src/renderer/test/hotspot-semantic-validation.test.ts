@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -44,7 +45,11 @@ function hotspotShader() {
 }
 
 function primaryHotspot(item: ReturnType<typeof defaultInteractableData>) {
-  if (item.presentation.hotspots.kind !== 'sprite-alpha') throw new Error('Expected sprite alpha');
+  if (item.presentation.hotspots.kind !== 'sprite-alpha')
+    item.presentation.hotspots = {
+      kind: 'sprite-alpha',
+      hotspot: defaultHotspotBehavior(item.displayName),
+    };
   return item.presentation.hotspots.hotspot;
 }
 

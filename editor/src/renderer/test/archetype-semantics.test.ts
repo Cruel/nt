@@ -412,6 +412,8 @@ describe('Archetype authoring semantics', () => {
 
     addArchetype(project, 'prop-base', 'interactable', {
       overrides: {
+        '/traits': ['template-trait'],
+        '/properties/template-flag': true,
         '/data/presentation/hotspots': {
           kind: 'sprite-alpha',
           hotspot: {
@@ -438,8 +440,14 @@ describe('Archetype authoring semantics', () => {
     expect(mode.diagnostics).toBeUndefined();
     project = parsedProject(applyJsonPatch(toJsonValue(project), mode.patches).document);
     expect(
-      resolveGameplayInstanceRecord(project, 'interactable', project.interactables.prop!)?.data,
-    ).toMatchObject({ presentation: { hotspots: { kind: 'custom', hotspots: [] } } });
+      resolveGameplayInstanceRecord(project, 'interactable', project.interactables.prop!),
+    ).toMatchObject({
+      traits: ['template-trait'],
+      properties: { 'template-flag': true },
+      data: { presentation: { hotspots: { kind: 'custom', hotspots: [] } } },
+    });
+    expect(project.interactables.prop!.archetypeOverrides).not.toHaveProperty('/traits');
+    expect(project.interactables.prop!.archetypeOverrides).not.toHaveProperty('/properties');
     expect(resolveArchetypeConfiguration(project, 'prop-base')?.data).toMatchObject({
       presentation: { hotspots: { kind: 'sprite-alpha' } },
     });

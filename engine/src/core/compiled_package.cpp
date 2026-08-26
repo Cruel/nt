@@ -94,7 +94,7 @@ void collect_hotspot_material_ids(const CompiledProject& project,
                 using T = std::decay_t<decltype(definitions)>;
                 if constexpr (std::is_same_v<T, compiled::SpriteAlphaHotspots>)
                     add(definitions.hotspot.highlight);
-                else
+                else if constexpr (std::is_same_v<T, compiled::CustomInteractableHotspots>)
                     for (const auto& hotspot : definitions.hotspots)
                         add(hotspot.highlight);
             },
@@ -125,7 +125,7 @@ collect_hotspot_material_usage(const CompiledProject& project)
                 using T = std::decay_t<decltype(definitions)>;
                 if constexpr (std::is_same_v<T, compiled::SpriteAlphaHotspots>)
                     add(definitions.hotspot.highlight, true);
-                else
+                else if constexpr (std::is_same_v<T, compiled::CustomInteractableHotspots>)
                     for (const auto& hotspot : definitions.hotspots)
                         add(hotspot.highlight, false);
             },

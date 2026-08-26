@@ -199,6 +199,34 @@ function compileInteractableHotspotTarget(target: InteractableHotspotTarget) {
   return { kind: 'subject' as const, subject: compileInteractionSubject(target.subject) };
 }
 
+function compileInteractableHotspots(
+  definition: InteractableData['presentation']['hotspots'],
+): SharedInteractableDefinition['presentation']['hotspots'] {
+  if (definition.kind === 'none') return { kind: 'none' };
+  if (definition.kind === 'sprite-alpha')
+    return {
+      kind: 'sprite-alpha',
+      hotspot: {
+        ...definition.hotspot,
+        condition: compileCondition(definition.hotspot.condition),
+        highlight: compileHighlight(definition.hotspot.highlight),
+        target: compileInteractableHotspotTarget(definition.hotspot.target),
+      },
+    };
+  return {
+    kind: 'custom',
+    hotspots: definition.hotspots.map((hotspot) => ({
+      id: hotspot.id,
+      label: hotspot.label,
+      condition: compileCondition(hotspot.condition),
+      inputOrder: hotspot.inputOrder,
+      highlight: compileHighlight(hotspot.highlight),
+      target: compileInteractableHotspotTarget(hotspot.target),
+      shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
+    })),
+  };
+}
+
 function materialRef(ref: { $ref: { id: string } } | null | undefined) {
   return ref ? { kind: 'material' as const, id: ref.$ref.id } : null;
 }
@@ -758,7 +786,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       `/interactables/${id}/data`,
     );
     if (!data || !effectiveRecord) continue;
-    const hotspotDefinition = data.presentation.hotspots!;
     interactables.push({
       ...propertyBase(id, effectiveRecord),
       displayName: data.displayName,
@@ -767,29 +794,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       presentation: {
         sprite: assetRef(data.presentation.sprite),
         material: materialRef(data.presentation.material),
-        hotspots:
-          hotspotDefinition.kind === 'sprite-alpha'
-            ? {
-                kind: 'sprite-alpha',
-                hotspot: {
-                  ...hotspotDefinition.hotspot,
-                  condition: compileCondition(hotspotDefinition.hotspot.condition),
-                  highlight: compileHighlight(hotspotDefinition.hotspot.highlight),
-                  target: compileInteractableHotspotTarget(hotspotDefinition.hotspot.target),
-                },
-              }
-            : {
-                kind: 'custom',
-                hotspots: hotspotDefinition.hotspots.map((hotspot) => ({
-                  id: hotspot.id,
-                  label: hotspot.label,
-                  condition: compileCondition(hotspot.condition),
-                  inputOrder: hotspot.inputOrder,
-                  highlight: compileHighlight(hotspot.highlight),
-                  target: compileInteractableHotspotTarget(hotspot.target),
-                  shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
-                })),
-              },
+        hotspots: compileInteractableHotspots(data.presentation.hotspots),
       },
       initialState: {
         enabled: data.initialState.enabled,
@@ -1249,7 +1254,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       };
       const data = requireData(parseInteractableData(raw), `/archetypes/${id}/data`);
       if (!data) continue;
-      const hotspotDefinition = data.presentation.hotspots!;
       archetypes.push({
         id,
         instanceKind: 'interactable',
@@ -1262,29 +1266,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           presentation: {
             sprite: assetRef(data.presentation.sprite),
             material: materialRef(data.presentation.material),
-            hotspots:
-              hotspotDefinition.kind === 'sprite-alpha'
-                ? {
-                    kind: 'sprite-alpha',
-                    hotspot: {
-                      ...hotspotDefinition.hotspot,
-                      condition: compileCondition(hotspotDefinition.hotspot.condition),
-                      highlight: compileHighlight(hotspotDefinition.hotspot.highlight),
-                      target: compileInteractableHotspotTarget(hotspotDefinition.hotspot.target),
-                    },
-                  }
-                : {
-                    kind: 'custom',
-                    hotspots: hotspotDefinition.hotspots.map((hotspot) => ({
-                      id: hotspot.id,
-                      label: hotspot.label,
-                      condition: compileCondition(hotspot.condition),
-                      inputOrder: hotspot.inputOrder,
-                      highlight: compileHighlight(hotspot.highlight),
-                      target: compileInteractableHotspotTarget(hotspot.target),
-                      shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
-                    })),
-                  },
+            hotspots: compileInteractableHotspots(data.presentation.hotspots),
           },
         },
       });
