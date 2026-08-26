@@ -1246,10 +1246,46 @@ TEST_CASE("GameHost rolls back when initial predecessor realization fails")
     auto project_assets = std::make_shared<assets::MemoryAssetSource>();
     auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
     REQUIRE_FALSE(project.is_discarded());
-    project["settings"]["roomNavigationTransition"] = {
-        {"kind", "fade"}, {"durationMs", 250}, {"color", "#000000"}, {"skippable", true}};
+    const auto baseline_fixture = project.dump();
+    project["definitions"]["scenes"].push_back(
+        {{"displayName", "Startup Transition"},
+         {"id", "startup-transition"},
+         {"inputs", nlohmann::json::array()},
+         {"outcomes", nlohmann::json::array()},
+         {"program",
+          {{"events",
+            nlohmann::json::array(
+                {{{"completionDependencies", nlohmann::json::array()},
+                  {"id", "startup-fade"},
+                  {"instruction",
+                   {{"children", nlohmann::json::array({{{"asset", nullptr},
+                                                         {"color", "#000000"},
+                                                         {"fit", "cover"},
+                                                         {"id", "startup-background"},
+                                                         {"kind", "set-background"},
+                                                         {"material", nullptr}}})},
+                    {"color", "#000000"},
+                    {"durationMs", 250},
+                    {"id", "startup-fade"},
+                    {"kind", "transition-group"},
+                    {"owner", "invocation"},
+                    {"skippable", true},
+                    {"transitionKind", "fade"},
+                    {"waitForCompletion", true}}},
+                  {"timeline", {{"durationMs", 0}, {"startMs", 0}, {"trackId", "main"}}}}})}}},
+         {"stage",
+          {{"background",
+            {{"asset", nullptr}, {"color", "#101010"}, {"fit", "cover"}, {"material", nullptr}}},
+           {"kind", "blank"},
+           {"layout", nullptr}}},
+         {"terminal", {{"kind", "complete-game"}}}});
+    project["entrypoint"] = {{"kind", "scene"},
+                             {"scene", {{"id", "startup-transition"}, {"kind", "scene"}}}};
     const auto fixture = project.dump();
-    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+    project_assets->add("minimal.json",
+                        assets::AssetBytes(baseline_fixture.begin(), baseline_fixture.end()),
+                        "game-host-predecessor-rollback-baseline-test");
+    project_assets->add("candidate.json", assets::AssetBytes(fixture.begin(), fixture.end()),
                         "game-host-predecessor-rollback-test");
     assets.mount("project", project_assets);
 
@@ -1312,7 +1348,7 @@ TEST_CASE("GameHost rolls back when initial predecessor realization fails")
             return host.runtime_presentation().bind_snapshot_backend({});
         };
 
-        auto loaded = host.load_compiled_project({.logical_path = "project:/minimal.json",
+        auto loaded = host.load_compiled_project({.logical_path = "project:/candidate.json",
                                                   .runtime_locale = "en",
                                                   .load_title_screen = false,
                                                   .stop_runtime_after_load = false},
@@ -1344,7 +1380,7 @@ TEST_CASE("GameHost rolls back when initial predecessor realization fails")
             return host.runtime_presentation().bind_snapshot_backend({});
         };
 
-        auto loaded = host.load_compiled_project({.logical_path = "project:/minimal.json",
+        auto loaded = host.load_compiled_project({.logical_path = "project:/candidate.json",
                                                   .runtime_locale = "en",
                                                   .load_title_screen = false,
                                                   .stop_runtime_after_load = false},
