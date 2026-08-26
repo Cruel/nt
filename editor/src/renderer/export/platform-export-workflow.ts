@@ -1,6 +1,7 @@
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useProjectStore } from '@/project/project-store';
+import { buildRecoveryFileOwnershipHints } from '@/project/project-save-request';
 import {
   buildEditorProjectStateSnapshot,
   setLoadedEditorProjectState,
@@ -114,12 +115,7 @@ async function recordSuccessfulExportIdentity(
 ) {
   const projectState = useProjectStore.getState();
   const liveProject = projectState.document as AuthoringProject | null;
-  if (
-    !liveProject ||
-    !projectState.projectFilePath ||
-    !projectState.projectSessionId ||
-    !projectState.workspaceRevision
-  ) {
+  if (!liveProject || !projectState.projectFilePath || !projectState.projectSessionId) {
     return createPlatformExportValidationDiagnostic({
       code: 'platform-export.identity-history.project-file-required',
       severity: 'error',
@@ -150,9 +146,13 @@ async function recordSuccessfulExportIdentity(
   );
   const result = await window.noveltea.saveProjectEditorMetadata(
     projectState.projectSessionId,
-    projectState.workspaceRevision,
     editorState,
-    { ...projectState.fileRevisions },
+    buildRecoveryFileOwnershipHints({
+      recovery: editorState.recovery,
+      baselineDocument: projectState.savedDocument!,
+      candidateDocument: projectState.document!,
+      baselineScriptSourcePaths: projectState.scriptSourcePaths,
+    }),
   );
   if (!result.success) {
     return createPlatformExportValidationDiagnostic({
@@ -164,13 +164,8 @@ async function recordSuccessfulExportIdentity(
       ownerPaths: ['/editor/lastSuccessfulPlatformExportIdentity'],
     });
   }
-  const persisted = editorState;
+  const persisted = result.editorState ?? editorState;
   setLoadedEditorProjectState(persisted);
-  useProjectStore.getState().refreshWorkspaceMetadata({
-    workspaceRevision: result.workspaceRevision ?? projectState.workspaceRevision,
-    fileRevisions: result.fileRevisions ?? projectState.fileRevisions,
-    scriptSourcePaths: projectState.scriptSourcePaths,
-  });
   useProjectStore.getState().markEditorMetadataPersisted(persisted);
   return null;
 }

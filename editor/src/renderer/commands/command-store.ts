@@ -186,6 +186,13 @@ function scheduleStructuralPersistence(
         const diagnostics = commandDiagnostics(result.diagnostics);
         const state = useCommandStore.getState();
         if (result.status === 'persisted') {
+          const project = useProjectStore.getState();
+          if (isAuthoringDependencyGraphServiceStarted() && project.projectInstanceId !== null) {
+            await authoringDependencyGraphService.waitForCurrentSnapshot(
+              project.projectInstanceId,
+              project.projectRevision,
+            );
+          }
           useCommandStore.setState({ persistencePending: false, lastDiagnostics: diagnostics });
           dispatchPersistenceResult(entry.id, result);
           return;

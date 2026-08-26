@@ -32,7 +32,6 @@ function reconcile(
     localDocument,
     externalDocument,
     recovery: recoveryState,
-    externalWorkspaceRevision: externalRevision,
     externalFileRevisions: { 'records/rooms/hall.json': externalRevision },
   });
 }
@@ -86,7 +85,9 @@ describe('external project reconciliation', () => {
       exists: true,
       value: 'Disk',
     });
-    expect(conflict?.externalWorkspaceRevision).toBe(REVISION);
+    expect(conflict?.externalFileRevisions).toEqual({
+      'records/rooms/hall.json': REVISION,
+    });
   });
 
   it('detects conflicts in tracked editor.json organization state', () => {
@@ -198,6 +199,8 @@ describe('external project reconciliation', () => {
       exists: true,
       value: 'Disk 2',
     });
-    expect(conflict?.externalWorkspaceRevision).toBe(newerRevision);
+    expect(conflict?.externalFileRevisions).toEqual({
+      'records/rooms/hall.json': newerRevision,
+    });
   });
 });

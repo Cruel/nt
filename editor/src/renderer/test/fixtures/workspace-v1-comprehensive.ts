@@ -21,10 +21,7 @@ export function finalWorkspaceV1SourceTreeFixture(): Readonly<Record<string, str
     ...tracked,
     'AGENTS.md': NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
     '.gitignore': '/.noveltea/\n/dist/\n',
-    '.noveltea/editor/state.json': projectWorkspaceLocalStateFile(
-      project.editor,
-      `sha256:${'0'.repeat(64)}`,
-    ),
+    '.noveltea/editor/state.json': projectWorkspaceLocalStateFile(project.editor),
   };
 
   for (const record of Object.values(project.assets)) {

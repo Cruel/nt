@@ -69,13 +69,16 @@ tracked organization fields. On open, `ProjectWorkspaceService` composes those i
 tracked `editor.json` chapters/tags/recordMetadata into the internal `AuthoringProject.editor` state;
 callers that need project content receive the complete composed editor state separately from the
 editor-free content projection. Missing, corrupt, or unsupported local state is discarded; it cannot
-repair tracked source. Its `workspaceRevision` is the tracked source baseline against which recovery
-was produced, not an input to aggregate workspace identity. If the marker differs from the current
-workspace on reopen, recovered values remain visible but are marked conflicted until Use Disk or Keep
-Mine resolves them. Local-state writes neither rewrite tracked `editor.json` nor adopt tracked-file
-revisions that the watcher has not reconciled. Tracked organization and ignored local/session state
-are persisted independently, and ignored local/session changes do not change in-memory or on-disk
-workspace identity.
+repair tracked source. Recovery is scoped per logical save unit: each dirty recovery entry stores only
+the exact physical baseline revisions for files that unit depends on. There is no root
+`workspaceRevision` in local editor state. On reopen, NovelTea checks only those recovery-dependent
+files; a changed dependency reopens that unit as conflicted until Use Disk or Keep Mine resolves it,
+while unrelated tracked-source changes do not invalidate the recovery entry. When one successful save
+changes a physical file shared by another dirty logical owner, the remaining recovery entry advances
+to the newly committed exact revision before local state is persisted. Local-state writes neither
+rewrite tracked `editor.json` nor adopt tracked-file revisions that the active workspace session has
+not reconciled. Tracked organization and ignored local/session state are persisted independently, and
+ignored local/session changes do not change in-memory or on-disk workspace identity.
 
 New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. Editor and
 CLI creation use one transactional service: it stages and validates the complete workspace before

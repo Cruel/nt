@@ -5,7 +5,7 @@ import {
   parseJsonPointer,
   type JsonPointer,
 } from './json-pointer';
-import { cloneJsonValue, jsonValuesEqual, toJsonValue, type JsonValue } from './json-value';
+import { cloneJsonValue, jsonValuesEqual, type JsonValue } from './json-value';
 import { rebaseRecoveryOverlays } from './project-recovery-rebase';
 import {
   externalConflictDiagnostic,
@@ -34,8 +34,14 @@ import {
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import type { SaveUnitId } from './save-unit-types';
+import { recordSaveUnitId } from './save-unit-registry';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetTrashMove } from '../../shared/project-asset-audit';
+import {
+  applyProjectMutationValues,
+  buildProjectContentSaveRequest,
+  buildRecoveryFileOwnershipHints,
+} from './project-save-request';
 
 export type UnsafeRebasePolicy = 'reject-command' | 'convert-to-manual-save';
 export type AutoCommitPersistenceTarget = 'project-content' | 'editor-metadata';
@@ -75,6 +81,8 @@ export interface AutoCommitPlan {
   affectedPaths: JsonPointer[];
   identityRemap: AutoCommitIdentityRemap[];
   filesystemOperations: AutoCommitFilesystemOperation[];
+  discardRecoverySaveUnitIds: SaveUnitId[];
+  allowNewAuthoringErrors: boolean;
   unsafeRebasePolicy: UnsafeRebasePolicy;
 }
 
@@ -274,6 +282,30 @@ function assetImportFilesystemPlan(payload: unknown): AutoCommitFilesystemOperat
   ];
 }
 
+function discardedRecoverySaveUnits(commandType: string, payload: unknown): SaveUnitId[] {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
+  const value = payload as Record<string, unknown>;
+  if (commandType === 'entity.deleteRecord') {
+    const collection = typeof value.collection === 'string' ? value.collection : null;
+    const entityId = typeof value.entityId === 'string' ? value.entityId : null;
+    return collection && entityId ? [recordSaveUnitId(collection, entityId)] : [];
+  }
+  if (commandType === 'asset.deleteAsset') {
+    const assetId = typeof value.assetId === 'string' ? value.assetId : null;
+    return assetId ? [recordSaveUnitId('assets', assetId)] : [];
+  }
+  return [];
+}
+
+function allowsNewAuthoringErrors(commandType: string, payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  const value = payload as Record<string, unknown>;
+  return (
+    (commandType === 'entity.deleteRecord' || commandType === 'asset.deleteAsset') &&
+    value.force === true
+  );
+}
+
 export function buildAutoCommitPlan(input: AutoCommitPlanBuildInput): AutoCommitPlanBuildResult {
   const rule = ruleFor(input.commandType, input.originSaveUnitId);
   if (!rule) {
@@ -356,6 +388,8 @@ export function buildAutoCommitPlan(input: AutoCommitPlanBuildInput): AutoCommit
       affectedPaths: uniqueSorted(input.affectedPaths),
       identityRemap,
       filesystemOperations,
+      discardRecoverySaveUnitIds: discardedRecoverySaveUnits(input.commandType, input.payload),
+      allowNewAuthoringErrors: allowsNewAuthoringErrors(input.commandType, input.payload),
       unsafeRebasePolicy: rule.unsafeRebasePolicy,
     },
   };
@@ -440,7 +474,11 @@ function newAuthoringErrors(
   );
 }
 
-function unsafeRecoveryUnits(recovery: EditorRecoveryState, plan: AutoCommitPlan): SaveUnitId[] {
+function unsafeRecoveryUnits(
+  recovery: EditorRecoveryState,
+  plan: AutoCommitPlan,
+  discardedSaveUnitIds: ReadonlySet<SaveUnitId>,
+): SaveUnitId[] {
   const remappedSafeIds = new Set(
     plan.identityRemap
       .flatMap((remap) => [remap.fromSaveUnitId, remap.toSaveUnitId])
@@ -448,7 +486,12 @@ function unsafeRecoveryUnits(recovery: EditorRecoveryState, plan: AutoCommitPlan
   );
   return Object.entries(recovery.saveUnitsById)
     .filter(([saveUnitId, entry]) => {
-      if (saveUnitId === plan.originSaveUnitId || remappedSafeIds.has(saveUnitId)) return false;
+      if (
+        saveUnitId === plan.originSaveUnitId ||
+        remappedSafeIds.has(saveUnitId) ||
+        discardedSaveUnitIds.has(saveUnitId)
+      )
+        return false;
       return entry.affectedPaths.some((dirtyPath) =>
         plan.affectedPaths.some((structuralPath) => pathOverlaps(dirtyPath, structuralPath)),
       );
@@ -555,8 +598,7 @@ export async function persistAutoCommitPlan(
     !projectState.document ||
     !projectState.savedDocument ||
     !projectState.projectFilePath ||
-    !projectState.projectSessionId ||
-    !projectState.workspaceRevision
+    !projectState.projectSessionId
   ) {
     return {
       status:
@@ -568,7 +610,10 @@ export async function persistAutoCommitPlan(
   }
   const snapshot = buildEditorProjectStateSnapshot();
   const remappedRecovery = remapRecoveryForAutoCommit(snapshot.recovery, plan.identityRemap);
-  const unsafeUnits = unsafeRecoveryUnits(remappedRecovery, plan);
+  const discardedRecoverySaveUnitIds = new Set<SaveUnitId>(
+    direction === 'undo' ? [] : plan.discardRecoverySaveUnitIds,
+  );
+  const unsafeUnits = unsafeRecoveryUnits(remappedRecovery, plan, discardedRecoverySaveUnitIds);
   if (unsafeUnits.length > 0) {
     const diagnostic = createProjectValidationDiagnostic({
       code: 'editor.auto-commit.unsafe-rebase',
@@ -592,9 +637,13 @@ export async function persistAutoCommitPlan(
     const editorState: EditorProjectState = { ...snapshot, recovery: remappedRecovery };
     const response = await window.noveltea.saveProjectEditorMetadata(
       projectState.projectSessionId,
-      projectState.workspaceRevision,
       editorState,
-      { ...projectState.fileRevisions },
+      buildRecoveryFileOwnershipHints({
+        recovery: remappedRecovery,
+        baselineDocument: projectState.savedDocument,
+        candidateDocument: projectState.document,
+        baselineScriptSourcePaths: projectState.scriptSourcePaths,
+      }),
     );
     if (!response.success) {
       return {
@@ -605,13 +654,8 @@ export async function persistAutoCommitPlan(
             : [],
       };
     }
-    const persisted = editorState;
+    const persisted = response.editorState ?? editorState;
     setLoadedEditorProjectState(persisted);
-    useProjectStore.getState().refreshWorkspaceMetadata({
-      workspaceRevision: response.workspaceRevision ?? projectState.workspaceRevision,
-      fileRevisions: response.fileRevisions ?? projectState.fileRevisions,
-      scriptSourcePaths: projectState.scriptSourcePaths,
-    });
     useProjectStore.getState().markEditorMetadataPersisted(persisted);
     return { status: 'persisted', diagnostics: [] };
   }
@@ -638,7 +682,7 @@ export async function persistAutoCommitPlan(
     };
   }
   const candidateErrors = newAuthoringErrors(baselineContent, candidateContent);
-  if (candidateErrors.length > 0) {
+  if (candidateErrors.length > 0 && !plan.allowNewAuthoringErrors) {
     return {
       status:
         direction === 'forward' && plan.unsafeRebasePolicy === 'convert-to-manual-save'
@@ -652,7 +696,7 @@ export async function persistAutoCommitPlan(
     remappedRecovery,
     candidateContent,
     projectState.document,
-    new Set([plan.originSaveUnitId]),
+    new Set([plan.originSaveUnitId, ...discardedRecoverySaveUnitIds]),
   );
   const editorState = editorStateForContentCandidate(snapshot, candidateContent, rebasedRecovery);
   const scriptSourcePaths = { ...projectState.scriptSourcePaths };
@@ -665,18 +709,20 @@ export async function persistAutoCommitPlan(
   }
   const response = await window.noveltea.saveProjectContent(
     projectState.projectSessionId,
-    projectState.workspaceRevision,
-    candidateContent,
-    editorState,
-    scriptSourcePaths,
-    {
-      expectedFileRevisions: { ...projectState.fileRevisions },
+    buildProjectContentSaveRequest({
+      baselineDocument: projectState.savedDocument,
+      candidateDocument: candidateContent,
+      recovery: rebasedRecovery,
+      saveUnitIds: [plan.originSaveUnitId],
+      affectedPaths: plan.affectedPaths,
       operationLabel: `${plan.commandType}:${direction}`,
+      identityRemap: plan.identityRemap.map(({ fromPath, toPath }) => ({ fromPath, toPath })),
       structural: true,
-      baselineProject: projectState.savedDocument,
-      affectedPaths: [...plan.affectedPaths],
       assetTransition: assetTransitionFor(commandId, plan, direction),
-    },
+      baselineScriptSourcePaths: projectState.scriptSourcePaths,
+      candidateScriptSourcePaths: scriptSourcePaths,
+    }),
+    editorState,
   );
   if (!response.success) {
     const cleanupDiagnostics =
@@ -698,20 +744,20 @@ export async function persistAutoCommitPlan(
   if (response.assetTrashMoves && response.assetTrashMoves.length > 0)
     filesystemStateByCommandId.set(commandId, response.assetTrashMoves);
   const authoritativeEditorState = response.editorState ?? editorState;
+  const authoritativeContent = response.externalValueByPath
+    ? applyProjectMutationValues(candidateContent, response.externalValueByPath)
+    : candidateContent;
   const authoritativeDiskDocument = mergeEditorProjectState(
-    response.contentProject ? toJsonValue(response.contentProject) : candidateContent,
+    authoritativeContent,
     authoritativeEditorState,
   );
-  const authoritativeWorkspaceRevision = (response.workspaceRevision ??
-    projectState.workspaceRevision) as `sha256:${string}`;
-  const authoritativeFileRevisions = response.fileRevisions ?? projectState.fileRevisions;
+  const authoritativeFileRevisions = response.fileRevisions ?? {};
   const authoritativeScriptSourcePaths = response.scriptSourcePaths ?? scriptSourcePaths;
   const postSave = reconcileExternalProjectChange({
     baseDocument: projectState.savedDocument,
     localDocument: projectState.document,
     externalDocument: authoritativeDiskDocument,
-    recovery: rebasedRecovery,
-    externalWorkspaceRevision: authoritativeWorkspaceRevision,
+    recovery: authoritativeEditorState.recovery,
     externalFileRevisions: authoritativeFileRevisions,
   });
   const workingEditorState = editorStateForContentCandidate(
@@ -735,8 +781,6 @@ export async function persistAutoCommitPlan(
       !useProjectStore.getState().publishExternalReconciliation({
         document: workingDocument,
         savedDocument,
-        workspaceRevision: authoritativeWorkspaceRevision,
-        fileRevisions: authoritativeFileRevisions,
         scriptSourcePaths: authoritativeScriptSourcePaths,
         affectedPaths: postSave.externalChangedPaths,
       })
@@ -761,8 +805,6 @@ export async function persistAutoCommitPlan(
       document: savedDocument,
       projectPath: response.projectPath,
       projectFilePath: response.projectFilePath,
-      workspaceRevision: authoritativeWorkspaceRevision,
-      fileRevisions: authoritativeFileRevisions,
       scriptSourcePaths: authoritativeScriptSourcePaths,
     });
   }

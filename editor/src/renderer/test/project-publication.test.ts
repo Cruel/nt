@@ -74,8 +74,6 @@ describe('authoritative project publication', () => {
         savedDocument: { rooms: { foyer: { label: 'Foyer' } } },
         projectPath: '/mock',
         projectFilePath: '/mock/project.json',
-        workspaceRevision: `sha256:${'0'.repeat(64)}`,
-        fileRevisions: {},
       }),
     ).toBe(true);
     const before = useProjectStore.getState();
@@ -84,8 +82,6 @@ describe('authoritative project publication', () => {
       before.publishExternalReconciliation({
         document: { rooms: { hall: { label: 'Hall' } } },
         savedDocument: { rooms: { hall: { label: 'Hall' } } },
-        workspaceRevision: `sha256:${'1'.repeat(64)}`,
-        fileRevisions: {},
         scriptSourcePaths: {},
         affectedPaths: ['/rooms/foyer', '/rooms/hall'],
       }),
@@ -98,7 +94,7 @@ describe('authoritative project publication', () => {
     expect(published.lastMutationPublication).toMatchObject({
       previousProject: before.admittedProject,
       changeSet: {
-        kind: 'replace',
+        kind: 'external',
         affectedPaths: ['/rooms/foyer', '/rooms/hall'],
       },
     });

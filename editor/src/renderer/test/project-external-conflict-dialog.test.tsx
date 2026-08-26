@@ -16,7 +16,6 @@ describe('ProjectExternalConflictDialog', () => {
           localValueByPath: { '/rooms/hall/label': { exists: true, value: 'Local Hall' } },
           externalValueByPath: { '/rooms/hall/label': { exists: true, value: 'Disk Hall' } },
           conflictingPaths: ['/rooms/hall/label'],
-          externalWorkspaceRevision: revision,
           externalFileRevisions: { 'records/rooms/hall.json': revision },
         }}
         onUseDisk={onUseDisk}

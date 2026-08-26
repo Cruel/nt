@@ -175,7 +175,6 @@ beforeEach(() => {
 describe('WorkspacePage new project modal', () => {
   it('routes asset-only watcher events to asset audit without republishing authoring state', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
-    const initialRevision = `sha256:${'a'.repeat(64)}` as `sha256:${string}`;
     const assetRevision = `sha256:${'b'.repeat(64)}` as `sha256:${string}`;
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -183,7 +182,6 @@ describe('WorkspacePage new project modal', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
       projectSessionId: 'opened-project-session',
-      workspaceRevision: initialRevision,
     });
     useWorkspaceStore.setState({
       project,
@@ -200,6 +198,7 @@ describe('WorkspacePage new project modal', () => {
     vi.mocked(window.noveltea.auditProjectAssets).mockClear();
     const beforeDocument = useProjectStore.getState().document;
     const beforeSavedDocument = useProjectStore.getState().savedDocument;
+    const beforeProjectRevision = useProjectStore.getState().projectRevision;
     const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
     expect(callback).toBeDefined();
 
@@ -209,23 +208,14 @@ describe('WorkspacePage new project modal', () => {
         changedPaths: ['assets/images/logo.png'],
         authoringChangedPaths: [],
         assetChangedPaths: ['assets/images/logo.png'],
-        candidate: {
-          success: true,
-          diagnostics: [],
-          contentProject: stripEditorProjectState(project),
-          savedContentProject: stripEditorProjectState(project),
-          editorState: emptyEditorProjectState(),
-          workspaceRevision: assetRevision,
-          fileRevisions: { 'assets/images/logo.png': assetRevision },
-          scriptSourcePaths: {},
-        },
+        assetFileRevisions: { 'assets/images/logo.png': assetRevision },
       });
     });
 
     await waitFor(() => expect(window.noveltea.auditProjectAssets).toHaveBeenCalledTimes(1));
     expect(useProjectStore.getState().document).toBe(beforeDocument);
     expect(useProjectStore.getState().savedDocument).toBe(beforeSavedDocument);
-    expect(useProjectStore.getState().workspaceRevision).toBe(assetRevision);
+    expect(useProjectStore.getState().projectRevision).toBe(beforeProjectRevision);
     expect(useWorkspaceStore.getState().statusMessage).not.toBe(
       'Reloaded external project changes',
     );
@@ -233,14 +223,12 @@ describe('WorkspacePage new project modal', () => {
 
   it('surfaces a missing tracked asset without republishing or clearing the authoring project', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
-    const revision = `sha256:${'a'.repeat(64)}` as `sha256:${string}`;
     useProjectStore.getState().loadProjectDocument({
       document: project,
       savedDocument: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
       projectSessionId: 'opened-project-session',
-      workspaceRevision: revision,
     });
     useWorkspaceStore.setState({
       project,
@@ -264,20 +252,18 @@ describe('WorkspacePage new project modal', () => {
         changedPaths: ['assets/images/missing.png'],
         authoringChangedPaths: [],
         assetChangedPaths: ['assets/images/missing.png'],
-        candidate: {
-          success: false,
-          diagnostics: [
-            {
-              code: 'workspace.source.missing',
-              severity: 'error',
-              category: 'Project workspace',
-              path: '/assets/images/missing.png',
-              message: "Authoritative source file 'assets/images/missing.png' is missing.",
-              boundaries: ['authoring'],
-              ownerPaths: ['/assets/images/missing.png'],
-            },
-          ],
-        },
+        assetFileRevisions: { 'assets/images/missing.png': 'absent' },
+        assetDiagnostics: [
+          {
+            code: 'workspace.asset-source.missing',
+            severity: 'error',
+            category: 'Asset source',
+            path: '/assets/images/missing.png',
+            message: "Referenced asset source 'assets/images/missing.png' is missing.",
+            boundaries: ['authoring'],
+            ownerPaths: ['/assets/images/missing.png'],
+          },
+        ],
       });
     });
 
@@ -307,8 +293,6 @@ describe('WorkspacePage new project modal', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
       projectSessionId: 'opened-project-session',
-      workspaceRevision: revision,
-      fileRevisions: { 'records/rooms/hall.json': revision },
     });
     useWorkspaceStore.setState({
       project,
@@ -331,7 +315,7 @@ describe('WorkspacePage new project modal', () => {
         changedPaths: ['records/rooms/hall.json'],
         authoringChangedPaths: ['records/rooms/hall.json'],
         assetChangedPaths: [],
-        candidate: {
+        authoring: {
           success: false,
           diagnostics: [
             {
@@ -363,13 +347,11 @@ describe('WorkspacePage new project modal', () => {
         changedPaths: ['records/rooms/hall.json'],
         authoringChangedPaths: ['records/rooms/hall.json'],
         assetChangedPaths: [],
-        candidate: {
+        authoring: {
           success: true,
           diagnostics: [],
-          contentProject: stripEditorProjectState(project),
-          savedContentProject: stripEditorProjectState(project),
-          editorState: emptyEditorProjectState(),
-          workspaceRevision: revision,
+          affectedPaths: [],
+          externalValueByPath: {},
           fileRevisions: { 'records/rooms/hall.json': revision },
           scriptSourcePaths: {},
         },
@@ -384,7 +366,6 @@ describe('WorkspacePage new project modal', () => {
     expect(useWorkspaceStore.getState().diagnostics).not.toContainEqual(
       expect.objectContaining({ category: 'External project source' }),
     );
-    expect(useProjectStore.getState().workspaceRevision).toBe(revision);
     expect(isAuthoringProject(useProjectStore.getState().document)).toBe(true);
   });
 
@@ -393,8 +374,6 @@ describe('WorkspacePage new project modal', () => {
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
     const externalProject = structuredClone(project);
     externalProject.rooms.hall!.description = 'Changed outside NovelTea';
-    const initialRevision = `sha256:${'a'.repeat(64)}` as `sha256:${string}`;
-    const externalRevision = `sha256:${'b'.repeat(64)}` as `sha256:${string}`;
     const roomRevision = `sha256:${'c'.repeat(64)}` as `sha256:${string}`;
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -402,8 +381,6 @@ describe('WorkspacePage new project modal', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
       projectSessionId: 'opened-project-session',
-      workspaceRevision: initialRevision,
-      fileRevisions: { 'records/rooms/hall.json': initialRevision },
     });
     useWorkspaceStore.setState({
       project,
@@ -426,13 +403,16 @@ describe('WorkspacePage new project modal', () => {
         changedPaths: ['records/rooms/hall.json'],
         authoringChangedPaths: ['records/rooms/hall.json'],
         assetChangedPaths: [],
-        candidate: {
+        authoring: {
           success: true,
           diagnostics: [],
-          contentProject: stripEditorProjectState(externalProject),
-          savedContentProject: stripEditorProjectState(externalProject),
-          editorState: emptyEditorProjectState(),
-          workspaceRevision: externalRevision,
+          affectedPaths: ['/rooms/hall/description'],
+          externalValueByPath: {
+            '/rooms/hall/description': {
+              exists: true,
+              value: 'Changed outside NovelTea',
+            },
+          },
           fileRevisions: { 'records/rooms/hall.json': roomRevision },
           scriptSourcePaths: {},
         },
@@ -671,8 +651,10 @@ describe('WorkspacePage new project modal', () => {
     expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[0]).toBe(
       'opened-project-session',
     );
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
-      project: { name: 'Saved Draft Title' },
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1]).toMatchObject({
+      localValueByPath: {
+        '/project/name': { exists: true, value: 'Saved Draft Title' },
+      },
     });
     expect(useDraftDirtyStore.getState().entriesByKey).not.toHaveProperty('tab:settings:draft');
   });
@@ -867,7 +849,6 @@ describe('WorkspacePage new project modal', () => {
     await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
     expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
       'opened-project-session',
-      expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       expect.objectContaining({
         recovery: expect.objectContaining({
           saveUnitsById: expect.objectContaining({
@@ -879,7 +860,7 @@ describe('WorkspacePage new project modal', () => {
           }),
         }),
       }),
-      {},
+      { 'project:settings': ['project.json'] },
     );
   });
 
@@ -1059,7 +1040,6 @@ describe('WorkspacePage new project modal', () => {
       }
       expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
         'opened-project-session',
-        expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
         expect.objectContaining({
           recovery: expect.objectContaining({
             saveUnitsById: expect.objectContaining({
@@ -1069,7 +1049,7 @@ describe('WorkspacePage new project modal', () => {
             }),
           }),
         }),
-        {},
+        { 'project:settings': ['project.json'] },
       );
       await act(async () => {
         vi.advanceTimersByTime(500);

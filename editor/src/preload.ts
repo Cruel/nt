@@ -94,33 +94,20 @@ const api: NovelTeaElectronApi = {
   saveUserPreferences: (value) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_USER_PREFERENCES, value),
   saveProjectContent: (
     projectSessionId: string,
-    expectedWorkspaceRevision: string,
-    contentProject: unknown,
+    request: import('./shared/editor-tooling').ProjectContentSaveRequest,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
-    scriptSourcePaths: Record<string, string> = {},
-    commitOptions?: import('./shared/editor-tooling').ProjectWorkspaceCommitOptions,
   ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.SAVE_PROJECT_CONTENT,
-      projectSessionId,
-      expectedWorkspaceRevision,
-      contentProject,
-      editorState,
-      scriptSourcePaths,
-      commitOptions,
-    ),
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT_CONTENT, projectSessionId, request, editorState),
   saveProjectEditorMetadata: (
     projectSessionId: string,
-    expectedWorkspaceRevision: string,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
-    expectedFileRevisions: Record<string, `sha256:${string}`> = {},
+    recoveryFileOwnershipHints: Record<string, string[]> = {},
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
       projectSessionId,
-      expectedWorkspaceRevision,
       editorState,
-      expectedFileRevisions,
+      recoveryFileOwnershipHints,
     ),
   saveProjectCopyAs: (
     projectSessionId: string,

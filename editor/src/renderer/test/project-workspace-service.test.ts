@@ -171,9 +171,9 @@ describe('ProjectWorkspaceService', () => {
         'records/layouts/hud-inline/layout.lua',
         'records/scripts/inline-module.json',
         'scripts/inline-module.lua',
-        'assets/images/main.png',
       ]),
     );
+    expect(opened.snapshot.canonicalSourceFiles).not.toContain('assets/images/main.png');
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/AGENTS.md`);
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.gitignore`);
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.noveltea/editor/state.json`);
@@ -559,7 +559,7 @@ describe('ProjectWorkspaceService', () => {
     expect(await fileSystem.readText('/project/scripts/custom.lua')).toBe('return true\n');
   });
 
-  it('rejects a stale aggregate revision after content, editor, asset, or source changes', async () => {
+  it('rejects a stale aggregate revision after authored content/editor/source changes but not asset bytes', async () => {
     const project = createAuthoringProject();
     project.scripts.bootstrap = {
       id: 'bootstrap',
@@ -580,7 +580,6 @@ describe('ProjectWorkspaceService', () => {
     for (const [file, replacement] of [
       ['project.json', `${originals['project.json']} `],
       ['editor.json', `${originals['editor.json']} `],
-      ['assets/logo.bin', 'changed asset bytes'],
       ['scripts/bootstrap.lua', 'return false\n'],
     ] as const) {
       const files = new InMemoryProjectWorkspaceFileSystem(
@@ -605,5 +604,27 @@ describe('ProjectWorkspaceService', () => {
         ),
       ).rejects.toThrow('Project content changed outside the editor.');
     }
+
+    const files = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries({ ...originals, 'assets/logo.bin': 'asset bytes' }).map(([path, text]) => [
+          `/project/${path}`,
+          text,
+        ]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(files);
+    const opened = await workspace.open('/project');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    await files.writeTextAtomic('/project/assets/logo.bin', 'changed asset bytes');
+    await expect(
+      workspace.write(
+        '/project',
+        opened.snapshot.workspaceRevision,
+        opened.snapshot.project,
+        opened.editorState,
+      ),
+    ).resolves.toBeDefined();
   });
 });

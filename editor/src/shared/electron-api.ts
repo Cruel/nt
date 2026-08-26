@@ -107,17 +107,13 @@ interface NovelTeaElectronApiContract {
   ): Promise<ShaderCompileResponse>;
   saveProjectContent(
     projectSessionId: string,
-    expectedWorkspaceRevision: string,
-    contentProject: unknown,
+    request: import('./editor-tooling').ProjectContentSaveRequest,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
-    scriptSourcePaths?: Record<string, string>,
-    commitOptions?: import('./editor-tooling').ProjectWorkspaceCommitOptions,
-  ): Promise<SaveProjectResponse>;
+  ): Promise<import('./editor-tooling').ProjectContentSaveResponse>;
   saveProjectEditorMetadata(
     projectSessionId: string,
-    expectedWorkspaceRevision: string,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
-    expectedFileRevisions?: Record<string, `sha256:${string}`>,
+    recoveryFileOwnershipHints?: Record<string, string[]>,
   ): Promise<SaveProjectEditorMetadataResponse>;
   saveProjectCopyAs(
     projectSessionId: string,

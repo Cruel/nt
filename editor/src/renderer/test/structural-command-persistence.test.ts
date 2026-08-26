@@ -11,10 +11,13 @@ import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { getTabDirtyState } from '@/workbench/dirty-state';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
-import { setLoadedEditorProjectState } from '@/workbench/project-editor-state';
+import {
+  buildEditorProjectStateSnapshot,
+  setLoadedEditorProjectState,
+} from '@/workbench/project-editor-state';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { toJsonValue } from '@/project/json-value';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
@@ -257,6 +260,378 @@ describe('structural command persistence', () => {
     });
   });
 
+  it('can delete a Room immediately after its structural create finishes persisting', async () => {
+    const project = createAuthoringProject();
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    const created = useCommandStore.getState().executeCommand({
+      type: 'entity.createRecord',
+      label: 'Create hall',
+      payload: { collection: 'rooms', entityId: 'hall', label: 'Hall' },
+      originSaveUnitId: 'workflow:new-entity',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(created.ok).toBe(true);
+    await flushStructuralCommandPersistence();
+
+    const deleted = useCommandStore.getState().executeCommand({
+      type: 'entity.deleteRecord',
+      label: 'Delete hall',
+      payload: { collection: 'rooms', entityId: 'hall', force: true },
+      originSaveUnitId: 'structure:rooms',
+      persistencePolicy: 'auto-commit',
+    });
+
+    expect(deleted.ok).toBe(true);
+    await flushStructuralCommandPersistence();
+    expect(useProjectStore.getState().document).toMatchObject({ rooms: {} });
+    expect(useProjectStore.getState().savedDocument).toMatchObject({ rooms: {} });
+  });
+
+  it('can recreate a structurally deleted Room without leaving a phantom dirty save unit', async () => {
+    const project = projectWithRoom();
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    const deleted = useCommandStore.getState().executeCommand({
+      type: 'entity.deleteRecord',
+      label: 'Delete foyer',
+      payload: { collection: 'rooms', entityId: 'foyer', force: true },
+      originSaveUnitId: 'structure:rooms',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(deleted.ok).toBe(true);
+    await flushStructuralCommandPersistence();
+
+    const recreated = useCommandStore.getState().executeCommand({
+      type: 'entity.createRecord',
+      label: 'Recreate foyer',
+      payload: { collection: 'rooms', entityId: 'foyer', label: 'Foyer' },
+      originSaveUnitId: 'workflow:new-entity',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(recreated.ok).toBe(true);
+    await flushStructuralCommandPersistence();
+
+    const tab = {
+      id: 'tab:rooms:foyer',
+      title: 'Foyer',
+      editorType: 'room-detail',
+      resource: {
+        kind: 'record' as const,
+        stableId: 'record:rooms:foyer',
+        collection: 'rooms',
+        entityId: 'foyer',
+      },
+    };
+    useWorkbenchStore.getState().openTab(tab);
+    const state = useProjectStore.getState();
+    expect(state.document).toMatchObject({ rooms: { foyer: { id: 'foyer', label: 'Foyer' } } });
+    expect(state.savedDocument).toMatchObject({
+      rooms: { foyer: { id: 'foyer', label: 'Foyer' } },
+    });
+    expect(getTabDirtyState(tab, state.document, state.savedDocument, {}).dirty).toBe(false);
+    expect((await saveActiveSaveUnit('record:rooms:foyer')).status).toBe('nothing-to-save');
+
+    const editedData = defaultRoomData('Edited Foyer');
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Edit recreated foyer',
+        payload: { roomId: 'foyer', data: editedData },
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+    const saved = await saveActiveSaveUnit('record:rooms:foyer');
+    expect(saved.success).toBe(true);
+    expect(saved.status).toBe('saved');
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { foyer: { data: { displayName: 'Edited Foyer' } } },
+    });
+  });
+
+  it('saves reciprocal exits between two newly created Rooms without inventing an external conflict', async () => {
+    const project = createAuthoringProject();
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    for (const [entityId, label] of [
+      ['foyer', 'Foyer'],
+      ['hall', 'Hall'],
+    ] as const) {
+      const created = useCommandStore.getState().executeCommand({
+        type: 'entity.createRecord',
+        label: `Create ${label}`,
+        payload: { collection: 'rooms', entityId, label },
+        originSaveUnitId: 'workflow:new-entity',
+        persistencePolicy: 'auto-commit',
+      });
+      expect(created.ok).toBe(true);
+      await flushStructuralCommandPersistence();
+    }
+
+    const foyerData = defaultRoomData('Foyer');
+    foyerData.exits = [
+      {
+        id: 'to-hall',
+        label: 'To Hall',
+        direction: 'east',
+        target: roomRoomRef('hall'),
+        condition: { kind: 'always' },
+        transition: null,
+      },
+    ];
+    const hallData = defaultRoomData('Hall');
+    hallData.exits = [
+      {
+        id: 'to-foyer',
+        label: 'To Foyer',
+        direction: 'west',
+        target: roomRoomRef('foyer'),
+        condition: { kind: 'always' },
+        transition: null,
+      },
+    ];
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Add foyer exit',
+        payload: { roomId: 'foyer', data: foyerData },
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Add reciprocal hall exit',
+        payload: { roomId: 'hall', data: hallData },
+        originSaveUnitId: 'record:rooms:hall',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+
+    const result = await saveActiveSaveUnit('record:rooms:foyer');
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe('partially-saved');
+    const recovery = buildEditorProjectStateSnapshot().recovery;
+    expect(recovery.saveUnitsById['record:rooms:foyer']).toBeUndefined();
+    expect(recovery.saveUnitsById['record:rooms:hall']?.externalConflict).toBeUndefined();
+    expect(recovery.saveUnitsById['record:rooms:hall']?.affectedPaths).toContain(
+      '/rooms/hall/data',
+    );
+  });
+
+  it('force deletes a newly created Room even when its own unsaved exit still references another Room', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'entity.createRecord',
+        label: 'Create hall',
+        payload: { collection: 'rooms', entityId: 'hall', label: 'Hall' },
+        originSaveUnitId: 'workflow:new-entity',
+        persistencePolicy: 'auto-commit',
+      }).ok,
+    ).toBe(true);
+    await flushStructuralCommandPersistence();
+
+    const hall = defaultRoomData('Hall');
+    hall.exits = [
+      {
+        id: 'to-foyer',
+        label: 'Foyer',
+        direction: 'south',
+        target: roomRoomRef('foyer'),
+        condition: { kind: 'always' },
+        transition: null,
+      },
+    ];
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Link Hall to Foyer',
+        payload: { roomId: 'hall', data: hall },
+        originSaveUnitId: 'record:rooms:hall',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+    const foyer = defaultRoomData('Foyer');
+    foyer.exits = [
+      {
+        id: 'to-hall',
+        label: 'Hall',
+        direction: 'north',
+        target: roomRoomRef('hall'),
+        condition: { kind: 'always' },
+        transition: null,
+      },
+    ];
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Link Foyer to Hall',
+        payload: { roomId: 'foyer', data: foyer },
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+    const savedFoyer = await saveActiveSaveUnit('record:rooms:foyer');
+    expect(savedFoyer.success).toBe(true);
+    expect(savedFoyer.savedSaveUnitIds).toContain('record:rooms:foyer');
+    await publishCurrentGraph();
+
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'entity.deleteRecord',
+        label: 'Force delete hall',
+        payload: { collection: 'rooms', entityId: 'hall', force: true },
+        originSaveUnitId: 'structure:rooms',
+        persistencePolicy: 'auto-commit',
+      }).ok,
+    ).toBe(true);
+    await flushStructuralCommandPersistence();
+
+    expect(useProjectStore.getState().document).not.toHaveProperty('rooms.hall');
+    expect(useProjectStore.getState().savedDocument).not.toHaveProperty('rooms.hall');
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: {
+        foyer: {
+          data: {
+            exits: [expect.objectContaining({ target: roomRoomRef('hall') })],
+          },
+        },
+      },
+    });
+  });
+
+  it('deletes a newly created Room after reciprocal exits are removed without reopening', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'entity.createRecord',
+        label: 'Create hall',
+        payload: { collection: 'rooms', entityId: 'hall', label: 'Hall' },
+        originSaveUnitId: 'workflow:new-entity',
+        persistencePolicy: 'auto-commit',
+      }).ok,
+    ).toBe(true);
+    await flushStructuralCommandPersistence();
+
+    const hallLinked = defaultRoomData('Hall');
+    hallLinked.exits = [
+      {
+        id: 'to-foyer',
+        label: 'Foyer',
+        direction: 'south',
+        target: roomRoomRef('foyer'),
+        condition: { kind: 'always' },
+        transition: null,
+      },
+    ];
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Link Hall to Foyer',
+        payload: { roomId: 'hall', data: hallLinked },
+        originSaveUnitId: 'record:rooms:hall',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+    const foyerLinked = defaultRoomData('Foyer');
+    foyerLinked.exits = [
+      {
+        id: 'to-hall',
+        label: 'Hall',
+        direction: 'north',
+        target: roomRoomRef('hall'),
+        condition: { kind: 'always' },
+        transition: null,
+      },
+    ];
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Link Foyer to Hall',
+        payload: { roomId: 'foyer', data: foyerLinked },
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Remove Hall exit',
+        payload: { roomId: 'hall', data: defaultRoomData('Hall') },
+        originSaveUnitId: 'record:rooms:hall',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'room.replaceData',
+        label: 'Remove Foyer exit',
+        payload: { roomId: 'foyer', data: defaultRoomData('Foyer') },
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+    await publishCurrentGraph();
+
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'entity.deleteRecord',
+        label: 'Delete hall',
+        payload: { collection: 'rooms', entityId: 'hall', force: false },
+        originSaveUnitId: 'structure:rooms',
+        persistencePolicy: 'auto-commit',
+      }).ok,
+    ).toBe(true);
+    await flushStructuralCommandPersistence();
+
+    expect(useProjectStore.getState().document).not.toHaveProperty('rooms.hall');
+    expect(useProjectStore.getState().savedDocument).not.toHaveProperty('rooms.hall');
+  });
+
   it('persists a newly created Interactable before its sprite is configured', async () => {
     const project = createAuthoringProject();
     await loadProjectDocumentWithGraph({
@@ -418,21 +793,50 @@ describe('structural command persistence', () => {
     });
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
     await publishCurrentGraph();
-    setLoadedEditorProjectState({
+    const originalEditorRevision = `sha256:${'1'.repeat(64)}` as const;
+    const advancedEditorRevision = `sha256:${'2'.repeat(64)}` as const;
+    const localEditorState = {
       ...emptyEditorProjectState(),
       recovery: {
         sequence: 1,
         saveUnitsById: {
           'record:rooms:kitchen': {
             sequence: 1,
-            patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'Dirty Kitchen' }],
+            patches: [
+              { op: 'replace' as const, path: '/rooms/kitchen/label', value: 'Dirty Kitchen' },
+            ],
             affectedPaths: ['/rooms/kitchen'],
             pendingRawInputByPath: {},
             atomicTransactionGroupIds: [],
+            baselineFileRevisions: { 'editor.json': originalEditorRevision },
           },
         },
       },
-    });
+    };
+    setLoadedEditorProjectState(localEditorState);
+    vi.mocked(window.noveltea.saveProjectContent).mockImplementationOnce(
+      async (_projectSessionId, _request, editorState) => ({
+        ok: true,
+        success: true,
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/game.json',
+        diagnostics: [],
+        fileRevisions: { 'editor.json': advancedEditorRevision },
+        editorState: {
+          ...editorState,
+          recovery: {
+            ...editorState.recovery,
+            saveUnitsById: {
+              ...editorState.recovery.saveUnitsById,
+              'record:rooms:kitchen': {
+                ...editorState.recovery.saveUnitsById['record:rooms:kitchen']!,
+                baselineFileRevisions: { 'editor.json': advancedEditorRevision },
+              },
+            },
+          },
+        },
+      }),
+    );
 
     const result = useCommandStore.getState().executeCommand({
       type: 'entity.renameId',
@@ -456,8 +860,12 @@ describe('structural command persistence', () => {
         kitchen: { label: 'Dirty Kitchen' },
       },
     });
-    const persistedEditor = vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[3];
+    const persistedEditor = vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2];
     expect(persistedEditor?.recovery.saveUnitsById).toHaveProperty('record:rooms:kitchen');
+    expect(
+      buildEditorProjectStateSnapshot().recovery.saveUnitsById['record:rooms:kitchen']
+        ?.baselineFileRevisions?.['editor.json'],
+    ).toBe(advancedEditorRevision);
   });
 
   it('converts a declared convert-to-manual command when no saved baseline exists', () => {
@@ -483,7 +891,7 @@ describe('structural command persistence', () => {
     expect(useProjectStore.getState().document).toMatchObject({ rooms: { hall: { id: 'hall' } } });
   });
 
-  it('rejects and rolls back a declared reject-command overlap with dirty recovery', async () => {
+  it('consumes the deleted record own dirty recovery instead of rolling the deletion back', async () => {
     const saved = projectWithRoom();
     const working = projectWithRoom();
     working.rooms.foyer!.label = 'Dirty Foyer';
@@ -521,14 +929,9 @@ describe('structural command persistence', () => {
     expect(result.ok).toBe(true);
     await flushStructuralCommandPersistence();
 
-    expect(useProjectStore.getState().document).toMatchObject({
-      rooms: { foyer: { label: 'Dirty Foyer' } },
-    });
-    expect(useCommandStore.getState().history.entries).toEqual([]);
-    expect(useCommandStore.getState().lastDiagnostics[0]?.message).toContain(
-      'cannot be rebased safely',
-    );
-    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().document).not.toHaveProperty('rooms.foyer');
+    expect(useProjectStore.getState().savedDocument).not.toHaveProperty('rooms.foyer');
+    expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
   });
 
   it('coordinates copied asset import files across persisted forward, Undo, and Redo', async () => {
@@ -579,14 +982,14 @@ describe('structural command persistence', () => {
 
     useCommandStore.getState().undo();
     await flushStructuralCommandPersistence();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[1]?.[5]).toMatchObject({
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[1]?.[1]).toMatchObject({
       assetTransition: { kind: 'trash', projectRelativePaths: [asset.projectRelativePath] },
     });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: {} });
 
     useCommandStore.getState().redo();
     await flushStructuralCommandPersistence();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[2]?.[5]).toMatchObject({
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[2]?.[1]).toMatchObject({
       assetTransition: { kind: 'restore', moves: [move] },
     });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: { logo: {} } });
@@ -601,19 +1004,19 @@ describe('structural command persistence', () => {
       label: 'Hall',
       data: defaultRoomData('Hall'),
     };
-    const revision = `sha256:${'d'.repeat(64)}` as const;
     vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
       ok: true,
       success: true,
       diagnostics: [],
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
-      workspaceRevision: revision,
       fileRevisions: {
         'records/rooms/foyer.json': `sha256:${'e'.repeat(64)}`,
         'records/rooms/hall.json': `sha256:${'f'.repeat(64)}`,
       },
-      contentProject: authoritative,
+      externalValueByPath: {
+        '/rooms/foyer/label': { exists: true, value: 'External Foyer' },
+      },
       editorState: emptyEditorProjectState(),
       scriptSourcePaths: {},
     });
@@ -635,7 +1038,6 @@ describe('structural command persistence', () => {
     await flushStructuralCommandPersistence();
 
     const state = useProjectStore.getState();
-    expect(state.workspaceRevision).toBe(revision);
     expect(state.document).toMatchObject({
       rooms: {
         foyer: { label: 'External Foyer' },
@@ -758,14 +1160,14 @@ describe('structural command persistence', () => {
 
     useCommandStore.getState().undo();
     await flushStructuralCommandPersistence();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[1]?.[5]).toMatchObject({
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[1]?.[1]).toMatchObject({
       assetTransition: { kind: 'restore', moves: [firstMove] },
     });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: { logo: {} } });
 
     useCommandStore.getState().redo();
     await flushStructuralCommandPersistence();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[2]?.[5]).toMatchObject({
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[2]?.[1]).toMatchObject({
       assetTransition: { kind: 'trash', projectRelativePaths: [asset.projectRelativePath] },
     });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: {} });

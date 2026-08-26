@@ -73,9 +73,9 @@ import {
 } from './main/services/editor-tool-service';
 import {
   createProject,
-  saveProjectContent,
+  saveActiveProjectContent,
+  saveActiveProjectEditorMetadata,
   saveProjectCopyAs,
-  saveProjectEditorMetadata,
 } from './main/services/project-file-service';
 import {
   cancelPlatformExport,
@@ -1034,30 +1034,15 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_CONTENT,
     (arguments_) => saveProjectContentArgumentsSchema.parse(arguments_),
-    async (
-      projectSessionId,
-      expectedWorkspaceRevision,
-      contentProject,
-      editorState,
-      scriptSourcePaths,
-      commitOptions,
-    ) => {
+    async (projectSessionId, request, editorState) => {
       try {
-        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        const result = await saveProjectContent(
-          projectRoot,
-          expectedWorkspaceRevision,
-          contentProject,
-          editorState,
-          scriptSourcePaths,
-          commitOptions,
-          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        const workspace = activeProjectSessions.requireActiveWorkspace(projectSessionId);
+        const result = await saveActiveProjectContent(workspace, request, editorState, () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
-        const refreshed = await activeProjectSessions.refreshSuccessfulSessionResult(
-          projectSessionId,
-          result,
-        );
-        return rememberPreviewProjectRoot(refreshed);
+        if (result.success) activeProjectSessions.refreshActiveWorkspaceAssets(projectSessionId);
+        return result;
       } catch (error) {
         return {
           ok: false,
@@ -1072,23 +1057,15 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
     (arguments_) => saveProjectEditorMetadataArgumentsSchema.parse(arguments_),
-    async (projectSessionId, expectedWorkspaceRevision, editorState, expectedFileRevisions) => {
+    async (projectSessionId, editorState, recoveryFileOwnershipHints) => {
       try {
-        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        const result = await saveProjectEditorMetadata(
-          projectRoot,
-          expectedWorkspaceRevision,
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await saveActiveProjectEditorMetadata(
+          activeProjectSessions.requireActiveWorkspace(projectSessionId),
           editorState,
-          expectedFileRevisions,
+          recoveryFileOwnershipHints,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
-        if (result.success) {
-          await activeProjectSessions.refreshActiveProject(
-            projectSessionId,
-            path.join(projectRoot, 'project.json'),
-          );
-        }
-        return result;
       } catch (error) {
         return {
           ok: false,
@@ -1287,6 +1264,7 @@ void app.whenReady().then(async () => {
           mainWindow,
           projectSessionId,
           projectRoot,
+          activeProjectSessions.requireActiveWorkspace(projectSessionId),
           (sessionId) => activeProjectSessions.isCurrent(sessionId),
           async (sessionId, projectFilePath, project) => {
             await activeProjectSessions.refreshActiveProject(sessionId, projectFilePath, project);

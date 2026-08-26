@@ -171,11 +171,12 @@ async function characterizeProductionThumbnailProtocol(
       'assets/images/source.png',
     ]);
     const opened = await openProject(projectRoot);
+    const openedWorkspaceRevision = opened._workspaceSnapshot?.workspaceRevision;
     if (
       !imported.success ||
       !imported.assets?.[0] ||
       !opened.success ||
-      !opened.workspaceRevision ||
+      !openedWorkspaceRevision ||
       !opened.editorState ||
       !isAuthoringProject(opened.contentProject)
     )
@@ -188,7 +189,7 @@ async function characterizeProductionThumbnailProtocol(
     };
     const saved = await saveProjectContent(
       projectRoot,
-      opened.workspaceRevision,
+      openedWorkspaceRevision,
       opened.contentProject,
       opened.editorState,
       opened.scriptSourcePaths ?? {},

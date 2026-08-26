@@ -19,8 +19,7 @@ export interface ProjectExternalReconciliationInput {
   localDocument: JsonValue;
   externalDocument: JsonValue;
   recovery: EditorRecoveryState;
-  externalWorkspaceRevision: `sha256:${string}`;
-  externalFileRevisions: Readonly<Record<string, `sha256:${string}`>>;
+  externalFileRevisions: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
 }
 
 export interface ProjectExternalReconciliationResult {
@@ -116,8 +115,7 @@ function conflictSnapshot(
   local: JsonValue,
   external: JsonValue,
   paths: readonly JsonPointer[],
-  externalWorkspaceRevision: `sha256:${string}`,
-  externalFileRevisions: Readonly<Record<string, `sha256:${string}`>>,
+  externalFileRevisions: Readonly<Record<string, `sha256:${string}` | 'absent'>>,
   previous?: EditorRecoveryExternalConflict,
 ): EditorRecoveryExternalConflict {
   const baseValueByPath: EditorRecoveryExternalConflict['baseValueByPath'] = {};
@@ -133,9 +131,22 @@ function conflictSnapshot(
     localValueByPath,
     externalValueByPath,
     conflictingPaths: [...paths],
-    externalWorkspaceRevision,
-    externalFileRevisions: { ...externalFileRevisions },
+    externalFileRevisions: {
+      ...previous?.externalFileRevisions,
+      ...externalFileRevisions,
+    },
   };
+}
+
+function advanceBaselineFileRevisions(
+  entry: EditorRecoveryState['saveUnitsById'][string],
+  externalFileRevisions: Readonly<Record<string, `sha256:${string}` | 'absent'>>,
+) {
+  if (!entry.baselineFileRevisions) return entry;
+  const baselineFileRevisions = { ...entry.baselineFileRevisions };
+  for (const [file, revision] of Object.entries(externalFileRevisions))
+    if (file in baselineFileRevisions) baselineFileRevisions[file] = revision;
+  return { ...entry, baselineFileRevisions };
 }
 
 function clearConflict(entry: EditorRecoveryState['saveUnitsById'][string]) {
@@ -176,7 +187,9 @@ export function reconcileExternalProjectChange(
     );
     const conflictPaths = [...new Set([...newConflictPaths, ...persistedConflictPaths])].sort();
     if (conflictPaths.length === 0) {
-      saveUnitsById[saveUnitId] = clearConflict(rebasedEntry);
+      saveUnitsById[saveUnitId] = clearConflict(
+        advanceBaselineFileRevisions(rebasedEntry, input.externalFileRevisions),
+      );
       continue;
     }
     conflictingSaveUnitIds.push(saveUnitId);
@@ -188,7 +201,6 @@ export function reconcileExternalProjectChange(
         working,
         external,
         conflictPaths,
-        input.externalWorkspaceRevision,
         input.externalFileRevisions,
         originalEntry.externalConflict,
       ),

@@ -52,7 +52,7 @@ import {
 } from '../project-schema/project-validation';
 import { parseAssetData } from '../project-schema/authoring-assets';
 import type { LuaSourceSnapshot } from '../project-schema/authoring-lua-analysis';
-import { sha256PrefixedUtf8 } from '../web-crypto';
+import { sha256PrefixedBytes, sha256PrefixedUtf8 } from '../web-crypto';
 import {
   EDITOR_LOCAL_STATE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA,
@@ -89,7 +89,6 @@ const editorLocalStateSchema = editorProjectStateSchema
   })
   .extend({
     schema: z.literal(EDITOR_LOCAL_STATE_SCHEMA),
-    workspaceRevision: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   })
   .strict();
 
@@ -185,8 +184,6 @@ export type ProjectWorkspaceOpenResult =
       readonly snapshot: LoadedProjectWorkspaceSnapshot;
       readonly diagnostics: readonly ProjectValidationDiagnostic[];
       readonly editorState: EditorProjectState;
-      /** Workspace revision against which ignored recovery/session state was last persisted. */
-      readonly recoveryBaselineWorkspaceRevision: string | null;
       readonly repairs: readonly never[];
       readonly contentProject: unknown;
       readonly savedContentProject: unknown;
@@ -408,6 +405,8 @@ async function readWorkspaceFileRevision(
   try {
     const absolute = fileSystem.joinPath(projectRoot, file);
     await assertProjectWorkspacePathContained(fileSystem, projectRoot, absolute);
+    const cached = await fileSystem.readCachedFileRevision?.(absolute);
+    if (cached) return cached;
     return await fileSystem.readFileRevision(absolute);
   } catch {
     return null;
@@ -483,6 +482,13 @@ function ownershipFor(
   result['workflow:play-recorder'] = result['collection:tests']!;
   result['workflow:shader-compiled-output'] = result['collection:shaders']!;
   return Object.freeze(sortKeys(result));
+}
+
+export function projectWorkspaceSaveUnitFileOwnership(
+  project: AuthoringProject,
+  scriptSourcePaths: Readonly<Record<string, string>> = {},
+): Readonly<Record<string, ProjectWorkspaceSaveUnitFileOwnership>> {
+  return ownershipFor(project, scriptSourcePaths);
 }
 
 function externalDescriptors(
@@ -630,10 +636,7 @@ export function projectWorkspaceFiles(
   return sortKeys(files);
 }
 
-export function projectWorkspaceLocalStateFile(
-  editorState: EditorProjectState,
-  workspaceRevision: string,
-): string {
+export function projectWorkspaceLocalStateFile(editorState: EditorProjectState): string {
   const {
     chapters: _chapters,
     tags: _tags,
@@ -643,7 +646,6 @@ export function projectWorkspaceLocalStateFile(
   } = editorState;
   return canonicalJson({
     schema: EDITOR_LOCAL_STATE_SCHEMA,
-    workspaceRevision,
     ...local,
   });
 }
@@ -676,6 +678,8 @@ export interface ProjectWorkspaceWriteOptions {
   readonly operationLabel?: string;
   readonly extraTargets?: readonly ProjectWorkspaceTransactionTargetInput[];
   readonly preflightSnapshot?: LoadedProjectWorkspaceSnapshot;
+  /** Active editor sessions already own coherent state and can adopt the committed projection. */
+  readonly refreshAfterCommit?: boolean;
 }
 
 export class ProjectWorkspaceService {
@@ -1042,7 +1046,6 @@ export class ProjectWorkspaceService {
             '.noveltea/editor/state.json',
           );
           let local = emptyEditorProjectState();
-          let recoveryBaselineWorkspaceRevision: string | null = null;
           try {
             const raw = JSON.parse(await this.fileSystem.readText(localPath)) as Record<
               string,
@@ -1050,11 +1053,9 @@ export class ProjectWorkspaceService {
             >;
             const parsedLocal = editorLocalStateSchema.safeParse(raw);
             if (parsedLocal.success) {
-              const { workspaceRevision, ...localFields } = parsedLocal.data;
-              recoveryBaselineWorkspaceRevision = workspaceRevision;
               local = {
                 ...emptyEditorProjectState(),
-                ...localFields,
+                ...parsedLocal.data,
                 schema: emptyEditorProjectState().schema,
               };
             }
@@ -1095,13 +1096,15 @@ export class ProjectWorkspaceService {
             decoded.data.editor,
             scriptSourcePaths,
           );
-          let assets: string[];
           try {
-            assets = assetSourcePaths(decoded.data);
+            // Validate Asset source paths here, but do not make binary Asset bytes part of the
+            // authoring workspace revision inventory. Asset integrity has its own exact-byte
+            // boundaries and changed-Asset watcher flow.
+            assetSourcePaths(decoded.data);
           } catch (error) {
             return fail(error instanceof Error ? error.message : 'Asset source path is invalid.');
           }
-          const canonicalSourceFiles = [...new Set([...Object.keys(projected), ...assets])].sort(
+          const canonicalSourceFiles = Object.keys(projected).sort(
             compareProjectWorkspaceUnicodeCodePoints,
           );
           const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {};
@@ -1137,7 +1140,6 @@ export class ProjectWorkspaceService {
             snapshot,
             diagnostics: validateAuthoringProject(decoded.data),
             editorState: decoded.data.editor,
-            recoveryBaselineWorkspaceRevision,
             repairs: [],
             contentProject,
             savedContentProject: contentProject,
@@ -1216,27 +1218,67 @@ export class ProjectWorkspaceService {
         targets,
       });
     }
+    if (options.refreshAfterCommit === false) {
+      const canonicalSourceFiles = Object.keys(projected).sort(
+        compareProjectWorkspaceUnicodeCodePoints,
+      );
+      const canonicalSourceFileSet = new Set(canonicalSourceFiles);
+      const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {
+        ...openedSnapshot.fileRevisions,
+      };
+      for (const file of Object.keys(fileRevisions))
+        if (!canonicalSourceFileSet.has(file)) delete fileRevisions[file];
+      for (const target of targets) {
+        if (!canonicalSourceFileSet.has(target.path)) continue;
+        if (target.operation === 'delete') {
+          delete fileRevisions[target.path];
+          continue;
+        }
+        const bytes = target.bytes!;
+        fileRevisions[target.path] = {
+          contentHash: await sha256PrefixedBytes(bytes),
+          byteSize: bytes.byteLength,
+        };
+      }
+      for (const file of canonicalSourceFiles)
+        if (!fileRevisions[file])
+          throw new Error(`Committed workspace omitted revision state for '${file}'.`);
+      const workspaceRevision = await aggregateRevision(fileRevisions);
+      const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
+        snapshotKind: 'loaded',
+        projectRoot: openedSnapshot.projectRoot,
+        manifestPath: openedSnapshot.manifestPath,
+        project,
+        workspaceRevision,
+        sourceRevision: workspaceRevision,
+        canonicalSourceFiles: Object.freeze(canonicalSourceFiles),
+        fileRevisions: Object.freeze(fileRevisions),
+        saveUnitFileOwnership: ownershipFor(project, projectedSourcePaths),
+        externalSourceDescriptors: externalDescriptors(project, projectedSourcePaths),
+        scriptSourcePaths: Object.freeze(sortKeys(projectedSourcePaths)),
+      });
+      // The active editor session must advance remaining dirty units' per-file recovery baselines
+      // against the committed snapshot before persisting local state, so its caller owns that one
+      // final local-state write in this branch.
+      return {
+        workspaceRevision,
+        snapshot,
+        contentProject: stripEditorProjectState(project),
+      };
+    }
     const refreshed = await this.open(projectRoot);
     if (!refreshed.ok) throw new Error('Saved workspace could not be reopened.');
-    await this.writeEditorLocalState(
-      projectRoot,
-      refreshed.snapshot.workspaceRevision,
-      editorState,
-    );
+    await this.writeEditorLocalState(projectRoot, editorState);
     return {
       workspaceRevision: refreshed.snapshot.workspaceRevision,
       snapshot: refreshed.snapshot,
       contentProject: refreshed.contentProject,
     };
   }
-  async writeEditorLocalState(
-    projectRoot: string,
-    workspaceRevision: string,
-    editorState: EditorProjectState,
-  ): Promise<void> {
+  async writeEditorLocalState(projectRoot: string, editorState: EditorProjectState): Promise<void> {
     const localPath = this.fileSystem.joinPath(projectRoot, '.noveltea/editor/state.json');
     await this.assertContained(projectRoot, localPath);
-    const localText = projectWorkspaceLocalStateFile(editorState, workspaceRevision);
+    const localText = projectWorkspaceLocalStateFile(editorState);
     if ((await this.fileSystem.readText(localPath).catch(() => null)) !== localText)
       await this.fileSystem.writeTextAtomic(localPath, localText);
   }

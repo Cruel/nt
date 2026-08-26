@@ -41,6 +41,10 @@ import {
 } from '@/project/project-save-coordinator';
 import { ProjectExternalConflictDialog } from '@/project/ProjectExternalConflictDialog';
 import {
+  applyProjectMutationValues,
+  buildRecoveryFileOwnershipHints,
+} from '@/project/project-save-request';
+import {
   externalConflictDiagnostic,
   reconcileExternalProjectChange,
 } from '@/project/project-external-reconciliation';
@@ -239,6 +243,7 @@ export function WorkspacePage() {
   const completingWindowClose = useRef(false);
   const persistentRecoveryDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const externalSourceDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
+  const externalAssetDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const metadataFlushPromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const metadataFlushTimerRef = useRef<number | null>(null);
   const imageThumbnailPrewarmRef = useRef<ImageThumbnailPrewarmCoordinator | null>(null);
@@ -369,8 +374,6 @@ export function WorkspacePage() {
     projectPathValue: string | null,
     projectFilePathValue: string | null,
     projectSessionId: string | null,
-    workspaceRevision: string | null | undefined,
-    fileRevisions: Record<string, `sha256:${string}`> | undefined,
     scriptSourcePaths: Record<string, string> | undefined,
     diagnostics: ToolDiagnostic[],
   ) {
@@ -383,8 +386,6 @@ export function WorkspacePage() {
       projectPath: projectPathValue,
       projectFilePath: projectFilePathValue,
       projectSessionId,
-      workspaceRevision,
-      fileRevisions,
       scriptSourcePaths,
     });
     resetCommandHistory();
@@ -488,19 +489,22 @@ export function WorkspacePage() {
   ) {
     await flushStructuralCommandPersistence();
     const latestProject = useProjectStore.getState().document;
+    const latestSavedProject = useProjectStore.getState().savedDocument;
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
     const latestProjectSessionId = useProjectStore.getState().projectSessionId;
-    const workspaceRevision = useProjectStore.getState().workspaceRevision;
-    const fileRevisions = useProjectStore.getState().fileRevisions;
     saveLocalEditorSessionSnapshot(latestProjectFilePath ?? null);
-    if (!latestProject || !latestProjectFilePath || !latestProjectSessionId || !workspaceRevision)
+    if (!latestProject || !latestSavedProject || !latestProjectFilePath || !latestProjectSessionId)
       return true;
     const editorState = buildEditorProjectStateSnapshot();
     const result = await window.noveltea.saveProjectEditorMetadata(
       latestProjectSessionId,
-      workspaceRevision,
       editorState,
-      { ...fileRevisions },
+      buildRecoveryFileOwnershipHints({
+        recovery: editorState.recovery,
+        baselineDocument: latestSavedProject,
+        candidateDocument: latestProject,
+        baselineScriptSourcePaths: useProjectStore.getState().scriptSourcePaths,
+      }),
     );
     if (!result.success) {
       const message = result.error ?? 'Editor recovery metadata save failed.';
@@ -516,13 +520,8 @@ export function WorkspacePage() {
       addTimelineEntry({ source: 'command', message, detail: result });
       return false;
     }
-    const persistedEditorState = editorState;
+    const persistedEditorState = result.editorState ?? editorState;
     setLoadedEditorProjectState(persistedEditorState);
-    useProjectStore.getState().refreshWorkspaceMetadata({
-      workspaceRevision: result.workspaceRevision ?? workspaceRevision,
-      fileRevisions: result.fileRevisions ?? fileRevisions,
-      scriptSourcePaths: useProjectStore.getState().scriptSourcePaths,
-    });
     markEditorMetadataPersisted(persistedEditorState);
     if (reason !== 'debounce') {
       const message =
@@ -625,6 +624,8 @@ export function WorkspacePage() {
     setProjectPath(null);
     setProjectFilePath(null);
     setProject(null);
+    externalSourceDiagnosticsRef.current = [];
+    externalAssetDiagnosticsRef.current = [];
     setDiagnostics([]);
     setPlaybackTests([]);
     setLastPlaybackReport(null);
@@ -647,6 +648,8 @@ export function WorkspacePage() {
         saveLocalEditorSessionSnapshot(projectFilePath ?? null);
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
       await window.noveltea.closeActiveProject();
+      externalSourceDiagnosticsRef.current = [];
+      externalAssetDiagnosticsRef.current = [];
       const loaded = await window.noveltea.openProject(dir);
       await useTemplateRegistryStore
         .getState()
@@ -681,11 +684,11 @@ export function WorkspacePage() {
         loaded.editorState,
         loaded.repairs ?? [],
         {
-          recoveryBaselineWorkspaceRevision: loaded.recoveryBaselineWorkspaceRevision,
-          currentWorkspaceRevision: loaded.workspaceRevision,
-          currentFileRevisions: loaded.fileRevisions,
+          currentFileRevisions: loaded.recoveryFileRevisions,
         },
       );
+      externalSourceDiagnosticsRef.current = [];
+      externalAssetDiagnosticsRef.current = [];
       persistentRecoveryDiagnosticsRef.current = [
         ...loaded.diagnostics,
         ...reconstructed.diagnostics,
@@ -702,8 +705,6 @@ export function WorkspacePage() {
         loaded.projectPath,
         loaded.projectFilePath,
         loaded.projectSessionId ?? null,
-        loaded.workspaceRevision,
-        loaded.fileRevisions,
         loaded.scriptSourcePaths,
         diagnostics,
       );
@@ -837,65 +838,50 @@ export function WorkspacePage() {
           latestProjectFilePathRef.current !== latestProjectFilePath
         )
           return;
-        const candidate = event.candidate;
+        const authoring = event.authoring;
         const assetAuditChanged = event.assetChangedPaths.length > 0;
-        if (
-          !shouldReconcileProjectWorkspaceWatchEvent(
-            useProjectStore.getState().workspaceRevision,
-            event,
-          )
-        ) {
-          if (
-            candidate.success &&
-            candidate.workspaceRevision &&
-            candidate.fileRevisions &&
-            candidate.scriptSourcePaths
-          ) {
-            useProjectStore.getState().refreshWorkspaceMetadata({
-              workspaceRevision: candidate.workspaceRevision,
-              fileRevisions: candidate.fileRevisions,
-              scriptSourcePaths: candidate.scriptSourcePaths,
-            });
-            if (externalSourceDiagnosticsRef.current.length > 0) {
-              externalSourceDiagnosticsRef.current = [];
-              setDiagnostics(
-                collectWorkspaceProjectDiagnostics(latestProject, [
-                  ...persistentRecoveryDiagnosticsRef.current,
-                  ...candidate.diagnostics,
-                ]),
-              );
-              setStatusMessage('External project source is valid again');
-            }
-          } else if (assetAuditChanged) {
-            externalSourceDiagnosticsRef.current = candidate.diagnostics.map((diagnostic) => ({
+        const hadAssetDiagnostics = externalAssetDiagnosticsRef.current.length > 0;
+        if (assetAuditChanged) {
+          externalAssetDiagnosticsRef.current = (event.assetDiagnostics ?? []).map(
+            (diagnostic) => ({
               ...diagnostic,
               category: 'Asset source',
-              message: `Asset source changes could not be loaded: ${diagnostic.message}`,
-            }));
+            }),
+          );
+          if (externalAssetDiagnosticsRef.current.length > 0) {
             setDiagnostics(
               collectWorkspaceProjectDiagnostics(latestProject, [
                 ...persistentRecoveryDiagnosticsRef.current,
                 ...externalSourceDiagnosticsRef.current,
+                ...externalAssetDiagnosticsRef.current,
               ]),
             );
             useBottomPanelStore.getState().setActivePanelId('problems');
             setBottomPanelVisible(true);
             setStatusMessage('Asset source changes require attention');
           }
+        }
+        if (!authoring) {
           if (assetAuditChanged) void runAssetAudit(latestProject);
+          if (
+            assetAuditChanged &&
+            hadAssetDiagnostics &&
+            externalAssetDiagnosticsRef.current.length === 0
+          ) {
+            setDiagnostics(
+              collectWorkspaceProjectDiagnostics(latestProject, [
+                ...persistentRecoveryDiagnosticsRef.current,
+                ...externalSourceDiagnosticsRef.current,
+              ]),
+            );
+            setStatusMessage('Asset source is valid again');
+          }
           return;
         }
 
-        if (
-          !candidate.success ||
-          !candidate.contentProject ||
-          !candidate.editorState ||
-          !candidate.workspaceRevision ||
-          !candidate.fileRevisions ||
-          !candidate.scriptSourcePaths
-        ) {
+        if (!authoring.success) {
           if (assetAuditChanged) void runAssetAudit(latestProject);
-          externalSourceDiagnosticsRef.current = candidate.diagnostics.map((diagnostic) => ({
+          externalSourceDiagnosticsRef.current = authoring.diagnostics.map((diagnostic) => ({
             ...diagnostic,
             category: 'External project source',
             message: `External project changes could not be loaded: ${diagnostic.message}`,
@@ -904,6 +890,7 @@ export function WorkspacePage() {
             collectWorkspaceProjectDiagnostics(latestProject, [
               ...persistentRecoveryDiagnosticsRef.current,
               ...externalSourceDiagnosticsRef.current,
+              ...externalAssetDiagnosticsRef.current,
             ]),
           );
           useBottomPanelStore.getState().setActivePanelId('problems');
@@ -912,19 +899,37 @@ export function WorkspacePage() {
           return;
         }
 
+        if (!shouldReconcileProjectWorkspaceWatchEvent(event)) {
+          useProjectStore.getState().refreshWorkspaceSources({
+            scriptSourcePaths: authoring.scriptSourcePaths,
+          });
+          if (externalSourceDiagnosticsRef.current.length > 0) {
+            externalSourceDiagnosticsRef.current = [];
+            setDiagnostics(
+              collectWorkspaceProjectDiagnostics(latestProject, [
+                ...persistentRecoveryDiagnosticsRef.current,
+                ...externalAssetDiagnosticsRef.current,
+                ...authoring.diagnostics,
+              ]),
+            );
+            setStatusMessage('External project source is valid again');
+          }
+          if (assetAuditChanged) void runAssetAudit(latestProject);
+          return;
+        }
+
         try {
           const snapshot = buildEditorProjectStateSnapshot();
-          const externalDocument = mergeEditorProjectState(
-            toJsonValue(candidate.contentProject),
-            candidate.editorState,
+          const externalDocument = applyProjectMutationValues(
+            latestSavedProject,
+            authoring.externalValueByPath,
           );
           const reconciliation = reconcileExternalProjectChange({
             baseDocument: latestSavedProject,
             localDocument: latestProject,
             externalDocument,
             recovery: snapshot.recovery,
-            externalWorkspaceRevision: candidate.workspaceRevision as `sha256:${string}`,
-            externalFileRevisions: candidate.fileRevisions,
+            externalFileRevisions: authoring.fileRevisions,
           });
           const workingTrackedEditor = editorProjectStateFromProject(
             reconciliation.workingDocument,
@@ -956,9 +961,7 @@ export function WorkspacePage() {
           const published = useProjectStore.getState().publishExternalReconciliation({
             document: workingDocument,
             savedDocument,
-            workspaceRevision: candidate.workspaceRevision,
-            fileRevisions: candidate.fileRevisions,
-            scriptSourcePaths: candidate.scriptSourcePaths,
+            scriptSourcePaths: authoring.scriptSourcePaths,
             affectedPaths: reconciliation.externalChangedPaths,
           });
           if (!published)
@@ -974,7 +977,8 @@ export function WorkspacePage() {
           setDiagnostics(
             collectWorkspaceProjectDiagnostics(workingDocument, [
               ...persistentRecoveryDiagnosticsRef.current,
-              ...candidate.diagnostics,
+              ...externalAssetDiagnosticsRef.current,
+              ...authoring.diagnostics,
               ...conflictDiagnostics,
             ]),
           );
@@ -1003,6 +1007,7 @@ export function WorkspacePage() {
             collectWorkspaceProjectDiagnostics(latestProject, [
               ...persistentRecoveryDiagnosticsRef.current,
               ...externalSourceDiagnosticsRef.current,
+              ...externalAssetDiagnosticsRef.current,
             ]),
           );
           setStatusMessage(message);

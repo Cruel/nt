@@ -82,15 +82,10 @@ describe('project store selectors', () => {
     useProjectStore.setState({
       document,
       savedDocument,
-      workspaceRevision: `sha256:${'a'.repeat(64)}`,
-      fileRevisions: {},
       scriptSourcePaths: {},
     });
 
-    useProjectStore.getState().markSaved({
-      workspaceRevision: `sha256:${'b'.repeat(64)}`,
-      fileRevisions: { 'editor.json': `sha256:${'c'.repeat(64)}` },
-    });
+    useProjectStore.getState().markSaved({});
 
     expect(useProjectStore.getState().document).toEqual(document);
     expect(useProjectStore.getState().savedDocument).toEqual(savedDocument);
@@ -130,30 +125,20 @@ describe('project store selectors', () => {
     expect(selectProjectDirty(state)).toBe(true);
   });
 
-  it('refreshes workspace revisions without changing the working or saved document', () => {
+  it('refreshes main-owned source mappings without changing the working or saved document', () => {
     const document = { rooms: { foyer: { label: 'Dirty foyer' } } };
     const savedDocument = { rooms: { foyer: { label: 'Foyer' } } };
     useProjectStore.setState({
       document,
       savedDocument,
-      workspaceRevision: `sha256:${'a'.repeat(64)}`,
-      fileRevisions: {},
       scriptSourcePaths: {},
     });
 
-    useProjectStore.getState().refreshWorkspaceMetadata({
-      workspaceRevision: `sha256:${'b'.repeat(64)}`,
-      fileRevisions: { 'assets/images/logo.png': `sha256:${'c'.repeat(64)}` },
-      scriptSourcePaths: { startup: 'scripts/startup.lua' },
-    });
+    useProjectStore.setState({ scriptSourcePaths: { startup: 'scripts/startup.lua' } });
 
     expect(useProjectStore.getState().document).toEqual(document);
     expect(useProjectStore.getState().savedDocument).toEqual(savedDocument);
     expect(selectProjectDirty(useProjectStore.getState())).toBe(true);
-    expect(useProjectStore.getState().workspaceRevision).toBe(`sha256:${'b'.repeat(64)}`);
-    expect(useProjectStore.getState().fileRevisions).toEqual({
-      'assets/images/logo.png': `sha256:${'c'.repeat(64)}`,
-    });
     expect(useProjectStore.getState().scriptSourcePaths).toEqual({
       startup: 'scripts/startup.lua',
     });

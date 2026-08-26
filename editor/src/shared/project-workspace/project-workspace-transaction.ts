@@ -58,6 +58,7 @@ export class ProjectWorkspaceMutationError extends Error {
       | 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT'
       | 'WORKSPACE_PATH_INVALID',
     message: string,
+    readonly targetPath?: string,
   ) {
     super(message);
     this.name = 'ProjectWorkspaceMutationError';
@@ -253,6 +254,7 @@ export class ProjectWorkspaceTransactionService {
                   throw new ProjectWorkspaceMutationError(
                     'WORKSPACE_REVISION_CONFLICT',
                     `Workspace source '${target.path}' changed before commit.`,
+                    target.path,
                   );
                 const beforeBlob = beforeRevision === 'absent' ? null : `before/${index}`;
                 const afterBlob = target.operation === 'write' ? `after/${index}` : null;
@@ -293,6 +295,7 @@ export class ProjectWorkspaceTransactionService {
                   throw new ProjectWorkspaceMutationError(
                     'WORKSPACE_REVISION_CONFLICT',
                     `Workspace source '${target.path}' changed after staging.`,
+                    target.path,
                   );
               }
               manifest = { ...manifest, state: 'writing' };

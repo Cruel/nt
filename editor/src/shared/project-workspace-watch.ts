@@ -1,33 +1,32 @@
-import type { EditorProjectState } from './project-schema/editor-project-state';
+import type { ProjectMutationPathValue } from './editor-tooling';
 import type { ProjectValidationDiagnostic } from './project-schema/project-validation';
 
-export interface ProjectWorkspaceWatchCandidate {
-  readonly success: boolean;
-  readonly diagnostics: readonly ProjectValidationDiagnostic[];
-  readonly contentProject?: unknown;
-  readonly savedContentProject?: unknown;
-  readonly editorState?: EditorProjectState;
-  readonly workspaceRevision?: string;
-  readonly fileRevisions?: Readonly<Record<string, `sha256:${string}`>>;
-  readonly scriptSourcePaths?: Readonly<Record<string, string>>;
-}
+export type ProjectWorkspaceAuthoringWatchResult =
+  | {
+      readonly success: true;
+      readonly diagnostics: readonly ProjectValidationDiagnostic[];
+      readonly affectedPaths: readonly string[];
+      readonly externalValueByPath: Readonly<Record<string, ProjectMutationPathValue>>;
+      readonly fileRevisions: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
+      readonly scriptSourcePaths: Readonly<Record<string, string>>;
+    }
+  | {
+      readonly success: false;
+      readonly diagnostics: readonly ProjectValidationDiagnostic[];
+    };
 
 export interface ProjectWorkspaceWatchEvent {
   readonly projectSessionId: string;
   readonly changedPaths: readonly string[];
   readonly authoringChangedPaths: readonly string[];
   readonly assetChangedPaths: readonly string[];
-  readonly candidate: ProjectWorkspaceWatchCandidate;
+  readonly assetFileRevisions?: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
+  readonly assetDiagnostics?: readonly ProjectValidationDiagnostic[];
+  readonly authoring?: ProjectWorkspaceAuthoringWatchResult;
 }
 
 export function shouldReconcileProjectWorkspaceWatchEvent(
-  currentWorkspaceRevision: string | null,
   event: ProjectWorkspaceWatchEvent,
 ): boolean {
-  if (event.authoringChangedPaths.length === 0) return false;
-  return !(
-    event.candidate.success &&
-    event.candidate.workspaceRevision !== undefined &&
-    event.candidate.workspaceRevision === currentWorkspaceRevision
-  );
+  return Boolean(event.authoring?.success && event.authoring.affectedPaths.length > 0);
 }

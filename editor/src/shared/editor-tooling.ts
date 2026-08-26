@@ -14,10 +14,8 @@ export interface OpenProjectResponse {
   contentProject?: unknown;
   savedContentProject?: unknown;
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
-  recoveryBaselineWorkspaceRevision?: string | null;
   repairs?: import('./project-schema/decode-authoring-project').AuthoringEnumRepair[];
-  workspaceRevision?: string;
-  fileRevisions?: Record<string, `sha256:${string}`>;
+  recoveryFileRevisions?: Record<string, `sha256:${string}` | 'absent'>;
   scriptSourcePaths?: Record<string, string>;
   diagnostics: ToolDiagnostic[];
   error?: string;
@@ -30,8 +28,7 @@ export interface SaveProjectEditorMetadataResponse {
   ok: boolean;
   success: boolean;
   diagnostics: ToolDiagnostic[];
-  workspaceRevision?: string;
-  fileRevisions?: Record<string, `sha256:${string}`>;
+  editorState?: import('./project-schema/editor-project-state').EditorProjectState;
   error?: string;
 }
 
@@ -171,6 +168,37 @@ export interface SaveProjectResponse {
   fileRevisions?: Record<string, `sha256:${string}`>;
   contentProject?: unknown;
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
+  scriptSourcePaths?: Record<string, string>;
+  assetTrashMoves?: import('./project-asset-audit').ProjectAssetTrashMove[];
+  diagnostics?: ToolDiagnostic[];
+  error?: string;
+}
+
+export type ProjectMutationPathValue = { exists: false } | { exists: true; value: unknown };
+
+export interface ProjectContentSaveRequest {
+  saveUnitIds: string[];
+  affectedPaths: string[];
+  baseValueByPath: Record<string, ProjectMutationPathValue>;
+  localValueByPath: Record<string, ProjectMutationPathValue>;
+  operationLabel: string;
+  recoveryFileOwnershipHints?: Record<string, string[]>;
+  identityRemap?: Array<{ fromPath: string; toPath: string }>;
+  structural?: boolean;
+  assetTransition?:
+    | { kind: 'trash'; projectRelativePaths: string[] }
+    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] };
+}
+
+export interface ProjectContentSaveResponse {
+  ok: boolean;
+  success: boolean;
+  projectPath?: string;
+  projectFilePath?: string;
+  editorState?: import('./project-schema/editor-project-state').EditorProjectState;
+  committedSaveUnitIds?: string[];
+  fileRevisions?: Record<string, `sha256:${string}` | 'absent'>;
+  externalValueByPath?: Record<string, ProjectMutationPathValue>;
   scriptSourcePaths?: Record<string, string>;
   assetTrashMoves?: import('./project-asset-audit').ProjectAssetTrashMove[];
   diagnostics?: ToolDiagnostic[];
