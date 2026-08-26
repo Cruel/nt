@@ -11,8 +11,13 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Project files, record paths, IDs, persisted source selectors: `.noveltea/agent/PROJECT_FORMAT.md`
 - CLI commands and when to use direct edits instead: `.noveltea/agent/CLI.md`
 - General authoring concepts and choosing the right entity type: `.noveltea/agent/docs/AUTHORING.md`
+- Reusable Room/Character/Interactable configuration, Traits, and Properties: `.noveltea/agent/docs/ARCHETYPES_TRAITS.md`
+- Characters, presentation profiles, poses, expressions, appearances, and gestures: `.noveltea/agent/docs/CHARACTERS.md`
 - Rooms, placements, props, room interactables, and background hotspots: `.noveltea/agent/docs/ROOMS.md`
+- Item Definitions, Item Stacks, locations, and Inventories: `.noveltea/agent/docs/ITEMS_INVENTORIES.md`
 - Verbs, named subject slots/selectors, interactions, and hotspot selection: `.noveltea/agent/docs/INTERACTIONS.md`
+- Dialogue graphs, choices, Stage/Media Slots, cues, and Scene handoff: `.noveltea/agent/docs/DIALOGUES.md`
+- Scene staging, ordered events, flow, gameplay orchestration, and terminals: `.noveltea/agent/docs/SCENES.md`
 - Assets, shaders, and materials: `.noveltea/agent/docs/ASSETS_SHADERS.md`
 - RML/RCSS authoring and RmlUi differences from browser HTML/CSS: `.noveltea/agent/docs/RMLUI.md`
 - Exact RCSS property/value/shorthand/unit support: `.noveltea/agent/docs/RCSS_REFERENCE.md`
@@ -22,7 +27,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Layout source modes, document/fragment kind, dependencies, system Layout overrides, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
 - Exact built-in system Layout RML/RCSS and universal baseline RCSS reference files: `.noveltea/agent/system-layouts/ui/`
 - NovelTea Lua sandbox, APIs, capabilities, and yielding rules: `.noveltea/agent/docs/LUA.md`
-- Authored tests: `.noveltea/agent/docs/TESTS.md`
+- Semantic authored tests and stable playback identities: `.noveltea/agent/docs/TESTS.md`
 
 Machine-readable workspace-v1 schemas are under `.noveltea/agent/schemas/`. Use them as an exhaustive structural reference when the focused documentation does not answer a detail; do not begin ordinary authoring work by reverse-engineering the schemas.
 
