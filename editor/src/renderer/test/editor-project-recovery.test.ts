@@ -123,6 +123,8 @@ describe('project recovery reconstruction', () => {
   it('marks recovered edits conflicted when their persisted workspace baseline is stale', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Disk changed' });
     const content = toJsonValue(stripEditorProjectState(project));
+    const oldRevision = `sha256:${'a'.repeat(64)}` as const;
+    const currentRevision = `sha256:${'b'.repeat(64)}` as const;
     const editorState = {
       ...emptyEditorProjectState(),
       recovery: {
@@ -134,16 +136,13 @@ describe('project recovery reconstruction', () => {
             affectedPaths: ['/project/name'],
             pendingRawInputByPath: {},
             atomicTransactionGroupIds: [],
+            baselineFileRevisions: { 'project.json': oldRevision },
           },
         },
       },
     };
-    const oldRevision = `sha256:${'a'.repeat(64)}` as const;
-    const currentRevision = `sha256:${'b'.repeat(64)}` as const;
 
     const reconstructed = reconstructEditorProject(content, content, editorState, [], {
-      recoveryBaselineWorkspaceRevision: oldRevision,
-      currentWorkspaceRevision: currentRevision,
       currentFileRevisions: { 'project.json': currentRevision },
     });
 
@@ -157,7 +156,7 @@ describe('project recovery reconstruction', () => {
       reconstructed.editorState.recovery.saveUnitsById['project:settings']?.externalConflict,
     ).toMatchObject({
       conflictingPaths: ['/project/name'],
-      externalWorkspaceRevision: currentRevision,
+      externalFileRevisions: { 'project.json': currentRevision },
       baseValueByPath: { '/project/name': { exists: true, value: 'Disk changed' } },
       localValueByPath: { '/project/name': { exists: true, value: 'Recovered local' } },
       externalValueByPath: { '/project/name': { exists: true, value: 'Disk changed' } },
@@ -354,6 +353,7 @@ describe('project recovery reconstruction', () => {
       affectedPaths: ['/project/name'],
       pendingRawInputByPath: {},
       atomicTransactionGroupIds: ['atomic:settings'],
+      baselineFileRevisions: {},
     });
   });
 });

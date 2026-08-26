@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 const dialogs = vi.hoisted(() => ({ destination: '' }));
 vi.mock('electron', () => ({
@@ -11,15 +12,22 @@ vi.mock('electron', () => ({
 }));
 import {
   createProject,
+  saveActiveProjectContent,
   saveProjectContent,
   saveProjectEditorMetadata,
   saveProjectCopyAs,
 } from '../../main/services/project-file-service';
-import { ProjectWorkspaceService } from '../../shared/project-workspace';
-import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
+import { ActiveProjectWorkspaceSession } from '../../main/services/active-project-workspace-session';
+import { filterExternallyChangedAuthoringPaths } from '../../main/services/project-workspace-watcher-service';
+import { ProjectWorkspaceService, projectWorkspaceFiles } from '../../shared/project-workspace';
+import {
+  createNodeProjectWorkspaceFileSystem,
+  NodeProjectWorkspaceFileSystem,
+} from '../../shared/project-workspace/node-project-workspace-file-system';
 import { NOVELTEA_PROJECT_AGENTS_BOOTSTRAP } from '../../shared/project-workspace/agent-bootstrap';
-import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import type { ProjectContentSaveRequest } from '../../shared/editor-tooling';
 
 const roots: string[] = [];
 function tempRoot() {
@@ -195,42 +203,668 @@ describe('project-file-service workspace-v1', () => {
     ).toMatchObject({ description: 'After' });
   });
 
-  it('does not multiply full workspace scans for one scoped content save', async () => {
+  it('does not reopen or revision unrelated sources for one active scoped content save', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Fast Save', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const initial = await service.open(root);
     expect(initial.ok).toBe(true);
     if (!initial.ok) return;
-    const candidate = structuredClone(initial.snapshot.project);
-    candidate.project.name = 'Saved';
+    const session = ActiveProjectWorkspaceSession.fromOpened(initial);
     const openSpy = vi.spyOn(ProjectWorkspaceService.prototype, 'open');
+    const revisionSpy = vi.spyOn(NodeProjectWorkspaceFileSystem.prototype, 'readFileRevision');
     try {
-      const result = await saveProjectContent(
-        root,
-        initial.snapshot.workspaceRevision,
-        candidate,
-        initial.editorState,
-        initial.snapshot.scriptSourcePaths,
+      const result = await saveActiveProjectContent(
+        session,
         {
-          expectedFileRevisions: Object.fromEntries(
-            Object.entries(initial.snapshot.fileRevisions).map(([file, revision]) => [
-              file,
-              revision.contentHash,
-            ]),
-          ),
           saveUnitIds: ['project:settings'],
-          baselineProject: initial.snapshot.project,
           affectedPaths: ['/project/name'],
+          baseValueByPath: {
+            '/project/name': { exists: true, value: initial.snapshot.project.project.name },
+          },
+          localValueByPath: { '/project/name': { exists: true, value: 'Saved' } },
           operationLabel: 'save Project Settings',
         },
+        initial.editorState,
       );
 
       expect(result.success).toBe(true);
-      expect(openSpy).toHaveBeenCalledTimes(2);
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(revisionSpy).toHaveBeenCalled();
+      expect(
+        revisionSpy.mock.calls.map(([file]) => path.relative(root, file).replaceAll(path.sep, '/')),
+      ).toEqual(expect.arrayContaining(['project.json']));
+      expect(
+        revisionSpy.mock.calls.every(
+          ([file]) => path.relative(root, file).replaceAll(path.sep, '/') === 'project.json',
+        ),
+      ).toBe(true);
+      expect(
+        JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name,
+      ).toBe('Saved');
+      expect(await filterExternallyChangedAuthoringPaths(session, ['project.json'])).toEqual([]);
     } finally {
       openSpy.mockRestore();
+      revisionSpy.mockRestore();
     }
+  });
+
+  it('keeps active-session baselines coherent across two structural Room creates and reciprocal exit saves', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'New Room Navigation', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+
+    for (const [roomId, label] of [
+      ['foyer', 'Foyer'],
+      ['hall', 'Hall'],
+    ] as const) {
+      const room = {
+        id: roomId,
+        label,
+        archetype: null,
+        archetypeOverrides: {},
+        traits: [],
+        properties: {},
+        data: defaultRoomData(label),
+      };
+      const created = await saveActiveProjectContent(
+        session,
+        {
+          saveUnitIds: ['workflow:new-entity'],
+          affectedPaths: [`/rooms/${roomId}`],
+          baseValueByPath: { [`/rooms/${roomId}`]: { exists: false } },
+          localValueByPath: { [`/rooms/${roomId}`]: { exists: true, value: room } },
+          operationLabel: `create Room ${roomId}`,
+          structural: true,
+        },
+        session.editorState(),
+      );
+      expect(created.success).toBe(true);
+    }
+
+    const foyerBase = structuredClone(session.project().rooms.foyer!.data);
+    const foyerLocal = structuredClone(foyerBase);
+    foyerLocal.exits = [
+      {
+        id: 'to-hall',
+        label: 'To Hall',
+        direction: 'east',
+        target: roomRoomRef('hall'),
+        condition: { kind: 'always' },
+        transition: null,
+      },
+    ];
+    const foyerSaved = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['record:rooms:foyer'],
+        affectedPaths: ['/rooms/foyer/data/exits'],
+        baseValueByPath: { '/rooms/foyer/data/exits': { exists: true, value: foyerBase.exits } },
+        localValueByPath: { '/rooms/foyer/data/exits': { exists: true, value: foyerLocal.exits } },
+        operationLabel: 'save foyer exit',
+      },
+      session.editorState(),
+    );
+    expect(foyerSaved.success).toBe(true);
+
+    const hallBase = structuredClone(session.project().rooms.hall!.data);
+    const hallLocal = structuredClone(hallBase);
+    hallLocal.exits = [
+      {
+        id: 'to-foyer',
+        label: 'To Foyer',
+        direction: 'west',
+        target: roomRoomRef('foyer'),
+        condition: { kind: 'always' },
+        transition: null,
+      },
+    ];
+    const hallSaved = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['record:rooms:hall'],
+        affectedPaths: ['/rooms/hall/data/exits'],
+        baseValueByPath: { '/rooms/hall/data/exits': { exists: true, value: hallBase.exits } },
+        localValueByPath: { '/rooms/hall/data/exits': { exists: true, value: hallLocal.exits } },
+        operationLabel: 'save reciprocal hall exit',
+      },
+      session.editorState(),
+    );
+    expect(hallSaved.success).toBe(true);
+    expect(session.project().rooms.foyer!.data.exits).toHaveLength(1);
+    expect(session.project().rooms.hall!.data.exits).toHaveLength(1);
+  });
+
+  it('returns actual structural target revisions and advances a shared editor.json recovery baseline', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Structural recovery revision', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await workspace.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const project = structuredClone(initial.snapshot.project);
+    project.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      description: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    project.editor.recordMetadata.rooms = {
+      hall: { tags: ['temporary'], color: null },
+    };
+    await workspace.write(root, initial.snapshot.workspaceRevision, project, project.editor);
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    const editorRevisionBefore = opened.snapshot.fileRevisions['editor.json']!.contentHash;
+    const editorState = structuredClone(opened.editorState);
+    delete editorState.recordMetadata.rooms!.hall;
+    editorState.recovery = {
+      sequence: 1,
+      saveUnitsById: {
+        'project:tags': {
+          sequence: 1,
+          patches: [
+            {
+              op: 'add',
+              path: '/editor/tags/records/local',
+              value: { name: 'Local', color: '#123456' },
+            },
+          ],
+          affectedPaths: ['/editor/tags'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+          baselineFileRevisions: { 'editor.json': editorRevisionBefore },
+        },
+      },
+    };
+
+    const result = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['structure:rooms'],
+        affectedPaths: ['/rooms/hall', '/editor/recordMetadata/rooms/hall'],
+        baseValueByPath: {
+          '/rooms/hall': { exists: true, value: opened.snapshot.project.rooms.hall },
+          '/editor/recordMetadata/rooms/hall': {
+            exists: true,
+            value: opened.snapshot.project.editor.recordMetadata.rooms!.hall,
+          },
+        },
+        localValueByPath: {
+          '/rooms/hall': { exists: false },
+          '/editor/recordMetadata/rooms/hall': { exists: false },
+        },
+        recoveryFileOwnershipHints: { 'project:tags': ['editor.json'] },
+        operationLabel: 'delete Room hall',
+        structural: true,
+      },
+      editorState,
+    );
+
+    expect(result.success).toBe(true);
+    const editorRevisionAfter = session.snapshot().fileRevisions['editor.json']!.contentHash;
+    expect(editorRevisionAfter).not.toBe(editorRevisionBefore);
+    expect(result.fileRevisions).toMatchObject({
+      'editor.json': editorRevisionAfter,
+      'records/rooms/hall.json': 'absent',
+    });
+    expect(
+      result.editorState?.recovery.saveUnitsById['project:tags']?.baselineFileRevisions?.[
+        'editor.json'
+      ],
+    ).toBe(editorRevisionAfter);
+  });
+
+  it('does not hash referenced binary assets while establishing a cold authoring snapshot', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Asset Hash Boundary', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await workspace.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const project = structuredClone(initial.snapshot.project);
+    project.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/logo.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    fs.writeFileSync(path.join(root, 'assets/logo.bin'), Buffer.alloc(1024 * 1024, 7));
+    await workspace.write(root, initial.snapshot.workspaceRevision, project, initial.editorState);
+
+    const revisionSpy = vi.spyOn(NodeProjectWorkspaceFileSystem.prototype, 'readFileRevision');
+    try {
+      const opened = await new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem()).open(
+        root,
+      );
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      expect(opened.snapshot.canonicalSourceFiles).not.toContain('assets/logo.bin');
+      expect(
+        revisionSpy.mock.calls.map(([file]) => path.relative(root, file).replaceAll(path.sep, '/')),
+      ).not.toContain('assets/logo.bin');
+    } finally {
+      revisionSpy.mockRestore();
+    }
+  });
+
+  it('blocks only mutations that own or depend on an invalid external authoring source', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Invalid source scope', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await workspace.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const project = structuredClone(initial.snapshot.project);
+    project.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      description: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    const kitchenData = defaultRoomData('Kitchen');
+    kitchenData.exits = [
+      {
+        id: 'to-hall',
+        label: 'Hall',
+        direction: 'north',
+        target: roomRoomRef('hall'),
+        condition: { kind: 'always' },
+      },
+    ];
+    project.rooms.kitchen = {
+      id: 'kitchen',
+      label: 'Kitchen',
+      description: 'Kitchen',
+      data: kitchenData,
+    };
+    project.rooms.garden = {
+      id: 'garden',
+      label: 'Garden',
+      description: 'Garden',
+      data: defaultRoomData('Garden'),
+    };
+    await workspace.write(root, initial.snapshot.workspaceRevision, project, initial.editorState);
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+
+    fs.writeFileSync(path.join(root, 'records/rooms/hall.json'), '{ invalid json');
+    expect((await session.reassemble(['records/rooms/hall.json'])).ok).toBe(false);
+    expect(session.invalidAuthoringSources()).toEqual(['records/rooms/hall.json']);
+
+    const gardenSave = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['record:rooms:garden'],
+        affectedPaths: ['/rooms/garden/description'],
+        baseValueByPath: { '/rooms/garden/description': { exists: true, value: 'Garden' } },
+        localValueByPath: { '/rooms/garden/description': { exists: true, value: 'Saved garden' } },
+        operationLabel: 'save unrelated Garden',
+      },
+      opened.editorState,
+    );
+    expect(gardenSave.success).toBe(true);
+
+    const blockedRequests: ProjectContentSaveRequest[] = [
+      {
+        saveUnitIds: ['record:rooms:hall'],
+        affectedPaths: ['/rooms/hall/description'],
+        baseValueByPath: { '/rooms/hall/description': { exists: true as const, value: 'Hall' } },
+        localValueByPath: {
+          '/rooms/hall/description': { exists: true as const, value: 'Saved hall' },
+        },
+        operationLabel: 'save invalid Hall',
+      },
+      {
+        saveUnitIds: ['record:rooms:kitchen'],
+        affectedPaths: ['/rooms/kitchen/description'],
+        baseValueByPath: {
+          '/rooms/kitchen/description': { exists: true as const, value: 'Kitchen' },
+        },
+        localValueByPath: {
+          '/rooms/kitchen/description': { exists: true as const, value: 'Saved kitchen' },
+        },
+        operationLabel: 'save Hall-dependent Kitchen',
+      },
+    ];
+    for (const request of blockedRequests) {
+      const blocked = await saveActiveProjectContent(session, request, opened.editorState);
+      expect(blocked.success).toBe(false);
+      expect(blocked.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'editor.content-save.invalid-source-dependency' }),
+      );
+    }
+  });
+
+  it('observes an externally deleted tracked source as absent and reassembles the deletion', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'External delete', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await workspace.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const project = structuredClone(initial.snapshot.project);
+    project.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      description: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    await workspace.write(root, initial.snapshot.workspaceRevision, project, initial.editorState);
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    const relativePath = 'records/rooms/hall.json';
+
+    fs.unlinkSync(path.join(root, relativePath));
+
+    expect(await filterExternallyChangedAuthoringPaths(session, [relativePath])).toEqual([
+      relativePath,
+    ]);
+    const reassembled = await session.reassemble([relativePath]);
+    expect(reassembled.ok).toBe(true);
+    expect(reassembled.ok && reassembled.snapshot.project.rooms.hall).toBeUndefined();
+  });
+
+  it('treats a watcher probe disappearing between inspect and hashing as absent', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Watcher unlink race', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    const inspectSpy = vi
+      .spyOn(NodeProjectWorkspaceFileSystem.prototype, 'inspect')
+      .mockResolvedValueOnce('file');
+    const missing = Object.assign(new Error('gone'), { code: 'ENOENT' });
+    const revisionSpy = vi
+      .spyOn(NodeProjectWorkspaceFileSystem.prototype, 'readFileRevision')
+      .mockRejectedValueOnce(missing);
+    try {
+      expect(await session.readFreshRevision('project.json')).toBe('absent');
+    } finally {
+      inspectSpy.mockRestore();
+      revisionSpy.mockRestore();
+    }
+  });
+
+  it('observes an externally deleted Asset source as absent despite the seeded file cache', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'External asset delete', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await workspace.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const project = structuredClone(initial.snapshot.project);
+    project.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/logo.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    fs.writeFileSync(path.join(root, 'assets/logo.bin'), 'asset bytes');
+    await workspace.write(root, initial.snapshot.workspaceRevision, project, initial.editorState);
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+
+    fs.unlinkSync(path.join(root, 'assets/logo.bin'));
+
+    expect(await session.observeAssetRevisions(['assets/logo.bin'])).toEqual({
+      'assets/logo.bin': 'absent',
+    });
+  });
+
+  it('reassembles an invalid source restored to the exact last coherent bytes', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Exact invalid recovery', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await workspace.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const project = structuredClone(initial.snapshot.project);
+    project.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      description: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    await workspace.write(root, initial.snapshot.workspaceRevision, project, initial.editorState);
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    const relativePath = 'records/rooms/hall.json';
+    const absolutePath = path.join(root, relativePath);
+    const coherentBytes = fs.readFileSync(absolutePath, 'utf8');
+
+    fs.writeFileSync(absolutePath, '{ invalid json');
+    expect((await session.reassemble([relativePath])).ok).toBe(false);
+    expect(session.invalidAuthoringSources()).toEqual([relativePath]);
+
+    fs.writeFileSync(absolutePath, coherentBytes);
+    expect(await filterExternallyChangedAuthoringPaths(session, [relativePath])).toEqual([
+      relativePath,
+    ]);
+    expect((await session.reassemble([relativePath])).ok).toBe(true);
+    expect(session.invalidAuthoringSources()).toEqual([]);
+    expect(session.coherenceState()).toBe('coherent');
+  });
+
+  it('forces reassembly when a globally invalid session observes last-coherent bytes', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Global invalid same bytes', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    await session.captureAuthoringFileStamps();
+    const openSpy = vi.spyOn(session.service(), 'open').mockResolvedValueOnce({
+      ok: false,
+      diagnostics: [{ severity: 'error', path: '/project.json', message: 'forced failure' }],
+    } as never);
+
+    session.markResyncNeeded();
+    const failed = await session.resynchronizeAuthoring();
+    expect(failed.opened.ok).toBe(false);
+    expect(session.invalidAuthoringSources()).toEqual(['*']);
+    expect(session.coherenceState()).toBe('invalid');
+
+    const knownRevision = session.knownFileRevision('project.json');
+    expect(knownRevision).toBeDefined();
+    expect(session.requiresAuthoringReassembly('project.json', knownRevision!)).toBe(true);
+
+    openSpy.mockRestore();
+    expect((await session.reassemble(['project.json'])).ok).toBe(true);
+    expect(session.invalidAuthoringSources()).toEqual([]);
+    expect(session.coherenceState()).toBe('coherent');
+  });
+
+  it('allows lifecycle resync to recover an already globally invalid session', async () => {
+    const root = tempProjectRoot();
+    await createProject({
+      projectName: 'Global invalid lifecycle recovery',
+      projectDirectory: root,
+    });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    await session.captureAuthoringFileStamps();
+    const openSpy = vi.spyOn(session.service(), 'open').mockResolvedValueOnce({
+      ok: false,
+      diagnostics: [{ severity: 'error', path: '/project.json', message: 'forced failure' }],
+    } as never);
+
+    session.markResyncNeeded();
+    expect((await session.resynchronizeAuthoring()).opened.ok).toBe(false);
+    expect(session.invalidAuthoringSources()).toEqual(['*']);
+    expect(session.coherenceState()).toBe('invalid');
+
+    openSpy.mockRestore();
+    session.markResyncNeeded();
+    expect(session.coherenceState()).toBe('resync-needed');
+    const recovered = await session.resynchronizeAuthoring();
+    expect(recovered.opened.ok).toBe(true);
+    expect(session.invalidAuthoringSources()).toEqual([]);
+    expect(session.coherenceState()).toBe('coherent');
+  });
+
+  it('blocks all tracked mutations while project.json is invalid', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Invalid manifest scope', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    fs.writeFileSync(path.join(root, 'project.json'), '{ invalid json');
+    expect((await session.reassemble(['project.json'])).ok).toBe(false);
+
+    const result = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['project:localization'],
+        affectedPaths: ['/localization'],
+        baseValueByPath: {
+          '/localization': { exists: true, value: opened.snapshot.project.localization },
+        },
+        localValueByPath: {
+          '/localization': { exists: true, value: opened.snapshot.project.localization },
+        },
+        operationLabel: 'save while manifest invalid',
+      },
+      opened.editorState,
+    );
+    expect(result.success).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'editor.content-save.invalid-source-dependency' }),
+    );
+  });
+
+  it('recovers a real orphan transaction only when a pending journal exists', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Recovery Before', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+
+    const openSpy = vi.spyOn(ProjectWorkspaceService.prototype, 'open');
+    expect(await session.recoverPendingTransactions()).toEqual({
+      recovered: false,
+      changedPaths: [],
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+
+    const before = fs.readFileSync(path.join(root, 'project.json'), 'utf8');
+    const parsed = JSON.parse(before) as { project: { name: string } };
+    parsed.project.name = 'Recovery After';
+    const after = `${JSON.stringify(parsed, null, 2)}\n`;
+    const digest = (text: string) =>
+      `sha256:${createHash('sha256').update(text, 'utf8').digest('hex')}` as const;
+    const transactionRoot = path.join(root, '.noveltea', 'transactions', 'interrupted');
+    fs.mkdirSync(path.join(transactionRoot, 'before'), { recursive: true });
+    fs.mkdirSync(path.join(transactionRoot, 'after'), { recursive: true });
+    fs.writeFileSync(path.join(transactionRoot, 'before', '0'), before);
+    fs.writeFileSync(path.join(transactionRoot, 'after', '0'), after);
+    fs.writeFileSync(
+      path.join(transactionRoot, 'manifest.json'),
+      `${JSON.stringify(
+        {
+          schema: 'noveltea.workspace.transaction',
+          schemaVersion: 1,
+          transactionId: 'interrupted',
+          state: 'committed',
+          writerOwnerToken: 'crashed-owner',
+          writerPid: 424242,
+          operationLabel: 'interrupted test',
+          targets: [
+            {
+              path: 'project.json',
+              operation: 'write',
+              beforeRevision: digest(before),
+              afterRevision: digest(after),
+              beforeBlob: 'before/0',
+              afterBlob: 'after/0',
+            },
+          ],
+          completedTargets: [],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const recovered = await session.recoverPendingTransactions();
+    expect(recovered.recovered).toBe(true);
+    expect(recovered.changedPaths).toEqual(['project.json']);
+    expect(recovered.opened?.ok && recovered.opened.snapshot.project.project.name).toBe(
+      'Recovery After',
+    );
+    expect(fs.existsSync(transactionRoot)).toBe(false);
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    openSpy.mockRestore();
+  });
+
+  it('rediscovers a new authoring source after watcher trust is lost without invalidating known file contents', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Resync inventory', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    await session.captureAuthoringFileStamps();
+
+    const external = structuredClone(opened.snapshot.project);
+    external.rooms.newroom = {
+      id: 'newroom',
+      label: 'New Room',
+      description: 'Added while watcher trust was lost',
+      data: defaultRoomData('New Room'),
+    };
+    const projected = projectWorkspaceFiles(
+      external,
+      external.editor,
+      opened.snapshot.scriptSourcePaths,
+    );
+    fs.mkdirSync(path.join(root, 'records', 'rooms'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'records', 'rooms', 'newroom.json'),
+      projected['records/rooms/newroom.json']!,
+    );
+
+    session.markResyncNeeded();
+    const resync = await session.resynchronizeAuthoring();
+    expect(resync.opened.ok).toBe(true);
+    expect(resync.changedPaths).toContain('records/rooms/newroom.json');
+    expect(resync.opened.ok && resync.opened.snapshot.project.rooms.newroom?.label).toBe(
+      'New Room',
+    );
+    expect(session.coherenceState()).toBe('coherent');
   });
 
   it('fails closed instead of saving through a structurally unreadable external source', async () => {
@@ -430,7 +1064,6 @@ describe('project-file-service workspace-v1', () => {
               localValueByPath: { '/project/name': { exists: true as const, value: 'Local' } },
               externalValueByPath: { '/project/name': { exists: true as const, value: 'Disk' } },
               conflictingPaths: ['/project/name'],
-              externalWorkspaceRevision: opened.snapshot.workspaceRevision,
               externalFileRevisions: {
                 'project.json': opened.snapshot.fileRevisions['project.json']!.contentHash,
               },
@@ -439,22 +1072,19 @@ describe('project-file-service workspace-v1', () => {
         },
       },
     };
-    const result = await saveProjectEditorMetadata(
-      path.join(root, 'project.json'),
-      opened.snapshot.workspaceRevision,
-      state,
-    );
+    const result = await saveProjectEditorMetadata(path.join(root, 'project.json'), state);
     expect(result.success).toBe(true);
     expect(JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8'))).toEqual({
       chapters: { assignments: {}, records: {} },
       recordMetadata: {},
       tags: { records: {} },
     });
-    expect(
-      JSON.parse(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8')),
-    ).toMatchObject({
+    const persistedLocalState = JSON.parse(
+      fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8'),
+    );
+    expect(persistedLocalState).not.toHaveProperty('workspaceRevision');
+    expect(persistedLocalState).toMatchObject({
       schema: 'noveltea.editor.local-state',
-      workspaceRevision: result.workspaceRevision,
       bottomPanel: { visible: false },
       recovery: {
         saveUnitsById: {
@@ -550,25 +1180,17 @@ describe('project-file-service workspace-v1', () => {
       path.join(root, 'project.json'),
       fs.readFileSync(path.join(root, 'project.json'), 'utf8').replace('Conflict', 'External'),
     );
-    const expectedFileRevisions = Object.fromEntries(
-      Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
-        file,
-        revision.contentHash,
-      ]),
-    ) as Record<string, `sha256:${string}`>;
+    const openSpy = vi.spyOn(ProjectWorkspaceService.prototype, 'open');
     const result = await saveProjectEditorMetadata(
       path.join(root, 'project.json'),
-      opened.snapshot.workspaceRevision,
       emptyEditorProjectState(),
-      expectedFileRevisions,
     );
     expect(result.success).toBe(true);
-    expect(result.workspaceRevision).toBe(opened.snapshot.workspaceRevision);
-    expect(result.fileRevisions).toEqual(expectedFileRevisions);
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
     expect(
-      JSON.parse(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8'))
-        .workspaceRevision,
-    ).toBe(opened.snapshot.workspaceRevision);
+      JSON.parse(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8')),
+    ).not.toHaveProperty('workspaceRevision');
     expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name).toBe(
       'External',
     );
@@ -742,19 +1364,11 @@ describe('project-file-service workspace-v1', () => {
     fs.mkdirSync(path.join(root, '.noveltea', 'editor'), { recursive: true });
     fs.symlinkSync(outside, path.join(root, '.noveltea', 'editor', 'escape'));
     const state = emptyEditorProjectState();
-    const result = await saveProjectEditorMetadata(
-      path.join(root, 'project.json'),
-      opened.snapshot.workspaceRevision,
-      state,
-    );
+    const result = await saveProjectEditorMetadata(path.join(root, 'project.json'), state);
     expect(result.success).toBe(true);
     fs.rmSync(path.join(root, '.noveltea', 'editor'), { recursive: true, force: true });
     fs.symlinkSync(outside, path.join(root, '.noveltea', 'editor'));
-    const rejected = await saveProjectEditorMetadata(
-      path.join(root, 'project.json'),
-      result.workspaceRevision!,
-      state,
-    );
+    const rejected = await saveProjectEditorMetadata(path.join(root, 'project.json'), state);
     expect(rejected.success).toBe(false);
     expect(fs.existsSync(path.join(outside, 'state.json'))).toBe(false);
   });
@@ -769,15 +1383,9 @@ describe('project-file-service workspace-v1', () => {
     const localStatePath = path.join(root, '.noveltea/editor/state.json');
     const before = fs.existsSync(localStatePath) ? fs.readFileSync(localStatePath, 'utf8') : null;
 
-    const result = await saveProjectEditorMetadata(
-      root,
-      opened.snapshot.workspaceRevision,
-      emptyEditorProjectState(),
-      {},
-      () => {
-        throw new Error('Project session is stale or unknown.');
-      },
-    );
+    const result = await saveProjectEditorMetadata(root, emptyEditorProjectState(), () => {
+      throw new Error('Project session is stale or unknown.');
+    });
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('Project session is stale or unknown.');

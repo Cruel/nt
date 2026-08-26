@@ -36,6 +36,11 @@ export async function openProject(projectPath: string) {
       projectFilePath: opened.manifestPath,
     };
   const comfyUiDiagnostics = await validateProjectComfyUiWorkflows(opened.snapshot.manifestPath);
+  const recoveryFiles = new Set(
+    Object.values(opened.editorState.recovery.saveUnitsById).flatMap((entry) =>
+      Object.keys(entry.baselineFileRevisions ?? {}),
+    ),
+  );
   return {
     ok: true,
     success: true,
@@ -46,16 +51,14 @@ export async function openProject(projectPath: string) {
     contentProject: opened.contentProject,
     savedContentProject: opened.savedContentProject,
     editorState: opened.editorState,
-    recoveryBaselineWorkspaceRevision: opened.recoveryBaselineWorkspaceRevision,
     repairs: opened.repairs,
-    workspaceRevision: opened.snapshot.workspaceRevision,
-    fileRevisions: Object.fromEntries(
-      Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
-        file,
-        revision.contentHash,
-      ]),
+    recoveryFileRevisions: Object.fromEntries(
+      [...recoveryFiles]
+        .sort()
+        .map((file) => [file, opened.snapshot.fileRevisions[file]?.contentHash ?? 'absent']),
     ),
     scriptSourcePaths: { ...opened.snapshot.scriptSourcePaths },
+    _workspaceSnapshot: opened.snapshot,
     projectPath: opened.snapshot.projectRoot,
     projectFilePath: opened.snapshot.manifestPath,
   };

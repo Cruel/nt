@@ -481,11 +481,7 @@ export const platformExportCommand: CliCommandDefinition = {
               completedAt: new Date().toISOString(),
             },
           });
-          await context.workspace.writeEditorLocalState(
-            context.snapshot.projectRoot,
-            context.snapshot.workspaceRevision,
-            editorState,
-          );
+          await context.workspace.writeEditorLocalState(context.snapshot.projectRoot, editorState);
         }
         return {
           ok: true,

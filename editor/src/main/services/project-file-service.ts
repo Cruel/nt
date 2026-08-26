@@ -4,6 +4,9 @@ import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
 import type {
   CreateProjectRequest,
+  ProjectContentSaveRequest,
+  ProjectContentSaveResponse,
+  ProjectMutationPathValue,
   SaveProjectEditorMetadataResponse,
   SaveProjectResponse,
   ProjectWorkspaceCommitOptions,
@@ -16,15 +19,18 @@ import {
 import {
   isAuthoringProject,
   authoringProjectSchema,
+  type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   editorProjectStateSchema,
   parseEditorProjectState,
   stripEditorProjectState,
+  stripLocalEditorProjectState,
   type EditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { buildJsonPointer } from '../../shared/json-pointer';
 import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import { assertProjectWorkspacePathContained } from '../../shared/project-workspace/project-workspace-file-system';
@@ -38,6 +44,7 @@ import {
   projectWorkspaceFiles,
   projectWorkspaceLocalStateFile,
   type LoadedProjectWorkspaceSnapshot,
+  type ProjectWorkspaceService,
 } from '../../shared/project-workspace/project-workspace-service';
 import {
   PROJECT_WORKSPACE_ABSENT_REVISION,
@@ -45,6 +52,8 @@ import {
   type ProjectWorkspaceExpectedRevision,
   type ProjectWorkspaceTransactionTargetInput,
 } from '../../shared/project-workspace/project-workspace-transaction';
+import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
+import type { RecoveryFileOwnershipHints } from './active-project-workspace-session';
 
 function mutationFailureDiagnostic(error: ProjectWorkspaceMutationError): ToolDiagnostic {
   return {
@@ -119,6 +128,84 @@ function valueAtPointer(root: unknown, pointer: string): { present: boolean; val
     current = current[segment];
   }
   return { present: true, value: current };
+}
+
+function mutationValueAtPointer(root: unknown, pointer: string): ProjectMutationPathValue {
+  const value = valueAtPointer(root, pointer);
+  return value.present ? { exists: true, value: structuredClone(value.value) } : { exists: false };
+}
+
+function mutationValuesEqual(
+  left: ProjectMutationPathValue,
+  right: ProjectMutationPathValue,
+): boolean {
+  return (
+    left.exists === right.exists &&
+    (!left.exists || !right.exists || JSON.stringify(left.value) === JSON.stringify(right.value))
+  );
+}
+
+function replaceAtPointerValue(
+  root: Record<string, unknown>,
+  pointer: string,
+  selected: ProjectMutationPathValue,
+): void {
+  const segments = pointerSegments(pointer);
+  if (segments.length === 0)
+    throw new Error('Project save mutation cannot replace the root value.');
+  let current = root;
+  for (const segment of segments.slice(0, -1)) {
+    const nested = current[segment];
+    if (!isRecord(nested)) {
+      if (!selected.exists) return;
+      current[segment] = {};
+    }
+    current = current[segment] as Record<string, unknown>;
+  }
+  const key = segments.at(-1)!;
+  if (selected.exists) current[key] = structuredClone(selected.value);
+  else delete current[key];
+}
+
+function appendChangedMutationValues(
+  before: unknown,
+  after: unknown,
+  segments: readonly string[],
+  output: Record<string, ProjectMutationPathValue>,
+): void {
+  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  const beforeObject = isRecord(before);
+  const afterObject = isRecord(after);
+  if (beforeObject && afterObject) {
+    for (const key of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+      const beforeHas = Object.prototype.hasOwnProperty.call(before, key);
+      const afterHas = Object.prototype.hasOwnProperty.call(after, key);
+      const pointer = buildJsonPointer([...segments, key]);
+      if (!afterHas) {
+        output[pointer] = { exists: false };
+        continue;
+      }
+      if (!beforeHas) {
+        output[pointer] = { exists: true, value: structuredClone(after[key]) };
+        continue;
+      }
+      appendChangedMutationValues(before[key], after[key], [...segments, key], output);
+    }
+    return;
+  }
+  const pointer = buildJsonPointer(segments);
+  if (!pointer)
+    throw new Error('External project mutation unexpectedly replaced the project root.');
+  output[pointer] = { exists: true, value: structuredClone(after) };
+}
+
+function changedMutationValues(
+  before: unknown,
+  after: unknown,
+): Record<string, ProjectMutationPathValue> {
+  const output: Record<string, ProjectMutationPathValue> = {};
+  appendChangedMutationValues(before, after, [], output);
+  return output;
 }
 
 function replaceAtPointer(root: Record<string, unknown>, pointer: string, source: unknown) {
@@ -238,6 +325,8 @@ async function writeWorkspaceProject(
   commitOptions?: ProjectWorkspaceCommitOptions,
   assertAuthority?: () => void,
   preflightSnapshot?: LoadedProjectWorkspaceSnapshot,
+  workspaceOverride?: ProjectWorkspaceService,
+  refreshAfterCommit = true,
 ): Promise<{
   workspaceRevision: string;
   fileRevisions: Record<string, `sha256:${string}`>;
@@ -245,8 +334,9 @@ async function writeWorkspaceProject(
   editorState: EditorProjectState;
   scriptSourcePaths: Record<string, string>;
   assetTrashMoves: import('../../shared/project-asset-audit').ProjectAssetTrashMove[];
+  snapshot: LoadedProjectWorkspaceSnapshot;
 }> {
-  const workspace = workspaceService();
+  const workspace = workspaceOverride ?? workspaceService();
   let openedSnapshot = preflightSnapshot;
   if (!openedSnapshot) {
     const opened = await workspace.open(projectRoot);
@@ -306,10 +396,7 @@ async function writeWorkspaceProject(
       extraTargets.push({
         path: assetPath,
         operation: 'delete',
-        expectedRevision:
-          commitOptions.expectedFileRevisions[assetPath] ??
-          openedSnapshot.fileRevisions[assetPath]?.contentHash ??
-          PROJECT_WORKSPACE_ABSENT_REVISION,
+        expectedRevision: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
       });
       assetTrashMoves.push({ projectRelativePath: assetPath, trashRelativePath });
     }
@@ -394,6 +481,7 @@ async function writeWorkspaceProject(
       operationLabel: commitOptions?.operationLabel ?? 'project save',
       extraTargets,
       preflightSnapshot: openedSnapshot,
+      refreshAfterCommit,
     },
   );
   return {
@@ -403,6 +491,7 @@ async function writeWorkspaceProject(
     editorState: editorStateForWrite,
     scriptSourcePaths: { ...written.snapshot.scriptSourcePaths },
     assetTrashMoves,
+    snapshot: written.snapshot,
   };
 }
 
@@ -680,9 +769,7 @@ export async function saveProject(
 
 export async function saveProjectEditorMetadata(
   projectRoot: string,
-  expectedWorkspaceRevision: string,
   editorState: EditorProjectState,
-  expectedFileRevisions: Record<string, `sha256:${string}`> = {},
   assertAuthority?: () => void,
 ): Promise<SaveProjectEditorMetadataResponse> {
   if (!projectRoot || typeof projectRoot !== 'string') {
@@ -699,9 +786,6 @@ export async function saveProjectEditorMetadata(
         ? projectPathFromFile(projectRoot)
         : path.resolve(projectRoot);
     const workspace = workspaceService();
-    const opened = await workspace.open(root);
-    if (!opened.ok)
-      throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
     const normalizedEditor = editorProjectStateSchema.safeParse(editorState);
     if (!normalizedEditor.success) {
       const diagnostic = createProjectValidationDiagnostic({
@@ -720,17 +804,15 @@ export async function saveProjectEditorMetadata(
         error: diagnostic.message,
       };
     }
-    // Local recovery/session metadata is outside canonical workspace content. Persist it against the
-    // renderer's known baseline without adopting any tracked-file revisions that may have changed on
-    // disk before the workspace watcher has reconciled them.
+    // Local recovery/session metadata is outside canonical workspace content and therefore does not
+    // require a tracked-project scan or revision comparison before it can be persisted.
     assertAuthority?.();
-    await workspace.writeEditorLocalState(root, expectedWorkspaceRevision, normalizedEditor.data);
+    await workspace.writeEditorLocalState(root, normalizedEditor.data);
     return {
       ok: true,
       success: true,
       diagnostics: [],
-      workspaceRevision: expectedWorkspaceRevision,
-      fileRevisions: { ...expectedFileRevisions },
+      editorState: normalizedEditor.data,
     };
   } catch (error) {
     return {
@@ -741,6 +823,113 @@ export async function saveProjectEditorMetadata(
       error: error instanceof Error ? error.message : 'Editor metadata save failed.',
     };
   }
+}
+
+export async function saveActiveProjectEditorMetadata(
+  session: ActiveProjectWorkspaceSession,
+  editorState: EditorProjectState,
+  ownershipHints: RecoveryFileOwnershipHints = {},
+  assertAuthority?: () => void,
+): Promise<SaveProjectEditorMetadataResponse> {
+  const normalizedEditor = editorProjectStateSchema.safeParse(editorState);
+  if (!normalizedEditor.success) {
+    const diagnostic = createProjectValidationDiagnostic({
+      code: 'editor.metadata.invalid',
+      severity: 'error',
+      category: 'Project recovery',
+      path: '/editor',
+      message: 'Editor recovery metadata is invalid and was not written.',
+      boundaries: ['authoring'],
+      ownerPaths: ['/editor'],
+    });
+    return { ok: false, success: false, diagnostics: [diagnostic], error: diagnostic.message };
+  }
+  try {
+    assertAuthority?.();
+    const persisted = await session.persistEditorState(normalizedEditor.data, ownershipHints);
+    return { ok: true, success: true, diagnostics: [], editorState: persisted };
+  } catch (error) {
+    return {
+      ok: false,
+      success: false,
+      diagnostics:
+        error instanceof ProjectWorkspaceMutationError ? [mutationFailureDiagnostic(error)] : [],
+      error: error instanceof Error ? error.message : 'Editor metadata save failed.',
+    };
+  }
+}
+
+async function saveProjectContentFromSnapshot(
+  root: string,
+  openedSnapshot: LoadedProjectWorkspaceSnapshot,
+  expectedWorkspaceRevision: string,
+  contentProject: unknown,
+  editorState: EditorProjectState,
+  scriptSourcePaths: Readonly<Record<string, string>>,
+  commitOptions: ProjectWorkspaceCommitOptions | undefined,
+  assertAuthority: (() => void) | undefined,
+  workspaceOverride?: ProjectWorkspaceService,
+  refreshAfterCommit = true,
+): Promise<SaveProjectResponse & { committedSnapshot?: LoadedProjectWorkspaceSnapshot }> {
+  const absolute = path.join(root, 'project.json');
+  if (!commitOptions && openedSnapshot.workspaceRevision !== expectedWorkspaceRevision) {
+    const diagnostic = contentSaveConflictDiagnostic();
+    return {
+      ok: false,
+      success: false,
+      error: diagnostic.message,
+      diagnostics: [diagnostic],
+    };
+  }
+
+  const content = stripEditorProjectState(contentProject);
+  if (!isRecord(content)) throw new Error('Project content root must be an object.');
+  const normalizedEditor = editorProjectStateSchema.safeParse(editorState);
+  if (!normalizedEditor.success) {
+    const diagnostic = createProjectValidationDiagnostic({
+      code: 'editor.content-save.metadata-invalid',
+      severity: 'error',
+      category: 'Project save',
+      path: '/editor',
+      message: 'Rebased editor recovery metadata is invalid and the project was not written.',
+      boundaries: ['authoring'],
+      ownerPaths: ['/editor'],
+    });
+    return {
+      ok: false,
+      success: false,
+      error: diagnostic.message,
+      diagnostics: [diagnostic],
+    };
+  }
+
+  assertAuthority?.();
+  const written = await writeWorkspaceProject(
+    root,
+    content,
+    normalizedEditor.data,
+    expectedWorkspaceRevision,
+    scriptSourcePaths,
+    commitOptions,
+    assertAuthority,
+    openedSnapshot,
+    workspaceOverride,
+    refreshAfterCommit,
+  );
+  return {
+    ok: true,
+    success: true,
+    projectPath: projectPathFromFile(absolute),
+    projectFilePath: absolute,
+    workspaceRevision: written.workspaceRevision,
+    fileRevisions: written.fileRevisions,
+    contentProject: written.contentProject,
+    editorState: written.editorState,
+    scriptSourcePaths: written.scriptSourcePaths,
+    assetTrashMoves: written.assetTrashMoves,
+    diagnostics: [],
+    committedSnapshot: written.snapshot,
+  };
 }
 
 export async function saveProjectContent(
@@ -764,65 +953,21 @@ export async function saveProjectContent(
       path.basename(projectRoot) === 'project.json'
         ? projectPathFromFile(projectRoot)
         : path.resolve(projectRoot);
-    const absolute = path.join(root, 'project.json');
     const opened = await workspaceService().open(root);
     if (!opened.ok)
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
-    if (!commitOptions && opened.snapshot.workspaceRevision !== expectedWorkspaceRevision) {
-      const diagnostic = contentSaveConflictDiagnostic();
-      return {
-        ok: false,
-        success: false,
-        error: diagnostic.message,
-        diagnostics: [diagnostic],
-      };
-    }
-
-    const content = stripEditorProjectState(contentProject);
-    if (!isRecord(content)) throw new Error('Project content root must be an object.');
-    const normalizedEditor = editorProjectStateSchema.safeParse(editorState);
-    if (!normalizedEditor.success) {
-      const diagnostic = createProjectValidationDiagnostic({
-        code: 'editor.content-save.metadata-invalid',
-        severity: 'error',
-        category: 'Project save',
-        path: '/editor',
-        message: 'Rebased editor recovery metadata is invalid and the project was not written.',
-        boundaries: ['authoring'],
-        ownerPaths: ['/editor'],
-      });
-      return {
-        ok: false,
-        success: false,
-        error: diagnostic.message,
-        diagnostics: [diagnostic],
-      };
-    }
-
-    assertAuthority?.();
-    const written = await writeWorkspaceProject(
+    const result = await saveProjectContentFromSnapshot(
       root,
-      content,
-      normalizedEditor.data,
+      opened.snapshot,
       expectedWorkspaceRevision,
+      contentProject,
+      editorState,
       scriptSourcePaths,
       commitOptions,
       assertAuthority,
-      opened.snapshot,
     );
-    return {
-      ok: true,
-      success: true,
-      projectPath: projectPathFromFile(absolute),
-      projectFilePath: absolute,
-      workspaceRevision: written.workspaceRevision,
-      fileRevisions: written.fileRevisions,
-      contentProject: written.contentProject,
-      editorState: written.editorState,
-      scriptSourcePaths: written.scriptSourcePaths,
-      assetTrashMoves: written.assetTrashMoves,
-      diagnostics: [],
-    };
+    const { committedSnapshot: _committedSnapshot, ...response } = result;
+    return response;
   } catch (error) {
     return {
       ok: false,
@@ -834,6 +979,227 @@ export async function saveProjectContent(
           : undefined,
     };
   }
+}
+
+function selectedFileRevisions(
+  before: LoadedProjectWorkspaceSnapshot,
+  after: LoadedProjectWorkspaceSnapshot,
+  saveUnitIds: readonly string[],
+): Record<string, `sha256:${string}` | 'absent'> {
+  const files = new Set<string>();
+  for (const saveUnitId of saveUnitIds) {
+    for (const file of before.saveUnitFileOwnership[saveUnitId]?.files ?? []) files.add(file);
+    for (const file of after.saveUnitFileOwnership[saveUnitId]?.files ?? []) files.add(file);
+  }
+  return Object.fromEntries(
+    [...files].sort().map((file) => [file, after.fileRevisions[file]?.contentHash ?? 'absent']),
+  );
+}
+
+function changedFileRevisions(
+  before: LoadedProjectWorkspaceSnapshot,
+  after: LoadedProjectWorkspaceSnapshot,
+): Record<string, `sha256:${string}` | 'absent'> {
+  const files = new Set([...before.canonicalSourceFiles, ...after.canonicalSourceFiles]);
+  return Object.fromEntries(
+    [...files]
+      .sort()
+      .filter(
+        (file) =>
+          (before.fileRevisions[file]?.contentHash ?? 'absent') !==
+          (after.fileRevisions[file]?.contentHash ?? 'absent'),
+      )
+      .map((file) => [file, after.fileRevisions[file]?.contentHash ?? 'absent']),
+  );
+}
+
+function mutationConflictResponse(
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  request: ProjectContentSaveRequest,
+): ProjectContentSaveResponse {
+  const externalValueByPath: Record<string, ProjectMutationPathValue> = {};
+  for (const pointer of request.affectedPaths)
+    externalValueByPath[pointer] = mutationValueAtPointer(snapshot.project, pointer);
+  const diagnostic = contentSaveConflictDiagnostic();
+  return {
+    ok: false,
+    success: false,
+    error: diagnostic.message,
+    diagnostics: [diagnostic],
+    fileRevisions: selectedFileRevisions(snapshot, snapshot, request.saveUnitIds),
+    externalValueByPath,
+  };
+}
+
+function mutationMatchesBase(
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  request: ProjectContentSaveRequest,
+): boolean {
+  return request.affectedPaths.every((pointer) => {
+    const expected = request.baseValueByPath[pointer];
+    return (
+      expected !== undefined &&
+      mutationValuesEqual(mutationValueAtPointer(snapshot.project, pointer), expected)
+    );
+  });
+}
+
+function candidateForMutation(
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  request: ProjectContentSaveRequest,
+): AuthoringProject {
+  const candidate = structuredClone(snapshot.project) as unknown as Record<string, unknown>;
+  for (const pointer of request.affectedPaths) {
+    const value = request.localValueByPath[pointer];
+    if (!value) throw new Error(`Project save mutation omitted local value for '${pointer}'.`);
+    replaceAtPointerValue(candidate, pointer, value);
+  }
+  return authoringProjectSchema.parse(candidate);
+}
+
+function scriptSourcePathsForMutation(
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  request: ProjectContentSaveRequest,
+): Record<string, string> {
+  const sourcePaths = { ...snapshot.scriptSourcePaths };
+  for (const remap of request.identityRemap ?? []) {
+    const from = remap.fromPath.match(/^\/scripts\/([^/]+)$/);
+    const to = remap.toPath.match(/^\/scripts\/([^/]+)$/);
+    if (!from || !to || !sourcePaths[from[1]!]) continue;
+    sourcePaths[to[1]!] = sourcePaths[from[1]!]!;
+    delete sourcePaths[from[1]!];
+  }
+  return sourcePaths;
+}
+
+export async function saveActiveProjectContent(
+  session: ActiveProjectWorkspaceSession,
+  request: ProjectContentSaveRequest,
+  editorState: EditorProjectState,
+  assertAuthority?: () => void,
+): Promise<ProjectContentSaveResponse> {
+  return session.runExclusive(async () => {
+    const invalidSourceBlock = session.invalidSourceBlockForMutation(
+      request.saveUnitIds,
+      request.affectedPaths,
+    );
+    if (invalidSourceBlock) {
+      const diagnostic = createProjectValidationDiagnostic({
+        code: 'editor.content-save.invalid-source-dependency',
+        severity: 'error',
+        category: 'Project save',
+        path: invalidSourceBlock.ownerPaths[0] ?? '/',
+        message: `Project source ${invalidSourceBlock.files.map((file) => `'${file}'`).join(', ')} is invalid on disk. This save depends on that source and was not written.`,
+        boundaries: ['authoring'],
+        ownerPaths:
+          invalidSourceBlock.ownerPaths.length > 0 ? [...invalidSourceBlock.ownerPaths] : ['/'],
+      });
+      return { ok: false, success: false, diagnostics: [diagnostic], error: diagnostic.message };
+    }
+    const discoveredExternalValueByPath: Record<string, ProjectMutationPathValue> = {};
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const before = session.snapshot();
+      if (!mutationMatchesBase(before, request)) return mutationConflictResponse(before, request);
+      try {
+        const candidate = candidateForMutation(before, request);
+        const sourcePaths = scriptSourcePathsForMutation(before, request);
+        const editorStateForWrite = session.editorStateWithRecoveryBaselines(
+          editorState,
+          request.recoveryFileOwnershipHints,
+        );
+        const internalOptions: ProjectWorkspaceCommitOptions = {
+          expectedFileRevisions: snapshotFileRevisions(before),
+          saveUnitIds: [...request.saveUnitIds],
+          affectedPaths: [...request.affectedPaths],
+          operationLabel: request.operationLabel,
+          structural: request.structural,
+          assetTransition: request.assetTransition,
+        };
+        const result = await saveProjectContentFromSnapshot(
+          session.projectRoot(),
+          before,
+          before.workspaceRevision,
+          stripEditorProjectState(candidate),
+          editorStateForWrite,
+          sourcePaths,
+          internalOptions,
+          assertAuthority,
+          session.service(),
+          false,
+        );
+        if (!result.success || !result.committedSnapshot) {
+          const { committedSnapshot: _committedSnapshot, ...response } = result;
+          return {
+            ok: response.ok,
+            success: response.success,
+            projectPath: response.projectPath,
+            projectFilePath: response.projectFilePath,
+            editorState: response.editorState,
+            diagnostics: response.diagnostics,
+            error: response.error,
+          };
+        }
+        const committedEditorState = session.advanceRecoveryBaselines(
+          result.editorState ?? editorStateForWrite,
+          before,
+          result.committedSnapshot,
+        );
+        await session.service().writeEditorLocalState(session.projectRoot(), committedEditorState);
+        session.adopt(result.committedSnapshot, committedEditorState);
+        return {
+          ok: true,
+          success: true,
+          projectPath: result.projectPath,
+          projectFilePath: result.projectFilePath,
+          editorState: committedEditorState,
+          committedSaveUnitIds: [...request.saveUnitIds].sort(),
+          fileRevisions: changedFileRevisions(before, result.committedSnapshot),
+          externalValueByPath:
+            Object.keys(discoveredExternalValueByPath).length > 0
+              ? discoveredExternalValueByPath
+              : undefined,
+          scriptSourcePaths: { ...result.committedSnapshot.scriptSourcePaths },
+          assetTrashMoves: result.assetTrashMoves,
+          diagnostics: result.diagnostics,
+        };
+      } catch (error) {
+        if (
+          attempt === 0 &&
+          error instanceof ProjectWorkspaceMutationError &&
+          error.code === 'WORKSPACE_REVISION_CONFLICT' &&
+          error.targetPath &&
+          before.canonicalSourceFiles.includes(error.targetPath)
+        ) {
+          const refreshed = await session.reassemble([error.targetPath]);
+          if (!refreshed.ok)
+            return {
+              ok: false,
+              success: false,
+              diagnostics: [...refreshed.diagnostics],
+              error: refreshed.diagnostics[0]?.message ?? 'Project source refresh failed.',
+            };
+          Object.assign(
+            discoveredExternalValueByPath,
+            changedMutationValues(
+              stripLocalEditorProjectState(before.project),
+              stripLocalEditorProjectState(refreshed.snapshot.project),
+            ),
+          );
+          continue;
+        }
+        return {
+          ok: false,
+          success: false,
+          error: error instanceof Error ? error.message : 'Project content save failed.',
+          diagnostics:
+            error instanceof ProjectWorkspaceMutationError
+              ? [mutationFailureDiagnostic(error)]
+              : undefined,
+        };
+      }
+    }
+    return { ok: false, success: false, error: 'Project content changed during save.' };
+  });
 }
 
 export async function saveProjectCopyAs(
@@ -892,7 +1258,7 @@ export async function saveProjectCopyAs(
     await writeContainedText(
       root,
       path.join(root, '.noveltea/editor/state.json'),
-      projectWorkspaceLocalStateFile(editor, openedCopy.snapshot.workspaceRevision),
+      projectWorkspaceLocalStateFile(editor),
     );
     const fsPort = createNodeProjectWorkspaceFileSystem();
     const gitignoreStatus = await ensureNovelTeaLocalStateIgnored(fsPort, root);

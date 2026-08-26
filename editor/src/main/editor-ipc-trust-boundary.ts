@@ -329,20 +329,32 @@ export const restoreProjectAssetFilesArgumentsSchema = z.tuple([
     .max(MAX_ASSET_OPERATION_PATHS),
 ]);
 
-const projectRevisionMapSchema = z.record(projectRelativePathSchema, sha256DigestSchema);
 const scriptSourcePathsSchema = z
   .record(z.string().min(1).max(512), projectRelativePathSchema)
   .refine((value) => Object.keys(value).length <= MAX_SAVE_SOURCE_PATHS);
-const projectWorkspaceCommitOptionsSchema = z
+const mutationPathSchema = z.string().min(1).max(MAX_PROJECT_PATH_LENGTH).startsWith('/');
+const projectMutationPathValueSchema = z.union([
+  z.object({ exists: z.literal(false) }).strict(),
+  z.object({ exists: z.literal(true), value: z.json() }).strict(),
+]);
+const recoveryFileOwnershipHintsSchema = z
+  .record(
+    z.string().min(1).max(1_024),
+    z.array(projectRelativePathSchema).max(MAX_SAVE_SOURCE_PATHS),
+  )
+  .refine((value) => Object.keys(value).length <= MAX_SAVE_UNITS);
+const projectContentSaveRequestSchema = z
   .object({
-    expectedFileRevisions: projectRevisionMapSchema,
-    saveUnitIds: z.array(z.string().min(1).max(1_024)).max(MAX_SAVE_UNITS).optional(),
-    baselineProject: authoringProjectSchema.optional(),
-    affectedPaths: z
-      .array(z.string().min(1).max(MAX_PROJECT_PATH_LENGTH))
+    saveUnitIds: z.array(z.string().min(1).max(1_024)).max(MAX_SAVE_UNITS),
+    affectedPaths: z.array(mutationPathSchema).max(MAX_SAVE_UNITS),
+    baseValueByPath: z.record(mutationPathSchema, projectMutationPathValueSchema),
+    localValueByPath: z.record(mutationPathSchema, projectMutationPathValueSchema),
+    operationLabel: z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
+    recoveryFileOwnershipHints: recoveryFileOwnershipHintsSchema.optional(),
+    identityRemap: z
+      .array(z.object({ fromPath: mutationPathSchema, toPath: mutationPathSchema }).strict())
       .max(MAX_SAVE_UNITS)
       .optional(),
-    operationLabel: z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
     structural: z.boolean().optional(),
     assetTransition: z
       .union([
@@ -374,17 +386,13 @@ const projectWorkspaceCommitOptionsSchema = z
 
 export const saveProjectContentArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  z.string().min(1).max(512),
-  authoringProjectSchema,
+  projectContentSaveRequestSchema,
   editorProjectStateSchema,
-  scriptSourcePathsSchema,
-  z.union([projectWorkspaceCommitOptionsSchema, z.undefined()]),
 ]);
 export const saveProjectEditorMetadataArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  z.string().min(1).max(512),
   editorProjectStateSchema,
-  projectRevisionMapSchema,
+  recoveryFileOwnershipHintsSchema,
 ]);
 export const saveProjectCopyAsArgumentsSchema = z.tuple([
   projectSessionIdSchema,

@@ -356,7 +356,6 @@ describe('package export workflow', () => {
     expect(result.success).toBe(true);
     expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
       'test-project-session',
-      expect.any(String),
       expect.objectContaining({
         lastSuccessfulPlatformExportIdentity: expect.objectContaining({
           applicationId: 'org.example.workflow',

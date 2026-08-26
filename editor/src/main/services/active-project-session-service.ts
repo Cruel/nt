@@ -10,6 +10,7 @@ import {
   parseAuthoringProject,
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
+import { editorProjectStateSchema } from '../../shared/project-schema/editor-project-state';
 import {
   isSha256Digest,
   PROJECT_TEXT_SOURCE_LIMITS,
@@ -18,6 +19,9 @@ import {
   type ReadProjectTextSourcesRequest,
   type ReadProjectTextSourcesResponse,
 } from '../../shared/project-text-sources';
+import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
+import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
+import { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
@@ -43,6 +47,7 @@ interface ActiveProjectSession {
   id: string;
   root: string;
   assets: ReadonlyMap<string, ActiveProjectAssetAuthorization>;
+  workspace?: ActiveProjectWorkspaceSession;
 }
 
 function admittedAssets(project: unknown): ReadonlyMap<string, ActiveProjectAssetAuthorization> {
@@ -75,6 +80,7 @@ export class ActiveProjectSessionService {
     projectFilePath: string,
     expectedActivationGeneration?: number,
     contentProject?: unknown,
+    workspace?: ActiveProjectWorkspaceSession,
   ): Promise<string> {
     const canonicalProjectFile = await fs.realpath(path.resolve(projectFilePath));
     const projectFileStat = await fs.stat(canonicalProjectFile);
@@ -82,12 +88,14 @@ export class ActiveProjectSessionService {
     this.assertProjectActivationCurrent(expectedActivationGeneration);
     const canonicalRoot = path.dirname(canonicalProjectFile);
     const assets = contentProject === undefined ? new Map() : admittedAssets(contentProject);
-    if (this.active?.root === canonicalRoot) {
-      if (contentProject !== undefined) this.active = { ...this.active, assets };
-      return this.active.id;
+    const current = this.active;
+    if (current?.root === canonicalRoot) {
+      this.active = { ...current, assets, workspace: workspace ?? current.workspace };
+      return current.id;
     }
-    this.active = { id: randomUUID(), root: canonicalRoot, assets };
-    return this.active.id;
+    const id = randomUUID();
+    this.active = { id, root: canonicalRoot, assets, ...(workspace ? { workspace } : {}) };
+    return id;
   }
 
   currentSessionId(): string | null {
@@ -104,6 +112,22 @@ export class ActiveProjectSessionService {
 
   isCurrent(projectSessionId: string): boolean {
     return this.active?.id === projectSessionId;
+  }
+
+  requireActiveWorkspace(projectSessionId: string): ActiveProjectWorkspaceSession {
+    const active = this.active;
+    if (!active || projectSessionId !== active.id)
+      throw new Error('Project session is stale or unknown.');
+    if (!active.workspace) throw new Error('Active Project session has no workspace state.');
+    return active.workspace;
+  }
+
+  refreshActiveWorkspaceAssets(projectSessionId: string): void {
+    const active = this.active;
+    if (!active || projectSessionId !== active.id)
+      throw new Error('Project session is stale or unknown.');
+    if (!active.workspace) throw new Error('Active Project session has no workspace state.');
+    this.active = { ...active, assets: admittedAssets(active.workspace.project()) };
   }
 
   requireActiveAsset(
@@ -148,13 +172,29 @@ export class ActiveProjectSessionService {
     if (!result.projectFilePath) {
       throw new Error('Successful Project lifecycle result omitted the Project manifest path.');
     }
+    const raw = result as Record<string, unknown>;
+    const parsedEditor = editorProjectStateSchema.safeParse(raw.editorState);
+    const snapshot = raw._workspaceSnapshot as LoadedProjectWorkspaceSnapshot | undefined;
+    let workspace =
+      parsedEditor.success && snapshot
+        ? ActiveProjectWorkspaceSession.fromSnapshot(snapshot, parsedEditor.data)
+        : undefined;
+    if (!workspace) {
+      const root = path.dirname(path.resolve(result.projectFilePath));
+      const opened = await createNodeProjectWorkspaceService().open(root);
+      if (!opened.ok)
+        throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
+      workspace = ActiveProjectWorkspaceSession.fromOpened(opened);
+    }
     const projectSessionId = await this.activateProjectFile(
       result.projectFilePath,
       activationGeneration,
       'contentProject' in result ? result.contentProject : undefined,
+      workspace,
     );
     this.assertProjectActivationCurrent(activationGeneration);
-    return { ...result, projectSessionId };
+    const { _workspaceSnapshot: _privateWorkspaceSnapshot, ...publicResult } = raw;
+    return { ...publicResult, projectSessionId } as Result & { projectSessionId?: string };
   }
 
   async refreshSuccessfulSessionResult<

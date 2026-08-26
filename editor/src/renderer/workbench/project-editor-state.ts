@@ -49,9 +49,7 @@ export interface ReconstructedEditorProject {
 }
 
 export interface ReconstructEditorProjectOptions {
-  recoveryBaselineWorkspaceRevision?: string | null;
-  currentWorkspaceRevision?: string | null;
-  currentFileRevisions?: Readonly<Record<string, `sha256:${string}`>>;
+  currentFileRevisions?: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
 }
 
 let recoveryContext: RecoveryContext = {
@@ -143,7 +141,7 @@ function staleRecoveryDiagnostic(paths: readonly string[]): ProjectValidationDia
     category: 'Project recovery',
     path,
     message:
-      'Recovered unsaved edits were created against an older workspace revision. Choose Use Disk or Keep Mine before saving the affected item.',
+      'Recovered unsaved edits were created against older source bytes. Choose Use Disk or Keep Mine before saving the affected item.',
     boundaries: ['authoring'],
     ownerPaths: paths.length > 0 ? [...paths] : ['/'],
   });
@@ -199,21 +197,15 @@ export function reconstructEditorProject(
   }
 
   const effectiveRecovery = cloneSerializable(editorState.recovery);
-  const recoveryBaselineChanged =
-    options.recoveryBaselineWorkspaceRevision !== undefined &&
-    options.recoveryBaselineWorkspaceRevision !== null &&
-    options.currentWorkspaceRevision !== undefined &&
-    options.currentWorkspaceRevision !== null &&
-    options.recoveryBaselineWorkspaceRevision !== options.currentWorkspaceRevision;
-  if (recoveryBaselineChanged) {
-    const stalePaths = new Set<string>();
-    for (const [saveUnitId, entry] of Object.entries(effectiveRecovery.saveUnitsById)) {
-      if (
-        !appliedSaveUnitIds.has(saveUnitId) ||
-        entry.patches.length === 0 ||
-        entry.externalConflict
-      )
-        continue;
+  const stalePaths = new Set<string>();
+  for (const [saveUnitId, entry] of Object.entries(effectiveRecovery.saveUnitsById)) {
+    if (!appliedSaveUnitIds.has(saveUnitId) || entry.patches.length === 0 || entry.externalConflict)
+      continue;
+    const baselineEntries = Object.entries(entry.baselineFileRevisions ?? {});
+    const baselineChanged = baselineEntries.some(
+      ([file, revision]) => (options.currentFileRevisions?.[file] ?? 'absent') !== revision,
+    );
+    if (baselineChanged) {
       const paths = canonicalRecoveryRoots([
         ...entry.affectedPaths,
         ...entry.patches.map((patch) => patch.path),
@@ -241,12 +233,13 @@ export function reconstructEditorProject(
         localValueByPath,
         externalValueByPath,
         conflictingPaths: paths,
-        externalWorkspaceRevision: options.currentWorkspaceRevision as `sha256:${string}`,
-        externalFileRevisions: { ...options.currentFileRevisions },
+        externalFileRevisions: Object.fromEntries(
+          baselineEntries.map(([file]) => [file, options.currentFileRevisions?.[file] ?? 'absent']),
+        ),
       };
     }
-    if (stalePaths.size > 0) diagnostics.push(staleRecoveryDiagnostic([...stalePaths].sort()));
   }
+  if (stalePaths.size > 0) diagnostics.push(staleRecoveryDiagnostic([...stalePaths].sort()));
 
   const effectiveEditorState: EditorProjectState = {
     ...editorState,
@@ -356,13 +349,18 @@ function buildRecoveryEntries(): EditorProjectState['recovery'] {
   }
 
   const history = useCommandStore.getState().history;
+  const autoCommitOwnedPaths = new Set<string>();
   for (const [index, entry] of history.entries.slice(0, history.cursor + 1).entries()) {
+    // Auto-commit history is already reflected in savedDocument once persistence succeeds.
+    // If an auto-commit is intentionally converted to manual save, command-store rewrites its
+    // persistencePolicy before recovery is serialized, so only those converted entries belong here.
+    if (entry.persistencePolicy === 'auto-commit') {
+      entry.affectedPaths.forEach((path) => autoCommitOwnedPaths.add(path));
+      continue;
+    }
     const attributedSaveUnitIds = new Set<string>();
     for (const path of entry.affectedPaths) {
-      const saveUnitId =
-        entry.persistencePolicy === 'manual-save'
-          ? manualSaveUnitForHistoryPath(entry.originSaveUnitId, path)
-          : entry.originSaveUnitId;
+      const saveUnitId = manualSaveUnitForHistoryPath(entry.originSaveUnitId, path);
       const paths = pathsByUnit.get(saveUnitId) ?? new Set<string>();
       paths.add(path);
       pathsByUnit.set(saveUnitId, paths);
@@ -393,7 +391,10 @@ function buildRecoveryEntries(): EditorProjectState['recovery'] {
           saveUnitId !== resolution.descriptor.id &&
           [...ownedPaths].some((ownedPath) => recoveryPathsOverlap(path, ownedPath)),
       );
-      if (!ownedByAnotherUnit) paths.add(path);
+      const ownedByAutoCommit = [...autoCommitOwnedPaths].some((ownedPath) =>
+        recoveryPathsOverlap(path, ownedPath),
+      );
+      if (!ownedByAnotherUnit && !ownedByAutoCommit) paths.add(path);
     }
     if (paths.size > 0) pathsByUnit.set(resolution.descriptor.id, paths);
   }
@@ -421,6 +422,9 @@ function buildRecoveryEntries(): EditorProjectState['recovery'] {
       affectedPaths,
       pendingRawInputByPath,
       atomicTransactionGroupIds: [...(atomicGroupsByUnit.get(saveUnitId) ?? [])].sort(),
+      baselineFileRevisions: {
+        ...recoveryContext.editorState.recovery.saveUnitsById[saveUnitId]?.baselineFileRevisions,
+      },
       ...(recoveryContext.editorState.recovery.saveUnitsById[saveUnitId]?.externalConflict
         ? {
             externalConflict:

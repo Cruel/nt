@@ -29,20 +29,27 @@ rejects random, stale, closed, or prior-Project ids before Project filesystem wo
 metadata persistence re-check that authority at the write boundary so a Project switch or close that
 wins while validation or reconciliation is in flight cannot redirect or complete the old write.
 
-A successful content save is reopened and refreshed against the same main-owned canonical root before
-its authoritative result is exposed to the renderer. Successful metadata persistence likewise
-refreshes that same authority before returning. A refresh that resolves to another root, a missing or
-non-file manifest, or a session that became stale fails without rotating authority. Save As is the
-explicit exception for choosing a new destination: the native directory dialog selects only the copy
-destination, while the source root, default directory, assets, workflows, scripts, and agent bootstrap
-are derived from the active session. Save As never changes the active Project identity.
+A successful cold Project open seeds a main-owned live `ActiveProjectWorkspaceSession` for that canonical
+root. Active content saves do not reopen the Project: they apply the selected logical mutation to the
+session's coherent cached authoring state, exact-CAS check only transaction targets, commit, and
+synchronously adopt the resulting snapshot/revisions before returning a targeted acknowledgement.
+Metadata-only persistence writes ignored editor/recovery state through the same session authority but
+does not reassemble tracked source. Any operation that discovers stale session authority, a missing or
+non-file manifest where one is required, or a root mismatch fails without rotating authority. Save As
+is the explicit exception for choosing a new destination: the native directory dialog selects only the
+copy destination, while the source root, default directory, assets, workflows, scripts, and agent
+bootstrap are derived from the active session. Save As never changes the active Project identity.
 
 The Project workspace watcher is admitted and torn down by session id. Watch batches retain the
-main-owned root internally but publish only the session id plus Project-relative changed paths and the
-assembled candidate. A successful assembled candidate refreshes the same active authority before the
-event is sent; malformed or failed candidates do not mutate authority. The renderer accepts an event
-only when its `projectSessionId` is still current, so a delayed Project A batch cannot reconcile into
-Project B. Closing the active Project force-stops its watcher in main before revoking the session.
+main-owned root internally. Changed authoring paths are freshly revision-probed, only changed/invalid
+sources are invalidated and reassembled through the live session, and successful batches publish a
+targeted logical delta plus exact revisions for involved physical files rather than a whole assembled
+Project candidate. NovelTea-owned post-write watcher events whose exact revision already matches the
+session are no-ops; an invalid quarantined source is reassembled whenever that path is observed even
+if repaired bytes equal the last coherent revision. Asset source changes are observed independently
+and do not participate in authoring workspace identity. The renderer accepts an event only when its
+`projectSessionId` is still current, so a delayed Project A batch cannot reconcile into Project B.
+Closing the active Project force-stops its watcher in main before revoking the session.
 
 ## Project-scoped Asset authority
 

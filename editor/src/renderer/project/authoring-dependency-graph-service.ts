@@ -156,6 +156,33 @@ export class AuthoringDependencyGraphService {
       : null;
   }
 
+  waitForCurrentSnapshot(
+    projectInstanceId: string,
+    projectRevision: number,
+  ): Promise<AuthoringDependencyGraphSnapshot | null> {
+    const current = this.currentSnapshot(projectInstanceId, projectRevision);
+    if (current) return Promise.resolve(current);
+    return new Promise((resolve) => {
+      const unsubscribe = this.subscribe(() => {
+        const snapshot = this.currentSnapshot(projectInstanceId, projectRevision);
+        if (snapshot) {
+          unsubscribe();
+          resolve(snapshot);
+          return;
+        }
+        const state = this.stateValue;
+        if (
+          state.kind === 'ready' &&
+          (state.snapshot.projectInstanceId !== projectInstanceId ||
+            state.snapshot.projectRevision > projectRevision)
+        ) {
+          unsubscribe();
+          resolve(null);
+        }
+      });
+    });
+  }
+
   previousSnapshot(
     projectInstanceId: string,
     projectRevision: number,

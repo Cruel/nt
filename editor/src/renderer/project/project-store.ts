@@ -26,8 +26,6 @@ interface ProjectStoreState {
   projectPath: string | null;
   projectFilePath: string | null;
   projectSessionId: string | null;
-  workspaceRevision: string | null;
-  fileRevisions: Readonly<Record<string, `sha256:${string}`>>;
   scriptSourcePaths: Readonly<Record<string, string>>;
   historyCursor: number;
   isSaving: boolean;
@@ -43,14 +41,10 @@ interface ProjectStoreState {
   publishExternalReconciliation: (payload: {
     document: JsonValue;
     savedDocument: JsonValue;
-    workspaceRevision: string;
-    fileRevisions: Readonly<Record<string, `sha256:${string}`>>;
     scriptSourcePaths: Readonly<Record<string, string>>;
     affectedPaths: readonly JsonPointer[];
   }) => boolean;
-  refreshWorkspaceMetadata: (payload: {
-    workspaceRevision: string;
-    fileRevisions: Readonly<Record<string, `sha256:${string}`>>;
+  refreshWorkspaceSources: (payload: {
     scriptSourcePaths: Readonly<Record<string, string>>;
   }) => void;
   setHistoryCursor: (historyCursor: number) => void;
@@ -74,8 +68,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   projectPath: null,
   projectFilePath: null,
   projectSessionId: null,
-  workspaceRevision: null,
-  fileRevisions: {},
   scriptSourcePaths: {},
   historyCursor: -1,
   isSaving: false,
@@ -86,8 +78,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     projectPath,
     projectFilePath,
     projectSessionId = null,
-    workspaceRevision = `sha256:${'0'.repeat(64)}`,
-    fileRevisions = {},
     scriptSourcePaths = {},
   }) => {
     const admitted = admitProjectCandidate(document);
@@ -111,8 +101,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath,
       projectFilePath,
       projectSessionId,
-      workspaceRevision,
-      fileRevisions,
       scriptSourcePaths,
       historyCursor: -1,
       isSaving: false,
@@ -142,8 +130,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath: null,
       projectFilePath: null,
       projectSessionId: null,
-      workspaceRevision: null,
-      fileRevisions: {},
       scriptSourcePaths: {},
       historyCursor: 0,
       isSaving: false,
@@ -162,8 +148,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath: null,
       projectFilePath: null,
       projectSessionId: null,
-      workspaceRevision: null,
-      fileRevisions: {},
       scriptSourcePaths: {},
       historyCursor: -1,
       isSaving: false,
@@ -215,18 +199,15 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
         project: admitted.project,
         projectInstanceId: state.projectInstanceId,
         projectRevision,
-        kind: 'replace',
+        kind: 'external',
         affectedPaths: payload.affectedPaths.length > 0 ? payload.affectedPaths : ['/'],
       }),
-      workspaceRevision: payload.workspaceRevision,
-      fileRevisions: payload.fileRevisions,
       scriptSourcePaths: payload.scriptSourcePaths,
       lastSaveError: null,
     });
     return true;
   },
-  refreshWorkspaceMetadata: ({ workspaceRevision, fileRevisions, scriptSourcePaths }) =>
-    set({ workspaceRevision, fileRevisions, scriptSourcePaths }),
+  refreshWorkspaceSources: ({ scriptSourcePaths }) => set({ scriptSourcePaths }),
   setHistoryCursor: (historyCursor) => set({ historyCursor }),
   markSaved: (metadata) => {
     const state = get();
@@ -242,8 +223,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       savedDocument,
       projectPath: metadata?.projectPath ?? state.projectPath,
       projectFilePath: metadata?.projectFilePath ?? state.projectFilePath,
-      workspaceRevision: metadata?.workspaceRevision ?? state.workspaceRevision,
-      fileRevisions: metadata?.fileRevisions ?? state.fileRevisions,
       scriptSourcePaths: metadata?.scriptSourcePaths ?? state.scriptSourcePaths,
       isSaving: false,
       lastSaveError: null,

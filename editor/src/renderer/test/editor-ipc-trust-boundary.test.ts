@@ -919,42 +919,27 @@ describe('editor top-level navigation policy', () => {
     const sessionId = '11111111-1111-4111-8111-111111111111';
     const project = createAuthoringProject({ name: 'Persistence Boundary' });
     const editorState = emptyEditorProjectState();
+    const contentRequest = {
+      saveUnitIds: ['project:settings'],
+      affectedPaths: ['/project/name'],
+      baseValueByPath: { '/project/name': { exists: true, value: 'Before' } },
+      localValueByPath: { '/project/name': { exists: true, value: 'Persistence Boundary' } },
+      operationLabel: 'save project settings',
+    };
 
     await expect(
-      ipcMain.invoke(
-        'save-content',
-        harness.event,
-        sessionId,
-        'workspace-revision',
-        project,
-        editorState,
-        {},
-        undefined,
-      ),
+      ipcMain.invoke('save-content', harness.event, sessionId, contentRequest, editorState),
     ).resolves.toBe('content-saved');
     await expect(
-      ipcMain.invoke(
-        'save-metadata',
-        harness.event,
-        sessionId,
-        'workspace-revision',
-        editorState,
-        {},
-      ),
+      ipcMain.invoke('save-metadata', harness.event, sessionId, editorState, {}),
     ).resolves.toBe('metadata-saved');
     await expect(
       ipcMain.invoke('save-copy', harness.event, sessionId, project, [], {}),
     ).resolves.toBe('copy-saved');
 
     for (const [channel, arguments_] of [
-      [
-        'save-content',
-        [sessionId, 'workspace-revision', project, editorState, {}, undefined, 'extra'],
-      ],
-      [
-        'save-metadata',
-        [sessionId, 'workspace-revision', { ...editorState, unexpected: true }, {}],
-      ],
+      ['save-content', [sessionId, contentRequest, editorState, 'extra']],
+      ['save-metadata', [sessionId, { ...editorState, unexpected: true }, {}]],
       ['save-copy', [sessionId, project, ['../escape.png'], {}]],
     ] as const) {
       saveContent.mockClear();

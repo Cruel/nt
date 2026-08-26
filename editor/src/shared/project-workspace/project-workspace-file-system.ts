@@ -13,6 +13,13 @@ export interface ProjectWorkspaceFileSystem {
   readFileRevision(
     path: string,
   ): Promise<Readonly<{ contentHash: `sha256:${string}`; byteSize: number }>>;
+  /**
+   * Optional assembly-only revision cache. Transaction CAS must never use this method; callers that
+   * require proof of the current bytes must use readFileRevision().
+   */
+  readCachedFileRevision?(
+    path: string,
+  ): Promise<Readonly<{ contentHash: `sha256:${string}`; byteSize: number }> | null>;
   writeTextAtomic(path: string, text: string): Promise<void>;
   writeBytesAtomic(path: string, bytes: Uint8Array): Promise<void>;
   movePathAtomic(from: string, to: string): Promise<void>;

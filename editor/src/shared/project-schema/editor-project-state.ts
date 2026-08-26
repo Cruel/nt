@@ -222,6 +222,11 @@ const editorRecoveryConflictValueSchema = z.union([
   z.object({ exists: z.literal(true), value: jsonSerializableValueSchema }).strict(),
 ]);
 
+const editorRecoveryFileRevisionSchema = z.union([
+  z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  z.literal('absent'),
+]);
+
 export const editorRecoveryExternalConflictSchema = z
   .object({
     baseValueByPath: z.record(editorRecoveryJsonPointerSchema, editorRecoveryConflictValueSchema),
@@ -231,8 +236,7 @@ export const editorRecoveryExternalConflictSchema = z
       editorRecoveryConflictValueSchema,
     ),
     conflictingPaths: z.array(editorRecoveryJsonPointerSchema),
-    externalWorkspaceRevision: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    externalFileRevisions: z.record(z.string().min(1), z.string().regex(/^sha256:[0-9a-f]{64}$/)),
+    externalFileRevisions: z.record(z.string().min(1), editorRecoveryFileRevisionSchema),
   })
   .strict();
 
@@ -243,6 +247,7 @@ export const editorRecoverySaveUnitSchema = z
     affectedPaths: z.array(editorRecoveryJsonPointerSchema),
     pendingRawInputByPath: z.record(editorRecoveryJsonPointerSchema, editorPendingRawInputSchema),
     atomicTransactionGroupIds: z.array(z.string().min(1)).default([]),
+    baselineFileRevisions: z.record(z.string().min(1), editorRecoveryFileRevisionSchema).optional(),
     externalConflict: editorRecoveryExternalConflictSchema.optional(),
   })
   .strict();

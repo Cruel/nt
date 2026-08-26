@@ -26,7 +26,6 @@ import { toJsonValue } from '@/project/json-value';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { buildPlatformExportTab, buildProjectSettingsTab } from '@/workbench/editor-registry';
 
-const workspaceRevision = `sha256:${'a'.repeat(64)}` as const;
 const roomFileRevision = `sha256:${'b'.repeat(64)}` as const;
 
 function roomTab(roomId: string): WorkbenchTab {
@@ -75,8 +74,6 @@ function loadProject(
     projectPath: '/mock/project',
     projectFilePath: '/mock/project/game.json',
     projectSessionId: 'test-project-session',
-    workspaceRevision,
-    fileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
   });
   useProjectStore
     .getState()
@@ -120,8 +117,10 @@ describe('project save coordinator', () => {
     expect(result.success).toBe(true);
     expect(result.savedSaveUnitIds).toContain('project:platform-export-profiles');
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
-      export: { profiles: [expect.objectContaining({ target: 'windows' })] },
+    const request = vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1];
+    expect(request?.localValueByPath['/export/profiles']).toEqual({
+      exists: true,
+      value: [expect.objectContaining({ target: 'windows' })],
     });
   });
 
@@ -148,6 +147,8 @@ describe('project save coordinator', () => {
     });
     loadProject(saved, working, editorState);
     useWorkbenchStore.getState().openTab(roomTab('foyer'));
+    const beforeProjectRevision = useProjectStore.getState().projectRevision;
+    const beforePublication = useProjectStore.getState().lastMutationPublication;
 
     const result = await saveActiveSaveUnit();
 
@@ -158,13 +159,10 @@ describe('project save coordinator', () => {
       remainingDirtySaveUnitIds: ['record:rooms:kitchen'],
     });
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    const [, , candidate, persistedEditor] = vi.mocked(window.noveltea.saveProjectContent).mock
+    const [, request, persistedEditor] = vi.mocked(window.noveltea.saveProjectContent).mock
       .calls[0]!;
-    expect(candidate).toMatchObject({
-      rooms: {
-        foyer: { label: 'New Foyer' },
-        kitchen: { label: 'Kitchen' },
-      },
+    expect(request.localValueByPath).toMatchObject({
+      '/rooms/foyer/label': { exists: true, value: 'New Foyer' },
     });
     expect(persistedEditor.recovery.saveUnitsById).toHaveProperty('record:rooms:kitchen');
     expect(persistedEditor.recovery.saveUnitsById).not.toHaveProperty('record:rooms:foyer');
@@ -180,6 +178,8 @@ describe('project save coordinator', () => {
         kitchen: { label: 'Kitchen' },
       },
     });
+    expect(useProjectStore.getState().projectRevision).toBe(beforeProjectRevision);
+    expect(useProjectStore.getState().lastMutationPublication).toBe(beforePublication);
   });
 
   it('saves selected tracked editor.json content without marking unrelated tracked editor content saved', async () => {
@@ -237,8 +237,6 @@ describe('project save coordinator', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
       projectSessionId: 'test-project-session',
-      workspaceRevision,
-      fileRevisions: { 'editor.json': roomFileRevision },
     });
     useProjectStore.getState().replaceDocumentFromCommand(workingDocument, 0);
     setLoadedEditorProjectState(workingEditor);
@@ -282,23 +280,28 @@ describe('project save coordinator', () => {
     });
     loadProject(saved, working, editorState);
     useWorkbenchStore.getState().openTab(roomTab('foyer'));
-    const diskAfterSave = projectWithRooms();
-    diskAfterSave.rooms.foyer!.label = 'Local Foyer';
-    diskAfterSave.rooms.kitchen!.label = 'Disk Kitchen';
-    const diskRevision = `sha256:${'d'.repeat(64)}` as const;
     vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
       ok: true,
       success: true,
       diagnostics: [],
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
-      workspaceRevision: diskRevision,
       fileRevisions: {
         'records/rooms/foyer.json': `sha256:${'e'.repeat(64)}`,
         'records/rooms/kitchen.json': `sha256:${'f'.repeat(64)}`,
       },
-      contentProject: diskAfterSave,
-      editorState: emptyEditorProjectState(),
+      externalValueByPath: {
+        '/rooms/kitchen/label': { exists: true, value: 'Disk Kitchen' },
+      },
+      editorState: {
+        ...editorState,
+        recovery: {
+          ...editorState.recovery,
+          saveUnitsById: {
+            'record:rooms:kitchen': editorState.recovery.saveUnitsById['record:rooms:kitchen']!,
+          },
+        },
+      },
       scriptSourcePaths: {},
     });
 
@@ -314,7 +317,6 @@ describe('project save coordinator', () => {
       expect.objectContaining({ code: 'editor.external-change.conflict', severity: 'error' }),
     );
     const state = useProjectStore.getState();
-    expect(state.workspaceRevision).toBe(diskRevision);
     expect(state.document).toMatchObject({
       rooms: {
         foyer: { label: 'Local Foyer' },
@@ -332,7 +334,9 @@ describe('project save coordinator', () => {
         ?.externalConflict,
     ).toMatchObject({
       conflictingPaths: ['/rooms/kitchen/label'],
-      externalWorkspaceRevision: diskRevision,
+      externalFileRevisions: {
+        'records/rooms/kitchen.json': `sha256:${'f'.repeat(64)}`,
+      },
     });
   });
 
@@ -384,7 +388,6 @@ describe('project save coordinator', () => {
             '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
           },
           conflictingPaths: ['/rooms/foyer/label'],
-          externalWorkspaceRevision: workspaceRevision,
           externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
         },
       },
@@ -400,14 +403,14 @@ describe('project save coordinator', () => {
     const resolved = await saveConflictingSaveUnitKeepMine('record:rooms:foyer');
     expect(resolved.success).toBe(true);
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    const [projectSessionId, expectedRevision, candidate, , , commitOptions] = vi.mocked(
-      window.noveltea.saveProjectContent,
-    ).mock.calls[0]!;
+    const [projectSessionId, request] = vi.mocked(window.noveltea.saveProjectContent).mock
+      .calls[0]!;
     expect(projectSessionId).toBe('test-project-session');
-    expect(expectedRevision).toBe(workspaceRevision);
-    expect(candidate).toMatchObject({ rooms: { foyer: { label: 'Local Foyer' } } });
-    expect(commitOptions?.expectedFileRevisions).toEqual({
-      'records/rooms/foyer.json': roomFileRevision,
+    expect(request.baseValueByPath).toEqual({
+      '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
+    });
+    expect(request.localValueByPath).toEqual({
+      '/rooms/foyer/label': { exists: true, value: 'Local Foyer' },
     });
   });
 
@@ -434,7 +437,6 @@ describe('project save coordinator', () => {
             '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
           },
           conflictingPaths: ['/rooms/foyer/label'],
-          externalWorkspaceRevision: workspaceRevision,
           externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
         },
       },
@@ -493,7 +495,6 @@ describe('project save coordinator', () => {
             '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
           },
           conflictingPaths: ['/rooms/foyer/label'],
-          externalWorkspaceRevision: workspaceRevision,
           externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
         },
       },
@@ -537,10 +538,12 @@ describe('project save coordinator', () => {
 
     expect(result.status).toBe('saved');
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
-      rooms: {
-        foyer: { label: 'New Foyer' },
-        kitchen: { label: '' },
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1]).toMatchObject({
+      baseValueByPath: {
+        '/rooms/foyer/label': { exists: true, value: 'Foyer' },
+      },
+      localValueByPath: {
+        '/rooms/foyer/label': { exists: true, value: 'New Foyer' },
       },
     });
   });
@@ -705,9 +708,11 @@ describe('project save coordinator', () => {
       remainingDirtySaveUnitIds: [],
     });
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
-      entrypoint: { kind: 'room', id: 'hall' },
-      rooms: { hall: { id: 'hall' } },
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1]).toMatchObject({
+      saveUnitIds: ['project:settings', 'record:rooms:hall'],
+      localValueByPath: {
+        '/rooms/hall': { exists: true, value: expect.objectContaining({ id: 'hall' }) },
+      },
     });
   });
 

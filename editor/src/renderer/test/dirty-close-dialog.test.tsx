@@ -337,12 +337,23 @@ describe('dirty tab close guard', () => {
     expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[0]).toBe(
       'test-project-session',
     );
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls.at(-1)?.[2]).toMatchObject({
-      rooms: {
-        foyer: { label: 'New Foyer' },
-        kitchen: { label: 'New Kitchen' },
-      },
-    });
+    const requests = vi
+      .mocked(window.noveltea.saveProjectContent)
+      .mock.calls.map((call) => call[1]);
+    expect(requests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          localValueByPath: expect.objectContaining({
+            '/rooms/foyer/label': { exists: true, value: 'New Foyer' },
+          }),
+        }),
+        expect.objectContaining({
+          localValueByPath: expect.objectContaining({
+            '/rooms/kitchen/label': { exists: true, value: 'New Kitchen' },
+          }),
+        }),
+      ]),
+    );
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
     expect(useWorkbenchStore.getState().tabsById[kitchenTab.id]).toBeUndefined();
   });
@@ -390,8 +401,10 @@ describe('dirty tab close guard', () => {
     await user.click(await screen.findByText('Save'));
 
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
-      rooms: { foyer: { label: 'New Foyer' } },
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1]).toMatchObject({
+      localValueByPath: {
+        '/rooms/foyer/label': { exists: true, value: 'New Foyer' },
+      },
     });
     expect(useProjectStore.getState().savedDocument).toMatchObject({
       rooms: { foyer: { label: 'New Foyer' } },
@@ -431,8 +444,10 @@ describe('dirty tab close guard', () => {
     await user.click(await screen.findByText('Save'));
 
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
-      rooms: { foyer: { label: 'Draft Foyer' } },
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1]).toMatchObject({
+      localValueByPath: {
+        '/rooms/foyer/label': { exists: true, value: 'Draft Foyer' },
+      },
     });
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });

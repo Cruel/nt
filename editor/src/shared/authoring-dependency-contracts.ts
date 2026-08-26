@@ -205,6 +205,7 @@ export interface ProjectMutationChangeSet {
     | 'persistence-rollback'
     | 'undo'
     | 'redo'
+    | 'external'
     | 'replace';
   affectedPaths: readonly JsonPointer[];
 }

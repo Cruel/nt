@@ -40,16 +40,20 @@ field-level pending input in recovery metadata.
 - Save All attempts every dirty unit, writes the maximal independently valid set once, and leaves
   blocked units dirty with their recovery overlays intact. It intentionally has no shortcut that
   conflicts with Save As.
-- Scoped commits resolve each selected unit to its canonical JSON/source file set and carry the
-  loaded exact-byte revision for each target. The renderer also supplies the exact JSON paths changed
-  by the selected recovery component. The main process verifies those paths against the saved
-  baseline, rebases the selected paths onto the newest disk snapshot, and writes only the selected
-  physical files. A disjoint external edit can therefore survive even when it shares a Room record
-  file or `editor.json` with the local save; an overlapping path fails closed instead.
-- After a successful content write, the main process returns the authoritative post-commit workspace
-  snapshot. The renderer reconciles that snapshot with any remaining local dirty units before it
-  adopts the returned workspace/file revisions. A watcher event can therefore never be skipped merely
-  because Save advanced the revision before adopting a concurrent external change.
+- Scoped commits send selected save-unit IDs plus the exact logical baseline/local values for the
+  affected JSON paths. The main-owned active workspace session already owns the authoritative disk
+  project and exact physical revisions. It overlays the selected logical mutation onto that cached
+  state, validates the candidate in memory, then exact-CAS checks only the physical transaction
+  targets immediately before replacement. A disjoint external edit can therefore survive even when
+  it shares a Room record file or `editor.json` with the local save; an overlapping path fails closed
+  instead.
+- A successful content write returns a targeted acknowledgement, not a reopened whole-workspace
+  snapshot. It contains the committed logical units, exact revisions for physical authoring files
+  actually changed by the transaction, authoritative recovery/editor state, any external logical
+  delta discovered during the bounded CAS rebase, and source-ownership metadata when relevant. Main
+  advances remaining dirty units' per-file recovery baselines before returning. Renderer reconciliation
+  treats that returned recovery state as authoritative and never replaces it with the older pre-save
+  recovery copy.
 - Save As and `Ctrl+Shift+S` create a copy from the saved content baseline plus complete editor
   metadata, recovery overlays, and dirty-only project asset files. The active project identity and
   dirty state do not change. Unrelated files may already exist at the chosen destination, but Save As
@@ -65,13 +69,16 @@ field-level pending input in recovery metadata.
   Save / Don't Save / Cancel dialog for the logical save unit.
 
 The renderer exposes only scoped content Save, metadata-only persistence, and Save As copy IPC.
-Content commits cross that boundary with selected save-unit IDs, their saved baseline, and per-file
-revisions. The main-process workspace service performs the final path projection and revision check
-under the cross-process writer lock.
+Content commits cross that boundary with selected save-unit IDs, affected logical paths, and their
+baseline/local values; recovery ownership hints are included only where needed to establish a dirty
+unit's physical baseline dependencies. The main-owned active workspace session performs final path
+projection and exact target revision checks under the cross-process writer lock.
 There is no renderer-accessible whole-document Save or old Save As branch. The retired whole-project
 content fingerprint is not part of editor metadata, IPC responses, or conflict detection; persisted
-concurrency is expressed only through `workspaceRevision` plus exact owned-file revisions. External
-rebase/conflict semantics are documented in `PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md`.
+concurrency is expressed through exact physical revisions at transaction, watcher, conflict, and
+recovery boundaries. Aggregate `workspaceRevision` remains an internal stateless/cold-workspace
+primitive where independently useful, not an active-editor synchronization token. External rebase/
+conflict semantics are documented in `PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md`.
 
 ## Registered editor mapping
 

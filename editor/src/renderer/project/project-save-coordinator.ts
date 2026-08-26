@@ -1,6 +1,6 @@
 import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
 import type { JsonPointer } from './json-pointer';
-import { cloneJsonValue, jsonValuesEqual, toJsonValue, type JsonValue } from './json-value';
+import { cloneJsonValue, jsonValuesEqual, type JsonValue } from './json-value';
 import { resolveSaveUnitForTab } from './save-unit-registry';
 import type { SaveUnitId } from './save-unit-types';
 import { useProjectStore } from './project-store';
@@ -31,13 +31,18 @@ import {
   projectValidationDiagnosticKey,
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
-import type { SaveProjectResponse, ToolDiagnostic } from '../../shared/editor-tooling';
+import type {
+  ProjectContentSaveResponse,
+  SaveProjectResponse,
+  ToolDiagnostic,
+} from '../../shared/editor-tooling';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   diffJsonDocuments,
   reconcileExternalProjectChange,
 } from './project-external-reconciliation';
 import { rebaseRecoveryOverlays } from './project-recovery-rebase';
+import { applyProjectMutationValues, buildProjectContentSaveRequest } from './project-save-request';
 
 export type ProjectSaveCoordinatorStatus =
   | 'saved'
@@ -54,7 +59,7 @@ export interface ProjectSaveCoordinatorResult {
   savedSaveUnitIds: SaveUnitId[];
   remainingDirtySaveUnitIds: SaveUnitId[];
   dependencySaveUnitIds?: SaveUnitId[];
-  response?: SaveProjectResponse;
+  response?: SaveProjectResponse | ProjectContentSaveResponse;
 }
 
 interface SaveComponent {
@@ -291,14 +296,7 @@ async function commitSelectedSaveUnits(
   const currentDocument = projectState.document;
   const projectFilePath = projectState.projectFilePath;
   const projectSessionId = projectState.projectSessionId;
-  const workspaceRevision = projectState.workspaceRevision;
-  if (
-    !currentDocument ||
-    !projectState.savedDocument ||
-    !projectFilePath ||
-    !projectSessionId ||
-    !workspaceRevision
-  ) {
+  if (!currentDocument || !projectState.savedDocument || !projectFilePath || !projectSessionId) {
     return {
       success: false,
       status: 'failed',
@@ -326,17 +324,16 @@ async function commitSelectedSaveUnits(
   useProjectStore.getState().setSaving(true);
   const response = await window.noveltea.saveProjectContent(
     projectSessionId,
-    workspaceRevision,
-    candidateContent,
-    editorStateForWrite,
-    projectState.scriptSourcePaths,
-    {
-      expectedFileRevisions: { ...projectState.fileRevisions },
+    buildProjectContentSaveRequest({
+      baselineDocument: projectState.savedDocument,
+      candidateDocument: candidateContent,
+      recovery: rebasedRecovery,
       saveUnitIds: [...selectedIds].sort(),
-      baselineProject: projectState.savedDocument,
-      affectedPaths: selectedChangedPaths,
+      affectedPaths: selectedChangedPaths as JsonPointer[],
       operationLabel: 'editor save',
-    },
+      baselineScriptSourcePaths: projectState.scriptSourcePaths,
+    }),
+    editorStateForWrite,
   );
   if (!response.success) {
     useProjectStore.getState().setSaveError(response.error ?? 'Project save failed.');
@@ -351,21 +348,21 @@ async function commitSelectedSaveUnits(
   }
 
   const authoritativeEditorState = response.editorState ?? editorStateForWrite;
+  const discoveredExternal = response.externalValueByPath ?? {};
+  const authoritativeContent =
+    Object.keys(discoveredExternal).length > 0
+      ? applyProjectMutationValues(candidateContent, discoveredExternal)
+      : candidateContent;
   const authoritativeDiskDocument = mergeEditorProjectState(
-    response.contentProject ? toJsonValue(response.contentProject) : candidateContent,
+    authoritativeContent,
     authoritativeEditorState,
   );
-  const authoritativeWorkspaceRevision = (response.workspaceRevision ??
-    workspaceRevision) as `sha256:${string}`;
-  const authoritativeFileRevisions = response.fileRevisions ?? projectState.fileRevisions;
-  const authoritativeScriptSourcePaths =
-    response.scriptSourcePaths ?? projectState.scriptSourcePaths;
+  const authoritativeFileRevisions = response.fileRevisions ?? {};
   const postSave = reconcileExternalProjectChange({
     baseDocument: projectState.savedDocument,
     localDocument: currentDocument,
     externalDocument: authoritativeDiskDocument,
-    recovery: rebasedRecovery,
-    externalWorkspaceRevision: authoritativeWorkspaceRevision,
+    recovery: authoritativeEditorState.recovery,
     externalFileRevisions: authoritativeFileRevisions,
   });
   const workingEditorState = editorStateForContentCandidate(
@@ -388,9 +385,7 @@ async function commitSelectedSaveUnits(
     const published = useProjectStore.getState().publishExternalReconciliation({
       document: workingDocument,
       savedDocument,
-      workspaceRevision: authoritativeWorkspaceRevision,
-      fileRevisions: authoritativeFileRevisions,
-      scriptSourcePaths: authoritativeScriptSourcePaths,
+      scriptSourcePaths: response.scriptSourcePaths ?? projectState.scriptSourcePaths,
       affectedPaths: postSave.externalChangedPaths,
     });
     if (!published) {
@@ -410,9 +405,7 @@ async function commitSelectedSaveUnits(
       document: savedDocument,
       projectPath: response.projectPath,
       projectFilePath: response.projectFilePath,
-      workspaceRevision: authoritativeWorkspaceRevision,
-      fileRevisions: authoritativeFileRevisions,
-      scriptSourcePaths: authoritativeScriptSourcePaths,
+      scriptSourcePaths: response.scriptSourcePaths ?? projectState.scriptSourcePaths,
     });
   }
   setLoadedEditorProjectState(workingEditorState);
@@ -872,8 +865,7 @@ export async function saveConflictingSaveUnitKeepMine(
 
 export function resolveExternalConflictUseDisk(saveUnitId: SaveUnitId): boolean {
   const projectState = useProjectStore.getState();
-  if (!projectState.document || !projectState.savedDocument || !projectState.workspaceRevision)
-    return false;
+  if (!projectState.document || !projectState.savedDocument) return false;
   const snapshot = buildEditorProjectStateSnapshot();
   const conflict = snapshot.recovery.saveUnitsById[saveUnitId]?.externalConflict;
   if (!conflict) return false;
@@ -899,8 +891,6 @@ export function resolveExternalConflictUseDisk(saveUnitId: SaveUnitId): boolean 
   return useProjectStore.getState().publishExternalReconciliation({
     document: workingDocument,
     savedDocument,
-    workspaceRevision: projectState.workspaceRevision,
-    fileRevisions: projectState.fileRevisions,
     scriptSourcePaths: projectState.scriptSourcePaths,
     affectedPaths: conflict.conflictingPaths,
   });

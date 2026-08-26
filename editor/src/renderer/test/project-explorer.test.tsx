@@ -270,11 +270,14 @@ describe('ProjectExplorer', () => {
     await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
     expect(await screen.findByText(/lua-explicit-reference:/i)).toBeInTheDocument();
-    expect(
-      screen.getByLabelText(/force delete and let validation report missing references/i),
-    ).toBeInTheDocument();
+    const forceDelete = screen.getByLabelText(
+      /force delete and let validation report missing references/i,
+    );
+    expect(forceDelete).toBeInTheDocument();
     expect(
       screen.getByText('Explicit Lua dependency fallback must be updated manually.'),
     ).toBeInTheDocument();
+    await user.click(forceDelete);
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
   });
 });
