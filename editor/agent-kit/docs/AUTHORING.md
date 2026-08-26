@@ -5,15 +5,27 @@ NovelTea projects are file-first. Use the focused generated documents to underst
 ## Core concepts
 
 - **Asset**: imported source media such as an image, audio file, or font. An image Asset is not itself a Prop or Interactable.
+- **Character**: one persistent semantic person or actor identity. Character presentation is built from Profiles, Poses, Expressions, optional Appearances, Gestures, and automatic animation behavior. A Room/Scene/Dialogue can present a Character without changing that Character's world Location.
+- **Room**: an explorable world location with background presentation, exits, placements, props, cast, Interactables, Features, and lifecycle behavior.
 - **Placement**: a named normalized rectangle inside a Room. Placements provide geometry that Room content can reuse.
 - **Prop**: a visual Room object that associates an Asset and/or Material with a Placement. Use a Prop when the object is only presentation and is not meant to participate in interaction.
 - **Interactable**: a reusable interactive object definition. It owns its sprite/material presentation, hotspot definition, and initial enabled/visible state.
 - **Room interactable**: an instance of an Interactable in one Room. It references both the global Interactable record and a Room Placement.
 - **Room hotspot**: an interactive region directly on the Room background image, useful when the clickable feature is already baked into that image.
+- **Item Definition**: the reusable definition of a fungible inventory item, such as a coin, herb, or ammunition type.
+- **Item Stack**: one exact live identity containing a quantity of one Item Definition at one Location. Interactions and tests address the Stack identity, not a visually grouped inventory row.
 - **Verb**: an interaction operation with stable named required subject slots, reusable Subject Selectors, and one locale-neutral `bindingOrder`.
 - **Interaction**: authored behavior associated with a Verb, one selector union per named Verb slot, and semantic context/conditions.
+- **Dialogue**: a conversation graph specialized for lines, choices, Dialogue-local Character/media presentation, inline cues, and cooperative Scene handoff.
+- **Scene**: an ordered visual-novel orchestration program. Scenes stage presentation, call Dialogue/Scenes/Interactions, mutate gameplay, wait/branch/choose, and end through an explicit terminal action.
+- **Map**: authored navigation/topology presentation over Rooms and their exits; it does not replace Room navigation authority.
+- **Layout**: authored RML/RCSS/Lua UI or overlay presentation. Layouts display projected game state and may expose declared local state/signals.
+- **Archetype**: reusable inherited configuration for exactly one gameplay-instance kind: Room, Character, or Interactable.
+- **Trait**: a named Property-backed capability/configuration declaration. Traits do not add structural fields or executable behavior.
 
 References use stable IDs, not labels. Record filesystem identity is also ID-based; see `.noveltea/agent/PROJECT_FORMAT.md`.
+
+The Project chooses exactly one initial entrypoint: Room, Scene, or Dialogue. Script bootstrap is configured separately and should not be modeled as a fake entrypoint record.
 
 ## Choose the right authoring concept
 
@@ -22,8 +34,13 @@ Use this decision rule before editing a Room:
 - Need only an image visible in the Room? Use a **Prop** plus a Placement.
 - Need an object the player can target or interact with? Use an **Interactable** record plus a Placement and a Room-interactable instance.
 - Need an interactive region over something already visible in the Room background? Use a **Room hotspot**.
+- Need a fungible quantity such as coins, ingredients, or ammunition? Use an **Item Definition** plus one or more **Item Stacks**, not an Interactable with a custom count Property.
+- Need a scripted/cinematic sequence that coordinates presentation and gameplay? Use a **Scene**.
+- Need a branching conversation with line/choice history and Dialogue-local presentation? Use a **Dialogue**.
 
 Do not create an Interactable merely to display a sprite. Do not create a separate sprite Prop for an Interactable whose own `presentation.sprite` is the intended visual.
+
+For exact current record fields, create a correctly initialized record with `noveltea entity create` when practical and consult the matching generated schema. Do not infer behavior from schema shape alone: the focused Agent Kit docs describe ownership, lifetime, identity, and how records compose.
 
 ## Complete logical edits
 

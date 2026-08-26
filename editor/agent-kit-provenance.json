@@ -8,7 +8,7 @@
     "noveltea": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/nt.git",
-      "revision": "d103dc48c6bcde6134271793b40354ec46560692"
+      "revision": "10357105438f9d72cc6766be04827f3ea7bea8af"
     },
     "rmlui": {
       "kind": "repository",
@@ -38,7 +38,7 @@
       ]
     },
     "GUIDE.md": {
-      "reviewed": "2026-08-16",
+      "reviewed": "2026-08-26",
       "strategy": "Route agents to the smallest authoring reference for each task and preserve only stable project-facing workflow rules.",
       "sources": [
         {
@@ -52,7 +52,7 @@
       ]
     },
     "PROJECT_FORMAT.md": {
-      "reviewed": "2026-08-16",
+      "reviewed": "2026-08-26",
       "strategy": "Summarize the current workspace contract and persistence rules that are not safely inferable from generated JSON Schema.",
       "sources": [
         {
@@ -81,12 +81,82 @@
       ]
     },
     "docs/AUTHORING.md": {
-      "reviewed": "2026-08-16",
+      "reviewed": "2026-08-26",
       "strategy": "Explain only NovelTea-specific authoring concepts and distinctions that schema structure alone does not communicate well.",
       "sources": [
         {
           "source": "noveltea",
-          "areas": ["docs/engine/OVERVIEW.md", "editor/src/shared/project-schema/"]
+          "areas": [
+            "docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md",
+            "docs/engine/OVERVIEW.md",
+            "editor/src/shared/project-schema/"
+          ]
+        }
+      ]
+    },
+    "docs/ARCHETYPES_TRAITS.md": {
+      "reviewed": "2026-08-26",
+      "strategy": "Explain the author-facing distinction between structural Archetype reuse, Property-backed Traits, and semantic Properties without exposing compiler/runtime implementation details.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md",
+            "docs/engine/TRAIT.md",
+            "docs/engine/VARIABLE.md",
+            "editor/src/shared/project-schema/authoring-archetypes.ts",
+            "editor/src/shared/project-schema/authoring-properties.ts"
+          ]
+        }
+      ]
+    },
+    "docs/CHARACTERS.md": {
+      "reviewed": "2026-08-26",
+      "strategy": "Teach authoring agents how Character semantic identity and Presentation Profiles/Poses/Expressions/Appearances/Gestures compose with Rooms, Scenes, and Dialogues while omitting renderer/runtime internals.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/engine/CHARACTER.md",
+            "editor/src/shared/project-schema/authoring-characters.ts"
+          ]
+        }
+      ]
+    },
+    "docs/DIALOGUES.md": {
+      "reviewed": "2026-08-26",
+      "strategy": "Describe the current conversation graph, presentation slots/cues, choices, child Scene calls, and cooperative Scene handoff in author-facing terms.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/engine/DIALOGUE.md",
+            "editor/src/shared/project-schema/authoring-dialogues.ts"
+          ]
+        }
+      ]
+    },
+    "docs/ITEMS_INVENTORIES.md": {
+      "reviewed": "2026-08-26",
+      "strategy": "Explain Item Definition versus exact live Item Stack identity, owner-qualified Inventories, Locations, and Interaction use without reproducing stack implementation details.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/engine/ITEM.md",
+            "editor/src/shared/project-schema/authoring-inventories.ts",
+            "editor/src/shared/project-schema/authoring-items.ts"
+          ]
+        }
+      ]
+    },
+    "docs/SCENES.md": {
+      "reviewed": "2026-08-26",
+      "strategy": "Explain Scene Stage choice, ordered semantic events, story/gameplay composition, Dialogue handoff, and terminal behavior at the level needed to author records safely.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": ["docs/engine/SCENE.md", "editor/src/shared/project-schema/authoring-scenes.ts"]
         }
       ]
     },
@@ -345,8 +415,8 @@
       ]
     },
     "docs/TESTS.md": {
-      "reviewed": "2026-08-16",
-      "strategy": "Expose only the tracked Test-record contract and supported CLI execution workflow that game-authoring agents need.",
+      "reviewed": "2026-08-26",
+      "strategy": "Explain semantic Test playback, stable choice/navigation/subject identities, supported inputs, and deliberately absent UI/script/assertion forms without exposing playback implementation details.",
       "sources": [
         {
           "source": "noveltea",
