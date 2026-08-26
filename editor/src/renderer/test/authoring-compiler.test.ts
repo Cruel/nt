@@ -28,11 +28,7 @@ import { defaultInteractableData } from '../../shared/project-schema/authoring-i
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
-import {
-  defaultTestAssertion,
-  defaultTestData,
-  defaultTestStep,
-} from '../../shared/project-schema/authoring-tests';
+import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import { comprehensiveGoldenProject } from './fixtures/compiled-project-golden-projects';
@@ -1481,7 +1477,6 @@ describe('authoring compiler framework', () => {
 
     const test = defaultTestData('Smoke');
     const step = defaultTestStep('tick', 'Start');
-    step.assertions = [{ ...defaultTestAssertion('mode'), id: 'mode-assertion' }];
     test.steps = [{ ...step, id: 'start' }];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: test };
 

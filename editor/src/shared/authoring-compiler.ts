@@ -70,7 +70,6 @@ export const compilerNestedNamespaces = [
   'map-location',
   'map-connection',
   'test-step',
-  'test-assertion',
 ] as const;
 
 export type CompilerNestedNamespace = (typeof compilerNestedNamespaces)[number];
@@ -531,15 +530,6 @@ export function buildAuthoringSymbolTables(project: AuthoringProject): Authoring
     data?.steps.forEach((step, stepIndex) => {
       const stepPath = `/tests/${escapeJsonPointerSegment(ownerId)}/data/steps/${stepIndex}`;
       addNestedSymbol(nested, 'test-step', ownerId, step.id, stepPath);
-      step.assertions.forEach((assertion, assertionIndex) =>
-        addNestedSymbol(
-          nested,
-          'test-assertion',
-          ownerId,
-          assertion.id,
-          `${stepPath}/assertions/${assertionIndex}`,
-        ),
-      );
     });
   });
   return { collections, nested };

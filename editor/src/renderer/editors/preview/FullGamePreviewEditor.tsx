@@ -97,16 +97,13 @@ interface RecordedRuntimeAction {
   recordedAt: string;
   input: {
     type: RecordedRuntimeInputKind;
-    optionIndex?: number;
-    direction?: number;
+    edgeId?: string;
+    optionId?: string;
     exitId?: string;
     subjects?: PreviewInteractionSubject[];
     subject?: PreviewInteractionSubject;
     verbId?: string;
     bindings?: Array<{ slotId: string; subject: PreviewInteractionSubject }>;
-    documentId?: string;
-    target?: string;
-    selector?: string;
   };
 }
 
@@ -340,10 +337,12 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
   switch (action.kind) {
     case 'continue':
       return 'Continue';
-    case 'dialogue-option':
-      return `Choice ${action.input.optionIndex ?? '—'}`;
+    case 'dialogue-choice':
+      return `Dialogue choice ${action.input.edgeId ?? '—'}`;
+    case 'scene-choice':
+      return `Scene choice ${action.input.optionId ?? '—'}`;
     case 'navigate':
-      return `Navigate ${action.input.exitId ?? action.input.direction ?? '—'}`;
+      return `Navigate ${action.input.exitId ?? '—'}`;
     case 'select-subjects':
       return `Select ${action.input.subjects?.map(subjectText).join(', ') || 'subjects'}`;
     case 'primary-activate':
@@ -354,8 +353,6 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
       return 'Clear subject selection';
     case 'run-interaction':
       return `Run ${action.input.verbId ?? 'interaction'}`;
-    case 'ui-click':
-      return `Click ${action.input.selector ?? action.input.target ?? 'UI target'}`;
     default:
       return action.label;
   }
@@ -465,8 +462,10 @@ function executeRecordedAction(
   switch (action.input.type) {
     case 'continue':
       return context.controller.continueRuntime();
-    case 'dialogue-option':
-      return context.controller.selectDialogueOption(action.input.optionIndex ?? 0);
+    case 'dialogue-choice':
+      return context.controller.selectDialogueChoice(action.input.edgeId ?? '');
+    case 'scene-choice':
+      return context.controller.selectSceneChoice(action.input.optionId ?? '');
     case 'navigate':
       return context.controller.navigateRuntime(action.input.exitId ?? '');
     case 'select-subjects':
@@ -806,14 +805,14 @@ function InputAvailabilityPanel({
       icon={<StepForward className="h-3.5 w-3.5" />}
       summary={
         inputs
-          ? `${inputs.dialogueOptions.length + inputs.navigation.length + inputs.actions.length + semanticTargets.length + (inputs.continue ? 1 : 0)} available`
+          ? `${inputs.choices.length + inputs.navigation.length + inputs.actions.length + semanticTargets.length + (inputs.continue ? 1 : 0)} available`
           : 'None'
       }
       defaultOpen
     >
-      {inputs?.dialogueOptions.map((option) => (
+      {inputs?.choices.map((option) => (
         <Button
-          key={option.index}
+          key={`${option.kind}:${option.id}`}
           size="sm"
           variant="outline"
           className="w-full justify-start"
@@ -821,18 +820,27 @@ function InputAvailabilityPanel({
           onClick={() =>
             controller &&
             onCommand(
-              () => controller.selectDialogueOption(option.index),
-              `Dialogue option ${option.index} sent`,
+              () =>
+                option.kind === 'dialogue'
+                  ? controller.selectDialogueChoice(option.id)
+                  : controller.selectSceneChoice(option.id),
+              `${option.kind === 'dialogue' ? 'Dialogue' : 'Scene'} choice ${option.id} sent`,
               {
-                recordedAction: createRecordedAction('dialogue-option', option.label, {
-                  type: 'dialogue-option',
-                  optionIndex: option.index,
-                }),
+                recordedAction:
+                  option.kind === 'dialogue'
+                    ? createRecordedAction('dialogue-choice', option.label, {
+                        type: 'dialogue-choice',
+                        edgeId: option.id,
+                      })
+                    : createRecordedAction('scene-choice', option.label, {
+                        type: 'scene-choice',
+                        optionId: option.id,
+                      }),
               },
             )
           }
         >
-          Choice {option.index}: {option.label}
+          {option.kind === 'dialogue' ? 'Dialogue' : 'Scene'} choice {option.id}: {option.label}
         </Button>
       ))}
       {inputs?.navigation.map((direction) => (
@@ -851,7 +859,6 @@ function InputAvailabilityPanel({
                 recordedAction: createRecordedAction('navigate', direction.label, {
                   type: 'navigate',
                   exitId: direction.exitId,
-                  direction: direction.direction,
                 }),
               },
             )
@@ -1712,8 +1719,8 @@ function RecorderPanel({
         </Button>
       </div>
       <div className="rounded-md border bg-muted/40 p-2 text-[11px] text-muted-foreground">
-        Recording captures runtime semantic inputs and advertised UI-click targets from this preview
-        tab. Debug-only mutation controls are not recorded.
+        Recording captures accepted runtime semantic inputs from this preview tab. Debug-only
+        mutation controls and UI gestures are not recorded.
       </div>
       {recordingStale ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">

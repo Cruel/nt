@@ -367,33 +367,6 @@ function collectMapSources(data: JsonObject): RegisteredAuthoringLuaSource[] {
   return output;
 }
 
-function collectTestSources(data: JsonObject): RegisteredAuthoringLuaSource[] {
-  const output: RegisteredAuthoringLuaSource[] = [];
-  const addScript = (
-    surface: 'test-init-script' | 'test-check-script',
-    value: unknown,
-    path: readonly string[],
-  ) => {
-    const source = sourceText(value);
-    if (source === undefined || source.length === 0) return;
-    output.push({
-      surface,
-      sourcePath: path,
-      sourceText: source,
-      supportsExplicitFallback: false,
-      focusedAdmission: false,
-    });
-  };
-  addScript('test-init-script', data.initScript, ['initScript']);
-  addScript('test-check-script', data.checkScript, ['checkScript']);
-  asArray(data.steps).forEach((step, index) => {
-    if (!isObject(step)) return;
-    addScript('test-init-script', step.initScript, ['steps', String(index), 'initScript']);
-    addScript('test-check-script', step.checkScript, ['steps', String(index), 'checkScript']);
-  });
-  return output;
-}
-
 export const AUTHORING_LUA_SCHEMA_SOURCE_REGISTRY = Object.freeze({
   rooms: collectRoomSources,
   scenes: collectSceneSources,
@@ -401,7 +374,6 @@ export const AUTHORING_LUA_SCHEMA_SOURCE_REGISTRY = Object.freeze({
   verbs: collectVerbSources,
   interactions: collectInteractionSources,
   maps: collectMapSources,
-  tests: collectTestSources,
 } satisfies Partial<
   Record<AuthoringCollectionKey, (data: JsonObject) => RegisteredAuthoringLuaSource[]>
 >);

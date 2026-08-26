@@ -158,6 +158,30 @@ TEST_CASE("compiled Scene boundary rejects the superseded same-version wire shap
     CHECK(has_code(result.error(), "compiled_project.unknown_field"));
 }
 
+TEST_CASE("compiled Scene boundary rejects the retired continuation field at the current version")
+{
+    auto document = fixture("scene-program");
+    auto& scene = document["definitions"]["scenes"][1];
+    scene.erase("terminal");
+    scene["continuation"] = {{"kind", "end"}};
+
+    const auto result = decode_shared_project(document, "retired-scene-continuation.json");
+    REQUIRE_FALSE(result);
+    CHECK(has_code(result.error(), "compiled_project.unknown_field"));
+}
+
+TEST_CASE("compiled project decoder accepts the generated canonical vocabulary golden")
+{
+    auto result =
+        decode_shared_project(fixture("canonical-vocabulary"), "canonical-vocabulary.json");
+    REQUIRE(result);
+    const auto& project = result.value();
+    CHECK(project.archetypes.size() == 3);
+    CHECK(project.scenes.size() >= 4);
+    CHECK(project.dialogues.size() >= 2);
+    CHECK(project.item_stacks.size() >= 2);
+}
+
 TEST_CASE("compiled Scene boundary rejects detached targets that await foreground-only work")
 {
     auto document = fixture("scene-program");

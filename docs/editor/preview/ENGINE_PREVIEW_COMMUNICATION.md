@@ -245,7 +245,8 @@ Editor to preview:
 - `runtime-step`
 - `runtime-continue`
 - `runtime-fast-forward-to-input`
-- `runtime-dialogue-option`
+- `runtime-dialogue-choice`
+- `runtime-scene-choice`
 - `runtime-navigate`
 - `runtime-select-subjects`
 - `runtime-primary-activate`
@@ -276,7 +277,11 @@ Editor to preview:
 `runtime-navigate` carries the exact current `exitId`, not a direction ordinal. Runtime debug
 snapshots expose each available navigation input as `{ exitId, direction, label, enabled }`. The
 preview validates that the identified exit still belongs to the active Room and is enabled before
-submitting `NavigateRoomInput`; direction remains presentation and recorded-test metadata only.
+submitting `NavigateRoomInput`; direction remains presentation metadata only.
+
+`runtime-dialogue-choice` and `runtime-scene-choice` carry exact semantic IDs (`edgeId` and
+`optionId`). Runtime debug snapshots publish these choices as `{ kind, id, label, enabled }`; no
+index-based preview or recorder path is retained.
 
 `runtime-primary-activate` and `runtime-open-verb-menu` each carry one exact semantic subject. They
 remain distinct through the TypeScript protocol, web bridge, C export, preview controller, and Runtime

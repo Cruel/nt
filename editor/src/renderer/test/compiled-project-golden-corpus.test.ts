@@ -7,6 +7,10 @@ import {
   type CompiledProjectWire,
 } from '../../shared/project-schema/compiled-project';
 import {
+  canonicalExplorationGoldenProject,
+  canonicalLinearGoldenProject,
+  canonicalFlowGoldenProject,
+  canonicalVocabularyGoldenProject,
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
   traitPropertiesLocalizationGoldenProject,
@@ -60,6 +64,24 @@ describe('compiled project cross-language golden corpus', () => {
     expectGolden('minimal', minimalGoldenProject());
   });
 
+  it('keeps the Room-free canonical linear Scene/Dialogue project byte-stable', () => {
+    const project = expectGolden('canonical-linear', canonicalLinearGoldenProject());
+    expect(project.definitions.rooms).toEqual([]);
+    expect(project.entrypoint).toEqual({ kind: 'scene', scene: { kind: 'scene', id: 'opening' } });
+  });
+
+  it('keeps the canonical exploration and restoration project byte-stable', () => {
+    expectGolden('canonical-exploration', canonicalExplorationGoldenProject());
+  });
+
+  it('keeps staged flashback and repeated Dialogue Handoff byte-stable', () => {
+    expectGolden('canonical-flow', canonicalFlowGoldenProject());
+  });
+
+  it('keeps the complete post-refactor canonical vocabulary byte-stable', () => {
+    expectGolden('canonical-vocabulary', canonicalVocabularyGoldenProject());
+  });
+
   it('keeps every compiled definition, declaration, localization, and resource family byte-stable', () => {
     const project = expectGolden('comprehensive', comprehensiveGoldenProject());
     for (const definitions of Object.values(project.definitions))
@@ -100,11 +122,21 @@ describe('compiled project cross-language golden corpus', () => {
 
   it('covers the closed decoder vocabulary rather than only nominal collection records', () => {
     const comprehensive = compileFixture(comprehensiveGoldenProject());
+    const canonicalLinear = compileFixture(canonicalLinearGoldenProject());
+    const canonicalVocabulary = compileFixture(canonicalVocabularyGoldenProject());
     const resources = compileFixture(resourceGoldenProject());
     const scene = compileFixture(sceneProgramGoldenProject());
     const dialogue = compileFixture(dialogueProgramGoldenProject());
     const interaction = compileFixture(interactionProgramGoldenProject());
-    const kinds = collectKinds([comprehensive, resources, scene, dialogue, interaction]);
+    const kinds = collectKinds([
+      comprehensive,
+      canonicalLinear,
+      canonicalVocabulary,
+      resources,
+      scene,
+      dialogue,
+      interaction,
+    ]);
 
     const requiredKinds = [
       'actor-cue',
@@ -113,27 +145,53 @@ describe('compiled project cross-language golden corpus', () => {
       'apply-effect',
       'asset',
       'audio-cue',
+      'camera',
+      'call-interaction',
+      'call-scene',
       'call-dialogue',
       'character',
       'choice',
+      'clear-background',
+      'clear-configuration',
       'conditional-branch',
+      'consume-item-quantity',
+      'create-character',
+      'create-interactable',
+      'create-room',
+      'directed-room-change',
+      'destroy-instance',
       'dialogue',
       'end',
       'exact',
+      'effective-instance',
+      'flash',
+      'gameplay-effect-batch',
+      'gesture',
+      'grant-item-quantity',
       'inline',
       'inline-lua',
       'interactable',
       'inventory',
       'feature',
+      'item-definition',
       'layout',
       'line',
       'localized',
       'lua-expression',
       'lua-predicate',
       'material',
+      'media',
+      'merge-item-stacks',
+      'move-character',
       'move-interactable',
+      'navigation-attempt',
       'next',
       'notify',
+      'punch',
+      'qualified-pattern',
+      'replace-configuration',
+      'resume-dialogue',
+      'retarget-room-exit',
       'unplaced',
       'rect',
       'redirect',
@@ -141,19 +199,37 @@ describe('compiled project cross-language golden corpus', () => {
       'room',
       'run-lua',
       'run-lua-effect',
+      'runtime-world-transaction',
       'scene',
       'sequence',
       'set-background',
+      'set-character-state',
       'set-interactable-state',
+      'set-item-stack-traits',
       'set-layout',
       'set-global-property',
+      'set-property',
+      'shake',
       'show-text',
+      'sound-effect',
+      'speaker-expression',
+      'split-item-stack',
+      'stage',
+      'start-detached-scene',
+      'trait',
+      'transfer-item-quantity',
       'transition-group',
       'property',
       'global-property-comparison',
+      'unset-property',
       'verb',
+      'voice',
+      'wait-audio',
+      'wait-condition',
       'wait-duration',
       'wait-input',
+      'wait-layout-signal',
+      'wait-operation',
     ];
     for (const kind of requiredKinds)
       expect(kinds, `missing compiled kind '${kind}'`).toContain(kind);
@@ -179,6 +255,154 @@ describe('compiled project cross-language golden corpus', () => {
       ]),
     );
 
+    const canonicalSceneInstructions = sorted(
+      new Set(
+        [...scene.definitions.scenes, ...canonicalVocabulary.definitions.scenes].flatMap(
+          (definition) => definition.program.events.map((event) => event.instruction.kind),
+        ),
+      ),
+    );
+    expect(canonicalSceneInstructions).toEqual(
+      sorted([
+        'actor-cue',
+        'audio-cue',
+        'call-dialogue',
+        'call-interaction',
+        'call-scene',
+        'choice',
+        'conditional-branch',
+        'directed-room-change',
+        'gameplay-effect-batch',
+        'material-parameter',
+        'navigation-attempt',
+        'postprocess-effect',
+        'resume-dialogue',
+        'run-lua',
+        'runtime-world-transaction',
+        'set-background',
+        'set-global-property',
+        'set-layout',
+        'show-text',
+        'start-detached-scene',
+        'transition-group',
+        'wait-audio',
+        'wait-condition',
+        'wait-duration',
+        'wait-input',
+        'wait-layout-signal',
+        'wait-operation',
+      ]),
+    );
+    expect(
+      sorted(
+        new Set(
+          [canonicalLinear, canonicalVocabulary, scene].flatMap((project) =>
+            project.definitions.scenes.map((definition) => definition.stage.kind),
+          ),
+        ),
+      ),
+    ).toEqual(['blank', 'inherited', 'staged-room']);
+    expect(
+      sorted(
+        new Set(
+          [canonicalLinear, canonicalVocabulary, scene].flatMap((project) =>
+            project.definitions.scenes.map((definition) => definition.terminal.kind),
+          ),
+        ),
+      ),
+    ).toEqual([
+      'complete-game',
+      'continue-dialogue',
+      'continue-scene',
+      'release-to-exploration',
+      'return',
+    ]);
+
+    const vocabularyScene = canonicalVocabulary.definitions.scenes.find(
+      (candidate) => candidate.id === 'vocabulary',
+    )!;
+    expect(
+      sorted(
+        new Set(
+          vocabularyScene.program.events.flatMap((event) =>
+            event.instruction.kind === 'gameplay-effect-batch'
+              ? event.instruction.operations.map((operation) => operation.kind)
+              : [],
+          ),
+        ),
+      ),
+    ).toEqual(
+      sorted([
+        'consume-item-quantity',
+        'grant-item-quantity',
+        'merge-item-stacks',
+        'move-character',
+        'move-interactable',
+        'set-character-state',
+        'set-global-property',
+        'set-interactable-state',
+        'set-item-stack-traits',
+        'set-property',
+        'split-item-stack',
+        'transfer-item-quantity',
+        'unset-property',
+      ]),
+    );
+    const worldOperations = vocabularyScene.program.events.flatMap((event) =>
+      event.instruction.kind === 'runtime-world-transaction' ? event.instruction.operations : [],
+    );
+    expect(sorted(new Set(worldOperations.map((operation) => operation.kind)))).toEqual(
+      sorted([
+        'clear-configuration',
+        'create-character',
+        'create-interactable',
+        'create-room',
+        'destroy-instance',
+        'replace-configuration',
+        'retarget-room-exit',
+      ]),
+    );
+    expect(
+      sorted(
+        new Set(
+          worldOperations.flatMap((operation) =>
+            'source' in operation ? [operation.source.kind] : [],
+          ),
+        ),
+      ),
+    ).toEqual(['archetype', 'compiled-instance', 'effective-instance']);
+    expect(
+      sorted(new Set(canonicalVocabulary.archetypes.map((item) => item.instanceKind))),
+    ).toEqual(['character', 'interactable', 'room']);
+    expect(
+      sorted(
+        new Set(
+          [...scene.definitions.scenes, ...canonicalVocabulary.definitions.scenes].flatMap(
+            (definition) =>
+              definition.program.events.flatMap((event) =>
+                event.instruction.kind === 'material-parameter'
+                  ? [event.instruction.target.kind]
+                  : [],
+              ),
+          ),
+        ),
+      ),
+    ).toEqual(['actor', 'background', 'layout', 'postprocess']);
+    expect(
+      sorted(
+        new Set(
+          [...scene.definitions.scenes, ...canonicalVocabulary.definitions.scenes].flatMap(
+            (definition) =>
+              definition.program.events.flatMap((event) =>
+                event.instruction.kind === 'transition-group'
+                  ? event.instruction.children.map((child) => child.kind)
+                  : [],
+              ),
+          ),
+        ),
+      ),
+    ).toEqual(['actor-cue', 'clear-background', 'set-background', 'set-layout']);
+
     const intro = dialogue.definitions.dialogues.find((candidate) => candidate.id === 'intro')!;
     expect(sorted(new Set(intro.program.blocks.map((block) => block.kind)))).toEqual([
       'choice',
@@ -198,6 +422,58 @@ describe('compiled project cross-language golden corpus', () => {
         ),
       ),
     ).toEqual(['line', 'run-lua']);
+
+    const cueDialogue = canonicalVocabulary.definitions.dialogues.find(
+      (candidate) => candidate.id === 'cue-vocabulary',
+    )!;
+    const cueSegments = cueDialogue.program.blocks.flatMap((block) =>
+      block.kind === 'sequence' ? block.segments : [],
+    );
+    expect(
+      sorted(
+        new Set(
+          [
+            ...cueSegments,
+            ...intro.program.blocks.flatMap((block) =>
+              block.kind === 'sequence' ? block.segments : [],
+            ),
+          ].map((segment) => segment.kind),
+        ),
+      ),
+    ).toEqual(['call-scene', 'handoff', 'line', 'run-lua']);
+    const cueLine = cueSegments.find((segment) => segment.kind === 'line');
+    if (!cueLine || cueLine.kind !== 'line') throw new Error('Expected cue vocabulary line.');
+    expect(sorted(new Set(cueLine.cues.map((cue) => cue.kind)))).toEqual([
+      'camera',
+      'gesture',
+      'media',
+      'sound-effect',
+      'speaker-expression',
+      'stage',
+      'voice',
+    ]);
+    expect(
+      sorted(
+        new Set(cueLine.cues.flatMap((cue) => (cue.kind === 'camera' ? [cue.emphasis.kind] : []))),
+      ),
+    ).toEqual(['flash', 'punch', 'shake']);
+    expect(
+      sorted(
+        new Set(
+          cueDialogue.mediaSlots.flatMap((slot) => (slot.initial ? [slot.initial.kind] : [])),
+        ),
+      ),
+    ).toEqual(['character', 'image']);
+
+    expect(
+      sorted(
+        new Set(
+          canonicalVocabulary.definitions.verbs.flatMap((verb) =>
+            verb.slots.flatMap((slot) => slot.selectors.map((selector) => selector.kind)),
+          ),
+        ),
+      ),
+    ).toEqual(['any-subject', 'exact', 'family', 'item-definition', 'qualified-pattern', 'trait']);
 
     const actions = interaction.definitions.interactions.find(
       (candidate) => candidate.id === 'actions',
@@ -249,18 +525,23 @@ describe('compiled project cross-language golden corpus', () => {
     expect(
       sorted(
         new Set(
-          actions.rules.flatMap((rule) =>
-            rule.program.instructions.map((instruction) => instruction.kind),
+          [actions, ...canonicalVocabulary.definitions.interactions].flatMap((interaction) =>
+            interaction.rules.flatMap((rule) =>
+              rule.program.instructions.map((instruction) => instruction.kind),
+            ),
           ),
         ),
       ),
-    ).toEqual([
-      'apply-effect',
-      'call-dialogue',
-      'move-interactable',
-      'notify',
-      'set-interactable-state',
-    ]);
+    ).toEqual(
+      sorted([
+        'apply-effect',
+        'call-dialogue',
+        'call-scene',
+        'move-interactable',
+        'notify',
+        'set-interactable-state',
+      ]),
+    );
     expect(sorted(new Set(actions.rules.map((rule) => rule.program.outcome)))).toEqual([
       'handled',
       'unhandled',

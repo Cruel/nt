@@ -219,6 +219,335 @@ TEST_CASE("compiled runtime final loader owns package and starts representative 
     }
 }
 
+TEST_CASE("Room-free Scene and Dialogue project saves restores and completes through RunningGame")
+{
+    RuntimeFixture runtime;
+    auto loaded = runtime::load_running_game(load_input(fixture("canonical-linear")),
+                                             runtime.scripts, runtime.presentation, runtime.saves);
+    REQUIRE(loaded.has_value());
+    auto& game = *loaded.value();
+
+    auto started = game.session().dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    CHECK_FALSE(started.publication->gameplay_ui.room);
+    REQUIRE(started.publication->gameplay_ui.dialogue);
+    CHECK(started.publication->gameplay_ui.dialogue->dialogue.text() == "conversation");
+    CHECK(started.publication->gameplay_ui.can_continue);
+
+    const auto slot = core::TypedSaveSlotId::manual(1);
+    auto saved = game.session().dispatch(core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
+    REQUIRE(saved.diagnostics.empty());
+    const auto save_outcomes = game.session().take_checkpoint_save_outcomes();
+    CHECK(std::any_of(save_outcomes.begin(), save_outcomes.end(), [&](const auto& outcome) {
+        const auto* succeeded = std::get_if<core::CheckpointWriteSucceeded>(&outcome);
+        return succeeded != nullptr && succeeded->slot == slot;
+    }));
+    REQUIRE(runtime.saves.read_slot(slot));
+
+    auto load_candidate = game.prepare_load_candidate(slot, runtime.scripts, runtime.presentation);
+    REQUIRE(load_candidate);
+    REQUIRE(load_candidate.value()->initial_result().publication);
+    CHECK_FALSE(load_candidate.value()->initial_result().publication->gameplay_ui.room);
+    REQUIRE(load_candidate.value()->initial_result().publication->gameplay_ui.dialogue);
+    CHECK(load_candidate.value()
+              ->initial_result()
+              .publication->gameplay_ui.dialogue->dialogue.text() == "conversation");
+    auto previous = game.commit_candidate(std::move(load_candidate).value());
+    REQUIRE(previous);
+
+    auto completed = game.session().dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(completed.diagnostics.empty());
+    REQUIRE(completed.publication);
+    CHECK_FALSE(completed.publication->gameplay_ui.room);
+    CHECK_FALSE(completed.publication->gameplay_ui.dialogue);
+    const auto& observations = completed.publication->observations.values;
+    const auto state =
+        std::find_if(observations.rbegin(), observations.rend(), [](const auto& observation) {
+            return std::holds_alternative<core::RuntimeStateObservation>(observation);
+        });
+    REQUIRE(state != observations.rend());
+    const auto& runtime_state = std::get<core::RuntimeStateObservation>(*state);
+    CHECK(std::holds_alternative<core::EndedMode>(runtime_state.mode));
+    CHECK(runtime_state.game_completed);
+}
+
+TEST_CASE(
+    "staged flashback and repeated Dialogue Handoff resume the exact caller through RunningGame")
+{
+    RuntimeFixture runtime;
+    auto loaded = runtime::load_running_game(load_input(fixture("canonical-flow")), runtime.scripts,
+                                             runtime.presentation, runtime.saves);
+    REQUIRE(loaded.has_value());
+    auto& session = loaded.value()->session();
+
+    auto started = session.dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->gameplay_ui.dialogue);
+    CHECK(started.publication->gameplay_ui.dialogue->dialogue.text() == "handoff");
+    REQUIRE(started.publication->gameplay_ui.dialogue->segment);
+    CHECK(started.publication->gameplay_ui.dialogue->segment->text() == "first-line");
+    CHECK_FALSE(started.publication->presentation.current_room);
+    CHECK(started.publication->gameplay_ui.can_continue);
+
+    auto handed_off_first = session.dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(handed_off_first.diagnostics.empty());
+    REQUIRE(handed_off_first.publication);
+    CHECK_FALSE(handed_off_first.publication->gameplay_ui.dialogue);
+    REQUIRE(handed_off_first.publication->gameplay_ui.scene);
+    CHECK(handed_off_first.publication->gameplay_ui.scene->scene.text() == "handoff-parent");
+    CHECK_FALSE(handed_off_first.publication->presentation.current_room);
+
+    auto flashback = session.dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
+    REQUIRE(flashback.diagnostics.empty());
+    REQUIRE(flashback.publication);
+    CHECK_FALSE(flashback.publication->gameplay_ui.dialogue);
+    REQUIRE(flashback.publication->gameplay_ui.scene);
+    CHECK(flashback.publication->gameplay_ui.scene->scene.text() == "flashback");
+    CHECK_FALSE(flashback.publication->presentation.current_room);
+    REQUIRE(flashback.publication->presentation.background);
+    REQUIRE(flashback.publication->presentation.background->asset);
+    CHECK(flashback.publication->presentation.background->asset->text() == "image-main");
+    REQUIRE(flashback.publication->presentation.background->material);
+    CHECK(flashback.publication->presentation.background->material->text() == "sprite-material");
+    CHECK(flashback.publication->presentation.background->fit ==
+          core::compiled::BackgroundFit::Contain);
+    CHECK(flashback.publication->gameplay_ui.can_continue);
+
+    auto resumed_first = session.dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(resumed_first.diagnostics.empty());
+    REQUIRE(resumed_first.publication);
+    REQUIRE(resumed_first.publication->gameplay_ui.dialogue);
+    CHECK(resumed_first.publication->gameplay_ui.dialogue->dialogue.text() == "handoff");
+    REQUIRE(resumed_first.publication->gameplay_ui.dialogue->segment);
+    CHECK(resumed_first.publication->gameplay_ui.dialogue->segment->text() == "second-line");
+    CHECK_FALSE(resumed_first.publication->presentation.current_room);
+    CHECK_FALSE(resumed_first.publication->presentation.background);
+    CHECK_FALSE(resumed_first.publication->gameplay_ui.can_continue);
+
+    auto second_line_ready = session.dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
+    REQUIRE(second_line_ready.diagnostics.empty());
+    REQUIRE(second_line_ready.publication);
+    REQUIRE(second_line_ready.publication->gameplay_ui.dialogue);
+    REQUIRE(second_line_ready.publication->gameplay_ui.dialogue->segment);
+    CHECK(second_line_ready.publication->gameplay_ui.dialogue->segment->text() == "second-line");
+    CHECK(second_line_ready.publication->gameplay_ui.can_continue);
+
+    auto handed_off_second = session.dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(handed_off_second.diagnostics.empty());
+    REQUIRE(handed_off_second.publication);
+    CHECK_FALSE(handed_off_second.publication->gameplay_ui.dialogue);
+    REQUIRE(handed_off_second.publication->gameplay_ui.scene);
+    CHECK(handed_off_second.publication->gameplay_ui.scene->scene.text() == "handoff-parent");
+    CHECK_FALSE(handed_off_second.publication->presentation.current_room);
+
+    auto interlude = session.dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
+    REQUIRE(interlude.diagnostics.empty());
+    REQUIRE(interlude.publication);
+    CHECK_FALSE(interlude.publication->gameplay_ui.dialogue);
+    REQUIRE(interlude.publication->gameplay_ui.scene);
+    CHECK(interlude.publication->gameplay_ui.scene->scene.text() == "handoff-parent");
+    CHECK_FALSE(interlude.publication->presentation.current_room);
+    CHECK(interlude.publication->gameplay_ui.can_continue);
+
+    auto resumed_second = session.dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(resumed_second.diagnostics.empty());
+    REQUIRE(resumed_second.publication);
+    REQUIRE(resumed_second.publication->gameplay_ui.dialogue);
+    CHECK(resumed_second.publication->gameplay_ui.dialogue->dialogue.text() == "handoff");
+    REQUIRE(resumed_second.publication->gameplay_ui.dialogue->segment);
+    CHECK(resumed_second.publication->gameplay_ui.dialogue->segment->text() == "third-line");
+    CHECK_FALSE(resumed_second.publication->presentation.current_room);
+    CHECK_FALSE(resumed_second.publication->gameplay_ui.can_continue);
+
+    auto third_line_ready = session.dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
+    REQUIRE(third_line_ready.diagnostics.empty());
+    REQUIRE(third_line_ready.publication);
+    REQUIRE(third_line_ready.publication->gameplay_ui.dialogue);
+    REQUIRE(third_line_ready.publication->gameplay_ui.dialogue->segment);
+    CHECK(third_line_ready.publication->gameplay_ui.dialogue->segment->text() == "third-line");
+    CHECK(third_line_ready.publication->gameplay_ui.can_continue);
+
+    auto completed = session.dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(completed.diagnostics.empty());
+    REQUIRE(completed.publication);
+    CHECK_FALSE(completed.publication->gameplay_ui.dialogue);
+    CHECK_FALSE(completed.publication->presentation.current_room);
+    const auto& observations = completed.publication->observations.values;
+    const auto state =
+        std::find_if(observations.rbegin(), observations.rend(), [](const auto& observation) {
+            return std::holds_alternative<core::RuntimeStateObservation>(observation);
+        });
+    REQUIRE(state != observations.rend());
+    const auto& runtime_state = std::get<core::RuntimeStateObservation>(*state);
+    CHECK(std::holds_alternative<core::EndedMode>(runtime_state.mode));
+    CHECK(runtime_state.game_completed);
+}
+
+TEST_CASE("exploration state mutates saves and restores through the canonical RunningGame seam")
+{
+    RuntimeFixture runtime;
+    auto loaded = runtime::load_running_game(load_input(fixture("canonical-exploration")),
+                                             runtime.scripts, runtime.presentation, runtime.saves);
+    std::string load_failure;
+    if (!loaded)
+        for (const auto& diagnostic : loaded.error())
+            load_failure +=
+                diagnostic.code + ": " + diagnostic.message + " @ " + diagnostic.source_path + "\n";
+    CAPTURE(load_failure);
+    REQUIRE(loaded.has_value());
+    auto& game = *loaded.value();
+
+    auto started = game.session().dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->gameplay_ui.room);
+    CHECK(started.publication->gameplay_ui.room->room.text() == "start");
+    REQUIRE_FALSE(started.publication->gameplay_ui.maps.empty());
+    CHECK(started.publication->gameplay_ui.maps.front().map.text() == "house");
+    REQUIRE(started.publication->gameplay_ui.maps.front().current_room);
+    CHECK(started.publication->gameplay_ui.maps.front().current_room->text() == "start");
+    CHECK(std::any_of(
+        started.publication->gameplay_ui.inventory.item_stacks.begin(),
+        started.publication->gameplay_ui.inventory.item_stacks.end(),
+        [](const auto& stack) { return stack.stack.text() == "wallet" && stack.quantity == 25; }));
+
+    const core::compiled::InteractionSubject door_subject =
+        core::compiled::FeatureInteractionSubject{core::RoomFeatureRef{
+            core::RoomId::create("start").value(), core::FeatureId::create("door").value()}};
+    auto selected = game.session().dispatch(
+        core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{door_subject}}});
+    REQUIRE(selected.diagnostics.empty());
+    REQUIRE(selected.publication);
+    CHECK(selected.publication->gameplay_ui.selected_subjects ==
+          std::vector<core::compiled::InteractionSubject>{door_subject});
+    CHECK(std::any_of(selected.publication->gameplay_ui.verb_offers.begin(),
+                      selected.publication->gameplay_ui.verb_offers.end(), [](const auto& offer) {
+                          return offer.verb.text() == "inspect" && offer.primary;
+                      }));
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{core::InteractableId::create("key").value()};
+    auto activated =
+        game.session().dispatch(core::RuntimeInputMessage{core::PrimaryActivateInput{key_subject}});
+    REQUIRE(activated.diagnostics.empty());
+    REQUIRE(activated.publication);
+    REQUIRE(activated.publication->gameplay_ui.scene);
+    CHECK(activated.publication->gameplay_ui.scene->scene.text() == "exploration-mutation");
+    CHECK(activated.publication->gameplay_ui.can_continue);
+
+    std::vector<core::GameplayInstanceRef> runtime_instances;
+    for (const auto& instance : activated.publication->gameplay_instances)
+        if (!instance.declared)
+            runtime_instances.push_back(instance.instance);
+    CHECK(runtime_instances.size() == 2);
+    CHECK(std::any_of(activated.publication->gameplay_ui.inventory.item_stacks.begin(),
+                      activated.publication->gameplay_ui.inventory.item_stacks.end(),
+                      [](const auto& stack) {
+                          return stack.definition.text() == "credits" && stack.quantity == 7;
+                      }));
+
+    const auto layout =
+        std::find_if(activated.publication->presentation.layouts.begin(),
+                     activated.publication->presentation.layouts.end(), [](const auto& candidate) {
+                         return candidate.layout.text() == "stateful-overlay";
+                     });
+    REQUIRE(layout != activated.publication->presentation.layouts.end());
+    REQUIRE(layout->occurrence);
+    REQUIRE(layout->state_shape);
+    const core::PersistableValue layout_value{
+        core::PersistableValue::Object{{"page", core::PersistableValue{std::int64_t{4}}}}};
+    auto state_committed = game.session().dispatch(core::RuntimeInputMessage{
+        core::CommitLayoutStateInput{layout->owner, layout->key, *layout->occurrence,
+                                     core::LayoutStateScope::Session, layout_value}});
+    REQUIRE(state_committed.diagnostics.empty());
+    REQUIRE(state_committed.publication);
+    const auto committed_layout = std::find_if(
+        state_committed.publication->presentation.layouts.begin(),
+        state_committed.publication->presentation.layouts.end(),
+        [](const auto& candidate) { return candidate.layout.text() == "stateful-overlay"; });
+    REQUIRE(committed_layout != state_committed.publication->presentation.layouts.end());
+    CHECK(std::any_of(committed_layout->state_values.begin(), committed_layout->state_values.end(),
+                      [&](const auto& state) {
+                          return state.scope == core::LayoutStateScope::Session && state.value &&
+                                 *state.value == layout_value;
+                      }));
+
+    auto released = game.session().dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(released.diagnostics.empty());
+    REQUIRE(released.publication);
+    REQUIRE(released.publication->gameplay_ui.room);
+    CHECK(released.publication->gameplay_ui.room->room.text() == "start");
+
+    const auto slot = core::TypedSaveSlotId::manual(2);
+    auto saved = game.session().dispatch(core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
+    REQUIRE(saved.diagnostics.empty());
+    const auto save_outcomes = game.session().take_checkpoint_save_outcomes();
+    CHECK(std::any_of(save_outcomes.begin(), save_outcomes.end(), [&](const auto& outcome) {
+        const auto* succeeded = std::get_if<core::CheckpointWriteSucceeded>(&outcome);
+        return succeeded != nullptr && succeeded->slot == slot;
+    }));
+
+    auto candidate = game.prepare_load_candidate(slot, runtime.scripts, runtime.presentation);
+    REQUIRE(candidate);
+    REQUIRE(candidate.value()->initial_result().publication);
+    const auto& restored_publication = *candidate.value()->initial_result().publication;
+    REQUIRE(restored_publication.gameplay_ui.room);
+    CHECK(restored_publication.gameplay_ui.room->room.text() == "start");
+    std::vector<core::GameplayInstanceRef> restored_runtime_instances;
+    for (const auto& instance : restored_publication.gameplay_instances)
+        if (!instance.declared)
+            restored_runtime_instances.push_back(instance.instance);
+    CHECK(restored_runtime_instances == runtime_instances);
+    CHECK(std::any_of(restored_publication.gameplay_ui.inventory.item_stacks.begin(),
+                      restored_publication.gameplay_ui.inventory.item_stacks.end(),
+                      [](const auto& stack) {
+                          return stack.definition.text() == "credits" && stack.quantity == 7;
+                      }));
+    const auto restored_layout =
+        std::find_if(restored_publication.presentation.layouts.begin(),
+                     restored_publication.presentation.layouts.end(), [](const auto& candidate) {
+                         return candidate.layout.text() == "stateful-overlay";
+                     });
+    REQUIRE(restored_layout != restored_publication.presentation.layouts.end());
+    CHECK(std::any_of(restored_layout->state_values.begin(), restored_layout->state_values.end(),
+                      [&](const auto& state) {
+                          return state.scope == core::LayoutStateScope::Session && state.value &&
+                                 *state.value == layout_value;
+                      }));
+    auto previous = game.commit_candidate(std::move(candidate).value());
+    REQUIRE(previous);
+
+    auto hall = game.session().dispatch(core::RuntimeInputMessage{
+        core::NavigateRoomInput{core::RoomExitId::create("north-exit").value()}});
+    REQUIRE(hall.diagnostics.empty());
+    REQUIRE(hall.publication);
+    REQUIRE(hall.publication->gameplay_ui.room);
+    CHECK(hall.publication->gameplay_ui.room->room.text() == "hall");
+
+    auto cleared_flag =
+        game.session().dispatch(core::RuntimeInputMessage{core::SetVariableDebugInput{
+            core::PropertyId::create("flag").value(), core::RuntimeValue{false}}});
+    REQUIRE(cleared_flag.diagnostics.empty());
+    auto returned = game.session().dispatch(core::RuntimeInputMessage{
+        core::NavigateRoomInput{core::RoomExitId::create("south-exit").value()}});
+    REQUIRE(returned.diagnostics.empty());
+    REQUIRE(returned.publication);
+    REQUIRE(returned.publication->gameplay_ui.room);
+    CHECK(returned.publication->gameplay_ui.room->room.text() == "start");
+    const auto north =
+        std::find_if(returned.publication->gameplay_ui.room->exits.begin(),
+                     returned.publication->gameplay_ui.room->exits.end(),
+                     [](const auto& exit) { return exit.exit.text() == "north-exit"; });
+    REQUIRE(north != returned.publication->gameplay_ui.room->exits.end());
+    CHECK(north->enabled);
+}
+
 TEST_CASE("compiled running game preserves declared Gameplay Instance lookup and mutation")
 {
     RuntimeFixture runtime;

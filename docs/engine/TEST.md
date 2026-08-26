@@ -2,10 +2,9 @@
 
 ## Purpose
 
-The Tests Editor is the authoring surface for deterministic playback tests in the
-new NovelTea editor. A test describes a repeatable sequence of runtime inputs,
-assertions, and optional hook scripts that can later be executed headlessly by
-the engine playback runner.
+The Tests Editor is the authoring surface for deterministic semantic playback tests in the new
+NovelTea editor. A Test describes a repeatable sequence of stable typed runtime inputs that execute
+headlessly against the same compiled project and Runtime Session used by Play preview.
 
 Tests are editor-authored data first. They are not legacy Qt editor tests and do
 not preserve legacy project-file compatibility. The old `refs/NovelTea` editor is
@@ -13,23 +12,19 @@ only a workflow reference.
 
 ## Current Status
 
-Milestone 16 implements Tests Editor V1:
+The current Tests Editor implements:
 
 - typed authoring schema for the new project-format `tests` collection;
-- authoring validation for tests, steps, assertions, and references;
+- authoring validation for tests, semantic steps, subjects, and references;
 - command-backed test data replacement through `test.replaceData`;
 - default typed test data when creating a `tests` record;
-- a `test-detail` workbench editor for authoring test metadata, steps, and
-  assertions;
+- a `test-detail` workbench editor for authoring test metadata and semantic steps;
 - a structured Test Playback bottom panel for reports;
 - a narrow Electron bridge for direct playback specs;
-- explicit run-readiness diagnostics for the current authoring-to-runtime
-  conversion gap.
+- explicit run-readiness diagnostics for Test lowering and runtime-artifact preparation.
 
-Authoring tests are intentionally not reported as runnable yet. The editor can
-serialize a test into the native playback spec shape, and the native helper can
-run a direct spec, but authoring projects still need an authoring-to-runtime
-project conversion layer before a real authoring test can be executed honestly.
+Authoring Tests are runnable when their semantic steps lower successfully and the current authoring
+project prepares a playable compiled artifact. There is no separate legacy playback project shape.
 
 ## Source Files
 
@@ -93,11 +88,6 @@ The test-specific shape is stored under `record.data`.
 {
   kind: 'test',
   displayName: string,
-  entrypoint: TestEntrypointRef | null,
-  fixedDeltaSeconds: number | null,
-  initScript: string,
-  checkScript: string,
-  startingInventory: TestInteractableRef[],
   steps: TestStepData[],
   preview: {
     selectedStepId: string | null,
@@ -111,23 +101,6 @@ The test-specific shape is stored under `record.data`.
 `displayName` is the human-readable name shown inside the editor. The outer
 record `label` remains the project-browser label.
 
-`entrypoint` is the desired starting point for the test. It may reference a
-scene, room, or dialogue. The current runtime adapter stores this in authoring
-form and emits a readiness diagnostic because authoring entrypoints cannot yet be
-converted to runtime `EntityRef` values.
-
-`fixedDeltaSeconds` is an optional default tick delta for deterministic playback.
-When null, the runner/default spec controls tick timing.
-
-`initScript` and `checkScript` are hook-source fields. The playback core is
-script-runtime-neutral: it transports hook source and lets the engine/script host
-execute it. The editor treats these as Lua source because NovelTea runtime
-scripting is Lua.
-
-`startingInventory` is modeled but not yet surfaced heavily in the UI. It stores
-Interactable references for future runtime state setup once authoring-to-runtime
-conversion exists.
-
 `preview` is editor-only state. It controls which step/report row is focused and
 must not be interpreted as runtime game state.
 
@@ -139,64 +112,24 @@ participate in rename/update flows, and warn during delete operations.
 Reference helpers are defined in `authoring-tests.ts`:
 
 ```ts
-testSceneRef(id)
-testRoomRef(id)
-testDialogueRef(id)
+testCharacterRef(id)
 testInteractableRef(id)
 testVerbRef(id)
-testVariableRef(id)
+testCharacterSubject(id)
+testInteractableSubject(id)
+testItemStackSubject(id)
+testFeatureSubject(feature)
 ```
 
-Entrypoints can reference:
-
-```text
-scenes
-rooms
-dialogues
-```
-
-Step/action/assertion fields currently use references to:
-
-```text
-interactables
-characters
-verbs
-variables
-maps
-scenes
-rooms
-dialogues
-```
-
-`maps` is accepted by the generic test reference union for future test coverage,
-even though the V1 editor does not yet expose a map-specific test interaction.
+Test steps reference Characters, Interactables, exact Item Stacks, owner-qualified Features, and
+Verbs. They do not carry generic entity references, map-specific actions, or Test-local assertion
+references.
 
 ## Step Model
 
-Each test step has this common shape:
-
-```ts
-{
-  id: string,
-  input: TestInputType,
-  label: string,
-  enabled: boolean,
-  deltaSeconds: number | null,
-  initScript: string,
-  checkScript: string,
-  tick: { deltaSeconds: number },
-  dialogueOption: { optionIndex: number },
-  navigate: { direction: number, target: TestRoomRef | null },
-  selectSubjects: { subjects: TestInteractionSubject[] },
-  runInteraction: {
-    verb: TestVerbRef | null,
-    bindings: Array<{ slotId: string, subject: TestInteractionSubject }>,
-  },
-  loadSave: { slotId: string, payload: JsonValue },
-  setEntrypoint: { entrypoint: TestEntrypointRef | null },
-  assertions: TestAssertionData[],
-}
-```
+Each test step has a stable ID, label, enabled flag, one semantic input discriminant, and typed
+payload objects for the supported input families. Only the payload selected by `step.input` is active
+during validation and playback lowering.
 
 `TestInteractionSubject` admits Character, Interactable, exact authored Item Stack, and
 owner-qualified Feature identities. Recorder lowering and playback preserve Item Stack IDs without
@@ -211,11 +144,8 @@ active by the playback spec builder.
 Disabled steps remain in the test for authoring, documentation, and temporary
 isolation.
 
-`deltaSeconds` is a per-step override. For `tick`, the adapter uses
-`step.deltaSeconds` when set, otherwise `step.tick.deltaSeconds`.
-
-`initScript` and `checkScript` are per-step hook sources. They are serialized to
-native step `init` and `check` fields when non-empty.
+There are no Test-local init/check Lua fields or per-step delta override outside the typed `tick`
+payload.
 
 ### Input Types
 
@@ -224,70 +154,28 @@ the native playback runner names.
 
 | Authoring input | Native input | Active fields |
 | --- | --- | --- |
-| `tick` | `tick` | `tick.deltaSeconds`, `deltaSeconds` |
+| `tick` | `advance-time` | `tick.deltaSeconds` lowered to microseconds |
 | `continue` | `continue` | none |
-| `dialogue-option` | `dialogue_option` | `dialogueOption.optionIndex` |
-| `navigate` | `navigate` | `navigate.direction`, `navigate.target` |
+| `dialogue-choice` | `dialogue-choice` | exact `dialogueChoice.edgeId` |
+| `scene-choice` | `scene-choice` | exact `sceneChoice.optionId` |
+| `navigate` | `navigate` | exact `navigate.exitId` |
 | `select-subjects` | `select-subjects` | `selectSubjects.subjects` |
+| `primary-activate` | `primary-activate` | `subjectAction.subject` |
+| `open-verb-menu` | `open-verb-menu` | `subjectAction.subject` |
 | `clear-subject-selection` | `clear-selection` | none |
 | `run-interaction` | `invoke-interaction` | `runInteraction.verb`, `runInteraction.bindings` |
-| `load-save` | `load_save` | `loadSave.slotId`, `loadSave.payload` |
-| `set-entrypoint` | `set_entrypoint` | `setEntrypoint.entrypoint` |
+| `save` | `save` | `saveSlot.slotId` |
+| `load` | `load` | `saveSlot.slotId` |
 
-`navigate.target` is stored for authoring context and future validation. The
-current native input primarily consumes direction.
+Dialogue and Scene choices never store list indexes. Navigation never stores a direction ordinal or
+target guess. Save/load steps store typed slot identities rather than arbitrary payloads.
 
-`load-save` stores arbitrary JSON payload. If `slotId` is set, the adapter wraps
-payload data with the slot id before sending it to the native runner.
+## Runtime Observation Model
 
-`set-entrypoint` remains limited because authoring entrypoints are not yet
-convertible to runtime entity refs.
-
-## Assertion Model
-
-Each assertion has this shape:
-
-```ts
-{
-  id: string,
-  type: TestAssertionType,
-  label: string,
-  value: string,
-  key: string,
-  expected: unknown,
-  entity: TestAnyRef | null,
-  variable: TestVariableRef | null,
-  enabled: boolean,
-}
-```
-
-Enabled assertions are serialized into the native playback spec. Disabled
-assertions remain visible for authoring but do not affect playback.
-
-### Assertion Types
-
-Assertion names mirror the native runner capabilities, using kebab-case in the
-editor and snake_case in the native spec.
-
-| Authoring assertion | Native assertion | Main fields |
-| --- | --- | --- |
-| `mode` | `mode` | `value` |
-| `current-room` | `current_room` | `value` |
-| `title` | `title` | `value` |
-| `text-log-contains` | `text_log_contains` | `value` |
-| `property-equals` | `property_equals` | `key` or `variable`, `expected` |
-| `interactable-location` | `object_location` | `key`, optional `entity` |
-| `inventory-contains` | `inventory_contains` | `value` |
-| `output-type` | `output_type` | `value` |
-| `diagnostic-category` | `diagnostic_category` | `value` |
-
-For `property-equals`, a variable reference is preferred when asserting an
-authoring variable. The adapter serializes the variable id as the native key.
-`expected` may be any JSON value.
-
-For assertions that use `entity`, the current adapter serializes a minimal
-`entity_ref` with the referenced id. This is intentionally conservative until the
-engine-side authoring-to-runtime entity mapping exists.
+The current Test schema has no assertion DSL. Playback reports expose ordered runtime events,
+diagnostics, and one coherent final publication containing gameplay UI, presentation, and public
+runtime observations. Tests and certification code evaluate those public semantic outputs instead of
+serializing Test-local `type`/`value`/`expected` assertion payloads.
 
 ## Defaults
 
@@ -298,18 +186,12 @@ initial data is:
 {
   kind: 'test',
   displayName: label,
-  entrypoint: null,
-  fixedDeltaSeconds: null,
-  initScript: '',
-  checkScript: '',
-  startingInventory: [],
   steps: [
     {
       id: 'start',
       input: 'tick',
       label: 'Start',
       enabled: true,
-      assertions: [],
     },
   ],
   preview: {
@@ -319,10 +201,6 @@ initial data is:
   },
 }
 ```
-
-Default assertions are created with `defaultTestAssertion(type)`. The initial id
-matches the assertion type, but the editor assigns a unique id when inserting an
-assertion into a step.
 
 Default steps are created with `defaultTestStep(input, label)`. The `tick`
 default id is `start`; other step types default to their input name. The editor
@@ -337,22 +215,19 @@ Validation currently checks:
 
 - the `record.data` shape matches `testDataSchema`;
 - display name is present, warning if empty;
-- entrypoint reference exists, when set;
-- starting inventory object references exist;
 - the test has at least one step;
 - step IDs are unique;
 - preview `selectedStepId` points at an existing step, warning if stale;
 - step labels are present;
-- per-step delta values are non-negative;
-- navigation direction is 0 through 7;
-- dialogue option index is non-negative;
+- tick delta values are non-negative;
 - active input-specific references exist;
-- assertion IDs are unique within each step;
-- assertion entity and variable references exist;
-- enabled assertions have required fields for their type.
+- owner-qualified Feature subjects resolve;
+- subject actions provide a subject;
+- Run Interaction binds every named Verb slot exactly once;
+- save/load slots are non-empty.
 
 Disabled steps skip input-specific validation after their common fields. Disabled
-assertions do not enforce type-specific required fields.
+steps remain editable and are omitted from playback lowering.
 
 Validation should remain strict enough to prevent broken command commits but not
 so strict that partially authored tests become impossible to save. Warnings are
@@ -428,10 +303,7 @@ The top area shows:
 - readiness message;
 - Run Test action;
 - display name;
-- entrypoint selector;
-- fixed delta field;
-- ordered step list;
-- top-level init/check Lua source fields.
+- ordered semantic step list.
 
 The step list shows each step’s order, label, input type, disabled state, and any
 matching playback observation state from the last report.
@@ -441,12 +313,9 @@ The selected-step inspector supports:
 - step label;
 - input type;
 - enabled flag;
-- delta override;
 - input-specific fields;
-- step init/check Lua source;
-- assertion list;
-- adding, deleting, duplicating, and reordering steps;
-- adding, deleting, enabling, and editing assertions.
+- typed subject, Verb, choice, navigation, and save/load selectors as applicable;
+- adding, deleting, duplicating, and reordering steps.
 
 The V1 UI deliberately favors explicit fields over compact specialized widgets.
 As the schema stabilizes, the editor can grow better selectors, multi-object
@@ -466,32 +335,17 @@ buildRuntimePlaybackSpecFromAuthoringTest(project, testId)
 getAuthoringTestRunReadiness(project, testId)
 ```
 
-The adapter maps editor spellings to native spellings:
-
-```ts
-dialogue-option         -> select-dialogue-choice
-select-subjects         -> select-subjects
-clear-subject-selection -> clear-selection
-run-interaction         -> invoke-interaction
-load-save               -> load
-```
-
 It serializes:
 
 - enabled steps only;
-- enabled assertions only;
-- top-level `fixed_delta_seconds`;
-- top-level `init` and `check` hooks;
-- per-step `delta_seconds`, `init`, and `check` when present;
-- input payloads such as typed `{ kind: "character" | "interactable", id }`
-  subject selections and named `{ slotId, subject }` Interaction bindings,
-  dialogue-choice edges, navigation exits, verb ids, and save payloads;
-- assertion payloads such as `type`, `value`, `key`, `expected`, and minimal
-  `entity_ref`.
+- typed Character, Interactable, Item Stack, and owner-qualified Feature subjects;
+- exact Dialogue Edge IDs, Scene Choice Option IDs, Room Exit IDs, and Verb IDs;
+- named Interaction bindings;
+- typed autosave/manual save slots.
 
-Entrypoints currently produce a warning diagnostic rather than a native runtime
-entity ref. This is one of the boundaries that the future authoring-to-runtime
-conversion layer must resolve.
+The same adapter compiles the current authoring project through `prepareRuntimeArtifact` with the
+`test-playback` intent. Tests therefore execute against the same canonical compiled project used by
+Play preview rather than a second runtime-project shape.
 
 ## Run Readiness
 
@@ -500,21 +354,19 @@ Readiness is explicit and machine-readable:
 ```ts
 type TestRunReadinessReason =
   | 'runnable'
-  | 'not-runnable-authoring-conversion-missing'
   | 'not-runnable-invalid-test'
-  | 'not-runnable-missing-entrypoint'
+  | 'not-runnable-project-compilation-failed'
   | 'not-runnable-missing-runtime-support'
 ```
 
 Current behavior:
 
-- non-authoring projects are considered runnable by this adapter because the
-  native tool path owns their validation;
 - missing test records are `not-runnable-invalid-test`;
 - invalid test data is `not-runnable-invalid-test`;
-- authoring tests with no entrypoint are `not-runnable-missing-entrypoint`;
-- authoring tests with an entrypoint are still
-  `not-runnable-authoring-conversion-missing` until project conversion exists.
+- unsupported semantic step lowering is `not-runnable-missing-runtime-support`;
+- failure to prepare the current compiled runtime artifact is
+  `not-runnable-project-compilation-failed`;
+- otherwise the Test is runnable.
 
 When the user presses Run Test on a non-runnable authoring test, the editor opens
 the Test Playback bottom panel and writes a structured failure-like report with
@@ -558,10 +410,8 @@ The panel displays:
 
 - pass/fail badge;
 - report id;
-- failure list;
 - final state summary;
-- observations with step index, input, handled state, pass/fail state, assertion
-  failures, and diagnostics;
+- ordered playback/runtime observations and diagnostics;
 - report-level diagnostics;
 - output summary;
 - expandable raw JSON fallback.
@@ -575,8 +425,9 @@ shape.
 Because test references are normal `$ref` objects, they are compatible with the
 generic authoring reference index. This is important for editor quirks:
 
-- renaming a referenced scene, room, dialogue, object, verb, or variable should
-  update test references through the existing reference-update path;
+- renaming a referenced Character, Interactable, Item Stack, or Verb should update Test references
+  through the existing reference-update path; Room and Interactable owner references used by
+  owner-qualified Features follow the same path;
 - deleting a referenced record should show usages in tests;
 - tests should appear in find-usages/reference panels without bespoke scanner
   code.
@@ -593,63 +444,38 @@ layers.
 Use kebab-case in the authoring schema when naming editor-facing enum values:
 
 ```text
-dialogue-option
+dialogue-choice
+scene-choice
+navigate
 select-subjects
+primary-activate
+open-verb-menu
 clear-subject-selection
 run-interaction
+save
+load
 ```
 
-Use snake_case only when serializing to the native playback spec:
-
-```text
-select-dialogue-choice
-select-subjects
-clear-selection
-invoke-interaction
-```
-
-This lets the UI remain readable while keeping the native helper stable.
+The playback protocol uses the stable typed operation names documented above. It does not translate
+choices or navigation back into positional/index-based native commands.
 
 ## Current Limitations
 
-Tests Editor V1 is an authoring implementation, not a complete end-to-end runtime
-execution system for new authoring projects.
+Tests are runnable end to end through the compiled-project and Runtime Session seam. Remaining work is
+editor ergonomics rather than an authoring-to-runtime conversion gap.
 
 Known limitations:
 
-- authoring-to-runtime project conversion is missing;
-- authoring entrypoints cannot yet become runtime `EntityRef` values;
-- `startingInventory` is modeled but not fully surfaced or executable;
-- `navigate.target` is authoring context and is not yet a full runtime target;
-- assertion `entity_ref` serialization is minimal;
-- record-from-preview is not implemented;
 - failure timeline deep-linking is basic and based on matching observation
   indexes to step order;
-- step/assertion editing is immediate command commit rather than buffered draft
-  editing;
-- hook execution depends on the future engine/script host integration for
-  runtime Lua.
+- step editing is immediate command commit rather than buffered draft editing.
 
-These limitations should be surfaced as diagnostics or disabled affordances. Do
-not fake successful playback for authoring tests.
+These limitations are editor UX concerns and do not change playback semantics.
 
 ## Future Work
 
-The next meaningful work is the authoring-to-runtime conversion layer. It should:
-
-1. define how authoring scenes, rooms, dialogues, interactables, verbs, variables, and
-   assets map into runtime entities;
-2. provide stable runtime `EntityRef` generation for authoring refs;
-3. serialize authoring test entrypoints and `set-entrypoint` payloads;
-4. serialize starting inventory and interactable locations in runtime state terms;
-5. make `getAuthoringTestRunReadiness()` return `runnable` only when a complete
-   runtime-compatible project/spec pair can be produced;
-6. run authoring tests through `runPlaybackSpec(project, spec)` and display real
-   reports;
-7. add record-from-preview once preview events expose enough deterministic input
-   data;
-8. add stronger timeline linking between report observations and step IDs;
-9. consider draft buffering for scripts and large JSON payloads.
+Future Test work should focus on richer observation/report UX, stronger timeline linking, and editor
+ergonomics while preserving the semantic input contract and public-runtime-observation boundary.
 
 ## Verification
 
@@ -672,10 +498,12 @@ pnpm vitest run src/renderer/test/test-playback-project.test.ts
 Expected coverage:
 
 - default test data has the right stable shape;
-- validation reports missing refs, duplicate IDs, and required assertion fields;
+- validation reports missing refs, duplicate IDs, invalid Features, incomplete subject actions, and
+  incomplete Verb bindings;
 - project validation includes test diagnostics;
 - `entity.createRecord` creates typed test data;
 - `test.replaceData` patches valid data and rejects invalid replacements;
 - undo restores previous test data;
-- playback spec serialization uses native input/assertion names;
-- readiness reports the authoring conversion limitation explicitly.
+- playback spec serialization uses stable Dialogue Edge, Scene Option, Room Exit, subject, Verb, and
+  save-slot identities;
+- readiness reflects Test lowering and runtime-artifact compilation honestly.

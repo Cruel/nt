@@ -387,6 +387,30 @@ describe('preview protocol validation', () => {
     expect(
       isEditorToPreviewMessage({
         version: 1,
+        type: 'runtime-dialogue-choice',
+        requestId: 'runtime-dialogue-choice',
+        edgeId: 'accept',
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-scene-choice',
+        requestId: 'runtime-scene-choice',
+        optionId: 'investigate',
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-dialogue-option',
+        requestId: 'obsolete-runtime-dialogue-option',
+        optionIndex: 0,
+      }),
+    ).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
         type: 'runtime-select-subjects',
         requestId: 'runtime-select',
         subjects: [
@@ -670,7 +694,7 @@ describe('preview protocol validation', () => {
             waiting: { kind: 'choice', canContinue: false },
             availableInputs: {
               continue: false,
-              dialogueOptions: [{ index: 0, label: 'Yes', enabled: true }],
+              choices: [{ kind: 'dialogue', id: 'yes', label: 'Yes', enabled: true }],
               navigation: [],
               actions: [],
               verbOffers: [],
@@ -740,7 +764,14 @@ describe('preview protocol validation', () => {
       waiting: { kind: 'choice', canContinue: false, reason: 'dialogue choices are available' },
       availableInputs: {
         continue: false,
-        dialogueOptions: [{ index: 0, label: 'Ask about the house', enabled: true }],
+        choices: [
+          {
+            kind: 'dialogue',
+            id: 'ask-house',
+            label: 'Ask about the house',
+            enabled: true,
+          },
+        ],
         navigation: [{ exitId: 'east-exit', direction: 1, label: 'east', enabled: true }],
         actions: [
           {

@@ -2,68 +2,78 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
-  defaultTestAssertion,
   defaultTestData,
   defaultTestStep,
+  parseTestData,
   testCharacterSubject,
   testInteractableSubject,
   testItemStackSubject,
-  testSceneRef,
-  testVariableRef,
   validateTestData,
 } from '../../shared/project-schema/authoring-tests';
-import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
-import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 
 describe('authoring tests schema', () => {
-  it('provides typed test defaults', () => {
+  it('provides semantic playback defaults', () => {
     expect(defaultTestData('Smoke')).toMatchObject({
       kind: 'test',
       displayName: 'Smoke',
-      fixedDeltaSeconds: null,
-      steps: [{ id: 'start', input: 'tick', label: 'Start' }],
+      steps: [{ id: 'start', input: 'tick', label: 'Start', tick: { deltaSeconds: 0 } }],
       preview: { selectedStepId: 'start' },
     });
-  });
-
-  it('provides stable ui-click defaults and validation', () => {
-    const project = createAuthoringProject();
-    const data = defaultTestData('Smoke');
-    data.steps = [{ ...defaultTestStep('ui-click'), id: 'start-click', label: 'Start Click' }];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-
-    expect(data.steps[0]).toMatchObject({
-      input: 'ui-click',
-      uiClick: {
-        documentId: 'runtime_title',
-        target: '#nt-title-start',
-        selector: '#nt-title-start',
-      },
+    expect(defaultTestStep('dialogue-choice')).toMatchObject({
+      input: 'dialogue-choice',
+      dialogueChoice: { edgeId: 'choice' },
     });
-
-    data.steps[0]!.uiClick = { documentId: '', target: '', selector: '' };
-    expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/tests/smoke/data/steps/0/uiClick/documentId',
-          severity: 'error',
-        }),
-        expect.objectContaining({
-          path: '/tests/smoke/data/steps/0/uiClick/target',
-          severity: 'error',
-        }),
-        expect.objectContaining({
-          path: '/tests/smoke/data/steps/0/uiClick/selector',
-          severity: 'error',
-        }),
-      ]),
-    );
+    expect(defaultTestStep('scene-choice')).toMatchObject({
+      input: 'scene-choice',
+      sceneChoice: { optionId: 'choice' },
+    });
+    expect(defaultTestStep('navigate')).toMatchObject({
+      input: 'navigate',
+      navigate: { exitId: 'exit' },
+    });
+    expect(defaultTestStep('save')).toMatchObject({
+      input: 'save',
+      saveSlot: { slotId: 'autosave' },
+    });
   });
 
-  it('validates references, duplicate IDs, and assertion requirements', () => {
+  it('strictly rejects obsolete positional and UI-driven test forms', () => {
+    const data = defaultTestData('Smoke');
+    expect(
+      parseTestData({
+        ...data,
+        entrypoint: { $ref: { collection: 'scenes', id: 'opening' } },
+      }),
+    ).toBeNull();
+    expect(
+      parseTestData({
+        ...data,
+        steps: [
+          {
+            ...defaultTestStep('tick'),
+            input: 'dialogue-option',
+            dialogueOption: { optionIndex: 0 },
+          },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      parseTestData({
+        ...data,
+        steps: [
+          {
+            ...defaultTestStep('tick'),
+            input: 'ui-click',
+            uiClick: { documentId: 'runtime_title', selector: '#start' },
+          },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it('validates referenced semantic subjects and duplicate step IDs', () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
-    data.entrypoint = testSceneRef('missing-scene');
     data.steps = [
       {
         ...defaultTestStep('run-interaction'),
@@ -78,27 +88,12 @@ describe('authoring tests schema', () => {
           ],
         },
       },
-      {
-        ...defaultTestStep('tick'),
-        id: 'step',
-        label: 'Duplicate',
-        assertions: [
-          {
-            ...defaultTestAssertion('property-equals'),
-            id: 'assertion',
-            label: 'Property',
-            key: '',
-            variable: null,
-          },
-          { ...defaultTestAssertion('mode'), id: 'assertion', label: 'Mode', value: '' },
-        ],
-      },
+      { ...defaultTestStep('tick'), id: 'step', label: 'Duplicate' },
     ];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/tests/smoke/data/entrypoint/$ref', severity: 'error' }),
         expect.objectContaining({ path: '/tests/smoke/data/steps/1/id', severity: 'error' }),
         expect.objectContaining({
           path: '/tests/smoke/data/steps/0/runInteraction/verb/$ref',
@@ -116,59 +111,24 @@ describe('authoring tests schema', () => {
           path: '/tests/smoke/data/steps/0/runInteraction/bindings/2/subject/itemStack/$ref',
           severity: 'error',
         }),
-        expect.objectContaining({
-          path: '/tests/smoke/data/steps/1/assertions/1/id',
-          severity: 'error',
-        }),
-        expect.objectContaining({
-          path: '/tests/smoke/data/steps/1/assertions/0/key',
-          severity: 'error',
-        }),
-        expect.objectContaining({
-          path: '/tests/smoke/data/steps/1/assertions/1/value',
-          severity: 'error',
-        }),
       ]),
     );
   });
 
-  it('reports test diagnostics through project validation', () => {
+  it('reports invalid current test data through project validation', () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
-    data.steps[0]!.assertions = [{ ...defaultTestAssertion('mode'), value: '' }];
+    data.steps = [{ ...defaultTestStep('load'), saveSlot: { slotId: '' } }];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect(validateAuthoringProject(project)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           category: 'Tests',
-          path: '/tests/smoke/data/steps/0/assertions/0/value',
+          path: '/tests/smoke/data/steps/0/saveSlot/slotId',
           severity: 'error',
         }),
       ]),
     );
-  });
-
-  it('allows references used by tests to be indexed generically', () => {
-    const project = createAuthoringProject();
-    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
-    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
-    const data = defaultTestData('Smoke');
-    data.entrypoint = testSceneRef('opening');
-    data.steps[0]!.assertions = [
-      {
-        ...defaultTestAssertion('property-equals'),
-        key: '',
-        variable: testVariableRef('flag'),
-        expected: true,
-      },
-    ];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-
-    expect(
-      validateTestData(project, 'smoke', project.tests.smoke).filter(
-        (item) => item.severity === 'error',
-      ),
-    ).toEqual([]);
   });
 });

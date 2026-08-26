@@ -68,7 +68,7 @@ function projectWithRecords(): AuthoringProject {
     id: 'smoke',
     label: 'Smoke',
     data: {
-      steps: [{ id: 'click-start', assertions: [{ id: 'mode-check' }] }],
+      steps: [{ id: 'continue-start' }],
     } as never,
   };
   project.assets.logo = { id: 'logo', label: 'Logo', data: {} as never };
@@ -220,11 +220,8 @@ describe('diagnostic navigation', () => {
       resolveProjectDiagnosticTarget(project, '/scenes/opening/data/steps/9')?.target?.id,
     ).toBe('scene.summary');
     expect(resolveProjectDiagnosticTarget(project, '/tests/smoke/data/steps/0')?.target?.id).toBe(
-      'test.step.click-start',
+      'test.step.continue-start',
     );
-    expect(
-      resolveProjectDiagnosticTarget(project, '/tests/smoke/data/steps/0/assertions/0')?.target?.id,
-    ).toBe('test.assertion.mode-check');
     expect(resolveProjectDiagnosticTarget(project, '/tests/smoke/data/steps/9')?.target?.id).toBe(
       'test.summary',
     );

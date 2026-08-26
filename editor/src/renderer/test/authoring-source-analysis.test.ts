@@ -31,7 +31,6 @@ import {
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
-import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
@@ -368,9 +367,6 @@ describe('typed source registry and graph evidence', () => {
         },
       },
     ];
-    const test = defaultTestData('Test');
-    test.initScript = `test_init()`;
-    test.steps[0]!.checkScript = `test_check()`;
     const map = defaultMapData();
     map.presentation.title = {
       source: {
@@ -386,7 +382,6 @@ describe('typed source registry and graph evidence', () => {
       ['dialogues', 'dialogue', dialogue],
       ['verbs', 'verb', verb],
       ['interactions', 'interaction', interaction],
-      ['tests', 'test', test],
       ['maps', 'map', map],
     ] as const;
     for (const [collection, id, data] of surfaces)
@@ -407,13 +402,6 @@ describe('typed source registry and graph evidence', () => {
       ).toBe(true);
     expect(sources.some((source) => source.contributionKey.includes('assets'))).toBe(false);
     expect(sources.some((source) => source.contributionKey.includes('shaders'))).toBe(false);
-    expect(
-      sources.some(
-        (source) =>
-          source.contributionKey === `record:${JSON.stringify(['record', 'tests', 'test'])}` &&
-          source.sourcePath.endsWith('/initScript'),
-      ),
-    ).toBe(true);
     expect(new Set(sources.map((source) => source.executionSurface))).toEqual(
       new Set([
         'script-record',
@@ -422,8 +410,6 @@ describe('typed source registry and graph evidence', () => {
         'shared-run-lua-effect',
         'scene-run-lua-step',
         'dialogue-run-lua-segment',
-        'test-init-script',
-        'test-check-script',
       ]),
     );
   });

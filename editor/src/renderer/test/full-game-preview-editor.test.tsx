@@ -196,11 +196,16 @@ async function postInputSnapshot(
       label: string;
       enabled: boolean;
     }>;
-    dialogueOptions?: Array<{ index: number; label: string; enabled: boolean }>;
+    choices?: Array<{
+      kind: 'dialogue' | 'scene';
+      id: string;
+      label: string;
+      enabled: boolean;
+    }>;
     clickableTargets?: PreviewClickableTarget[];
   } = {},
 ) {
-  const waitingKind = options.dialogueOptions?.length
+  const waitingKind = options.choices?.length
     ? 'choice'
     : options.navigation?.length
       ? 'navigation'
@@ -223,7 +228,7 @@ async function postInputSnapshot(
         },
         availableInputs: {
           continue: options.continue ?? false,
-          dialogueOptions: options.dialogueOptions ?? [],
+          choices: options.choices ?? [],
           navigation: options.navigation ?? [],
           actions: [],
           verbOffers: [],
@@ -644,11 +649,11 @@ describe('FullGamePreviewEditor', () => {
       (message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot',
     ).length;
     await postInputSnapshot(previewPort, {
-      dialogueOptions: [{ index: 0, label: 'Continue test', enabled: true }],
+      choices: [{ kind: 'dialogue', id: 'continue-test', label: 'Continue test', enabled: true }],
     });
-    await user.click(screen.getByText('Choice 0: Continue test'));
+    await user.click(screen.getByText('Dialogue choice continue-test: Continue test'));
     const continueRequest = editorPort.sent.find(
-      (message) => (message as { type?: string }).type === 'runtime-dialogue-option',
+      (message) => (message as { type?: string }).type === 'runtime-dialogue-choice',
     ) as { requestId: string };
     await act(async () => {
       previewPort.postMessage({
@@ -710,7 +715,7 @@ describe('FullGamePreviewEditor', () => {
             },
             availableInputs: {
               continue: true,
-              dialogueOptions: [],
+              choices: [],
               navigation: [],
               actions: [],
               verbOffers: [],
@@ -787,7 +792,7 @@ describe('FullGamePreviewEditor', () => {
           waiting: { kind: 'action', canContinue: false, reason: 'object action available' },
           availableInputs: {
             continue: false,
-            dialogueOptions: [],
+            choices: [],
             navigation: [],
             actions: [
               {
@@ -892,7 +897,7 @@ describe('FullGamePreviewEditor', () => {
           waiting: { kind: 'none', canContinue: false },
           availableInputs: {
             continue: false,
-            dialogueOptions: [],
+            choices: [],
             navigation: [],
             actions: [],
             verbOffers: [],
@@ -995,26 +1000,28 @@ describe('FullGamePreviewEditor', () => {
     const { editorPort, previewPort } = await renderConnectedPreview();
 
     await postInputSnapshot(previewPort, {
-      dialogueOptions: [{ index: 0, label: 'Accept', enabled: true }],
+      choices: [{ kind: 'dialogue', id: 'accept-edge', label: 'Accept', enabled: true }],
     });
 
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
-    await user.click(screen.getByText('Choice 0: Accept'));
-    expect(screen.queryByText('1. Choice 0')).not.toBeInTheDocument();
+    await user.click(screen.getByText('Dialogue choice accept-edge: Accept'));
+    expect(screen.queryByText('1. Dialogue choice accept-edge')).not.toBeInTheDocument();
 
     await act(async () => {
       previewPort.postMessage({
         version: 1,
         type: 'command-result',
-        requestId: latestRequest(editorPort, 'runtime-dialogue-option')!.requestId,
+        requestId: latestRequest(editorPort, 'runtime-dialogue-choice')!.requestId,
         ok: true,
       });
     });
 
-    await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
-    expect(screen.getAllByText(/"type": "dialogue-option"/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Recorded Choice 0')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText('1. Dialogue choice accept-edge')).toBeInTheDocument(),
+    );
+    expect(screen.getAllByText(/"type": "dialogue-choice"/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Recorded Dialogue choice accept-edge')).toBeInTheDocument();
 
     await act(async () => {
       previewPort.postMessage({
@@ -1027,7 +1034,7 @@ describe('FullGamePreviewEditor', () => {
     await waitFor(() =>
       expect(screen.getAllByText('trace-only warning').length).toBeGreaterThan(0),
     );
-    expect(screen.queryByText(/ui-click/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ui-click/i)).not.toBeInTheDocument();
   });
 
   it('undoes the last recorded action by reset and replaying the remaining actions', async () => {
@@ -1081,14 +1088,16 @@ describe('FullGamePreviewEditor', () => {
     const { editorPort, previewPort } = await renderConnectedPreview();
 
     await postInputSnapshot(previewPort, {
-      dialogueOptions: [{ index: 0, label: 'Accept', enabled: true }],
+      choices: [{ kind: 'dialogue', id: 'accept-edge', label: 'Accept', enabled: true }],
     });
 
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
-    await user.click(screen.getByText('Choice 0: Accept'));
-    await resolveLatest(editorPort, previewPort, 'runtime-dialogue-option');
-    await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
+    await user.click(screen.getByText('Dialogue choice accept-edge: Accept'));
+    await resolveLatest(editorPort, previewPort, 'runtime-dialogue-choice');
+    await waitFor(() =>
+      expect(screen.getByText('1. Dialogue choice accept-edge')).toBeInTheDocument(),
+    );
     await user.click(screen.getByText('Stop'));
 
     expect(screen.getByText('Save as New Test')).toBeEnabled();
@@ -1097,8 +1106,8 @@ describe('FullGamePreviewEditor', () => {
     await user.click(screen.getByText('Replay'));
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-reset')).toBeDefined());
     await resolveLatest(editorPort, previewPort, 'runtime-reset');
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-dialogue-option')).toBeDefined());
-    await resolveLatest(editorPort, previewPort, 'runtime-dialogue-option');
+    await waitFor(() => expect(latestRequest(editorPort, 'runtime-dialogue-choice')).toBeDefined());
+    await resolveLatest(editorPort, previewPort, 'runtime-dialogue-choice');
     await waitFor(() =>
       expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
     );

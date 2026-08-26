@@ -283,10 +283,16 @@ EMSCRIPTEN_KEEPALIVE int noveltea_runtime_continue()
     return preview && preview->continue_dialogue() ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE int noveltea_runtime_dialogue_option(int option_index)
+EMSCRIPTEN_KEEPALIVE int noveltea_runtime_dialogue_choice(const char* edge_id)
 {
     auto* preview = preview_controller();
-    return preview && preview->select_dialogue_option(option_index) ? 1 : 0;
+    return preview && edge_id && preview->select_dialogue_choice(edge_id) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int noveltea_runtime_scene_choice(const char* option_id)
+{
+    auto* preview = preview_controller();
+    return preview && option_id && preview->select_scene_choice(option_id) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int noveltea_runtime_navigate(const char* exit_id)

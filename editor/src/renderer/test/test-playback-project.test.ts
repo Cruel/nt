@@ -1,18 +1,13 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import {
-  defaultTestAssertion,
   defaultTestData,
   defaultTestStep,
   testCharacterSubject,
-  testInteractableRef,
   testFeatureSubject,
   testInteractableSubject,
   testItemStackSubject,
-  testSceneRef,
-  testVariableRef,
   testVerbRef,
 } from '../../shared/project-schema/authoring-tests';
 import { roomFeatureRef } from '../../shared/project-schema/authoring-features';
@@ -28,6 +23,24 @@ describe('authoring test playback project adapter', () => {
     data.steps = [
       { ...defaultTestStep('tick'), id: 'tick', label: 'Tick', tick: { deltaSeconds: 0.25 } },
       { ...defaultTestStep('continue'), id: 'continue', label: 'Continue' },
+      {
+        ...defaultTestStep('dialogue-choice'),
+        id: 'dialogue-choice',
+        label: 'Dialogue Choice',
+        dialogueChoice: { edgeId: 'accept' },
+      },
+      {
+        ...defaultTestStep('scene-choice'),
+        id: 'scene-choice',
+        label: 'Scene Choice',
+        sceneChoice: { optionId: 'investigate' },
+      },
+      {
+        ...defaultTestStep('navigate'),
+        id: 'navigate',
+        label: 'Navigate',
+        navigate: { exitId: 'north-exit' },
+      },
       {
         ...defaultTestStep('select-subjects'),
         id: 'select',
@@ -67,10 +80,16 @@ describe('authoring test playback project adapter', () => {
         },
       },
       {
-        ...defaultTestStep('load-save'),
+        ...defaultTestStep('save'),
+        id: 'save',
+        label: 'Save',
+        saveSlot: { slotId: 'autosave' },
+      },
+      {
+        ...defaultTestStep('load'),
         id: 'load',
         label: 'Load',
-        loadSave: { slotId: 'slot-2', payload: null },
+        saveSlot: { slotId: 'slot-2' },
       },
       { ...defaultTestStep('continue'), id: 'disabled', label: 'Disabled', enabled: false },
     ];
@@ -83,8 +102,11 @@ describe('authoring test playback project adapter', () => {
       steps: [
         { index: 0, input: { type: 'advance-time', microseconds: 250000 } },
         { index: 1, input: { type: 'continue' } },
+        { index: 2, input: { type: 'dialogue-choice', edge: 'accept' } },
+        { index: 3, input: { type: 'scene-choice', option: 'investigate' } },
+        { index: 4, input: { type: 'navigate', exit: 'north-exit' } },
         {
-          index: 2,
+          index: 5,
           input: {
             type: 'select-subjects',
             subjects: [
@@ -96,19 +118,19 @@ describe('authoring test playback project adapter', () => {
           },
         },
         {
-          index: 3,
+          index: 6,
           input: { type: 'primary-activate', subject: { kind: 'interactable', id: 'lamp' } },
         },
         {
-          index: 4,
+          index: 7,
           input: {
             type: 'open-verb-menu',
             subject: { kind: 'feature', ownerKind: 'room', ownerId: 'foyer', featureId: 'door' },
           },
         },
-        { index: 5, input: { type: 'clear-selection' } },
+        { index: 8, input: { type: 'clear-selection' } },
         {
-          index: 6,
+          index: 9,
           input: {
             type: 'invoke-interaction',
             verb: 'look',
@@ -118,48 +140,10 @@ describe('authoring test playback project adapter', () => {
             ],
           },
         },
-        { index: 7, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
+        { index: 10, input: { type: 'save', slot: { kind: 'autosave' } } },
+        { index: 11, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
       ],
     });
-  });
-
-  it('blocks assertions until they have a typed playback representation', async () => {
-    const project = createAuthoringProject();
-    const data = defaultTestData('Smoke');
-    data.steps = [
-      {
-        ...defaultTestStep('continue'),
-        id: 'assertions',
-        label: 'Assertions',
-        assertions: [
-          { ...defaultTestAssertion('mode'), id: 'mode', value: 'dialogue' },
-          { ...defaultTestAssertion('current-room'), id: 'room', value: 'foyer' },
-          { ...defaultTestAssertion('title'), id: 'title', value: 'Opening' },
-          { ...defaultTestAssertion('text-log-contains'), id: 'text', value: 'Hello' },
-          {
-            ...defaultTestAssertion('property-equals'),
-            id: 'property',
-            variable: testVariableRef('flag'),
-            expected: true,
-          },
-          {
-            ...defaultTestAssertion('interactable-location'),
-            id: 'location',
-            key: 'lamp',
-            entity: testInteractableRef('lamp'),
-          },
-          { ...defaultTestAssertion('inventory-contains'), id: 'inventory', value: 'key' },
-          { ...defaultTestAssertion('output-type'), id: 'output', value: 'state' },
-          { ...defaultTestAssertion('diagnostic-category'), id: 'diagnostic', value: 'playback' },
-          { ...defaultTestAssertion('mode'), id: 'disabled', value: 'ignored', enabled: false },
-        ],
-      },
-    ];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-
-    const result = await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
-    expect(result.ok).toBe(false);
-    expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true);
   });
 
   it('publishes the same compiled artifact for runnable playback', async () => {
@@ -167,7 +151,6 @@ describe('authoring test playback project adapter', () => {
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     project.entrypoint = { kind: 'scene', id: 'opening' };
     const data = defaultTestData('Smoke');
-    data.entrypoint = testSceneRef('opening');
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect(await getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({
@@ -184,29 +167,28 @@ describe('authoring test playback project adapter', () => {
 
   it('rejects ui-click rather than falling back to legacy UI playback', async () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    project.entrypoint = { kind: 'room', id: 'foyer' };
     const data = defaultTestData('Title Start');
-    data.steps = [
-      {
-        ...defaultTestStep('ui-click'),
-        id: 'title-start',
-        label: 'Title Start',
-        uiClick: {
-          documentId: 'runtime_title',
-          target: '#nt-title-start',
-          selector: '#nt-title-start',
-        },
-      },
-    ];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
+    project.tests.smoke = {
+      id: 'smoke',
+      label: 'Smoke',
+      data: {
+        ...data,
+        steps: [
+          {
+            ...defaultTestStep('tick'),
+            input: 'ui-click',
+            uiClick: { documentId: 'runtime_title', selector: '#nt-title-start' },
+          },
+        ],
+      } as never,
+    };
 
     const result = await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
 
     expect(result.ok).toBe(false);
-    expect(result.runner).toBe('runtime');
+    expect(result.runner).toBeUndefined();
     expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true);
-    expect(result.project).toMatchObject({ schema: 'noveltea.compiled.project' });
+    expect(result.project).toBeUndefined();
     expect(await getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: false });
   });
 });

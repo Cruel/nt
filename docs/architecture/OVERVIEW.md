@@ -21,6 +21,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/certifications/SCHEMA_VERSION_POLICY_CERTIFICATION.md` records the final source
   audit, contract inventory coverage, compatibility removals, exceptions, and verification evidence
   for that policy.
+- `docs/architecture/certifications/CANONICAL_MODEL_CERTIFICATION.md` records the end-to-end #102
+  compiler/wire/RunningGame/playback/platform certification of the current VN-first model, including
+  explicit environment and pre-existing-test limitations.
 - `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable capability-level evidence map
   for complete, deferred, rejected, duplicate, and tooling dispositions.
 - `docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md` defines current presentation ownership,
