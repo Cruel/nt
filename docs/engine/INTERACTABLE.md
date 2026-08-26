@@ -15,12 +15,15 @@ Interactable, a label, compatible Trait attachments, and compatible Property ass
 Feature subject is always referenced as `(InteractableId, FeatureId)`; a bare Feature ID is not a
 runtime identity.
 
-Presentation chooses either one sprite-alpha Hotspot or a custom list of normalized rectangular
-Hotspots. Each Hotspot has stable owner-local identity, condition, semantic target, input priority,
-and highlight policy. It may select the owning Interactable, an owner-local Feature, or another exact
-admitted semantic subject. Hotspots own no Verb or Interaction program. A custom list may be empty;
-such an Interactable is non-clickable and may omit its sprite and material. Sprite-alpha mode
-requires a valid image sprite.
+Presentation chooses one of three explicit Hotspot modes: `none`, `sprite-alpha`, or `custom`.
+`none` performs no pointer hit testing and does not require a sprite. `sprite-alpha` provides one
+Hotspot whose hit area comes from the sprite alpha mask and therefore requires a valid image sprite.
+`custom` contains authored normalized rectangular Hotspots and requires a valid image sprite whenever
+the list is non-empty. Each Hotspot has stable owner-local identity, condition, semantic target, input
+priority, and highlight policy. It may select the owning Interactable, an owner-local Feature, or
+another exact admitted semantic subject. Hotspots own no Verb or Interaction program. An empty custom
+list remains structurally valid while authoring, but `none` is the canonical way to declare an
+intentionally non-clickable Interactable.
 
 ## Location and state
 
@@ -51,9 +54,15 @@ Feature Properties through the owner-qualified Feature helpers; neither API muta
 The editor authoring schema uses the current `interactables` collection with immutable presentation,
 owner-local Inventory declarations, and an explicit initial Location/enabled/visible declaration. The
 editor supports creation, nested Feature editing, semantic Hotspot target editing, typed Room/Inventory/
-Unplaced Location editing, and detail editing. A newly created Interactable may temporarily have no
-sprite while being authored; that incomplete presentation state does not require a fabricated Verb
-because Hotspots no longer own behavior. `CompiledProject` decodes one canonical
+Unplaced Location editing, and detail editing. The creation wizard accepts identity, an optional
+same-kind Archetype, and an optional sprite. Without an Archetype, creation uses `none` when no sprite
+is selected and `sprite-alpha` when an image sprite is selected. With an Archetype, the sprite choice
+defaults to the Archetype's sprite; choosing a specific sprite or `No sprite` creates an explicit
+presentation override while the Archetype's Hotspot mode and behavior remain inherited.
+Alpha or non-empty custom Hotspots without a sprite are authoring errors because that configuration
+cannot compile into a loadable runtime project. A
+visible Room occurrence whose Interactable has no sprite is allowed but produces an authoring warning
+because it will not render. `CompiledProject` decodes one canonical
 `InteractableDefinition` per declared Interactable, `SessionState` initializes one live state per
 definition, and typed mutations reject missing Rooms/Inventories and containment cycles atomically.
 Placements have no occupant back-reference or Interactable owner. Lua, player, Map, and Interaction

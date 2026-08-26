@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { validateHotspotAuthoringSemantics } from '../../shared/project-schema/authoring-hotspot-validation';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -25,21 +27,119 @@ describe('authoring V2 validation', () => {
     );
   });
 
-  it('treats a new Interactable hotspot as a geometry selector for its owner', () => {
+  it('keeps a new Interactable non-clickable until hotspot presentation is configured', () => {
     const project = createAuthoringProject();
     const data = defaultInteractableData('Key');
     project.interactables.key = { id: 'key', label: 'Key', data };
 
-    expect(data.presentation.hotspots).toMatchObject({
+    expect(data.presentation.hotspots).toEqual({ kind: 'none' });
+    expect(validateHotspotAuthoringSemantics(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'hotspot.authoring.source-image-required' }),
+    );
+
+    data.presentation.hotspots = {
       kind: 'sprite-alpha',
-      hotspot: { target: { kind: 'owner' } },
-    });
+      hotspot: defaultHotspotBehavior('Key'),
+    };
     expect(validateHotspotAuthoringSemantics(project)).toContainEqual(
       expect.objectContaining({
         code: 'hotspot.authoring.source-image-required',
-        severity: 'warning',
-        path: '/interactables/key/data/presentation/sprite',
+        severity: 'error',
+        path: '/interactables/key/data/presentation/hotspots/kind',
+        message: expect.stringContaining('Alpha hotspot mode requires a sprite image'),
       }),
+    );
+
+    data.presentation.hotspots = { kind: 'custom', hotspots: [] };
+    expect(validateHotspotAuthoringSemantics(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'hotspot.authoring.source-image-required' }),
+    );
+    data.presentation.hotspots = {
+      kind: 'custom',
+      hotspots: [
+        {
+          ...defaultHotspotBehavior('Key'),
+          shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
+        },
+      ],
+    };
+    expect(validateHotspotAuthoringSemantics(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'hotspot.authoring.source-image-required',
+        severity: 'error',
+        path: '/interactables/key/data/presentation/hotspots/kind',
+        message: expect.stringContaining('Custom hotspots require a sprite image'),
+      }),
+    );
+  });
+
+  it('warns when a visible Room Interactable has no sprite', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    const room = defaultRoomData('Start');
+    room.placements.push({
+      id: 'key-placement',
+      bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+      presentation: { label: null, layout: null },
+    });
+    room.interactables.push({
+      id: 'key-instance',
+      interactable: { $ref: { collection: 'interactables', id: 'key' } },
+      condition: { kind: 'always' },
+      placementId: 'key-placement',
+      visible: true,
+      order: 0,
+    });
+    project.rooms.start = { id: 'start', label: 'Start', data: room };
+
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'room.interactable.sprite-missing',
+        severity: 'warning',
+        path: '/rooms/start/data/interactables/0/interactable/$ref',
+        message: expect.stringContaining("Visible Interactable 'key' has no sprite"),
+      }),
+    );
+
+    room.interactables[0]!.visible = false;
+    expect(validateAuthoringProject(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'room.interactable.sprite-missing' }),
+    );
+
+    room.interactables[0]!.visible = true;
+    project.assets.sprite = {
+      id: 'sprite',
+      label: 'Sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/sprite.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.archetypes['sprite-prop'] = {
+      id: 'sprite-prop',
+      label: 'Sprite Prop',
+      data: {
+        ...defaultArchetypeData('interactable'),
+        overrides: {
+          '/data/presentation/sprite': { $ref: { collection: 'assets', id: 'sprite' } },
+        },
+      },
+    };
+    project.interactables.key!.archetype = {
+      $ref: { collection: 'archetypes', id: 'sprite-prop' },
+    };
+    project.interactables.key!.archetypeOverrides = {};
+    expect(validateAuthoringProject(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'room.interactable.sprite-missing' }),
     );
   });
 

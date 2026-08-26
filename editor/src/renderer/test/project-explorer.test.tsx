@@ -9,6 +9,11 @@ import {
 } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import {
+  defaultArchetypeData,
+  resolveGameplayInstanceRecord,
+} from '../../shared/project-schema/authoring-archetypes';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -217,6 +222,147 @@ describe('ProjectExplorer', () => {
       editorType: 'interactable-detail',
       resource: { collection: 'interactables', entityId: 'silver-key' },
     });
+  });
+
+  it('creates an Interactable from only identity, Archetype, and sprite choices', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.properties.serial = {
+      id: 'serial',
+      label: 'Serial',
+      type: 'string',
+      nullable: false,
+      ownerKinds: ['interactable'],
+    };
+    project.traits.tracked = {
+      id: 'tracked',
+      label: 'Tracked',
+      ownerKinds: ['interactable'],
+      properties: [{ kind: 'required', propertyId: 'serial' }],
+    };
+    project.archetypes['prop-template'] = {
+      id: 'prop-template',
+      label: 'Prop Template',
+      data: {
+        ...defaultArchetypeData('interactable'),
+        overrides: {
+          '/traits': ['tracked'],
+          '/properties/serial': 'template-serial',
+          '/data/displayName': 'Template Prop',
+          '/data/inventories': [{ id: 'pocket', label: 'Pocket' }],
+          '/data/presentation/sprite': {
+            $ref: { collection: 'assets', id: 'template-sprite' },
+          },
+          '/data/presentation/hotspots': {
+            kind: 'custom',
+            hotspots: [
+              {
+                ...defaultHotspotBehavior('Template Hotspot'),
+                id: 'template-hotspot',
+                shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
+              },
+            ],
+          },
+        },
+      },
+    };
+    project.assets['template-sprite'] = {
+      id: 'template-sprite',
+      label: 'Template Sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/template.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'b'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.assets['key-sprite'] = {
+      id: 'key-sprite',
+      label: 'Key Sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/key.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    loadProject(project);
+    render(<ProjectExplorer nodes={[]} />);
+
+    act(() => dispatchWorkspaceToolbarCommand('new-entity'));
+    await user.click(screen.getByRole('button', { name: /^interactable/i }));
+
+    expect(screen.queryByPlaceholderText('Add tag')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Entity color')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Optional description')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Interactable archetype' }));
+    await user.click(screen.getByRole('button', { name: /Prop Template/ }));
+    await user.click(screen.getByRole('button', { name: 'Interactable sprite' }));
+    await user.click(screen.getByRole('button', { name: /Key Sprite/ }));
+
+    const labelInput = screen.getByLabelText('Entity label');
+    await user.clear(labelInput);
+    await user.type(labelInput, 'Silver Key');
+    await user.click(screen.getByRole('button', { name: /create interactable/i }));
+
+    const document = useProjectStore.getState().document as AuthoringProject;
+    expect(document.interactables['silver-key']).toMatchObject({
+      archetype: { $ref: { collection: 'archetypes', id: 'prop-template' } },
+      data: {
+        displayName: 'Template Prop',
+        inventories: [{ id: 'pocket', label: 'Pocket' }],
+        presentation: {
+          sprite: { $ref: { collection: 'assets', id: 'key-sprite' } },
+          hotspots: {
+            kind: 'custom',
+            hotspots: [expect.objectContaining({ id: 'template-hotspot' })],
+          },
+        },
+      },
+    });
+    const created = document.interactables['silver-key']!;
+    expect(created.archetypeOverrides).not.toHaveProperty('/traits');
+    expect(created.archetypeOverrides).not.toHaveProperty('/properties/serial');
+    expect(resolveGameplayInstanceRecord(document, 'interactable', created)).toMatchObject({
+      traits: ['tracked'],
+      properties: { serial: 'template-serial' },
+    });
+
+    act(() => dispatchWorkspaceToolbarCommand('new-entity'));
+    await user.click(screen.getByRole('button', { name: /^interactable/i }));
+    await user.click(screen.getByRole('button', { name: 'Interactable archetype' }));
+    await user.click(screen.getByRole('button', { name: /Prop Template/ }));
+    expect(screen.getByRole('button', { name: 'Interactable sprite' })).toHaveTextContent(
+      'From archetype',
+    );
+    const inheritedLabelInput = screen.getByLabelText('Entity label');
+    await user.clear(inheritedLabelInput);
+    await user.type(inheritedLabelInput, 'Brass Key');
+    await user.click(screen.getByRole('button', { name: /create interactable/i }));
+
+    const updatedDocument = useProjectStore.getState().document as AuthoringProject;
+    const inherited = updatedDocument.interactables['brass-key']!;
+    expect(inherited.archetypeOverrides).not.toHaveProperty('/data/presentation/sprite');
+    expect(resolveGameplayInstanceRecord(updatedDocument, 'interactable', inherited)).toMatchObject(
+      {
+        data: {
+          presentation: {
+            sprite: { $ref: { collection: 'assets', id: 'template-sprite' } },
+            hotspots: {
+              kind: 'custom',
+              hotspots: [expect.objectContaining({ id: 'template-hotspot' })],
+            },
+          },
+        },
+      },
+    );
   });
 
   it('creates a room and can set it as the project entrypoint', async () => {

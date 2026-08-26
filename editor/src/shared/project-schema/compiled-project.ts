@@ -621,6 +621,7 @@ const interactableDefinitionSchema = strict({
     material: materialReferenceSchema.nullable(),
     sprite: assetReferenceSchema.nullable(),
     hotspots: z.discriminatedUnion('kind', [
+      strict({ kind: z.literal('none') }),
       strict({
         kind: z.literal('sprite-alpha'),
         hotspot: strict({ ...hotspotCommonShape, target: interactableHotspotTargetSchema }),

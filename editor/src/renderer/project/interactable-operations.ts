@@ -4,6 +4,7 @@ import {
   parseInteractableData,
   validateInteractableData,
 } from '../../shared/project-schema/authoring-interactables';
+import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
 import { overridesForGameplayInstanceEdit } from './archetype-operations';
@@ -35,11 +36,21 @@ export function replaceInteractableDataPatches(
     data,
   }).find((diagnostic) => diagnostic.severity === 'error');
   if (issue) return { patches: [], diagnostics: [issue as EntityOperationDiagnostic] };
+  const effectiveRecord = record.archetype
+    ? resolveGameplayInstanceRecord(document, 'interactable', record)
+    : record;
+  if (!effectiveRecord)
+    return {
+      patches: [],
+      diagnostics: [
+        { severity: 'error', message: 'Interactable Archetype configuration cannot be resolved.' },
+      ],
+    };
   const overrides = overridesForGameplayInstanceEdit(
     document,
     'interactables',
     payload.interactableId,
-    { ...record, data },
+    { ...effectiveRecord, data },
   );
   if (overrides === null)
     return {

@@ -121,6 +121,10 @@ The Interactable owns the sprite. Do not add a duplicate Prop just to display th
 
 The default sprite-alpha Hotspot targets the owning Interactable. Gameplay behavior is defined by
 ordinary Interaction rules/Verbs for that Interactable subject; the Hotspot does not own a Verb.
+Interactable Hotspot presentation has three modes: `none`, `sprite-alpha`, and `custom`. Use `none`
+for an intentionally non-clickable Interactable; it does not require a sprite. Use `sprite-alpha`
+when the sprite alpha should define the hit area; this mode requires an image sprite. Use `custom`
+for authored rectangular Hotspots; non-empty custom Hotspots also require an image sprite.
 
 ## Template 3: Room Feature with background Hotspot geometry
 

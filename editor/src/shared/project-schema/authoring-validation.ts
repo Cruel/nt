@@ -16,7 +16,11 @@ import {
 } from './authoring-archetypes';
 import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
-import { parseInteractableData, validateInteractableData } from './authoring-interactables';
+import {
+  defaultInteractableData,
+  parseInteractableData,
+  validateInteractableData,
+} from './authoring-interactables';
 import { parseItemDefinitionData, parseItemStackData } from './authoring-items';
 import {
   validateInteractionData,
@@ -32,7 +36,10 @@ import {
   type PropertyOwnerKind,
 } from './authoring-properties';
 import { parseRoomData, validateRoomData } from './authoring-rooms';
-import { validateHotspotAuthoringSemantics } from './authoring-hotspot-validation';
+import {
+  validateHotspotAuthoringSemantics,
+  validateInteractableHotspotAuthoringSemantics,
+} from './authoring-hotspot-validation';
 import { validateAuthoringInventories } from './authoring-inventory-validation';
 import { validateTypedProjectSettings } from './authoring-project-settings';
 import { validateSceneData } from './authoring-scenes';
@@ -212,7 +219,7 @@ function validateArchetypes(
           'Archetype chain is cyclic or does not resolve to a valid same-kind configuration.',
         ),
       );
-    else
+    else {
       validateArchetypePropertyConfiguration(
         project,
         data.instanceKind,
@@ -221,6 +228,22 @@ function validateArchetypes(
         `${base}/data/effectiveConfiguration`,
         diagnostics,
       );
+      if (data.instanceKind === 'interactable' && typeof effective.data === 'object') {
+        const parsed = parseInteractableData({
+          ...(effective.data as object),
+          initialState: defaultInteractableData('Interactable').initialState,
+        });
+        if (parsed)
+          diagnostics.push(
+            ...validateInteractableHotspotAuthoringSemantics(
+              project,
+              parsed,
+              `${base}/data/effectiveConfiguration/data/presentation`,
+              `Interactable Archetype '${archetypeId}'`,
+            ),
+          );
+      }
+    }
   }
 
   for (const collection of ['rooms', 'characters', 'interactables'] as const) {

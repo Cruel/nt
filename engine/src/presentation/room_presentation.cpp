@@ -448,10 +448,9 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
             auto added = append(alpha->hotspot, std::monostate{});
             if (!added)
                 return Result<RoomPresentationResolution, Diagnostics>::failure(added.error());
-        } else {
-            for (const auto& hotspot :
-                 std::get<compiled::CustomInteractableHotspots>(definition->presentation.hotspots)
-                     .hotspots) {
+        } else if (const auto* custom = std::get_if<compiled::CustomInteractableHotspots>(
+                       &definition->presentation.hotspots)) {
+            for (const auto& hotspot : custom->hotspots) {
                 auto added = append(hotspot, hotspot.shape);
                 if (!added)
                     return Result<RoomPresentationResolution, Diagnostics>::failure(added.error());

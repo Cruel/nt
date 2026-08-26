@@ -4,6 +4,7 @@ import { createInitialCommandBusState, executeCommand, undoCommand } from './com
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 
 const rect = { kind: 'rect' as const, bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } };
 
@@ -17,6 +18,15 @@ function roomHotspot(id = 'hotspot') {
     target: { kind: 'owner-feature' as const, featureId: 'door' },
     shape: rect,
   };
+}
+
+function spriteAlphaInteractable(label = 'Lamp') {
+  const data = defaultInteractableData(label);
+  data.presentation.hotspots = {
+    kind: 'sprite-alpha',
+    hotspot: defaultHotspotBehavior(label),
+  };
+  return data;
 }
 
 describe('hotspot commands', () => {
@@ -98,7 +108,7 @@ describe('hotspot commands', () => {
     project.interactables.lamp = {
       id: 'lamp',
       label: 'Lamp',
-      data: defaultInteractableData('Lamp'),
+      data: spriteAlphaInteractable(),
     };
     const state = createInitialCommandBusState(toJsonValue(project));
 
@@ -119,7 +129,7 @@ describe('hotspot commands', () => {
 
   it('can switch Interactable hotspot geometry modes because no semantic rule references Hotspot IDs', () => {
     const project = createAuthoringProject();
-    const interactable = defaultInteractableData('Lamp');
+    const interactable = spriteAlphaInteractable();
     interactable.features.push({
       id: 'switch',
       label: 'Switch',
@@ -128,7 +138,7 @@ describe('hotspot commands', () => {
       inventories: [],
     });
     if (interactable.presentation.hotspots.kind !== 'sprite-alpha')
-      throw new Error('Expected sprite-alpha hotspot mode.');
+      throw new Error('Expected explicitly configured sprite-alpha hotspot mode.');
     interactable.presentation.hotspots.hotspot.target = {
       kind: 'owner-feature',
       featureId: 'switch',

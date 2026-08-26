@@ -138,13 +138,17 @@ export function renameHotspot(
     const data = resolvedInteractableData(document, ownerId);
     if (!data) return { patches: [], diagnostics: [error('Interactable record is invalid.')] };
     const items =
-      data.presentation.hotspots.kind === 'sprite-alpha'
-        ? [data.presentation.hotspots.hotspot]
-        : data.presentation.hotspots.hotspots;
+      data.presentation.hotspots.kind === 'none'
+        ? []
+        : data.presentation.hotspots.kind === 'sprite-alpha'
+          ? [data.presentation.hotspots.hotspot]
+          : data.presentation.hotspots.hotspots;
     if (!items.some((item) => item.id === hotspotId))
       return { patches: [], diagnostics: [error('Hotspot does not exist.')] };
     if (hotspotId !== nextId && items.some((item) => item.id === nextId))
       return { patches: [], diagnostics: [error('Hotspot ID is invalid or already exists.')] };
+    if (data.presentation.hotspots.kind === 'none')
+      return { patches: [], diagnostics: [error('Hotspot does not exist.')] };
     const hotspots =
       data.presentation.hotspots.kind === 'sprite-alpha'
         ? {
@@ -170,7 +174,7 @@ export function renameHotspot(
 export function setInteractableHotspotMode(
   document: unknown,
   interactableId: string,
-  kind: 'sprite-alpha' | 'custom',
+  kind: 'none' | 'sprite-alpha' | 'custom',
 ): EntityOperationResult {
   if (!isAuthoringProject(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
@@ -178,9 +182,11 @@ export function setInteractableHotspotMode(
   if (!data) return { patches: [], diagnostics: [error('Interactable record is invalid.')] };
   if (data.presentation.hotspots.kind === kind) return { patches: [], affectedPaths: [] };
   const hotspots =
-    kind === 'custom'
-      ? { kind: 'custom' as const, hotspots: [] }
-      : { kind: 'sprite-alpha' as const, hotspot: defaultHotspotBehavior(data.displayName) };
+    kind === 'none'
+      ? { kind: 'none' as const }
+      : kind === 'custom'
+        ? { kind: 'custom' as const, hotspots: [] }
+        : { kind: 'sprite-alpha' as const, hotspot: defaultHotspotBehavior(data.displayName) };
   return replaceInteractableDataPatches(document, {
     interactableId,
     data: {

@@ -1,5 +1,5 @@
 import { parseAssetData } from './authoring-assets';
-import { parseInteractableData } from './authoring-interactables';
+import { parseInteractableData, type InteractableData } from './authoring-interactables';
 import { parseMaterialData } from './authoring-materials';
 import type { AuthoringProject } from './authoring-project';
 import { parseRoomData } from './authoring-rooms';
@@ -209,10 +209,12 @@ function validateSourceImage(
         category,
         path,
         category === 'Interactables'
-          ? 'Hotspot has no sprite image configured yet.'
+          ? alphaMode
+            ? 'Alpha hotspot mode requires a sprite image. Add a sprite or switch hotspot mode.'
+            : 'Custom hotspots require a sprite image. Add a sprite or remove the custom hotspots.'
           : 'Clickable hotspots require an image source.',
         'hotspot.authoring.source-image-required',
-        category === 'Interactables' ? 'warning' : 'error',
+        'error',
       ),
     ];
   const record = project.assets[assetId];
@@ -253,6 +255,83 @@ function validateSourceImage(
         'Sprite has no alpha channel; the default hotspot covers the full image rectangle.',
         'hotspot.authoring.alpha.opaque-image',
         'warning',
+      ),
+    );
+  return diagnostics;
+}
+
+export function validateInteractableHotspotAuthoringSemantics(
+  project: AuthoringProject,
+  interactable: Pick<InteractableData, 'features' | 'presentation'>,
+  base: string,
+  ownerLabel: string,
+): HotspotAuthoringDiagnostic[] {
+  const diagnostics: HotspotAuthoringDiagnostic[] = [];
+  const definition = interactable.presentation.hotspots;
+  const hotspots =
+    definition.kind === 'none'
+      ? []
+      : definition.kind === 'sprite-alpha'
+        ? [definition.hotspot]
+        : definition.hotspots;
+  const seen = new Set<string>();
+  hotspots.forEach((hotspot, index) => {
+    const path =
+      definition.kind === 'sprite-alpha'
+        ? `${base}/hotspots/hotspot`
+        : `${base}/hotspots/hotspots/${index}`;
+    if (seen.has(hotspot.id))
+      diagnostics.push(
+        diagnostic(
+          'Interactables',
+          `${path}/id`,
+          `Duplicate hotspot ID '${hotspot.id}'.`,
+          'hotspot.authoring.id.duplicate',
+        ),
+      );
+    seen.add(hotspot.id);
+    if (hotspot.target.kind === 'owner-feature') {
+      const featureId = hotspot.target.featureId;
+      if (!interactable.features.some((feature) => feature.id === featureId))
+        diagnostics.push(
+          diagnostic(
+            'Interactables',
+            `${path}/target/featureId`,
+            `Interactable Feature '${featureId}' does not belong to ${ownerLabel}.`,
+            'hotspot.authoring.target.feature-missing',
+          ),
+        );
+    } else if (hotspot.target.kind === 'subject') {
+      diagnostics.push(
+        ...validateSubject(
+          project,
+          'Interactables',
+          hotspot.target.subject,
+          `${path}/target/subject`,
+        ),
+      );
+    }
+    diagnostics.push(
+      ...validateHighlight(
+        project,
+        'Interactables',
+        hotspot.highlight,
+        definition.kind === 'sprite-alpha' ? 'sprite-alpha' : 'custom',
+        `${path}/highlight`,
+      ),
+    );
+  });
+  const requiresSprite =
+    definition.kind === 'sprite-alpha' ||
+    (definition.kind === 'custom' && definition.hotspots.length > 0);
+  if (requiresSprite)
+    diagnostics.push(
+      ...validateSourceImage(
+        project,
+        'Interactables',
+        interactable.presentation.sprite?.$ref.id ?? null,
+        interactable.presentation.sprite ? `${base}/sprite` : `${base}/hotspots/kind`,
+        definition.kind === 'sprite-alpha',
       ),
     );
   return diagnostics;
@@ -313,67 +392,14 @@ export function validateHotspotAuthoringSemantics(
     const interactable = parseInteractableData(record.data);
     if (!interactable) continue;
     const base = `/interactables/${interactableId}/data/presentation`;
-    const definition = interactable.presentation.hotspots;
-    const hotspots =
-      definition.kind === 'sprite-alpha' ? [definition.hotspot] : definition.hotspots;
-    const seen = new Set<string>();
-    hotspots.forEach((hotspot, index) => {
-      const path =
-        definition.kind === 'sprite-alpha'
-          ? `${base}/hotspots/hotspot`
-          : `${base}/hotspots/hotspots/${index}`;
-      if (seen.has(hotspot.id))
-        diagnostics.push(
-          diagnostic(
-            'Interactables',
-            `${path}/id`,
-            `Duplicate hotspot ID '${hotspot.id}'.`,
-            'hotspot.authoring.id.duplicate',
-          ),
-        );
-      seen.add(hotspot.id);
-      if (hotspot.target.kind === 'owner-feature') {
-        const featureId = hotspot.target.featureId;
-        if (!interactable.features.some((feature) => feature.id === featureId))
-          diagnostics.push(
-            diagnostic(
-              'Interactables',
-              `${path}/target/featureId`,
-              `Interactable Feature '${featureId}' does not belong to Interactable '${interactableId}'.`,
-              'hotspot.authoring.target.feature-missing',
-            ),
-          );
-      } else if (hotspot.target.kind === 'subject') {
-        diagnostics.push(
-          ...validateSubject(
-            project,
-            'Interactables',
-            hotspot.target.subject,
-            `${path}/target/subject`,
-          ),
-        );
-      }
-      diagnostics.push(
-        ...validateHighlight(
-          project,
-          'Interactables',
-          hotspot.highlight,
-          definition.kind,
-          `${path}/highlight`,
-        ),
-      );
-    });
-    const requiresSprite = definition.kind === 'sprite-alpha' || definition.hotspots.length > 0;
-    if (requiresSprite)
-      diagnostics.push(
-        ...validateSourceImage(
-          project,
-          'Interactables',
-          interactable.presentation.sprite?.$ref.id ?? null,
-          `${base}/sprite`,
-          definition.kind === 'sprite-alpha',
-        ),
-      );
+    diagnostics.push(
+      ...validateInteractableHotspotAuthoringSemantics(
+        project,
+        interactable,
+        base,
+        `Interactable '${interactableId}'`,
+      ),
+    );
   }
   return diagnostics;
 }

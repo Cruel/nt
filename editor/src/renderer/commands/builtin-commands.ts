@@ -745,7 +745,7 @@ const interactableHotspotSchema = z.object({
 });
 const interactableAddHotspotSchema = z.object({
   interactableId: entityIdSchema,
-  hotspot: interactableHotspotsSchema.options[1].shape.hotspots.element,
+  hotspot: interactableHotspotsSchema.options[2].shape.hotspots.element,
 });
 const interactableRenameHotspotSchema = interactableHotspotSchema.extend({
   nextId: entityIdSchema,
@@ -762,7 +762,7 @@ const interactableReorderHotspotsSchema = z.object({
 });
 const interactableSetHotspotModeSchema = z.object({
   interactableId: entityIdSchema,
-  kind: z.enum(['sprite-alpha', 'custom']),
+  kind: z.enum(['none', 'sprite-alpha', 'custom']),
 });
 const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unknown() });
 const testReplaceDataSchema = z.object({ testId: entityIdSchema, data: z.unknown() });
@@ -1254,6 +1254,7 @@ export const interactableUpdateHotspotCommand: CommandHandler = ({ document, pay
     ({ interactableId, hotspotId, hotspot }) =>
       updateInteractableHotspots(document, interactableId, (data) => {
         const current = data.presentation.hotspots;
+        if (current.kind === 'none') return null;
         const hotspots =
           current.kind === 'sprite-alpha'
             ? {

@@ -59,17 +59,7 @@ describe('hotspot current contracts', () => {
     const interactable = defaultInteractableData('Key');
 
     expect(room.hotspots).toEqual([]);
-    expect(interactable.presentation.hotspots).toMatchObject({
-      kind: 'sprite-alpha',
-      hotspot: {
-        id: 'primary',
-        label: 'Key',
-        condition: { kind: 'always' },
-        inputOrder: 0,
-        highlight: { kind: 'default' },
-        target: { kind: 'owner' },
-      },
-    });
+    expect(interactable.presentation.hotspots).toEqual({ kind: 'none' });
     const { hotspots: _roomHotspots, ...roomWithoutHotspots } = room;
     const { hotspots: _interactableHotspots, ...presentationWithoutHotspots } =
       interactable.presentation;
@@ -82,6 +72,15 @@ describe('hotspot current contracts', () => {
     ).toBe(false);
     expect(roomDataSchema.safeParse({ ...room, hotspotMode: 'custom' }).success).toBe(false);
     expect(interactableDataSchema.safeParse({ ...interactable, hotspots: [] }).success).toBe(false);
+    expect(
+      interactableDataSchema.safeParse({
+        ...interactable,
+        presentation: {
+          ...interactable.presentation,
+          hotspots: { kind: 'none', hotspots: [] },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it('accepts normalized rectangular hotspots and rejects invalid bounds and labels', () => {
