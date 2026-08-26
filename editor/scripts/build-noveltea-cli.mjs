@@ -37,25 +37,9 @@ const comfyUiWorkflowPackageRoot = path.join(
   'noveltea-scriptc-comfyui-workflows',
 );
 const comfyUiWorkflowSourceRoot = path.join(editorRoot, 'assets', 'comfyui', 'workflows');
+const agentKitSourceRoot = path.join(editorRoot, 'agent-kit');
 const agentKitProvenancePath = path.join(editorRoot, 'agent-kit-provenance.json');
 const agentKitSystemLayoutSourceRoot = path.join(repositoryRoot, 'engine', 'assets', 'system');
-const agentKitSourcePaths = [
-  'CLI.md',
-  'GUIDE.md',
-  'PROJECT_FORMAT.md',
-  'docs/ASSETS_SHADERS.md',
-  'docs/AUTHORING.md',
-  'docs/INTERACTIONS.md',
-  'docs/ROOMS.md',
-  'docs/LAYOUTS.md',
-  'docs/RMLUI.md',
-  'docs/RCSS_REFERENCE.md',
-  'docs/RMLUI_DATA_BINDING.md',
-  'docs/RMLUI_CUSTOM_COMPONENTS.md',
-  'docs/RMLUI_LUA.md',
-  'docs/LUA.md',
-  'docs/TESTS.md',
-];
 async function collectUtf8Files(root, directory, files = {}) {
   const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
     left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
@@ -385,14 +369,7 @@ try {
     'export declare const scriptcComfyUiWorkflowFiles: Readonly<Record<string, string>>;\n',
   );
 
-  const agentKitSourceFiles = Object.fromEntries(
-    await Promise.all(
-      agentKitSourcePaths.map(async (relativePath) => [
-        relativePath,
-        await readFile(path.join(editorRoot, 'agent-kit', relativePath), 'utf8'),
-      ]),
-    ),
-  );
+  const agentKitSourceFiles = await collectUtf8Files(agentKitSourceRoot, agentKitSourceRoot);
   const agentKitProvenance = JSON.parse(await readFile(agentKitProvenancePath, 'utf8'));
   const agentKitSystemLayoutSourceFiles = await collectUtf8Files(
     agentKitSystemLayoutSourceRoot,
