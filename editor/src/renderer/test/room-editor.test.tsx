@@ -86,6 +86,8 @@ describe('RoomEditor', () => {
       label: 'Surface',
       traits: [],
       properties: {},
+      localProperties: [],
+      defaultProperties: [],
       inventories: [],
     });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };

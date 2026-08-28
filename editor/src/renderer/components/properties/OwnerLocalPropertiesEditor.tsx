@@ -16,6 +16,7 @@ import {
   arePropertySchemasCompatible,
   authoredRuntimeValuesEqual,
   type AuthoredRuntimeValue,
+  type OwnerDefaultProperty,
   type OwnerLocalProperty,
   type PropertyAssignments,
   type PropertyOwnerKind,
@@ -26,6 +27,7 @@ import {
   parseVariableValueText,
   variableValueToText,
 } from '../../../shared/project-schema/authoring-variables';
+import type { InheritedDefaultProperty } from './OwnerDefaultPropertiesEditor';
 import {
   newTypedPropertyDraft,
   ownerLocalPropertyFromDraft,
@@ -94,7 +96,7 @@ function ownerLocalFromTrait(
   };
 }
 
-function parseTraitValue(property: TraitProperty, valueText: string) {
+function parseTraitValue(property: TraitProperty | OwnerDefaultProperty, valueText: string) {
   return parseVariableValueText(property.type, valueText, property.enumValues, property.nullable);
 }
 
@@ -128,6 +130,8 @@ export function OwnerLocalPropertiesEditor({
   traits = {},
   ownerKind,
   attachedTraits = [],
+  inheritedTraits = [],
+  inheritedProperties = [],
   propertyOverrides = {},
   traitColorFor,
   onTraitStateChange,
@@ -142,6 +146,8 @@ export function OwnerLocalPropertiesEditor({
   traits?: Readonly<Record<string, TraitDefinition>>;
   ownerKind?: PropertyOwnerKind;
   attachedTraits?: readonly string[];
+  inheritedTraits?: readonly string[];
+  inheritedProperties?: readonly InheritedDefaultProperty[];
   propertyOverrides?: Readonly<PropertyAssignments>;
   traitColorFor?: (traitId: string) => string | null;
   onTraitStateChange?: (state: OwnerPropertyTraitState) => void;
@@ -163,6 +169,18 @@ export function OwnerLocalPropertiesEditor({
   const sourcesByProperty = useMemo(
     () => traitSources(traits, attachedTraits),
     [attachedTraits, traits],
+  );
+  const inheritedByProperty = useMemo(
+    () => new Map(inheritedProperties.map((entry) => [entry.property.id, entry])),
+    [inheritedProperties],
+  );
+  const effectivePropertyIds = useMemo(
+    () => [...new Set([...sourcesByProperty.keys(), ...inheritedByProperty.keys()])],
+    [inheritedByProperty, sourcesByProperty],
+  );
+  const localTraitIds = useMemo(
+    () => attachedTraits.filter((id) => !inheritedTraits.includes(id)),
+    [attachedTraits, inheritedTraits],
   );
   const availableTraits = useMemo(
     () =>
@@ -194,8 +212,10 @@ export function OwnerLocalPropertiesEditor({
       setMessage(parsed.message);
       return;
     }
-    if (sourcesByProperty.has(parsed.property.id)) {
-      setMessage(`Property '${parsed.property.id}' is supplied by an attached Trait.`);
+    if (sourcesByProperty.has(parsed.property.id) || inheritedByProperty.has(parsed.property.id)) {
+      setMessage(
+        `Property '${parsed.property.id}' has an inherited schema; set its Value from the existing row.`,
+      );
       return;
     }
     const duplicateIndex = properties.findIndex(
@@ -246,6 +266,13 @@ export function OwnerLocalPropertiesEditor({
           return;
         }
       }
+      const inherited = inheritedByProperty.get(contract.id)?.property;
+      if (inherited && !arePropertySchemasCompatible(inherited, contract)) {
+        setMessage(
+          `Cannot attach '${trait.label}': inherited Property '${contract.id}' has an incompatible schema.`,
+        );
+        return;
+      }
       const local = properties.find((property) => property.id === contract.id);
       if (local && !arePropertySchemasCompatible(local, contract)) {
         setMessage(
@@ -265,7 +292,7 @@ export function OwnerLocalPropertiesEditor({
       nextLocal.splice(localIndex, 1);
     }
     onTraitStateChange({
-      traits: [...attachedTraits, attachTraitId],
+      traits: [...localTraitIds, attachTraitId],
       localProperties: nextLocal,
       properties: nextOverrides,
     });
@@ -287,7 +314,7 @@ export function OwnerLocalPropertiesEditor({
       delete nextOverrides[contract.id];
     }
     onTraitStateChange({
-      traits: remainingTraits,
+      traits: remainingTraits.filter((id) => !inheritedTraits.includes(id)),
       localProperties: nextLocal,
       properties: nextOverrides,
     });
@@ -296,7 +323,8 @@ export function OwnerLocalPropertiesEditor({
   const saveTraitValue = () => {
     if (!editingTraitProperty || !onTraitStateChange) return;
     const sources = sourcesByProperty.get(editingTraitProperty.propertyId);
-    const contract = sources?.[0]?.property;
+    const contract =
+      inheritedByProperty.get(editingTraitProperty.propertyId)?.property ?? sources?.[0]?.property;
     if (!contract) return;
     const parsed = parseTraitValue(contract, editingTraitProperty.valueText);
     if (!parsed.ok) {
@@ -304,7 +332,7 @@ export function OwnerLocalPropertiesEditor({
       return;
     }
     onTraitStateChange({
-      traits: [...attachedTraits],
+      traits: [...localTraitIds],
       localProperties: [...properties],
       properties: { ...propertyOverrides, [contract.id]: parsed.value },
     });
@@ -317,8 +345,12 @@ export function OwnerLocalPropertiesEditor({
     const nextOverrides = { ...propertyOverrides };
     delete nextOverrides[propertyId];
     onTraitStateChange({
-      traits: [...attachedTraits],
-      localProperties: [...properties],
+      traits: [...localTraitIds],
+      localProperties: properties.filter(
+        (property) =>
+          property.id !== propertyId ||
+          (!sourcesByProperty.has(propertyId) && !inheritedByProperty.has(propertyId)),
+      ),
       properties: nextOverrides,
     });
   };
@@ -351,14 +383,18 @@ export function OwnerLocalPropertiesEditor({
                   style={{ backgroundColor: traitColorFor?.(traitId) ?? undefined }}
                 />
                 <span className="text-xs">{traits[traitId]?.label ?? traitId}</span>
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label={`Detach ${traitId}`}
-                  onClick={() => detachTrait(traitId)}
-                >
-                  <Unlink className="size-3" />
-                </Button>
+                {!inheritedTraits.includes(traitId) ? (
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Detach ${traitId}`}
+                    onClick={() => detachTrait(traitId)}
+                  >
+                    <Unlink className="size-3" />
+                  </Button>
+                ) : (
+                  <span className="px-1 text-[10px] text-muted-foreground">inherited</span>
+                )}
               </div>
             ))}
             {attachedTraits.length === 0 ? (
@@ -399,28 +435,38 @@ export function OwnerLocalPropertiesEditor({
             </tr>
           </thead>
           <tbody>
-            {properties.length === 0 && sourcesByProperty.size === 0 ? (
+            {properties.length === 0 && effectivePropertyIds.length === 0 ? (
               <tr>
                 <td colSpan={5} className="p-5 text-center text-xs text-muted-foreground">
-                  No local or Trait Properties.
+                  No local, inherited, or Trait Properties.
                 </td>
               </tr>
             ) : null}
-            {[...sourcesByProperty.entries()].map(([propertyId, sources]) => {
-              const contract = sources[0]!.property;
+            {effectivePropertyIds.map((propertyId) => {
+              const sources = sourcesByProperty.get(propertyId) ?? [];
+              const inherited = inheritedByProperty.get(propertyId);
+              const contract = inherited?.property ?? sources[0]!.property;
               const useBackground = traitUseBackground(sources, traitColorFor);
               const hasOverride = Object.prototype.hasOwnProperty.call(
                 propertyOverrides,
                 propertyId,
               );
-              const fallback = resolvedTraitDefault(sources);
+              const traitFallback = resolvedTraitDefault(sources);
+              const inheritedDefault = inherited?.property.defaultValue;
+              const fallback =
+                inheritedDefault !== undefined
+                  ? { kind: 'value' as const, value: inheritedDefault }
+                  : traitFallback;
+              const local = properties.find((property) => property.id === propertyId);
               const value = hasOverride
                 ? propertyOverrides[propertyId]
-                : fallback.kind === 'value'
-                  ? fallback.value
-                  : undefined;
+                : local
+                  ? local.value
+                  : fallback.kind === 'value'
+                    ? fallback.value
+                    : undefined;
               return (
-                <tr key={`trait:${propertyId}`} className="border-t bg-muted/10">
+                <tr key={`inherited:${propertyId}`} className="border-t bg-muted/10">
                   <td className="px-3 py-2">
                     <div className="font-medium">{contract.label ?? propertyId}</div>
                     {contract.label ? (
@@ -437,17 +483,23 @@ export function OwnerLocalPropertiesEditor({
                     {fallback.kind === 'conflict' && !hasOverride
                       ? 'Conflicting Defaults'
                       : formatValue(value)}
-                    {hasOverride ? (
+                    {hasOverride || local ? (
                       <span className="ml-2 font-sans text-muted-foreground">override</span>
+                    ) : inherited ? (
+                      <span className="ml-2 font-sans text-muted-foreground">
+                        {inherited.sourceLabel}
+                      </span>
                     ) : null}
                   </td>
                   <td
                     className="px-3 py-2 text-center text-xs"
                     style={{ background: useBackground }}
-                    title={`Trait sources: ${sources.map((source) => source.trait.label).join(', ')}`}
-                    aria-label={`Use count ${usageCountFor?.(propertyId) ?? 0}; Trait sources: ${sources
-                      .map((source) => source.trait.label)
-                      .join(', ')}`}
+                    title={
+                      sources.length
+                        ? `Trait sources: ${sources.map((source) => source.trait.label).join(', ')}`
+                        : inherited?.sourceLabel
+                    }
+                    aria-label={`Use count ${usageCountFor?.(propertyId) ?? 0}${sources.length ? `; Trait sources: ${sources.map((source) => source.trait.label).join(', ')}` : ''}`}
                   >
                     <span className="rounded bg-background/85 px-1.5 py-0.5 text-foreground shadow-sm">
                       {usageCountFor?.(propertyId) ?? 0}
@@ -455,7 +507,7 @@ export function OwnerLocalPropertiesEditor({
                   </td>
                   <td className="px-1 py-1">
                     <div className="flex">
-                      {hasOverride ? (
+                      {hasOverride || local ? (
                         <Button
                           size="icon-sm"
                           variant="ghost"
@@ -483,7 +535,10 @@ export function OwnerLocalPropertiesEditor({
               );
             })}
             {properties
-              .filter((property) => !sourcesByProperty.has(property.id))
+              .filter(
+                (property) =>
+                  !sourcesByProperty.has(property.id) && !inheritedByProperty.has(property.id),
+              )
               .map((property) => {
                 const index = properties.indexOf(property);
                 return (

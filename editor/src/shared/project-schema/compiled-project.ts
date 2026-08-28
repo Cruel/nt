@@ -216,6 +216,7 @@ const inventoryReferenceSchema = strict({ owner: inventoryOwnerSchema, inventory
 
 const featureDefinitionSchema = strict({
   ...propertyBearingDefinition,
+  properties: z.array(ownerPropertyContractSchema),
   label: z.string().min(1),
   inventories: z.array(inventoryDefinitionSchema),
 });
@@ -439,6 +440,7 @@ const characterGestureSchema = strict({
 
 const characterDefinitionSchema = strict({
   ...propertyBearingDefinition,
+  properties: z.array(ownerPropertyContractSchema),
   defaults: strict({
     profileId: id,
     expressionId: id,
@@ -542,6 +544,7 @@ const roomScriptHookMappingSchema = strict({
 });
 const roomDefinitionSchema = strict({
   ...propertyBearingDefinition,
+  properties: z.array(ownerPropertyContractSchema),
   background: strict({
     asset: assetReferenceSchema.nullable(),
     color: z.string().nullable(),

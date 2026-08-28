@@ -13,7 +13,12 @@ import {
 } from './authoring-interactables';
 import { defaultRoomData, roomDataSchema, type RoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import { propertyAssignmentsSchema, type PropertyAssignments } from './authoring-properties';
+import {
+  ownerDefaultPropertiesSchema,
+  propertyAssignmentsSchema,
+  type OwnerDefaultProperty,
+  type PropertyAssignments,
+} from './authoring-properties';
 
 export const gameplayInstanceKindValues = ['room', 'character', 'interactable'] as const;
 export type GameplayInstanceKind = (typeof gameplayInstanceKindValues)[number];
@@ -39,12 +44,14 @@ export type ArchetypeRef = z.infer<typeof archetypeRefSchema>;
 export interface EffectiveGameplayInstanceConfiguration {
   traits: string[];
   properties: PropertyAssignments;
+  defaultProperties: OwnerDefaultProperty[];
   data: RoomData | CharacterData | InteractableData;
 }
 
 export interface InheritableConfiguration {
   traits: string[];
   properties: PropertyAssignments;
+  defaultProperties: OwnerDefaultProperty[];
   data: unknown;
 }
 
@@ -64,17 +71,20 @@ function withoutCharacterState(data: CharacterData): Omit<CharacterData, 'initia
 export function defaultArchetypeConfiguration(
   kind: GameplayInstanceKind,
 ): InheritableConfiguration {
-  if (kind === 'room') return { traits: [], properties: {}, data: defaultRoomData('Room') };
+  if (kind === 'room')
+    return { traits: [], properties: {}, defaultProperties: [], data: defaultRoomData('Room') };
   if (kind === 'character') {
     return {
       traits: [],
       properties: {},
+      defaultProperties: [],
       data: withoutCharacterState(defaultCharacterData('Character')),
     };
   }
   return {
     traits: [],
     properties: {},
+    defaultProperties: [],
     data: defaultInteractableData('Interactable'),
   };
 }
@@ -122,7 +132,7 @@ export function isArchetypeOverridePathAllowed(
     return false;
   }
   if (segments.length === 0) return false;
-  if (!['traits', 'properties', 'data'].includes(segments[0]!)) return false;
+  if (!['traits', 'properties', 'defaultProperties', 'data'].includes(segments[0]!)) return false;
   if (kind === 'character' && segments[0] === 'data' && segments[1] === 'initialWorldState')
     return false;
   return true;
@@ -149,11 +159,17 @@ function applyOverrides(
 function parseConfiguration(kind: GameplayInstanceKind, configuration: InheritableConfiguration) {
   const traits = z.array(entityIdSchema).safeParse(configuration.traits);
   const properties = propertyAssignmentsSchema.safeParse(configuration.properties);
-  if (!traits.success || !properties.success) return null;
+  const defaultProperties = ownerDefaultPropertiesSchema.safeParse(configuration.defaultProperties);
+  if (!traits.success || !properties.success || !defaultProperties.success) return null;
   if (kind === 'room') {
     const data = roomDataSchema.safeParse(configuration.data);
     return data.success
-      ? { traits: traits.data, properties: properties.data, data: data.data }
+      ? {
+          traits: traits.data,
+          properties: properties.data,
+          defaultProperties: defaultProperties.data,
+          data: data.data,
+        }
       : null;
   }
   if (kind === 'character') {
@@ -164,7 +180,12 @@ function parseConfiguration(kind: GameplayInstanceKind, configuration: Inheritab
       initialWorldState: base.initialWorldState,
     });
     return data.success
-      ? { traits: traits.data, properties: properties.data, data: withoutCharacterState(data.data) }
+      ? {
+          traits: traits.data,
+          properties: properties.data,
+          defaultProperties: defaultProperties.data,
+          data: withoutCharacterState(data.data),
+        }
       : null;
   }
   const data = interactableDataSchema.safeParse(configuration.data);
@@ -172,6 +193,7 @@ function parseConfiguration(kind: GameplayInstanceKind, configuration: Inheritab
     ? {
         traits: traits.data,
         properties: properties.data,
+        defaultProperties: defaultProperties.data,
         data: data.data,
       }
     : null;
@@ -245,6 +267,7 @@ function rawInheritableConfiguration(
       ? {
           traits: [...(record.traits ?? [])],
           properties: { ...record.properties },
+          defaultProperties: [],
           data: parsed.data,
         }
       : null;
@@ -255,6 +278,7 @@ function rawInheritableConfiguration(
       ? {
           traits: [...(record.traits ?? [])],
           properties: { ...record.properties },
+          defaultProperties: [],
           data: withoutCharacterState(parsed.data),
         }
       : null;
@@ -264,6 +288,7 @@ function rawInheritableConfiguration(
     ? {
         traits: [...(record.traits ?? [])],
         properties: { ...record.properties },
+        defaultProperties: structuredClone(record.defaultProperties ?? []),
         data: parsed.data,
       }
     : null;
@@ -296,10 +321,21 @@ export function resolveGameplayInstanceRecord(
     const local = characterDataSchema.parse(record.data);
     data = { ...(parsed.data as object), initialWorldState: local.initialWorldState };
   }
+  const localTraits = record.traits ?? [];
+  const effectiveTraits = [...parsed.traits];
+  for (const traitId of localTraits)
+    if (!effectiveTraits.includes(traitId)) effectiveTraits.push(traitId);
+  const localDefaults = record.defaultProperties ?? [];
+  const effectiveDefaults = new Map(
+    parsed.defaultProperties.map((property) => [property.id, structuredClone(property)]),
+  );
+  for (const property of localDefaults)
+    effectiveDefaults.set(property.id, structuredClone(property));
   return {
     ...record,
-    traits: [...parsed.traits],
-    properties: { ...parsed.properties },
+    traits: effectiveTraits,
+    properties: { ...parsed.properties, ...record.properties },
+    ...(kind === 'interactable' ? { defaultProperties: [...effectiveDefaults.values()] } : {}),
     data,
   };
 }

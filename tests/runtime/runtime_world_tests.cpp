@@ -42,7 +42,7 @@ core::CompiledProject decode_fixture(nlohmann::json document, std::string_view f
     if (!decoded)
         for (const auto& diagnostic : decoded.error())
             UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
-                                          << diagnostic.source_path);
+                                          << diagnostic.source_path << diagnostic.json_pointer);
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -358,8 +358,21 @@ TEST_CASE("runtime Interactable creation atomically requires effective Property 
                                                      {"type", "string"},
                                                      {"nullable", false},
                                                      {"enumValues", nlohmann::json::array()}}});
+    required["features"] = nlohmann::json::array(
+        {{{"id", "required-feature"},
+          {"label", "Required Feature"},
+          {"traits", nlohmann::json::array()},
+          {"propertyAssignments", nlohmann::json::array()},
+          {"properties", nlohmann::json::array({{{"id", "feature-state"},
+                                                 {"label", "Feature State"},
+                                                 {"description", ""},
+                                                 {"type", "string"},
+                                                 {"nullable", false},
+                                                 {"enumValues", nlohmann::json::array()}}})},
+          {"inventories", nlohmann::json::array()}}});
     auto defaulted = required;
     defaulted["properties"][0]["defaultValue"] = "ready";
+    defaulted["features"][0]["properties"][0]["defaultValue"] = "feature-ready";
     document["archetypes"] = nlohmann::json::array({{{"id", "required-interactable"},
                                                      {"instanceKind", "interactable"},
                                                      {"configuration", required}},

@@ -105,4 +105,43 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
       ],
     });
   });
+
+  it('keeps inherited Archetype schema read-only and resets a concrete Value to its Default', async () => {
+    const user = userEvent.setup();
+    const onTraitStateChange = vi.fn();
+    render(
+      <OwnerLocalPropertiesEditor
+        ownerLabel="Room"
+        properties={[
+          { id: 'mood', label: 'Mood', type: 'string', nullable: false, value: 'local' },
+        ]}
+        onChange={vi.fn()}
+        traits={{}}
+        ownerKind="room"
+        attachedTraits={[]}
+        inheritedProperties={[
+          {
+            sourceLabel: 'Base Room',
+            property: {
+              id: 'mood',
+              label: 'Mood',
+              type: 'string',
+              nullable: false,
+              defaultValue: 'archetype',
+            },
+          },
+        ]}
+        onTraitStateChange={onTraitStateChange}
+      />,
+    );
+
+    expect(screen.getByText('"local"')).toBeInTheDocument();
+    expect(screen.getByText('override')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reset mood' }));
+    expect(onTraitStateChange).toHaveBeenCalledWith({
+      traits: [],
+      properties: {},
+      localProperties: [],
+    });
+  });
 });

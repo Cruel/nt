@@ -37,7 +37,6 @@ import {
 import {
   effectiveInteractableDefinitionProperties,
   effectiveInteractableInstanceProperties,
-  effectiveInteractableInstanceTraits,
 } from './project-schema/authoring-interactable-properties';
 import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
@@ -346,9 +345,38 @@ function compileInteractableLocation(location: InteractableInstanceData['locatio
   };
 }
 
-function compileFeature(feature: FeatureData) {
+function compileOwnerContract(
+  property: {
+    id: string;
+    label?: string;
+    description?: string;
+    type: 'boolean' | 'integer' | 'number' | 'string' | 'enum';
+    nullable: boolean;
+    enumValues?: string[];
+    defaultValue?: import('./project-schema/authoring-properties').AuthoredRuntimeValue;
+  },
+  includeDefault: boolean,
+) {
+  return {
+    id: property.id,
+    label: property.label ?? property.id,
+    description: property.description ?? '',
+    type: property.type,
+    nullable: property.nullable,
+    enumValues: [...(property.enumValues ?? [])],
+    ...(includeDefault && property.defaultValue !== undefined
+      ? { defaultValue: property.defaultValue }
+      : {}),
+  };
+}
+
+function compileFeature(feature: FeatureData, mode: 'value' | 'default') {
   return {
     ...propertyBase(feature.id, feature),
+    properties:
+      mode === 'value'
+        ? feature.localProperties.map((property) => compileOwnerContract(property, false))
+        : feature.defaultProperties.map((property) => compileOwnerContract(property, true)),
     label: feature.label,
     inventories: compileInventories(feature.inventories),
   };
@@ -524,6 +552,21 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     if (!data || !effectiveRecord) continue;
     characters.push({
       ...propertyBase(id, effectiveRecord),
+      properties: (() => {
+        const inherited = record.archetype
+          ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ??
+            [])
+          : [];
+        const localIds = new Set((record.localProperties ?? []).map((property) => property.id));
+        return [
+          ...inherited
+            .filter((property) => !localIds.has(property.id))
+            .map((property) => compileOwnerContract(property, true)),
+          ...(record.localProperties ?? []).map((property) =>
+            compileOwnerContract(property, false),
+          ),
+        ];
+      })(),
       displayName: data.displayName,
       dialogue: { ...data.dialogue },
       defaults: {
@@ -665,6 +708,21 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     if (!data || !effectiveRecord) continue;
     rooms.push({
       ...propertyBase(id, effectiveRecord),
+      properties: (() => {
+        const inherited = record.archetype
+          ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ??
+            [])
+          : [];
+        const localIds = new Set((record.localProperties ?? []).map((property) => property.id));
+        return [
+          ...inherited
+            .filter((property) => !localIds.has(property.id))
+            .map((property) => compileOwnerContract(property, true)),
+          ...(record.localProperties ?? []).map((property) =>
+            compileOwnerContract(property, false),
+          ),
+        ];
+      })(),
       displayName: data.displayName,
       background: {
         asset: assetRef(data.background.asset),
@@ -708,7 +766,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           layout: layoutRef(placement.presentation.layout),
         },
       })),
-      features: data.features.map(compileFeature),
+      features: data.features.map((feature) => compileFeature(feature, 'value')),
       hotspots: data.hotspots.map((hotspot) => ({
         id: hotspot.id,
         label: hotspot.label,
@@ -812,7 +870,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           enumValues: [...(property.contract.enumValues ?? [])],
           ...(property.defaultValue === undefined ? {} : { defaultValue: property.defaultValue }),
         })),
-      features: data.features.map(compileFeature),
+      features: data.features.map((feature) => compileFeature(feature, 'default')),
       inventories: compileInventories(data.inventories),
       presentation: {
         sprite: assetRef(data.presentation.sprite),
@@ -1016,6 +1074,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       const identity = {
         traits: [...configuration.traits].sort(),
         propertyAssignments: propertyAssignments(configuration),
+        properties: configuration.defaultProperties.map((property) =>
+          compileOwnerContract(property, true),
+        ),
       };
       const declared = {
         ...identity,
@@ -1124,7 +1185,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
             layout: layoutRef(placement.presentation.layout),
           },
         })),
-        features: data.features.map(compileFeature),
+        features: data.features.map((feature) => compileFeature(feature, 'value')),
         hotspots: data.hotspots.map((hotspot) => ({
           id: hotspot.id,
           label: hotspot.label,
@@ -1149,6 +1210,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         configuration: {
           traits: [...configuration.traits].sort(),
           propertyAssignments: propertyAssignments(configuration),
+          properties: configuration.defaultProperties.map((property) =>
+            compileOwnerContract(property, true),
+          ),
           displayName: data.displayName,
           dialogue: { ...data.dialogue },
           defaults: {
@@ -1283,9 +1347,11 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         configuration: {
           traits: [...configuration.traits].sort(),
           propertyAssignments: propertyAssignments(configuration),
+          properties: configuration.defaultProperties.map((property) =>
+            compileOwnerContract(property, true),
+          ),
           displayName: data.displayName,
-          properties: [],
-          features: data.features.map(compileFeature),
+          features: data.features.map((feature) => compileFeature(feature, 'default')),
           inventories: compileInventories(data.inventories),
           presentation: {
             sprite: assetRef(data.presentation.sprite),

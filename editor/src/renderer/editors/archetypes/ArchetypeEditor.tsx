@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { PropertyManager } from '@/components/properties/PropertyManager';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
@@ -10,8 +11,30 @@ import {
   gameplayInstanceKindValues,
   parseArchetypeData,
   resolveArchetypeConfiguration,
+  type InheritableConfiguration,
 } from '../../../shared/project-schema/authoring-archetypes';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+
+function sameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function mergeDefaultProperties(
+  inherited: InheritableConfiguration['defaultProperties'],
+  local: InheritableConfiguration['defaultProperties'],
+) {
+  const result = new Map(inherited.map((property) => [property.id, structuredClone(property)]));
+  for (const property of local) {
+    const previous = result.get(property.id);
+    result.set(property.id, {
+      ...structuredClone(property),
+      ...(property.defaultValue === undefined && previous?.defaultValue !== undefined
+        ? { defaultValue: previous.defaultValue }
+        : {}),
+    });
+  }
+  return [...result.values()];
+}
 
 export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
@@ -21,6 +44,17 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
   const data = parseArchetypeData(record?.data);
   const effective =
     project && archetypeId && data ? resolveArchetypeConfiguration(project, archetypeId) : null;
+  const baseConfiguration =
+    project && data?.base ? resolveArchetypeConfiguration(project, data.base.$ref.id) : null;
+  const localDefaultProperties = useMemo(() => {
+    if (!effective) return [];
+    const inherited = new Map(
+      (baseConfiguration?.defaultProperties ?? []).map((property) => [property.id, property]),
+    );
+    return effective.defaultProperties.filter(
+      (property) => !inherited.has(property.id) || !sameJson(inherited.get(property.id), property),
+    );
+  }, [baseConfiguration, effective]);
   const [source, setSource] = useState('');
   const [parseError, setParseError] = useState<string | null>(null);
   const effectiveSource = useMemo(
@@ -119,6 +153,43 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
             </Select>
           </div>
         </div>
+
+        {effective ? (
+          <PropertyManager
+            mode="default"
+            ownerLabel={`Archetype '${record.label}'`}
+            ownerKind={data.instanceKind}
+            traits={project.traits}
+            attachedTraits={effective.traits}
+            inheritedTraits={baseConfiguration?.traits ?? []}
+            properties={localDefaultProperties}
+            inheritedProperties={(baseConfiguration?.defaultProperties ?? []).map((property) => ({
+              property,
+              sourceLabel: data.base
+                ? (project.archetypes[data.base.$ref.id]?.label ?? 'Base Archetype')
+                : 'Base Archetype',
+            }))}
+            onChange={(state) => {
+              const configuration: InheritableConfiguration = {
+                ...effective,
+                traits: state.traits,
+                defaultProperties: mergeDefaultProperties(
+                  baseConfiguration?.defaultProperties ?? [],
+                  state.properties,
+                ),
+              };
+              const result = execute(
+                'archetype.replaceConfiguration',
+                'Update Archetype Properties',
+                { archetypeId, configuration },
+              );
+              if (result && 'diagnostics' in result) {
+                const failure = result.diagnostics?.find((item) => item.severity === 'error');
+                if (failure) setParseError(failure.message);
+              }
+            }}
+          />
+        ) : null}
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">

@@ -137,4 +137,124 @@ describe('Interactable Property editors', () => {
       ],
     });
   });
+
+  it('treats an Archetype Property schema as inherited and resets a definition Default override', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const project = createAuthoringProject();
+    project.archetypes.base = {
+      id: 'base',
+      label: 'Base Prop',
+      data: {
+        kind: 'archetype',
+        instanceKind: 'interactable',
+        base: null,
+        overrides: {
+          '/defaultProperties': [
+            {
+              id: 'quality',
+              label: 'Quality',
+              type: 'string',
+              nullable: false,
+              defaultValue: 'base',
+            },
+          ],
+        },
+      },
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      archetype: { $ref: { collection: 'archetypes', id: 'base' } },
+      archetypeOverrides: {},
+      traits: [],
+      properties: {},
+      defaultProperties: [
+        {
+          id: 'quality',
+          label: 'Quality',
+          type: 'string',
+          nullable: false,
+          defaultValue: 'definition',
+        },
+      ],
+      data: defaultInteractableData('Key'),
+    };
+
+    render(
+      <InteractableDefinitionPropertiesEditor
+        project={project}
+        definitionId="key"
+        properties={project.interactables.key.defaultProperties!}
+        attachedTraits={[]}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByText('"definition"')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reset quality' }));
+    expect(onChange).toHaveBeenCalledWith({ properties: [], traits: [] });
+  });
+
+  it('preserves an inherited Archetype Trait when specializing a definition Default', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const project = createAuthoringProject();
+    project.traits.inspectable = {
+      id: 'inspectable',
+      label: 'Inspectable',
+      ownerKinds: ['interactable'],
+      properties: [
+        { id: 'clue', label: 'Clue', type: 'string', nullable: false, defaultValue: 'base' },
+      ],
+    };
+    project.archetypes.base = {
+      id: 'base',
+      label: 'Base Prop',
+      data: {
+        kind: 'archetype',
+        instanceKind: 'interactable',
+        base: null,
+        overrides: { '/traits': ['inspectable'] },
+      },
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      archetype: { $ref: { collection: 'archetypes', id: 'base' } },
+      archetypeOverrides: {},
+      traits: [],
+      properties: {},
+      data: defaultInteractableData('Key'),
+    };
+
+    render(
+      <InteractableDefinitionPropertiesEditor
+        project={project}
+        definitionId="key"
+        properties={[]}
+        attachedTraits={['inspectable']}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Set Default' }));
+    const value = screen.getByDisplayValue('base');
+    await user.clear(value);
+    await user.type(value, 'specific');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      traits: ['inspectable'],
+      properties: [
+        {
+          id: 'clue',
+          label: 'Clue',
+          type: 'string',
+          nullable: false,
+          defaultValue: 'specific',
+        },
+      ],
+    });
+  });
 });

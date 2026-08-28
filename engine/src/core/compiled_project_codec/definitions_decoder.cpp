@@ -104,23 +104,41 @@ decode_inventories(Decoder& decoder, const nlohmann::json& value, std::string_vi
     return inventories;
 }
 
+std::optional<std::vector<TraitProperty>>
+decode_owner_contracts(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    return decoder.array<TraitProperty>(
+        value, pointer,
+        [&](const nlohmann::json& property,
+            const std::string& item_pointer) -> std::optional<TraitProperty> {
+            return decode_owner_property_contract(decoder, property, item_pointer);
+        });
+}
+
 std::optional<FeatureDefinition> decode_feature(Decoder& decoder, const nlohmann::json& value,
                                                 std::string_view pointer)
 {
-    if (!decoder.object(value, pointer,
-                        {"id", "inventories", "label", "propertyAssignments", "traits"}))
+    if (!decoder.object(
+            value, pointer,
+            {"id", "inventories", "label", "properties", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<FeatureId>(decoder, value, pointer);
     const auto* label_value = decoder.member(value, "label", pointer);
+    const auto* properties_value = decoder.member(value, "properties", pointer);
     const auto* inventories_value = decoder.member(value, "inventories", pointer);
     auto label =
         label_value ? decoder.string(*label_value, pointer_child(pointer, "label")) : std::nullopt;
+    auto properties = properties_value
+                          ? decode_owner_contracts(decoder, *properties_value,
+                                                   pointer_child(pointer, "properties"))
+                          : std::nullopt;
     auto inventories = inventories_value ? decode_inventories(decoder, *inventories_value,
                                                               pointer_child(pointer, "inventories"))
                                          : std::nullopt;
-    if (!identity || !label || !inventories)
+    if (!identity || !label || !properties || !inventories)
         return std::nullopt;
-    return FeatureDefinition{std::move(*identity), std::move(*label), std::move(*inventories)};
+    return FeatureDefinition{std::move(*identity), std::move(*label), std::move(*properties),
+                             std::move(*inventories)};
 }
 
 std::optional<RoomHotspotTarget>
@@ -295,10 +313,11 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
     if (!decoder.object(value, pointer,
                         {"appearances", "defaults", "dialogue", "displayName", "expressions",
                          "gestures", "id", "idles", "initialWorldState", "inventories", "profiles",
-                         "propertyAssignments", "traits"}))
+                         "properties", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<CharacterId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
+    const auto* properties_value = decoder.member(value, "properties", pointer);
     const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
     const auto* defaults_value = decoder.member(value, "defaults", pointer);
     const auto* profiles_value = decoder.member(value, "profiles", pointer);
@@ -311,6 +330,10 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
+    auto properties = properties_value
+                          ? decode_owner_contracts(decoder, *properties_value,
+                                                   pointer_child(pointer, "properties"))
+                          : std::nullopt;
     std::optional<CharacterDialoguePresentation> dialogue;
     if (dialogue_value && decoder.object(*dialogue_value, pointer_child(pointer, "dialogue"),
                                          {"name", "nameColor", "styleClass", "textColor"})) {
@@ -1354,27 +1377,30 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         if (enabled && visible && location)
             initial_world = CharacterInitialWorldState{std::move(*location), *enabled, *visible};
     }
-    if (!identity || !display || !dialogue || !defaults || !profiles || !expressions ||
-        !appearances || !gestures || !idles || !inventories || !initial_world)
+    if (!identity || !display || !properties || !dialogue || !defaults || !profiles ||
+        !expressions || !appearances || !gestures || !idles || !inventories || !initial_world)
         return std::nullopt;
     return CharacterDefinition{
-        std::move(*identity),    std::move(*display),      std::move(*dialogue),
-        std::move(*defaults),    std::move(*profiles),     std::move(*expressions),
-        std::move(*appearances), std::move(*gestures),     std::move(*idles),
-        std::move(*inventories), std::move(*initial_world)};
+        std::move(*identity),    std::move(*display),     std::move(*properties),
+        std::move(*dialogue),    std::move(*defaults),    std::move(*profiles),
+        std::move(*expressions), std::move(*appearances), std::move(*gestures),
+        std::move(*idles),       std::move(*inventories), std::move(*initial_world)};
 }
 
 std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json& value,
                                           std::string_view pointer)
 {
-    if (!decoder.object(value, pointer,
-                        {"anchors", "background", "cast", "description", "displayName",
-                         "environments", "exits", "features", "hotspots", "id", "interactables",
-                         "lifecycle", "overlays", "placements", "presentationSpace", "props",
-                         "propertyAssignments", "scriptHooks", "traits"}))
+    if (!decoder.object(value, pointer, {"anchors",     "background",    "cast",
+                                         "description", "displayName",   "environments",
+                                         "exits",       "features",      "hotspots",
+                                         "id",          "interactables", "lifecycle",
+                                         "overlays",    "placements",    "presentationSpace",
+                                         "props",       "properties",    "propertyAssignments",
+                                         "scriptHooks", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<RoomId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
+    const auto* properties_value = decoder.member(value, "properties", pointer);
     const auto* description_value = decoder.member(value, "description", pointer);
     const auto* background_value = decoder.member(value, "background", pointer);
     const auto* presentation_space_value = decoder.member(value, "presentationSpace", pointer);
@@ -1393,6 +1419,10 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
+    auto properties = properties_value
+                          ? decode_owner_contracts(decoder, *properties_value,
+                                                   pointer_child(pointer, "properties"))
+                          : std::nullopt;
     auto description = description_value ? decode_text(decoder, *description_value,
                                                        pointer_child(pointer, "description"))
                                          : std::nullopt;
@@ -2198,27 +2228,18 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               [](const RoomEnvironment& environment) -> const RoomEnvironmentId& {
                                   return environment.id;
                               });
-    if (!identity || !display || !description || !background || !presentation_space || !anchors ||
-        !lifecycle || !overlays || !placements || !exits || !features || !hotspots || !cast ||
-        !interactables || !props || !environments || !script_hooks)
+    if (!identity || !display || !properties || !description || !background ||
+        !presentation_space || !anchors || !lifecycle || !overlays || !placements || !exits ||
+        !features || !hotspots || !cast || !interactables || !props || !environments ||
+        !script_hooks)
         return std::nullopt;
-    return RoomDefinition{std::move(*identity),
-                          std::move(*display),
-                          std::move(*description),
-                          std::move(*background),
-                          std::move(*presentation_space),
-                          std::move(*anchors),
-                          std::move(*lifecycle),
-                          std::move(*overlays),
-                          std::move(*cast),
-                          std::move(*interactables),
-                          std::move(*props),
-                          std::move(*environments),
-                          std::move(*script_hooks),
-                          std::move(*placements),
-                          std::move(*exits),
-                          std::move(*features),
-                          std::move(*hotspots)};
+    return RoomDefinition{
+        std::move(*identity),     std::move(*display),       std::move(*properties),
+        std::move(*description),  std::move(*background),    std::move(*presentation_space),
+        std::move(*anchors),      std::move(*lifecycle),     std::move(*overlays),
+        std::move(*cast),         std::move(*interactables), std::move(*props),
+        std::move(*environments), std::move(*script_hooks),  std::move(*placements),
+        std::move(*exits),        std::move(*features),      std::move(*hotspots)};
 }
 
 std::optional<InteractableDefinition>

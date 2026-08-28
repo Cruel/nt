@@ -148,10 +148,17 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // reusable immutable configuration and no longer own initial state.
   [/^\/interactableInstances\//, OWNER],
   [/^\/interactables\/\*\/data\/features\//, OWNER],
+  // #139 makes Feature Property declarations owner-local. Interactable-definition Features
+  // contribute reusable schemas/Defaults; Room Features contribute concrete local Values.
+  [
+    /^\/interactables\/\*\/data\/features\/\*\/(?:defaultProperties|localProperties)(?:\/|$)/,
+    OWNER,
+  ],
   [/^\/interactables\/\*\/data\/presentation\/hotspots\//, OWNER],
   [/\/feature\//, OWNER],
   [/\/featureId$/, OWNER],
   [/^\/rooms\/\*\/data\/features\//, OWNER],
+  [/^\/rooms\/\*\/data\/features\/\*\/(?:defaultProperties|localProperties)(?:\/|$)/, OWNER],
   [/^\/rooms\/\*\/data\/hotspots\//, OWNER],
   // #74 adds direct Room Hook Registry mappings at the preserved authoring schema version.
   // Hook kind, stable module reference, and named export all contribute runtime dependencies.
@@ -759,7 +766,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
     interactableInstances: '5d0db294',
-    interactables: 'bade3ffa',
+    interactables: '72d72715',
     interactions: 'dfffc1a2',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
@@ -768,7 +775,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: '94956116',
+    rooms: '2e978981',
     scenes: 'bc35a007',
     schema: '63fb9bb9',
     scripts: 'f3482815',

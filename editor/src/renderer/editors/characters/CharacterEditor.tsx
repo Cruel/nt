@@ -21,7 +21,10 @@ import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
+import {
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from '../../../shared/project-schema/authoring-archetypes';
 import {
   characterAssetRef,
   characterIdleKindValues,
@@ -154,6 +157,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const record = characterId && project ? project.characters[characterId] : null;
   const effectiveRecord =
     project && record ? resolveGameplayInstanceRecord(project, 'character', record) : record;
+  const inheritedPropertyConfiguration =
+    project && record?.archetype
+      ? resolveArchetypeConfiguration(project, record.archetype.$ref.id)
+      : null;
   const parsedData = parseCharacterData(effectiveRecord?.data);
   const data = parsedData ?? defaultCharacterData(record?.label ?? characterId ?? 'Character');
   const diagnostics = useMemo(
@@ -958,7 +965,16 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           onChange={commitLocalProperties}
           traits={activeProject.traits}
           ownerKind="character"
-          attachedTraits={activeRecord.traits ?? []}
+          attachedTraits={effectiveRecord?.traits ?? activeRecord.traits ?? []}
+          inheritedTraits={inheritedPropertyConfiguration?.traits ?? []}
+          inheritedProperties={(inheritedPropertyConfiguration?.defaultProperties ?? []).map(
+            (property) => ({
+              property,
+              sourceLabel: activeRecord.archetype
+                ? (activeProject.archetypes[activeRecord.archetype.$ref.id]?.label ?? 'Archetype')
+                : 'Archetype',
+            }),
+          )}
           propertyOverrides={activeRecord.properties ?? {}}
           traitColorFor={(traitId) =>
             activeProject.editor.recordMetadata.traits?.[traitId]?.color ?? null
