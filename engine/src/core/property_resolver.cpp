@@ -112,6 +112,16 @@ resolve_identity(const CompiledProject& project, const SessionState& state,
     if (assignment != definition.identity.property_assignments.end())
         return Result<PropertyLookupResult, Diagnostics>::success(assignment->value());
 
+    if constexpr (requires { definition.properties; }) {
+        const auto configured = std::find_if(
+            definition.properties.begin(), definition.properties.end(), [&](const auto& member) {
+                return member.property_id == property && member.configured_value.has_value();
+            });
+        if (configured != definition.properties.end())
+            return Result<PropertyLookupResult, Diagnostics>::success(
+                *configured->configured_value);
+    }
+
     for (const auto& trait_id : definition.identity.traits) {
         const auto* trait = project.find_trait(trait_id);
         if (trait == nullptr)
@@ -204,16 +214,59 @@ PropertyResolver::validate_global(const PropertyId& property) const
     return Result<const PropertyDefinition*, Diagnostics>::success(declaration);
 }
 
-Result<const PropertyDefinition*, Diagnostics>
+Result<PropertyDefinition, Diagnostics>
 PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const PropertyId& property) const
 {
     const auto* declaration = m_project.find_property(owner, property);
-    if (declaration == nullptr)
-        return Result<const PropertyDefinition*, Diagnostics>::failure(
+    if (declaration == nullptr) {
+        if (const auto* interactable = std::get_if<InteractableInstanceId>(&owner)) {
+            const auto* definition = find_interactable(m_state, *interactable);
+            if (definition != nullptr) {
+                const compiled::OwnerPropertyContract* contract = nullptr;
+                const auto own =
+                    std::find_if(definition->properties.begin(), definition->properties.end(),
+                                 [&](const auto& value) { return value.property_id == property; });
+                if (own != definition->properties.end())
+                    contract = &*own;
+                if (contract == nullptr) {
+                    for (const auto& trait_id : definition->identity.traits) {
+                        const auto* trait = m_project.find_trait(trait_id);
+                        if (trait == nullptr)
+                            continue;
+                        const auto member = std::find_if(
+                            trait->properties.begin(), trait->properties.end(),
+                            [&](const auto& value) { return value.property_id == property; });
+                        if (member != trait->properties.end()) {
+                            contract = &*member;
+                            break;
+                        }
+                    }
+                }
+                if (contract != nullptr) {
+                    auto realized = make_property_definition(PropertyDefinitionInput{
+                        .id = contract->property_id,
+                        .value_type = contract->value_type,
+                        .nullable = contract->nullable,
+                        .default_value = contract->configured_value,
+                        .scope = PropertyScope::Identity,
+                        .allowed_owners = {PropertyOwnerKind::Interactable},
+                        .exact_owner = std::nullopt,
+                        .label = contract->label,
+                        .description = contract->description,
+                    });
+                    if (realized)
+                        return Result<PropertyDefinition, Diagnostics>::success(
+                            std::move(*realized.value_if()));
+                    return Result<PropertyDefinition, Diagnostics>::failure(realized.error());
+                }
+            }
+        }
+        return Result<PropertyDefinition, Diagnostics>::failure(
             property_error("runtime.unknown_property", owner, property, "is not declared"));
+    }
 
     if (declaration->is_global())
-        return Result<const PropertyDefinition*, Diagnostics>::failure(
+        return Result<PropertyDefinition, Diagnostics>::failure(
             property_error("runtime.property_scope_mismatch", owner, property,
                            "is Global and cannot be read through an identity"));
 
@@ -223,16 +276,16 @@ PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const Propert
             : std::binary_search(declaration->allowed_owners().begin(),
                                  declaration->allowed_owners().end(), property_owner_kind(owner));
     if (!owner_allowed)
-        return Result<const PropertyDefinition*, Diagnostics>::failure(
+        return Result<PropertyDefinition, Diagnostics>::failure(
             property_error("runtime.property_owner_not_allowed", owner, property,
                            "is not allowed on that owner kind"));
 
     if (!owner_exists(owner))
-        return Result<const PropertyDefinition*, Diagnostics>::failure(
+        return Result<PropertyDefinition, Diagnostics>::failure(
             property_error("runtime.unknown_property_owner", owner, property,
                            "does not identify a compiled definition"));
 
-    return Result<const PropertyDefinition*, Diagnostics>::success(declaration);
+    return Result<PropertyDefinition, Diagnostics>::success(*declaration);
 }
 
 bool PropertyResolver::owner_exists(const PropertyOwnerRef& owner) const noexcept
@@ -310,11 +363,10 @@ Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOw
     const auto validated = validate_identity(owner, property);
     if (!validated)
         return Result<PropertyLookupResult, Diagnostics>::failure(validated.error());
-    const auto* declaration_value = validated.value_if();
-    if (declaration_value == nullptr)
+    const auto* declaration = validated.value_if();
+    if (declaration == nullptr)
         return Result<PropertyLookupResult, Diagnostics>::failure(property_error(
             "runtime.invalid_property_state", owner, property, "lost its validated declaration"));
-    const auto* declaration = *declaration_value;
 
     return std::visit(
         [this, &property,
@@ -354,7 +406,7 @@ Result<void, Diagnostics> PropertyResolver::set(PropertyOwnerRef owner, const Pr
     if (declaration == nullptr)
         return Result<void, Diagnostics>::failure(property_error(
             "runtime.invalid_property_state", owner, property, "lost its validated declaration"));
-    auto override = make_property_override(property_target(owner), **declaration, std::move(value));
+    auto override = make_property_override(property_target(owner), *declaration, std::move(value));
     if (!override)
         return Result<void, Diagnostics>::failure(override.error());
     auto* override_value = override.value_if();

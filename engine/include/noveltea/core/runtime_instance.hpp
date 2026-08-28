@@ -101,6 +101,38 @@ using RuntimeInteractableConfiguration =
     std::ranges::sort(traits, {}, [](const auto& id) { return id.text(); });
 
     auto& assignments = effective.identity.property_assignments;
+    for (const auto& local : declaration.local_properties) {
+        const auto contract = std::find_if(
+            effective.properties.begin(), effective.properties.end(),
+            [&](const auto& value) { return value.property_id == local.contract.property_id; });
+        if (contract == effective.properties.end())
+            effective.properties.push_back(local.contract);
+        const auto assignment =
+            std::find_if(assignments.begin(), assignments.end(), [&](const auto& value) {
+                return value.property_id() == local.contract.property_id;
+            });
+        auto local_value = make_property_definition(PropertyDefinitionInput{
+            .id = local.contract.property_id,
+            .value_type = local.contract.value_type,
+            .nullable = local.contract.nullable,
+            .default_value = std::nullopt,
+            .scope = PropertyScope::Identity,
+            .allowed_owners = {PropertyOwnerKind::Interactable},
+            .exact_owner = std::nullopt,
+            .label = local.contract.label,
+            .description = local.contract.description,
+        });
+        if (!local_value)
+            continue;
+        auto value = make_property_assignment(PropertyOwnerKind::Interactable,
+                                              *local_value.value_if(), local.value);
+        if (!value)
+            continue;
+        if (assignment == assignments.end())
+            assignments.push_back(*value.value_if());
+        else
+            *assignment = *value.value_if();
+    }
     for (const auto& override : declaration.property_overrides) {
         const auto found =
             std::find_if(assignments.begin(), assignments.end(), [&](const auto& value) {

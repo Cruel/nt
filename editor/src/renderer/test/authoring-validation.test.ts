@@ -10,12 +10,133 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { effectiveInteractableInstanceProperties } from '../../shared/project-schema/authoring-interactable-properties';
 import {
   authoringValidationSucceeded,
   validateAuthoringProject,
 } from '../../shared/project-schema/authoring-validation';
 
 describe('authoring V2 validation', () => {
+  it('allows incomplete reusable Interactable Property contracts but requires concrete Instance Values', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      defaultProperties: [
+        { id: 'quality', type: 'string', nullable: false },
+        { id: 'weight', type: 'number', nullable: false, defaultValue: 1.5 },
+      ],
+      data: defaultInteractableData('Key'),
+    };
+
+    expect(validateAuthoringProject(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'authoring.interactable.missing_property_value' }),
+    );
+
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key');
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.interactable.missing_property_value',
+        path: '/interactableInstances/key/properties',
+        message: expect.stringContaining("requires Property 'quality'"),
+      }),
+    );
+
+    project.interactableInstances.key.properties.quality = 'polished';
+    expect(validateAuthoringProject(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'authoring.interactable.missing_property_value' }),
+    );
+  });
+
+  it('resolves exact Interactable Instance Properties by specificity and preserves local order', () => {
+    const project = createAuthoringProject();
+    project.traits.inspectable = {
+      id: 'inspectable',
+      label: 'Inspectable',
+      ownerKinds: ['interactable'],
+      properties: [
+        {
+          id: 'quality',
+          type: 'string',
+          nullable: false,
+          defaultValue: 'trait',
+        },
+      ],
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      traits: ['inspectable'],
+      defaultProperties: [
+        {
+          id: 'quality',
+          type: 'string',
+          nullable: false,
+          defaultValue: 'definition',
+        },
+      ],
+      data: defaultInteractableData('Key'),
+    };
+    const instance = defaultInteractableInstanceData('key', 'key');
+    instance.properties.quality = 'instance';
+    instance.localProperties.push(
+      { id: 'first-local', type: 'boolean', nullable: false, value: true },
+      { id: 'second-local', type: 'integer', nullable: false, value: 2 },
+    );
+
+    expect(effectiveInteractableInstanceProperties(project, instance)).toMatchObject([
+      { id: 'quality', defaultValue: 'definition', value: 'instance', localOnly: false },
+      { id: 'first-local', value: true, localOnly: true },
+      { id: 'second-local', value: 2, localOnly: true },
+    ]);
+
+    delete instance.properties.quality;
+    expect(effectiveInteractableInstanceProperties(project, instance)[0]).toMatchObject({
+      id: 'quality',
+      value: 'definition',
+    });
+
+    project.interactables.key.defaultProperties![0] = {
+      id: 'quality',
+      type: 'string',
+      nullable: false,
+    };
+    expect(effectiveInteractableInstanceProperties(project, instance)[0]).toMatchObject({
+      id: 'quality',
+      value: 'trait',
+    });
+  });
+
+  it('removes Trait-only Property contributions when an exact Interactable Instance removes the Trait', () => {
+    const project = createAuthoringProject();
+    project.traits.inspectable = {
+      id: 'inspectable',
+      label: 'Inspectable',
+      ownerKinds: ['interactable'],
+      properties: [
+        {
+          id: 'examined',
+          type: 'boolean',
+          nullable: false,
+          defaultValue: false,
+        },
+      ],
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      traits: ['inspectable'],
+      data: defaultInteractableData('Key'),
+    };
+    const instance = defaultInteractableInstanceData('key', 'key');
+    expect(effectiveInteractableInstanceProperties(project, instance).map((row) => row.id)).toEqual(
+      ['examined'],
+    );
+
+    instance.traits.remove.push('inspectable');
+    expect(effectiveInteractableInstanceProperties(project, instance)).toEqual([]);
+  });
+
   it('allows an empty new project with entrypoint guidance only', () => {
     const diagnostics = validateAuthoringProject(createAuthoringProject());
     expect(authoringValidationSucceeded(diagnostics)).toBe(true);

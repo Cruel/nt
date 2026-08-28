@@ -27,7 +27,8 @@ void append(Diagnostics& destination, const Diagnostics& source, std::string_vie
 
 template<class Id> std::optional<PropertyOwnerRef> exact_owner_for_id(const Id& id)
 {
-    if constexpr (std::is_same_v<Id, RoomId> || std::is_same_v<Id, CharacterId>)
+    if constexpr (std::is_same_v<Id, RoomId> || std::is_same_v<Id, CharacterId> ||
+                  std::is_same_v<Id, InteractableInstanceId>)
         return PropertyOwnerRef{id};
     else
         return std::nullopt;
@@ -188,6 +189,38 @@ link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOw
                                                    std::move(assignments)};
 }
 
+std::optional<std::vector<compiled::OwnerPropertyContract>>
+link_owner_property_contracts(std::vector<compiled::wire::OwnerPropertyContract> contracts,
+                              PropertyOwnerKind owner, Diagnostics& diagnostics,
+                              std::string_view source_path, const std::string& path)
+{
+    const auto before = diagnostics.size();
+    std::vector<compiled::OwnerPropertyContract> result;
+    result.reserve(contracts.size());
+    for (std::size_t index = 0; index < contracts.size(); ++index) {
+        auto& contract = contracts[index];
+        auto validated = make_property_definition(PropertyDefinitionInput{
+            .id = contract.property_id,
+            .value_type = contract.value_type,
+            .nullable = contract.nullable,
+            .default_value = contract.configured_value,
+            .scope = PropertyScope::Identity,
+            .allowed_owners = {owner},
+            .label = contract.label,
+            .description = contract.description,
+        });
+        if (!validated) {
+            append(diagnostics, validated.error(), source_path, path + "/" + std::to_string(index));
+            continue;
+        }
+        result.push_back(compiled::OwnerPropertyContract{
+            std::move(contract.property_id), std::move(contract.value_type), contract.nullable,
+            std::move(contract.enum_values), std::move(contract.configured_value),
+            std::move(contract.label), std::move(contract.description)});
+    }
+    return diagnostics.size() == before ? std::optional{std::move(result)} : std::nullopt;
+}
+
 Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                           std::string source_path)
 {
@@ -341,14 +374,24 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             link_features(std::move(value.features),
                           "/definitions/rooms/" + std::to_string(index) + "/features"),
             std::move(value.hotspots)}));
-    LINK_PROPERTY_DEFINITIONS(
-        interactables, interactables, InteractableDefinition, PropertyOwnerKind::Interactable,
-        "/definitions/interactables",
-        (compiled::InteractableDefinition{
-            std::move(*identity), std::move(value.display_name),
-            link_features(std::move(value.features),
-                          "/definitions/interactables/" + std::to_string(index) + "/features"),
-            std::move(value.inventories), std::move(value.presentation)}));
+    std::vector<compiled::InteractableDefinition> interactables;
+    interactables.reserve(wire.interactables.size());
+    for (std::size_t index = 0; index < wire.interactables.size(); ++index) {
+        auto& value = wire.interactables[index];
+        const auto path = "/definitions/interactables/" + std::to_string(index);
+        auto identity =
+            link_identity(std::move(value.identity), PropertyOwnerKind::Interactable, properties,
+                          property_index, trait_index, diagnostics, source_path, path);
+        auto property_contracts = link_owner_property_contracts(
+            std::move(value.properties), PropertyOwnerKind::Interactable, diagnostics, source_path,
+            path + "/properties");
+        if (!identity || !property_contracts)
+            continue;
+        interactables.push_back(compiled::InteractableDefinition{
+            std::move(*identity), std::move(value.display_name), std::move(*property_contracts),
+            link_features(std::move(value.features), path + "/features"),
+            std::move(value.inventories), std::move(value.presentation)});
+    }
 
     std::vector<compiled::InteractableInstanceDeclaration> interactable_instances;
     interactable_instances.reserve(wire.interactable_instances.size());
@@ -359,10 +402,11 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         for (std::size_t assignment_index = 0; assignment_index < value.property_overrides.size();
              ++assignment_index) {
             auto& assignment = value.property_overrides[assignment_index];
-            const auto found = property_index.find(assignment.property_id);
+            const auto* definition = find_property_for_identity(properties, property_index,
+                                                                value.id, assignment.property_id);
             const auto path = "/interactableInstances/" + std::to_string(index) +
                               "/propertyOverrides/" + std::to_string(assignment_index);
-            if (found == property_index.end()) {
+            if (definition == nullptr) {
                 diagnostics.push_back(Diagnostic{.code = "compiled_project.unresolved_reference",
                                                  .message = "Unresolved property reference '" +
                                                             assignment.property_id.text() + "'.",
@@ -371,7 +415,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                                  .json_pointer = path + "/propertyId"});
                 continue;
             }
-            auto linked = make_property_assignment(PropertyOwnerKind::Interactable, *found->second,
+            auto linked = make_property_assignment(PropertyOwnerKind::Interactable, *definition,
                                                    std::move(assignment.value));
             if (!linked) {
                 append(diagnostics, linked.error(), source_path, path);
@@ -384,10 +428,47 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         }
         if (property_overrides.size() != value.property_overrides.size())
             continue;
+        std::vector<compiled::InstanceLocalProperty> local_properties;
+        local_properties.reserve(value.local_properties.size());
+        for (std::size_t property_index_value = 0;
+             property_index_value < value.local_properties.size(); ++property_index_value) {
+            auto& local = value.local_properties[property_index_value];
+            auto exact = make_property_definition(PropertyDefinitionInput{
+                .id = local.contract.property_id,
+                .value_type = local.contract.value_type,
+                .nullable = local.contract.nullable,
+                .default_value = std::nullopt,
+                .scope = PropertyScope::Identity,
+                .allowed_owners = {},
+                .exact_owner = PropertyOwnerRef{value.id},
+                .label = local.contract.label,
+                .description = local.contract.description,
+            });
+            const auto path = "/interactableInstances/" + std::to_string(index) +
+                              "/localProperties/" + std::to_string(property_index_value);
+            if (!exact || !property_value_matches(*exact.value_if(), local.value)) {
+                diagnostics.push_back(
+                    Diagnostic{.code = "compiled_project.invalid_interactable_property",
+                               .message = "Instance-local Property has an invalid typed Value.",
+                               .severity = ErrorSeverity::Error,
+                               .source_path = source_path,
+                               .json_pointer = path});
+                continue;
+            }
+            local_properties.push_back(compiled::InstanceLocalProperty{
+                compiled::OwnerPropertyContract{
+                    std::move(local.contract.property_id), std::move(local.contract.value_type),
+                    local.contract.nullable, std::move(local.contract.enum_values), std::nullopt,
+                    std::move(local.contract.label), std::move(local.contract.description)},
+                std::move(local.value)});
+        }
+        if (local_properties.size() != value.local_properties.size())
+            continue;
         interactable_instances.push_back(compiled::InteractableInstanceDeclaration{
             std::move(value.id), std::move(value.definition), std::move(value.location),
             value.enabled, value.visible, std::move(value.trait_adds),
-            std::move(value.trait_removes), std::move(property_overrides)});
+            std::move(value.trait_removes), std::move(property_overrides),
+            std::move(local_properties)});
     }
 
     std::vector<compiled::ArchetypeDefinition> archetypes;
@@ -443,11 +524,17 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             auto identity = link_identity(
                 std::move(interactable->identity), PropertyOwnerKind::Interactable, properties,
                 property_index, trait_index, diagnostics, source_path, path);
-            if (identity)
+            auto property_contracts = link_owner_property_contracts(
+                std::move(interactable->properties), PropertyOwnerKind::Interactable, diagnostics,
+                source_path, path + "/properties");
+            if (identity && property_contracts)
                 configuration = compiled::InteractableDefinition{
-                    std::move(*identity), std::move(interactable->display_name),
+                    std::move(*identity),
+                    std::move(interactable->display_name),
+                    std::move(*property_contracts),
                     link_features(std::move(interactable->features), path + "/features"),
-                    std::move(interactable->inventories), std::move(interactable->presentation)};
+                    std::move(interactable->inventories),
+                    std::move(interactable->presentation)};
         }
         if (configuration)
             archetypes.push_back(compiled::ArchetypeDefinition{

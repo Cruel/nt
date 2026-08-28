@@ -1255,7 +1255,16 @@ describe('authoring compiler framework', () => {
       label: 'Key',
       data: defaultInteractableData('Key'),
       traits: [],
-      properties: { polished: false },
+      defaultProperties: [
+        {
+          id: 'polished',
+          label: 'Polished',
+          description: 'Instance finish',
+          type: 'boolean',
+          nullable: false,
+          defaultValue: false,
+        },
+      ],
     };
     project.interactableInstances['key-foyer'] = {
       ...defaultInteractableInstanceData('key-foyer', 'key', {
@@ -1270,6 +1279,12 @@ describe('authoring compiler framework', () => {
       'key-spare',
       'key',
     );
+    project.interactableInstances['key-spare'].localProperties.push({
+      id: 'polished',
+      type: 'boolean',
+      nullable: false,
+      value: true,
+    });
 
     const result = compileAuthoringProject(project);
 
@@ -1284,7 +1299,18 @@ describe('authoring compiler framework', () => {
         inventories: [],
         presentation: { sprite: null, material: null, hotspots: { kind: 'none' } },
         traits: [],
-        propertyAssignments: [{ propertyId: 'polished', value: false }],
+        propertyAssignments: [],
+        properties: [
+          {
+            id: 'polished',
+            label: 'Polished',
+            description: 'Instance finish',
+            type: 'boolean',
+            nullable: false,
+            enumValues: [],
+            defaultValue: false,
+          },
+        ],
       },
     ]);
     expect(result.project.interactableInstances).toEqual([
@@ -1297,6 +1323,7 @@ describe('authoring compiler framework', () => {
         traitAdds: ['quest'],
         traitRemoves: [],
         propertyOverrides: [{ propertyId: 'polished', value: true }],
+        localProperties: [],
       },
       {
         id: 'key-spare',
@@ -1306,7 +1333,8 @@ describe('authoring compiler framework', () => {
         location: { kind: 'unplaced' },
         traitAdds: [],
         traitRemoves: [],
-        propertyOverrides: [],
+        propertyOverrides: [{ propertyId: 'polished', value: true }],
+        localProperties: [],
       },
     ]);
   });

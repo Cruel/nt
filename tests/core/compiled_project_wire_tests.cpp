@@ -98,8 +98,8 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:b3be1215908fc51fb32716c57af9380b");
-    CHECK(project.properties.size() == 13);
+    CHECK(project.save_contract == "sc1:253aaf8ca3b6eede2d3756fc139638da");
+    CHECK(project.properties.size() == 14);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
     CHECK(project.scripts.size() == 3);
@@ -949,7 +949,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
         noveltea::core::decode_compiled_project(fixture("comprehensive"), "comprehensive.json");
     REQUIRE(comprehensive);
     const auto& complete = comprehensive.value();
-    CHECK(complete.properties().size() == 13);
+    CHECK(complete.properties().size() == 14);
     CHECK(complete.assets().size() == 9);
     CHECK(complete.layouts().size() == 2);
     CHECK(complete.scripts().size() == 3);

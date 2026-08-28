@@ -2226,16 +2226,26 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
 {
     if (!decoder.object(value, pointer,
                         {"displayName", "features", "id", "inventories", "presentation",
-                         "propertyAssignments", "traits"}))
+                         "properties", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<InteractableDefinitionId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
+    const auto* properties_value = decoder.member(value, "properties", pointer);
     const auto* features_value = decoder.member(value, "features", pointer);
     const auto* inventories_value = decoder.member(value, "inventories", pointer);
     const auto* presentation_value = decoder.member(value, "presentation", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
+    auto properties =
+        properties_value
+            ? decoder.array<TraitProperty>(
+                  *properties_value, pointer_child(pointer, "properties"),
+                  [&](const nlohmann::json& property,
+                      const std::string& item_pointer) -> std::optional<TraitProperty> {
+                      return decode_owner_property_contract(decoder, property, item_pointer);
+                  })
+            : std::nullopt;
     auto features =
         features_value
             ? decoder.array<FeatureDefinition>(
@@ -2372,9 +2382,15 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                               [](const FeatureDefinition& feature) -> const FeatureId& {
                                   return feature.identity.id;
                               });
-    if (!identity || !display || !features || !inventories || !presentation)
+    if (properties)
+        decoder.duplicate_ids(*properties, pointer_child(pointer, "properties"),
+                              [](const TraitProperty& property) -> const PropertyId& {
+                                  return property.property_id;
+                              });
+    if (!identity || !display || !properties || !features || !inventories || !presentation)
         return std::nullopt;
-    return InteractableDefinition{std::move(*identity), std::move(*display), std::move(*features),
+    return InteractableDefinition{std::move(*identity),    std::move(*display),
+                                  std::move(*properties),  std::move(*features),
                                   std::move(*inventories), std::move(*presentation)};
 }
 

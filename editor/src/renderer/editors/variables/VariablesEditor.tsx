@@ -76,6 +76,7 @@ function draftForVariable(
     description: record.description ?? '',
     type: data.type,
     nullable: data.nullable,
+    valuePresent: true,
     valueText: variableValueToText(data.value),
     enumText: data.enumValues?.join(', ') ?? 'default',
   };

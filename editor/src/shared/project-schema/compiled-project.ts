@@ -168,6 +168,19 @@ const compiledEntrypointSchema = z.discriminatedUnion('kind', [
 ]);
 
 const propertyAssignmentSchema = strict({ propertyId: id, value: runtimeValueSchema });
+const ownerPropertyContractSchema = strict({
+  id,
+  label: z.string().min(1),
+  description: z.string(),
+  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
+  nullable: z.boolean(),
+  enumValues: z.array(z.string().min(1)),
+  defaultValue: runtimeValueSchema.optional(),
+});
+const instanceLocalPropertySchema = strict({
+  ...ownerPropertyContractSchema.shape,
+  value: runtimeValueSchema,
+});
 const propertyBearingDefinition = {
   id,
   traits: z.array(id),
@@ -184,6 +197,7 @@ const propertyOwnerKindSchema = z.enum([
 const exactPropertyOwnerSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room'), room: roomReferenceSchema }),
   strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
 ]);
 
 const inventoryDefinitionSchema = strict({ id, label: z.string().min(1) });
@@ -625,6 +639,7 @@ const interactableLocationSchema = z.discriminatedUnion('kind', [
 const interactableDefinitionSchema = strict({
   ...propertyBearingDefinition,
   displayName: z.string(),
+  properties: z.array(ownerPropertyContractSchema),
   features: z.array(featureDefinitionSchema),
   inventories: z.array(inventoryDefinitionSchema),
   presentation: strict({
@@ -658,6 +673,7 @@ const interactableInstanceDeclarationSchema = strict({
   traitAdds: z.array(id),
   traitRemoves: z.array(id),
   propertyOverrides: z.array(propertyAssignmentSchema),
+  localProperties: z.array(instanceLocalPropertySchema),
 });
 
 const archetypeDefinitionSchema = z.discriminatedUnion('instanceKind', [
@@ -1786,7 +1802,9 @@ export const compiledProjectWireSchema = strict({
         ? `registry:${property.id}`
         : property.owner.kind === 'room'
           ? `room:${property.owner.room.id}:${property.id}`
-          : `character:${property.owner.character.id}:${property.id}`;
+          : property.owner.kind === 'character'
+            ? `character:${property.owner.character.id}:${property.id}`
+            : `interactable:${property.owner.interactable.id}:${property.id}`;
     if (propertyIdentities.has(identity))
       context.addIssue({
         code: 'custom',

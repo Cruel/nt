@@ -164,11 +164,69 @@ resolved_interactable(const CompiledProject& project, const SaveState& save,
                       const InteractableInstanceId& id)
 {
     const auto* record = saved_interactable(save, id);
-    return record == nullptr
-               ? std::nullopt
-               : materialize_interactable_source(
-                     project, record->structural_override_source.value_or(record->birth_source),
-                     id);
+    if (record == nullptr)
+        return std::nullopt;
+    auto configuration = materialize_interactable_source(
+        project, record->structural_override_source.value_or(record->birth_source), id);
+    if (!configuration)
+        return std::nullopt;
+    if (record->declared && !record->structural_override_source) {
+        const auto* declaration = project.find_interactable_instance(id);
+        if (declaration == nullptr)
+            return std::nullopt;
+        *configuration = realize_declared_interactable_configuration(*configuration, *declaration);
+    }
+    return configuration;
+}
+
+std::optional<PropertyDefinition> resolved_property_definition(const CompiledProject& project,
+                                                               const SaveState& save,
+                                                               const PropertyOwnerRef& owner,
+                                                               const PropertyId& property)
+{
+    if (const auto* declaration = project.find_property(owner, property))
+        return *declaration;
+    const auto* interactable = std::get_if<InteractableInstanceId>(&owner);
+    if (interactable == nullptr)
+        return std::nullopt;
+    auto configuration = resolved_interactable(project, save, *interactable);
+    if (!configuration)
+        return std::nullopt;
+
+    const compiled::OwnerPropertyContract* contract = nullptr;
+    const auto own = std::ranges::find_if(configuration->properties, [&](const auto& candidate) {
+        return candidate.property_id == property;
+    });
+    if (own != configuration->properties.end())
+        contract = &*own;
+    if (contract == nullptr) {
+        for (const auto& trait_id : configuration->identity.traits) {
+            const auto* trait = project.find_trait(trait_id);
+            if (trait == nullptr)
+                continue;
+            const auto member = std::ranges::find_if(trait->properties, [&](const auto& candidate) {
+                return candidate.property_id == property;
+            });
+            if (member != trait->properties.end()) {
+                contract = &*member;
+                break;
+            }
+        }
+    }
+    if (contract == nullptr)
+        return std::nullopt;
+    auto declaration = make_property_definition(PropertyDefinitionInput{
+        .id = contract->property_id,
+        .value_type = contract->value_type,
+        .nullable = contract->nullable,
+        .default_value = contract->configured_value,
+        .scope = PropertyScope::Identity,
+        .allowed_owners = {PropertyOwnerKind::Interactable},
+        .exact_owner = std::nullopt,
+        .label = contract->label,
+        .description = contract->description,
+    });
+    return declaration ? std::optional<PropertyDefinition>{*declaration.value_if()} : std::nullopt;
 }
 
 bool feature_exists(const CompiledProject& project, const SaveState& save,
@@ -1523,8 +1581,11 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         const auto key = std::to_string(item.target.index()) + ":" + target_text(item.target) +
                          ":" + item.property.text();
         const auto owner = property_target_owner(item.target);
-        const auto* definition = owner ? project.find_property(*owner, item.property)
-                                       : project.find_property(item.property);
+        const auto definition =
+            owner ? resolved_property_definition(project, save, *owner, item.property)
+            : project.find_property(item.property)
+                ? std::optional<PropertyDefinition>{*project.find_property(item.property)}
+                : std::nullopt;
         if (!overrides.insert(key).second)
             error("save_codec.duplicate_record", "Property override appears more than once.");
         if (!target_exists(project, save, item.target) || !definition ||

@@ -27,6 +27,11 @@ struct TraitProperty {
     std::string label;
     std::string description;
 };
+using OwnerPropertyContract = TraitProperty;
+struct InstanceLocalProperty {
+    OwnerPropertyContract contract;
+    RuntimeValue value;
+};
 struct TraitDeclaration {
     TraitId id;
     std::string label;
@@ -105,6 +110,7 @@ struct RoomDefinition {
 struct InteractableDefinition {
     PropertyBearingDefinition<InteractableDefinitionId> identity;
     std::string display_name;
+    std::vector<OwnerPropertyContract> properties;
     std::vector<FeatureDefinition> features;
     std::vector<InventoryDefinition> inventories;
     InteractablePresentation presentation;
@@ -119,6 +125,7 @@ struct InteractableInstanceDeclaration {
     std::vector<TraitId> trait_adds;
     std::vector<TraitId> trait_removes;
     std::vector<PropertyAssignment> property_overrides;
+    std::vector<InstanceLocalProperty> local_properties;
 };
 
 struct ItemDefinition {

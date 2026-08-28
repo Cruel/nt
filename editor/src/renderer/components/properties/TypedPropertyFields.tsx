@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import {
   propertyValueTypeValues,
   type AuthoredRuntimeValue,
+  type OwnerDefaultProperty,
   type OwnerLocalProperty,
 } from '../../../shared/project-schema/authoring-properties';
 import {
@@ -27,6 +28,7 @@ export interface TypedPropertyDraft {
   description: string;
   type: VariableType;
   nullable: boolean;
+  valuePresent: boolean;
   valueText: string;
   enumText: string;
 }
@@ -38,6 +40,7 @@ export function newTypedPropertyDraft(id = ''): TypedPropertyDraft {
     description: '',
     type: 'boolean',
     nullable: false,
+    valuePresent: true,
     valueText: 'false',
     enumText: 'default',
   };
@@ -50,8 +53,27 @@ export function typedPropertyDraftFromOwnerLocal(property: OwnerLocalProperty): 
     description: property.description ?? '',
     type: property.type,
     nullable: property.nullable,
+    valuePresent: true,
     valueText: variableValueToText(property.value),
     enumText: property.enumValues?.join(', ') ?? 'default',
+  };
+}
+
+export function typedPropertyDraftFromOwnerDefault(
+  property: OwnerDefaultProperty,
+): TypedPropertyDraft {
+  const enumValues = property.enumValues;
+  return {
+    id: property.id,
+    label: property.label ?? '',
+    description: property.description ?? '',
+    type: property.type,
+    nullable: property.nullable,
+    valuePresent: property.defaultValue !== undefined,
+    valueText: variableValueToText(
+      property.defaultValue ?? defaultValueForVariableType(property.type, enumValues),
+    ),
+    enumText: enumValues?.join(', ') ?? 'default',
   };
 }
 
@@ -92,6 +114,36 @@ export function ownerLocalPropertyFromDraft(
   };
 }
 
+export function ownerDefaultPropertyFromDraft(
+  draft: TypedPropertyDraft,
+): { ok: true; property: OwnerDefaultProperty } | { ok: false; message: string } {
+  const id = draft.id.trim();
+  if (!id) return { ok: false, message: 'Property ID is required.' };
+  const enumValues = draft.type === 'enum' ? parseEnumValuesText(draft.enumText) : undefined;
+  if (draft.type === 'enum' && (!enumValues || enumValues.length === 0))
+    return { ok: false, message: 'Enum properties require at least one value.' };
+  if (enumValues && new Set(enumValues).size !== enumValues.length)
+    return { ok: false, message: 'Enum values must be unique.' };
+  let defaultValue: AuthoredRuntimeValue | undefined;
+  if (draft.valuePresent) {
+    const parsed = parseVariableValueText(draft.type, draft.valueText, enumValues, draft.nullable);
+    if (!parsed.ok) return parsed;
+    defaultValue = parsed.value;
+  }
+  return {
+    ok: true,
+    property: {
+      id,
+      ...(draft.label.trim() ? { label: draft.label.trim() } : {}),
+      ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
+      type: draft.type,
+      nullable: draft.nullable,
+      ...(defaultValue === undefined ? {} : { defaultValue }),
+      ...(enumValues ? { enumValues } : {}),
+    },
+  };
+}
+
 function typeLabel(type: VariableType) {
   if (type === 'boolean') return 'Boolean';
   if (type === 'integer') return 'Integer';
@@ -105,12 +157,14 @@ export function TypedPropertyFields({
   onChange,
   idLabel = 'ID',
   valueLabel = 'Value',
+  valueOptional = false,
   descriptionPlaceholder,
 }: {
   draft: TypedPropertyDraft;
   onChange: (draft: TypedPropertyDraft) => void;
   idLabel?: string;
   valueLabel?: string;
+  valueOptional?: boolean;
   descriptionPlaceholder?: string;
 }) {
   const changeType = (type: VariableType) => {
@@ -201,7 +255,17 @@ export function TypedPropertyFields({
         </div>
         <div className="space-y-1.5">
           <Label>{valueLabel}</Label>
-          {draft.nullable ? (
+          {valueOptional ? (
+            <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch
+                checked={draft.valuePresent}
+                onCheckedChange={(valuePresent) => onChange({ ...draft, valuePresent })}
+                aria-label={`Has ${valueLabel}`}
+              />
+              Has {valueLabel}
+            </div>
+          ) : null}
+          {draft.valuePresent && draft.nullable ? (
             <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
               <Switch
                 checked={nullSelected}
@@ -218,7 +282,7 @@ export function TypedPropertyFields({
               Null
             </div>
           ) : null}
-          {!nullSelected ? (
+          {draft.valuePresent && !nullSelected ? (
             draft.type === 'boolean' ? (
               <div className="flex h-8 items-center gap-2">
                 <Switch

@@ -1346,6 +1346,52 @@ private:
             const auto& value = m_input.interactables[index];
             const auto path = item("/definitions/interactables", index);
             validate_assignments(value, PropertyOwnerKind::Interactable, path);
+            std::unordered_set<PropertyId> property_ids;
+            for (std::size_t property_index = 0; property_index < value.properties.size();
+                 ++property_index) {
+                const auto& property = value.properties[property_index];
+                const auto property_path = path + "/properties/" + std::to_string(property_index);
+                if (!property_ids.insert(property.property_id).second)
+                    error("compiled_project.duplicate_property_definition",
+                          "Interactable definition Property contracts must be unique.",
+                          property_path + "/id");
+                auto contract = make_property_definition(PropertyDefinitionInput{
+                    .id = property.property_id,
+                    .value_type = property.value_type,
+                    .nullable = property.nullable,
+                    .default_value = property.configured_value,
+                    .scope = PropertyScope::Identity,
+                    .allowed_owners = {PropertyOwnerKind::Interactable},
+                    .exact_owner = std::nullopt,
+                    .label = property.label,
+                    .description = property.description,
+                });
+                if (!contract)
+                    error("compiled_project.invalid_property_definition",
+                          "Interactable definition Property has an invalid typed contract or "
+                          "Default.",
+                          property_path);
+                for (const auto& trait_id : value.identity.traits) {
+                    const auto* attached = trait(trait_id);
+                    if (attached == nullptr)
+                        continue;
+                    const auto member =
+                        std::ranges::find_if(attached->properties, [&](const auto& candidate) {
+                            return candidate.property_id == property.property_id;
+                        });
+                    if (member == attached->properties.end())
+                        continue;
+                    const bool compatible =
+                        member->value_type.index() == property.value_type.index() &&
+                        member->nullable == property.nullable &&
+                        member->enum_values == property.enum_values;
+                    if (!compatible)
+                        error("compiled_project.invalid_trait_property",
+                              "Interactable definition Property is incompatible with an attached "
+                              "Trait contract for the same key.",
+                              property_path);
+                }
+            }
             validate_features(value, path);
             validate_inventories(value.inventories, path + "/inventories");
             if (value.presentation.sprite)
@@ -1435,6 +1481,7 @@ private:
             const auto path = item("/interactableInstances", index);
             require(m_interactables, value.definition, "interactable definition",
                     path + "/definition");
+            const auto* definition = interactable_definition(value.definition);
             validate_location(value.location, path + "/location");
             std::unordered_set<TraitId> adds;
             std::unordered_set<TraitId> removes;
@@ -1453,6 +1500,13 @@ private:
                              PropertyOwnerKind::Interactable) == declaration->allowed_owners.end())
                     error("compiled_project.invalid_trait_attachment",
                           "Trait cannot be attached to an Interactable Instance.", trait_path);
+                if (definition != nullptr &&
+                    std::ranges::find(definition->identity.traits, trait_id) !=
+                        definition->identity.traits.end())
+                    error("compiled_project.conflicting_trait_delta",
+                          "Interactable Instance Trait add is already inherited from its "
+                          "definition.",
+                          trait_path);
             }
             for (std::size_t trait_index = 0; trait_index < value.trait_removes.size();
                  ++trait_index) {
@@ -1467,7 +1521,72 @@ private:
                           trait_path);
                 if (!trait(trait_id))
                     require(m_traits, trait_id, "Trait", trait_path);
+                if (definition != nullptr &&
+                    std::ranges::find(definition->identity.traits, trait_id) ==
+                        definition->identity.traits.end())
+                    error("compiled_project.conflicting_trait_delta",
+                          "Interactable Instance Trait removal is not inherited from its "
+                          "definition.",
+                          trait_path);
             }
+
+            std::unordered_map<PropertyId, const TraitProperty*> active_trait_properties;
+            std::unordered_map<PropertyId, RuntimeValue> active_trait_defaults;
+            const auto validate_active_trait = [&](const TraitId& trait_id,
+                                                   const std::string& trait_path) {
+                const auto* attached = trait(trait_id);
+                if (attached == nullptr)
+                    return;
+                for (const auto& member : attached->properties) {
+                    const auto [existing, inserted] =
+                        active_trait_properties.emplace(member.property_id, &member);
+                    if (!inserted) {
+                        const auto* previous = existing->second;
+                        const bool compatible =
+                            previous->value_type.index() == member.value_type.index() &&
+                            previous->nullable == member.nullable &&
+                            previous->enum_values == member.enum_values;
+                        if (!compatible)
+                            error("compiled_project.invalid_trait_property",
+                                  "Effective Interactable Instance Traits contribute incompatible "
+                                  "schemas for Property '" +
+                                      member.property_id.text() + "'.",
+                                  trait_path);
+                    }
+                    if (member.configured_value) {
+                        const auto [configured, configured_inserted] =
+                            active_trait_defaults.emplace(member.property_id,
+                                                          *member.configured_value);
+                        if (!configured_inserted && configured->second != *member.configured_value)
+                            error("compiled_project.conflicting_trait_configuration",
+                                  "Effective Interactable Instance Traits configure Property '" +
+                                      member.property_id.text() + "' with conflicting Defaults.",
+                                  trait_path);
+                    }
+                    if (definition == nullptr)
+                        continue;
+                    const auto own =
+                        std::ranges::find_if(definition->properties, [&](const auto& property) {
+                            return property.property_id == member.property_id;
+                        });
+                    if (own != definition->properties.end() &&
+                        (own->value_type.index() != member.value_type.index() ||
+                         own->nullable != member.nullable ||
+                         own->enum_values != member.enum_values))
+                        error("compiled_project.invalid_trait_property",
+                              "Effective Interactable Instance Trait Property is incompatible with "
+                              "the definition contract for the same key.",
+                              trait_path);
+                }
+            };
+            if (definition != nullptr)
+                for (const auto& trait_id : definition->identity.traits)
+                    if (!removes.contains(trait_id))
+                        validate_active_trait(trait_id, path + "/traitRemoves");
+            for (std::size_t trait_index = 0; trait_index < value.trait_adds.size(); ++trait_index)
+                validate_active_trait(value.trait_adds[trait_index],
+                                      path + "/traitAdds/" + std::to_string(trait_index));
+
             std::unordered_set<PropertyId> properties;
             for (std::size_t property_index = 0; property_index < value.property_overrides.size();
                  ++property_index) {
@@ -1478,18 +1597,183 @@ private:
                     error("compiled_project.duplicate_property_assignment",
                           "Interactable Instance Property override is duplicated.",
                           assignment_path + "/propertyId");
-                const auto* declaration = property(assignment.property_id());
+                const auto* declaration =
+                    property(PropertyOwnerRef{value.id}, assignment.property_id());
                 if (!declaration)
                     require(m_properties, assignment.property_id(), "property",
                             assignment_path + "/propertyId");
-                else if (!std::binary_search(declaration->allowed_owners().begin(),
-                                             declaration->allowed_owners().end(),
-                                             PropertyOwnerKind::Interactable) ||
+                else if ((declaration->exact_owner()
+                              ? *declaration->exact_owner() != PropertyOwnerRef{value.id}
+                              : !std::binary_search(declaration->allowed_owners().begin(),
+                                                    declaration->allowed_owners().end(),
+                                                    PropertyOwnerKind::Interactable)) ||
                          !property_value_matches(*declaration, assignment.assigned_value()))
                     error("compiled_project.invalid_property_assignment",
                           "Interactable Instance Property override is incompatible with its "
                           "declaration.",
                           assignment_path);
+            }
+
+            std::unordered_set<PropertyId> local_properties;
+            for (std::size_t property_index = 0; property_index < value.local_properties.size();
+                 ++property_index) {
+                const auto& local = value.local_properties[property_index];
+                const auto local_path = path + "/localProperties/" + std::to_string(property_index);
+                if (!local_properties.insert(local.contract.property_id).second)
+                    error("compiled_project.duplicate_property_definition",
+                          "Interactable Instance-local Properties must be unique.",
+                          local_path + "/id");
+                auto contract = make_property_definition(PropertyDefinitionInput{
+                    .id = local.contract.property_id,
+                    .value_type = local.contract.value_type,
+                    .nullable = local.contract.nullable,
+                    .default_value = std::nullopt,
+                    .scope = PropertyScope::Identity,
+                    .allowed_owners = {},
+                    .exact_owner = PropertyOwnerRef{value.id},
+                    .label = local.contract.label,
+                    .description = local.contract.description,
+                });
+                if (!contract || !property_value_matches(*contract.value_if(), local.value))
+                    error("compiled_project.invalid_property_assignment",
+                          "Interactable Instance-local Property Value does not match its typed "
+                          "contract.",
+                          local_path);
+                const auto* inherited =
+                    property(PropertyOwnerRef{value.id}, local.contract.property_id);
+                const auto inherited_enum =
+                    inherited != nullptr ? std::get_if<EnumPropertyType>(&inherited->value_type())
+                                         : nullptr;
+                const auto local_enum = std::get_if<EnumPropertyType>(&local.contract.value_type);
+                if (inherited != nullptr && inherited->exact_owner() &&
+                    (inherited->value_type().index() != local.contract.value_type.index() ||
+                     inherited->nullable() != local.contract.nullable ||
+                     (inherited_enum != nullptr && local_enum != nullptr &&
+                      inherited_enum->values != local_enum->values)))
+                    error("compiled_project.invalid_property_definition",
+                          "Interactable Instance-local Property schema is incompatible with its "
+                          "effective inherited schema.",
+                          local_path);
+            }
+
+            const auto has_instance_override = [&](const PropertyId& property_id) {
+                return properties.contains(property_id) || local_properties.contains(property_id);
+            };
+            const auto active_trait_default = [&](const PropertyId& property_id) {
+                if (definition != nullptr) {
+                    for (const auto& trait_id : definition->identity.traits) {
+                        if (removes.contains(trait_id))
+                            continue;
+                        const auto* attached = trait(trait_id);
+                        if (attached != nullptr &&
+                            std::ranges::any_of(attached->properties, [&](const auto& member) {
+                                return member.property_id == property_id &&
+                                       member.configured_value.has_value();
+                            }))
+                            return true;
+                    }
+                }
+                for (const auto& trait_id : adds) {
+                    const auto* attached = trait(trait_id);
+                    if (attached != nullptr &&
+                        std::ranges::any_of(attached->properties, [&](const auto& member) {
+                            return member.property_id == property_id &&
+                                   member.configured_value.has_value();
+                        }))
+                        return true;
+                }
+                return false;
+            };
+            const auto definition_default = [&](const PropertyId& property_id) {
+                if (definition == nullptr)
+                    return false;
+                const auto contract =
+                    std::ranges::find_if(definition->properties, [&](const auto& candidate) {
+                        return candidate.property_id == property_id;
+                    });
+                return contract != definition->properties.end() &&
+                       contract->configured_value.has_value();
+            };
+            if (definition != nullptr) {
+                for (const auto& contract : definition->properties) {
+                    if (!has_instance_override(contract.property_id) &&
+                        !contract.configured_value.has_value() &&
+                        !active_trait_default(contract.property_id))
+                        error("compiled_project.missing_property_value",
+                              "Concrete Interactable Instance requires Property '" +
+                                  contract.property_id.text() + "' to have a Value.",
+                              path + "/propertyOverrides");
+                }
+                const auto validate_trait_requirements = [&](const TraitDefinition* attached) {
+                    if (attached == nullptr)
+                        return;
+                    for (const auto& member : attached->properties) {
+                        if (!has_instance_override(member.property_id) &&
+                            !definition_default(member.property_id) &&
+                            !active_trait_default(member.property_id))
+                            error("compiled_project.missing_property_value",
+                                  "Concrete Interactable Instance requires Trait Property '" +
+                                      member.property_id.text() + "' to have a Value.",
+                                  path + "/propertyOverrides");
+                    }
+                };
+                for (const auto& trait_id : definition->identity.traits)
+                    if (!removes.contains(trait_id))
+                        validate_trait_requirements(trait(trait_id));
+                for (const auto& trait_id : adds)
+                    validate_trait_requirements(trait(trait_id));
+            }
+
+            const PropertyOwnerRef exact_owner{value.id};
+            for (const auto& declaration : m_input.properties) {
+                if (!declaration.exact_owner() || *declaration.exact_owner() != exact_owner)
+                    continue;
+                const bool has_override =
+                    std::ranges::any_of(value.property_overrides, [&](const auto& assignment) {
+                        return assignment.property_id() == declaration.id();
+                    });
+                const bool has_local =
+                    std::ranges::any_of(value.local_properties, [&](const auto& local) {
+                        return local.contract.property_id == declaration.id();
+                    });
+                bool has_inherited_value = false;
+                if (definition != nullptr) {
+                    has_inherited_value = std::ranges::any_of(
+                        definition->identity.property_assignments, [&](const auto& assignment) {
+                            return assignment.property_id() == declaration.id();
+                        });
+                    const auto contract =
+                        std::ranges::find_if(definition->properties, [&](const auto& candidate) {
+                            return candidate.property_id == declaration.id();
+                        });
+                    if (contract != definition->properties.end() && contract->configured_value)
+                        has_inherited_value = true;
+                    for (const auto& trait_id : definition->identity.traits) {
+                        if (removes.contains(trait_id))
+                            continue;
+                        const auto* attached = trait(trait_id);
+                        if (attached != nullptr &&
+                            std::ranges::any_of(attached->properties, [&](const auto& member) {
+                                return member.property_id == declaration.id() &&
+                                       member.configured_value.has_value();
+                            }))
+                            has_inherited_value = true;
+                    }
+                }
+                for (const auto& trait_id : adds) {
+                    const auto* attached = trait(trait_id);
+                    if (attached != nullptr &&
+                        std::ranges::any_of(attached->properties, [&](const auto& member) {
+                            return member.property_id == declaration.id() &&
+                                   member.configured_value.has_value();
+                        }))
+                        has_inherited_value = true;
+                }
+                if (!has_override && !has_local && !has_inherited_value)
+                    error("compiled_project.missing_property_value",
+                          "Concrete Interactable Instance requires Property '" +
+                              declaration.id().text() + "' to have a Value.",
+                          path + "/propertyOverrides");
             }
         }
     }

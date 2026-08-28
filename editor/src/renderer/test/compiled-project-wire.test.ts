@@ -202,6 +202,7 @@ function representativeWireFixture() {
           traits: [],
           propertyAssignments: [],
           displayName: 'Key',
+          properties: [],
           features: [],
           inventories: [{ id: 'compartment', label: 'Compartment' }],
           presentation: {
@@ -359,6 +360,7 @@ function representativeWireFixture() {
         traitAdds: [],
         traitRemoves: [],
         propertyOverrides: [],
+        localProperties: [],
       },
     ],
   };

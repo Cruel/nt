@@ -157,8 +157,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                       -> std::optional<InteractableInstanceDeclaration> {
                       if (!decoder.object(item, pointer,
                                           {"definition", "enabled", "id", "location",
-                                           "propertyOverrides", "traitAdds", "traitRemoves",
-                                           "visible"}))
+                                           "localProperties", "propertyOverrides", "traitAdds",
+                                           "traitRemoves", "visible"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", pointer);
                       const auto* definition_value = decoder.member(item, "definition", pointer);
@@ -169,6 +169,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                       const auto* removes_value = decoder.member(item, "traitRemoves", pointer);
                       const auto* overrides_value =
                           decoder.member(item, "propertyOverrides", pointer);
+                      const auto* local_properties_value =
+                          decoder.member(item, "localProperties", pointer);
                       auto id = id_value ? decoder.id<InteractableInstanceId>(
                                                *id_value, pointer_child(pointer, "id"))
                                          : std::nullopt;
@@ -237,8 +239,37 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                    : std::nullopt;
                                     })
                               : std::nullopt;
+                      auto local_properties =
+                          local_properties_value
+                              ? decoder.array<InstanceLocalProperty>(
+                                    *local_properties_value,
+                                    pointer_child(pointer, "localProperties"),
+                                    [&](const nlohmann::json& local,
+                                        const std::string& item_pointer)
+                                        -> std::optional<InstanceLocalProperty> {
+                                        if (!local.is_object())
+                                            return std::nullopt;
+                                        auto contract_json = local;
+                                        const auto* value_value =
+                                            decoder.member(local, "value", item_pointer);
+                                        contract_json.erase("value");
+                                        auto contract = decode_owner_property_contract(
+                                            decoder, contract_json, item_pointer);
+                                        auto runtime_value =
+                                            value_value ? decode_runtime_value(
+                                                              decoder, *value_value,
+                                                              pointer_child(item_pointer, "value"))
+                                                        : std::nullopt;
+                                        return contract && runtime_value
+                                                   ? std::optional<InstanceLocalProperty>(
+                                                         InstanceLocalProperty{
+                                                             std::move(*contract),
+                                                             std::move(*runtime_value)})
+                                                   : std::nullopt;
+                                    })
+                              : std::nullopt;
                       if (!id || !definition || !location || !enabled || !visible || !trait_adds ||
-                          !trait_removes || !property_overrides)
+                          !trait_removes || !property_overrides || !local_properties)
                           return std::nullopt;
                       return InteractableInstanceDeclaration{std::move(*id),
                                                              std::move(*definition),
@@ -247,7 +278,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                              *visible,
                                                              std::move(*trait_adds),
                                                              std::move(*trait_removes),
-                                                             std::move(*property_overrides)};
+                                                             std::move(*property_overrides),
+                                                             std::move(*local_properties)};
                   })
             : std::nullopt;
     auto traits = traits_value ? decoder.array<TraitDeclaration>(

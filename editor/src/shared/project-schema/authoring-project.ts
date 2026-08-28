@@ -99,6 +99,7 @@ export interface AuthoringRecordBase {
   traits?: EntityId[];
   properties?: PropertyAssignments;
   localProperties?: import('./authoring-properties').OwnerLocalProperty[];
+  defaultProperties?: import('./authoring-properties').OwnerDefaultProperty[];
 }
 
 export interface CreateAuthoringProjectOptions {
