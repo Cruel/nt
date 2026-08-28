@@ -272,6 +272,141 @@ TEST_CASE("Room-free Scene and Dialogue project saves restores and completes thr
     CHECK(runtime_state.game_completed);
 }
 
+TEST_CASE("authored fast-forward commits semantic work suppresses one-shots and stops at input")
+{
+    RuntimeFixture runtime;
+    auto loaded = runtime::load_running_game(load_input(fixture("canonical-fast-forward")),
+                                             runtime.scripts, runtime.presentation, runtime.saves);
+    REQUIRE(loaded.has_value());
+    auto& game = *loaded.value();
+    const auto count = core::PropertyId::create("count").value();
+
+    auto started = game.session().dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->gameplay_ui.scene);
+    CHECK(started.publication->gameplay_ui.scene->scene.text() == "fast-forward");
+    CHECK(started.publication->gameplay_ui.can_continue);
+    REQUIRE(game.session().gateway().global_property(count));
+    CHECK(game.session().gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{2}});
+    CHECK(runtime.presentation.audio_accept_calls == 0);
+
+    auto skipped = game.session().dispatch(core::RuntimeInputMessage{core::FastForwardInput{}});
+    REQUIRE(skipped.diagnostics.empty());
+    CHECK(skipped.disposition == runtime::RuntimeInputDisposition::Handled);
+    REQUIRE(skipped.publication);
+    REQUIRE(skipped.publication->gameplay_ui.scene);
+    CHECK(skipped.publication->gameplay_ui.scene->scene.text() == "fast-forward");
+    CHECK(skipped.publication->gameplay_ui.can_continue);
+    REQUIRE(game.session().gateway().global_property(count));
+    CHECK(game.session().gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{3}});
+    CHECK(runtime.presentation.audio_accept_calls == 0);
+    const auto checkpoint_outcomes = game.session().take_checkpoint_save_outcomes();
+    CHECK(std::any_of(
+        checkpoint_outcomes.begin(), checkpoint_outcomes.end(), [](const auto& outcome) {
+            const auto* succeeded = std::get_if<core::CheckpointWriteSucceeded>(&outcome);
+            return succeeded != nullptr && succeeded->slot.is_autosave();
+        }));
+
+    auto stopped = game.session().dispatch(core::RuntimeInputMessage{core::FastForwardInput{}});
+    REQUIRE(stopped.diagnostics.empty());
+    CHECK(stopped.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    REQUIRE(game.session().gateway().global_property(count));
+    CHECK(game.session().gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{3}});
+    CHECK(runtime.presentation.audio_accept_calls == 0);
+
+    auto completed = game.session().dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(completed.diagnostics.empty());
+    REQUIRE(game.session().gateway().global_property(count));
+    CHECK(game.session().gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{9}});
+}
+
+TEST_CASE("authored Layout Signal survives restore and resumes its exact mounted Layout wait")
+{
+    RuntimeFixture runtime;
+    auto loaded = runtime::load_running_game(load_input(fixture("canonical-layout-signal")),
+                                             runtime.scripts, runtime.presentation, runtime.saves);
+    std::string load_failure;
+    if (!loaded)
+        for (const auto& diagnostic : loaded.error())
+            load_failure +=
+                diagnostic.code + ": " + diagnostic.message + " @ " + diagnostic.source_path + "\n";
+    CAPTURE(load_failure);
+    REQUIRE(loaded.has_value());
+    auto& game = *loaded.value();
+    const auto count = core::PropertyId::create("count").value();
+    const auto signal = core::LayoutSignalId::create("confirm").value();
+    const auto accepted = core::LayoutSignalFieldId::create("accepted").value();
+
+    auto started = game.session().dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    std::string start_failure;
+    for (const auto& diagnostic : started.diagnostics)
+        start_failure +=
+            diagnostic.code + ": " + diagnostic.message + " @ " + diagnostic.source_path + "\n";
+    CAPTURE(start_failure);
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    const auto mounted =
+        std::find_if(started.publication->presentation.layouts.begin(),
+                     started.publication->presentation.layouts.end(),
+                     [](const auto& layout) { return layout.layout.text() == "stateful-overlay"; });
+    REQUIRE(mounted != started.publication->presentation.layouts.end());
+    REQUIRE(mounted->occurrence);
+    CHECK(std::find(mounted->connected_signals.begin(), mounted->connected_signals.end(), signal) !=
+          mounted->connected_signals.end());
+    REQUIRE(game.session().gateway().global_property(count));
+    CHECK(game.session().gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{2}});
+
+    const auto slot = core::TypedSaveSlotId::manual(3);
+    auto saved = game.session().dispatch(core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
+    REQUIRE(saved.diagnostics.empty());
+    const auto save_outcomes = game.session().take_checkpoint_save_outcomes();
+    CHECK(std::any_of(save_outcomes.begin(), save_outcomes.end(), [&](const auto& outcome) {
+        const auto* succeeded = std::get_if<core::CheckpointWriteSucceeded>(&outcome);
+        return succeeded != nullptr && succeeded->slot == slot;
+    }));
+
+    auto candidate = game.prepare_load_candidate(slot, runtime.scripts, runtime.presentation);
+    REQUIRE(candidate);
+    REQUIRE(candidate.value()->initial_result().publication);
+    const auto& restored_publication = *candidate.value()->initial_result().publication;
+    const auto restored =
+        std::find_if(restored_publication.presentation.layouts.begin(),
+                     restored_publication.presentation.layouts.end(),
+                     [](const auto& layout) { return layout.layout.text() == "stateful-overlay"; });
+    REQUIRE(restored != restored_publication.presentation.layouts.end());
+    REQUIRE(restored->occurrence);
+    CHECK(restored->owner != mounted->owner);
+    CHECK(std::find(restored->connected_signals.begin(), restored->connected_signals.end(),
+                    signal) != restored->connected_signals.end());
+    const auto restored_owner = restored->owner;
+    const auto restored_key = restored->key;
+    const auto restored_occurrence = *restored->occurrence;
+    auto previous = game.commit_candidate(std::move(candidate).value());
+    REQUIRE(previous);
+
+    auto signaled = game.session().dispatch(core::RuntimeInputMessage{core::LayoutSignalInput{
+        restored_owner,
+        restored_key,
+        restored_occurrence,
+        signal,
+        {core::LayoutSignalFieldValue{accepted, core::RuntimeValue{true}}}}});
+    REQUIRE(signaled.diagnostics.empty());
+    CHECK(signaled.disposition == runtime::RuntimeInputDisposition::Handled);
+    REQUIRE(signaled.publication);
+    REQUIRE(signaled.publication->gameplay_ui.scene);
+    CHECK(signaled.publication->gameplay_ui.scene->scene.text() == "layout-signal");
+    CHECK(signaled.publication->gameplay_ui.can_continue);
+    REQUIRE(game.session().gateway().global_property(count));
+    CHECK(game.session().gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
+}
+
 TEST_CASE(
     "staged flashback and repeated Dialogue Handoff resume the exact caller through RunningGame")
 {

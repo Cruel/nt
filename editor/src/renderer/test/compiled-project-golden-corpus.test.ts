@@ -8,8 +8,10 @@ import {
 } from '../../shared/project-schema/compiled-project';
 import {
   canonicalExplorationGoldenProject,
+  canonicalFastForwardGoldenProject,
   canonicalLinearGoldenProject,
   canonicalFlowGoldenProject,
+  canonicalLayoutSignalGoldenProject,
   canonicalVocabularyGoldenProject,
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
@@ -74,8 +76,16 @@ describe('compiled project cross-language golden corpus', () => {
     expectGolden('canonical-exploration', canonicalExplorationGoldenProject());
   });
 
+  it('keeps the canonical fast-forward acceptance project byte-stable', () => {
+    expectGolden('canonical-fast-forward', canonicalFastForwardGoldenProject());
+  });
+
   it('keeps staged flashback and repeated Dialogue Handoff byte-stable', () => {
     expectGolden('canonical-flow', canonicalFlowGoldenProject());
+  });
+
+  it('keeps the canonical Layout Signal acceptance project byte-stable', () => {
+    expectGolden('canonical-layout-signal', canonicalLayoutSignalGoldenProject());
   });
 
   it('keeps the complete post-refactor canonical vocabulary byte-stable', () => {

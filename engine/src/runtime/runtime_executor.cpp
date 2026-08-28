@@ -1570,7 +1570,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     const core::PresentationOwner owner = *resolved_owner.value_if();
                     const core::MountedLayoutPresentationKey key =
                         core::ReservedLayoutMountKey{value.slot};
-                    const auto mounted = std::ranges::find_if(
+                    auto mounted = std::ranges::find_if(
                         m_state.mounted_layouts(), [&](const core::DesiredMountedLayout& item) {
                             return item.owner == owner && item.key == key;
                         });
@@ -1579,10 +1579,22 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                             "execution.scene_layout_signal_mount_missing",
                             "Scene Layout Signal wait requires a live mounted Layout occurrence"));
                     if (std::ranges::find(mounted->connected_signals, value.signal) ==
-                        mounted->connected_signals.end())
-                        return fault(execution_error(
-                            "execution.scene_layout_signal_not_connected",
-                            "Scene Layout Signal wait requires the exact signal to be connected"));
+                        mounted->connected_signals.end()) {
+                        auto connected = *mounted;
+                        connected.connected_signals.push_back(value.signal);
+                        auto updated =
+                            m_state.upsert_mounted_layout(m_project, std::move(connected));
+                        if (!updated)
+                            return fault(updated.error());
+                        mounted = std::ranges::find_if(
+                            m_state.mounted_layouts(), [&](const core::DesiredMountedLayout& item) {
+                                return item.owner == owner && item.key == key;
+                            });
+                        if (mounted == m_state.mounted_layouts().end() || !mounted->occurrence)
+                            return fault(execution_error(
+                                "execution.scene_layout_signal_mount_missing",
+                                "Scene Layout Signal wait lost its mounted Layout occurrence"));
+                    }
                     auto waiting = begin(core::WaitSpec{core::InputWait{}});
                     if (!waiting)
                         return fault(waiting.error());

@@ -5,8 +5,10 @@ import { compileAuthoringProject } from '../src/shared/authoring-compiler';
 import { projectWorkspaceFiles } from '../src/shared/project-workspace';
 import {
   canonicalExplorationGoldenProject,
+  canonicalFastForwardGoldenProject,
   canonicalLinearGoldenProject,
   canonicalFlowGoldenProject,
+  canonicalLayoutSignalGoldenProject,
   canonicalVocabularyGoldenProject,
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
@@ -20,8 +22,10 @@ import {
 const fixtures = [
   ['minimal', minimalGoldenProject],
   ['canonical-exploration', canonicalExplorationGoldenProject],
+  ['canonical-fast-forward', canonicalFastForwardGoldenProject],
   ['canonical-linear', canonicalLinearGoldenProject],
   ['canonical-flow', canonicalFlowGoldenProject],
+  ['canonical-layout-signal', canonicalLayoutSignalGoldenProject],
   ['canonical-vocabulary', canonicalVocabularyGoldenProject],
   ['comprehensive', comprehensiveGoldenProject],
   ['trait-properties-localization', traitPropertiesLocalizationGoldenProject],
