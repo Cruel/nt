@@ -427,10 +427,25 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         decoder.duplicate_ids(
             *inventories, "/inventories",
             [](const InventoryDefinition& value) -> const InventoryId& { return value.id; });
-    if (properties)
-        decoder.duplicate_ids(
-            *properties, "/properties",
-            [](const PropertyDeclaration& value) -> const PropertyId& { return value.id; });
+    if (properties) {
+        for (std::size_t index = 0; index < properties->size(); ++index) {
+            const auto& property = (*properties)[index];
+            for (std::size_t previous = 0; previous < index; ++previous) {
+                const auto& candidate = (*properties)[previous];
+                const bool same_registry_identity =
+                    !property.exact_owner && !candidate.exact_owner && property.id == candidate.id;
+                const bool same_exact_identity = property.exact_owner && candidate.exact_owner &&
+                                                 property.id == candidate.id &&
+                                                 *property.exact_owner == *candidate.exact_owner;
+                if (!same_registry_identity && !same_exact_identity)
+                    continue;
+                decoder.error("compiled_project.duplicate_id",
+                              "Duplicate Property identity '" + property.id.text() + "'.",
+                              "/properties/" + std::to_string(index) + "/id");
+                break;
+            }
+        }
+    }
     if (interactable_instances)
         decoder.duplicate_ids(
             *interactable_instances, "/interactableInstances",

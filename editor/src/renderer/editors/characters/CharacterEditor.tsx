@@ -9,6 +9,11 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { useCommandStore } from '@/commands/command-store';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
+import { OwnerLocalPropertiesEditor } from '@/components/properties/OwnerLocalPropertiesEditor';
+import {
+  ownerLocalPropertyReferencePaths,
+  renameOwnerLocalPropertyReferencePatches,
+} from '@/project/owner-local-property-references';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
@@ -33,6 +38,7 @@ import {
   type CharacterPresentationProfileData,
 } from '../../../shared/project-schema/authoring-characters';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
 import {
   buildCharacterPreviewDocumentData,
   characterPreviewRevision,
@@ -222,6 +228,35 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
 
   function commit(next: CharacterData, label = 'Update character') {
     commitCharacter(activeCharacterId, next, label);
+  }
+
+  function commitLocalProperties(
+    localProperties: OwnerLocalProperty[],
+    change?: { kind: 'rename'; fromId: string; toId: string },
+  ) {
+    useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: `Update ${activeCharacterId} Properties`,
+      payload: [
+        {
+          op: Object.prototype.hasOwnProperty.call(activeRecord, 'localProperties')
+            ? 'replace'
+            : 'add',
+          path: `/characters/${activeCharacterId}/localProperties`,
+          value: localProperties,
+        },
+        ...(change
+          ? renameOwnerLocalPropertyReferencePatches(
+              activeProject,
+              { kind: 'character', id: activeCharacterId },
+              change.fromId,
+              change.toId,
+            )
+          : []),
+      ],
+      originSaveUnitId: recordSaveUnitId('characters', activeCharacterId),
+      persistencePolicy: 'manual-save',
+    });
   }
 
   function patchDialogue(patch: Partial<CharacterData['dialogue']>) {
@@ -882,6 +917,21 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           entityId={characterId}
           record={record}
           kind="character"
+        />
+      </div>
+
+      <div className="mt-4">
+        <OwnerLocalPropertiesEditor
+          ownerLabel={`Character '${activeRecord.label}'`}
+          properties={activeRecord.localProperties ?? []}
+          onChange={commitLocalProperties}
+          usageCountFor={(propertyId) =>
+            ownerLocalPropertyReferencePaths(
+              activeProject,
+              { kind: 'character', id: activeCharacterId },
+              propertyId,
+            ).length
+          }
         />
       </div>
 

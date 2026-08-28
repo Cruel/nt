@@ -360,3 +360,79 @@ TEST_CASE("compiled project construction rejects duplicate and invalid Trait att
     CHECK(duplicate_trait_result.error().front().code ==
           "compiled_project.duplicate_trait_attachment");
 }
+
+TEST_CASE("compiled project scopes exact-owner Property identity by owner and key")
+{
+    auto input = project_input();
+    const auto area = id<RoomId>("area");
+    const auto atrium = id<RoomId>("atrium");
+
+    auto area_state = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("state"),
+        .value_type = BooleanPropertyType{},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{area},
+        .label = "Area state",
+    });
+    auto atrium_state = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("state"),
+        .value_type = StringPropertyType{},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{atrium},
+        .label = "Atrium state",
+    });
+    REQUIRE(area_state);
+    REQUIRE(atrium_state);
+    input.properties.push_back(std::move(area_state).value());
+    input.properties.push_back(std::move(atrium_state).value());
+
+    auto valid = CompiledProject::create(std::move(input));
+    REQUIRE(valid);
+    REQUIRE(valid.value().find_property(PropertyOwnerRef{area}, id<PropertyId>("state")) !=
+            nullptr);
+    REQUIRE(valid.value().find_property(PropertyOwnerRef{atrium}, id<PropertyId>("state")) !=
+            nullptr);
+    CHECK(std::holds_alternative<BooleanPropertyType>(
+        valid.value()
+            .find_property(PropertyOwnerRef{area}, id<PropertyId>("state"))
+            ->value_type()));
+    CHECK(std::holds_alternative<StringPropertyType>(
+        valid.value()
+            .find_property(PropertyOwnerRef{atrium}, id<PropertyId>("state"))
+            ->value_type()));
+
+    auto duplicate = project_input();
+    auto first = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("state"),
+        .value_type = BooleanPropertyType{},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{area},
+        .label = "State",
+    });
+    auto second = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("state"),
+        .value_type = NumberPropertyType{},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{area},
+        .label = "Duplicate state",
+    });
+    REQUIRE(first);
+    REQUIRE(second);
+    duplicate.properties.push_back(std::move(first).value());
+    duplicate.properties.push_back(std::move(second).value());
+    auto duplicate_result = CompiledProject::create(std::move(duplicate));
+    REQUIRE_FALSE(duplicate_result);
+    CHECK(duplicate_result.error().front().code == "compiled.invalid_model");
+}

@@ -3,16 +3,12 @@ import { Braces, Hash, List, Plus, Text, ToggleLeft, Trash2 } from 'lucide-react
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
+  newTypedPropertyDraft,
+  TypedPropertyFields,
+  typedPropertyValueFromDraft,
+  type TypedPropertyDraft,
+} from '@/components/properties/TypedPropertyFields';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCommandStore } from '@/commands/command-store';
 import type { CommandRequest } from '@/commands/command-types';
@@ -33,11 +29,8 @@ import {
   type AuthoringRecordBase,
 } from '../../../shared/project-schema/authoring-project';
 import {
-  defaultVariableData,
-  parseEnumValuesText,
   parseVariableData,
-  parseVariableDefaultText,
-  variableDefaultValueToText,
+  variableValueToText,
   variableTypeValues,
   type VariableData,
   type VariableType,
@@ -59,30 +52,17 @@ function typeIcon(type: VariableType) {
   return Braces;
 }
 
-function formatDefault(data: VariableData) {
+function formatValue(data: VariableData) {
+  if (data.value === null) return 'null';
   if (data.type === 'string')
-    return data.defaultValue === '' ? 'Empty string' : JSON.stringify(data.defaultValue);
-  return variableDefaultValueToText(data.defaultValue);
+    return data.value === '' ? 'Empty string' : JSON.stringify(data.value);
+  return variableValueToText(data.value);
 }
 
-interface VariableDraft {
-  id: string;
-  label: string;
-  description: string;
-  type: VariableType;
-  defaultText: string;
-  enumText: string;
-}
+type VariableDraft = TypedPropertyDraft;
 
 function draftForNewVariable(): VariableDraft {
-  return {
-    id: '',
-    label: '',
-    description: '',
-    type: 'boolean',
-    defaultText: 'false',
-    enumText: 'default',
-  };
+  return newTypedPropertyDraft();
 }
 
 function draftForVariable(
@@ -95,7 +75,8 @@ function draftForVariable(
     label: record.label === id ? '' : record.label,
     description: record.description ?? '',
     type: data.type,
-    defaultText: variableDefaultValueToText(data.defaultValue),
+    nullable: data.nullable,
+    valueText: variableValueToText(data.value),
     enumText: data.enumValues?.join(', ') ?? 'default',
   };
 }
@@ -103,18 +84,17 @@ function draftForVariable(
 function dataFromDraft(
   draft: VariableDraft,
 ): { ok: true; data: VariableData } | { ok: false; message: string } {
-  const enumValues = draft.type === 'enum' ? parseEnumValuesText(draft.enumText) : undefined;
-  if (draft.type === 'enum' && (!enumValues || enumValues.length === 0)) {
-    return { ok: false, message: 'Enum variables require at least one value.' };
-  }
-  const parsed = parseVariableDefaultText(draft.type, draft.defaultText, enumValues);
+  const parsed = typedPropertyValueFromDraft(draft);
   if (!parsed.ok) return parsed;
   return {
     ok: true,
     data: {
-      ...defaultVariableData(draft.type),
-      ...(enumValues ? { enumValues } : {}),
-      defaultValue: parsed.value,
+      kind: 'variable',
+      type: draft.type,
+      nullable: draft.nullable,
+      scope: 'global',
+      ...(parsed.enumValues ? { enumValues: parsed.enumValues } : {}),
+      value: parsed.value,
     },
   };
 }
@@ -145,16 +125,6 @@ function VariableDialog({
     setMessage(null);
   };
 
-  const changeType = (type: VariableType) => {
-    const defaults = defaultVariableData(type);
-    onDraftChange({
-      ...draft,
-      type,
-      defaultText: variableDefaultValueToText(defaults.defaultValue),
-      enumText: type === 'enum' ? 'default' : draft.enumText,
-    });
-  };
-
   const submit = () => {
     const failure = onSubmit(draft);
     if (failure) {
@@ -178,132 +148,12 @@ function VariableDialog({
           Variables are referenced from Lua and expressions by ID.
         </DialogDescription>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>ID</Label>
-            <Input
-              autoFocus
-              className="font-mono"
-              value={draft.id}
-              onChange={(event) => {
-                const id = event.currentTarget.value;
-                onDraftChange({ ...draft, id });
-              }}
-              placeholder="has-key"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>
-              Label <span className="font-normal text-muted-foreground">(optional)</span>
-            </Label>
-            <Input
-              value={draft.label}
-              onChange={(event) => {
-                const label = event.currentTarget.value;
-                onDraftChange({ ...draft, label });
-              }}
-              placeholder="Uses the ID when empty"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>
-            Description <span className="font-normal text-muted-foreground">(optional)</span>
-          </Label>
-          <Input
-            value={draft.description}
-            onChange={(event) => {
-              const description = event.currentTarget.value;
-              onDraftChange({ ...draft, description });
-            }}
-            placeholder="What this variable represents"
-          />
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
-          <div className="space-y-1.5">
-            <Label>Type</Label>
-            <Select
-              value={draft.type}
-              onValueChange={(value) => value && changeType(value as VariableType)}
-            >
-              <SelectTrigger className="!h-8 w-full" aria-label="Type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {variableTypeValues.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {typeLabel(type)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Default value</Label>
-            {draft.type === 'boolean' ? (
-              <div className="flex h-8 items-center gap-2">
-                <Switch
-                  checked={draft.defaultText === 'true'}
-                  onCheckedChange={(checked) =>
-                    onDraftChange({ ...draft, defaultText: String(checked) })
-                  }
-                  aria-label="Default value"
-                />
-                <span className="text-sm text-muted-foreground">{draft.defaultText}</span>
-              </div>
-            ) : draft.type === 'enum' ? (
-              <Select
-                value={draft.defaultText}
-                onValueChange={(value) => value && onDraftChange({ ...draft, defaultText: value })}
-              >
-                <SelectTrigger className="!h-8 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {parseEnumValuesText(draft.enumText).map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {value}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input
-                className="h-8"
-                type={draft.type === 'integer' || draft.type === 'number' ? 'number' : 'text'}
-                step={draft.type === 'integer' ? 1 : draft.type === 'number' ? 'any' : undefined}
-                value={draft.defaultText}
-                onChange={(event) => {
-                  const defaultText = event.currentTarget.value;
-                  onDraftChange({ ...draft, defaultText });
-                }}
-              />
-            )}
-          </div>
-        </div>
-
-        {draft.type === 'enum' ? (
-          <div className="space-y-1.5">
-            <Label>Enum values</Label>
-            <Input
-              value={draft.enumText}
-              onChange={(event) => {
-                const enumText = event.currentTarget.value;
-                const values = parseEnumValuesText(enumText);
-                onDraftChange({
-                  ...draft,
-                  enumText,
-                  defaultText: values.includes(draft.defaultText)
-                    ? draft.defaultText
-                    : (values[0] ?? ''),
-                });
-              }}
-              placeholder="idle, active, complete"
-            />
-          </div>
-        ) : null}
+        <TypedPropertyFields
+          draft={draft}
+          onChange={onDraftChange}
+          valueLabel="Value"
+          descriptionPlaceholder="What this variable represents"
+        />
 
         {message ? (
           <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
@@ -328,9 +178,10 @@ function parseVariableDraft(value: unknown): VariableDraft | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const draft = value as Record<string, unknown>;
   if (!variableTypeValues.includes(draft.type as VariableType)) return null;
-  for (const key of ['id', 'label', 'description', 'defaultText', 'enumText']) {
+  for (const key of ['id', 'label', 'description', 'valueText', 'enumText']) {
     if (typeof draft[key] !== 'string') return null;
   }
+  if (typeof draft.nullable !== 'boolean') return null;
   return draft as unknown as VariableDraft;
 }
 
@@ -525,7 +376,7 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
               <th className="w-px whitespace-nowrap px-3 py-2 text-center">Use</th>
               <th className="whitespace-nowrap px-3 py-2">Variable</th>
               <th className="w-px whitespace-nowrap px-2 py-2 text-center">Type</th>
-              <th className="whitespace-nowrap px-3 py-2">Default</th>
+              <th className="whitespace-nowrap px-3 py-2">Value</th>
               <th className="px-3 py-2">Description</th>
               <th className="w-px">
                 <span className="sr-only">Actions</span>
@@ -593,9 +444,9 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
                   </td>
                   <td
                     className="max-w-64 truncate whitespace-nowrap px-3 py-2 font-mono text-xs"
-                    title={formatDefault(data)}
+                    title={formatValue(data)}
                   >
-                    {formatDefault(data)}
+                    {formatValue(data)}
                   </td>
                   <td
                     className="truncate px-3 py-2 text-muted-foreground"

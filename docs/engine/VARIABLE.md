@@ -20,15 +20,18 @@ Their authoring data is intentionally concise:
 interface VariableData {
   kind: 'variable';
   type: 'boolean' | 'integer' | 'number' | 'string' | 'enum';
-  defaultValue: unknown;
+  nullable: boolean;
+  value: unknown;
   scope: 'global';
   enumValues?: string[];
 }
 ```
 
-Global Variables always require a valid authored default. Number defaults must be finite, integer defaults must be finite whole numbers, and enum defaults must be one of the declared enum values.
+Global Variables always require a concrete authored Value. Nullable Variables may author `null` as that Value. Non-null numbers must be finite, integers must be finite whole numbers, and enum Values must be one of the declared enum values.
 
-Variable IDs share the normal project entity-ID syntax and become the compiled `PropertyId`. A Variable ID therefore cannot collide with an identity-scoped Property declaration ID.
+Variable IDs share the normal project entity-ID syntax and become the compiled `PropertyId`. They must remain unique in the global/transitional Property registry, but may use the same key as an exact owner-local Room or Character Property because that Property is identified by owner plus key.
+
+Rooms and Characters now author ordered owner-local Property declarations directly on the owner record. Each entry carries its key/ID, optional label/description, type, nullability, enum domain when applicable, and concrete Value. The same key may therefore have unrelated schemas on different Rooms or Characters. Other Property-bearing surfaces remain on the transitional project-wide identity Property registry until their migration slice.
 
 ## Compiled contract
 
@@ -47,7 +50,11 @@ defaultValue
 enumValues
 ```
 
-An identity-scoped Property instead has `scope: "identity"`, its admitted `ownerKinds`, and may omit a declaration default when absence is meaningful. Current identity owners are exactly Room, Character, and Interactable Gameplay Instances; Scene, Dialogue, Verb, Interaction, and Map definitions are not Property targets.
+The compiled Global Property preserves the authored Variable nullability and always carries `defaultValue`, which is the authored Value.
+
+Migrated Room and Character Properties compile as exact identity declarations with `scope: "identity"` plus an exact `owner` reference. Their concrete authored Value is emitted as that owner's Property assignment. Exact declarations do not use `ownerKinds`, and identity is `(owner, PropertyId)` rather than `PropertyId` alone.
+
+Unmigrated Property-bearing surfaces continue to compile through the transitional identity declaration form with admitted `ownerKinds`. Scene, Dialogue, Verb, Interaction, and Map definitions are not Property targets.
 
 Conditions and effects that originate from Variable authoring also compile to Property vocabulary:
 
@@ -69,7 +76,7 @@ There is no compiled Variable reference or separate Variable runtime store.
 
 `PropertyTargetRef` is either the explicit global target or a Room, Character, or Interactable identity target. Globals do not use a fake Game/entity owner ID.
 
-`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. Global reads resolve an override first and otherwise return the required authored default. Identity-scoped reads resolve runtime override, direct authored assignment, configured attached Trait value, declaration default, then typed missing. Values never propagate between same-type definitions.
+`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. For an owner-qualified read it first resolves an exact owner-local declaration for that owner and key, then falls back to the transitional registry when no exact declaration exists. Global reads resolve an override first and otherwise return the required authored Value/default. Transitional identity reads retain runtime override, direct authored assignment, configured attached Trait value, declaration default, then typed missing precedence. Exact owner-local Room/Character reads resolve runtime override before their concrete authored assignment. Values never propagate between owners that happen to use the same key.
 
 ### Null versus unset
 
@@ -113,7 +120,11 @@ The retired `noveltea.variables` runtime table must not be used.
 
 ## Editor and preview behavior
 
-The authoring collection and UI continue to use the term Variables. Create, rename, type/default editing, dependency tracking, and condition/scene/dialogue builders still reference `/variables` in authoring source.
+The authoring collection and UI continue to use the term Variables. Create, rename, type/Value editing, dependency tracking, and condition/scene/dialogue builders still reference `/variables` in authoring source. Variable and owner-local Property editors reuse the same typed Property field primitives for type, nullability, enum domain, and Value editing.
+
+Room and Character Property lists expose best-effort Uses counts and rename repair for straightforward structured references. This is intentionally shallow: explicit owner/key references are repaired, but general Lua/static analysis is outside this slice. Deleting a used Property warns and leaves unresolved references for validation to report.
+
+Scene gameplay Property operations address migrated owners as exact owner plus `{ key }`. Their typed owner/Property selectors enumerate the selected Room or Character's local declarations; validation rejects missing keys and incompatible set Values. The older project-registry `$ref` form remains transitional for unmigrated owners.
 
 Preview/debug "set variable" operations are editor-facing commands only. They parse the Variable ID as a `PropertyId` and mutate the Global Property through the runtime Property gateway. Reset removes the runtime override rather than writing the default value.
 
@@ -132,6 +143,9 @@ editor/src/shared/project-schema/authoring-variables.ts
 editor/src/shared/project-schema/authoring-properties.ts
 editor/src/shared/authoring-compiler-shared-lowering.ts
 editor/src/renderer/editors/variables/VariablesEditor.tsx
+editor/src/renderer/components/properties/TypedPropertyFields.tsx
+editor/src/renderer/components/properties/OwnerLocalPropertiesEditor.tsx
+editor/src/renderer/project/owner-local-property-references.ts
 ```
 
 Engine/runtime:

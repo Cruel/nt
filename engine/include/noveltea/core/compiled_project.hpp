@@ -1974,6 +1974,8 @@ public:
     }
 
     [[nodiscard]] const PropertyDefinition* find_property(const PropertyId& id) const noexcept;
+    [[nodiscard]] const PropertyDefinition* find_property(const PropertyOwnerRef& owner,
+                                                          const PropertyId& id) const noexcept;
     [[nodiscard]] const compiled::TraitDefinition* find_trait(const TraitId& id) const noexcept;
     [[nodiscard]] const compiled::ArchetypeDefinition*
     find_archetype(const ArchetypeId& id) const noexcept;

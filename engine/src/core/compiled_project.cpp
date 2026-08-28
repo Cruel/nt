@@ -526,10 +526,27 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
     if (!build_index(input.member, member##_index, expression, label, diagnostics))                \
     return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics))
 
-    BUILD_INDEX(
-        PropertyId, properties,
-        [](const PropertyDefinition& value) -> const PropertyId& { return value.id(); },
-        "property");
+    std::unordered_map<PropertyId, std::size_t> properties_index;
+    for (std::size_t index = 0; index < input.properties.size(); ++index) {
+        const auto& property = input.properties[index];
+        if (property.exact_owner()) {
+            const auto duplicate =
+                std::find_if(input.properties.begin(),
+                             input.properties.begin() + static_cast<std::ptrdiff_t>(index),
+                             [&property](const PropertyDefinition& candidate) {
+                                 return candidate.exact_owner() &&
+                                        candidate.id() == property.id() &&
+                                        *candidate.exact_owner() == *property.exact_owner();
+                             });
+            if (duplicate != input.properties.begin() + static_cast<std::ptrdiff_t>(index))
+                return Result<CompiledProject, Diagnostics>::failure(invalid_model(
+                    "Duplicate exact-owner property id '" + property.id().text() + "'."));
+            continue;
+        }
+        if (!properties_index.emplace(property.id(), index).second)
+            return Result<CompiledProject, Diagnostics>::failure(
+                invalid_model("Duplicate property id '" + property.id().text() + "'."));
+    }
     BUILD_INDEX(
         TraitId, traits,
         [](const compiled::TraitDefinition& value) -> const TraitId& { return value.id; }, "trait");
@@ -603,10 +620,10 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     Diagnostics unused;
 #define INDEX(id_type, singular, plural, expression, label)                                        \
     build_index(m_##plural, m_##singular##_index, expression, label, unused)
-    INDEX(
-        PropertyId, property, properties,
-        [](const PropertyDefinition& value) -> const PropertyId& { return value.id(); },
-        "property");
+    for (std::size_t index = 0; index < m_properties.size(); ++index) {
+        if (!m_properties[index].exact_owner())
+            m_property_index.emplace(m_properties[index].id(), index);
+    }
     INDEX(
         TraitId, trait, traits,
         [](const compiled::TraitDefinition& value) -> const TraitId& { return value.id; }, "trait");
@@ -680,6 +697,19 @@ FIND(interactable_instance, interactable_instances, InteractableInstanceId,
      compiled::InteractableInstanceDeclaration)
 FIND(item_definition, item_definitions, ItemDefinitionId, compiled::ItemDefinition)
 FIND(item_stack, item_stacks, ItemStackId, compiled::ItemStackDeclaration)
+
+const PropertyDefinition* CompiledProject::find_property(const PropertyOwnerRef& owner,
+                                                         const PropertyId& id) const noexcept
+{
+    const auto exact =
+        std::find_if(m_properties.begin(), m_properties.end(), [&](const auto& property) {
+            return property.id() == id && property.exact_owner() &&
+                   *property.exact_owner() == owner;
+        });
+    if (exact != m_properties.end())
+        return &*exact;
+    return find_property(id);
+}
 
 const compiled::FeatureDefinition*
 CompiledProject::find_feature(const RoomFeatureRef& reference) const noexcept

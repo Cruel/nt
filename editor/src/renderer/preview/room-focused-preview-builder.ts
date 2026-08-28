@@ -593,7 +593,7 @@ function buildAdmissionAndState(
     state: {
       variables: sortedStateVariableIds.flatMap((id) => {
         const data = parseVariableData(project.variables[id]?.data);
-        return data ? [{ id, type: data.type, value: data.defaultValue }] : [];
+        return data ? [{ id, type: data.type, value: data.value }] : [];
       }),
       properties: sortedProperties.map((property) => ({
         ...property,

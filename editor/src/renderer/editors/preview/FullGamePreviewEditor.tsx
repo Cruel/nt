@@ -67,8 +67,8 @@ import {
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
 import {
   parseVariableData,
-  parseVariableDefaultText,
-  variableDefaultValueToText,
+  parseVariableValueText,
+  variableValueToText,
 } from '../../../shared/project-schema/authoring-variables';
 import {
   recordedTestDraftToTestData,
@@ -994,7 +994,7 @@ function parseDebugVariableDraft(
     type === 'string' ||
     type === 'enum'
   ) {
-    return parseVariableDefaultText(type, text, enumValues);
+    return parseVariableValueText(type, text, enumValues);
   }
   try {
     return { ok: true as const, value: JSON.parse(text) };
@@ -1040,10 +1040,10 @@ function VariableDebugRow({
 }) {
   const record = recordFor(project, 'variables', variable.id);
   const data = record ? parseVariableData(record.data) : null;
-  const [draft, setDraft] = useState(variableDefaultValueToText(variable.value));
+  const [draft, setDraft] = useState(variableValueToText(variable.value));
   const [editing, setEditing] = useState(false);
   useEffect(() => {
-    if (!editing) setDraft(variableDefaultValueToText(variable.value));
+    if (!editing) setDraft(variableValueToText(variable.value));
   }, [editing, variable.value]);
   const parsed = parseDebugVariableDraft(data?.type ?? variable.type, draft, data?.enumValues);
   const controller = controlsContext?.controller ?? null;
@@ -1051,7 +1051,7 @@ function VariableDebugRow({
   const type = data?.type ?? variable.type;
   const TypeIcon = variableTypeIcon(type);
   const label = fallbackLabel(variable.id, record?.label ?? variable.label);
-  const defaultValue = data?.defaultValue ?? variable.defaultValue;
+  const defaultValue = data?.value ?? variable.defaultValue;
   const commit = () => {
     if (!controller || !parsed.ok || disabled) return;
     onCommand(
@@ -1061,7 +1061,7 @@ function VariableDebugRow({
     setEditing(false);
   };
   const cancel = () => {
-    setDraft(variableDefaultValueToText(variable.value));
+    setDraft(variableValueToText(variable.value));
     setEditing(false);
   };
   const setValue = (value: unknown) => {
@@ -1198,9 +1198,9 @@ function VariableDebugRow({
           ) : (
             <span
               className="min-w-0 max-w-[45%] truncate font-mono text-muted-foreground"
-              title={variableDefaultValueToText(variable.value)}
+              title={variableValueToText(variable.value)}
             >
-              {variableDefaultValueToText(variable.value)}
+              {variableValueToText(variable.value)}
             </span>
           )}
           <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -1253,7 +1253,7 @@ function VariablesPanel({
     return variables.filter((variable) => {
       const record = recordFor(project, 'variables', variable.id);
       const label = fallbackLabel(variable.id, record?.label ?? variable.label);
-      return [variable.id, label, variable.type, variableDefaultValueToText(variable.value)].some(
+      return [variable.id, label, variable.type, variableValueToText(variable.value)].some(
         (value) => String(value).toLowerCase().includes(normalizedQuery),
       );
     });

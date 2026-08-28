@@ -1517,12 +1517,16 @@ Result<void, Diagnostics> SessionState::upsert_material_parameter(const Compiled
             [&](const auto& binding) {
                 using B = std::decay_t<decltype(binding)>;
                 if constexpr (std::is_same_v<B, MaterialPropertyBinding>) {
-                    const auto* property = project.find_property(binding.property);
+                    const auto owner = property_target_owner(binding.target);
+                    const auto* property = owner ? project.find_property(*owner, binding.property)
+                                                 : project.find_property(binding.property);
                     if (property == nullptr || property->nullable() ||
                         !property_can_drive_material_parameter(*property, declaration->type))
                         return false;
                     if (std::holds_alternative<GlobalPropertyTarget>(binding.target))
                         return property->is_global();
+                    if (property->exact_owner())
+                        return owner && *property->exact_owner() == *owner;
                     const auto target_kind = property_target_owner_kind(binding.target);
                     return !property->is_global() && target_kind &&
                            std::binary_search(property->allowed_owners().begin(),

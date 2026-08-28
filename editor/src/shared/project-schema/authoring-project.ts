@@ -98,6 +98,7 @@ export interface AuthoringRecordBase {
   archetypeOverrides?: Record<string, unknown>;
   traits?: EntityId[];
   properties?: PropertyAssignments;
+  localProperties?: import('./authoring-properties').OwnerLocalProperty[];
 }
 
 export interface CreateAuthoringProjectOptions {

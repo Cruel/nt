@@ -207,7 +207,7 @@ PropertyResolver::validate_global(const PropertyId& property) const
 Result<const PropertyDefinition*, Diagnostics>
 PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const PropertyId& property) const
 {
-    const auto* declaration = m_project.find_property(property);
+    const auto* declaration = m_project.find_property(owner, property);
     if (declaration == nullptr)
         return Result<const PropertyDefinition*, Diagnostics>::failure(
             property_error("runtime.unknown_property", owner, property, "is not declared"));
@@ -217,8 +217,12 @@ PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const Propert
             property_error("runtime.property_scope_mismatch", owner, property,
                            "is Global and cannot be read through an identity"));
 
-    if (!std::binary_search(declaration->allowed_owners().begin(),
-                            declaration->allowed_owners().end(), property_owner_kind(owner)))
+    const bool owner_allowed =
+        declaration->exact_owner()
+            ? *declaration->exact_owner() == owner
+            : std::binary_search(declaration->allowed_owners().begin(),
+                                 declaration->allowed_owners().end(), property_owner_kind(owner));
+    if (!owner_allowed)
         return Result<const PropertyDefinition*, Diagnostics>::failure(
             property_error("runtime.property_owner_not_allowed", owner, property,
                            "is not allowed on that owner kind"));

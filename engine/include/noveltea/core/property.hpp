@@ -46,6 +46,7 @@ struct PropertyDefinitionInput {
     std::optional<RuntimeValue> default_value;
     PropertyScope scope;
     std::vector<PropertyOwnerKind> allowed_owners;
+    std::optional<PropertyOwnerRef> exact_owner{};
     std::string label{};
     std::string description{};
 };
@@ -66,6 +67,10 @@ public:
     {
         return m_allowed_owners;
     }
+    [[nodiscard]] const std::optional<PropertyOwnerRef>& exact_owner() const noexcept
+    {
+        return m_exact_owner;
+    }
     [[nodiscard]] const std::string& label() const noexcept { return m_label; }
     [[nodiscard]] const std::string& description() const noexcept { return m_description; }
 
@@ -76,7 +81,8 @@ private:
         : m_id(std::move(input.id)), m_value_type(std::move(input.value_type)),
           m_nullable(input.nullable), m_default_value(std::move(input.default_value)),
           m_scope(input.scope), m_allowed_owners(std::move(input.allowed_owners)),
-          m_label(std::move(input.label)), m_description(std::move(input.description))
+          m_exact_owner(std::move(input.exact_owner)), m_label(std::move(input.label)),
+          m_description(std::move(input.description))
     {
     }
     PropertyId m_id;
@@ -85,6 +91,7 @@ private:
     std::optional<RuntimeValue> m_default_value;
     PropertyScope m_scope;
     std::vector<PropertyOwnerKind> m_allowed_owners;
+    std::optional<PropertyOwnerRef> m_exact_owner;
     std::string m_label;
     std::string m_description;
 };
@@ -161,6 +168,20 @@ using PropertyLookupResult = std::variant<RuntimeValue, MissingPropertyValue>;
     return std::visit([](const auto& id) { return PropertyTargetRef{id}; }, owner);
 }
 
+[[nodiscard]] inline std::optional<PropertyOwnerRef>
+property_target_owner(const PropertyTargetRef& target) noexcept
+{
+    return std::visit(
+        [](const auto& value) -> std::optional<PropertyOwnerRef> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
+                return std::nullopt;
+            else
+                return PropertyOwnerRef{value};
+        },
+        target);
+}
+
 [[nodiscard]] inline std::optional<PropertyOwnerKind>
 property_target_owner_kind(const PropertyTargetRef& target) noexcept
 {
@@ -214,14 +235,19 @@ property_target_owner_kind(const PropertyTargetRef& target) noexcept
 [[nodiscard]] inline Result<PropertyDefinition, Diagnostics>
 make_property_definition(PropertyDefinitionInput input)
 {
+    const bool exact_identity =
+        input.scope == PropertyScope::Identity && input.exact_owner.has_value();
     if (input.scope > PropertyScope::Identity ||
         (input.scope == PropertyScope::Global &&
-         (!input.default_value || !input.allowed_owners.empty())) ||
-        (input.scope == PropertyScope::Identity && input.allowed_owners.empty()))
+         (!input.default_value || !input.allowed_owners.empty() ||
+          input.exact_owner.has_value())) ||
+        (input.scope == PropertyScope::Identity && !exact_identity &&
+         input.allowed_owners.empty()) ||
+        (exact_identity && !input.allowed_owners.empty()))
         return Result<PropertyDefinition, Diagnostics>::failure(Diagnostics{
             Diagnostic{.code = "domain.invalid_property_definition",
-                       .message = "Global Properties require a default and no owner kinds; "
-                                  "identity Properties require at least one owner kind"}});
+                       .message = "Global Properties require a default and no owner; identity "
+                                  "Properties require either owner kinds or one exact owner"}});
     for (const auto owner : input.allowed_owners) {
         if (owner > PropertyOwnerKind::ItemStack)
             return Result<PropertyDefinition, Diagnostics>::failure(
@@ -263,8 +289,11 @@ make_property_definition(PropertyDefinitionInput input)
 make_property_assignment(PropertyOwnerKind owner_kind, const PropertyDefinition& definition,
                          RuntimeValue value)
 {
-    const bool owner_allowed = std::binary_search(definition.allowed_owners().begin(),
-                                                  definition.allowed_owners().end(), owner_kind);
+    const bool owner_allowed =
+        definition.exact_owner()
+            ? property_owner_kind(*definition.exact_owner()) == owner_kind
+            : std::binary_search(definition.allowed_owners().begin(),
+                                 definition.allowed_owners().end(), owner_kind);
     if (!owner_allowed || !property_value_matches(definition, value))
         return Result<PropertyAssignment, Diagnostics>::failure(Diagnostics{
             Diagnostic{.code = "domain.invalid_property_assignment",
@@ -279,8 +308,9 @@ make_property_override(PropertyTargetRef target, const PropertyDefinition& defin
 {
     const auto owner_kind = property_target_owner_kind(target);
     const bool target_allowed =
-        definition.is_global()
-            ? !owner_kind.has_value()
+        definition.is_global() ? !owner_kind.has_value()
+        : definition.exact_owner()
+            ? property_target(*definition.exact_owner()) == target
             : owner_kind.has_value() &&
                   std::binary_search(definition.allowed_owners().begin(),
                                      definition.allowed_owners().end(), *owner_kind);

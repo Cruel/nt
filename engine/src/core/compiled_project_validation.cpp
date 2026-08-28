@@ -17,7 +17,10 @@ public:
 #define INDEX(member, id_expression)                                                               \
     for (std::size_t index = 0; index < input.member.size(); ++index)                              \
     m_##member.emplace(id_expression, index)
-        INDEX(properties, input.properties[index].id());
+        for (std::size_t index = 0; index < input.properties.size(); ++index) {
+            if (!input.properties[index].exact_owner())
+                m_properties.emplace(input.properties[index].id(), index);
+        }
         INDEX(traits, input.traits[index].id);
         INDEX(assets, input.assets[index].id);
         INDEX(layouts, input.layouts[index].id);
@@ -72,6 +75,16 @@ private:
     {
         const auto found = m_properties.find(id);
         return found == m_properties.end() ? nullptr : &m_input.properties[found->second];
+    }
+
+    const PropertyDefinition* property(const PropertyOwnerRef& owner, const PropertyId& id) const
+    {
+        const auto exact = std::find_if(m_input.properties.begin(), m_input.properties.end(),
+                                        [&](const PropertyDefinition& value) {
+                                            return value.id() == id && value.exact_owner() &&
+                                                   *value.exact_owner() == owner;
+                                        });
+        return exact == m_input.properties.end() ? property(id) : &*exact;
     }
 
     const TraitDefinition* trait(const TraitId& id) const
@@ -565,21 +578,29 @@ private:
     void validate_assignments(const Definition& definition, PropertyOwnerKind owner,
                               const std::string& path)
     {
+        std::optional<PropertyOwnerRef> exact_owner;
+        using Id = std::decay_t<decltype(definition.identity.id)>;
+        if constexpr (std::is_same_v<Id, RoomId> || std::is_same_v<Id, CharacterId>)
+            exact_owner = PropertyOwnerRef{definition.identity.id};
         std::unordered_set<PropertyId> own_properties;
         for (std::size_t index = 0; index < definition.identity.property_assignments.size();
              ++index) {
             const auto& assignment = definition.identity.property_assignments[index];
             own_properties.insert(assignment.property_id());
-            const auto found = m_properties.find(assignment.property_id());
-            if (found == m_properties.end()) {
+            const auto* declaration = exact_owner ? property(*exact_owner, assignment.property_id())
+                                                  : property(assignment.property_id());
+            if (!declaration) {
                 require(m_properties, assignment.property_id(), "property",
                         path + "/propertyAssignments/" + std::to_string(index) + "/propertyId");
                 continue;
             }
-            const auto& declaration = m_input.properties[found->second];
-            if (!std::binary_search(declaration.allowed_owners().begin(),
-                                    declaration.allowed_owners().end(), owner) ||
-                !property_value_matches(declaration, assignment.assigned_value()))
+            const bool owner_allowed =
+                declaration->exact_owner()
+                    ? exact_owner && *declaration->exact_owner() == *exact_owner
+                    : std::binary_search(declaration->allowed_owners().begin(),
+                                         declaration->allowed_owners().end(), owner);
+            if (!owner_allowed ||
+                !property_value_matches(*declaration, assignment.assigned_value()))
                 error("compiled_project.invalid_property_assignment",
                       "Property assignment is incompatible with its declaration.",
                       path + "/propertyAssignments/" + std::to_string(index));

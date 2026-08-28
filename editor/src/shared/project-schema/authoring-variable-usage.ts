@@ -1,5 +1,5 @@
 import type { AuthoringProject } from './authoring-project';
-import { isVariableDefaultValueCompatible, parseVariableData } from './authoring-variables';
+import { isVariableValueCompatible, parseVariableData } from './authoring-variables';
 
 export type VariableUsageValidationResult =
   | { ok: true }
@@ -17,7 +17,10 @@ export function validateVariableRuntimeValue(
   }
 
   const variable = parseVariableData(record.data);
-  if (!variable || !isVariableDefaultValueCompatible(variable.type, value, variable.enumValues)) {
+  if (
+    !variable ||
+    !isVariableValueCompatible(variable.type, value, variable.enumValues, variable.nullable)
+  ) {
     return {
       ok: false,
       kind: 'type-mismatch',

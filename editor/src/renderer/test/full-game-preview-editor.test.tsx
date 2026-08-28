@@ -875,7 +875,7 @@ describe('FullGamePreviewEditor', () => {
     project.variables.flag = {
       id: 'flag',
       label: 'Has Key',
-      data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' },
+      data: { kind: 'variable', type: 'boolean', nullable: false, value: false, scope: 'global' },
     };
     project.rooms.foyer = {
       id: 'foyer',
@@ -983,22 +983,22 @@ describe('FullGamePreviewEditor', () => {
     project.variables.alpha = {
       id: 'alpha',
       label: 'Alpha Flag',
-      data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' },
+      data: { kind: 'variable', type: 'boolean', nullable: false, value: false, scope: 'global' },
     };
     project.variables.beta = {
       id: 'beta',
       label: 'Beta Count',
-      data: { kind: 'variable', type: 'integer', defaultValue: 0, scope: 'global' },
+      data: { kind: 'variable', type: 'integer', nullable: false, value: 0, scope: 'global' },
     };
     project.variables.gamma = {
       id: 'gamma',
       label: 'Gamma Name',
-      data: { kind: 'variable', type: 'string', defaultValue: '', scope: 'global' },
+      data: { kind: 'variable', type: 'string', nullable: false, value: '', scope: 'global' },
     };
     project.variables.delta = {
       id: 'delta',
       label: 'Delta Value',
-      data: { kind: 'variable', type: 'number', defaultValue: 0, scope: 'global' },
+      data: { kind: 'variable', type: 'number', nullable: false, value: 0, scope: 'global' },
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 

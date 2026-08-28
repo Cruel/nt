@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 
@@ -24,9 +25,37 @@ void append(Diagnostics& destination, const Diagnostics& source, std::string_vie
     }
 }
 
+template<class Id> std::optional<PropertyOwnerRef> exact_owner_for_id(const Id& id)
+{
+    if constexpr (std::is_same_v<Id, RoomId> || std::is_same_v<Id, CharacterId>)
+        return PropertyOwnerRef{id};
+    else
+        return std::nullopt;
+}
+
+template<class Id>
+const PropertyDefinition* find_property_for_identity(
+    const std::vector<PropertyDefinition>& all_properties,
+    const std::unordered_map<PropertyId, const PropertyDefinition*>& registry, const Id& owner_id,
+    const PropertyId& property_id)
+{
+    const auto exact_owner = exact_owner_for_id(owner_id);
+    if (exact_owner) {
+        const auto found = std::find_if(
+            all_properties.begin(), all_properties.end(), [&](const PropertyDefinition& property) {
+                return property.id() == property_id && property.exact_owner() == exact_owner;
+            });
+        if (found != all_properties.end())
+            return &*found;
+    }
+    const auto found = registry.find(property_id);
+    return found == registry.end() ? nullptr : found->second;
+}
+
 template<class Id>
 std::optional<compiled::PropertyBearingDefinition<Id>>
 link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOwnerKind owner,
+              const std::vector<PropertyDefinition>& all_properties,
               const std::unordered_map<PropertyId, const PropertyDefinition*>& properties,
               const std::unordered_map<TraitId, const compiled::TraitDefinition*>& traits,
               Diagnostics& diagnostics, std::string_view source_path, const std::string& path)
@@ -36,8 +65,9 @@ link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOw
     assignments.reserve(identity.property_assignments.size());
     for (std::size_t index = 0; index < identity.property_assignments.size(); ++index) {
         auto& assignment = identity.property_assignments[index];
-        const auto found = properties.find(assignment.property_id);
-        if (found == properties.end()) {
+        const auto* definition = find_property_for_identity(all_properties, properties, identity.id,
+                                                            assignment.property_id);
+        if (!definition) {
             diagnostics.push_back(Diagnostic{
                 .code = "compiled_project.unresolved_reference",
                 .message = "Unresolved property reference '" + assignment.property_id.text() + "'.",
@@ -47,7 +77,7 @@ link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOw
                     path + "/propertyAssignments/" + std::to_string(index) + "/propertyId"});
             continue;
         }
-        auto linked = make_property_assignment(owner, *found->second, std::move(assignment.value));
+        auto linked = make_property_assignment(owner, *definition, std::move(assignment.value));
         if (!linked) {
             append(diagnostics, linked.error(), source_path,
                    path + "/propertyAssignments/" + std::to_string(index));
@@ -156,6 +186,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             .default_value = std::move(declaration.default_value),
             .scope = declaration.scope,
             .allowed_owners = std::move(declaration.allowed_owners),
+            .exact_owner = std::move(declaration.exact_owner),
             .label = std::move(declaration.label),
             .description = std::move(declaration.description),
         });
@@ -174,8 +205,10 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
 
     std::unordered_map<PropertyId, const PropertyDefinition*> property_index;
     property_index.reserve(properties.size());
-    for (const auto& property : properties)
-        property_index.emplace(property.id(), &property);
+    for (const auto& property : properties) {
+        if (!property.exact_owner())
+            property_index.emplace(property.id(), &property);
+    }
 
     std::vector<compiled::TraitDefinition> traits;
     traits.reserve(wire.traits.size());
@@ -253,8 +286,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         for (std::size_t index = 0; index < values.size(); ++index) {
             auto& value = values[index];
             auto identity = link_identity(std::move(value.identity), PropertyOwnerKind::Feature,
-                                          property_index, trait_index, diagnostics, source_path,
-                                          path + "/" + std::to_string(index));
+                                          properties, property_index, trait_index, diagnostics,
+                                          source_path, path + "/" + std::to_string(index));
             if (!identity)
                 continue;
             linked.push_back(compiled::FeatureDefinition{
@@ -269,8 +302,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
     output_member.reserve(wire.wire_member.size());                                                \
     for (std::size_t index = 0; index < wire.wire_member.size(); ++index) {                        \
         auto& value = wire.wire_member[index];                                                     \
-        auto identity = link_identity(std::move(value.identity), owner_kind, property_index,       \
-                                      trait_index, diagnostics, source_path,                       \
+        auto identity = link_identity(std::move(value.identity), owner_kind, properties,           \
+                                      property_index, trait_index, diagnostics, source_path,       \
                                       std::string(path_text) + "/" + std::to_string(index));       \
         if (!identity)                                                                             \
             continue;                                                                              \
@@ -364,8 +397,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         std::optional<compiled::ArchetypeConfiguration> configuration;
         if (auto* room = std::get_if<compiled::wire::RoomDefinition>(&archetype.configuration)) {
             auto identity =
-                link_identity(std::move(room->identity), PropertyOwnerKind::Room, property_index,
-                              trait_index, diagnostics, source_path, path);
+                link_identity(std::move(room->identity), PropertyOwnerKind::Room, properties,
+                              property_index, trait_index, diagnostics, source_path, path);
             if (identity)
                 configuration = compiled::RoomDefinition{
                     std::move(*identity),
@@ -388,9 +421,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                     std::move(room->hotspots)};
         } else if (auto* character =
                        std::get_if<compiled::wire::CharacterDefinition>(&archetype.configuration)) {
-            auto identity =
-                link_identity(std::move(character->identity), PropertyOwnerKind::Character,
-                              property_index, trait_index, diagnostics, source_path, path);
+            auto identity = link_identity(std::move(character->identity),
+                                          PropertyOwnerKind::Character, properties, property_index,
+                                          trait_index, diagnostics, source_path, path);
             if (identity)
                 configuration =
                     compiled::CharacterDefinition{std::move(*identity),
@@ -406,9 +439,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                                   std::move(character->initial_world_state)};
         } else if (auto* interactable = std::get_if<compiled::wire::InteractableDefinition>(
                        &archetype.configuration)) {
-            auto identity =
-                link_identity(std::move(interactable->identity), PropertyOwnerKind::Interactable,
-                              property_index, trait_index, diagnostics, source_path, path);
+            auto identity = link_identity(
+                std::move(interactable->identity), PropertyOwnerKind::Interactable, properties,
+                property_index, trait_index, diagnostics, source_path, path);
             if (identity)
                 configuration = compiled::InteractableDefinition{
                     std::move(*identity), std::move(interactable->display_name),

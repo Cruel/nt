@@ -282,6 +282,12 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     NONE,
   ],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
+  // #136 introduces ordered owner-local Property declarations on migrated Room/Character owners.
+  // Every declaration field contributes directly to that exact owner's compiled/runtime state.
+  [/^\/(?:rooms|characters)\/\*\/localProperties(?:\/|$)/, OWNER],
+  // Nullable is a new Variable runtime semantic in #136. The renamed authored `value` leaf is
+  // preserved against the previous `defaultValue` review slot below.
+  [/^\/variables\/\*\/data\/nullable$/, OWNER],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -397,6 +403,8 @@ function isItemContractLeaf(path: JsonPointer): boolean {
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
   const segments = parseJsonPointer(path);
+  if (path === ('/variables/*/data/value' as JsonPointer))
+    return '/variables/*/data/defaultValue' as JsonPointer;
   if (
     segments.length >= 5 &&
     segments[0] === 'scenes' &&
@@ -741,7 +749,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
-    characters: 'ea350f01',
+    characters: '97ce4a69',
     dialogues: 'c3f27078',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
@@ -755,8 +763,8 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: '93cad5aa',
-    scenes: '21280450',
+    rooms: '94956116',
+    scenes: 'bc35a007',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: 'e2c61a79',
@@ -764,7 +772,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     tests: '260b9d4f',
     traits: 'e06af863',
     undefinedInteractionProgram: '132464ef',
-    variables: '9ac2af8d',
+    variables: '9c9e4800',
     verbs: 'dd471160',
   });
 
