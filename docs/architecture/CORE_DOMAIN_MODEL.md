@@ -112,55 +112,58 @@ non-yielding Bootstrap Module import runs successfully before the entrypoint sta
 
 ## Properties and Traits
 
-Project globals and identity-scoped custom state use one typed Property system. Variable is only the
-editor-facing authoring term for a Global Property. A `PropertyDefinition` owns a globally unique
-`PropertyId`, scalar type, nullability, scope, optional identity-scoped default, and admitted owner
-kinds where applicable. Global Properties require authored defaults. Values use the closed
-`RuntimeValue` scalar set: null, boolean, signed integer, floating-point number, and string. Absence,
-an explicit nullable null override, and removing an override are distinct states.
+Project globals and gameplay-identity custom state use one Property system. Variable is only the
+editor-facing authoring term for a Global Property. Identity Properties are not declared in a global
+registry: Rooms and Characters own concrete typed Values; Interactable definitions and Archetypes own
+reusable typed schemas with optional Defaults; exact Interactable Instances own sparse Value overrides
+and may add completely Instance-local typed Properties. Room Features use concrete Values and
+Interactable-definition Features use reusable Defaults. The same `PropertyId` may therefore have
+unrelated schemas on different owners; an identity Property is identified by its exact owner plus key.
 
-Room, Scene, Dialogue, Character, Interactable, Verb, Interaction, and Map may carry typed authored
-assignments and attached Traits. A Trait is a discoverable capability/configuration declaration whose
-members are ordinary Properties: a member either requires that Property to have an authored value or
-configures an authored fallback value. Traits do not create another value namespace and never merge
-structural fields, programs, graphs, placements, exits, or resources. Categories and tags remain
-editor-only organization with no gameplay semantics.
+A Trait is a discoverable capability/configuration declaration for Room, Character, Interactable, or
+Feature owners. Its members are self-contained typed Property contracts: a member either requires a
+more-specific concrete Value or supplies an optional Trait Default. Multiple Traits may contribute one
+compatible key, but same-level Trait Defaults must agree exactly. Traits do not create another value
+namespace and never merge structural fields, programs, graphs, placements, exits, or resources.
+Categories and tags remain editor-only organization with no gameplay semantics.
 
-Property lookup for definition `D` is exactly:
+For an authored identity Property, effective resolution is the runtime override in `SessionState`, the
+most-specific concrete/local authored Value or reusable definition Default, an inherited Archetype
+Default where applicable, a configured value supplied by an attached Trait, then a typed missing-value
+result. An exact Interactable Instance Value is more specific than every definition-side layer.
+Unsetting removes only the runtime override and resumes the same authored lookup. Global lookup is the
+same sparse override store followed by the Variable's required authored Value.
 
-1. `D`'s runtime override in `SessionState`;
-2. `D`'s own authored assignment in `CompiledProject`;
-3. a configured value supplied by an attached Trait;
-4. the property's declared default;
-5. a typed missing-value result.
+`CompiledProject` preserves the contracts needed for this lookup as Global and exact-owner Property
+declarations plus owner-local contracts/assignments embedded in compiled definitions, alongside
+immutable Trait contracts and attachments. Overrides are stored once by `(PropertyTargetRef,
+PropertyId)`, where the target is either the explicit global target or an exact gameplay identity.
+Production Room, Character, Interactable, and Feature reads use the same Property resolver seam;
+runtime consumers do not implement alternative Trait precedence themselves.
 
-Overrides are stored once by `(PropertyTargetRef, PropertyId)`, where the target is either the explicit
-global target or an admitted identity. Identity overrides are owner-local: no value propagates from
-one definition to another. Unsetting removes only that override and resumes the same
-authored/Trait-default lookup. Global lookup resolves the same override store before its required
-authored default. Production Room, Character, and Interactable reads use the same
-`RuntimeWorld::resolve_property(...)` seam; runtime consumers do not implement alternative Trait
-precedence themselves.
-
-Trait attachments and their self-contained typed Property contracts are immutable compiled data.
-Concrete authored values/defaults override Trait Defaults. Incompatible same-key Trait schemas,
+Runtime code may also set a key for which no authored schema is effective. Such a key is a schema-less
+dynamic Property stored only in session state; each write may use any admitted scalar `RuntimeValue`
+type, including explicit null. Introducing an authored schema over an existing dynamic value validates
+that value atomically before publishing the structural change. Incompatible same-key Trait schemas,
 conflicting Trait Defaults, invalid owner attachments, and unsatisfied no-Default members on concrete
-owners are rejected before runtime publication. Verb availability and default programs are
-owned only by that Verb; an unhandled selected program falls back to the selected Verb's own default
-program and then to the project undefined-interaction fallback. There is no generic same-type gameplay
-definition inheritance.
+owners are rejected before runtime publication, while reusable definitions and Archetypes may remain
+incomplete. Verb availability and default programs remain definition-local; an unhandled selected
+program falls back to that Verb's own default program and then to the project undefined-interaction
+fallback. There is no generic same-type gameplay definition inheritance.
 
 ## Properties, session state, and saves
 
 `SessionState` owns one sparse Property override collection for both Global and identity-scoped custom
-state, plus active flow frames and logical positions, visits/history, show-once markers, actor state,
-unique-interactable location/state, queues, timers, and other mutable progress. Authored Property
-defaults remain immutable in `CompiledProject`; backend resources, renderer state, RmlUi state, audio
-internals, tween internals, and Lua VM or coroutine state are excluded.
+state, including schema-less dynamic keys, plus active flow frames and logical positions,
+visits/history, show-once markers, actor state, unique-interactable location/state, queues, timers, and
+other mutable progress. Authored Property schemas/Values/Defaults remain immutable in
+`CompiledProject`; backend resources, renderer state, RmlUi state, audio internals, tween internals,
+and Lua VM or coroutine state are excluded.
 
 The Save File V1 payload is the persisted subset of `SessionState`. Every authoritative
-Property override is serialized once at its actual target; authored values/defaults, Trait contracts
-and Defaults, and other effective values are never materialized into a save. There is no Session-versus-Save Property class. A missing
+Property override or dynamic value is serialized once at its actual target; authored
+schemas/Values/Defaults, Trait contracts and Defaults, and other effective values are never
+materialized into a save. There is no Session-versus-Save Property class. A missing
 override record means unset, while an admitted nullable null is an explicit saved override. Stable flow
 positions and remaining logical duration waits may be saved. Visual/audio operations restore to
 documented logical post-step state rather than backend snapshots. Every save carries the exact

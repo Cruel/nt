@@ -14,12 +14,14 @@ import {
   type OwnerPropertyTraitState,
 } from '@/components/properties/OwnerLocalPropertiesEditor';
 import {
-  ownerLocalPropertyReferencePaths,
+  ownerLocalPropertyReferences,
   renameOwnerLocalPropertyReferencePatches,
 } from '@/project/owner-local-property-references';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
+import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   resolveArchetypeConfiguration,
@@ -152,6 +154,8 @@ function expressionForPreview(data: CharacterData) {
 export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const projectDocument = useProjectStore((state) => state.document);
+  const setUsages = useEntityUsagesStore((state) => state.setUsages);
+  const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const characterId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const record = characterId && project ? project.characters[characterId] : null;
@@ -975,12 +979,25 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           }
           onTraitStateChange={commitPropertyTraitState}
           usageCountFor={(propertyId) =>
-            ownerLocalPropertyReferencePaths(
+            ownerLocalPropertyReferences(
               activeProject,
               { kind: 'character', id: activeCharacterId },
               propertyId,
             ).length
           }
+          onShowUsages={(propertyId) => {
+            const usages = ownerLocalPropertyReferences(
+              activeProject,
+              { kind: 'character', id: activeCharacterId },
+              propertyId,
+            );
+            setUsages(
+              { collection: 'characters', id: activeCharacterId },
+              usages,
+              `character/${activeCharacterId} · ${propertyId}`,
+            );
+            setActiveBottomPanel('references');
+          }}
         />
       </div>
 

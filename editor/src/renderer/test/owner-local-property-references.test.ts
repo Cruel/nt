@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { defaultInteractableInstanceData } from '../../shared/project-schema/authoring-interactables';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   ownerLocalPropertyReferencePaths,
+  ownerLocalPropertyReferences,
   renameOwnerLocalPropertyReferencePatches,
 } from '../project/owner-local-property-references';
 
@@ -72,6 +74,76 @@ describe('owner-local Property references', () => {
         op: 'replace',
         path: '/scenes/references/data/operation/property/key',
         value: 'temperament',
+      },
+    ]);
+  });
+
+  it('tracks exact Interactable Instance owner/key references and exposes navigable source records', () => {
+    const project = createAuthoringProject();
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key-definition');
+    project.scenes.references = {
+      id: 'references',
+      label: 'References',
+      data: {
+        operations: [
+          {
+            kind: 'set-property',
+            owner: {
+              kind: 'interactable',
+              interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+            },
+            property: { key: 'condition' },
+            value: 'used',
+          },
+        ],
+        additionalDependencies: {
+          targets: [
+            {
+              kind: 'property-value',
+              owner: { kind: 'interactable', id: 'key' },
+              propertyId: 'condition',
+            },
+          ],
+        },
+      } as never,
+    };
+
+    expect(
+      ownerLocalPropertyReferences(project, { kind: 'interactable', id: 'key' }, 'condition'),
+    ).toEqual([
+      {
+        sourceCollection: 'scenes',
+        sourceId: 'references',
+        path: '/scenes/references/data/additionalDependencies/targets/0/propertyId',
+        target: { collection: 'interactables', id: 'key-definition' },
+        kind: 'explicit-ref',
+      },
+      {
+        sourceCollection: 'scenes',
+        sourceId: 'references',
+        path: '/scenes/references/data/operations/0/property/key',
+        target: { collection: 'interactables', id: 'key-definition' },
+        kind: 'explicit-ref',
+      },
+    ]);
+
+    expect(
+      renameOwnerLocalPropertyReferencePatches(
+        project,
+        { kind: 'interactable', id: 'key' },
+        'condition',
+        'state',
+      ),
+    ).toEqual([
+      {
+        op: 'replace',
+        path: '/scenes/references/data/additionalDependencies/targets/0/propertyId',
+        value: 'state',
+      },
+      {
+        op: 'replace',
+        path: '/scenes/references/data/operations/0/property/key',
+        value: 'state',
       },
     ]);
   });

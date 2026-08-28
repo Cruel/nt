@@ -13,6 +13,7 @@ export type EntityUsageRow =
 
 export interface EntityUsagesResult {
   target: ReferenceTarget;
+  displayLabel?: string;
   usages: ReferenceUsage[];
   aliasUsages: AssetAliasUsage[];
   usageRows: EntityUsageRow[];
@@ -22,7 +23,7 @@ export interface EntityUsagesResult {
 
 interface EntityUsagesStore {
   result: EntityUsagesResult | null;
-  setUsages: (target: ReferenceTarget, usages: ReferenceUsage[]) => void;
+  setUsages: (target: ReferenceTarget, usages: ReferenceUsage[], displayLabel?: string) => void;
   setSearchResults: (target: ReferenceTarget, results: ProjectSearchResult[]) => void;
   setSearchAndSourceResults: (
     target: ReferenceTarget,
@@ -34,10 +35,11 @@ interface EntityUsagesStore {
 
 export const useEntityUsagesStore = create<EntityUsagesStore>()((set) => ({
   result: null,
-  setUsages: (target, usages) =>
+  setUsages: (target, usages, displayLabel) =>
     set({
       result: {
         target,
+        ...(displayLabel ? { displayLabel } : {}),
         usages,
         aliasUsages: [],
         usageRows: usages.map((usage) => ({ kind: 'reference', usage })),

@@ -19,6 +19,7 @@ import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryC
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
+import { renameOwnerLocalPropertyReferencePatches } from '@/project/owner-local-property-references';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
@@ -423,13 +424,21 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                   project={project}
                   instanceId={instanceId}
                   instance={instance}
-                  onChange={(next) =>
+                  onChange={(next, change) =>
                     applyProjectPatches('Update Interactable Instance Properties', [
                       {
                         op: 'replace',
                         path: `/interactableInstances/${escapePointerSegment(instanceId)}`,
                         value: next,
                       },
+                      ...(change
+                        ? renameOwnerLocalPropertyReferencePatches(
+                            project,
+                            { kind: 'interactable', id: instanceId },
+                            change.fromId,
+                            change.toId,
+                          )
+                        : []),
                     ])
                   }
                 />

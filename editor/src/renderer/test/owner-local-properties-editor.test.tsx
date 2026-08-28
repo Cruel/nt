@@ -5,7 +5,9 @@ import { OwnerLocalPropertiesEditor } from '@/components/properties/OwnerLocalPr
 import type { TraitDefinition } from '../../shared/project-schema/authoring-properties';
 
 describe('OwnerLocalPropertiesEditor Trait provenance', () => {
-  it('renders one effective row with a numeric Use count and hard-stop multi-Trait colors', () => {
+  it('renders one effective row with a navigable numeric Use count and hard-stop multi-Trait colors', async () => {
+    const user = userEvent.setup();
+    const onShowUsages = vi.fn();
     const first: TraitDefinition = {
       id: 'first',
       label: 'First',
@@ -41,6 +43,7 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
         properties={[]}
         onChange={vi.fn()}
         usageCountFor={() => 3}
+        onShowUsages={onShowUsages}
         traits={{ first, second }}
         ownerKind="room"
         attachedTraits={['second', 'first']}
@@ -55,6 +58,8 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
     expect(useCell.getAttribute('style')).toContain('linear-gradient');
     expect(useCell.getAttribute('style')).toContain('rgb(37, 99, 235)');
     expect(useCell.getAttribute('style')).toContain('rgb(220, 38, 38)');
+    await user.click(screen.getByRole('button', { name: '3 usages for mood' }));
+    expect(onShowUsages).toHaveBeenCalledWith('mood');
   });
 
   it('preserves an explicit local override as a standalone Property on last-source detach', async () => {

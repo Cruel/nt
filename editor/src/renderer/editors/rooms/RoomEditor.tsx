@@ -36,9 +36,10 @@ import {
 } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import {
-  ownerLocalPropertyReferencePaths,
+  ownerLocalPropertyReferences,
   renameOwnerLocalPropertyReferencePatches,
 } from '@/project/owner-local-property-references';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
@@ -115,6 +116,7 @@ import {
 import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import { buildRoomDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import {
   registerWorkbenchTargetHandler,
   type PendingWorkbenchRevealTarget,
@@ -639,6 +641,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   });
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const openTab = useWorkbenchStore((state) => state.openTab);
+  const setUsages = useEntityUsagesStore((state) => state.setUsages);
+  const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
@@ -1308,9 +1312,21 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             }
             onTraitStateChange={commitPropertyTraitState}
             usageCountFor={(propertyId) =>
-              ownerLocalPropertyReferencePaths(project, { kind: 'room', id: roomId }, propertyId)
-                .length
+              ownerLocalPropertyReferences(project, { kind: 'room', id: roomId }, propertyId).length
             }
+            onShowUsages={(propertyId) => {
+              const usages = ownerLocalPropertyReferences(
+                project,
+                { kind: 'room', id: roomId },
+                propertyId,
+              );
+              setUsages(
+                { collection: 'rooms', id: roomId },
+                usages,
+                `room/${roomId} · ${propertyId}`,
+              );
+              setActiveBottomPanel('references');
+            }}
           />
         ) : null}
 
@@ -2441,7 +2457,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   project={project}
                   instanceId={interactable.instanceId}
                   instance={interactable.instance}
-                  onChange={(next) =>
+                  onChange={(next, change) =>
                     useCommandStore.getState().executeCommand({
                       type: 'project.applyPatch',
                       label: 'Update Interactable Instance Properties',
@@ -2451,6 +2467,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           path: `/interactableInstances/${escapePointerSegment(interactable.instanceId)}`,
                           value: next,
                         },
+                        ...(change
+                          ? renameOwnerLocalPropertyReferencePatches(
+                              project,
+                              { kind: 'interactable', id: interactable.instanceId },
+                              change.fromId,
+                              change.toId,
+                            )
+                          : []),
                       ],
                       originSaveUnitId: recordSaveUnitId('rooms', roomId),
                       persistencePolicy: 'manual-save',

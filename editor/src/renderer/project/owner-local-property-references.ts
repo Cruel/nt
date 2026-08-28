@@ -1,11 +1,16 @@
-import { buildJsonPointer } from '@/project/json-pointer';
+import { buildJsonPointer, parseJsonPointer } from '@/project/json-pointer';
 import type { JsonPatchOperation } from '@/project/json-patch';
+import {
+  isAuthoringCollectionKey,
+  type AuthoringCollectionKey,
+} from '../../shared/project-schema/authoring-collections';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import type { ReferenceUsage } from '../../shared/project-schema/authoring-references';
 
-export type MigratedPropertyOwnerKind = 'room' | 'character';
+export type OwnerLocalPropertyOwnerKind = 'room' | 'character' | 'interactable';
 
-export interface MigratedPropertyOwner {
-  kind: MigratedPropertyOwnerKind;
+export interface OwnerLocalPropertyOwner {
+  kind: OwnerLocalPropertyOwnerKind;
   id: string;
 }
 
@@ -13,20 +18,54 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function sceneOwnerMatches(value: unknown, owner: MigratedPropertyOwner): boolean {
+function sceneOwnerMatches(value: unknown, owner: OwnerLocalPropertyOwner): boolean {
   if (!isRecord(value) || value.kind !== owner.kind) return false;
   const reference = value[owner.kind];
   if (!isRecord(reference) || !isRecord(reference.$ref)) return false;
   return reference.$ref.id === owner.id;
 }
 
-function luaOwnerMatches(value: unknown, owner: MigratedPropertyOwner): boolean {
+function luaOwnerMatches(value: unknown, owner: OwnerLocalPropertyOwner): boolean {
   return isRecord(value) && value.kind === owner.kind && value.id === owner.id;
+}
+
+function sourceForPath(path: string): {
+  sourceCollection: AuthoringCollectionKey | 'project';
+  sourceId: string;
+} {
+  const [collection, id] = parseJsonPointer(path);
+  if (isAuthoringCollectionKey(collection) && id) {
+    return { sourceCollection: collection, sourceId: id };
+  }
+  return { sourceCollection: 'project', sourceId: 'project' };
+}
+
+function referenceTargetForOwner(project: AuthoringProject, owner: OwnerLocalPropertyOwner) {
+  if (owner.kind === 'room') return { collection: 'rooms' as const, id: owner.id };
+  if (owner.kind === 'character') return { collection: 'characters' as const, id: owner.id };
+  return {
+    collection: 'interactables' as const,
+    id: project.interactableInstances[owner.id]?.definition.$ref.id ?? owner.id,
+  };
+}
+
+export function ownerLocalPropertyReferences(
+  project: AuthoringProject,
+  owner: OwnerLocalPropertyOwner,
+  propertyId: string,
+): ReferenceUsage[] {
+  const target = referenceTargetForOwner(project, owner);
+  return ownerLocalPropertyReferencePaths(project, owner, propertyId).map((path) => ({
+    ...sourceForPath(path),
+    path,
+    target,
+    kind: 'explicit-ref',
+  }));
 }
 
 export function ownerLocalPropertyReferencePaths(
   project: AuthoringProject,
-  owner: MigratedPropertyOwner,
+  owner: OwnerLocalPropertyOwner,
   propertyId: string,
 ): string[] {
   const paths: string[] = [];
@@ -64,7 +103,7 @@ export function ownerLocalPropertyReferencePaths(
 
 export function renameOwnerLocalPropertyReferencePatches(
   project: AuthoringProject,
-  owner: MigratedPropertyOwner,
+  owner: OwnerLocalPropertyOwner,
   fromId: string,
   toId: string,
 ): JsonPatchOperation[] {

@@ -44,7 +44,9 @@ export function ReferencesPanel() {
     <div className="space-y-3 p-3 text-xs">
       <div className="flex items-center gap-2">
         <Badge variant="outline">References</Badge>
-        <span className="font-mono">{referenceTargetLabel(result.target)}</span>
+        <span className="font-mono">
+          {result.displayLabel ?? referenceTargetLabel(result.target)}
+        </span>
         <span className="text-muted-foreground">
           {result.usageRows.length === 0
             ? referenceUsageSummary([])
