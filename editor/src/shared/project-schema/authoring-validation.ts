@@ -74,8 +74,18 @@ function diagnostic(
   message: string,
   category = 'Project validation',
   code?: string,
+  navigation?: ToolDiagnostic['navigation'],
+  ownerPaths?: readonly string[],
 ): ProjectValidationDiagnosticLike {
-  return { severity, path, message, category, ...(code ? { code } : {}) };
+  return {
+    severity,
+    path,
+    message,
+    category,
+    ...(code ? { code } : {}),
+    ...(navigation ? { navigation } : {}),
+    ...(ownerPaths ? { ownerPaths: [...ownerPaths] } : {}),
+  };
 }
 
 function escapePathSegment(segment: string): string {
@@ -647,6 +657,18 @@ function validateInteractableProperties(
     const base = `/interactableInstances/${escapePathSegment(instanceId)}`;
     const definition = project.interactables[instance.definition.$ref.id];
     if (!definition) continue;
+    const ownerPaths =
+      instance.location.kind === 'room' && project.rooms[instance.location.room.$ref.id]
+        ? [`/rooms/${escapePathSegment(instance.location.room.$ref.id)}`]
+        : [`/interactables/${escapePathSegment(instance.definition.$ref.id)}`];
+    const instanceDiagnostic = (
+      severity: ToolSeverity,
+      path: string,
+      message: string,
+      category = 'Project validation',
+      code?: string,
+      navigation?: ToolDiagnostic['navigation'],
+    ) => diagnostic(severity, path, message, category, code, navigation, ownerPaths);
     const definitionTraits = new Set(
       resolveGameplayInstanceRecord(project, 'interactable', definition)?.traits ??
         definition.traits ??
@@ -656,18 +678,28 @@ function validateInteractableProperties(
     for (const [index, traitId] of instance.traits.add.entries()) {
       const path = `${base}/traits/add/${index}`;
       if (add.has(traitId))
-        diagnostics.push(diagnostic('error', path, `Trait '${traitId}' is added more than once.`));
+        diagnostics.push(
+          instanceDiagnostic('error', path, `Trait '${traitId}' is added more than once.`),
+        );
       add.add(traitId);
       const trait = project.traits[traitId];
       if (!trait)
-        diagnostics.push(diagnostic('error', path, `Trait '${traitId}' is not declared.`));
+        diagnostics.push(instanceDiagnostic('error', path, `Trait '${traitId}' is not declared.`));
       else if (!trait.ownerKinds.includes('interactable'))
         diagnostics.push(
-          diagnostic('error', path, `Trait '${traitId}' cannot be attached to interactable.`),
+          instanceDiagnostic(
+            'error',
+            path,
+            `Trait '${traitId}' cannot be attached to interactable.`,
+          ),
         );
       if (definitionTraits.has(traitId))
         diagnostics.push(
-          diagnostic('error', path, `Trait '${traitId}' is already inherited from the definition.`),
+          instanceDiagnostic(
+            'error',
+            path,
+            `Trait '${traitId}' is already inherited from the definition.`,
+          ),
         );
     }
     const remove = new Set<string>();
@@ -675,16 +707,20 @@ function validateInteractableProperties(
       const path = `${base}/traits/remove/${index}`;
       if (remove.has(traitId))
         diagnostics.push(
-          diagnostic('error', path, `Trait '${traitId}' is removed more than once.`),
+          instanceDiagnostic('error', path, `Trait '${traitId}' is removed more than once.`),
         );
       remove.add(traitId);
       if (!definitionTraits.has(traitId))
         diagnostics.push(
-          diagnostic('error', path, `Trait '${traitId}' is not inherited from the definition.`),
+          instanceDiagnostic(
+            'error',
+            path,
+            `Trait '${traitId}' is not inherited from the definition.`,
+          ),
         );
       if (add.has(traitId))
         diagnostics.push(
-          diagnostic('error', path, `Trait '${traitId}' cannot be both added and removed.`),
+          instanceDiagnostic('error', path, `Trait '${traitId}' cannot be both added and removed.`),
         );
     }
 
@@ -698,7 +734,7 @@ function validateInteractableProperties(
       const inheritedProperty = inherited.get(property.id);
       if (inheritedProperty && !arePropertySchemasCompatible(property, inheritedProperty.contract))
         diagnostics.push(
-          diagnostic(
+          instanceDiagnostic(
             'error',
             `${base}/localProperties/${index}`,
             `Instance-local Property '${property.id}' is incompatible with its inherited Property schema.`,
@@ -708,12 +744,17 @@ function validateInteractableProperties(
     for (const property of effective) {
       if (!property.hasValue)
         diagnostics.push(
-          diagnostic(
+          instanceDiagnostic(
             'error',
             `${base}/localProperties`,
             `Interactable Instance '${instanceId}' requires Property '${property.id}' to have a Value.`,
             'Project validation',
             'authoring.interactable.missing_property_value',
+            {
+              kind: 'interactable-instance-property',
+              instanceId,
+              propertyId: property.id,
+            },
           ),
         );
     }
@@ -745,7 +786,7 @@ function validateInteractableProperties(
         );
         if (ownDefault === undefined && !traitDefault)
           diagnostics.push(
-            diagnostic(
+            instanceDiagnostic(
               'error',
               featurePath,
               `Interactable Instance '${instanceId}' requires Feature '${feature.id}' Property '${propertyId}' to have a Value.`,
@@ -766,7 +807,7 @@ function validateInteractableProperties(
         const previous = seen.get(property.id);
         if (previous && !arePropertySchemasCompatible(previous, property))
           diagnostics.push(
-            diagnostic(
+            instanceDiagnostic(
               'error',
               `${base}/traits`,
               `Effective Traits contribute incompatible schemas for Property '${property.id}'.`,
@@ -780,7 +821,7 @@ function validateInteractableProperties(
             !authoredRuntimeValuesEqual(previousDefault.value, property.defaultValue)
           )
             diagnostics.push(
-              diagnostic(
+              instanceDiagnostic(
                 'error',
                 `${base}/traits`,
                 `Effective Traits provide conflicting Defaults for Property '${property.id}'.`,

@@ -535,6 +535,81 @@
       "invalid": "Alvo inválido ou indisponível"
     }
   },
+  "propertyManager": {
+    "addProperty": "Adicionar Property",
+    "editProperty": "Editar Property",
+    "editNamedProperty": "Editar {{property}}",
+    "setValue": "Definir {{label}}",
+    "saveChanges": "Salvar alterações",
+    "actions": {
+      "cancel": "Cancelar",
+      "delete": "Excluir {{label}}",
+      "moveUp": "Mover {{id}} para cima",
+      "moveDown": "Mover {{id}} para baixo",
+      "reset": "Redefinir {{id}}"
+    },
+    "delete": {
+      "title": "Excluir Property?",
+      "action": "Excluir Property",
+      "used_one": "A Property '{{id}}' tem {{count}} uso conhecido. Excluí-la deixará essa referência para a validação relatar.",
+      "used_other": "A Property '{{id}}' tem {{count}} usos conhecidos. Excluí-la deixará essas referências para a validação relatar.",
+      "unused": "A Property '{{id}}' não tem usos conhecidos."
+    },
+    "errors": {
+      "propertyMissing": "A Property não existe mais."
+    },
+    "fields": {
+      "id": "ID",
+      "label": "Rótulo",
+      "description": "Descrição",
+      "optional": "(opcional)",
+      "labelPlaceholder": "Usa o ID quando vazio",
+      "type": "Tipo",
+      "nullable": "Aceita nulo",
+      "enumValues": "Valores do enum",
+      "value": "Valor",
+      "hasValue": "Tem {{label}}",
+      "valueIsNull": "{{label}} é nulo"
+    },
+    "table": {
+      "use": "Uso",
+      "property": "Property",
+      "type": "Tipo",
+      "description": "Descrição",
+      "actions": "Ações",
+      "traitSources": "Traits de origem: {{sources}}",
+      "useCount_one": "Contagem de usos: {{count}}",
+      "useCount_other": "Contagem de usos: {{count}}",
+      "useCountWithSources_one": "Contagem de usos: {{count}}; {{sources}}",
+      "useCountWithSources_other": "Contagem de usos: {{count}}; {{sources}}",
+      "usagesFor_one": "{{count}} uso de {{id}}",
+      "usagesFor_other": "{{count}} usos de {{id}}",
+      "nullableType": "{{type}} · Aceita nulo"
+    },
+    "traits": {
+      "title": "Traits",
+      "detach": "Desanexar {{id}}",
+      "inherited": "herdado",
+      "noneAttached": "Nenhuma Trait anexada.",
+      "selectLabel": "Trait a anexar",
+      "choose": "Escolher Trait",
+      "attach": "Anexar Trait"
+    },
+    "types": {
+      "boolean": "Booleano",
+      "integer": "Inteiro",
+      "number": "Número",
+      "string": "Texto",
+      "enum": "Enum"
+    },
+    "values": {
+      "conflictingDefaults": "Defaults conflitantes",
+      "missing": "Ausente",
+      "null": "null",
+      "nullLabel": "Nulo",
+      "emptyString": "Texto vazio"
+    }
+  },
   "features": {
     "title": "Features",
     "subtitle": "Partes semânticas estáveis pertencentes a este registro. Features podem conter Traits e Properties e participar de Interactions.",

@@ -62,8 +62,9 @@ describe('ProjectExplorer', () => {
       },
       {
         severity: 'error',
-        path: '/rooms/home/data/layout',
-        message: 'Layout does not exist.',
+        path: '/interactableInstances/key/localProperties',
+        ownerPaths: ['/rooms/home'],
+        message: 'Instance Property is missing a required Value.',
       },
     ]);
 

@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { buildCharacterDetailTabForRecord } from '@/workbench/editor-registry';
+import {
+  buildCharacterDetailTabForRecord,
+  buildRoomDetailTabForRecord,
+} from '@/workbench/editor-registry';
 import { consumeWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useProjectStore } from '@/project/project-store';
@@ -10,6 +13,11 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 beforeEach(() => {
   const project = createAuthoringProject();
@@ -73,5 +81,64 @@ describe('BottomPanel', () => {
     view.rerender(<BottomPanel />);
 
     expect(screen.getByText('/characters/dfs/data/preview')).toBeInTheDocument();
+  });
+
+  it('uses semantic diagnostic navigation to open a room-placed Instance Property', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'key-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        order: 0,
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key-entry',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+    );
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkspaceStore.getState().setDiagnostics([
+      {
+        severity: 'error',
+        path: '/interactableInstances/key-instance/localProperties',
+        message:
+          "Interactable Instance 'key-instance' requires Property 'quality' to have a Value.",
+        navigation: {
+          kind: 'interactable-instance-property',
+          instanceId: 'key-instance',
+          propertyId: 'quality',
+        },
+      },
+    ]);
+
+    render(<BottomPanel />);
+    fireEvent.click(screen.getByText(/requires Property 'quality'/));
+
+    expect(
+      consumeWorkbenchRevealTarget(buildRoomDetailTabForRecord('foyer', 'Foyer')),
+    ).toMatchObject({
+      id: 'instance.property.key-instance.quality',
+      payload: { placementId: 'key-placement' },
+      flash: true,
+    });
   });
 });

@@ -5,6 +5,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from './workbench-store';
 import { resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-store';
+import { currentRecoveryDirtySaveUnitIds } from './project-editor-state';
 
 export type CloseTabsReason = 'close' | 'close-all' | 'close-others' | 'close-right';
 
@@ -53,12 +54,14 @@ export function tabCloseRequiresDirtyPrompt(
   const project = useProjectStore.getState();
   const draftDirtyByTabId = selectDraftDirtyByTabId(useDraftDirtyStore.getState());
   const pendingSaveUnitIds = selectPendingSaveUnitIds(usePendingInputStore.getState());
+  const recoveryDirtySaveUnitIds = currentRecoveryDirtySaveUnitIds();
   const dirty = getTabDirtyState(
     tab,
     project.document,
     project.savedDocument,
     draftDirtyByTabId,
     pendingSaveUnitIds,
+    recoveryDirtySaveUnitIds,
   );
   if (!dirty.dirty) return false;
   return !dirty.saveUnitId || !hasRemainingViewForSaveUnit(dirty.saveUnitId, requestedTabIds);

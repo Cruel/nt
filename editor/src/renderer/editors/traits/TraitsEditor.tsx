@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { PropertyManager, type PropertyManagerRow } from '@/components/properties/PropertyManager';
 import {
   newTypedPropertyDraft,
-  TypedPropertyFields,
-  typedPropertyValueFromDraft,
+  ownerDefaultPropertyFromDraft,
   type TypedPropertyDraft,
 } from '@/components/properties/TypedPropertyFields';
 import { useCommandStore } from '@/commands/command-store';
@@ -28,7 +28,6 @@ import {
   type TraitDefinition,
   type TraitProperty,
 } from '../../../shared/project-schema/authoring-properties';
-import { variableValueToText } from '../../../shared/project-schema/authoring-variables';
 import {
   parseVerbData,
   type SubjectSelector,
@@ -46,18 +45,12 @@ const TRAIT_COLORS = [
   '#0891b2',
 ] as const;
 
-interface TraitPropertyDraft {
-  fields: TypedPropertyDraft;
-  hasDefault: boolean;
-}
-
-interface TraitDraft {
+interface TraitMetadataDraft {
   id: string;
   label: string;
   description: string;
   ownerKinds: PropertyOwnerKind[];
   color: string;
-  properties: TraitPropertyDraft[];
 }
 
 interface JsonPatch {
@@ -74,93 +67,36 @@ function colorForIndex(index: number) {
   return TRAIT_COLORS[index % TRAIT_COLORS.length]!;
 }
 
-function traitPropertyDraft(property: TraitProperty): TraitPropertyDraft {
-  return {
-    fields: {
-      id: property.id,
-      label: property.label ?? '',
-      description: property.description ?? '',
-      type: property.type,
-      nullable: property.nullable,
-      valuePresent: property.defaultValue !== undefined,
-      valueText:
-        property.defaultValue === undefined
-          ? property.type === 'boolean'
-            ? 'false'
-            : property.type === 'enum'
-              ? (property.enumValues?.[0] ?? '')
-              : property.type === 'string'
-                ? ''
-                : '0'
-          : variableValueToText(property.defaultValue),
-      enumText: property.enumValues?.join(', ') ?? 'default',
-    },
-    hasDefault: property.defaultValue !== undefined,
-  };
-}
-
-function draftForTrait(project: AuthoringProject, id: string, trait: TraitDefinition): TraitDraft {
+function draftForTrait(
+  project: AuthoringProject,
+  id: string,
+  trait: TraitDefinition,
+): TraitMetadataDraft {
   return {
     id,
     label: trait.label,
     description: trait.description ?? '',
     ownerKinds: [...trait.ownerKinds],
     color: project.editor.recordMetadata.traits?.[id]?.color ?? colorForIndex(0),
-    properties: trait.properties.map(traitPropertyDraft),
   };
 }
 
-function newTraitDraft(project: AuthoringProject): TraitDraft {
+function newTraitDraft(project: AuthoringProject): TraitMetadataDraft {
   return {
     id: '',
     label: '',
     description: '',
     ownerKinds: ['room'],
     color: colorForIndex(Object.keys(project.traits).length),
-    properties: [],
   };
 }
 
-function traitPropertyFromDraft(
-  draft: TraitPropertyDraft,
-): { ok: true; property: TraitProperty } | { ok: false; message: string } {
-  const id = draft.fields.id.trim();
-  if (!id) return { ok: false, message: 'Every Trait Property requires an ID.' };
-  const parsed = typedPropertyValueFromDraft(draft.fields);
-  if (!parsed.ok) return parsed;
-  return {
-    ok: true,
-    property: {
-      id,
-      ...(draft.fields.label.trim() ? { label: draft.fields.label.trim() } : {}),
-      ...(draft.fields.description.trim() ? { description: draft.fields.description.trim() } : {}),
-      type: draft.fields.type,
-      nullable: draft.fields.nullable,
-      ...(parsed.enumValues ? { enumValues: parsed.enumValues } : {}),
-      ...(draft.hasDefault ? { defaultValue: parsed.value } : {}),
-    },
-  };
-}
-
-function traitFromDraft(draft: TraitDraft) {
+function traitFromMetadataDraft(draft: TraitMetadataDraft, properties: readonly TraitProperty[]) {
   const id = draft.id.trim();
   if (!id) return { ok: false as const, message: 'Trait ID is required.' };
   if (!draft.label.trim()) return { ok: false as const, message: 'Trait label is required.' };
   if (draft.ownerKinds.length === 0)
     return { ok: false as const, message: 'Traits must apply to at least one owner kind.' };
-  const properties: TraitProperty[] = [];
-  const seen = new Set<string>();
-  for (const propertyDraft of draft.properties) {
-    const parsed = traitPropertyFromDraft(propertyDraft);
-    if (!parsed.ok) return parsed;
-    if (seen.has(parsed.property.id))
-      return {
-        ok: false as const,
-        message: `Trait Property '${parsed.property.id}' is declared more than once.`,
-      };
-    seen.add(parsed.property.id);
-    properties.push(parsed.property);
-  }
   return {
     ok: true as const,
     id,
@@ -169,9 +105,17 @@ function traitFromDraft(draft: TraitDraft) {
       label: draft.label.trim(),
       ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
       ownerKinds: [...draft.ownerKinds],
-      properties,
+      properties: [...properties],
     } satisfies TraitDefinition,
   };
+}
+
+function traitPropertyFromDraft(
+  draft: TypedPropertyDraft,
+): { ok: true; property: TraitProperty } | { ok: false; message: string } {
+  const parsed = ownerDefaultPropertyFromDraft(draft);
+  if (!parsed.ok) return parsed;
+  return { ok: true, property: parsed.property };
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
@@ -417,160 +361,14 @@ function ownerKindLabel(kind: PropertyOwnerKind) {
   return kind[0]!.toUpperCase() + kind.slice(1);
 }
 
-export function TraitsEditor({ tab: _tab }: WorkbenchEditorProps) {
-  const projectDocument = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<TraitDraft | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [createDraft, setCreateDraft] = useState<TraitDraft | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  const traitEntries = useMemo(
-    () =>
-      project
-        ? Object.entries(project.traits).sort(([, left], [, right]) =>
-            left.label.localeCompare(right.label),
-          )
-        : [],
-    [project],
-  );
-
-  useEffect(() => {
-    if (!project) return;
-    const id =
-      selectedId && project.traits[selectedId] ? selectedId : (traitEntries[0]?.[0] ?? null);
-    if (id !== selectedId) setSelectedId(id);
-    if (id && project.traits[id]) setDraft(draftForTrait(project, id, project.traits[id]!));
-    else setDraft(null);
-  }, [project, selectedId, traitEntries]);
-
-  if (!project)
-    return <div className="p-4 text-sm text-muted-foreground">No authoring project loaded.</div>;
-
-  const runPatches = (label: string, patches: JsonPatch[]) => {
-    const result = executeCommand({
-      type: 'project.applyPatch',
-      label,
-      payload: patches,
-      originSaveUnitId: SAVE_UNIT_IDS.traitCollection,
-      persistencePolicy: 'manual-save',
-    });
-    return (
-      result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
-      (result.ok ? null : 'Command failed.')
-    );
-  };
-
-  const metadataPatch = (traitId: string, color: string): JsonPatch =>
-    project.editor.recordMetadata.traits
-      ? {
-          op: project.editor.recordMetadata.traits[traitId] ? 'replace' : 'add',
-          path: `/editor/recordMetadata/traits/${escapeSegment(traitId)}`,
-          value: { tags: [], color },
-        }
-      : {
-          op: 'add',
-          path: '/editor/recordMetadata/traits',
-          value: { [traitId]: { tags: [], color } },
-        };
-
-  const createTrait = () => {
-    if (!createDraft) return;
-    const parsed = traitFromDraft(createDraft);
-    if (!parsed.ok) {
-      setMessage(parsed.message);
-      return;
-    }
-    if (project.traits[parsed.id]) {
-      setMessage(`Trait '${parsed.id}' already exists.`);
-      return;
-    }
-    const failure = runPatches(`Create Trait ${parsed.id}`, [
-      { op: 'add', path: `/traits/${escapeSegment(parsed.id)}`, value: parsed.trait },
-      metadataPatch(parsed.id, createDraft.color),
-    ]);
-    if (failure) {
-      setMessage(failure);
-      return;
-    }
-    setCreating(false);
-    setSelectedId(parsed.id);
-    setMessage(null);
-  };
-
-  const saveTrait = () => {
-    if (!draft || !selectedId) return;
-    const parsed = traitFromDraft(draft);
-    if (!parsed.ok) {
-      setMessage(parsed.message);
-      return;
-    }
-    if (parsed.id !== selectedId && project.traits[parsed.id]) {
-      setMessage(`Trait '${parsed.id}' already exists.`);
-      return;
-    }
-    const previous = project.traits[selectedId]!;
-    const nextIds = new Set(parsed.trait.properties.map((property) => property.id));
-    const removed = previous.properties.filter((property) => !nextIds.has(property.id));
-    const patches = preservationPatchesForRemovedTraitProperties(project, selectedId, removed);
-    if (parsed.id === selectedId) {
-      patches.push(
-        { op: 'replace', path: `/traits/${escapeSegment(selectedId)}`, value: parsed.trait },
-        metadataPatch(selectedId, draft.color),
-      );
-    } else {
-      patches.push(
-        ...attachmentRewritePatches(project, selectedId, parsed.id),
-        ...selectorRenamePatches(project, selectedId, parsed.id),
-        { op: 'add', path: `/traits/${escapeSegment(parsed.id)}`, value: parsed.trait },
-        { op: 'remove', path: `/traits/${escapeSegment(selectedId)}` },
-      );
-      const oldMetadata = project.editor.recordMetadata.traits?.[selectedId];
-      if (oldMetadata)
-        patches.push({
-          op: 'remove',
-          path: `/editor/recordMetadata/traits/${escapeSegment(selectedId)}`,
-        });
-      patches.push(metadataPatch(parsed.id, draft.color));
-    }
-    const failure = runPatches(`Update Trait ${selectedId}`, patches);
-    if (failure) {
-      setMessage(failure);
-      return;
-    }
-    setSelectedId(parsed.id);
-    setMessage(null);
-  };
-
-  const deleteTrait = () => {
-    if (!deleteId) return;
-    const trait = project.traits[deleteId];
-    if (!trait) return;
-    const patches = [
-      ...preservationPatchesForRemovedTraitProperties(project, deleteId, trait.properties),
-      ...attachmentRewritePatches(project, deleteId, null),
-      { op: 'remove' as const, path: `/traits/${escapeSegment(deleteId)}` },
-    ];
-    if (project.editor.recordMetadata.traits?.[deleteId])
-      patches.push({
-        op: 'remove',
-        path: `/editor/recordMetadata/traits/${escapeSegment(deleteId)}`,
-      });
-    const failure = runPatches(`Delete Trait ${deleteId}`, patches);
-    if (failure) {
-      setMessage(failure);
-      return;
-    }
-    setDeleteId(null);
-    setSelectedId(null);
-  };
-
-  const usagePaths = deleteId ? traitUsagePaths(project, deleteId) : [];
-
-  const renderMetadataFields = (value: TraitDraft, onChange: (next: TraitDraft) => void) => (
+function TraitMetadataFields({
+  value,
+  onChange,
+}: {
+  value: TraitMetadataDraft;
+  onChange: (next: TraitMetadataDraft) => void;
+}) {
+  return (
     <>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
@@ -640,219 +438,336 @@ export function TraitsEditor({ tab: _tab }: WorkbenchEditorProps) {
       </div>
     </>
   );
+}
+
+export function TraitsEditor({ tab: _tab }: WorkbenchEditorProps) {
+  const projectDocument = useProjectStore((state) => state.document);
+  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const [metadataId, setMetadataId] = useState<string | null>(null);
+  const [metadataDraft, setMetadataDraft] = useState<TraitMetadataDraft | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const traitEntries = useMemo(
+    () =>
+      project
+        ? Object.entries(project.traits).sort(([, left], [, right]) =>
+            left.label.localeCompare(right.label),
+          )
+        : [],
+    [project],
+  );
+
+  if (!project)
+    return <div className="p-4 text-sm text-muted-foreground">No authoring project loaded.</div>;
+
+  const runPatches = (label: string, patches: JsonPatch[]) => {
+    const result = executeCommand({
+      type: 'project.applyPatch',
+      label,
+      payload: patches,
+      originSaveUnitId: SAVE_UNIT_IDS.traitCollection,
+      persistencePolicy: 'manual-save',
+    });
+    return (
+      result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+      (result.ok ? null : 'Command failed.')
+    );
+  };
+
+  const metadataPatch = (traitId: string, color: string): JsonPatch =>
+    project.editor.recordMetadata.traits
+      ? {
+          op: project.editor.recordMetadata.traits[traitId] ? 'replace' : 'add',
+          path: `/editor/recordMetadata/traits/${escapeSegment(traitId)}`,
+          value: { tags: [], color },
+        }
+      : {
+          op: 'add',
+          path: '/editor/recordMetadata/traits',
+          value: { [traitId]: { tags: [], color } },
+        };
+
+  const openCreate = () => {
+    setMetadataId('');
+    setMetadataDraft(newTraitDraft(project));
+    setMessage(null);
+  };
+
+  const openMetadata = (traitId: string) => {
+    const trait = project.traits[traitId];
+    if (!trait) return;
+    setMetadataId(traitId);
+    setMetadataDraft(draftForTrait(project, traitId, trait));
+    setMessage(null);
+  };
+
+  const saveMetadata = () => {
+    if (metadataId === null || !metadataDraft) return;
+    const previous = metadataId ? project.traits[metadataId] : undefined;
+    const parsed = traitFromMetadataDraft(metadataDraft, previous?.properties ?? []);
+    if (!parsed.ok) {
+      setMessage(parsed.message);
+      return;
+    }
+    if (parsed.id !== metadataId && project.traits[parsed.id]) {
+      setMessage(`Trait '${parsed.id}' already exists.`);
+      return;
+    }
+    const patches: JsonPatch[] = [];
+    if (!previous) {
+      patches.push(
+        { op: 'add', path: `/traits/${escapeSegment(parsed.id)}`, value: parsed.trait },
+        metadataPatch(parsed.id, metadataDraft.color),
+      );
+    } else if (parsed.id === metadataId) {
+      patches.push(
+        { op: 'replace', path: `/traits/${escapeSegment(metadataId)}`, value: parsed.trait },
+        metadataPatch(metadataId, metadataDraft.color),
+      );
+    } else {
+      patches.push(
+        ...attachmentRewritePatches(project, metadataId, parsed.id),
+        ...selectorRenamePatches(project, metadataId, parsed.id),
+        { op: 'add', path: `/traits/${escapeSegment(parsed.id)}`, value: parsed.trait },
+        { op: 'remove', path: `/traits/${escapeSegment(metadataId)}` },
+      );
+      if (project.editor.recordMetadata.traits?.[metadataId])
+        patches.push({
+          op: 'remove',
+          path: `/editor/recordMetadata/traits/${escapeSegment(metadataId)}`,
+        });
+      patches.push(metadataPatch(parsed.id, metadataDraft.color));
+    }
+    const failure = runPatches(
+      previous ? `Update Trait ${metadataId}` : `Create Trait ${parsed.id}`,
+      patches,
+    );
+    if (failure) {
+      setMessage(failure);
+      return;
+    }
+    setMetadataId(null);
+    setMetadataDraft(null);
+    setMessage(null);
+  };
+
+  const replaceProperties = (
+    traitId: string,
+    nextProperties: TraitProperty[],
+    removed: readonly TraitProperty[] = [],
+  ) => {
+    const trait = project.traits[traitId];
+    if (!trait) return 'Trait no longer exists.';
+    return runPatches(`Update Trait ${traitId} Properties`, [
+      ...preservationPatchesForRemovedTraitProperties(project, traitId, removed),
+      {
+        op: 'replace',
+        path: `/traits/${escapeSegment(traitId)}`,
+        value: { ...trait, properties: nextProperties },
+      },
+    ]);
+  };
+
+  const deleteTrait = () => {
+    if (!deleteId) return;
+    const trait = project.traits[deleteId];
+    if (!trait) return;
+    const patches: JsonPatch[] = [
+      ...preservationPatchesForRemovedTraitProperties(project, deleteId, trait.properties),
+      ...attachmentRewritePatches(project, deleteId, null),
+      { op: 'remove', path: `/traits/${escapeSegment(deleteId)}` },
+    ];
+    if (project.editor.recordMetadata.traits?.[deleteId])
+      patches.push({
+        op: 'remove',
+        path: `/editor/recordMetadata/traits/${escapeSegment(deleteId)}`,
+      });
+    const failure = runPatches(`Delete Trait ${deleteId}`, patches);
+    if (failure) {
+      setMessage(failure);
+      return;
+    }
+    setDeleteId(null);
+  };
+
+  const usagePaths = deleteId ? traitUsagePaths(project, deleteId) : [];
 
   return (
-    <div className="flex h-full min-h-0 bg-background">
-      <aside className="flex w-64 shrink-0 flex-col border-r">
-        <div className="flex items-center justify-between border-b p-3">
-          <div className="flex items-center gap-2">
-            <h2 className="font-semibold">Traits</h2>
-            <Badge variant="outline">{traitEntries.length}</Badge>
+    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold">Traits</h2>
+          <Badge variant="outline">{traitEntries.length}</Badge>
+        </div>
+        <Button size="sm" onClick={openCreate}>
+          <Plus className="size-4" /> New Trait
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Traits are reusable semantic capability contracts. Their Properties use the same editor as
+        Variables and owner-local state.
+      </p>
+
+      <div className="mt-4 space-y-4">
+        {traitEntries.length === 0 ? (
+          <div className="rounded border border-dashed p-8 text-center text-sm text-muted-foreground">
+            No Traits yet.
           </div>
-          <Button
-            size="icon-sm"
-            aria-label="New Trait"
-            onClick={() => {
-              setCreateDraft(newTraitDraft(project));
-              setMessage(null);
-              setCreating(true);
-            }}
-          >
-            <Plus className="size-4" />
-          </Button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-2">
-          {traitEntries.length === 0 ? (
-            <div className="p-3 text-xs text-muted-foreground">No Traits yet.</div>
-          ) : null}
-          {traitEntries.map(([id, trait]) => (
-            <Button
-              key={id}
-              variant={selectedId === id ? 'secondary' : 'ghost'}
-              className="mb-1 h-auto w-full justify-start px-2 py-2 text-left"
-              onClick={() => setSelectedId(id)}
-            >
-              <span
-                className="mr-2 size-3 shrink-0 rounded-full border"
-                style={{
-                  backgroundColor: project.editor.recordMetadata.traits?.[id]?.color ?? undefined,
-                }}
-              />
-              <span className="min-w-0">
-                <span className="block truncate text-sm">{trait.label}</span>
-                <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                  {id}
-                </span>
-              </span>
-            </Button>
-          ))}
-        </div>
-      </aside>
-
-      <main className="min-w-0 flex-1 overflow-auto p-4">
-        {!draft || !selectedId ? (
-          <div className="text-sm text-muted-foreground">Create or select a Trait to edit it.</div>
-        ) : (
-          <div className="mx-auto max-w-3xl space-y-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">{project.traits[selectedId]?.label}</h2>
-                <p className="text-xs text-muted-foreground">
-                  Traits own reusable typed Property contracts. Empty Traits are valid.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="destructive" size="sm" onClick={() => setDeleteId(selectedId)}>
-                  <Trash2 className="size-4" /> Delete
-                </Button>
-                <Button size="sm" onClick={saveTrait}>
-                  Save Trait
-                </Button>
-              </div>
-            </div>
-
-            <section className="space-y-3 rounded border p-3">
-              <h3 className="text-sm font-semibold">Trait metadata</h3>
-              {renderMetadataFields(draft, setDraft)}
-            </section>
-
-            <section className="space-y-3 rounded border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-semibold">Trait Properties</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Order is authored. A Property without a Default must be supplied by a concrete
-                    owner.
-                  </p>
-                </div>
+        ) : null}
+        {traitEntries.map(([traitId, trait]) => {
+          const color = project.editor.recordMetadata.traits?.[traitId]?.color ?? null;
+          const rows: PropertyManagerRow[] = trait.properties.map((property, index) => ({
+            id: property.id,
+            label: property.label,
+            description: property.description,
+            type: property.type,
+            nullable: property.nullable,
+            enumValues: property.enumValues,
+            ...(property.defaultValue === undefined ? {} : { value: property.defaultValue }),
+            valueState: property.defaultValue === undefined ? 'missing' : 'normal',
+            editMode: 'schema',
+            deletable: true,
+            canMoveUp: index > 0,
+            canMoveDown: index < trait.properties.length - 1,
+          }));
+          return (
+            <section key={traitId} className="rounded-lg border bg-card/20 p-3">
+              <div className="flex items-start justify-between gap-3">
                 <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    setDraft({
-                      ...draft,
-                      properties: [
-                        ...draft.properties,
-                        { fields: newTypedPropertyDraft(), hasDefault: false },
-                      ],
-                    })
-                  }
+                  variant="ghost"
+                  className="h-auto min-w-0 justify-start px-1 py-0.5 text-left"
+                  aria-label={`Edit ${trait.label}`}
+                  onClick={() => openMetadata(traitId)}
                 >
-                  <Plus className="size-4" /> Add Property
+                  <span
+                    className="mr-2 size-3 shrink-0 rounded-full border"
+                    style={{ backgroundColor: color ?? undefined }}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">{trait.label}</span>
+                    <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                      {traitId}
+                    </span>
+                  </span>
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  className="text-destructive"
+                  aria-label={`Delete ${trait.label}`}
+                  onClick={() => setDeleteId(traitId)}
+                >
+                  <Trash2 className="size-4" />
                 </Button>
               </div>
-              {draft.properties.length === 0 ? (
-                <div className="rounded border border-dashed p-4 text-center text-xs text-muted-foreground">
-                  This Trait has no Properties.
-                </div>
+              {trait.description ? (
+                <p className="mt-1 text-xs text-muted-foreground">{trait.description}</p>
               ) : null}
-              {draft.properties.map((property, index) => (
-                <div key={index} className="space-y-3 rounded border bg-muted/10 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium">Property {index + 1}</span>
-                    <div className="flex gap-1">
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        disabled={index === 0}
-                        aria-label="Move Property up"
-                        onClick={() => {
-                          const next = [...draft.properties];
-                          [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                          setDraft({ ...draft, properties: next });
-                        }}
-                      >
-                        <ArrowUp className="size-3" />
-                      </Button>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        disabled={index === draft.properties.length - 1}
-                        aria-label="Move Property down"
-                        onClick={() => {
-                          const next = [...draft.properties];
-                          [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                          setDraft({ ...draft, properties: next });
-                        }}
-                      >
-                        <ArrowDown className="size-3" />
-                      </Button>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        className="text-destructive"
-                        aria-label="Delete Trait Property"
-                        onClick={() =>
-                          setDraft({
-                            ...draft,
-                            properties: draft.properties.filter(
-                              (_, candidate) => candidate !== index,
-                            ),
-                          })
-                        }
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
-                    </div>
-                  </div>
-                  <TypedPropertyFields
-                    draft={property.fields}
-                    onChange={(fields) =>
-                      setDraft({
-                        ...draft,
-                        properties: draft.properties.map((candidate, candidateIndex) =>
-                          candidateIndex === index ? { ...candidate, fields } : candidate,
-                        ),
-                      })
-                    }
-                    valueLabel="Default"
-                    descriptionPlaceholder="What this Trait Property represents"
-                  />
-                  <div className="flex items-center gap-2 text-xs">
-                    <Switch
-                      checked={property.hasDefault}
-                      onCheckedChange={(hasDefault) =>
-                        setDraft({
-                          ...draft,
-                          properties: draft.properties.map((candidate, candidateIndex) =>
-                            candidateIndex === index ? { ...candidate, hasDefault } : candidate,
-                          ),
-                        })
-                      }
-                      aria-label={`Property ${index + 1} has Default`}
-                    />
-                    <span>
-                      {property.hasDefault
-                        ? 'Default is part of the Trait contract.'
-                        : 'No Default; concrete owners must provide a Value.'}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </section>
-
-            {message ? (
-              <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-                {message}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {trait.ownerKinds.map((kind) => (
+                  <Badge key={kind} variant="outline">
+                    {ownerKindLabel(kind)}
+                  </Badge>
+                ))}
               </div>
-            ) : null}
-          </div>
-        )}
-      </main>
 
-      <Dialog open={creating} onOpenChange={setCreating}>
+              <div className="mt-3">
+                <PropertyManager
+                  title="Properties"
+                  description="Ordered typed contracts. A missing Default must be supplied by a more-specific concrete owner."
+                  valueLabel="Default"
+                  valueOptional
+                  rows={rows}
+                  emptyLabel="This Trait has no Properties."
+                  addLabel="Add Property"
+                  newDraft={() => ({ ...newTypedPropertyDraft(), valuePresent: false })}
+                  editDescription={() =>
+                    'The Property schema belongs to this Trait. Default is optional.'
+                  }
+                  onCreate={(draft) => {
+                    const parsed = traitPropertyFromDraft(draft);
+                    if (!parsed.ok) return parsed.message;
+                    if (trait.properties.some((property) => property.id === parsed.property.id))
+                      return `Trait Property '${parsed.property.id}' already exists.`;
+                    return replaceProperties(traitId, [...trait.properties, parsed.property]);
+                  }}
+                  onEdit={(row, draft) => {
+                    const parsed = traitPropertyFromDraft(draft);
+                    if (!parsed.ok) return parsed.message;
+                    if (
+                      trait.properties.some(
+                        (property) => property.id === parsed.property.id && property.id !== row.id,
+                      )
+                    )
+                      return `Trait Property '${parsed.property.id}' already exists.`;
+                    const previous = trait.properties.find((property) => property.id === row.id);
+                    if (!previous) return 'Trait Property no longer exists.';
+                    const next = trait.properties.map((property) =>
+                      property.id === row.id ? parsed.property : property,
+                    );
+                    return replaceProperties(
+                      traitId,
+                      next,
+                      row.id === parsed.property.id ? [] : [previous],
+                    );
+                  }}
+                  onDelete={(row) => {
+                    const previous = trait.properties.find((property) => property.id === row.id);
+                    if (!previous) return 'Trait Property no longer exists.';
+                    return replaceProperties(
+                      traitId,
+                      trait.properties.filter((property) => property.id !== row.id),
+                      [previous],
+                    );
+                  }}
+                  deleteMessage={(row) =>
+                    `Deleting '${row.label ?? row.id}' removes this Property from the Trait contract. Explicit surviving owner state is preserved where possible.`
+                  }
+                  onMove={(row, direction) => {
+                    const index = trait.properties.findIndex((property) => property.id === row.id);
+                    const target = direction === 'up' ? index - 1 : index + 1;
+                    if (index < 0 || target < 0 || target >= trait.properties.length) return null;
+                    const next = [...trait.properties];
+                    [next[index], next[target]] = [next[target]!, next[index]!];
+                    return replaceProperties(traitId, next);
+                  }}
+                  className="border-0 bg-transparent p-0"
+                  modeMarker="trait"
+                />
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      <Dialog
+        open={metadataId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMetadataId(null);
+            setMetadataDraft(null);
+            setMessage(null);
+          }
+        }}
+      >
         <DialogPopup className="w-[min(620px,calc(100vw-2rem))]">
-          <DialogTitle>New Trait</DialogTitle>
+          <DialogTitle>{metadataId === '' ? 'New Trait' : 'Edit Trait'}</DialogTitle>
           <DialogDescription>
-            Choose the Trait identity and owner kinds now; Properties may be added after creation.
+            Trait identity and applicability are separate from the ordered Property contract below.
           </DialogDescription>
-          {createDraft ? renderMetadataFields(createDraft, setCreateDraft) : null}
-          {message ? <div className="text-xs text-destructive">{message}</div> : null}
+          {metadataDraft ? (
+            <TraitMetadataFields value={metadataDraft} onChange={setMetadataDraft} />
+          ) : null}
+          {message ? <p className="text-xs text-destructive">{message}</p> : null}
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setCreating(false)}>
+            <Button variant="ghost" onClick={() => setMetadataId(null)}>
               Cancel
             </Button>
-            <Button onClick={createTrait}>Create Trait</Button>
+            <Button onClick={saveMetadata}>
+              {metadataId === '' ? 'Create Trait' : 'Save Trait'}
+            </Button>
           </div>
         </DialogPopup>
       </Dialog>
@@ -861,9 +776,8 @@ export function TraitsEditor({ tab: _tab }: WorkbenchEditorProps) {
         <DialogPopup className="w-[min(560px,calc(100vw-2rem))]">
           <DialogTitle>Delete Trait?</DialogTitle>
           <DialogDescription>
-            Known structural attachments and deltas will be cleaned up. Explicit Room/Character
-            Values are preserved as standalone local Properties when their last Trait source
-            disappears.
+            Known structural attachments and deltas will be cleaned up. Explicit owner state is
+            preserved when its last Trait source disappears.
           </DialogDescription>
           {usagePaths.length > 0 ? (
             <div className="max-h-40 overflow-auto rounded border bg-muted/20 p-2 font-mono text-[11px]">
@@ -874,6 +788,7 @@ export function TraitsEditor({ tab: _tab }: WorkbenchEditorProps) {
           ) : (
             <div className="text-xs text-muted-foreground">No known structural usages.</div>
           )}
+          {message ? <p className="text-xs text-destructive">{message}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setDeleteId(null)}>
               Cancel

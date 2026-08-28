@@ -14,7 +14,9 @@ import {
   buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
 import type { WorkbenchNavigationRequest } from '@/workbench/workbench-navigation';
+import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { parseRoomData } from '../../shared/project-schema/authoring-rooms';
 
 function decodePointerSegment(segment: string) {
   return segment.replaceAll('~1', '/').replaceAll('~0', '~');
@@ -86,8 +88,58 @@ function arrayItemId(
 
 export function resolveProjectDiagnosticTarget(
   project: AuthoringProject,
-  path: string | null | undefined,
+  diagnosticOrPath: Pick<ToolDiagnostic, 'path' | 'navigation'> | string | null | undefined,
 ): WorkbenchNavigationRequest | null {
+  const path = typeof diagnosticOrPath === 'string' ? diagnosticOrPath : diagnosticOrPath?.path;
+  const navigation =
+    typeof diagnosticOrPath === 'object' && diagnosticOrPath !== null
+      ? diagnosticOrPath.navigation
+      : undefined;
+
+  if (navigation?.kind === 'interactable-instance-property') {
+    const instance = project.interactableInstances[navigation.instanceId];
+    if (!instance) return null;
+
+    const targetId = `instance.property.${navigation.instanceId}.${navigation.propertyId}`;
+    if (instance.location.kind === 'room') {
+      const roomId = instance.location.room.$ref.id;
+      const room = project.rooms[roomId];
+      const roomData = room ? parseRoomData(room.data) : null;
+      const roomEntry = roomData?.interactables.find(
+        (entry) => entry.interactable.$ref.id === navigation.instanceId,
+      );
+      if (room && roomEntry) {
+        return rowTarget(
+          buildRoomDetailTabForRecord(roomId, recordLabel(project, 'rooms', roomId)),
+          targetId,
+          {
+            kind: navigation.kind,
+            instanceId: navigation.instanceId,
+            propertyId: navigation.propertyId,
+            placementId: roomEntry.placementId,
+          },
+        );
+      }
+    }
+
+    const definitionId = instance.definition.$ref.id;
+    if (project.interactables[definitionId]) {
+      return rowTarget(
+        buildInteractableDetailTabForRecord(
+          definitionId,
+          recordLabel(project, 'interactables', definitionId),
+        ),
+        targetId,
+        {
+          kind: navigation.kind,
+          instanceId: navigation.instanceId,
+          propertyId: navigation.propertyId,
+        },
+      );
+    }
+    return null;
+  }
+
   const segments = parseJsonPointer(path);
   const [collection, id, scope, field] = segments;
   const settingsTab = buildProjectSettingsTab();

@@ -420,7 +420,7 @@ function ownershipFor(
       files: ['project.json'],
       paths: ['/project', '/settings', '/bootstrapModule', '/entrypoint', '/inventories'],
     },
-    'project:traits': { files: ['traits.json'], paths: ['/traits'] },
+    'collection:traits': { files: ['traits.json'], paths: ['/traits'] },
     'project:localization': { files: ['localization.json'], paths: ['/localization'] },
     'project:chapters': {
       files: ['editor.json'],

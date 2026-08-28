@@ -39,6 +39,28 @@ describe('authoring V2 validation', () => {
         code: 'authoring.interactable.missing_property_value',
         path: '/interactableInstances/key/localProperties',
         message: expect.stringContaining("requires Property 'quality'"),
+        ownerPaths: ['/interactables/key'],
+        navigation: {
+          kind: 'interactable-instance-property',
+          instanceId: 'key',
+          propertyId: 'quality',
+        },
+      }),
+    );
+
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    project.interactableInstances.key.location = {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    };
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.interactable.missing_property_value',
+        ownerPaths: ['/rooms/foyer'],
       }),
     );
 
@@ -51,6 +73,29 @@ describe('authoring V2 validation', () => {
     expect(validateAuthoringProject(project)).not.toContainEqual(
       expect.objectContaining({ code: 'authoring.interactable.missing_property_value' }),
     );
+  });
+
+  it('keeps one missing-Value diagnostic per effective Interactable Instance Property', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      defaultProperties: [
+        { id: 'quality', type: 'string', nullable: false },
+        { id: 'condition', type: 'string', nullable: false },
+      ],
+      data: defaultInteractableData('Key'),
+    };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key');
+
+    const missing = validateAuthoringProject(project).filter(
+      (item) => item.code === 'authoring.interactable.missing_property_value',
+    );
+    expect(missing).toHaveLength(2);
+    expect(missing.map((item) => item.navigation)).toEqual([
+      { kind: 'interactable-instance-property', instanceId: 'key', propertyId: 'condition' },
+      { kind: 'interactable-instance-property', instanceId: 'key', propertyId: 'quality' },
+    ]);
   });
 
   it('resolves exact Interactable Instance Properties by specificity and preserves local order', () => {

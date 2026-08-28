@@ -2,7 +2,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
-import { PropertyManager } from '@/components/properties/PropertyManager';
+import { OwnerDefaultPropertiesEditor } from '@/components/properties/OwnerDefaultPropertiesEditor';
+import { OwnerLocalPropertiesEditor } from '@/components/properties/OwnerLocalPropertiesEditor';
 import { useTranslation } from 'react-i18next';
 import type { FeatureData } from '../../../shared/project-schema/authoring-features';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -116,8 +117,7 @@ export function FeatureAuthoringPanel({
             </div>
 
             {propertyMode === 'value' ? (
-              <PropertyManager
-                mode="value"
+              <OwnerLocalPropertiesEditor
                 ownerLabel={`Feature '${feature.label}'`}
                 ownerKind="feature"
                 traits={project.traits}
@@ -137,10 +137,12 @@ export function FeatureAuthoringPanel({
                     'Update Feature Traits and Properties',
                   )
                 }
+                traitColorFor={(traitId) =>
+                  project.editor.recordMetadata.traits?.[traitId]?.color ?? null
+                }
               />
             ) : (
-              <PropertyManager
-                mode="default"
+              <OwnerDefaultPropertiesEditor
                 ownerLabel={`Feature '${feature.label}'`}
                 ownerKind="feature"
                 traits={project.traits}
@@ -152,6 +154,9 @@ export function FeatureAuthoringPanel({
                     { ...feature, traits: state.traits, defaultProperties: state.properties },
                     'Update Feature Traits and Properties',
                   )
+                }
+                traitColorFor={(traitId) =>
+                  project.editor.recordMetadata.traits?.[traitId]?.color ?? null
                 }
               />
             )}

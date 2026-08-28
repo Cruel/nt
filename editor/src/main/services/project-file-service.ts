@@ -440,12 +440,19 @@ async function writeWorkspaceProject(
         )
       : commitOptions.structural
         ? undefined
-        : await filesForSaveUnits(
-            openedSnapshot,
-            projectForWrite,
-            sourcePaths,
-            commitOptions.saveUnitIds ?? [],
-          );
+        : commitOptions.affectedPaths?.length
+          ? changedProjectionFiles(
+              openedSnapshot.project,
+              projectForWrite,
+              openedSnapshot.scriptSourcePaths,
+              sourcePaths,
+            )
+          : await filesForSaveUnits(
+              openedSnapshot,
+              projectForWrite,
+              sourcePaths,
+              commitOptions.saveUnitIds ?? [],
+            );
   const expectedFileRevisions = scopedExpectedRevisions(openedSnapshot, commitOptions);
   const structuralPathsAreUnchanged =
     commitOptions?.structural &&
@@ -985,11 +992,13 @@ function selectedFileRevisions(
   before: LoadedProjectWorkspaceSnapshot,
   after: LoadedProjectWorkspaceSnapshot,
   saveUnitIds: readonly string[],
+  ownershipHints: Readonly<Record<string, readonly string[]>> = {},
 ): Record<string, `sha256:${string}` | 'absent'> {
   const files = new Set<string>();
   for (const saveUnitId of saveUnitIds) {
     for (const file of before.saveUnitFileOwnership[saveUnitId]?.files ?? []) files.add(file);
     for (const file of after.saveUnitFileOwnership[saveUnitId]?.files ?? []) files.add(file);
+    for (const file of ownershipHints[saveUnitId] ?? []) files.add(file);
   }
   return Object.fromEntries(
     [...files].sort().map((file) => [file, after.fileRevisions[file]?.contentHash ?? 'absent']),
@@ -1026,7 +1035,12 @@ function mutationConflictResponse(
     success: false,
     error: diagnostic.message,
     diagnostics: [diagnostic],
-    fileRevisions: selectedFileRevisions(snapshot, snapshot, request.saveUnitIds),
+    fileRevisions: selectedFileRevisions(
+      snapshot,
+      snapshot,
+      request.saveUnitIds,
+      request.recoveryFileOwnershipHints,
+    ),
     externalValueByPath,
   };
 }

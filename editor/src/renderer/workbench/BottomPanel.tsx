@@ -43,7 +43,7 @@ function ProblemsPanel() {
     () =>
       diagnostics.map((diagnostic) => ({
         ...diagnostic,
-        target: project ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null,
+        target: project ? resolveProjectDiagnosticTarget(project, diagnostic) : null,
       })),
     [diagnostics, project],
   );

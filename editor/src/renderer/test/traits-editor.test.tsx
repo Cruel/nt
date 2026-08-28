@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useCommandStore } from '@/commands/command-store';
 import { TraitsEditor } from '@/editors/traits/TraitsEditor';
@@ -71,11 +71,14 @@ describe('TraitsEditor', () => {
     await user.type(screen.getByPlaceholderText('has-key'), 'clue');
     await user.click(screen.getByRole('combobox', { name: 'Type' }));
     await user.click(await screen.findByRole('option', { name: 'String' }));
-    await user.click(screen.getByRole('switch', { name: 'Property 1 has Default' }));
-    const defaultInput = screen.getByText('Default').parentElement?.querySelector('input');
-    if (!defaultInput) throw new Error('Expected Trait Property Default input');
+    const hasDefault = screen.getByRole('switch', { name: 'Has Default' });
+    await user.click(hasDefault);
+    expect(hasDefault).toHaveAttribute('aria-checked', 'true');
+    const propertyDialog = screen.getByRole('dialog', { name: 'Add Property' });
+    const defaultInput = within(propertyDialog).getByRole('textbox', { name: 'Default' });
     await user.type(defaultInput, 'portrait');
-    await user.click(screen.getByRole('button', { name: 'Save Trait' }));
+    expect(defaultInput).toHaveValue('portrait');
+    await user.click(screen.getByRole('button', { name: 'Add Property' }));
 
     const document = useProjectStore.getState().document;
     expect(isAuthoringProject(document)).toBe(true);
@@ -128,6 +131,7 @@ describe('TraitsEditor', () => {
     });
 
     render(<TraitsEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Edit Inspectable' }));
     const idInput = screen.getByDisplayValue('inspectable');
     await user.clear(idInput);
     await user.type(idInput, 'examinable');

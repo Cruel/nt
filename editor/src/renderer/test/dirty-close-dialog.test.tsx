@@ -383,6 +383,41 @@ describe('dirty tab close guard', () => {
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });
 
+  it('prompts for and discards a cross-path Instance change attributed to the Room save unit', async () => {
+    const user = userEvent.setup();
+    useProjectStore.getState().loadProjectDocument({
+      document: {
+        rooms: { foyer: { id: 'foyer', label: 'Foyer' } },
+        interactableInstances: { key: { id: 'key', localProperties: [] } },
+      },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    openTestTab();
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'project.replaceAtPath',
+        label: 'Set Instance Property',
+        payload: {
+          path: '/interactableInstances/key/localProperties',
+          value: [{ id: 'locked', type: 'boolean', nullable: false, value: true }],
+        },
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    expect(useCloseGuardStore.getState().pendingClose).not.toBeNull();
+    await user.click(await screen.findByText("Don't Save"));
+
+    expect(useProjectStore.getState().document).toMatchObject({
+      interactableInstances: { key: { localProperties: [] } },
+    });
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
+  });
+
   it('saves dirty record changes before closing', async () => {
     const user = userEvent.setup();
     const saved = authoringProjectWithRooms();

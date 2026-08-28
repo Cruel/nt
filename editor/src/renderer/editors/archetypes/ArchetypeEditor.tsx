@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { PropertyManager } from '@/components/properties/PropertyManager';
+import { OwnerDefaultPropertiesEditor } from '@/components/properties/OwnerDefaultPropertiesEditor';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
@@ -155,8 +155,7 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
         </div>
 
         {effective ? (
-          <PropertyManager
-            mode="default"
+          <OwnerDefaultPropertiesEditor
             ownerLabel={`Archetype '${record.label}'`}
             ownerKind={data.instanceKind}
             traits={project.traits}
@@ -188,6 +187,9 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
                 if (failure) setParseError(failure.message);
               }
             }}
+            traitColorFor={(traitId) =>
+              project.editor.recordMetadata.traits?.[traitId]?.color ?? null
+            }
           />
         ) : null}
 

@@ -1,11 +1,19 @@
 export type ToolSeverity = 'info' | 'warning' | 'error';
 
+export type ToolDiagnosticNavigation = {
+  kind: 'interactable-instance-property';
+  instanceId: string;
+  propertyId: string;
+};
+
 export interface ToolDiagnostic {
   code?: string;
   severity: ToolSeverity;
   path: string;
   message: string;
   category?: string;
+  ownerPaths?: readonly string[];
+  navigation?: ToolDiagnosticNavigation;
 }
 
 export interface OpenProjectResponse {

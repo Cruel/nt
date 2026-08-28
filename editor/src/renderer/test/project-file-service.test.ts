@@ -26,6 +26,10 @@ import {
 } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { NOVELTEA_PROJECT_AGENTS_BOOTSTRAP } from '../../shared/project-workspace/agent-bootstrap';
 import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import type { ProjectContentSaveRequest } from '../../shared/editor-tooling';
 
@@ -201,6 +205,104 @@ describe('project-file-service workspace-v1', () => {
     expect(
       JSON.parse(fs.readFileSync(path.join(root, 'records/rooms/hall.json'), 'utf8')),
     ).toMatchObject({ description: 'After' });
+  });
+
+  it('round-trips scoped Trait and Room-owned Interactable Instance saves', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Trait Instance Save', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await service.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+
+    const seeded = structuredClone(initial.snapshot.project);
+    seeded.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    seeded.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    await service.write(root, initial.snapshot.workspaceRevision, seeded, initial.editorState, {});
+
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+
+    const trait = {
+      id: 'inspectable',
+      label: 'Inspectable',
+      ownerKinds: ['interactable'] as const,
+      properties: [],
+    };
+    const traitSaved = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['collection:traits'],
+        affectedPaths: ['/traits/inspectable'],
+        baseValueByPath: { '/traits/inspectable': { exists: false } },
+        localValueByPath: { '/traits/inspectable': { exists: true, value: trait } },
+        operationLabel: 'save Trait inspectable',
+      },
+      opened.editorState,
+    );
+    expect(traitSaved.success).toBe(true);
+
+    const instance = defaultInteractableInstanceData('key-instance', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
+    const placement = {
+      id: 'key-placement',
+      bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+      order: 0,
+      presentation: { label: null, layout: null },
+    };
+    const occurrence = {
+      id: 'key-instance',
+      interactable: { $ref: { registry: 'interactableInstances' as const, id: 'key-instance' } },
+      condition: { kind: 'always' as const },
+      placementId: 'key-placement',
+      visible: true,
+      order: 0,
+    };
+    const roomSaved = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['record:rooms:foyer'],
+        affectedPaths: [
+          '/interactableInstances/key-instance',
+          '/rooms/foyer/data/interactables',
+          '/rooms/foyer/data/placements',
+        ],
+        baseValueByPath: {
+          '/interactableInstances/key-instance': { exists: false },
+          '/rooms/foyer/data/interactables': { exists: true, value: [] },
+          '/rooms/foyer/data/placements': { exists: true, value: [] },
+        },
+        localValueByPath: {
+          '/interactableInstances/key-instance': { exists: true, value: instance },
+          '/rooms/foyer/data/interactables': { exists: true, value: [occurrence] },
+          '/rooms/foyer/data/placements': { exists: true, value: [placement] },
+        },
+        operationLabel: 'place Interactable instance in Room',
+      },
+      traitSaved.editorState ?? opened.editorState,
+    );
+    expect(roomSaved.success).toBe(true);
+
+    const reopened = await new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem()).open(
+      root,
+    );
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    expect(reopened.snapshot.project.traits.inspectable).toEqual(trait);
+    expect(reopened.snapshot.project.interactableInstances['key-instance']).toEqual(instance);
+    expect(reopened.snapshot.project.rooms.foyer?.data.interactables).toEqual([occurrence]);
   });
 
   it('does not reopen or revision unrelated sources for one active scoped content save', async () => {

@@ -193,6 +193,7 @@ export function createProjectValidationDiagnostic(
     path,
     message: diagnostic.message,
     ...(diagnostic.category ? { category: diagnostic.category } : {}),
+    ...(diagnostic.navigation ? { navigation: diagnostic.navigation } : {}),
     code: diagnostic.code,
     boundaries: normalizeProjectValidationBoundaries(diagnostic.boundaries),
     ownerPaths: [...new Set((diagnostic.ownerPaths ?? [path]).map(normalizeJsonPointer))].sort(
@@ -242,6 +243,7 @@ export function projectValidationDiagnosticKey(diagnostic: ProjectValidationDiag
   return [
     diagnostic.code,
     diagnostic.path,
+    diagnostic.navigation ? JSON.stringify(diagnostic.navigation) : '',
     diagnostic.ownerPaths.join('\u0001'),
     diagnostic.severity,
     diagnostic.boundaries.join('\u0001'),
@@ -261,6 +263,11 @@ export function collectProjectValidationDiagnostics(
     if (path !== 0) return path;
     const severity = compareStrings(left.severity, right.severity);
     if (severity !== 0) return severity;
+    const navigation = compareStrings(
+      left.navigation ? JSON.stringify(left.navigation) : '',
+      right.navigation ? JSON.stringify(right.navigation) : '',
+    );
+    if (navigation !== 0) return navigation;
     const ownerPaths = compareStrings(
       left.ownerPaths.join('\u0001'),
       right.ownerPaths.join('\u0001'),

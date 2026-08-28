@@ -28,6 +28,7 @@ import {
   type EditorRecoveryExternalConflict,
   type EditorRecoveryPatch,
   type EditorRecoverySaveUnit,
+  type EditorRecoveryState,
 } from '../../shared/project-schema/editor-project-state';
 import type { AuthoringEnumRepair } from '../../shared/project-schema/decode-authoring-project';
 import { isAuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
@@ -434,6 +435,42 @@ function buildRecoveryEntries(): EditorProjectState['recovery'] {
     };
   }
   return { sequence, saveUnitsById };
+}
+
+export function buildCurrentEditorRecoveryState(): EditorRecoveryState {
+  return buildRecoveryEntries();
+}
+
+export function currentRecoveryDirtySaveUnitIds(): Set<string> {
+  const projectState = useProjectStore.getState();
+  const current = projectState.document;
+  const saved = projectState.savedDocument;
+  if (!current || !saved) return new Set();
+
+  const dirty = new Set<string>();
+  const markIfChanged = (saveUnitId: string, path: string) => {
+    if (patchForPath(saved, current, path)) dirty.add(saveUnitId);
+  };
+
+  for (const [saveUnitId, entry] of Object.entries(
+    recoveryContext.editorState.recovery.saveUnitsById,
+  )) {
+    for (const path of entry.affectedPaths) markIfChanged(saveUnitId, path);
+  }
+
+  for (const repair of recoveryContext.repairs) {
+    markIfChanged(contentSaveUnitForPath(repair.path), repair.path);
+  }
+
+  const history = useCommandStore.getState().history;
+  for (const entry of history.entries.slice(0, history.cursor + 1)) {
+    if (entry.persistencePolicy === 'auto-commit') continue;
+    for (const path of entry.affectedPaths) {
+      markIfChanged(manualSaveUnitForHistoryPath(entry.originSaveUnitId, path), path);
+    }
+  }
+
+  return dirty;
 }
 
 export function buildEditorProjectStateSnapshot(

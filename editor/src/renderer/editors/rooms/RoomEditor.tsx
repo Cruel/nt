@@ -115,7 +115,10 @@ import {
 import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import { buildRoomDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
+import {
+  registerWorkbenchTargetHandler,
+  type PendingWorkbenchRevealTarget,
+} from '@/workbench/workbench-navigation';
 import { RoomExitDirectionSelector } from './RoomExitDirectionSelector';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
@@ -200,6 +203,7 @@ function isRoomEditorCategory(value: unknown): value is RoomEditorCategory {
 function roomEditorCategoryForTarget(targetId: string): RoomEditorCategory {
   if (targetId.startsWith('room.properties') || targetId.startsWith('room.property.'))
     return 'properties';
+  if (targetId.startsWith('instance.property.')) return 'composition';
   if (targetId.startsWith('room.camera') || targetId.startsWith('room.anchor')) return 'camera';
   if (targetId.startsWith('room.hotspot')) return 'hotspots';
   if (targetId.startsWith('room.exit') || targetId === 'room.exits') return 'navigation';
@@ -727,19 +731,45 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       [activeCategory, data.hotspots, hotspotView, previewCollapsed],
     ),
   );
-  useEffect(
-    () =>
-      registerWorkbenchTargetHandler(tab.id, 'room', (target) => {
-        setActiveCategory(roomEditorCategoryForTarget(target.id));
-        if (target.id.startsWith('room.hotspot.')) {
-          const id = target.id.slice('room.hotspot.'.length);
-          if (data.hotspots.some((hotspot) => hotspot.id === id))
-            setHotspotView((current) => ({ ...current, selectedHotspotId: id }));
+  useEffect(() => {
+    const handleRoomTarget = (target: PendingWorkbenchRevealTarget) => {
+      setActiveCategory(roomEditorCategoryForTarget(target.id));
+      if (target.id.startsWith('room.hotspot.')) {
+        const id = target.id.slice('room.hotspot.'.length);
+        if (data.hotspots.some((hotspot) => hotspot.id === id))
+          setHotspotView((current) => ({ ...current, selectedHotspotId: id }));
+      }
+      if (
+        typeof target.payload === 'object' &&
+        target.payload !== null &&
+        (target.payload as { kind?: unknown }).kind === 'interactable-instance-property'
+      ) {
+        const payload = target.payload as {
+          kind: 'interactable-instance-property';
+          instanceId: string;
+          placementId?: string;
+        };
+        const placementId =
+          payload.placementId ??
+          data.interactables.find((entry) => entry.interactable.$ref.id === payload.instanceId)
+            ?.placementId;
+        if (placementId && data.placements.some((placement) => placement.id === placementId)) {
+          setSelectedPlacementId(placementId);
         }
-        return false;
-      }),
-    [data.hotspots, tab.id],
-  );
+      }
+      return false;
+    };
+    const disposeRoom = registerWorkbenchTargetHandler(tab.id, 'room', handleRoomTarget);
+    const disposeInstanceProperty = registerWorkbenchTargetHandler(
+      tab.id,
+      'instance.property',
+      handleRoomTarget,
+    );
+    return () => {
+      disposeRoom();
+      disposeInstanceProperty();
+    };
+  }, [data.hotspots, data.interactables, data.placements, tab.id]);
   const backgroundAssetData =
     project && data.background.asset
       ? parseAssetData(project.assets[data.background.asset.$ref.id]?.data)

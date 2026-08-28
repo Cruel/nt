@@ -22,6 +22,7 @@ export interface ResourceDirtyState {
 export interface TabDirtyState {
   dirty: boolean;
   persistentDirty: boolean;
+  recoveryDirty: boolean;
   draftDirty: boolean;
   pendingInputDirty: boolean;
   resourcePath: JsonPointer | null;
@@ -103,6 +104,7 @@ export function getTabDirtyState(
   savedDocument: JsonValue | null,
   draftDirtyByTabId: Record<string, boolean>,
   pendingSaveUnitIds: ReadonlySet<SaveUnitId> = new Set(),
+  recoveryDirtySaveUnitIds: ReadonlySet<SaveUnitId> = new Set(),
 ): TabDirtyState {
   const resolution = resolveSaveUnitForTab(tab, currentDocument);
   const resource =
@@ -122,13 +124,17 @@ export function getTabDirtyState(
           savedExists: false,
         };
   const draftDirty = Boolean(draftDirtyByTabId[tab.id]);
-  const persistentDirty = resource.dirty;
+  const recoveryDirty = Boolean(
+    resource.saveUnitId && recoveryDirtySaveUnitIds.has(resource.saveUnitId),
+  );
+  const persistentDirty = resource.dirty || recoveryDirty;
   const pendingInputDirty = Boolean(
     resource.saveUnitId && pendingSaveUnitIds.has(resource.saveUnitId),
   );
   return {
     dirty: persistentDirty || draftDirty || pendingInputDirty,
     persistentDirty,
+    recoveryDirty,
     draftDirty,
     pendingInputDirty,
     resourcePath: resource.path,
@@ -141,6 +147,7 @@ export function restoreSaveUnitPatchesFromSaved(
   tab: WorkbenchTab,
   currentDocument: JsonValue | null,
   savedDocument: JsonValue | null,
+  additionalOwnedPaths: readonly JsonPointer[] = [],
 ): JsonPatchOperation[] {
   const resolution = resolveSaveUnitForTab(tab, currentDocument);
   if (resolution.status !== 'savable' || !currentDocument) return [];
@@ -148,7 +155,12 @@ export function restoreSaveUnitPatchesFromSaved(
   const restorePaths = [
     ...(primaryPath && resolution.descriptor.ownedPaths.includes(primaryPath) ? [primaryPath] : []),
     ...resolution.descriptor.ownedPaths.filter((path) => path !== primaryPath),
-  ];
+    ...additionalOwnedPaths,
+  ].filter(
+    (path, index, paths) =>
+      paths.findIndex((candidate) => candidate === path || path.startsWith(`${candidate}/`)) ===
+      index,
+  );
   return restorePaths.flatMap((path) =>
     restorePathPatchesFromSaved(path, currentDocument, savedDocument),
   );
