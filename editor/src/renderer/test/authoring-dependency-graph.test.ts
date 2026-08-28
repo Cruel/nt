@@ -19,7 +19,6 @@ import {
   localizationKeyNodeKey,
   nestedNodeKey,
   outgoingAuthoringDependencies,
-  propertyDefinitionNodeKey,
   recordNodeKey,
   traitDefinitionNodeKey,
   replaceAuthoringDependencyGraphContributions,
@@ -328,7 +327,6 @@ describe('authoring structural dependency graph and queries', () => {
       id: 'handle',
       label: 'Handle',
       traits: [],
-      properties: {},
       localProperties: [],
       defaultProperties: [],
       inventories: [],
@@ -424,14 +422,6 @@ describe('authoring structural dependency graph and queries', () => {
   });
   it('builds record/project-field contributions and reports missing structural targets', () => {
     const project = createAuthoringProject();
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      type: 'string',
-      nullable: false,
-      defaultValue: 'calm',
-      ownerKinds: ['room'],
-    };
     project.traits['tense-room'] = {
       id: 'tense-room',
       label: 'Tense Room',
@@ -699,16 +689,8 @@ describe('authoring structural dependency graph and queries', () => {
     }
   });
 
-  it('derives exact property-definition and localization fallback relationships', () => {
+  it('derives localization fallback relationships without a global identity Property node', () => {
     const project = createAuthoringProject();
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      type: 'string',
-      nullable: false,
-      defaultValue: 'neutral',
-      ownerKinds: ['room'],
-    };
     project.localization.defaultLocale = 'en';
     project.localization.fallbackLocale = 'fr';
     project.localization.catalogs = { en: {}, fr: { 'room.foyer': 'Foyer' } };
@@ -720,14 +702,16 @@ describe('authoring structural dependency graph and queries', () => {
     project.rooms.foyer = {
       id: 'foyer',
       label: 'Foyer',
-      properties: { mood: 'calm' },
+      localProperties: [
+        { id: 'mood', label: 'Mood', type: 'string', nullable: false, value: 'calm' },
+      ],
       data,
     };
 
     const fallbackGraph = buildAuthoringStructuralDependencyGraph(project);
     expect(
-      findAuthoringDependencyUsages(fallbackGraph, propertyDefinitionNodeKey('mood')),
-    ).toContainEqual(expect.objectContaining({ role: 'property-assignment' }));
+      [...fallbackGraph.nodesByKey.keys()].some((key) => key.includes('property-definition')),
+    ).toBe(false);
     expect(
       findAuthoringDependencyUsages(fallbackGraph, localizationKeyNodeKey('en', 'room.foyer')),
     ).toContainEqual(expect.objectContaining({ role: 'localization-text' }));
@@ -834,14 +818,6 @@ describe('authoring structural dependency graph and queries', () => {
 
   it('keeps structural compatibility projection identical to the public reference index', () => {
     const project = createAuthoringProject();
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      type: 'string',
-      nullable: false,
-      defaultValue: 'calm',
-      ownerKinds: ['room'],
-    };
     project.traits['tense-room'] = {
       id: 'tense-room',
       label: 'Tense Room',
@@ -861,14 +837,6 @@ describe('authoring structural dependency graph and queries', () => {
 
   it('fails closed for string-shaped generic replacement roles', () => {
     const project = createAuthoringProject();
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      type: 'string',
-      nullable: false,
-      defaultValue: 'calm',
-      ownerKinds: ['room'],
-    };
     project.traits['tense-room'] = {
       id: 'tense-room',
       label: 'Tense Room',

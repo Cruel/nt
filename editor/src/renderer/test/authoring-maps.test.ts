@@ -8,7 +8,6 @@ function addRoom(project: ReturnType<typeof createAuthoringProject>, id: string)
     id,
     label: id,
     traits: [],
-    properties: {},
     data: defaultRoomData(id),
   };
 }
@@ -76,7 +75,6 @@ describe('authoring maps', () => {
         id: 'world',
         label: 'World',
         traits: [],
-        properties: {},
         data: map,
       }),
     ).toEqual([]);
@@ -126,7 +124,6 @@ describe('authoring maps', () => {
         id: 'world',
         label: 'World',
         traits: [],
-        properties: {},
         data: map,
       }),
     ).toEqual(
@@ -155,7 +152,6 @@ describe('authoring maps', () => {
         id: 'world',
         label: 'World',
         traits: [],
-        properties: {},
         data: map,
       }),
     ).toEqual(

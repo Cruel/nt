@@ -27,10 +27,18 @@ import {
   verbRefSchema,
 } from './authoring-flow';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import { archetypeRefSchema } from './authoring-archetypes';
+import {
+  archetypeRefSchema,
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from './authoring-archetypes';
 import { characterInitialWorldLocationSchema } from './authoring-characters';
 import { interactionSubjectSchema } from './authoring-features';
-import { interactableLocationSchema } from './authoring-interactables';
+import {
+  interactableInstanceRefSchema,
+  interactableLocationSchema,
+} from './authoring-interactables';
+import { effectiveInteractableInstanceProperties } from './authoring-interactable-properties';
 import {
   itemDefinitionRefSchema,
   itemStackRefSchema,
@@ -117,23 +125,11 @@ export const sceneTextContentSchema = textContentSchema;
 export const sceneConditionSchema = conditionSchema;
 export const sceneEffectSchema = effectSchema;
 
-const sceneTraitRefSchema = strict({
-  $ref: strict({ collection: z.literal('traits'), id: entityIdSchema }),
-});
-const scenePropertyRefSchema = z.union([
-  strict({ key: entityIdSchema }),
-  strict({ $ref: strict({ collection: z.literal('properties'), id: entityIdSchema }) }),
-]);
+const scenePropertyRefSchema = strict({ key: entityIdSchema });
 const scenePropertyOwnerSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room'), room: roomRefSchema }),
   strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({
-    kind: z.literal('interactable'),
-    interactable: strict({
-      $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
-    }),
-  }),
-  strict({ kind: z.literal('item-stack'), itemStack: itemStackRefSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
 ]);
 const sceneGameplayEffectOperationSchema = z.discriminatedUnion('kind', [
   strict({
@@ -206,11 +202,6 @@ const sceneGameplayEffectOperationSchema = z.discriminatedUnion('kind', [
     kind: z.literal('consume-item-quantity'),
     stack: itemStackRefSchema,
     quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
-  }),
-  strict({
-    kind: z.literal('set-item-stack-traits'),
-    stack: itemStackRefSchema,
-    traits: z.array(sceneTraitRefSchema),
   }),
 ]);
 const sceneGameplayInstanceRefSchema = z.discriminatedUnion('kind', [
@@ -1009,6 +1000,40 @@ export function validateSceneData(
     const result = validateVariableRuntimeValue(project, variableId, value);
     if (!result.ok) diagnostics.push(diagnostic(path, result.message));
   };
+  const propertyContract = (
+    owner: z.infer<typeof scenePropertyOwnerSchema>,
+    propertyId: string,
+  ) => {
+    if (owner.kind === 'interactable') {
+      const instance = project.interactableInstances[owner.interactable.$ref.id];
+      return instance
+        ? effectiveInteractableInstanceProperties(project, instance).find(
+            (property) => property.id === propertyId,
+          )?.contract
+        : undefined;
+    }
+    const collection = owner.kind === 'room' ? 'rooms' : 'characters';
+    const id = owner.kind === 'room' ? owner.room.$ref.id : owner.character.$ref.id;
+    const record = project[collection][id];
+    if (!record) return undefined;
+    const local = record.localProperties?.find((property) => property.id === propertyId);
+    if (local) return local;
+    if (record.archetype) {
+      const inherited = resolveArchetypeConfiguration(
+        project,
+        record.archetype.$ref.id,
+      )?.defaultProperties.find((property) => property.id === propertyId);
+      if (inherited) return inherited;
+    }
+    const effective = resolveGameplayInstanceRecord(project, owner.kind, record);
+    for (const traitId of effective?.traits ?? record.traits ?? []) {
+      const member = project.traits[traitId]?.properties.find(
+        (property) => property.id === propertyId,
+      );
+      if (member) return member;
+    }
+    return undefined;
+  };
   const validateCondition = (condition: SceneConditionData | undefined, path: string) => {
     if (condition?.kind === 'variable-comparison') {
       const variableId = condition.variable.$ref.id;
@@ -1476,95 +1501,40 @@ export function validateSceneData(
           );
         if (operation.kind === 'set-property' || operation.kind === 'unset-property') {
           const owner = operation.owner;
+          const propertyId = operation.property.key;
           if (owner.kind === 'room') {
             requireRecord('rooms', owner.room.$ref.id, `${operationPath}/owner/room`);
-            const propertyId =
-              'key' in operation.property ? operation.property.key : operation.property.$ref.id;
-            const local = project.rooms[owner.room.$ref.id]?.localProperties?.find(
-              (property) => property.id === propertyId,
-            );
-            if ('key' in operation.property && !local)
-              diagnostics.push(
-                diagnostic(
-                  `${operationPath}/property/key`,
-                  `Room '${owner.room.$ref.id}' does not declare Property '${propertyId}'.`,
-                ),
-              );
-            if (!('key' in operation.property))
-              requireRecord('properties', propertyId, `${operationPath}/property`);
-            if (
-              operation.kind === 'set-property' &&
-              local &&
-              !isPropertyValueCompatible(local, operation.value)
-            )
-              diagnostics.push(
-                diagnostic(
-                  `${operationPath}/value`,
-                  `Value does not match Property '${propertyId}' on Room '${owner.room.$ref.id}'.`,
-                ),
-              );
           } else if (owner.kind === 'character') {
             requireRecord(
               'characters',
               owner.character.$ref.id,
               `${operationPath}/owner/character`,
             );
-            const propertyId =
-              'key' in operation.property ? operation.property.key : operation.property.$ref.id;
-            const local = project.characters[owner.character.$ref.id]?.localProperties?.find(
-              (property) => property.id === propertyId,
-            );
-            if ('key' in operation.property && !local)
-              diagnostics.push(
-                diagnostic(
-                  `${operationPath}/property/key`,
-                  `Character '${owner.character.$ref.id}' does not declare Property '${propertyId}'.`,
-                ),
-              );
-            if (!('key' in operation.property))
-              requireRecord('properties', propertyId, `${operationPath}/property`);
-            if (
-              operation.kind === 'set-property' &&
-              local &&
-              !isPropertyValueCompatible(local, operation.value)
-            )
-              diagnostics.push(
-                diagnostic(
-                  `${operationPath}/value`,
-                  `Value does not match Property '${propertyId}' on Character '${owner.character.$ref.id}'.`,
-                ),
-              );
-          } else if (owner.kind === 'interactable') {
+          } else {
             requireRecord(
-              'interactables',
+              'interactableInstances',
               owner.interactable.$ref.id,
               `${operationPath}/owner/interactable`,
             );
-            if ('key' in operation.property)
-              diagnostics.push(
-                diagnostic(
-                  `${operationPath}/property`,
-                  'Interactables still use the transitional project Property registry.',
-                ),
-              );
-            else
-              requireRecord('properties', operation.property.$ref.id, `${operationPath}/property`);
-          } else {
-            requireRecord(
-              'itemStacks',
-              owner.itemStack.$ref.id,
-              `${operationPath}/owner/itemStack`,
-            );
-            if ('key' in operation.property)
-              diagnostics.push(
-                diagnostic(
-                  `${operationPath}/property`,
-                  'Item Stacks still use the transitional project Property registry.',
-                ),
-              );
-            else
-              requireRecord('properties', operation.property.$ref.id, `${operationPath}/property`);
           }
+          const contract = propertyContract(owner, propertyId);
+          if (!contract)
+            diagnostics.push(
+              diagnostic(
+                `${operationPath}/property/key`,
+                `Property '${propertyId}' is not statically authored on the exact ${owner.kind} owner.`,
+              ),
+            );
+          else if (
+            operation.kind === 'set-property' &&
+            !isPropertyValueCompatible(contract, operation.value)
+          )
+            diagnostics.push(
+              diagnostic(
+                `${operationPath}/value`,
+                `Value does not match Property '${propertyId}' on the exact ${owner.kind} owner.`,
+              ),
+            );
         }
         if (operation.kind === 'move-character' || operation.kind === 'set-character-state')
           requireRecord('characters', operation.character.$ref.id, `${operationPath}/character`);
@@ -1577,8 +1547,7 @@ export function validateSceneData(
         if (
           operation.kind === 'split-item-stack' ||
           operation.kind === 'transfer-item-quantity' ||
-          operation.kind === 'consume-item-quantity' ||
-          operation.kind === 'set-item-stack-traits'
+          operation.kind === 'consume-item-quantity'
         )
           requireRecord('itemStacks', operation.stack.$ref.id, `${operationPath}/stack`);
         if (operation.kind === 'merge-item-stacks') {
@@ -1590,10 +1559,6 @@ export function validateSceneData(
             'itemDefinitions',
             operation.definition.$ref.id,
             `${operationPath}/definition`,
-          );
-        if (operation.kind === 'set-item-stack-traits')
-          operation.traits.forEach((trait, traitIndex) =>
-            requireRecord('traits', trait.$ref.id, `${operationPath}/traits/${traitIndex}`),
           );
       });
     }

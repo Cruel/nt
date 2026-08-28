@@ -65,11 +65,13 @@ CompiledProject load_fixture(std::string_view filename)
 }
 
 compiled::RoomDefinition room(RoomId room_id, std::vector<TraitId> traits = {},
-                              std::vector<PropertyAssignment> assignments = {})
+                              std::vector<PropertyAssignment> assignments = {},
+                              std::vector<compiled::OwnerPropertyContract> properties = {})
 {
     return compiled::RoomDefinition{
         .identity = {std::move(room_id), std::move(traits), std::move(assignments)},
         .display_name = "Room",
+        .properties = std::move(properties),
         .description = text("Room description"),
         .background = {std::nullopt, std::nullopt, compiled::BackgroundFit::Cover, std::nullopt},
         .lifecycle = {Always{}, Always{}},
@@ -81,29 +83,35 @@ compiled::RoomDefinition room(RoomId room_id, std::vector<TraitId> traits = {},
 
 CompiledProject project()
 {
-    auto mood = make_property_definition(PropertyDefinitionInput{
+    const auto root = id<RoomId>("area");
+    const auto child = id<RoomId>("hall");
+    const auto leaf = id<RoomId>("tower");
+    auto root_mood_definition = make_property_definition(PropertyDefinitionInput{
         .id = id<PropertyId>("mood"),
         .value_type = EnumPropertyType{{"calm", "tense", "bright"}},
         .nullable = false,
-        .default_value = RuntimeValue{std::string{"calm"}},
-        .scope = PropertyScope::Identity,
-        .allowed_owners = {PropertyOwnerKind::Room},
-    });
-    auto note = make_property_definition(PropertyDefinitionInput{
-        .id = id<PropertyId>("note"),
-        .value_type = StringPropertyType{},
-        .nullable = true,
         .default_value = std::nullopt,
         .scope = PropertyScope::Identity,
-        .allowed_owners = {PropertyOwnerKind::Room},
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{root},
     });
-    auto light = make_property_definition(PropertyDefinitionInput{
+    auto root_light_definition = make_property_definition(PropertyDefinitionInput{
         .id = id<PropertyId>("light"),
         .value_type = NumberPropertyType{},
         .nullable = false,
-        .default_value = RuntimeValue{1.0},
+        .default_value = std::nullopt,
         .scope = PropertyScope::Identity,
-        .allowed_owners = {PropertyOwnerKind::Room},
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{root},
+    });
+    auto leaf_mood_definition = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("mood"),
+        .value_type = EnumPropertyType{{"calm", "tense", "bright"}},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{leaf},
     });
     auto flag = make_property_definition(PropertyDefinitionInput{
         .id = id<PropertyId>("flag"),
@@ -129,9 +137,6 @@ CompiledProject project()
         .scope = PropertyScope::Global,
         .allowed_owners = {},
     });
-    const auto root = id<RoomId>("area");
-    const auto child = id<RoomId>("hall");
-    const auto leaf = id<RoomId>("tower");
     auto root_state = make_property_definition(PropertyDefinitionInput{
         .id = id<PropertyId>("state"),
         .value_type = BooleanPropertyType{},
@@ -150,20 +155,20 @@ CompiledProject project()
         .allowed_owners = {},
         .exact_owner = PropertyOwnerRef{child},
     });
-    REQUIRE(mood);
-    REQUIRE(note);
-    REQUIRE(light);
+    REQUIRE(root_mood_definition);
+    REQUIRE(root_light_definition);
+    REQUIRE(leaf_mood_definition);
     REQUIRE(flag);
     REQUIRE(count);
     REQUIRE(weather);
     REQUIRE(root_state);
     REQUIRE(child_state);
 
-    auto root_mood = make_property_assignment(PropertyOwnerKind::Room, mood.value(),
+    auto root_mood = make_property_assignment(PropertyOwnerKind::Room, root_mood_definition.value(),
                                               RuntimeValue{std::string{"tense"}});
-    auto root_light =
-        make_property_assignment(PropertyOwnerKind::Room, light.value(), RuntimeValue{0.5});
-    auto leaf_mood = make_property_assignment(PropertyOwnerKind::Room, mood.value(),
+    auto root_light = make_property_assignment(PropertyOwnerKind::Room,
+                                               root_light_definition.value(), RuntimeValue{0.5});
+    auto leaf_mood = make_property_assignment(PropertyOwnerKind::Room, leaf_mood_definition.value(),
                                               RuntimeValue{std::string{"calm"}});
     auto root_state_value =
         make_property_assignment(PropertyOwnerKind::Room, root_state.value(), RuntimeValue{true});
@@ -184,9 +189,9 @@ CompiledProject project()
     leaf_assignments.push_back(std::move(leaf_mood).value());
 
     std::vector<PropertyDefinition> properties;
-    properties.push_back(std::move(mood).value());
-    properties.push_back(std::move(note).value());
-    properties.push_back(std::move(light).value());
+    properties.push_back(std::move(root_mood_definition).value());
+    properties.push_back(std::move(root_light_definition).value());
+    properties.push_back(std::move(leaf_mood_definition).value());
     properties.push_back(std::move(flag).value());
     properties.push_back(std::move(count).value());
     properties.push_back(std::move(weather).value());
@@ -218,9 +223,14 @@ CompiledProject project()
 
     std::vector<compiled::RoomDefinition> rooms;
     rooms.push_back(room(root, {}, std::move(root_assignments)));
-    rooms.push_back(room(child, {dim_room}, std::move(child_assignments)));
+    rooms.push_back(
+        room(child, {dim_room}, std::move(child_assignments),
+             {{id<PropertyId>("note"), StringPropertyType{}, true, {}, std::nullopt, "note", ""}}));
     rooms.push_back(room(leaf, {dim_room}, std::move(leaf_assignments)));
-    rooms.push_back(room(id<RoomId>("garden")));
+    rooms.push_back(room(
+        id<RoomId>("garden"), {}, {},
+        {{id<PropertyId>("light"), NumberPropertyType{}, false, {}, RuntimeValue{1.0}, "light", ""},
+         {id<PropertyId>("note"), StringPropertyType{}, true, {}, std::nullopt, "note", ""}}));
 
     compiled::CompiledProjectInput input{
         .identity = {id<ProjectId>("session-test"), "Session", "1.0", "", ""},

@@ -280,10 +280,8 @@ function preservationPatchesForRemovedTraitProperties(
     for (const [ownerId, record] of Object.entries(project[collection])) {
       if (!(record.traits ?? []).includes(traitId)) continue;
       const nextLocal = [...(record.localProperties ?? [])];
-      const nextOverrides = { ...record.properties };
       let changed = false;
       for (const property of removed) {
-        if (!Object.prototype.hasOwnProperty.call(nextOverrides, property.id)) continue;
         const stillSupplied = (record.traits ?? []).some(
           (otherTraitId: string) =>
             otherTraitId !== traitId &&
@@ -292,25 +290,18 @@ function preservationPatchesForRemovedTraitProperties(
             ),
         );
         if (stillSupplied || nextLocal.some((candidate) => candidate.id === property.id)) continue;
-        const local = ownerLocalFromTrait(property, nextOverrides[property.id]);
+        if (property.defaultValue === undefined) continue;
+        const local = ownerLocalFromTrait(property, property.defaultValue);
         if (!local) continue;
         nextLocal.push(local);
-        delete nextOverrides[property.id];
         changed = true;
       }
       if (!changed) continue;
-      patches.push(
-        {
-          op: Object.prototype.hasOwnProperty.call(record, 'localProperties') ? 'replace' : 'add',
-          path: `/${collection}/${escapeSegment(ownerId)}/localProperties`,
-          value: nextLocal,
-        },
-        {
-          op: Object.prototype.hasOwnProperty.call(record, 'properties') ? 'replace' : 'add',
-          path: `/${collection}/${escapeSegment(ownerId)}/properties`,
-          value: nextOverrides,
-        },
-      );
+      patches.push({
+        op: Object.prototype.hasOwnProperty.call(record, 'localProperties') ? 'replace' : 'add',
+        path: `/${collection}/${escapeSegment(ownerId)}/localProperties`,
+        value: nextLocal,
+      });
     }
   }
   return patches;
@@ -423,7 +414,6 @@ function selectorRenamePatches(
 }
 
 function ownerKindLabel(kind: PropertyOwnerKind) {
-  if (kind === 'item-stack') return 'Item Stack';
   return kind[0]!.toUpperCase() + kind.slice(1);
 }
 

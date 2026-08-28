@@ -276,9 +276,7 @@ apply_scene_gameplay_operation(const core::compiled::SceneGameplayEffectOperatio
                 return changed ? core::Result<void, core::Diagnostics>::success()
                                : core::Result<void, core::Diagnostics>::failure(changed.error());
             } else {
-                auto changed = gateway.set_item_stack_traits(value.stack, value.traits);
-                return changed ? core::Result<void, core::Diagnostics>::success()
-                               : core::Result<void, core::Diagnostics>::failure(changed.error());
+                static_assert(std::is_same_v<T, void>, "Unhandled Scene gameplay effect operation");
             }
         },
         operation);

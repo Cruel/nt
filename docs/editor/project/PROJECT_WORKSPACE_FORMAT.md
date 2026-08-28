@@ -13,9 +13,10 @@ The Instance registry is not an Explorer collection and is not persisted under `
 `/settings` is the
 Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
 built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
-choices remain editor-local. `properties.json`, `localization.json`, and `editor.json`
-are required contextual fragments. `editor.json` contains exactly collaborator-visible `chapters`,
-`tags`, and `recordMetadata`.
+choices remain editor-local. `traits.json`, `localization.json`, and `editor.json` are required
+contextual fragments. `traits.json` owns the self-contained Trait contracts; there is no top-level
+identity Property fragment. `editor.json` contains exactly collaborator-visible `chapters`, `tags`,
+and `recordMetadata`, including collaborator-visible Trait color metadata.
 
 Records live under `records/<collection>/<id>.json`; Layouts instead live under
 `records/layouts/<id>/layout.json`. IDs are canonical file identity and must match the stored record
@@ -95,8 +96,8 @@ targets a project root and writes `project.json`; it carries tracked baseline, l
 dirty-only asset bytes, and separately-owned workflows, while excluding generated agent/build/cache,
 transactions, and trash state. A non-empty destination may contain unrelated user files, `.git`,
 documentation, workflows, or unrelated assets, but Save As rejects any pre-existing NovelTea-owned
-canonical source/state namespace (`project.json`, `properties.json`, `localization.json`,
-`editor.json`, `records/`, `scripts/`, `.noveltea/transactions/`, or `.noveltea/editor/`). It also
+canonical source/state namespace (`project.json`, `traits.json`, `localization.json`, `editor.json`,
+`records/`, `scripts/`, `.noveltea/transactions/`, or `.noveltea/editor/`). It also
 fails if an exact Asset source destination is already occupied. Save As therefore never silently
 merges stale records, Layout companions, Script Module sources, local transaction/recovery state, or
 unrelated bytes at an Asset path into the copied project.

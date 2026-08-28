@@ -75,7 +75,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'room-child' } },
       archetypeOverrides: { '/data/displayName': 'Authored Foyer' },
       traits: [],
-      properties: {},
     };
 
     const archetype = resolveArchetypeConfiguration(project, 'room-child');
@@ -112,7 +111,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'hero-base' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
     };
     const interactable = defaultInteractableData('Local Prop');
     project.interactables.prop = {
@@ -122,7 +120,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'prop-base' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
     };
 
     const effectiveCharacter = resolveGameplayInstanceRecord(
@@ -171,7 +168,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'character-base' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
     };
     expect(
       validateAuthoringProject(crossKindAttachment).some((item) =>
@@ -219,7 +215,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'room-base' } },
       archetypeOverrides: { '/data/displayName': 'Local Room' },
       traits: [],
-      properties: {},
     };
 
     const cleared = clearGameplayInstanceArchetypeOverridesPatches(project, {
@@ -269,7 +264,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'hero-base' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
     };
 
     const before = characterPreviewRevision(project, 'hero');
@@ -296,7 +290,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'room-child' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
     };
 
     const index = buildReferenceIndex(project);
@@ -316,22 +309,15 @@ describe('Archetype authoring semantics', () => {
     ]);
   });
 
-  it('validates properties and Traits on unused Archetype configurations', () => {
+  it('rejects the obsolete Property assignment namespace on unused Archetype configurations', () => {
     const project = createAuthoringProject();
-    project.properties.locked = {
-      id: 'locked',
-      label: 'Locked',
-      type: 'boolean',
-      nullable: false,
-      ownerKinds: ['room'],
-    };
     addArchetype(project, 'invalid-room', 'room', {
       overrides: { '/properties/locked': 'not-a-boolean' },
     });
 
     expect(
       validateAuthoringProject(project).some((item) =>
-        item.message.includes("Assignment does not match property 'locked'"),
+        item.message.includes("Override path '/properties/locked' cannot be inherited"),
       ),
     ).toBe(true);
   });
@@ -345,7 +331,6 @@ describe('Archetype authoring semantics', () => {
             id: 'door',
             label: 'Door',
             traits: [],
-            properties: {},
             localProperties: [],
             defaultProperties: [
               { id: 'locked', type: 'boolean', nullable: false, defaultValue: true },
@@ -362,8 +347,7 @@ describe('Archetype authoring semantics', () => {
             id: 'surface',
             label: 'Surface',
             traits: [],
-            properties: { visible: true },
-            localProperties: [],
+            localProperties: [{ id: 'visible', type: 'boolean', nullable: false, value: true }],
             defaultProperties: [],
             inventories: [],
           },
@@ -379,8 +363,8 @@ describe('Archetype authoring semantics', () => {
           message: expect.stringContaining('Room Features are concrete'),
         }),
         expect.objectContaining({
-          path: '/archetypes/prop-base/data/effectiveConfiguration/data/features/0/properties',
-          message: expect.stringContaining('cannot author concrete Property Values'),
+          path: '/archetypes/prop-base/data/effectiveConfiguration/data/features/0/localProperties',
+          message: expect.stringContaining('use Property Defaults'),
         }),
       ]),
     );
@@ -395,7 +379,6 @@ describe('Archetype authoring semantics', () => {
             id: 'desk-surface',
             label: 'Desk surface',
             traits: [],
-            properties: {},
             localProperties: [],
             defaultProperties: [],
             inventories: [],
@@ -432,7 +415,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'room-base' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
     };
 
     const renamed = renameHotspot(project, 'room', 'foyer', 'desk', 'writing-desk');
@@ -459,7 +441,6 @@ describe('Archetype authoring semantics', () => {
     addArchetype(project, 'prop-base', 'interactable', {
       overrides: {
         '/traits': ['template-trait'],
-        '/properties/template-flag': true,
         '/data/presentation/hotspots': {
           kind: 'sprite-alpha',
           hotspot: {
@@ -480,7 +461,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'prop-base' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
     };
     const mode = setInteractableHotspotMode(project, 'prop', 'custom');
     expect(mode.diagnostics).toBeUndefined();
@@ -489,11 +469,9 @@ describe('Archetype authoring semantics', () => {
       resolveGameplayInstanceRecord(project, 'interactable', project.interactables.prop!),
     ).toMatchObject({
       traits: ['template-trait'],
-      properties: { 'template-flag': true },
       data: { presentation: { hotspots: { kind: 'custom', hotspots: [] } } },
     });
     expect(project.interactables.prop!.archetypeOverrides).not.toHaveProperty('/traits');
-    expect(project.interactables.prop!.archetypeOverrides).not.toHaveProperty('/properties');
     expect(resolveArchetypeConfiguration(project, 'prop-base')?.data).toMatchObject({
       presentation: { hotspots: { kind: 'sprite-alpha' } },
     });
@@ -514,7 +492,6 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'room-base' } },
       archetypeOverrides: { '/data/background/color': '#123456' },
       traits: [],
-      properties: {},
     };
     project.entrypoint = { kind: 'room', id: 'start' };
 
@@ -573,8 +550,7 @@ describe('Archetype authoring semantics', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'room-child' } },
       archetypeOverrides: {},
       traits: [],
-      properties: { mood: 'concrete' },
-      localProperties: [],
+      localProperties: [{ id: 'mood', type: 'string', nullable: false, value: 'concrete' }],
     };
     project.entrypoint = { kind: 'room', id: 'start' };
 

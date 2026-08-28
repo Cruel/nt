@@ -24,7 +24,6 @@ export type AuthoringDependencyNodeKey =
         | 'interactable-hotspot';
       id: string;
     }
-  | { kind: 'property-definition'; id: string }
   | { kind: 'trait-definition'; id: string }
   | { kind: 'localization-key'; locale: string; key: string }
   | { kind: 'project-field'; path: JsonPointer };

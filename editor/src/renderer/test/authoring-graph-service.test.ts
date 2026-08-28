@@ -376,13 +376,13 @@ describe('incremental authoring graph service', () => {
         },
       ],
       [
-        '/properties/mood/defaultValue',
+        '/traits/mood/label',
         (next) => {
-          (next.properties as unknown as Record<string, unknown>).mood = {
+          next.traits.mood = {
             id: 'mood',
             label: 'Mood',
-            type: 'string',
-            defaultValue: 'calm',
+            ownerKinds: ['room'],
+            properties: [],
           };
         },
       ],

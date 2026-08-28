@@ -22,7 +22,7 @@ A Trait Property contract owns its own:
 - scalar type, nullability, and ordered enum domain where applicable;
 - optional Default.
 
-Trait Property contracts do not reference the transitional project-wide identity Property registry.
+Trait Property contracts do not reference the retired project-wide identity Property registry.
 An absent Default means the Trait contributes schema/capability only; an attached concrete owner must
 eventually provide a more-specific value. Empty Traits are valid semantic markers and may be compiled,
 attached, and matched at runtime without declaring any Properties.

@@ -32,9 +32,7 @@ import { validateMapData } from './authoring-maps';
 import {
   arePropertySchemasCompatible,
   authoredRuntimeValuesEqual,
-  isPropertyValueCompatible,
   type AuthoredRuntimeValue,
-  type PropertyAssignments,
   type PropertyOwnerKind,
   type TraitDefinition,
   type TraitProperty,
@@ -101,7 +99,6 @@ function validateArchetypePropertyConfiguration(
   project: AuthoringProject,
   ownerKind: PropertyOwnerKind,
   traits: readonly string[],
-  properties: Readonly<PropertyAssignments>,
   basePath: string,
   diagnostics: ProjectValidationDiagnosticLike[],
 ) {
@@ -164,28 +161,6 @@ function validateArchetypePropertyConfiguration(
     }
   }
 
-  for (const [propertyId, value] of Object.entries(properties)) {
-    const path = `${basePath}/properties/${escapePathSegment(propertyId)}`;
-    const traitProperty = traitProperties.get(propertyId)?.property;
-    if (traitProperty) {
-      if (!isPropertyValueCompatible(traitProperty, value))
-        diagnostics.push(
-          diagnostic('error', path, `Assignment does not match Trait Property '${propertyId}'.`),
-        );
-      continue;
-    }
-    const definition = project.properties[propertyId];
-    if (!definition)
-      diagnostics.push(diagnostic('error', path, `Property '${propertyId}' is not declared.`));
-    else if (!definition.ownerKinds.includes(ownerKind))
-      diagnostics.push(
-        diagnostic('error', path, `Property '${propertyId}' cannot be assigned to ${ownerKind}.`),
-      );
-    else if (!isPropertyValueCompatible(definition, value))
-      diagnostics.push(
-        diagnostic('error', path, `Assignment does not match property '${propertyId}'.`),
-      );
-  }
   // Reusable configuration sources may intentionally leave Trait contracts incomplete. Concrete
   // owners are checked separately before publication.
 }
@@ -235,14 +210,7 @@ function validateOwnerFeatures(
         diagnostic('error', `${path}/id`, `Feature '${feature.id}' is declared more than once.`),
       );
     seen.add(feature.id);
-    validateArchetypePropertyConfiguration(
-      project,
-      'feature',
-      feature.traits,
-      feature.properties,
-      path,
-      diagnostics,
-    );
+    validateArchetypePropertyConfiguration(project, 'feature', feature.traits, path, diagnostics);
     if (mode === 'default') {
       if (feature.localProperties.length > 0)
         diagnostics.push(
@@ -250,14 +218,6 @@ function validateOwnerFeatures(
             'error',
             `${path}/localProperties`,
             'Interactable-definition Features use Property Defaults, not concrete local Values.',
-          ),
-        );
-      if (Object.keys(feature.properties).length > 0)
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${path}/properties`,
-            'Interactable-definition Features are reusable configuration and cannot author concrete Property Values.',
           ),
         );
       validateDefaultPropertyConfiguration(
@@ -292,10 +252,7 @@ function validateOwnerFeatures(
               `Local Property '${member.id}' is incompatible with Trait '${traitId}'.`,
             ),
           );
-        const hasValue =
-          localProperty !== undefined ||
-          Object.prototype.hasOwnProperty.call(feature.properties, member.id) ||
-          member.defaultValue !== undefined;
+        const hasValue = localProperty !== undefined || member.defaultValue !== undefined;
         if (!hasValue)
           diagnostics.push(
             diagnostic(
@@ -361,7 +318,6 @@ function validateArchetypes(
         project,
         data.instanceKind,
         effective.traits,
-        effective.properties,
         `${base}/data/effectiveConfiguration`,
         diagnostics,
       );
@@ -500,70 +456,6 @@ function validateFeatures(
   }
 }
 
-function validateProperties(
-  project: AuthoringProject,
-  diagnostics: ProjectValidationDiagnosticLike[],
-) {
-  for (const [id, definition] of Object.entries(project.properties)) {
-    const base = `/properties/${escapePathSegment(id)}`;
-    if (definition.id !== id)
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `${base}/id`,
-          `Property id '${definition.id}' must match map key '${id}'.`,
-        ),
-      );
-  }
-
-  for (const collection of authoringCollectionKeys) {
-    const ownerKind = propertyOwnerKindByCollection[collection];
-    if (!ownerKind) continue;
-    for (const [recordId, record] of Object.entries(recordsFor(project, collection))) {
-      const traitPropertyById = new Map<string, TraitProperty>();
-      if (collection === 'rooms' || collection === 'characters') {
-        for (const traitId of record.traits ?? []) {
-          const trait = project.traits[traitId];
-          if (!trait || !trait.ownerKinds.includes(ownerKind)) continue;
-          for (const property of trait.properties)
-            if (!traitPropertyById.has(property.id)) traitPropertyById.set(property.id, property);
-        }
-      }
-      for (const [propertyId, value] of Object.entries(record.properties ?? {})) {
-        const path = `/${collection}/${escapePathSegment(recordId)}/properties/${escapePathSegment(propertyId)}`;
-        const traitProperty = traitPropertyById.get(propertyId);
-        if (traitProperty) {
-          if (!isPropertyValueCompatible(traitProperty, value))
-            diagnostics.push(
-              diagnostic(
-                'error',
-                path,
-                `Assignment does not match Trait Property '${propertyId}'.`,
-              ),
-            );
-          continue;
-        }
-        const definition = project.properties[propertyId];
-        if (!definition) {
-          diagnostics.push(diagnostic('error', path, `Property '${propertyId}' is not declared.`));
-        } else if (!definition.ownerKinds.includes(ownerKind)) {
-          diagnostics.push(
-            diagnostic(
-              'error',
-              path,
-              `Property '${propertyId}' cannot be assigned to ${ownerKind}.`,
-            ),
-          );
-        } else if (!isPropertyValueCompatible(definition, value)) {
-          diagnostics.push(
-            diagnostic('error', path, `Assignment does not match property '${propertyId}'.`),
-          );
-        }
-      }
-    }
-  }
-}
-
 function validateTraits(project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) {
   for (const [traitId, trait] of Object.entries(project.traits)) {
     const base = `/traits/${escapePathSegment(traitId)}`;
@@ -681,16 +573,6 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
               `Archetype Property '${propertyId}' is incompatible with Trait '${source.traitId}'.`,
             ),
           );
-
-        const override = (record.properties ?? {})[propertyId];
-        if (override !== undefined && !isPropertyValueCompatible(source.property, override))
-          diagnostics.push(
-            diagnostic(
-              'error',
-              `/${collection}/${escapePathSegment(recordId)}/properties/${escapePathSegment(propertyId)}`,
-              `Override does not match Trait Property '${propertyId}'.`,
-            ),
-          );
       }
 
       for (const trait of attachedTraits) {
@@ -700,12 +582,7 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
             archetypeDefaultById.get(member.id)?.defaultValue !== undefined
           )
             continue;
-          const hasStandaloneValue = localProperties.has(member.id);
-          const hasOverride = Object.prototype.hasOwnProperty.call(
-            record.properties ?? {},
-            member.id,
-          );
-          if (!hasStandaloneValue && !hasOverride)
+          if (!localProperties.has(member.id))
             diagnostics.push(
               diagnostic(
                 'error',
@@ -828,32 +705,12 @@ function validateInteractableProperties(
           ),
         );
     }
-    const effectiveById = new Map(effective.map((property) => [property.id, property]));
-    for (const [propertyId, value] of Object.entries(instance.properties)) {
-      const property = effectiveById.get(propertyId);
-      if (!property)
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${base}/properties/${escapePathSegment(propertyId)}`,
-            `Override Property '${propertyId}' has no effective Property contract.`,
-          ),
-        );
-      else if (!isPropertyValueCompatible(property.contract, value))
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${base}/properties/${escapePathSegment(propertyId)}`,
-            `Override does not match Property '${propertyId}'.`,
-          ),
-        );
-    }
     for (const property of effective) {
       if (!property.hasValue)
         diagnostics.push(
           diagnostic(
             'error',
-            `${base}/properties`,
+            `${base}/localProperties`,
             `Interactable Instance '${instanceId}' requires Property '${property.id}' to have a Value.`,
             'Project validation',
             'authoring.interactable.missing_property_value',
@@ -1121,7 +978,6 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
 
   validateArchetypes(project, diagnostics);
   const effectiveProject = effectiveGameplayProject(project);
-  validateProperties(effectiveProject, diagnostics);
   validateTraits(effectiveProject, diagnostics);
   validateInteractableProperties(effectiveProject, diagnostics);
   validateFeatures(effectiveProject, diagnostics);
@@ -1187,7 +1043,6 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
       effectiveProject,
       'interactable',
       instance.traits.add,
-      instance.properties,
       base,
       diagnostics,
     );

@@ -224,14 +224,6 @@ decode_scene_property_owner(Decoder& decoder, const nlohmann::json& value, std::
                    : std::nullopt;
         return id ? std::optional<PropertyOwnerRef>(*id) : std::nullopt;
     }
-    if (*kind == "item-stack") {
-        decoder.object(value, pointer, {"itemStack", "kind"});
-        const auto* member = decoder.member(value, "itemStack", pointer);
-        auto id = member ? decode_reference<ItemStackId>(
-                               decoder, *member, pointer_child(pointer, "itemStack"), "item-stack")
-                         : std::nullopt;
-        return id ? std::optional<PropertyOwnerRef>(*id) : std::nullopt;
-    }
     decoder.error(k_code_variant, "Unknown Scene Property owner kind.",
                   pointer_child(pointer, "kind"));
     return std::nullopt;
@@ -553,27 +545,6 @@ decode_scene_gameplay_effect_operation(Decoder& decoder, const nlohmann::json& v
         return definition
                    ? std::optional<SceneGameplayEffectOperation>(GrantItemQuantitySceneOperation{
                          std::move(*definition), *quantity, std::move(*location), *placement})
-                   : std::nullopt;
-    }
-    if (*kind == "set-item-stack-traits") {
-        decoder.object(value, pointer, {"kind", "stack", "traits"});
-        const auto* stack_value = decoder.member(value, "stack", pointer);
-        const auto* traits_value = decoder.member(value, "traits", pointer);
-        auto stack = stack_value ? decode_reference<ItemStackId>(decoder, *stack_value,
-                                                                 pointer_child(pointer, "stack"),
-                                                                 "item-stack")
-                                 : std::nullopt;
-        auto traits =
-            traits_value
-                ? decoder.array<TraitId>(
-                      *traits_value, pointer_child(pointer, "traits"),
-                      [&](const nlohmann::json& trait, const std::string& trait_pointer) {
-                          return decode_reference<TraitId>(decoder, trait, trait_pointer, "trait");
-                      })
-                : std::nullopt;
-        return stack && traits
-                   ? std::optional<SceneGameplayEffectOperation>(
-                         SetItemStackTraitsSceneOperation{std::move(*stack), std::move(*traits)})
                    : std::nullopt;
     }
     decoder.error(k_code_variant, "Unknown Scene gameplay-effect operation kind.",

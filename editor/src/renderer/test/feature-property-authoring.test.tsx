@@ -10,7 +10,6 @@ function feature(): FeatureData {
     id: 'surface',
     label: 'Surface',
     traits: [],
-    properties: {},
     localProperties: [],
     defaultProperties: [],
     inventories: [],

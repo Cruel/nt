@@ -85,7 +85,6 @@ describe('RoomEditor', () => {
       id: 'surface',
       label: 'Surface',
       traits: [],
-      properties: {},
       localProperties: [],
       defaultProperties: [],
       inventories: [],
@@ -647,7 +646,6 @@ describe('RoomEditor', () => {
       id: 'lamp',
       label: 'Lamp',
       traits: [],
-      properties: {},
       data: defaultInteractableData('Lamp'),
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

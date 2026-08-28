@@ -364,58 +364,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   moodVariable.value = 'calm';
   project.variables['mood-variable'] = { id: 'mood-variable', label: 'Mood', data: moodVariable };
 
-  const allOwnerKinds = ['room', 'character', 'interactable', 'feature'] as const;
-  project.properties.affinity = {
-    id: 'affinity',
-    label: 'Affinity',
-    type: 'number',
-    nullable: false,
-    defaultValue: 0.5,
-    ownerKinds: ['character'],
-  };
-  project.properties.enabled = {
-    id: 'enabled',
-    label: 'Enabled',
-    type: 'boolean',
-    nullable: false,
-    defaultValue: true,
-    ownerKinds: [...allOwnerKinds],
-  };
-  project.properties['visit-count'] = {
-    id: 'visit-count',
-    label: 'Visit Count',
-    type: 'integer',
-    nullable: false,
-    defaultValue: 0,
-    ownerKinds: ['room'],
-  };
-  project.properties.mood = {
-    id: 'mood',
-    label: 'Mood',
-    description: 'Room mood',
-    type: 'enum',
-    nullable: false,
-    defaultValue: 'calm',
-    enumValues: ['calm', 'tense'],
-    ownerKinds: ['room'],
-  };
-  project.properties.note = {
-    id: 'note',
-    label: 'Note',
-    type: 'string',
-    nullable: true,
-    defaultValue: null,
-    ownerKinds: ['interactable'],
-  };
-  project.properties.quality = {
-    id: 'quality',
-    label: 'Quality',
-    type: 'enum',
-    nullable: false,
-    defaultValue: 'ordinary',
-    enumValues: ['ordinary', 'polished'],
-    ownerKinds: ['interactable'],
-  };
   project.traits['tense-room'] = {
     id: 'tense-room',
     label: 'Tense Room',
@@ -472,7 +420,13 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
   });
   project.interactableInstances.wallet.editorLabel = 'Wallet credits';
-  project.interactableInstances.wallet.properties.quality = 'polished';
+  project.interactableInstances.wallet.localProperties.push({
+    id: 'quality',
+    type: 'enum',
+    nullable: false,
+    enumValues: ['ordinary', 'polished'],
+    value: 'polished',
+  });
 
   const hero = defaultCharacterData('Hero');
   hero.profiles[0]!.poses[0]!.layers[0]!.sprite = characterAssetRef('image-main');
@@ -494,7 +448,10 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.characters.hero = {
     id: 'hero',
     label: 'Hero',
-    properties: { affinity: 0.75, enabled: true },
+    localProperties: [
+      { id: 'affinity', label: 'Affinity', type: 'number', nullable: false, value: 0.75 },
+      { id: 'enabled', label: 'Enabled', type: 'boolean', nullable: false, value: true },
+    ],
     data: hero,
   };
 
@@ -509,7 +466,16 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.interactables.key = {
     id: 'key',
     label: 'Key',
-    properties: { enabled: true, note: 'brass key' },
+    defaultProperties: [
+      { id: 'enabled', label: 'Enabled', type: 'boolean', nullable: false, defaultValue: true },
+      {
+        id: 'note',
+        label: 'Note',
+        type: 'string',
+        nullable: true,
+        defaultValue: 'brass key',
+      },
+    ],
     data: key,
   };
 
@@ -620,7 +586,18 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.rooms.start = {
     id: 'start',
     label: 'Start',
-    properties: { mood: 'calm', 'visit-count': 1 },
+    localProperties: [
+      {
+        id: 'mood',
+        label: 'Mood',
+        description: 'Room mood',
+        type: 'enum',
+        nullable: false,
+        enumValues: ['calm', 'tense'],
+        value: 'calm',
+      },
+      { id: 'visit-count', label: 'Visit Count', type: 'integer', nullable: false, value: 1 },
+    ],
     data: start,
   };
 
@@ -674,7 +651,9 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     id: 'hall',
     label: 'Hall',
     traits: ['tense-room'],
-    properties: { 'visit-count': 2 },
+    localProperties: [
+      { id: 'visit-count', label: 'Visit Count', type: 'integer', nullable: false, value: 2 },
+    ],
     data: hall,
   };
 
@@ -893,9 +872,21 @@ export function traitPropertiesLocalizationGoldenProject(): AuthoringProject {
     'Golden Trait Properties Localization',
   );
   project.localization.fallbackLocale = 'en';
-  project.rooms.hall!.properties = { 'visit-count': 7 };
+  project.rooms.hall!.localProperties = [
+    { id: 'visit-count', label: 'Visit Count', type: 'integer', nullable: false, value: 7 },
+  ];
   project.rooms.tower!.traits = ['tense-room'];
-  project.rooms.tower!.properties = { mood: 'calm', 'visit-count': 3 };
+  project.rooms.tower!.localProperties = [
+    {
+      id: 'mood',
+      label: 'Mood',
+      type: 'enum',
+      nullable: false,
+      enumValues: ['calm', 'tense'],
+      value: 'calm',
+    },
+    { id: 'visit-count', label: 'Visit Count', type: 'integer', nullable: false, value: 3 },
+  ];
   return project;
 }
 
@@ -1391,8 +1382,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       id: 'door',
       label: 'Door',
       traits: ['feature-enabled'],
-      properties: { enabled: true },
-      localProperties: [],
+      localProperties: [{ id: 'enabled', type: 'boolean', nullable: false, value: true }],
       defaultProperties: [],
       inventories: [{ id: 'mail-slot', label: 'Mail Slot' }],
     },
@@ -1424,7 +1414,6 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       id: 'surface',
       label: 'Key Surface',
       traits: ['feature-enabled'],
-      properties: {},
       localProperties: [],
       defaultProperties: [{ id: 'enabled', type: 'boolean', nullable: false, defaultValue: true }],
       inventories: [{ id: 'groove', label: 'Key Groove' }],
@@ -1447,7 +1436,6 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       id: 'face',
       label: 'Coin Face',
       traits: ['feature-enabled'],
-      properties: {},
       localProperties: [],
       defaultProperties: [{ id: 'enabled', type: 'boolean', nullable: false, defaultValue: true }],
       inventories: [],
@@ -1919,13 +1907,13 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
         {
           kind: 'set-property',
           owner: { kind: 'room', room: sceneRoomRef('start') },
-          property: { $ref: { collection: 'properties', id: 'mood' } },
+          property: { key: 'mood' },
           value: 'tense',
         },
         {
           kind: 'unset-property',
           owner: { kind: 'room', room: sceneRoomRef('start') },
-          property: { $ref: { collection: 'properties', id: 'mood' } },
+          property: { key: 'mood' },
         },
         {
           kind: 'move-character',
@@ -2442,8 +2430,11 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
         },
         {
           kind: 'set-property',
-          owner: { kind: 'interactable', interactable: interactableReference('key') },
-          property: { $ref: { collection: 'properties', id: 'note' } },
+          owner: {
+            kind: 'interactable',
+            interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+          },
+          property: { key: 'note' },
           value: 'mutated',
         },
       ],

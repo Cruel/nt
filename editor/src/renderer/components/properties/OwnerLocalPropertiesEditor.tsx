@@ -18,7 +18,6 @@ import {
   type AuthoredRuntimeValue,
   type OwnerDefaultProperty,
   type OwnerLocalProperty,
-  type PropertyAssignments,
   type PropertyOwnerKind,
   type TraitDefinition,
   type TraitProperty,
@@ -45,7 +44,6 @@ interface TraitSource {
 export interface OwnerPropertyTraitState {
   traits: string[];
   localProperties: OwnerLocalProperty[];
-  properties: PropertyAssignments;
 }
 
 function formatValue(value: AuthoredRuntimeValue | undefined) {
@@ -132,7 +130,6 @@ export function OwnerLocalPropertiesEditor({
   attachedTraits = [],
   inheritedTraits = [],
   inheritedProperties = [],
-  propertyOverrides = {},
   traitColorFor,
   onTraitStateChange,
 }: {
@@ -148,7 +145,6 @@ export function OwnerLocalPropertiesEditor({
   attachedTraits?: readonly string[];
   inheritedTraits?: readonly string[];
   inheritedProperties?: readonly InheritedDefaultProperty[];
-  propertyOverrides?: Readonly<PropertyAssignments>;
   traitColorFor?: (traitId: string) => string | null;
   onTraitStateChange?: (state: OwnerPropertyTraitState) => void;
 }) {
@@ -281,42 +277,19 @@ export function OwnerLocalPropertiesEditor({
         return;
       }
     }
-    const nextLocal = [...properties];
-    const nextOverrides = { ...propertyOverrides };
-    for (const contract of trait.properties) {
-      const localIndex = nextLocal.findIndex((property) => property.id === contract.id);
-      if (localIndex < 0) continue;
-      const local = nextLocal[localIndex]!;
-      if (!arePropertySchemasCompatible(local, contract)) continue;
-      nextOverrides[contract.id] = local.value;
-      nextLocal.splice(localIndex, 1);
-    }
     onTraitStateChange({
       traits: [...localTraitIds, attachTraitId],
-      localProperties: nextLocal,
-      properties: nextOverrides,
+      localProperties: [...properties],
     });
     setAttachTraitId('');
   };
 
   const detachTrait = (traitId: string) => {
     if (!onTraitStateChange) return;
-    const departing = traits[traitId];
     const remainingTraits = attachedTraits.filter((id) => id !== traitId);
-    const remainingSources = traitSources(traits, remainingTraits);
-    const nextLocal = [...properties];
-    const nextOverrides = { ...propertyOverrides };
-    for (const contract of departing?.properties ?? []) {
-      if (remainingSources.has(contract.id)) continue;
-      if (!Object.prototype.hasOwnProperty.call(nextOverrides, contract.id)) continue;
-      if (!nextLocal.some((property) => property.id === contract.id))
-        nextLocal.push(ownerLocalFromTrait(contract, nextOverrides[contract.id]!));
-      delete nextOverrides[contract.id];
-    }
     onTraitStateChange({
       traits: remainingTraits.filter((id) => !inheritedTraits.includes(id)),
-      localProperties: nextLocal,
-      properties: nextOverrides,
+      localProperties: [...properties],
     });
   };
 
@@ -331,27 +304,24 @@ export function OwnerLocalPropertiesEditor({
       setMessage(parsed.message);
       return;
     }
-    onTraitStateChange({
-      traits: [...localTraitIds],
-      localProperties: [...properties],
-      properties: { ...propertyOverrides, [contract.id]: parsed.value },
-    });
+    const replacement = ownerLocalFromTrait(contract, parsed.value);
+    const index = properties.findIndex((property) => property.id === contract.id);
+    const nextProperties =
+      index < 0
+        ? [...properties, replacement]
+        : properties.map((property, currentIndex) =>
+            currentIndex === index ? replacement : property,
+          );
+    onTraitStateChange({ traits: [...localTraitIds], localProperties: nextProperties });
     setEditingTraitProperty(null);
     setMessage(null);
   };
 
   const resetTraitValue = (propertyId: string) => {
     if (!onTraitStateChange) return;
-    const nextOverrides = { ...propertyOverrides };
-    delete nextOverrides[propertyId];
     onTraitStateChange({
       traits: [...localTraitIds],
-      localProperties: properties.filter(
-        (property) =>
-          property.id !== propertyId ||
-          (!sourcesByProperty.has(propertyId) && !inheritedByProperty.has(propertyId)),
-      ),
-      properties: nextOverrides,
+      localProperties: properties.filter((property) => property.id !== propertyId),
     });
   };
 
@@ -447,10 +417,6 @@ export function OwnerLocalPropertiesEditor({
               const inherited = inheritedByProperty.get(propertyId);
               const contract = inherited?.property ?? sources[0]!.property;
               const useBackground = traitUseBackground(sources, traitColorFor);
-              const hasOverride = Object.prototype.hasOwnProperty.call(
-                propertyOverrides,
-                propertyId,
-              );
               const traitFallback = resolvedTraitDefault(sources);
               const inheritedDefault = inherited?.property.defaultValue;
               const fallback =
@@ -458,13 +424,11 @@ export function OwnerLocalPropertiesEditor({
                   ? { kind: 'value' as const, value: inheritedDefault }
                   : traitFallback;
               const local = properties.find((property) => property.id === propertyId);
-              const value = hasOverride
-                ? propertyOverrides[propertyId]
-                : local
-                  ? local.value
-                  : fallback.kind === 'value'
-                    ? fallback.value
-                    : undefined;
+              const value = local
+                ? local.value
+                : fallback.kind === 'value'
+                  ? fallback.value
+                  : undefined;
               return (
                 <tr key={`inherited:${propertyId}`} className="border-t bg-muted/10">
                   <td className="px-3 py-2">
@@ -480,10 +444,10 @@ export function OwnerLocalPropertiesEditor({
                     {contract.nullable ? '?' : ''}
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">
-                    {fallback.kind === 'conflict' && !hasOverride
+                    {fallback.kind === 'conflict' && !local
                       ? 'Conflicting Defaults'
                       : formatValue(value)}
-                    {hasOverride || local ? (
+                    {local ? (
                       <span className="ml-2 font-sans text-muted-foreground">override</span>
                     ) : inherited ? (
                       <span className="ml-2 font-sans text-muted-foreground">
@@ -507,7 +471,7 @@ export function OwnerLocalPropertiesEditor({
                   </td>
                   <td className="px-1 py-1">
                     <div className="flex">
-                      {hasOverride || local ? (
+                      {local ? (
                         <Button
                           size="icon-sm"
                           variant="ghost"

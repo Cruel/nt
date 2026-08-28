@@ -52,11 +52,6 @@ const compiled::InteractableDefinition* find_interactable(const SessionState& st
                                                         : &found->effective_configuration();
 }
 
-const ItemStackState* find_item_stack(const SessionState& state, const ItemStackId& id) noexcept
-{
-    return state.item_stack(id);
-}
-
 const compiled::FeatureDefinition* find_feature(const SessionState& state,
                                                 const RoomFeatureRef& ref) noexcept
 {
@@ -158,46 +153,6 @@ resolve_definition(const CompiledProject& project, const SessionState& state, co
     return resolve_identity(project, state, target, *definition, property, declaration);
 }
 
-Result<PropertyLookupResult, Diagnostics>
-resolve_item_stack(const CompiledProject& project, const SessionState& state, const ItemStackId& id,
-                   const PropertyId& property, const PropertyDefinition& declaration)
-{
-    const PropertyTargetRef target{id};
-    const auto* stack = find_item_stack(state, id);
-    const auto* definition =
-        stack != nullptr ? project.find_item_definition(stack->definition) : nullptr;
-    if (definition == nullptr)
-        return Result<PropertyLookupResult, Diagnostics>::failure(
-            property_error("runtime.unknown_property_owner", target, property,
-                           "does not identify a live Item Stack"));
-    if (const auto* value = state.property_override(target, property))
-        return Result<PropertyLookupResult, Diagnostics>::success(*value);
-    const auto assignment = std::find_if(
-        definition->identity.property_assignments.begin(),
-        definition->identity.property_assignments.end(),
-        [&property](const PropertyAssignment& value) { return value.property_id() == property; });
-    if (assignment != definition->identity.property_assignments.end())
-        return Result<PropertyLookupResult, Diagnostics>::success(assignment->value());
-    for (const auto& trait_id : stack->traits) {
-        const auto* trait = project.find_trait(trait_id);
-        if (trait == nullptr)
-            return Result<PropertyLookupResult, Diagnostics>::failure(
-                property_error("runtime.invalid_trait_attachment", target, property,
-                               "references a missing compiled Trait"));
-        const auto configured = std::find_if(trait->properties.begin(), trait->properties.end(),
-                                             [&](const compiled::TraitProperty& member) {
-                                                 return member.property_id == property &&
-                                                        member.configured_value.has_value();
-                                             });
-        if (configured != trait->properties.end())
-            return Result<PropertyLookupResult, Diagnostics>::success(
-                *configured->configured_value);
-    }
-    return Result<PropertyLookupResult, Diagnostics>::success(
-        declaration.default_value() ? PropertyLookupResult{*declaration.default_value()}
-                                    : PropertyLookupResult{MissingPropertyValue{target, property}});
-}
-
 } // namespace
 
 Result<const PropertyDefinition*, Diagnostics>
@@ -236,8 +191,6 @@ PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const Propert
                     else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
                                        std::is_same_v<T, InteractableFeatureRef>)
                         return find_feature(m_state, id);
-                    else
-                        return static_cast<const compiled::ItemDefinition*>(nullptr);
                 }();
                 if (definition == nullptr)
                     return nullptr;
@@ -270,8 +223,8 @@ PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const Propert
                 .nullable = contract->nullable,
                 .default_value = contract->configured_value,
                 .scope = PropertyScope::Identity,
-                .allowed_owners = {property_owner_kind(owner)},
-                .exact_owner = std::nullopt,
+                .allowed_owners = {},
+                .exact_owner = owner,
                 .label = contract->label,
                 .description = contract->description,
             });
@@ -289,11 +242,7 @@ PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const Propert
             property_error("runtime.property_scope_mismatch", owner, property,
                            "is Global and cannot be read through an identity"));
 
-    const bool owner_allowed =
-        declaration->exact_owner()
-            ? *declaration->exact_owner() == owner
-            : std::binary_search(declaration->allowed_owners().begin(),
-                                 declaration->allowed_owners().end(), property_owner_kind(owner));
+    const bool owner_allowed = declaration->exact_owner() && *declaration->exact_owner() == owner;
     if (!owner_allowed)
         return Result<std::optional<PropertyDefinition>, Diagnostics>::failure(
             property_error("runtime.property_owner_not_allowed", owner, property,
@@ -316,8 +265,6 @@ bool PropertyResolver::owner_exists(const PropertyOwnerRef& owner) const noexcep
             else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
                                std::is_same_v<T, InteractableFeatureRef>)
                 return find_feature(m_state, id) != nullptr;
-            else if constexpr (std::is_same_v<T, ItemStackId>)
-                return find_item_stack(m_state, id) != nullptr;
         },
         owner);
 }
@@ -419,8 +366,7 @@ Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOw
                                        property, "does not identify a compiled Feature"));
                 return resolve_identity(m_project, m_state, PropertyTargetRef{id}, *feature,
                                         property, *declaration);
-            } else if constexpr (std::is_same_v<T, ItemStackId>)
-                return resolve_item_stack(m_project, m_state, id, property, *declaration);
+            }
         },
         owner);
 }

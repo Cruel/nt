@@ -1208,16 +1208,13 @@ struct ConsumeItemQuantitySceneOperation {
     ItemStackId stack;
     std::uint64_t quantity = 0;
 };
-struct SetItemStackTraitsSceneOperation {
-    ItemStackId stack;
-    std::vector<TraitId> traits;
-};
-using SceneGameplayEffectOperation = std::variant<
-    SetGlobalProperty, SetIdentityPropertySceneOperation, UnsetIdentityPropertySceneOperation,
-    MoveCharacterSceneOperation, SetCharacterStateSceneOperation, MoveInteractableSceneOperation,
-    SetInteractableStateSceneOperation, SplitItemStackSceneOperation, MergeItemStacksSceneOperation,
-    TransferItemQuantitySceneOperation, GrantItemQuantitySceneOperation,
-    ConsumeItemQuantitySceneOperation, SetItemStackTraitsSceneOperation>;
+using SceneGameplayEffectOperation =
+    std::variant<SetGlobalProperty, SetIdentityPropertySceneOperation,
+                 UnsetIdentityPropertySceneOperation, MoveCharacterSceneOperation,
+                 SetCharacterStateSceneOperation, MoveInteractableSceneOperation,
+                 SetInteractableStateSceneOperation, SplitItemStackSceneOperation,
+                 MergeItemStacksSceneOperation, TransferItemQuantitySceneOperation,
+                 GrantItemQuantitySceneOperation, ConsumeItemQuantitySceneOperation>;
 struct GameplayEffectBatchSceneInstruction {
     SceneStepId id;
     std::optional<Condition> condition;

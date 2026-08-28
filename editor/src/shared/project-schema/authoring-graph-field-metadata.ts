@@ -553,6 +553,21 @@ const legacySchemaLeafPaths = [
     `/${root}/*/extends` as JsonPointer,
     `/${root}/*/properties/*` as JsonPointer,
   ]),
+  // #141 contracts the temporary global identity Property registry and the last value-only
+  // assignment maps. Preserve those retired same-version leaves only to keep the pre-#141 reviewed
+  // field-effect sequence aligned; owner-local/default Property leaves are classified by their
+  // existing owner contributions.
+  '/properties/*/defaultValue' as JsonPointer,
+  '/properties/*/description' as JsonPointer,
+  '/properties/*/enumValues/*' as JsonPointer,
+  '/properties/*/id' as JsonPointer,
+  '/properties/*/label' as JsonPointer,
+  '/properties/*/nullable' as JsonPointer,
+  '/properties/*/ownerKinds/*' as JsonPointer,
+  '/properties/*/type' as JsonPointer,
+  '/characters/*/properties/*' as JsonPointer,
+  '/rooms/*/properties/*' as JsonPointer,
+  '/interactables/*/properties/*' as JsonPointer,
   // #71 moves semantic enabled state off Room presentation occurrences and introduces canonical
   // Interactable Location in its place. Keep the retired leaf only to preserve the pre-#71
   // reviewed-effect alignment; the new Location leaves are classified explicitly above.
@@ -761,12 +776,12 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
-    characters: '97ce4a69',
+    characters: '53873c0e',
     dialogues: 'c3f27078',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
-    interactableInstances: '5d0db294',
-    interactables: '72d72715',
+    interactableInstances: 'e0b49db3',
+    interactables: 'e4769e11',
     interactions: 'dfffc1a2',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
@@ -774,9 +789,8 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     maps: 'af4e0eba',
     materials: '546711ca',
     project: 'da3be83d',
-    properties: 'c35941e2',
-    rooms: '2e978981',
-    scenes: 'bc35a007',
+    rooms: 'c7ea1c37',
+    scenes: 'f280b847',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: 'e2c61a79',

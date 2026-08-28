@@ -10,11 +10,7 @@ import {
   defaultAuthoringLocalization,
   authoringLocalizationSchema,
 } from './authoring-localization';
-import {
-  propertyDefinitionSchema,
-  traitDefinitionSchema,
-  type PropertyAssignments,
-} from './authoring-properties';
+import { traitDefinitionSchema } from './authoring-properties';
 import { authoringCollectionSchemas } from './authoring-records';
 import {
   DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS,
@@ -73,7 +69,6 @@ export const authoringProjectSchema = z
     bootstrapModule: scriptRefSchema,
     undefinedInteractionProgram: interactionProgramSchema.nullable().default(null),
     entrypoint: projectEntrypointSchema.nullable().default(null),
-    properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
     inventories: z.array(inventoryDefinitionSchema),
     interactableInstances: z.record(entityIdSchema, interactableInstanceDataSchema),
@@ -97,7 +92,6 @@ export interface AuthoringRecordBase {
   archetype?: { $ref: { collection: 'archetypes'; id: EntityId } } | null;
   archetypeOverrides?: Record<string, unknown>;
   traits?: EntityId[];
-  properties?: PropertyAssignments;
   localProperties?: import('./authoring-properties').OwnerLocalProperty[];
   defaultProperties?: import('./authoring-properties').OwnerDefaultProperty[];
 }
@@ -162,7 +156,6 @@ export function createAuthoringProject(
     bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
     undefinedInteractionProgram: null,
     entrypoint: null,
-    properties: {},
     traits: {},
     inventories: [],
     interactableInstances: {},

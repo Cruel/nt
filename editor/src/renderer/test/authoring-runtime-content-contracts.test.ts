@@ -37,7 +37,6 @@ describe('runtime-content authoring contracts', () => {
       id: 'key',
       label: 'Key',
       traits: [],
-      properties: {},
       data: key,
     };
     const verb = oneSlotVerb('Use');

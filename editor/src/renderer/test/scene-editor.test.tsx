@@ -95,7 +95,7 @@ describe('SceneEditor', () => {
 
     render(<SceneEditor tab={tab} />);
 
-    expect(screen.getByText('Migrated Property references')).toBeInTheDocument();
+    expect(screen.getByText('Identity Property references')).toBeInTheDocument();
     expect(screen.getByText('Foyer')).toBeInTheDocument();
     expect(screen.getByText('Locked')).toBeInTheDocument();
   });

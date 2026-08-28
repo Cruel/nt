@@ -418,17 +418,6 @@ RuntimeCommandGateway::aggregate_item_quantity(const ItemStackFilter& filter) co
     return m_world.aggregate_item_quantity(filter);
 }
 
-core::Result<ItemStackMutation, core::Diagnostics>
-RuntimeCommandGateway::set_item_stack_traits(core::ItemStackId stack,
-                                             std::vector<core::TraitId> traits)
-{
-    auto result = m_world.set_item_stack_traits(stack, std::move(traits));
-    if (const auto* mutation = result.value_if();
-        mutation != nullptr && changes_item_stacks(*mutation))
-        record_structural_mutation();
-    return result;
-}
-
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::replace_instance_configuration(core::GameplayInstanceRef instance,
                                                       RuntimeInstanceConfigurationRequest source)

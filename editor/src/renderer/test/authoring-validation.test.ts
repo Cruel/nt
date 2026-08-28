@@ -37,12 +37,17 @@ describe('authoring V2 validation', () => {
     expect(validateAuthoringProject(project)).toContainEqual(
       expect.objectContaining({
         code: 'authoring.interactable.missing_property_value',
-        path: '/interactableInstances/key/properties',
+        path: '/interactableInstances/key/localProperties',
         message: expect.stringContaining("requires Property 'quality'"),
       }),
     );
 
-    project.interactableInstances.key.properties.quality = 'polished';
+    project.interactableInstances.key.localProperties.push({
+      id: 'quality',
+      type: 'string',
+      nullable: false,
+      value: 'polished',
+    });
     expect(validateAuthoringProject(project)).not.toContainEqual(
       expect.objectContaining({ code: 'authoring.interactable.missing_property_value' }),
     );
@@ -78,8 +83,8 @@ describe('authoring V2 validation', () => {
       data: defaultInteractableData('Key'),
     };
     const instance = defaultInteractableInstanceData('key', 'key');
-    instance.properties.quality = 'instance';
     instance.localProperties.push(
+      { id: 'quality', type: 'string', nullable: false, value: 'instance' },
       { id: 'first-local', type: 'boolean', nullable: false, value: true },
       { id: 'second-local', type: 'integer', nullable: false, value: 2 },
     );
@@ -90,7 +95,9 @@ describe('authoring V2 validation', () => {
       { id: 'second-local', value: 2, localOnly: true },
     ]);
 
-    delete instance.properties.quality;
+    instance.localProperties = instance.localProperties.filter(
+      (property) => property.id !== 'quality',
+    );
     expect(effectiveInteractableInstanceProperties(project, instance)[0]).toMatchObject({
       id: 'quality',
       value: 'definition',
@@ -286,13 +293,6 @@ describe('authoring V2 validation', () => {
   it('reports missing entrypoints and unsatisfied Trait Property requirements', () => {
     const project = createAuthoringProject();
     project.entrypoint = { kind: 'room', id: 'missing-room' };
-    project.properties.clue = {
-      id: 'clue',
-      label: 'Clue',
-      type: 'string',
-      nullable: false,
-      ownerKinds: ['room'],
-    };
     project.traits.inspectable = {
       id: 'inspectable',
       label: 'Inspectable',
@@ -326,14 +326,6 @@ describe('authoring V2 validation', () => {
 
   it('rejects missing and owner-incompatible Trait attachments', () => {
     const project = createAuthoringProject();
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      type: 'string',
-      nullable: false,
-      defaultValue: 'calm',
-      ownerKinds: ['room'],
-    };
     project.traits['room-state'] = {
       id: 'room-state',
       label: 'Room State',
@@ -498,7 +490,7 @@ describe('authoring V2 validation', () => {
     );
   });
 
-  it('limits Property and Trait owner kinds to stateful Gameplay Instances', () => {
+  it('rejects the obsolete top-level Property registry and invalid Trait owner kinds', () => {
     const project = createAuthoringProject();
     const diagnostics = validateAuthoringProject({
       ...project,
@@ -524,7 +516,7 @@ describe('authoring V2 validation', () => {
       expect.arrayContaining([
         expect.objectContaining({
           severity: 'error',
-          path: '/properties/scene-state/ownerKinds/0',
+          message: expect.stringContaining('properties'),
         }),
         expect.objectContaining({ severity: 'error', path: '/traits/scene-trait/ownerKinds/0' }),
       ]),
@@ -550,24 +542,24 @@ describe('authoring V2 validation', () => {
     );
   });
 
-  it('validates declared property owner kinds and assignments', () => {
+  it('validates owner-local Property schemas and Values', () => {
     const project = createAuthoringProject();
-    project.properties['visit-count'] = {
-      id: 'visit-count',
-      label: 'Visit count',
-      type: 'integer',
-      nullable: false,
-      defaultValue: 0,
-      ownerKinds: ['room'],
-    };
     project.rooms.room = {
       id: 'room',
       label: 'Room',
-      properties: { 'visit-count': 'wrong' },
+      localProperties: [
+        {
+          id: 'visit-count',
+          label: 'Visit count',
+          type: 'integer',
+          nullable: false,
+          value: 'wrong',
+        },
+      ],
       data: defaultRoomData(),
     };
     expect(validateAuthoringProject(project)).toContainEqual(
-      expect.objectContaining({ path: '/rooms/room/properties/visit-count' }),
+      expect.objectContaining({ path: '/rooms/room/localProperties/0/value' }),
     );
   });
 
@@ -584,7 +576,6 @@ describe('authoring V2 validation', () => {
       id: 'drawer',
       label: 'Drawer',
       traits: ['inspectable-feature'],
-      properties: {},
       localProperties: [],
       defaultProperties: [],
       inventories: [],
@@ -593,7 +584,6 @@ describe('authoring V2 validation', () => {
       id: 'cabinet',
       label: 'Cabinet',
       traits: [],
-      properties: {},
       defaultProperties: [],
       data,
     };

@@ -187,13 +187,7 @@ const propertyBearingDefinition = {
   propertyAssignments: z.array(propertyAssignmentSchema),
 };
 
-const propertyOwnerKindSchema = z.enum([
-  'room',
-  'character',
-  'interactable',
-  'feature',
-  'item-stack',
-]);
+const propertyOwnerKindSchema = z.enum(['room', 'character', 'interactable', 'feature']);
 const exactPropertyOwnerSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room'), room: roomReferenceSchema }),
   strict({ kind: z.literal('character'), character: characterReferenceSchema }),
@@ -252,12 +246,6 @@ const propertyDefinitionSchema = z.union([
     ...propertyDefinitionCommon,
     defaultValue: runtimeValueSchema,
     scope: z.literal('global'),
-  }),
-  strict({
-    ...propertyDefinitionCommon,
-    defaultValue: runtimeValueSchema.optional(),
-    ownerKinds: z.array(propertyOwnerKindSchema).min(1),
-    scope: z.literal('identity'),
   }),
   strict({
     ...propertyDefinitionCommon,
@@ -906,11 +894,6 @@ const sceneGameplayEffectOperationSchema = z.discriminatedUnion('kind', [
     kind: z.literal('consume-item-quantity'),
     stack: itemStackReferenceSchema,
     quantity: z.number().int().positive(),
-  }),
-  strict({
-    kind: z.literal('set-item-stack-traits'),
-    stack: itemStackReferenceSchema,
-    traits: z.array(traitReferenceSchema),
   }),
 ]);
 const sceneGameplayInstanceRefSchema = z.discriminatedUnion('kind', [

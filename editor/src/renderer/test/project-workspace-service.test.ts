@@ -46,14 +46,11 @@ describe('ProjectWorkspaceService', () => {
     const definition = (id: string) => ({
       id,
       label: id,
-      type: 'string' as const,
-      nullable: false,
       ownerKinds: ['room'] as 'room'[],
+      properties: [],
     });
-    first.properties = Object.fromEntries(entries.map((id) => [id, definition(id)]));
-    second.properties = Object.fromEntries(
-      [...entries].reverse().map((id) => [id, definition(id)]),
-    );
+    first.traits = Object.fromEntries(entries.map((id) => [id, definition(id)]));
+    second.traits = Object.fromEntries([...entries].reverse().map((id) => [id, definition(id)]));
     first.localization.catalogs = Object.fromEntries(entries.map((id) => [id, { z: id, a: id }]));
     second.localization.catalogs = Object.fromEntries(
       [...entries].reverse().map((id) => [id, { a: id, z: id }]),
@@ -77,7 +74,6 @@ describe('ProjectWorkspaceService', () => {
     first.rooms.foyer = {
       id: 'foyer',
       label: 'Foyer',
-      properties: Object.fromEntries(entries.map((id) => [id, id])),
       data: {
         ...defaultRoomData('Foyer'),
         lifecycle: {
@@ -94,7 +90,6 @@ describe('ProjectWorkspaceService', () => {
     second.rooms.foyer = {
       id: 'foyer',
       label: 'Foyer',
-      properties: Object.fromEntries([...entries].reverse().map((id) => [id, id])),
       data: {
         ...defaultRoomData('Foyer'),
         lifecycle: {
@@ -114,10 +109,9 @@ describe('ProjectWorkspaceService', () => {
     const firstFiles = projectWorkspaceFiles(first, first.editor);
     const secondFiles = projectWorkspaceFiles(second, second.editor);
     expect(firstFiles).toEqual(secondFiles);
-    expect(firstFiles['properties.json']).toMatch(/"z"[\s\S]*"\uE000"[\s\S]*"𐀀"/);
-    expect(firstFiles['records/rooms/foyer.json']).toMatch(
-      /^\{\n  "id": "foyer",\n  "label": "Foyer",\n  "properties":/,
-    );
+    expect(firstFiles['traits.json']).toMatch(/"z"[\s\S]*"\uE000"[\s\S]*"𐀀"/);
+    expect(firstFiles).not.toHaveProperty('properties.json');
+    expect(firstFiles['records/rooms/foyer.json']).not.toContain('"properties"');
     expect(firstFiles['records/rooms/foyer.json']).toMatch(
       /"canEnter": \{\n        "kind": "variable-comparison",\n        "variable": \{\n          "\$ref": \{\n            "collection": "variables",\n            "id": "flag"\n          \}\n        \},\n        "operator": "equal",\n        "value": true/s,
     );
@@ -162,7 +156,6 @@ describe('ProjectWorkspaceService', () => {
     expect(opened.snapshot.canonicalSourceFiles).toEqual(
       expect.arrayContaining([
         'project.json',
-        'properties.json',
         'localization.json',
         'editor.json',
         'records/layouts/hud-inline/layout.json',

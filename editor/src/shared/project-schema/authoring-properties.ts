@@ -1,13 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 
-export const propertyOwnerKindValues = [
-  'room',
-  'character',
-  'interactable',
-  'feature',
-  'item-stack',
-] as const;
+export const propertyOwnerKindValues = ['room', 'character', 'interactable', 'feature'] as const;
 export const propertyValueTypeValues = ['boolean', 'integer', 'number', 'string', 'enum'] as const;
 
 export const authoredRuntimeValueSchema = z.union([
@@ -16,52 +10,6 @@ export const authoredRuntimeValueSchema = z.union([
   z.number().finite(),
   z.string(),
 ]);
-
-export const propertyDefinitionSchema = z
-  .object({
-    id: entityIdSchema,
-    label: z.string().min(1),
-    description: z.string().optional(),
-    type: z.enum(propertyValueTypeValues),
-    nullable: z.boolean(),
-    defaultValue: authoredRuntimeValueSchema.optional(),
-    enumValues: z.array(z.string().min(1)).optional(),
-    ownerKinds: z.array(z.enum(propertyOwnerKindValues)).min(1),
-  })
-  .strict()
-  .superRefine((definition, context) => {
-    const enumValues = definition.enumValues ?? [];
-    if (definition.type === 'enum') {
-      if (enumValues.length === 0) {
-        context.addIssue({
-          code: 'custom',
-          path: ['enumValues'],
-          message: 'Enum properties require at least one enum value.',
-        });
-      }
-      if (new Set(enumValues).size !== enumValues.length) {
-        context.addIssue({
-          code: 'custom',
-          path: ['enumValues'],
-          message: 'Enum property values must be unique.',
-        });
-      }
-    } else if (definition.enumValues !== undefined) {
-      context.addIssue({
-        code: 'custom',
-        path: ['enumValues'],
-        message: 'enumValues is valid only for enum properties.',
-      });
-    }
-    if (definition.defaultValue === undefined) return;
-    if (!isPropertyValueCompatible(definition, definition.defaultValue)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['defaultValue'],
-        message: 'Default value does not match the property declaration.',
-      });
-    }
-  });
 
 export const ownerLocalPropertySchema = z
   .object({
@@ -258,7 +206,6 @@ export const traitDefinitionSchema = z
   });
 
 export type PropertyOwnerKind = (typeof propertyOwnerKindValues)[number];
-export type PropertyDefinition = z.infer<typeof propertyDefinitionSchema>;
 export type AuthoredRuntimeValue = z.infer<typeof authoredRuntimeValueSchema>;
 export type OwnerLocalProperty = z.infer<typeof ownerLocalPropertySchema>;
 export type OwnerDefaultProperty = z.infer<typeof ownerDefaultPropertySchema>;
@@ -267,7 +214,11 @@ export type TraitProperty = z.infer<typeof traitPropertySchema>;
 export type TraitDefinition = z.infer<typeof traitDefinitionSchema>;
 
 export function isPropertyValueCompatible(
-  definition: Pick<PropertyDefinition, 'type' | 'nullable' | 'enumValues'>,
+  definition: {
+    type: (typeof propertyValueTypeValues)[number];
+    nullable: boolean;
+    enumValues?: string[];
+  },
   value: AuthoredRuntimeValue,
 ): boolean {
   if (value === null) return definition.nullable;
@@ -279,8 +230,16 @@ export function isPropertyValueCompatible(
 }
 
 export function arePropertySchemasCompatible(
-  left: Pick<PropertyDefinition, 'type' | 'nullable' | 'enumValues'>,
-  right: Pick<PropertyDefinition, 'type' | 'nullable' | 'enumValues'>,
+  left: {
+    type: (typeof propertyValueTypeValues)[number];
+    nullable: boolean;
+    enumValues?: string[];
+  },
+  right: {
+    type: (typeof propertyValueTypeValues)[number];
+    nullable: boolean;
+    enumValues?: string[];
+  },
 ): boolean {
   if (left.type !== right.type || left.nullable !== right.nullable) return false;
   if (left.type !== 'enum') return true;

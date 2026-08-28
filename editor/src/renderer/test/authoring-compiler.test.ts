@@ -295,16 +295,6 @@ describe('authoring compiler framework', () => {
       tags: { records: { favorite: { name: 'Favorite', color: '#ff0000', sortKey: '1' } } },
       recordMetadata: { rooms: { foyer: { tags: ['favorite'], color: '#ff0000', sortKey: '1' } } },
     };
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      description: 'Current mood',
-      type: 'enum',
-      nullable: false,
-      defaultValue: 'calm',
-      enumValues: ['calm', 'tense'],
-      ownerKinds: ['room'],
-    };
     project.variables.visited = {
       id: 'visited',
       label: 'Visited',
@@ -327,7 +317,17 @@ describe('authoring compiler framework', () => {
     project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };
 
     const baseRoom = project.rooms.foyer!;
-    baseRoom.properties = { mood: 'calm' };
+    baseRoom.localProperties = [
+      {
+        id: 'mood',
+        label: 'Mood',
+        description: 'Current mood',
+        type: 'enum',
+        nullable: false,
+        enumValues: ['calm', 'tense'],
+        value: 'calm',
+      },
+    ];
     project.traits['tense-room'] = {
       id: 'tense-room',
       label: 'Tense Room',
@@ -337,7 +337,6 @@ describe('authoring compiler framework', () => {
     project.rooms.hall = {
       ...project.rooms.hall!,
       traits: ['tense-room'],
-      properties: {},
     };
     const character = defaultCharacterData('Hero');
     character.profiles[0]!.poses[0]!.layers[0]!.sprite = {
@@ -398,7 +397,12 @@ describe('authoring compiler framework', () => {
       id: 'hero',
     });
     expect(draft.properties).toEqual([
-      expect.objectContaining({ id: 'mood', scope: 'identity', enumValues: ['calm', 'tense'] }),
+      expect.objectContaining({
+        id: 'mood',
+        scope: 'identity',
+        owner: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
+        enumValues: ['calm', 'tense'],
+      }),
       expect.objectContaining({
         id: 'mood',
         scope: 'identity',
@@ -1235,15 +1239,6 @@ describe('authoring compiler framework', () => {
 
   it('lowers multiple declared Interactable Instances from one immutable definition without changing the compiled schema version', () => {
     const project = validProject();
-    project.properties.polished = {
-      id: 'polished',
-      label: 'Polished',
-      description: 'Instance finish',
-      type: 'boolean',
-      nullable: false,
-      defaultValue: false,
-      ownerKinds: ['interactable'],
-    };
     project.traits.quest = {
       id: 'quest',
       label: 'Quest object',
@@ -1273,7 +1268,7 @@ describe('authoring compiler framework', () => {
       }),
       editorLabel: 'Foyer key',
       traits: { add: ['quest'], remove: [] },
-      properties: { polished: true },
+      localProperties: [{ id: 'polished', type: 'boolean', nullable: false, value: true }],
     };
     project.interactableInstances['key-spare'] = defaultInteractableInstanceData(
       'key-spare',

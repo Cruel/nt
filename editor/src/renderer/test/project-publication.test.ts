@@ -198,12 +198,19 @@ describe('authoritative project publication', () => {
       ]),
     };
     const previousProject = {
-      rooms: { foyer: { properties: { mood: 'calm' } } },
+      rooms: { foyer: { localProperties: [{ id: 'mood', value: 'calm' }] } },
       assets: { background: { data: { contentHash: `sha256:${'0'.repeat(64)}` } } },
       localization: { defaultLocale: 'en', catalogs: { en: { 'room.foyer': 'Foyer' } } },
     };
     const project = {
-      rooms: { foyer: { properties: { mood: 'tense', pose: 'standing' } } },
+      rooms: {
+        foyer: {
+          localProperties: [
+            { id: 'mood', value: 'tense' },
+            { id: 'pose', value: 'standing' },
+          ],
+        },
+      },
       assets: { background: { data: { contentHash: `sha256:${'1'.repeat(64)}` } } },
       localization: {
         defaultLocale: 'fr',
@@ -211,13 +218,18 @@ describe('authoritative project publication', () => {
       },
     };
     expect(
-      classifyAuthoringGraphMutation(['/rooms/foyer/properties/mood'], indexes, {
+      classifyAuthoringGraphMutation(['/rooms/foyer/localProperties/0/value'], indexes, {
         previousProject,
         project,
       }),
-    ).toEqual({ kind: 'graph-stable' });
+    ).toEqual({
+      kind: 'incremental',
+      contributionKeys: ['record:rooms:foyer'],
+      sourceAnalysisOwnerKeys: [],
+      symbolProjectionOwnerKeys: [],
+    });
     expect(
-      classifyAuthoringGraphMutation(['/rooms/foyer/properties/pose'], indexes, {
+      classifyAuthoringGraphMutation(['/rooms/foyer/localProperties/1'], indexes, {
         previousProject,
         project,
       }),

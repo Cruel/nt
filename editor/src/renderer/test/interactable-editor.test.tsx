@@ -66,7 +66,6 @@ describe('InteractableEditor', () => {
       id: 'door',
       label: 'Door',
       traits: [],
-      properties: {},
       data,
     };
     vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
@@ -115,7 +114,6 @@ describe('InteractableEditor', () => {
       id: 'door',
       label: 'Door',
       traits: [],
-      properties: {},
       data,
     };
     useProjectStore.getState().loadProjectDocument({
@@ -138,7 +136,6 @@ describe('InteractableEditor', () => {
       id: 'door',
       label: 'Door',
       traits: [],
-      properties: {},
       data: defaultInteractableData('Door'),
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -165,7 +162,6 @@ describe('InteractableEditor', () => {
       id: 'door',
       label: 'Door',
       traits: [],
-      properties: {},
       data: defaultInteractableData('Door'),
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -222,7 +218,6 @@ describe('InteractableEditor', () => {
       id: 'door',
       label: 'Door',
       traits: [],
-      properties: {},
       data: defaultInteractableData('Door'),
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -255,7 +250,6 @@ describe('InteractableEditor', () => {
       id: 'door',
       label: 'Door',
       traits: [],
-      properties: {},
       data,
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);

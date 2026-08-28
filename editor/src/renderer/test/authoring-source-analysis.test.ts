@@ -264,7 +264,6 @@ describe('typed source registry and graph evidence', () => {
         kind: 'room',
         description: { source: { kind: 'lua-expression', source: `'asset-main'` } },
       },
-      properties: {},
       traits: [],
     } as never;
     project.assets.shared = {
@@ -1256,9 +1255,8 @@ describe('typed source registry and graph evidence', () => {
       id: 'target',
       label: 'Target',
       data: defaultRoomData('Target'),
-      properties: {},
       traits: [],
-    } as never;
+    };
     const supported = defaultRoomData('Supported');
     supported.description.source = {
       kind: 'lua-expression',
@@ -1271,9 +1269,8 @@ describe('typed source registry and graph evidence', () => {
       id: 'supported',
       label: 'Supported',
       data: supported,
-      properties: {},
       traits: [],
-    } as never;
+    };
     const unsupported = defaultSceneData('Unsupported');
     const step = defaultSceneStep('run-lua', 'step');
     step.condition = {
@@ -1316,9 +1313,11 @@ describe('typed source registry and graph evidence', () => {
     });
   });
 
-  it('projects property-value fallbacks into correlated definition and owner edges', async () => {
+  it('projects property-value fallbacks onto the exact owner without a global definition edge', async () => {
     const project = fixture();
-    project.rooms.shared.properties = { mood: 'calm' } as never;
+    project.rooms.shared.localProperties = [
+      { id: 'mood', type: 'string', nullable: false, value: 'calm' },
+    ];
     const layout = defaultLayoutData('HUD');
     layout.script.additionalDependencies = {
       targets: [
@@ -1344,11 +1343,8 @@ describe('typed source registry and graph evidence', () => {
         edge.detail?.propertyId === 'mood' &&
         edge.detail.propertyOwnerId === 'shared',
     );
-    expect(propertyEdges).toHaveLength(2);
-    expect(propertyEdges.map((edge) => edge.target.kind).sort()).toEqual([
-      'property-definition',
-      'record',
-    ]);
+    expect(propertyEdges).toHaveLength(1);
+    expect(propertyEdges[0]?.target.kind).toBe('record');
     expect(propertyEdges.every((edge) => edge.facets.includes('preview-ui'))).toBe(true);
     const analyses = await analyzeAuthoringSources(
       project,
@@ -1384,21 +1380,6 @@ describe('typed source registry and graph evidence', () => {
 
   it('uses resolved Trait configuration without materializing property-value nodes', async () => {
     const project = fixture();
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      type: 'string',
-      nullable: false,
-      defaultValue: 'neutral',
-      ownerKinds: ['room'],
-    };
-    project.properties.pose = {
-      id: 'pose',
-      label: 'Pose',
-      type: 'string',
-      nullable: false,
-      ownerKinds: ['room'],
-    };
     project.traits['standing-room'] = {
       id: 'standing-room',
       label: 'Standing Room',
@@ -1409,7 +1390,6 @@ describe('typed source registry and graph evidence', () => {
       id: 'child',
       label: 'Child',
       data: defaultRoomData('Child'),
-      properties: {},
       traits: ['standing-room'],
     };
 
@@ -1442,7 +1422,10 @@ describe('typed source registry and graph evidence', () => {
         edge.detail?.propertyId === 'pose',
     );
     expect(ownerEdge?.targetImpactPaths).toEqual([
-      '/rooms/child/properties',
+      '/rooms/child/archetype',
+      '/rooms/child/archetypeOverrides',
+      '/rooms/child/defaultProperties',
+      '/rooms/child/localProperties',
       '/rooms/child/traits',
       '/traits/standing-room',
     ]);

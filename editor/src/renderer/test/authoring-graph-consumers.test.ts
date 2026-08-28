@@ -671,36 +671,6 @@ describe('graph consumers and structural preflight', () => {
     );
   });
 
-  it('fails closed for unsupported property-definition deletion', () => {
-    const project = createAuthoringProject();
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      type: 'string',
-      nullable: false,
-      ownerKinds: ['room'],
-      defaultValue: 'neutral',
-    };
-    expect(useProjectStore.getState().loadUnsavedProjectDocument(project)).toBe(true);
-
-    const result = useCommandStore.getState().executeCommand({
-      type: 'project.removeAtPath',
-      payload: { path: '/properties/mood' },
-      originSaveUnitId: 'project-settings',
-      persistencePolicy: 'manual-save',
-    });
-    expect(result).toMatchObject({
-      ok: false,
-      diagnostics: [
-        {
-          message:
-            'Property-definition deletion is not supported by the current graph-aware structural command path.',
-        },
-      ],
-    });
-    expect(useProjectStore.getState().admittedProject?.properties.mood).toBeDefined();
-  });
-
   it('uses graph repair descriptors for Asset delete and preserves Force Delete', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = {

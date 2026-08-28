@@ -210,7 +210,8 @@ export function createDefaultAuthoringRecord(
     record.archetype = null;
     record.archetypeOverrides = {};
     record.traits = [];
-    record.properties = {};
+    if (collection === 'interactables') record.defaultProperties = [];
+    else record.localProperties = [];
   }
   return record;
 }

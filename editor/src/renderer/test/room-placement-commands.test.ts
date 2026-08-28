@@ -98,7 +98,12 @@ describe('Room placement commands', () => {
     const instance = defaultInteractableInstanceData('special-key', 'key');
     instance.editorLabel = 'Special key';
     instance.traits.add = ['important'];
-    instance.properties.note = 'keep me';
+    instance.localProperties.push({
+      id: 'note',
+      type: 'string',
+      nullable: false,
+      value: 'keep me',
+    });
     project.interactableInstances['special-key'] = instance;
 
     const state = createInitialCommandBusState(toJsonValue(project));
@@ -120,7 +125,7 @@ describe('Room placement commands', () => {
           editorLabel: 'Special key',
           definition: { $ref: { collection: 'interactables', id: 'key' } },
           traits: { add: ['important'] },
-          properties: { note: 'keep me' },
+          localProperties: [{ id: 'note', type: 'string', nullable: false, value: 'keep me' }],
           location: {
             kind: 'room',
             room: { $ref: { collection: 'rooms', id: 'foyer' } },

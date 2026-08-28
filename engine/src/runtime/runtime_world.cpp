@@ -88,32 +88,6 @@ core::Result<void, core::Diagnostics> validate_configuration_property_overrides(
     return core::Result<void, core::Diagnostics>::success();
 }
 
-core::Result<void, core::Diagnostics> validate_trait_property_overrides(
-    const core::CompiledProject& project, const std::vector<core::PropertyOverride>& overrides,
-    const core::PropertyOwnerRef& owner, const std::vector<core::TraitId>& traits)
-{
-    const auto target = core::property_target(owner);
-    for (const auto& override : overrides) {
-        if (override.target() != target)
-            continue;
-        for (const auto& trait_id : traits) {
-            const auto* trait = project.find_trait(trait_id);
-            if (trait == nullptr)
-                continue;
-            const auto member = std::ranges::find_if(trait->properties, [&](const auto& value) {
-                return value.property_id == override.property_id();
-            });
-            if (member == trait->properties.end())
-                continue;
-            auto valid = validate_override_against_contract(owner, override, *member);
-            if (!valid)
-                return valid;
-            break;
-        }
-    }
-    return core::Result<void, core::Diagnostics>::success();
-}
-
 template<class Id>
 core::Result<void, core::Diagnostics>
 validate_property_requirements(const core::CompiledProject& project,
@@ -1547,13 +1521,6 @@ RuntimeWorld::resolve_property(const core::InteractableInstanceId& id,
     return resolver.get(core::PropertyOwnerRef{id}, property);
 }
 
-core::Result<core::PropertyLookupResult, core::Diagnostics>
-RuntimeWorld::resolve_property(const core::ItemStackId& id, const core::PropertyId& property) const
-{
-    core::PropertyResolver resolver(m_project, m_state);
-    return resolver.get(core::PropertyOwnerRef{id}, property);
-}
-
 const core::CharacterWorldState*
 RuntimeWorld::character_state(const core::CharacterId& id) const noexcept
 {
@@ -1745,46 +1712,7 @@ core::Result<core::ItemStackId, core::Diagnostics> RuntimeWorld::allocate_item_s
 bool RuntimeWorld::item_stack_compatible(const core::ItemStackState& left,
                                          const core::ItemStackState& right) const
 {
-    if (left.definition != right.definition || left.traits != right.traits)
-        return false;
-    for (const auto& property : m_project.properties()) {
-        if (property.is_global() ||
-            !std::binary_search(property.allowed_owners().begin(), property.allowed_owners().end(),
-                                core::PropertyOwnerKind::ItemStack))
-            continue;
-        const auto left_value = resolve_property(left.id, property.id());
-        const auto right_value = resolve_property(right.id, property.id());
-        if (!left_value || !right_value)
-            return false;
-        const auto* left_result = left_value.value_if();
-        const auto* right_result = right_value.value_if();
-        const auto* left_runtime =
-            left_result != nullptr ? std::get_if<core::RuntimeValue>(left_result) : nullptr;
-        const auto* right_runtime =
-            right_result != nullptr ? std::get_if<core::RuntimeValue>(right_result) : nullptr;
-        if ((left_runtime == nullptr) != (right_runtime == nullptr) ||
-            (left_runtime != nullptr && *left_runtime != *right_runtime))
-            return false;
-    }
-    return true;
-}
-
-void RuntimeWorld::copy_item_stack_overrides(const core::ItemStackId& source,
-                                             const core::ItemStackId& target)
-{
-    const auto original = m_state.m_property_overrides;
-    for (const auto& value : original) {
-        const auto* stack = std::get_if<core::ItemStackId>(&value.target());
-        if (stack == nullptr || *stack != source)
-            continue;
-        const auto* definition = m_project.find_property(value.property_id());
-        if (definition == nullptr)
-            continue;
-        auto copy = core::make_property_override(core::PropertyTargetRef{target}, *definition,
-                                                 value.override_value());
-        if (auto* copied = copy.value_if(); copied != nullptr)
-            m_state.store_property_override(std::move(*copied));
-    }
+    return left.definition == right.definition;
 }
 
 void RuntimeWorld::erase_item_stack(const core::ItemStackId& id)
@@ -1793,13 +1721,6 @@ void RuntimeWorld::erase_item_stack(const core::ItemStackId& id)
                                                m_state.m_item_stacks.end(),
                                                [&](const auto& stack) { return stack.id == id; }),
                                 m_state.m_item_stacks.end());
-    m_state.m_property_overrides.erase(
-        std::remove_if(m_state.m_property_overrides.begin(), m_state.m_property_overrides.end(),
-                       [&](const auto& value) {
-                           const auto* stack = std::get_if<core::ItemStackId>(&value.target());
-                           return stack != nullptr && *stack == id;
-                       }),
-        m_state.m_property_overrides.end());
 }
 
 core::Result<ItemStackMutation, core::Diagnostics>
@@ -1823,7 +1744,6 @@ RuntimeWorld::split_item_stack(const core::ItemStackId& source, std::uint64_t qu
     stack->quantity -= quantity;
     m_state.m_item_stacks.push_back(
         core::ItemStackState{id, definition, quantity, location, traits, false});
-    copy_item_stack_overrides(source, id);
     ItemStackMutation result{quantity, {source, id}, {source}, {id}, {}};
     std::ranges::sort(result.surviving, {}, [](const auto& value) { return value.text(); });
     return core::Result<ItemStackMutation, core::Diagnostics>::success(std::move(result));
@@ -1934,7 +1854,6 @@ RuntimeWorld::transfer_item_quantity(const core::ItemStackId& source_id, std::ui
             source->quantity -= remaining;
             m_state.m_item_stacks.push_back(core::ItemStackState{
                 new_id, definition_id, remaining, std::move(location), traits, false});
-            copy_item_stack_overrides(source_id, new_id);
             result.created.push_back(new_id);
             result.surviving.push_back(new_id);
             remaining = 0;
@@ -1973,58 +1892,17 @@ core::Result<ItemStackMutation, core::Diagnostics> RuntimeWorld::grant_item_quan
             world_error("runtime.invalid_item_stack_grant",
                         "Grant definition, quantity, or Location is invalid"));
     const auto saved_stacks = m_state.m_item_stacks;
-    const auto saved_overrides = m_state.m_property_overrides;
     const auto saved_allocator = m_state.m_next_item_stack_id;
     const auto limit = definition->stack_limit.value_or(core::compiled::max_item_stack_quantity);
-    auto traits = definition->identity.traits;
-    std::ranges::sort(traits, {}, [](const auto& id) { return id.text(); });
+    const std::vector<core::TraitId> traits;
     ItemStackMutation result{quantity, {}, {}, {}, {}};
     std::uint64_t remaining = quantity;
-
-    const auto has_initial_property_state = [&](const core::ItemStackState& candidate) {
-        for (const auto& property : m_project.properties()) {
-            if (property.is_global() || !std::binary_search(property.allowed_owners().begin(),
-                                                            property.allowed_owners().end(),
-                                                            core::PropertyOwnerKind::ItemStack))
-                continue;
-            std::optional<core::RuntimeValue> expected;
-            const auto assignment = std::ranges::find_if(
-                definition->identity.property_assignments,
-                [&](const auto& value) { return value.property_id() == property.id(); });
-            if (assignment != definition->identity.property_assignments.end())
-                expected = assignment->value();
-            if (!expected) {
-                for (const auto& trait_id : traits) {
-                    const auto* trait = m_project.find_trait(trait_id);
-                    const auto configured =
-                        std::ranges::find_if(trait->properties, [&](const auto& member) {
-                            return member.property_id == property.id() &&
-                                   member.configured_value.has_value();
-                        });
-                    if (configured != trait->properties.end()) {
-                        expected = *configured->configured_value;
-                        break;
-                    }
-                }
-            }
-            if (!expected && property.default_value())
-                expected = *property.default_value();
-            const auto actual = resolve_property(candidate.id, property.id());
-            const auto* lookup = actual ? actual.value_if() : nullptr;
-            const auto* value =
-                lookup != nullptr ? std::get_if<core::RuntimeValue>(lookup) : nullptr;
-            if ((value == nullptr) != !expected || (value != nullptr && *value != *expected))
-                return false;
-        }
-        return true;
-    };
 
     if (policy == ItemStackPlacementPolicy::Coalesce) {
         std::vector<core::ItemStackId> candidates;
         for (const auto& candidate : m_state.m_item_stacks) {
             if (candidate.definition == definition_id && candidate.location == location &&
-                candidate.traits == traits && candidate.quantity < limit &&
-                has_initial_property_state(candidate))
+                candidate.traits.empty() && candidate.quantity < limit)
                 candidates.push_back(candidate.id);
         }
         std::ranges::sort(candidates, {}, [](const auto& id) { return id.text(); });
@@ -2045,7 +1923,6 @@ core::Result<ItemStackMutation, core::Diagnostics> RuntimeWorld::grant_item_quan
         auto allocated = allocate_item_stack_id();
         if (!allocated) {
             m_state.m_item_stacks = saved_stacks;
-            m_state.m_property_overrides = saved_overrides;
             m_state.m_next_item_stack_id = saved_allocator;
             return core::Result<ItemStackMutation, core::Diagnostics>::failure(allocated.error());
         }
@@ -2086,20 +1963,7 @@ bool RuntimeWorld::item_stack_matches(const core::ItemStackState& stack,
     if ((filter.definition && stack.definition != *filter.definition) ||
         (filter.location && stack.location != *filter.location))
         return false;
-    for (const auto& trait : filter.traits) {
-        if (!std::binary_search(
-                stack.traits.begin(), stack.traits.end(), trait,
-                [](const auto& left, const auto& right) { return left.text() < right.text(); }))
-            return false;
-    }
-    for (const auto& constraint : filter.properties) {
-        const auto resolved = resolve_property(stack.id, constraint.property);
-        const auto* lookup = resolved ? resolved.value_if() : nullptr;
-        const auto* value = lookup != nullptr ? std::get_if<core::RuntimeValue>(lookup) : nullptr;
-        if (value == nullptr || *value != constraint.value)
-            return false;
-    }
-    return true;
+    return stack.traits.empty();
 }
 
 core::Result<std::uint64_t, core::Diagnostics>
@@ -2156,64 +2020,6 @@ RuntimeWorld::consume_item_quantity(const ItemStackFilter& filter, std::uint64_t
             break;
     }
     return core::Result<ItemStackMutation, core::Diagnostics>::success(std::move(result));
-}
-
-core::Result<ItemStackMutation, core::Diagnostics>
-RuntimeWorld::set_item_stack_traits(const core::ItemStackId& id, std::vector<core::TraitId> traits)
-{
-    auto* stack = find_record(m_state.m_item_stacks, id);
-    if (stack == nullptr)
-        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
-            world_error("runtime.stale_item_stack", "Item Stack identity is not live"));
-    std::ranges::sort(traits, {}, [](const auto& value) { return value.text(); });
-    if (std::ranges::adjacent_find(traits) != traits.end())
-        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
-            world_error("runtime.invalid_item_stack_traits", "Item Stack Traits must be unique"));
-    std::unordered_map<core::PropertyId, core::RuntimeValue> configured_values;
-    for (const auto& trait_id : traits) {
-        const auto* trait = m_project.find_trait(trait_id);
-        if (trait == nullptr ||
-            !std::binary_search(trait->allowed_owners.begin(), trait->allowed_owners.end(),
-                                core::PropertyOwnerKind::ItemStack))
-            return core::Result<ItemStackMutation, core::Diagnostics>::failure(
-                world_error("runtime.invalid_item_stack_traits",
-                            "Trait is missing or does not admit Item Stacks"));
-        for (const auto& member : trait->properties) {
-            if (!member.configured_value)
-                continue;
-            const auto [existing, inserted] =
-                configured_values.emplace(member.property_id, *member.configured_value);
-            if (!inserted && existing->second != *member.configured_value)
-                return core::Result<ItemStackMutation, core::Diagnostics>::failure(
-                    world_error("runtime.invalid_item_stack_traits",
-                                "Item Stack Traits configure a Property with conflicting values"));
-        }
-    }
-    if (stack->traits == traits)
-        return core::Result<ItemStackMutation, core::Diagnostics>::success(
-            ItemStackMutation{0, {id}, {}, {}, {}});
-    auto property_state = validate_trait_property_overrides(m_project, m_state.m_property_overrides,
-                                                            core::PropertyOwnerRef{id}, traits);
-    if (!property_state)
-        return core::Result<ItemStackMutation, core::Diagnostics>::failure(property_state.error());
-    const auto original = stack->traits;
-    stack->traits = std::move(traits);
-    core::PropertyResolver resolver(m_project, m_state);
-    for (const auto& trait_id : stack->traits) {
-        const auto* trait = m_project.find_trait(trait_id);
-        for (const auto& member : trait->properties) {
-            const auto resolved = resolver.get(core::PropertyOwnerRef{id}, member.property_id);
-            if (!resolved || resolved.value_if() == nullptr ||
-                std::holds_alternative<core::MissingPropertyValue>(*resolved.value_if())) {
-                stack->traits = original;
-                return core::Result<ItemStackMutation, core::Diagnostics>::failure(
-                    world_error("runtime.invalid_item_stack_traits",
-                                "Trait Property requirements are not satisfied"));
-            }
-        }
-    }
-    return core::Result<ItemStackMutation, core::Diagnostics>::success(
-        ItemStackMutation{0, {id}, {id}, {}, {}});
 }
 
 core::Result<void, core::Diagnostics>

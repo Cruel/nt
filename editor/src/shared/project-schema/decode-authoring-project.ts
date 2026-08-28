@@ -233,14 +233,6 @@ function collectBasicStructuralDiagnostics(project: Record<string, unknown>) {
         'Project settings must be an object.',
       ),
     );
-  if (!isRecord(project.properties))
-    diagnostics.push(
-      structuralDiagnostic(
-        'authoring.structure.properties.invalid',
-        '/properties',
-        'Project properties must be an object.',
-      ),
-    );
   for (const collection of authoringCollectionKeys) {
     const records = project[collection];
     if (!isRecord(records)) {

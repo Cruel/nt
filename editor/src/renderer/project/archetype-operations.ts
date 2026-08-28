@@ -117,13 +117,6 @@ export function setGameplayInstanceArchetypePatches(
       'traits',
       effective.traits ?? [],
     ),
-    replaceOrAdd(
-      target.record,
-      payload.collection,
-      payload.entityId,
-      'properties',
-      effective.properties ?? {},
-    ),
     replaceOrAdd(target.record, payload.collection, payload.entityId, 'data', effective.data),
     replaceOrAdd(target.record, payload.collection, payload.entityId, 'archetype', null),
     replaceOrAdd(target.record, payload.collection, payload.entityId, 'archetypeOverrides', {}),

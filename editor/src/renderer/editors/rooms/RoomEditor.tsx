@@ -815,11 +815,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           value: state.traits,
         },
         {
-          op: Object.prototype.hasOwnProperty.call(record, 'properties') ? 'replace' : 'add',
-          path: `/rooms/${roomId}/properties`,
-          value: state.properties,
-        },
-        {
           op: Object.prototype.hasOwnProperty.call(record, 'localProperties') ? 'replace' : 'add',
           path: `/rooms/${roomId}/localProperties`,
           value: state.localProperties,
@@ -1278,7 +1273,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   : 'Archetype',
               }),
             )}
-            propertyOverrides={record.properties ?? {}}
             traitColorFor={(traitId) =>
               project.editor.recordMetadata.traits?.[traitId]?.color ?? null
             }

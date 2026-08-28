@@ -267,20 +267,21 @@ function compileCondition(condition: Condition): CompiledCondition {
   };
 }
 
-function propertyAssignments(
-  record: Pick<AuthoringRecordBase, 'properties'> &
-    Partial<Pick<AuthoringRecordBase, 'localProperties'>>,
+function propertyAssignments(record: Partial<Pick<AuthoringRecordBase, 'localProperties'>>) {
+  return (record.localProperties ?? []).map((property) => ({
+    propertyId: property.id,
+    value: property.value,
+  }));
+}
+
+function defaultPropertyAssignments(
+  properties: readonly { id: string; defaultValue?: string | number | boolean | null }[],
 ) {
-  const local = record.localProperties ?? [];
-  const localIds = new Set(local.map((property) => property.id));
-  const transitional = Object.entries(record.properties ?? {})
-    .filter(([propertyId]) => !localIds.has(propertyId))
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-    .map(([propertyId, value]) => ({ propertyId, value }));
-  return [
-    ...transitional,
-    ...local.map((property) => ({ propertyId: property.id, value: property.value })),
-  ];
+  return properties.flatMap((property) =>
+    property.defaultValue === undefined
+      ? []
+      : [{ propertyId: property.id, value: property.defaultValue }],
+  );
 }
 
 function definitionBase(id: string) {
@@ -289,7 +290,7 @@ function definitionBase(id: string) {
 
 function propertyBase(
   id: string,
-  record: Pick<AuthoringRecordBase, 'traits' | 'properties'> &
+  record: Pick<AuthoringRecordBase, 'traits'> &
     Partial<Pick<AuthoringRecordBase, 'localProperties'>>,
 ) {
   return {
@@ -368,6 +369,26 @@ function compileOwnerContract(
       ? { defaultValue: property.defaultValue }
       : {}),
   };
+}
+
+function compileConcreteOwnerContracts(
+  inherited: readonly import('./project-schema/authoring-properties').OwnerDefaultProperty[],
+  local: readonly import('./project-schema/authoring-properties').OwnerLocalProperty[],
+) {
+  const inheritedById = new Map(inherited.map((property) => [property.id, property]));
+  const localIds = new Set(local.map((property) => property.id));
+  return [
+    ...inherited
+      .filter((property) => !localIds.has(property.id))
+      .map((property) => compileOwnerContract(property, true)),
+    ...local.map((property) => {
+      const inheritedProperty = inheritedById.get(property.id);
+      return compileOwnerContract(
+        inheritedProperty ? { ...inheritedProperty, ...property } : property,
+        inheritedProperty !== undefined,
+      );
+    }),
+  ];
 }
 
 function compileFeature(feature: FeatureData, mode: 'value' | 'default') {
@@ -557,15 +578,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ??
             [])
           : [];
-        const localIds = new Set((record.localProperties ?? []).map((property) => property.id));
-        return [
-          ...inherited
-            .filter((property) => !localIds.has(property.id))
-            .map((property) => compileOwnerContract(property, true)),
-          ...(record.localProperties ?? []).map((property) =>
-            compileOwnerContract(property, false),
-          ),
-        ];
+        return compileConcreteOwnerContracts(inherited, record.localProperties ?? []);
       })(),
       displayName: data.displayName,
       dialogue: { ...data.dialogue },
@@ -713,15 +726,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ??
             [])
           : [];
-        const localIds = new Set((record.localProperties ?? []).map((property) => property.id));
-        return [
-          ...inherited
-            .filter((property) => !localIds.has(property.id))
-            .map((property) => compileOwnerContract(property, true)),
-          ...(record.localProperties ?? []).map((property) =>
-            compileOwnerContract(property, false),
-          ),
-        ];
+        return compileConcreteOwnerContracts(inherited, record.localProperties ?? []);
       })(),
       displayName: data.displayName,
       background: {
@@ -884,7 +889,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     project.interactableInstances,
   ).map(([id, instance]) => {
     const effectiveProperties = effectiveInteractableInstanceProperties(project, instance);
-    const overrides = new Map(Object.entries(instance.properties));
+    const overrides = new Map<string, string | number | boolean | null>();
     for (const property of effectiveProperties) {
       if (!property.localOnly && property.localProperty)
         overrides.set(property.id, property.localProperty.value);
@@ -1073,7 +1078,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       if (!data) continue;
       const identity = {
         traits: [...configuration.traits].sort(),
-        propertyAssignments: propertyAssignments(configuration),
+        propertyAssignments: defaultPropertyAssignments(configuration.defaultProperties),
         properties: configuration.defaultProperties.map((property) =>
           compileOwnerContract(property, true),
         ),
@@ -1209,7 +1214,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         instanceKind: 'character',
         configuration: {
           traits: [...configuration.traits].sort(),
-          propertyAssignments: propertyAssignments(configuration),
+          propertyAssignments: defaultPropertyAssignments(configuration.defaultProperties),
           properties: configuration.defaultProperties.map((property) =>
             compileOwnerContract(property, true),
           ),
@@ -1346,7 +1351,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         instanceKind: 'interactable',
         configuration: {
           traits: [...configuration.traits].sort(),
-          propertyAssignments: propertyAssignments(configuration),
+          propertyAssignments: defaultPropertyAssignments(configuration.defaultProperties),
           properties: configuration.defaultProperties.map((property) =>
             compileOwnerContract(property, true),
           ),
@@ -1363,19 +1368,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }
   }
 
-  const properties: CompiledProjectWire['properties'] = sortedEntries(project.properties).map(
-    ([id, definition]) => ({
-      id,
-      label: definition.label,
-      description: definition.description ?? '',
-      type: definition.type,
-      nullable: definition.nullable,
-      ...(definition.defaultValue === undefined ? {} : { defaultValue: definition.defaultValue }),
-      enumValues: [...(definition.enumValues ?? [])],
-      ownerKinds: [...definition.ownerKinds],
-      scope: 'identity' as const,
-    }),
-  );
+  const properties: CompiledProjectWire['properties'] = [];
 
   for (const [roomId, record] of sortedEntries(project.rooms)) {
     const exactPropertyIds = new Set<string>();
@@ -1519,9 +1512,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }),
   );
 
-  const propertyIds = new Set(
-    properties.filter((property) => !('owner' in property)).map((property) => property.id),
-  );
+  const propertyIds = new Set<string>();
   for (const [id, record] of sortedEntries(project.variables)) {
     const data = requireData(parseVariableData(record.data), `/variables/${id}/data`);
     if (!data) continue;
@@ -1529,7 +1520,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       diagnostics.push({
         code: 'authoring.compile.global-property-id-collision',
         path: `/variables/${id}/id`,
-        message: `Variable '${id}' conflicts with a Property declaration using the same ID.`,
+        message: `Variable '${id}' conflicts with another global Property using the same ID.`,
       });
       continue;
     }

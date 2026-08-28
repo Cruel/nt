@@ -61,7 +61,6 @@ export function FeatureAuthoringPanel({
                   id,
                   label: t('features.defaultLabel'),
                   traits: [],
-                  properties: {},
                   localProperties: [],
                   defaultProperties: [],
                   inventories: [],
@@ -124,7 +123,6 @@ export function FeatureAuthoringPanel({
                 traits={project.traits}
                 attachedTraits={feature.traits}
                 properties={feature.localProperties}
-                propertyOverrides={feature.properties}
                 onChange={(localProperties) =>
                   replace(feature.id, { ...feature, localProperties }, 'Update Feature Properties')
                 }
@@ -135,7 +133,6 @@ export function FeatureAuthoringPanel({
                       ...feature,
                       traits: state.traits,
                       localProperties: state.localProperties,
-                      properties: state.properties,
                     },
                     'Update Feature Traits and Properties',
                   )

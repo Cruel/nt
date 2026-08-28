@@ -1,11 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 import { characterRefSchema, interactableRefSchema, roomRefSchema } from './authoring-flow';
-import {
-  ownerDefaultPropertiesSchema,
-  ownerLocalPropertiesSchema,
-  propertyAssignmentsSchema,
-} from './authoring-properties';
+import { ownerDefaultPropertiesSchema, ownerLocalPropertiesSchema } from './authoring-properties';
 import { inventoryDefinitionSchema } from './authoring-inventories';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -14,7 +10,6 @@ export const featureDataSchema = strict({
   id: entityIdSchema,
   label: z.string().check(z.trim(), z.minLength(1)),
   traits: z.array(entityIdSchema),
-  properties: propertyAssignmentsSchema,
   localProperties: ownerLocalPropertiesSchema,
   defaultProperties: ownerDefaultPropertiesSchema,
   inventories: z.array(inventoryDefinitionSchema),

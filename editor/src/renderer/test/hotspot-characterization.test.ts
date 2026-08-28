@@ -89,7 +89,6 @@ describe('hotspot current contracts', () => {
       id: 'door',
       label: 'Door',
       traits: [],
-      properties: {},
       localProperties: [],
       defaultProperties: [],
       inventories: [],

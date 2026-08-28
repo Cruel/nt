@@ -181,7 +181,7 @@ describe('workspace granular persistence and transactions', () => {
     class FailingFileSystem extends InMemoryProjectWorkspaceFileSystem {
       private failed = false;
       override async writeBytesAtomic(path: string, bytes: Uint8Array): Promise<void> {
-        if (!this.failed && path === `${root}/properties.json`) {
+        if (!this.failed && path === `${root}/traits.json`) {
           this.failed = true;
           throw new Error('injected replacement failure');
         }
@@ -190,7 +190,7 @@ describe('workspace granular persistence and transactions', () => {
     }
     const fileSystem = new FailingFileSystem(workspaceFiles());
     const beforeProject = await fileSystem.readText(`${root}/project.json`);
-    const beforeProperties = await fileSystem.readText(`${root}/properties.json`);
+    const beforeTraits = await fileSystem.readText(`${root}/traits.json`);
     const transactions = new ProjectWorkspaceTransactionService(
       fileSystem,
       { isProcessAlive: async () => false },
@@ -207,16 +207,16 @@ describe('workspace granular persistence and transactions', () => {
             bytes: new TextEncoder().encode(beforeProject.replace('Before', 'Changed')),
           },
           {
-            path: 'properties.json',
+            path: 'traits.json',
             operation: 'write',
-            expectedRevision: sha256PrefixedUtf8(beforeProperties),
-            bytes: new TextEncoder().encode(`${beforeProperties} `),
+            expectedRevision: sha256PrefixedUtf8(beforeTraits),
+            bytes: new TextEncoder().encode(`${beforeTraits} `),
           },
         ],
       }),
     ).rejects.toThrow('injected replacement failure');
     expect(await fileSystem.readText(`${root}/project.json`)).toBe(beforeProject);
-    expect(await fileSystem.readText(`${root}/properties.json`)).toBe(beforeProperties);
+    expect(await fileSystem.readText(`${root}/traits.json`)).toBe(beforeTraits);
     expect(await fileSystem.listDirectory(`${root}/.noveltea/transactions`)).toEqual([]);
   });
 
