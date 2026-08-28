@@ -1,162 +1,25 @@
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import {
-  propertyValueTypeValues,
-  type AuthoredRuntimeValue,
-  type OwnerDefaultProperty,
-  type OwnerLocalProperty,
-} from '../../../shared/project-schema/authoring-properties';
-import {
-  defaultValueForVariableType,
-  parseEnumValuesText,
-  parseVariableValueText,
-  variableValueToText,
-  type VariableType,
-} from '../../../shared/project-schema/authoring-variables';
+import { parseEnumValuesText } from '../../../shared/project-schema/authoring-variables';
+import { PropertySchemaFields } from './PropertySchemaFields';
+import { PropertyValueInput } from './PropertyValueInput';
+import type { TypedPropertyDraft } from './property-editor-draft';
 
-export interface TypedPropertyDraft {
-  id: string;
-  label: string;
-  description: string;
-  type: VariableType;
-  nullable: boolean;
-  valuePresent: boolean;
-  valueText: string;
-  enumText: string;
-}
-
-export function newTypedPropertyDraft(id = ''): TypedPropertyDraft {
-  return {
-    id,
-    label: '',
-    description: '',
-    type: 'boolean',
-    nullable: false,
-    valuePresent: true,
-    valueText: 'false',
-    enumText: 'default',
-  };
-}
-
-export function typedPropertyDraftFromOwnerLocal(property: OwnerLocalProperty): TypedPropertyDraft {
-  return {
-    id: property.id,
-    label: property.label ?? '',
-    description: property.description ?? '',
-    type: property.type,
-    nullable: property.nullable,
-    valuePresent: true,
-    valueText: variableValueToText(property.value),
-    enumText: property.enumValues?.join(', ') ?? 'default',
-  };
-}
-
-export function typedPropertyDraftFromOwnerDefault(
-  property: OwnerDefaultProperty,
-): TypedPropertyDraft {
-  const enumValues = property.enumValues;
-  return {
-    id: property.id,
-    label: property.label ?? '',
-    description: property.description ?? '',
-    type: property.type,
-    nullable: property.nullable,
-    valuePresent: property.defaultValue !== undefined,
-    valueText: variableValueToText(
-      property.defaultValue ?? defaultValueForVariableType(property.type, enumValues),
-    ),
-    enumText: enumValues?.join(', ') ?? 'default',
-  };
-}
-
-export function typedPropertyValueFromDraft(
-  draft: TypedPropertyDraft,
-):
-  | { ok: true; value: AuthoredRuntimeValue; enumValues?: string[] }
-  | { ok: false; message: string } {
-  const enumValues = draft.type === 'enum' ? parseEnumValuesText(draft.enumText) : undefined;
-  if (draft.type === 'enum' && (!enumValues || enumValues.length === 0))
-    return { ok: false, message: 'Enum properties require at least one value.' };
-  if (enumValues && new Set(enumValues).size !== enumValues.length)
-    return { ok: false, message: 'Enum values must be unique.' };
-  const parsed = parseVariableValueText(draft.type, draft.valueText, enumValues, draft.nullable);
-  return parsed.ok
-    ? { ok: true, value: parsed.value, ...(enumValues ? { enumValues } : {}) }
-    : parsed;
-}
-
-export function ownerLocalPropertyFromDraft(
-  draft: TypedPropertyDraft,
-): { ok: true; property: OwnerLocalProperty } | { ok: false; message: string } {
-  const parsed = typedPropertyValueFromDraft(draft);
-  if (!parsed.ok) return parsed;
-  const id = draft.id.trim();
-  if (!id) return { ok: false, message: 'Property ID is required.' };
-  return {
-    ok: true,
-    property: {
-      id,
-      ...(draft.label.trim() ? { label: draft.label.trim() } : {}),
-      ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
-      type: draft.type,
-      nullable: draft.nullable,
-      value: parsed.value,
-      ...(parsed.enumValues ? { enumValues: parsed.enumValues } : {}),
-    },
-  };
-}
-
-export function ownerDefaultPropertyFromDraft(
-  draft: TypedPropertyDraft,
-): { ok: true; property: OwnerDefaultProperty } | { ok: false; message: string } {
-  const id = draft.id.trim();
-  if (!id) return { ok: false, message: 'Property ID is required.' };
-  const enumValues = draft.type === 'enum' ? parseEnumValuesText(draft.enumText) : undefined;
-  if (draft.type === 'enum' && (!enumValues || enumValues.length === 0))
-    return { ok: false, message: 'Enum properties require at least one value.' };
-  if (enumValues && new Set(enumValues).size !== enumValues.length)
-    return { ok: false, message: 'Enum values must be unique.' };
-  let defaultValue: AuthoredRuntimeValue | undefined;
-  if (draft.valuePresent) {
-    const parsed = parseVariableValueText(draft.type, draft.valueText, enumValues, draft.nullable);
-    if (!parsed.ok) return parsed;
-    defaultValue = parsed.value;
-  }
-  return {
-    ok: true,
-    property: {
-      id,
-      ...(draft.label.trim() ? { label: draft.label.trim() } : {}),
-      ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
-      type: draft.type,
-      nullable: draft.nullable,
-      ...(defaultValue === undefined ? {} : { defaultValue }),
-      ...(enumValues ? { enumValues } : {}),
-    },
-  };
-}
-
-function typeLabel(type: VariableType) {
-  if (type === 'boolean') return 'Boolean';
-  if (type === 'integer') return 'Integer';
-  if (type === 'number') return 'Number';
-  if (type === 'string') return 'String';
-  return 'Enum';
-}
+export {
+  newTypedPropertyDraft,
+  ownerDefaultPropertyFromDraft,
+  ownerLocalPropertyFromDraft,
+  propertyTypeLabel,
+  typedPropertyDraftForSchema,
+  typedPropertyDraftFromOwnerDefault,
+  typedPropertyDraftFromOwnerLocal,
+  typedPropertyValueFromDraft,
+} from './property-editor-draft';
+export type { TypedPropertyDraft } from './property-editor-draft';
 
 export function TypedPropertyFields({
   draft,
   onChange,
-  idLabel = 'ID',
-  valueLabel = 'Value',
+  idLabel,
+  valueLabel,
   valueOptional = false,
   descriptionPlaceholder,
   schemaReadOnly = false,
@@ -169,186 +32,28 @@ export function TypedPropertyFields({
   descriptionPlaceholder?: string;
   schemaReadOnly?: boolean;
 }) {
-  const changeType = (type: VariableType) => {
-    const enumValues = type === 'enum' ? ['default'] : undefined;
-    onChange({
-      ...draft,
-      type,
-      enumText: type === 'enum' ? 'default' : draft.enumText,
-      valueText: variableValueToText(defaultValueForVariableType(type, enumValues)),
-    });
-  };
-
-  const enumValues = parseEnumValuesText(draft.enumText);
-  const nullSelected = draft.nullable && draft.valueText === 'null';
-
   return (
     <>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>{idLabel}</Label>
-          <Input
-            className="font-mono"
-            value={draft.id}
-            onChange={(event) => onChange({ ...draft, id: event.currentTarget.value })}
-            placeholder="has-key"
-            disabled={schemaReadOnly}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>
-            Label <span className="font-normal text-muted-foreground">(optional)</span>
-          </Label>
-          <Input
-            value={draft.label}
-            onChange={(event) => onChange({ ...draft, label: event.currentTarget.value })}
-            placeholder="Uses the ID when empty"
-            disabled={schemaReadOnly}
-          />
-        </div>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label>
-          Description <span className="font-normal text-muted-foreground">(optional)</span>
-        </Label>
-        <Input
-          value={draft.description}
-          onChange={(event) => onChange({ ...draft, description: event.currentTarget.value })}
-          placeholder={descriptionPlaceholder}
-          disabled={schemaReadOnly}
-        />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-[180px_120px_1fr]">
-        <div className="space-y-1.5">
-          <Label>Type</Label>
-          <Select
-            value={draft.type}
-            disabled={schemaReadOnly}
-            onValueChange={(value) => value && changeType(value as VariableType)}
-          >
-            <SelectTrigger className="!h-8 w-full" aria-label="Type">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {propertyValueTypeValues.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {typeLabel(type)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Nullable</Label>
-          <div className="flex h-8 items-center gap-2">
-            <Switch
-              checked={draft.nullable}
-              onCheckedChange={(nullable) =>
-                onChange({
-                  ...draft,
-                  nullable,
-                  valueText:
-                    !nullable && draft.valueText === 'null'
-                      ? variableValueToText(defaultValueForVariableType(draft.type, enumValues))
-                      : draft.valueText,
-                })
-              }
-              aria-label="Nullable"
-              disabled={schemaReadOnly}
-            />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label>{valueLabel}</Label>
-          {valueOptional ? (
-            <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-              <Switch
-                checked={draft.valuePresent}
-                onCheckedChange={(valuePresent) => onChange({ ...draft, valuePresent })}
-                aria-label={`Has ${valueLabel}`}
-              />
-              Has {valueLabel}
-            </div>
-          ) : null}
-          {draft.valuePresent && draft.nullable ? (
-            <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-              <Switch
-                checked={nullSelected}
-                onCheckedChange={(checked) =>
-                  onChange({
-                    ...draft,
-                    valueText: checked
-                      ? 'null'
-                      : variableValueToText(defaultValueForVariableType(draft.type, enumValues)),
-                  })
-                }
-                aria-label={`${valueLabel} is null`}
-              />
-              Null
-            </div>
-          ) : null}
-          {draft.valuePresent && !nullSelected ? (
-            draft.type === 'boolean' ? (
-              <div className="flex h-8 items-center gap-2">
-                <Switch
-                  checked={draft.valueText === 'true'}
-                  onCheckedChange={(checked) => onChange({ ...draft, valueText: String(checked) })}
-                  aria-label={valueLabel}
-                />
-                <span className="text-sm text-muted-foreground">{draft.valueText}</span>
-              </div>
-            ) : draft.type === 'enum' ? (
-              <Select
-                value={draft.valueText}
-                onValueChange={(value) => value && onChange({ ...draft, valueText: value })}
-              >
-                <SelectTrigger className="!h-8 w-full" aria-label={valueLabel}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {enumValues.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {value}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input
-                className="h-8"
-                type={draft.type === 'integer' || draft.type === 'number' ? 'number' : 'text'}
-                step={draft.type === 'integer' ? 1 : draft.type === 'number' ? 'any' : undefined}
-                value={draft.valueText}
-                onChange={(event) => onChange({ ...draft, valueText: event.currentTarget.value })}
-              />
-            )
-          ) : null}
-        </div>
-      </div>
-
-      {draft.type === 'enum' ? (
-        <div className="space-y-1.5">
-          <Label>Enum values</Label>
-          <Input
-            value={draft.enumText}
-            onChange={(event) => {
-              const enumText = event.currentTarget.value;
-              const values = parseEnumValuesText(enumText);
-              onChange({
-                ...draft,
-                enumText,
-                valueText:
-                  draft.valueText === 'null' || values.includes(draft.valueText)
-                    ? draft.valueText
-                    : (values[0] ?? ''),
-              });
-            }}
-            placeholder="idle, active, complete"
-          />
-        </div>
-      ) : null}
+      <PropertySchemaFields
+        draft={draft}
+        onChange={onChange}
+        idLabel={idLabel}
+        descriptionPlaceholder={descriptionPlaceholder}
+        readOnly={schemaReadOnly}
+      />
+      <PropertyValueInput
+        schema={{
+          type: draft.type,
+          nullable: draft.nullable,
+          ...(draft.type === 'enum' ? { enumValues: parseEnumValuesText(draft.enumText) } : {}),
+        }}
+        valueText={draft.valueText}
+        onValueTextChange={(valueText) => onChange({ ...draft, valueText })}
+        label={valueLabel}
+        optional={valueOptional}
+        present={draft.valuePresent}
+        onPresentChange={(valuePresent) => onChange({ ...draft, valuePresent })}
+      />
     </>
   );
 }

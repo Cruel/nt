@@ -153,6 +153,15 @@ Stable user-facing strings should use i18n resources under `editor/src/renderer/
 
 Use shadcn Base UI components whenever an appropriate component exists. Keep generated components close to upstream output and adapt usage code rather than rewriting generated primitives.
 
+All authored typed Property surfaces use the shared Property Manager under
+`editor/src/renderer/components/properties/`. Variables establish the canonical compact table/dialog
+interaction language; Rooms, Characters, Features, Traits, Archetypes, Interactable definitions, and
+exact Interactable Instances adapt their semantic Property model into that same manager rather than
+rendering editor-local Property tables or dialogs. Keep schema editing in `PropertySchemaFields`,
+typed scalar/null editing in `PropertyValueInput`, and the combined create/edit form behind the shared
+Property dialog. Owner/Instance adapters may resolve inheritance, Trait provenance, reset/delete
+semantics, and persistence actions, but they must not duplicate the Property table or typed-value UI.
+
 Compact image-asset UI must use the cached thumbnail contract in
 `docs/editor/IMAGE_THUMBNAIL_CACHE.md`. Do not route reduced cards/results through
 `resolveProjectOriginalAssetUrl`, and do not conflate direct-image derivatives with engine-rendered entity

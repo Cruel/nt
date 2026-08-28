@@ -161,11 +161,11 @@ The retired `noveltea.variables` runtime table must not be used.
 
 ## Editor and preview behavior
 
-The authoring collection and UI continue to use the term Variables. Create, rename, type/Value editing, dependency tracking, and condition/scene/dialogue builders still reference `/variables` in authoring source. Variable and owner-local Property editors reuse the same typed Property field primitives for type, nullability, enum domain, and Value editing.
+The authoring collection and UI continue to use the term Variables. Create, rename, type/Value editing, dependency tracking, and condition/scene/dialogue builders still reference `/variables` in authoring source. Variables are the visual/interaction baseline for the shared Property Manager: Variable, owner-local, reusable Default, Trait-contract, and exact Instance surfaces use the same compact Property table, create/edit dialog, type presentation, typed scalar/null controls, Use cell, and delete/reset action language. Semantic adapters supply the different persistence and inheritance behavior rather than constructing separate Property UIs.
 
-Room and Character Property lists expose best-effort Uses counts and rename repair for straightforward structured references. This is intentionally shallow: explicit owner/key references are repaired, but general Lua/static analysis is outside this slice. Deleting a used Property warns and leaves unresolved references for validation to report.
+Owner Property lists expose best-effort Uses counts and rename repair where the owning semantic adapter has straightforward structured-reference evidence. This is intentionally shallow: explicit owner/key references are repaired, but general Lua/static analysis is outside this slice. Deleting a used Property warns and leaves unresolved references for validation to report.
 
-Scene gameplay Property operations address migrated owners as exact owner plus `{ key }`. Their typed owner/Property selectors enumerate the selected Room or Character's local declarations; validation rejects missing keys and incompatible set Values. The older project-registry `$ref` form remains transitional for unmigrated owners.
+Scene gameplay Property operations address identity Properties as exact owner plus `{ key }`. Typed owner/Property selectors enumerate the selected owner's statically known effective authored schema; validation rejects missing keys and incompatible set Values. The retired project-wide identity Property-definition `$ref` form is not a second supported namespace.
 
 Preview/debug "set variable" operations are editor-facing commands only. They parse the Variable ID as a `PropertyId` and mutate the Global Property through the runtime Property gateway. Reset removes the runtime override rather than writing the default value.
 
@@ -184,8 +184,14 @@ editor/src/shared/project-schema/authoring-variables.ts
 editor/src/shared/project-schema/authoring-properties.ts
 editor/src/shared/authoring-compiler-shared-lowering.ts
 editor/src/renderer/editors/variables/VariablesEditor.tsx
+editor/src/renderer/components/properties/PropertyManager.tsx
+editor/src/renderer/components/properties/PropertyTable.tsx
+editor/src/renderer/components/properties/PropertyEditDialog.tsx
+editor/src/renderer/components/properties/PropertySchemaFields.tsx
+editor/src/renderer/components/properties/PropertyValueInput.tsx
 editor/src/renderer/components/properties/TypedPropertyFields.tsx
 editor/src/renderer/components/properties/OwnerLocalPropertiesEditor.tsx
+editor/src/renderer/components/properties/OwnerDefaultPropertiesEditor.tsx
 editor/src/renderer/project/owner-local-property-references.ts
 ```
 

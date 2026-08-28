@@ -1,19 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Plus, RotateCcw, Trash2, Unlink } from 'lucide-react';
-import { PropertyManager } from './PropertyManager';
+import { useMemo } from 'react';
 import { resolveArchetypeConfiguration } from '../../../shared/project-schema/authoring-archetypes';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import {
   effectiveInteractableInstanceProperties,
   effectiveInteractableInstanceTraits,
@@ -22,27 +8,17 @@ import type { InteractableInstanceData } from '../../../shared/project-schema/au
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   arePropertySchemasCompatible,
-  type AuthoredRuntimeValue,
   type OwnerDefaultProperty,
   type OwnerLocalProperty,
 } from '../../../shared/project-schema/authoring-properties';
-import {
-  parseVariableValueText,
-  variableValueToText,
-} from '../../../shared/project-schema/authoring-variables';
+import { OwnerDefaultPropertiesEditor } from './OwnerDefaultPropertiesEditor';
+import { PropertyManager, type PropertyManagerRow } from './PropertyManager';
 import {
   newTypedPropertyDraft,
   ownerLocalPropertyFromDraft,
-  TypedPropertyFields,
-  typedPropertyDraftFromOwnerLocal,
+  typedPropertyValueFromDraft,
   type TypedPropertyDraft,
 } from './TypedPropertyFields';
-
-function formatValue(value: AuthoredRuntimeValue | undefined) {
-  if (value === undefined) return 'Missing';
-  if (value === null) return 'null';
-  return typeof value === 'string' ? JSON.stringify(value) : String(value);
-}
 
 function traitChoices(project: AuthoringProject, attached: readonly string[]) {
   return Object.entries(project.traits)
@@ -75,9 +51,9 @@ export function InteractableDefinitionPropertiesEditor({
       sourceLabel: project.archetypes[record.archetype!.$ref.id]?.label ?? 'Archetype',
     }));
   }, [inheritedConfiguration, project.archetypes, record?.archetype]);
+
   return (
-    <PropertyManager
-      mode="default"
+    <OwnerDefaultPropertiesEditor
       ownerLabel={`Interactable definition '${record?.label ?? definitionId}'`}
       ownerKind="interactable"
       traits={project.traits}
@@ -85,6 +61,7 @@ export function InteractableDefinitionPropertiesEditor({
       properties={properties}
       inheritedProperties={inheritedProperties}
       inheritedTraits={inheritedConfiguration?.traits ?? []}
+      traitColorFor={(traitId) => project.editor.recordMetadata.traits?.[traitId]?.color ?? null}
       onChange={onChange}
     />
   );
@@ -103,13 +80,7 @@ export function InteractableInstancePropertiesEditor({
   onChange: (instance: InteractableInstanceData) => void;
   compact?: boolean;
 }) {
-  const [editingLocalId, setEditingLocalId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<TypedPropertyDraft>(() => newTypedPropertyDraft());
-  const [editingValueId, setEditingValueId] = useState<string | null>(null);
-  const [valueText, setValueText] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
-  const [traitId, setTraitId] = useState('');
-  const rows = useMemo(
+  const effectiveRows = useMemo(
     () => effectiveInteractableInstanceProperties(project, instance),
     [instance, project],
   );
@@ -131,103 +102,84 @@ export function InteractableInstancePropertiesEditor({
     () => traitChoices(project, effectiveTraits),
     [effectiveTraits, project],
   );
-  const editingValue = rows.find((row) => row.id === editingValueId);
+  const localById = useMemo(
+    () => new Map(instance.localProperties.map((property) => [property.id, property])),
+    [instance.localProperties],
+  );
+  const rows = useMemo<PropertyManagerRow[]>(
+    () =>
+      effectiveRows.map((row) => {
+        const hasOverride = !row.localOnly && row.localProperty !== undefined;
+        return {
+          id: row.id,
+          label: row.contract.label,
+          description: row.contract.description,
+          type: row.contract.type,
+          nullable: row.contract.nullable,
+          enumValues: row.contract.enumValues,
+          ...(row.value === undefined ? {} : { value: row.value }),
+          valueState: row.hasValue ? 'normal' : 'missing',
+          sourceLabel: row.localOnly
+            ? 'local'
+            : hasOverride
+              ? 'override'
+              : row.hasValue
+                ? row.source
+                : 'required',
+          traitSources: row.traitIds.map((traitId) => ({
+            id: traitId,
+            label: project.traits[traitId]?.label ?? traitId,
+            color: project.editor.recordMetadata.traits?.[traitId]?.color ?? null,
+          })),
+          appearance: row.localOnly ? 'local-only' : 'normal',
+          editMode: row.localOnly ? 'schema' : 'value',
+          actionLabel: row.localOnly ? undefined : 'Set Value',
+          resettable: hasOverride,
+          deletable: row.localOnly,
+        };
+      }),
+    [effectiveRows, project.editor.recordMetadata.traits, project.traits],
+  );
 
-  const attachTrait = () => {
-    if (!traitId) return;
-    const trait = project.traits[traitId];
-    if (!trait) return;
-    for (const member of trait.properties) {
-      const existing = rows.find((row) => row.id === member.id);
-      if (existing && !arePropertySchemasCompatible(existing.contract, member)) {
-        setMessage(
-          `Cannot attach '${trait.label}': Property '${member.id}' has an incompatible effective schema.`,
-        );
-        return;
-      }
-    }
-    const nextTraits = [...effectiveTraits, traitId];
-    const add = nextTraits.filter((id) => !definitionTraits.has(id));
-    const remove = [...definitionTraits].filter((id) => !nextTraits.includes(id));
-    onChange({
-      ...instance,
-      traits: { add, remove },
-      localProperties: [...instance.localProperties],
-    });
-    setTraitId('');
-    setMessage(null);
-  };
-  const detachTrait = (id: string) => {
-    const remainingTraits = effectiveTraits.filter((candidate) => candidate !== id);
-    const remainingInstance: InteractableInstanceData = {
-      ...instance,
-      traits: {
-        add: remainingTraits.filter((candidate) => !definitionTraits.has(candidate)),
-        remove: [...definitionTraits].filter((candidate) => !remainingTraits.includes(candidate)),
-      },
-    };
-    onChange({ ...remainingInstance, localProperties: [...instance.localProperties] });
-  };
-  const openNew = () => {
-    setEditingLocalId('');
-    setDraft(newTypedPropertyDraft());
-    setMessage(null);
-  };
-  const openLocal = (property: OwnerLocalProperty) => {
-    setEditingLocalId(property.id);
-    setDraft(typedPropertyDraftFromOwnerLocal(property));
-    setMessage(null);
-  };
-  const saveLocal = () => {
+  const withTraitSet = (traitIds: readonly string[]): InteractableInstanceData['traits'] => ({
+    add: traitIds.filter((id) => !definitionTraits.has(id)),
+    remove: [...definitionTraits].filter((id) => !traitIds.includes(id)),
+  });
+
+  const createProperty = (draft: TypedPropertyDraft) => {
     const parsed = ownerLocalPropertyFromDraft(draft);
-    if (!parsed.ok) {
-      setMessage(parsed.message);
-      return;
-    }
-    const oldId = editingLocalId ?? '';
-    if (oldId === '' && rows.some((row) => row.id === parsed.property.id)) {
-      setMessage(
-        `Property '${parsed.property.id}' is already effective. Edit or override the existing row instead.`,
-      );
-      return;
-    }
+    if (!parsed.ok) return parsed.message;
+    if (effectiveRows.some((row) => row.id === parsed.property.id))
+      return `Property '${parsed.property.id}' is already effective. Edit or override the existing row instead.`;
+    onChange({ ...instance, localProperties: [...instance.localProperties, parsed.property] });
+    return null;
+  };
+
+  const editProperty = (row: PropertyManagerRow, draft: TypedPropertyDraft) => {
+    const parsed = ownerLocalPropertyFromDraft(draft);
+    if (!parsed.ok) return parsed.message;
     if (
       instance.localProperties.some(
-        (property) => property.id === parsed.property.id && property.id !== oldId,
+        (property) => property.id === parsed.property.id && property.id !== row.id,
       )
-    ) {
-      setMessage(`Property '${parsed.property.id}' already exists on this Instance.`);
-      return;
-    }
-    const localProperties =
-      oldId === ''
-        ? [...instance.localProperties, parsed.property]
-        : instance.localProperties.map((property) =>
-            property.id === oldId ? parsed.property : property,
-          );
-    onChange({ ...instance, localProperties });
-    setEditingLocalId(null);
+    )
+      return `Property '${parsed.property.id}' already exists on this Instance.`;
+    if (!localById.has(row.id)) return 'Instance-local Property no longer exists.';
+    onChange({
+      ...instance,
+      localProperties: instance.localProperties.map((property) =>
+        property.id === row.id ? parsed.property : property,
+      ),
+    });
+    return null;
   };
-  const openValue = (id: string) => {
-    const row = rows.find((candidate) => candidate.id === id);
-    if (!row) return;
-    setEditingValueId(id);
-    setValueText(variableValueToText(row.value ?? null));
-    setMessage(null);
-  };
-  const saveValue = () => {
-    if (!editingValue) return;
-    const parsed = parseVariableValueText(
-      editingValue.contract.type,
-      valueText,
-      editingValue.contract.enumValues,
-      editingValue.contract.nullable,
-    );
-    if (!parsed.ok) {
-      setMessage(parsed.message);
-      return;
-    }
-    const contract = editingValue.contract;
+
+  const setValue = (row: PropertyManagerRow, draft: TypedPropertyDraft) => {
+    const effective = effectiveRows.find((candidate) => candidate.id === row.id);
+    if (!effective || effective.localOnly) return 'Inherited Property no longer exists.';
+    const parsed = typedPropertyValueFromDraft(draft);
+    if (!parsed.ok) return parsed.message;
+    const contract = effective.contract;
     const replacement: OwnerLocalProperty = {
       id: contract.id,
       ...(contract.label ? { label: contract.label } : {}),
@@ -237,265 +189,90 @@ export function InteractableInstancePropertiesEditor({
       value: parsed.value,
       ...(contract.enumValues ? { enumValues: [...contract.enumValues] } : {}),
     };
-    const existing = instance.localProperties.findIndex((item) => item.id === editingValue.id);
     onChange({
       ...instance,
-      localProperties:
-        existing < 0
-          ? [...instance.localProperties, replacement]
-          : instance.localProperties.map((item, index) =>
-              index === existing ? replacement : item,
-            ),
+      localProperties: localById.has(row.id)
+        ? instance.localProperties.map((property) =>
+            property.id === row.id ? replacement : property,
+          )
+        : [...instance.localProperties, replacement],
     });
-    setEditingValueId(null);
+    return null;
+  };
+
+  const attachTrait = (traitId: string) => {
+    const trait = project.traits[traitId];
+    if (!trait) return 'Trait no longer exists.';
+    for (const member of trait.properties) {
+      const existing = effectiveRows.find((row) => row.id === member.id);
+      if (existing && !arePropertySchemasCompatible(existing.contract, member))
+        return `Cannot attach '${trait.label}': Property '${member.id}' has an incompatible effective schema.`;
+    }
+    const nextTraits = [...effectiveTraits, traitId];
+    onChange({ ...instance, traits: withTraitSet(nextTraits) });
+    return null;
   };
 
   return (
-    <section
-      className={`space-y-3 rounded-md border ${compact ? 'p-2' : 'p-3'}`}
-      data-instance-properties={instanceId}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-semibold">Instance Properties</h4>
-          <p className="text-xs text-muted-foreground">
-            Exact state for <span className="font-mono">{instanceId}</span>.
-          </p>
-        </div>
-        <Button size="sm" variant="outline" onClick={openNew}>
-          <Plus className="size-4" /> Add local
-        </Button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium">Traits</span>
-        {effectiveTraits.map((id) => (
-          <div key={id} className="flex items-center gap-1 rounded border px-2 py-1">
-            <span className="text-xs">{project.traits[id]?.label ?? id}</span>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={`Detach ${id}`}
-              onClick={() => detachTrait(id)}
-            >
-              <Unlink className="size-3" />
-            </Button>
-          </div>
-        ))}
-        <Select value={traitId} onValueChange={(value) => setTraitId(value ?? '')}>
-          <SelectTrigger className="!h-7 min-w-40" aria-label="Instance Trait to attach">
-            <SelectValue placeholder="Add Trait" />
-          </SelectTrigger>
-          <SelectContent>
-            {availableTraits.map(([id, trait]) => (
-              <SelectItem key={id} value={id}>
-                {trait.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button size="sm" variant="ghost" disabled={!traitId} onClick={attachTrait}>
-          Attach
-        </Button>
-      </div>
-      <div className="overflow-hidden rounded border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2">Property</th>
-              <th className="w-px whitespace-nowrap px-3 py-2">Type</th>
-              <th className="px-3 py-2">Value</th>
-              <th className="w-px px-2 py-2">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="p-4 text-center text-xs text-muted-foreground">
-                  No Properties.
-                </td>
-              </tr>
-            ) : null}
-            {rows.map((row) => {
-              const hasLocalOverride = !row.localOnly && row.localProperty !== undefined;
-              const hasOverride = hasLocalOverride;
-              return (
-                <tr key={row.id} className={`border-t ${row.localOnly ? 'bg-muted/15' : ''}`}>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{row.contract.label ?? row.id}</div>
-                    <div className="font-mono text-[11px] text-muted-foreground">{row.id}</div>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
-                    {row.contract.type}
-                    {row.contract.nullable ? '?' : ''}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {formatValue(row.value)}
-                    <span className="ml-2 font-sans text-muted-foreground">
-                      {row.localOnly
-                        ? 'local'
-                        : hasOverride
-                          ? 'override'
-                          : row.hasValue
-                            ? row.source
-                            : 'required'}
-                    </span>
-                  </td>
-                  <td className="px-1 py-1">
-                    <div className="flex justify-end">
-                      {row.localOnly && row.localProperty ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => openLocal(row.localProperty!)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            className="text-destructive"
-                            aria-label={`Delete ${row.id}`}
-                            onClick={() =>
-                              onChange({
-                                ...instance,
-                                localProperties: instance.localProperties.filter(
-                                  (item) => item.id !== row.id,
-                                ),
-                              })
-                            }
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          {hasOverride ? (
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              aria-label={`Reset ${row.id}`}
-                              onClick={() =>
-                                onChange({
-                                  ...instance,
-                                  localProperties: instance.localProperties.filter(
-                                    (item) => item.id !== row.id,
-                                  ),
-                                })
-                              }
-                            >
-                              <RotateCcw className="size-4" />
-                            </Button>
-                          ) : null}
-                          <Button size="sm" variant="ghost" onClick={() => openValue(row.id)}>
-                            Set Value
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {message ? <p className="text-xs text-destructive">{message}</p> : null}
-
-      <Dialog
-        open={editingLocalId !== null}
-        onOpenChange={(open) => !open && setEditingLocalId(null)}
-      >
-        <DialogPopup className="w-[min(620px,calc(100vw-2rem))]">
-          <DialogTitle>
-            {editingLocalId === '' ? 'Add Instance Property' : 'Edit Instance Property'}
-          </DialogTitle>
-          <DialogDescription>
-            A completely Instance-local typed Property and concrete Value.
-          </DialogDescription>
-          <TypedPropertyFields draft={draft} onChange={setDraft} valueLabel="Value" />
-          {message ? <p className="text-xs text-destructive">{message}</p> : null}
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setEditingLocalId(null)}>
-              Cancel
-            </Button>
-            <Button onClick={saveLocal}>
-              {editingLocalId === '' ? 'Add Property' : 'Save changes'}
-            </Button>
-          </div>
-        </DialogPopup>
-      </Dialog>
-
-      <Dialog
-        open={editingValueId !== null}
-        onOpenChange={(open) => !open && setEditingValueId(null)}
-      >
-        <DialogPopup className="w-[min(460px,calc(100vw-2rem))]">
-          <DialogTitle>Set Instance Value</DialogTitle>
-          <DialogDescription>
-            Overrides the inherited effective Value for this exact Instance.
-          </DialogDescription>
-          {editingValue ? (
-            <div className="space-y-2">
-              <Label>Value</Label>
-              {editingValue.contract.type === 'boolean' ? (
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={valueText === 'true'}
-                    onCheckedChange={(value) => setValueText(String(value))}
-                  />
-                  <span className="text-sm text-muted-foreground">{valueText}</span>
-                </div>
-              ) : editingValue.contract.type === 'enum' ? (
-                <Select value={valueText} onValueChange={(value) => value && setValueText(value)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(editingValue.contract.enumValues ?? []).map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {value}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  type={
-                    editingValue.contract.type === 'integer' ||
-                    editingValue.contract.type === 'number'
-                      ? 'number'
-                      : 'text'
-                  }
-                  step={
-                    editingValue.contract.type === 'integer'
-                      ? 1
-                      : editingValue.contract.type === 'number'
-                        ? 'any'
-                        : undefined
-                  }
-                  value={valueText}
-                  onChange={(event) => setValueText(event.currentTarget.value)}
-                />
-              )}
-              {editingValue.contract.nullable ? (
-                <Button size="sm" variant="outline" onClick={() => setValueText('null')}>
-                  Set null
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {message ? <p className="text-xs text-destructive">{message}</p> : null}
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setEditingValueId(null)}>
-              Cancel
-            </Button>
-            <Button onClick={saveValue}>Save Value</Button>
-          </div>
-        </DialogPopup>
-      </Dialog>
-    </section>
+    <PropertyManager
+      title="Instance Properties"
+      description={`Exact state for '${instanceId}'.`}
+      valueLabel="Value"
+      rows={rows}
+      emptyLabel="No Properties."
+      addLabel="Add Property"
+      createTitle="Add Instance Property"
+      editTitle={(row) => `Edit ${row.label ?? row.id}`}
+      valueEditTitle={() => 'Set Instance Value'}
+      editDescription={(row) =>
+        row?.editMode === 'value'
+          ? 'Overrides the inherited effective Value for this exact Instance.'
+          : 'A completely Instance-local typed Property and concrete Value.'
+      }
+      newDraft={newTypedPropertyDraft}
+      onCreate={createProperty}
+      onEdit={editProperty}
+      onSetValue={setValue}
+      onReset={(row) => {
+        onChange({
+          ...instance,
+          localProperties: instance.localProperties.filter((property) => property.id !== row.id),
+        });
+        return null;
+      }}
+      onDelete={(row) => {
+        onChange({
+          ...instance,
+          localProperties: instance.localProperties.filter((property) => property.id !== row.id),
+        });
+        return null;
+      }}
+      traits={{
+        attached: effectiveTraits.map((id) => ({
+          id,
+          label: project.traits[id]?.label ?? id,
+          color: project.editor.recordMetadata.traits?.[id]?.color ?? null,
+          inherited: definitionTraits.has(id),
+          removable: true,
+        })),
+        available: availableTraits.map(([id, trait]) => ({
+          id,
+          label: trait.label,
+          color: project.editor.recordMetadata.traits?.[id]?.color ?? null,
+        })),
+        onAttach: attachTrait,
+        onDetach: (traitId) => {
+          onChange({
+            ...instance,
+            traits: withTraitSet(effectiveTraits.filter((candidate) => candidate !== traitId)),
+          });
+          return null;
+        },
+      }}
+      compact={compact}
+      anchor={`instance.properties.${instanceId}`}
+      rowAnchor={(row) => `instance.property.${instanceId}.${row.id}`}
+      modeMarker="instance"
+    />
   );
 }

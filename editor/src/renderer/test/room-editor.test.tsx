@@ -136,6 +136,68 @@ describe('RoomEditor', () => {
     );
     expect(screen.getByText('Placements')).toBeInTheDocument();
   });
+
+  it('reveals a hidden Instance Property target by selecting its placement first', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'key-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        order: 0,
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key-entry',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass Key',
+      defaultProperties: [{ id: 'quality', type: 'string', nullable: false }],
+      data: defaultInteractableData('Brass Key'),
+    };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+    );
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    expect(
+      document.querySelector('[data-workbench-anchor="instance.property.key-instance.quality"]'),
+    ).toBeNull();
+    act(() => {
+      invokeWorkbenchTargetHandler(tab.id, {
+        id: 'instance.property.key-instance.quality',
+        requestId: 2,
+        payload: {
+          kind: 'interactable-instance-property',
+          instanceId: 'key-instance',
+          propertyId: 'quality',
+          placementId: 'key-placement',
+        },
+      });
+    });
+
+    const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
+    expect(within(navigation).getByRole('button', { name: 'Composition' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(
+      document.querySelector('[data-workbench-anchor="instance.property.key-instance.quality"]'),
+    ).not.toBeNull();
+  });
   it('updates the display name through the command bus', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

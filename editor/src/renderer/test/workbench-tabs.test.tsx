@@ -6,6 +6,15 @@ import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { WorkbenchTabs } from '@/workbench/WorkbenchTabs';
 import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { markEditorRecoveryCommitted } from '@/workbench/project-editor-state';
+import { useProjectStore } from '@/project/project-store';
+import { useCommandStore } from '@/commands/command-store';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import {
   clearWorkbenchTabStates,
   setWorkbenchTabState,
@@ -44,11 +53,64 @@ function renderRootTabs() {
 
 beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
+  useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
+  markEditorRecoveryCommitted();
   clearWorkbenchTabStates();
   useCloseGuardStore.getState().clearPendingClose();
 });
 
 describe('workbench tabs', () => {
+  it('shows the tab dirty marker for cross-path changes attributed to its save unit', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key');
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    const roomTab: WorkbenchTab = {
+      id: 'tab:room-detail:rooms:foyer',
+      title: 'Foyer',
+      editorType: 'room-detail',
+      resource: {
+        kind: 'record',
+        stableId: 'record:rooms:foyer',
+        collection: 'rooms',
+        entityId: 'foyer',
+      },
+    };
+    useWorkbenchStore.getState().openTab(roomTab);
+    renderRootTabs();
+
+    expect(screen.getByText('Foyer')).toBeInTheDocument();
+    act(() => {
+      const result = useCommandStore.getState().executeCommand({
+        type: 'project.replaceAtPath',
+        label: 'Set Instance Property',
+        payload: {
+          path: '/interactableInstances/key/localProperties',
+          value: [{ id: 'locked', type: 'boolean', nullable: false, value: true }],
+        },
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    expect(screen.getByText('● Foyer')).toBeInTheDocument();
+  });
+
   it('opens a context menu for the clicked tab without activating it and closes other tabs through the guard', async () => {
     const user = userEvent.setup();
     useWorkbenchStore.getState().openTab(rawTab('foyer'));

@@ -76,12 +76,15 @@ owners store Trait attachments plus their own local Property state; they do not 
 schema fields.
 
 The Desktop Editor provides a first-class Traits surface for creating, editing, renaming, and deleting
-Traits, editing `Applies To`, reordering Property contracts, and choosing optional Defaults. Concrete
-owner Property Managers show attached Traits as colored controls and collapse compatible Trait
-contributions to one effective Property row per key. The `Use` cell retains its numeric reference count
-while displaying Trait provenance; multiple contributing Traits use deterministic hard-stop color
-segments rather than blended colors. Trait-owned schema is read-only from the concrete owner; owner
-editing changes only the more-specific Value/Default override.
+Traits, editing `Applies To`, reordering Property contracts, and choosing optional Defaults. Each Trait
+is an inline group: clicking its header edits Trait metadata, while its ordered Property contract is
+rendered by the same shared Property Manager used by Variables and gameplay owners. Concrete owner
+Property Managers show attached Traits as colored controls and collapse compatible Trait contributions
+to one effective Property row per key. The `Use` cell retains its numeric reference count while
+displaying Trait provenance; multiple contributing Traits use deterministic hard-stop color segments
+rather than blended colors. Trait-owned schema is read-only from the concrete owner; owner editing
+changes only the more-specific Value/Default override. Do not add a Trait-specific Property table,
+Property card editor, or typed-value control alongside the shared manager.
 
 Detaching a Trait, deleting a Trait Property, or deleting a Trait removes pure Trait-only
 contributions. If the disappearing Trait source was the last schema source for an explicit local

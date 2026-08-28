@@ -10,6 +10,25 @@ function decodePointerSegment(segment: string) {
   return segment.replaceAll('~1', '/').replaceAll('~0', '~');
 }
 
+function diagnosticOwnerPaths(diagnostic: ToolDiagnostic): readonly string[] {
+  return diagnostic.ownerPaths && diagnostic.ownerPaths.length > 0
+    ? diagnostic.ownerPaths
+    : [diagnostic.path];
+}
+
+function pathTargetsRecord(path: string, collection: string, entityId: string): boolean {
+  const [, rawCollection, rawEntityId] = path.split('/');
+  return (
+    decodePointerSegment(rawCollection ?? '') === collection &&
+    decodePointerSegment(rawEntityId ?? '') === entityId
+  );
+}
+
+function pathTargetsCollection(path: string, collection: string): boolean {
+  const [, rawCollection] = path.split('/');
+  return decodePointerSegment(rawCollection ?? '') === collection;
+}
+
 export function diagnosticSeverityForRecord(
   diagnostics: readonly ToolDiagnostic[],
   collection: string | undefined,
@@ -19,13 +38,12 @@ export function diagnosticSeverityForRecord(
   let result: ToolSeverity | null = null;
 
   for (const diagnostic of diagnostics) {
-    const [, rawCollection, rawEntityId] = diagnostic.path.split('/');
     if (
-      decodePointerSegment(rawCollection ?? '') !== collection ||
-      decodePointerSegment(rawEntityId ?? '') !== entityId
-    ) {
+      !diagnosticOwnerPaths(diagnostic).some((path) =>
+        pathTargetsRecord(path, collection, entityId),
+      )
+    )
       continue;
-    }
     if (result === null || severityRank[diagnostic.severity] > severityRank[result]) {
       result = diagnostic.severity;
     }
@@ -42,8 +60,8 @@ export function diagnosticCountsForCollection(
   if (!collection) return counts;
 
   for (const diagnostic of diagnostics) {
-    const [, rawCollection] = diagnostic.path.split('/');
-    if (decodePointerSegment(rawCollection ?? '') !== collection) continue;
+    if (!diagnosticOwnerPaths(diagnostic).some((path) => pathTargetsCollection(path, collection)))
+      continue;
     if (diagnostic.severity === 'warning') counts.warning += 1;
     if (diagnostic.severity === 'error') counts.error += 1;
   }

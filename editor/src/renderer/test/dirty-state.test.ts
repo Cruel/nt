@@ -75,6 +75,49 @@ describe('workbench dirty state', () => {
     });
   });
 
+  it('marks a tab dirty when its recovery save unit owns a changed cross-record path', () => {
+    const roomTab: WorkbenchTab = {
+      id: 'tab:room-detail:rooms:foyer',
+      title: 'Foyer',
+      editorType: 'room-detail',
+      resource: {
+        kind: 'record',
+        stableId: 'record:rooms:foyer',
+        collection: 'rooms',
+        entityId: 'foyer',
+      },
+    };
+    const saved = {
+      rooms: { foyer: { id: 'foyer', label: 'Foyer' } },
+      interactableInstances: {
+        key: { id: 'key', localProperties: [{ id: 'locked', value: false }] },
+      },
+    };
+    const current = {
+      ...saved,
+      interactableInstances: {
+        key: { id: 'key', localProperties: [{ id: 'locked', value: true }] },
+      },
+    };
+    const recoveryDirtySaveUnitIds = new Set(['record:rooms:foyer']);
+
+    expect(
+      getTabDirtyState(roomTab, current, saved, {}, new Set(), recoveryDirtySaveUnitIds),
+    ).toMatchObject({
+      dirty: true,
+      persistentDirty: true,
+      recoveryDirty: true,
+      saveUnitId: 'record:rooms:foyer',
+    });
+    expect(
+      restoreSaveUnitPatchesFromSaved(roomTab, current, saved, ['/interactableInstances/key']),
+    ).toContainEqual({
+      op: 'replace',
+      path: '/interactableInstances/key',
+      value: { id: 'key', localProperties: [{ id: 'locked', value: false }] },
+    });
+  });
+
   it('shares one persistent dirty result across duplicate views of the same save unit', () => {
     const duplicate = { ...tab, id: 'tab:materials:panel:duplicate' };
     const current = { materials: { panel: { id: 'panel', label: 'New Panel' } } };

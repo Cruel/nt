@@ -7,6 +7,11 @@ import {
   createAuthoringProject,
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 function projectWithRecords(): AuthoringProject {
   const project = createAuthoringProject();
@@ -204,6 +209,62 @@ describe('diagnostic navigation', () => {
     expect(resolveProjectDiagnosticTarget(project, '/entrypoint')?.target?.id).toBe(
       'projectSettings.field.entrypoint',
     );
+  });
+
+  it('resolves a room-placed Instance Property diagnostic to the exact hidden Property row', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'key-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        order: 0,
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key-entry',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+    );
+
+    expect(
+      resolveProjectDiagnosticTarget(project, {
+        path: '/interactableInstances/key-instance/localProperties',
+        navigation: {
+          kind: 'interactable-instance-property',
+          instanceId: 'key-instance',
+          propertyId: 'quality',
+        },
+      }),
+    ).toMatchObject({
+      tab: { editorType: 'room-detail', resource: { stableId: 'record:rooms:foyer' } },
+      target: {
+        id: 'instance.property.key-instance.quality',
+        payload: {
+          kind: 'interactable-instance-property',
+          instanceId: 'key-instance',
+          propertyId: 'quality',
+          placementId: 'key-placement',
+        },
+      },
+    });
   });
 
   it('resolves coarse targets for common record families and ignores unknown paths', () => {

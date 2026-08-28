@@ -14,7 +14,11 @@ import {
 import { getTabDirtyState, restoreSaveUnitPatchesFromSaved } from './dirty-state';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
-import { discardLoadedRecoverySaveUnits } from './project-editor-state';
+import {
+  buildCurrentEditorRecoveryState,
+  discardLoadedRecoverySaveUnits,
+} from './project-editor-state';
+import type { JsonPointer } from '@/project/json-pointer';
 import { useWorkbenchStore } from './workbench-store';
 import { tabCloseRequiresDirtyPrompt } from './close-guard-store';
 import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-store';
@@ -39,6 +43,8 @@ export function DirtyCloseDialog() {
     () => selectPendingSaveUnitIds({ entriesBySaveUnitId: pendingInputEntries }),
     [pendingInputEntries],
   );
+  const recovery = buildCurrentEditorRecoveryState();
+  const recoveryDirtySaveUnitIds = new Set(Object.keys(recovery.saveUnitsById));
   const clearDraftDirtyForTab = useDraftDirtyStore((state) => state.clearDraftDirtyForTab);
   const pendingTabs = useMemo(
     () =>
@@ -49,20 +55,17 @@ export function DirtyCloseDialog() {
         : [],
     [pendingClose, tabsById],
   );
-  const pendingDirtyStates = useMemo(
-    () =>
-      pendingTabs.map((pendingTab) => ({
-        tab: pendingTab,
-        dirty: getTabDirtyState(
-          pendingTab,
-          project,
-          savedDocument,
-          selectDraftDirtyByTabId({ entriesByKey: draftEntries }),
-          pendingSaveUnitIds,
-        ),
-      })),
-    [draftEntries, pendingSaveUnitIds, pendingTabs, project, savedDocument],
-  );
+  const pendingDirtyStates = pendingTabs.map((pendingTab) => ({
+    tab: pendingTab,
+    dirty: getTabDirtyState(
+      pendingTab,
+      project,
+      savedDocument,
+      selectDraftDirtyByTabId({ entriesByKey: draftEntries }),
+      pendingSaveUnitIds,
+      recoveryDirtySaveUnitIds,
+    ),
+  }));
   const requestedTabIds = useMemo(
     () => new Set(pendingClose?.tabIds ?? []),
     [pendingClose?.tabIds],
@@ -157,7 +160,10 @@ export function DirtyCloseDialog() {
     const patches = dirtyTabStates.flatMap(({ tab: dirtyTab, dirty }) => {
       if (dirty.saveUnitId && restoredSaveUnitIds.has(dirty.saveUnitId)) return [];
       if (dirty.saveUnitId) restoredSaveUnitIds.add(dirty.saveUnitId);
-      return restoreSaveUnitPatchesFromSaved(dirtyTab, project, savedDocument);
+      const recoveryPaths = dirty.saveUnitId
+        ? (recovery.saveUnitsById[dirty.saveUnitId]?.affectedPaths as JsonPointer[] | undefined)
+        : undefined;
+      return restoreSaveUnitPatchesFromSaved(dirtyTab, project, savedDocument, recoveryPaths ?? []);
     });
     if (patches.length > 0) {
       executeCommand({

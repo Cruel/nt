@@ -495,6 +495,81 @@
       "invalid": "Invalid or unavailable target"
     }
   },
+  "propertyManager": {
+    "addProperty": "Add Property",
+    "editProperty": "Edit Property",
+    "editNamedProperty": "Edit {{property}}",
+    "setValue": "Set {{label}}",
+    "saveChanges": "Save changes",
+    "actions": {
+      "cancel": "Cancel",
+      "delete": "Delete {{label}}",
+      "moveUp": "Move {{id}} up",
+      "moveDown": "Move {{id}} down",
+      "reset": "Reset {{id}}"
+    },
+    "delete": {
+      "title": "Delete Property?",
+      "action": "Delete Property",
+      "used_one": "Property '{{id}}' has {{count}} known usage. Deleting it will leave that reference for validation to report.",
+      "used_other": "Property '{{id}}' has {{count}} known usages. Deleting it will leave those references for validation to report.",
+      "unused": "Property '{{id}}' has no known usages."
+    },
+    "errors": {
+      "propertyMissing": "Property no longer exists."
+    },
+    "fields": {
+      "id": "ID",
+      "label": "Label",
+      "description": "Description",
+      "optional": "(optional)",
+      "labelPlaceholder": "Uses the ID when empty",
+      "type": "Type",
+      "nullable": "Nullable",
+      "enumValues": "Enum values",
+      "value": "Value",
+      "hasValue": "Has {{label}}",
+      "valueIsNull": "{{label}} is null"
+    },
+    "table": {
+      "use": "Use",
+      "property": "Property",
+      "type": "Type",
+      "description": "Description",
+      "actions": "Actions",
+      "traitSources": "Trait sources: {{sources}}",
+      "useCount_one": "Use count {{count}}",
+      "useCount_other": "Use count {{count}}",
+      "useCountWithSources_one": "Use count {{count}}; {{sources}}",
+      "useCountWithSources_other": "Use count {{count}}; {{sources}}",
+      "usagesFor_one": "{{count}} usage for {{id}}",
+      "usagesFor_other": "{{count}} usages for {{id}}",
+      "nullableType": "{{type}} · Nullable"
+    },
+    "traits": {
+      "title": "Traits",
+      "detach": "Detach {{id}}",
+      "inherited": "inherited",
+      "noneAttached": "No Traits attached.",
+      "selectLabel": "Trait to attach",
+      "choose": "Choose Trait",
+      "attach": "Attach Trait"
+    },
+    "types": {
+      "boolean": "Boolean",
+      "integer": "Integer",
+      "number": "Number",
+      "string": "String",
+      "enum": "Enum"
+    },
+    "values": {
+      "conflictingDefaults": "Conflicting Defaults",
+      "missing": "Missing",
+      "null": "null",
+      "nullLabel": "Null",
+      "emptyString": "Empty string"
+    }
+  },
   "features": {
     "title": "Features",
     "subtitle": "Stable semantic parts owned by this record. Features can carry Traits and Properties and participate in Interactions.",

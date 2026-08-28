@@ -7,7 +7,10 @@ import {
   type EditorRecoveryState,
 } from '../../shared/project-schema/editor-project-state';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
-import { projectWorkspaceSaveUnitFileOwnership } from '../../shared/project-workspace/project-workspace-service';
+import {
+  projectWorkspaceFiles,
+  projectWorkspaceSaveUnitFileOwnership,
+} from '../../shared/project-workspace/project-workspace-service';
 import { getJsonAtPointer, hasJsonAtPointer, type JsonPointer } from './json-pointer';
 import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
 import { cloneJsonValue, type JsonValue } from './json-value';
@@ -25,6 +28,48 @@ function ownershipFor(document: JsonValue, scriptSourcePaths: Readonly<Record<st
     : {};
 }
 
+function changedProjectionFilesForPaths(input: {
+  baselineDocument: JsonValue;
+  candidateDocument: JsonValue;
+  paths: readonly string[];
+  baselineScriptSourcePaths: Readonly<Record<string, string>>;
+  candidateScriptSourcePaths: Readonly<Record<string, string>>;
+}): string[] {
+  if (input.paths.length === 0) return [];
+  const baseline = stripLocalEditorProjectState(input.baselineDocument) as JsonValue;
+  const candidate = stripLocalEditorProjectState(input.candidateDocument) as JsonValue;
+  const scopedValues = Object.fromEntries(
+    input.paths.flatMap((path) => {
+      const pointer = path as JsonPointer;
+      const before = mutationValue(baseline, pointer);
+      const after = mutationValue(candidate, pointer);
+      const unchanged = before.exists
+        ? after.exists && JSON.stringify(before.value) === JSON.stringify(after.value)
+        : !after.exists;
+      if (unchanged) return [];
+      return [[path, after] as const];
+    }),
+  );
+  if (Object.keys(scopedValues).length === 0) return [];
+  const scoped = applyProjectMutationValues(baseline, scopedValues);
+  const before = authoringProjectSchema.safeParse(baseline);
+  const after = authoringProjectSchema.safeParse(scoped);
+  if (!before.success || !after.success) return [];
+  const beforeFiles = projectWorkspaceFiles(
+    before.data,
+    before.data.editor,
+    input.baselineScriptSourcePaths,
+  );
+  const afterFiles = projectWorkspaceFiles(
+    after.data,
+    after.data.editor,
+    input.candidateScriptSourcePaths,
+  );
+  return [...new Set([...Object.keys(beforeFiles), ...Object.keys(afterFiles)])]
+    .filter((file) => beforeFiles[file] !== afterFiles[file])
+    .sort();
+}
+
 export function buildRecoveryFileOwnershipHints(input: {
   recovery: EditorRecoveryState;
   baselineDocument: JsonValue;
@@ -40,12 +85,26 @@ export function buildRecoveryFileOwnershipHints(input: {
   return Object.fromEntries(
     Object.keys(input.recovery.saveUnitsById)
       .sort()
-      .map((saveUnitId) => [
-        saveUnitId,
-        [
-          ...new Set([...(before[saveUnitId]?.files ?? []), ...(after[saveUnitId]?.files ?? [])]),
-        ].sort(),
-      ]),
+      .map((saveUnitId) => {
+        const recovery = input.recovery.saveUnitsById[saveUnitId]!;
+        return [
+          saveUnitId,
+          [
+            ...new Set([
+              ...(before[saveUnitId]?.files ?? []),
+              ...(after[saveUnitId]?.files ?? []),
+              ...changedProjectionFilesForPaths({
+                baselineDocument: input.baselineDocument,
+                candidateDocument: input.candidateDocument,
+                paths: recovery.affectedPaths,
+                baselineScriptSourcePaths: input.baselineScriptSourcePaths ?? {},
+                candidateScriptSourcePaths:
+                  input.candidateScriptSourcePaths ?? input.baselineScriptSourcePaths ?? {},
+              }),
+            ]),
+          ].sort(),
+        ];
+      }),
   );
 }
 

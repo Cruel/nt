@@ -12,6 +12,7 @@ import { useCloseGuardStore } from './close-guard-store';
 import { selectDraftDirtyByTabId, useDraftDirtyStore } from './draft-dirty-store';
 import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-store';
 import { getTabDirtyState } from './dirty-state';
+import { currentRecoveryDirtySaveUnitIds } from './project-editor-state';
 import { useWorkbenchStore } from './workbench-store';
 import { WorkbenchTabContextMenu } from './WorkbenchTabContextMenu';
 import { workbenchTabGroupDndId } from './WorkbenchTabDndContext';
@@ -43,6 +44,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   const pendingSaveUnitIds = selectPendingSaveUnitIds({
     entriesBySaveUnitId: pendingInputEntries,
   });
+  const recoveryDirtySaveUnitIds = currentRecoveryDirtySaveUnitIds();
   const activeTabId = group.activeTabId;
   const activeTab = activeTabId ? (tabs.find((tab) => tab.id === activeTabId) ?? null) : null;
 
@@ -109,6 +111,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
             savedDocument,
             draftDirtyByTabId,
             pendingSaveUnitIds,
+            recoveryDirtySaveUnitIds,
           ).dirty;
           return (
             <ContextMenu key={tab.id}>

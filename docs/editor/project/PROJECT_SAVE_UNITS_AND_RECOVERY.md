@@ -43,10 +43,13 @@ field-level pending input in recovery metadata.
 - Scoped commits send selected save-unit IDs plus the exact logical baseline/local values for the
   affected JSON paths. The main-owned active workspace session already owns the authoritative disk
   project and exact physical revisions. It overlays the selected logical mutation onto that cached
-  state, validates the candidate in memory, then exact-CAS checks only the physical transaction
-  targets immediately before replacement. A disjoint external edit can therefore survive even when
-  it shares a Room record file or `editor.json` with the local save; an overlapping path fails closed
-  instead.
+  state, validates the candidate in memory, derives the physical transaction targets from the files
+  whose canonical workspace projection actually changes for those exact paths, then exact-CAS checks
+  those targets immediately before replacement. Physical file ownership is therefore not inferred
+  only from the visual tab: for example a Room-owned `/interactableInstances/<id>` edit also targets
+  `project.json`, and the Traits collection targets `traits.json`. A disjoint external edit can
+  therefore survive even when it shares a Room record file or `editor.json` with the local save; an
+  overlapping path fails closed instead.
 - A successful content write returns a targeted acknowledgement, not a reopened whole-workspace
   snapshot. It contains the committed logical units, exact revisions for physical authoring files
   actually changed by the transaction, authoritative recovery/editor state, any external logical
@@ -108,6 +111,7 @@ Every editor registered in `default-editors.tsx` has one explicit registry outco
 | `map-detail` | Savable record | `record:maps:<entityId>` | `/maps/<entityId>` plus matching record metadata |
 | `script-module-detail` | Savable record | `record:scripts:<entityId>` | `/scripts/<entityId>` plus matching record metadata |
 | `variables` | Savable collection | `collection:variables` | `/variables` plus `/editor/recordMetadata/variables` |
+| `traits` | Savable collection | `collection:traits` | `/traits`; physically projected to `traits.json` |
 | `components` | Non-content | `tool:components` | Documentation/reference surface only |
 | `settings` | Non-content | `tool:settings` | Editor preferences, not project content |
 | `project-settings` | Savable project unit | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint` |
@@ -136,8 +140,9 @@ fails when a registered editor is missing from this map.
 | New Entity Wizard | `NewEntityWizardDialog.tsx` | `workflow:new-entity` | `auto-commit` | New record path; room creation plus `/entrypoint` is one command transaction and atomic group |
 | Dirty-unit discard | `DirtyCloseDialog.tsx` | `workflow:discard-dirty-units` | `manual-save` | Registry-owned paths restored from the saved baseline; record discard also restores or removes the matching `editor.recordMetadata` entry; duplicate visual tabs are deduplicated by save-unit ID |
 | Layout system-role assignment | `LayoutEditor.tsx` | `project:settings` | `manual-save` | `/settings/systemLayouts/<role>` within the Project Settings unit |
+| Exact Interactable Instance editing | `RoomEditor.tsx`, `InteractableEditor.tsx` | Enclosing `record:rooms:*` or `record:interactables:*` authoring resource | `manual-save` | Exact `/interactableInstances/<id>` registry paths. The infrastructure registry has no standalone Explorer/tab save unit, so an embedded edit remains attributed to the record authoring surface that initiated it. Duplicate views of that same record still share one save-unit ID. |
 
-Record editor mutations use their `record:*` unit. Collection-wide Variables, Assets, and Tests
+Record editor mutations use their `record:*` unit. Collection-wide Variables, Traits, Assets, and Tests
 mutations use their `collection:*` unit unless the action is a structural workflow explicitly listed
 above. Project Chapters and Project Tags mutations use their named project units.
 
@@ -151,7 +156,10 @@ owned paths. For manual commands, a patch that leaves the initiating record/coll
 to its actual logical save unit during recovery construction while retaining the same atomic group.
 For example, adding a previously unknown tag to a Room yields a Room record-metadata unit plus a
 `project:tags` unit, and a Variables rename that rewrites another record gives that rewrite to the
-other record's unit. Saving either member commits the entire atomic component. Transactions reject
+other record's unit. The infrastructure-only `interactableInstances` registry is the explicit
+exception: it has no standalone authoring tab/save unit, so an embedded exact-Instance edit remains
+with the enclosing Room or Interactable record origin that exposed the editing surface. Saving either
+member of an actual multi-unit atomic edit commits the entire atomic component. Transactions reject
 missing ownership and conflicting origin, persistence-policy, or atomic-group attribution rather
 than silently weakening the initiating transaction.
 
@@ -166,13 +174,20 @@ metadata, the New Entity Wizard transaction, and explicitly registered workflow 
 Successful platform-export identity is not a content command; it is metadata-only and therefore has
 no structural auto-commit compatibility rule.
 
-Dirty state is computed by resolving the tab to its logical save unit and comparing every owned path
-against `savedDocument`. The visual tab's `dirty` flag and command-history cursor are not
-authoritative. Open tabs may supply fallback recovery ownership only for otherwise unattributed dirty
-paths; they never create a second overlapping recovery owner for a path already attributed by a
-command, workflow, pending input, repair, or persisted recovery entry. This prevents a structural
-workflow such as New Entity or Asset Import from being blocked merely because its resulting editor
-tab is already open when asynchronous auto-commit snapshots recovery state.
+Dirty state is computed by resolving the tab to its logical save unit, comparing every statically
+owned path against `savedDocument`, and checking whether current recovery contains a dirty entry for
+that same save-unit ID. The recovery check is required for explicitly attributed cross-path edits such
+as exact Interactable Instance registry state authored from a Room or Interactable record surface.
+The visual tab's `dirty` flag and command-history cursor are not authoritative. Open tabs may supply
+fallback recovery ownership only for otherwise unattributed dirty paths; they never create a second
+overlapping recovery owner for a path already attributed by a command, workflow, pending input,
+repair, or persisted recovery entry. Discard restores both the registry-owned paths and the recovery
+entry's actual affected paths. Recovery baseline hints likewise include physical files discovered by
+projecting those affected paths, so a Room-owned Instance edit tracks `project.json` even though the
+Room's static record descriptor does not claim the entire manifest. This prevents a structural
+workflow such as New Entity or Asset Import
+from being blocked merely because its resulting editor tab is already open when asynchronous
+auto-commit snapshots recovery state.
 Consequently, two tabs for the same record resolve to the same save-unit ID and cannot carry
 independent persistent dirty state. Serializable local drafts that remain for other editors are
 stored separately from project content; Project Settings uses authoritative commands plus
