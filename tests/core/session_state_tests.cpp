@@ -307,9 +307,46 @@ TEST_CASE("global properties resolve authored defaults and enforce their types")
     CHECK_FALSE(resolver.set_global(id<PropertyId>("flag"), RuntimeValue{std::int64_t{1}}));
     CHECK(resolver.set_global(id<PropertyId>("weather"), RuntimeValue{std::string{"tense"}}));
     CHECK_FALSE(resolver.set_global(id<PropertyId>("weather"), RuntimeValue{std::string{"rain"}}));
-    CHECK_FALSE(resolver.set_global(id<PropertyId>("missing"), RuntimeValue{true}));
+    CHECK(resolver.set_global(id<PropertyId>("missing"), RuntimeValue{true}));
     REQUIRE(resolver.unset_global(id<PropertyId>("flag")));
     CHECK(resolved_value(resolver.get_global(id<PropertyId>("flag"))) == RuntimeValue{false});
+}
+
+TEST_CASE("schema-less dynamic properties preserve presence and may change scalar type")
+{
+    const auto compiled_project = project();
+    auto state_result = SessionState::create(compiled_project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    PropertyResolver resolver(compiled_project, state);
+    const auto dynamic = id<PropertyId>("dynamic-state");
+    const PropertyOwnerRef room{id<RoomId>("hall")};
+
+    auto missing_global = resolver.get_global(dynamic);
+    REQUIRE(missing_global);
+    CHECK(std::holds_alternative<MissingPropertyValue>(missing_global.value()));
+    auto missing_local = resolver.get(room, dynamic);
+    REQUIRE(missing_local);
+    CHECK(std::holds_alternative<MissingPropertyValue>(missing_local.value()));
+
+    REQUIRE(resolver.set_global(dynamic, RuntimeValue{true}));
+    CHECK(resolved_value(resolver.get_global(dynamic)) == RuntimeValue{true});
+    REQUIRE(resolver.set_global(dynamic, RuntimeValue{std::string{"changed"}}));
+    CHECK(resolved_value(resolver.get_global(dynamic)) == RuntimeValue{std::string{"changed"}});
+    REQUIRE(resolver.set_global(dynamic, RuntimeValue{}));
+    CHECK(std::holds_alternative<std::monostate>(resolved_value(resolver.get_global(dynamic))));
+
+    REQUIRE(resolver.set(room, dynamic, RuntimeValue{std::int64_t{7}}));
+    CHECK(resolved_value(resolver.get(room, dynamic)) == RuntimeValue{std::int64_t{7}});
+    REQUIRE(resolver.set(room, dynamic, RuntimeValue{2.5}));
+    CHECK(resolved_value(resolver.get(room, dynamic)) == RuntimeValue{2.5});
+    REQUIRE(resolver.set(room, dynamic, RuntimeValue{}));
+    CHECK(std::holds_alternative<std::monostate>(resolved_value(resolver.get(room, dynamic))));
+
+    REQUIRE(resolver.unset_global(dynamic));
+    REQUIRE(resolver.unset(room, dynamic));
+    CHECK(std::holds_alternative<MissingPropertyValue>(resolver.get_global(dynamic).value()));
+    CHECK(std::holds_alternative<MissingPropertyValue>(resolver.get(room, dynamic).value()));
 }
 
 TEST_CASE("property resolution follows override authored Trait default and missing order")
@@ -393,7 +430,9 @@ TEST_CASE("property mutations enforce declaration owner nullability enum and sca
     CHECK_FALSE(resolver.set(room, id<PropertyId>("light"),
                              RuntimeValue{std::numeric_limits<double>::infinity()}));
     CHECK_FALSE(resolver.get(PropertyOwnerRef{id<RoomId>("missing-room")}, id<PropertyId>("mood")));
-    CHECK_FALSE(resolver.get(room, id<PropertyId>("missing-property")));
+    auto missing = resolver.get(room, id<PropertyId>("missing-property"));
+    REQUIRE(missing);
+    CHECK(std::holds_alternative<MissingPropertyValue>(missing.value()));
     CHECK_FALSE(
         resolver.unset(PropertyOwnerRef{id<RoomId>("missing-room")}, id<PropertyId>("mood")));
 }

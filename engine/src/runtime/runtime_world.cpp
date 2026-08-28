@@ -18,6 +18,102 @@ core::Diagnostics world_error(std::string code, std::string message)
         core::Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
+core::Result<void, core::Diagnostics>
+validate_override_against_contract(const core::PropertyOwnerRef& owner,
+                                   const core::PropertyOverride& override,
+                                   const core::compiled::OwnerPropertyContract& contract)
+{
+    auto declaration = core::make_property_definition(core::PropertyDefinitionInput{
+        .id = contract.property_id,
+        .value_type = contract.value_type,
+        .nullable = contract.nullable,
+        .default_value = contract.configured_value,
+        .scope = core::PropertyScope::Identity,
+        .allowed_owners = {},
+        .exact_owner = owner,
+        .label = contract.label,
+        .description = contract.description,
+    });
+    if (!declaration || !core::make_property_override(override.target(), *declaration.value_if(),
+                                                      override.override_value()))
+        return core::Result<void, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_structural_edit",
+            "Structural configuration would introduce a Property schema incompatible with live "
+            "dynamic Property state"));
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+template<class Id>
+const core::compiled::OwnerPropertyContract* find_configuration_property_contract(
+    const core::CompiledProject& project,
+    const core::compiled::PropertyBearingDefinition<Id>& identity,
+    const std::vector<core::compiled::OwnerPropertyContract>& properties,
+    const core::PropertyId& property)
+{
+    const auto own = std::ranges::find_if(
+        properties, [&](const auto& value) { return value.property_id == property; });
+    if (own != properties.end())
+        return &*own;
+    for (const auto& trait_id : identity.traits) {
+        const auto* trait = project.find_trait(trait_id);
+        if (trait == nullptr)
+            continue;
+        const auto member = std::ranges::find_if(
+            trait->properties, [&](const auto& value) { return value.property_id == property; });
+        if (member != trait->properties.end())
+            return &*member;
+    }
+    return nullptr;
+}
+
+template<class Id>
+core::Result<void, core::Diagnostics> validate_configuration_property_overrides(
+    const core::CompiledProject& project, const std::vector<core::PropertyOverride>& overrides,
+    const core::PropertyOwnerRef& owner,
+    const core::compiled::PropertyBearingDefinition<Id>& identity,
+    const std::vector<core::compiled::OwnerPropertyContract>& properties)
+{
+    const auto target = core::property_target(owner);
+    for (const auto& override : overrides) {
+        if (override.target() != target)
+            continue;
+        const auto* contract = find_configuration_property_contract(project, identity, properties,
+                                                                    override.property_id());
+        if (contract == nullptr)
+            continue;
+        auto valid = validate_override_against_contract(owner, override, *contract);
+        if (!valid)
+            return valid;
+    }
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics> validate_trait_property_overrides(
+    const core::CompiledProject& project, const std::vector<core::PropertyOverride>& overrides,
+    const core::PropertyOwnerRef& owner, const std::vector<core::TraitId>& traits)
+{
+    const auto target = core::property_target(owner);
+    for (const auto& override : overrides) {
+        if (override.target() != target)
+            continue;
+        for (const auto& trait_id : traits) {
+            const auto* trait = project.find_trait(trait_id);
+            if (trait == nullptr)
+                continue;
+            const auto member = std::ranges::find_if(trait->properties, [&](const auto& value) {
+                return value.property_id == override.property_id();
+            });
+            if (member == trait->properties.end())
+                continue;
+            auto valid = validate_override_against_contract(owner, override, *member);
+            if (!valid)
+                return valid;
+            break;
+        }
+    }
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 template<class Id>
 core::Result<void, core::Diagnostics>
 validate_property_requirements(const core::CompiledProject& project,
@@ -702,6 +798,19 @@ RuntimeWorld::create_interactable(RuntimeInstanceConfigurationRequest source,
 core::Result<void, core::Diagnostics> RuntimeWorld::validate_room_configuration_change(
     const core::RoomId& id, const core::compiled::RoomDefinition& configuration) const
 {
+    auto property_state = validate_configuration_property_overrides(
+        m_project, m_state.m_property_overrides, core::PropertyOwnerRef{id}, configuration.identity,
+        configuration.properties);
+    if (!property_state)
+        return property_state;
+    for (const auto& feature : configuration.features) {
+        const core::PropertyOwnerRef owner{core::RoomFeatureRef{id, feature.identity.id}};
+        property_state = validate_configuration_property_overrides(
+            m_project, m_state.m_property_overrides, owner, feature.identity, feature.properties);
+        if (!property_state)
+            return property_state;
+    }
+
     for (const auto& frame : m_state.m_flow_stack) {
         const auto* transition = std::get_if<core::RoomTransitionFrame>(&frame);
         if (transition != nullptr &&
@@ -792,6 +901,12 @@ core::Result<void, core::Diagnostics> RuntimeWorld::validate_room_configuration_
 core::Result<void, core::Diagnostics> RuntimeWorld::validate_character_configuration_change(
     const core::CharacterId& id, const core::compiled::CharacterDefinition& configuration) const
 {
+    auto property_state = validate_configuration_property_overrides(
+        m_project, m_state.m_property_overrides, core::PropertyOwnerRef{id}, configuration.identity,
+        configuration.properties);
+    if (!property_state)
+        return property_state;
+
     for (const auto& state : m_state.m_interactables) {
         const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&state.location);
         if (inventory == nullptr)
@@ -835,6 +950,19 @@ core::Result<void, core::Diagnostics> RuntimeWorld::validate_interactable_config
     const core::InteractableInstanceId& id,
     const core::compiled::InteractableDefinition& configuration) const
 {
+    auto property_state = validate_configuration_property_overrides(
+        m_project, m_state.m_property_overrides, core::PropertyOwnerRef{id}, configuration.identity,
+        configuration.properties);
+    if (!property_state)
+        return property_state;
+    for (const auto& feature : configuration.features) {
+        const core::PropertyOwnerRef owner{core::InteractableFeatureRef{id, feature.identity.id}};
+        property_state = validate_configuration_property_overrides(
+            m_project, m_state.m_property_overrides, owner, feature.identity, feature.properties);
+        if (!property_state)
+            return property_state;
+    }
+
     for (const auto& frame : m_state.m_flow_stack) {
         const auto* interaction = std::get_if<core::InteractionFrame>(&frame);
         if (interaction == nullptr)
@@ -2064,6 +2192,10 @@ RuntimeWorld::set_item_stack_traits(const core::ItemStackId& id, std::vector<cor
     if (stack->traits == traits)
         return core::Result<ItemStackMutation, core::Diagnostics>::success(
             ItemStackMutation{0, {id}, {}, {}, {}});
+    auto property_state = validate_trait_property_overrides(m_project, m_state.m_property_overrides,
+                                                            core::PropertyOwnerRef{id}, traits);
+    if (!property_state)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(property_state.error());
     const auto original = stack->traits;
     stack->traits = std::move(traits);
     core::PropertyResolver resolver(m_project, m_state);

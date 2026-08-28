@@ -2597,12 +2597,12 @@ TEST_CASE("runtime script API teardown leaves inert bindings without a stale tar
 {
     Fixture fixture;
     fixture.session.reset();
-    REQUIRE(fixture.runtime.execute(
-        "local value, variable_error = Game.prop('count')\n"
-        "local ok, save_error = Game.save(1)\n"
-        "teardown_inert = value == nil and type(variable_error) == 'string' and not ok and "
-        "type(save_error) == 'string'",
-        "script-api-after-teardown"));
+    REQUIRE(fixture.runtime.execute("local value, present, variable_error = Game.prop('count')\n"
+                                    "local ok, save_error = Game.save(1)\n"
+                                    "teardown_inert = value == nil and not present and "
+                                    "type(variable_error) == 'string' and not ok and "
+                                    "type(save_error) == 'string'",
+                                    "script-api-after-teardown"));
     auto cleared = fixture.runtime.evaluate_bool("teardown_inert", "script-api-after-teardown");
     REQUIRE(cleared);
     CHECK(cleared.value());

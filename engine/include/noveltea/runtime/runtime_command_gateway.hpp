@@ -52,7 +52,7 @@ public:
 
     void bind_services(RuntimeCommandGatewayServices* services) noexcept { m_services = services; }
     void invalidate() noexcept { m_active = false; }
-    [[nodiscard]] bool active(CapabilityGeneration generation) const noexcept
+    [[nodiscard]] bool active(CapabilityGeneration generation) const noexcept override
     {
         return m_active && generation == m_generation;
     }
@@ -60,15 +60,17 @@ public:
     [[nodiscard]] RuntimeSourceContext current_source_context() const { return source_context(); }
 
     [[nodiscard]] core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
-    definition(core::ProjectDefinitionKind kind, std::string id) const;
+    definition(core::ProjectDefinitionKind kind, std::string id) const override;
     [[nodiscard]] core::Result<core::RuntimeValue, core::Diagnostics>
-    global_property(const core::PropertyId& id) const;
+    global_property(const core::PropertyId& id) const override;
+    [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
+    global_property_lookup(const core::PropertyId& id) const override;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_global_property(const core::PropertyId& id, core::RuntimeValue value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     unset_global_property(const core::PropertyId& id);
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
-    property(const core::PropertyOwnerRef& owner, const core::PropertyId& property) const;
+    property(const core::PropertyOwnerRef& owner, const core::PropertyId& property) const override;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_property(core::PropertyOwnerRef owner, core::PropertyId property, core::RuntimeValue value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -119,11 +121,11 @@ public:
     instance_provenance(const core::GameplayInstanceRef& instance) const;
 
     [[nodiscard]] core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-    interactable_location(const core::InteractableInstanceId& interactable) const;
+    interactable_location(const core::InteractableInstanceId& interactable) const override;
     [[nodiscard]] core::Result<core::InteractableState, core::Diagnostics>
     interactable_state(const core::InteractableInstanceId& interactable) const;
     [[nodiscard]] core::Result<core::CharacterWorldLocation, core::Diagnostics>
-    character_location(const core::CharacterId& character) const;
+    character_location(const core::CharacterId& character) const override;
     [[nodiscard]] core::Result<core::CharacterWorldState, core::Diagnostics>
     character_world_state(const core::CharacterId& character) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>

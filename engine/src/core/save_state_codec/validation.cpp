@@ -1588,8 +1588,12 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                 : std::nullopt;
         if (!overrides.insert(key).second)
             error("save_codec.duplicate_record", "Property override appears more than once.");
-        if (!target_exists(project, save, item.target) || !definition ||
-            !make_property_override(item.target, *definition, item.value))
+        const bool valid_value =
+            definition
+                ? static_cast<bool>(make_property_override(item.target, *definition, item.value))
+                : static_cast<bool>(
+                      make_dynamic_property_override(item.target, item.property, item.value));
+        if (!target_exists(project, save, item.target) || !valid_value)
             error("save_codec.invalid_property_override",
                   "Property override is not permitted by the loaded project.");
     }

@@ -155,6 +155,38 @@ TEST_CASE("checkpoint service preserves deterministic projection diagnostic orde
     CHECK(service.readiness().issues[0].diagnostic.code == "save.opaque_script_suspension");
 }
 
+TEST_CASE("checkpoint service captures schema-less dynamic Property presence exactly")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::PropertyResolver properties(project, state);
+    const auto global = id<core::PropertyId>("runtime-global");
+    const auto local = id<core::PropertyId>("runtime-local");
+    const core::PropertyOwnerRef start{id<core::RoomId>("start")};
+    REQUIRE(properties.set_global(global, core::RuntimeValue{}));
+    REQUIRE(properties.set(start, local, core::RuntimeValue{std::string{"checkpoint"}}));
+
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
+    REQUIRE(service.publish_candidate(state));
+    REQUIRE(service.latest_checkpoint());
+
+    auto decoded = core::decode_save_state_text(project, service.latest_checkpoint()->encoded_save,
+                                                "dynamic-checkpoint-test");
+    REQUIRE(decoded);
+    REQUIRE(decoded.value().property_overrides.size() == 2);
+    const auto global_override =
+        std::ranges::find_if(decoded.value().property_overrides,
+                             [&](const auto& value) { return value.property == global; });
+    REQUIRE(global_override != decoded.value().property_overrides.end());
+    CHECK(std::holds_alternative<std::monostate>(global_override->value));
+    const auto local_override =
+        std::ranges::find_if(decoded.value().property_overrides,
+                             [&](const auto& value) { return value.property == local; });
+    REQUIRE(local_override != decoded.value().property_overrides.end());
+    CHECK(local_override->value == core::RuntimeValue{std::string{"checkpoint"}});
+}
+
 TEST_CASE("checkpoint service retains desired presentation and rejects causal blockers")
 {
     const auto project = load_fixture("minimal.json");

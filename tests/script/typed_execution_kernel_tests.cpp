@@ -94,6 +94,21 @@ TEST_CASE("typed execution kernel composes Scene primitives Lua waits and host s
     CHECK(std::holds_alternative<core::WaitCompleted>(assigned.value()));
     CHECK(kernel->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{9}});
 
+    const auto dynamic = core::PropertyId::create("runtime-dynamic").value();
+    REQUIRE(kernel->gateway().set_global_property(dynamic, core::RuntimeValue{std::int64_t{4}}));
+    auto dynamic_lookup = kernel->gateway().global_property_lookup(dynamic);
+    REQUIRE(dynamic_lookup);
+    CHECK(std::get<core::RuntimeValue>(dynamic_lookup.value()) ==
+          core::RuntimeValue{std::int64_t{4}});
+    REQUIRE(
+        kernel->gateway().set_global_property(dynamic, core::RuntimeValue{std::string{"four"}}));
+    CHECK(kernel->gateway().global_property(dynamic).value() ==
+          core::RuntimeValue{std::string{"four"}});
+    REQUIRE(kernel->gateway().unset_global_property(dynamic));
+    dynamic_lookup = kernel->gateway().global_property_lookup(dynamic);
+    REQUIRE(dynamic_lookup);
+    CHECK(std::holds_alternative<core::MissingPropertyValue>(dynamic_lookup.value()));
+
     auto lua_condition = kernel->evaluate(core::LuaPredicate{"Game.prop('count') == 9"});
     REQUIRE(lua_condition);
     CHECK(lua_condition.value());

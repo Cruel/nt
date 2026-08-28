@@ -448,6 +448,58 @@ TEST_CASE("runtime Room overlays clear back to immutable cloned birth configurat
     CHECK(revealed_east->target == start);
 }
 
+TEST_CASE("runtime structural replacement validates dynamic Properties before schema introduction")
+{
+    auto document = load_fixture_document("comprehensive.json");
+    document["traits"].push_back(
+        {{"id", "runtime-schema"},
+         {"label", "Runtime Schema"},
+         {"description", ""},
+         {"ownerKinds", nlohmann::json::array({"room"})},
+         {"properties", nlohmann::json::array({{{"id", "runtime-value"},
+                                                {"label", "Runtime Value"},
+                                                {"description", ""},
+                                                {"type", "string"},
+                                                {"nullable", false},
+                                                {"enumValues", nlohmann::json::array()},
+                                                {"defaultValue", "fallback"}}})}});
+    for (auto& room : document["definitions"]["rooms"])
+        if (room["id"] == "hall")
+            room["traits"].push_back("runtime-schema");
+    const auto project = decode_fixture(std::move(document), "dynamic-structural-schema.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+    core::PropertyResolver properties(project, state);
+
+    auto runtime_room = world.create_room(
+        CompiledInstanceConfiguration{core::GameplayInstanceRef{id<core::RoomId>("tower")}});
+    REQUIRE(runtime_room);
+    const core::PropertyOwnerRef owner{runtime_room.value()};
+    const auto property = id<core::PropertyId>("runtime-value");
+    REQUIRE(properties.set(owner, property, core::RuntimeValue{std::int64_t{7}}));
+    const auto before_name = world.resolved_configuration(runtime_room.value())->display_name;
+
+    auto incompatible = world.replace_structural_configuration(
+        runtime_room.value(),
+        CompiledInstanceConfiguration{core::GameplayInstanceRef{id<core::RoomId>("hall")}});
+    REQUIRE_FALSE(incompatible);
+    CHECK(incompatible.error().front().code == "runtime.invalid_structural_edit");
+    REQUIRE(world.resolved_configuration(runtime_room.value()) != nullptr);
+    CHECK(world.resolved_configuration(runtime_room.value())->display_name == before_name);
+    CHECK(std::get<core::RuntimeValue>(properties.get(owner, property).value()) ==
+          core::RuntimeValue{std::int64_t{7}});
+
+    REQUIRE(properties.set(owner, property, core::RuntimeValue{std::string{"compatible"}}));
+    REQUIRE(world.replace_structural_configuration(
+        runtime_room.value(),
+        CompiledInstanceConfiguration{core::GameplayInstanceRef{id<core::RoomId>("hall")}}));
+    CHECK(std::get<core::RuntimeValue>(properties.get(owner, property).value()) ==
+          core::RuntimeValue{std::string{"compatible"}});
+    CHECK_FALSE(properties.set(owner, property, core::RuntimeValue{std::int64_t{8}}));
+}
+
 TEST_CASE("runtime structural replacement rejects dependent inventory invalidation atomically")
 {
     const auto project = load_fixture_with_runtime_archetypes();

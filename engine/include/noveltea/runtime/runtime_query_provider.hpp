@@ -22,6 +22,16 @@ public:
     [[nodiscard]] virtual core::Result<core::RuntimeValue, core::Diagnostics>
     global_property(const core::PropertyId& id) const = 0;
     [[nodiscard]] virtual core::Result<core::PropertyLookupResult, core::Diagnostics>
+    global_property_lookup(const core::PropertyId& id) const
+    {
+        auto value = global_property(id);
+        if (!value)
+            return core::Result<core::PropertyLookupResult, core::Diagnostics>::failure(
+                value.error());
+        return core::Result<core::PropertyLookupResult, core::Diagnostics>::success(
+            *value.value_if());
+    }
+    [[nodiscard]] virtual core::Result<core::PropertyLookupResult, core::Diagnostics>
     property(const core::PropertyOwnerRef& owner, const core::PropertyId& property) const = 0;
     [[nodiscard]] virtual core::Result<core::compiled::InteractableLocation, core::Diagnostics>
     interactable_location(const core::InteractableInstanceId& interactable) const = 0;

@@ -78,6 +78,18 @@ There is no compiled Variable reference or separate Variable runtime store.
 
 `PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. For an owner-qualified read it first resolves an exact owner-local declaration for that owner and key. Global reads resolve an override first and otherwise return the required authored Value/default. Migrated Room/Character Trait contracts are projected to exact-owner declarations by the compiler; runtime resolution uses the concrete authored value when present, then the compatible Trait Default, then typed missing. Exact owner-local Room/Character reads resolve runtime override before authored data. Values never propagate between owners that happen to use the same key.
 
+Lua may also create a Property key that has no authored/effective schema. Such a dynamic Property is
+Session-only authoring-independent state: it stores only `(target, key, RuntimeValue)`, may change
+among the ordinary scalar RuntimeValue types (including explicit null), and gains no inferred type,
+enum, nullability, label, or other schema metadata. Missing dynamic keys read as absent rather than as
+errors. Dynamic keys are not injected into Project authoring tables, selectors, or Property pickers.
+
+Authored/effective schemas always take precedence over schema-less behavior. Once a key resolves to an
+authored owner-local, Trait-backed, or Global Property schema, writes use that schema's normal strict
+validation. If a runtime structural change would make a new schema effective over an existing dynamic
+key, the current dynamic value is validated before the structural change commits. An incompatible
+value rejects that structural change atomically; runtime never coerces or silently deletes the value.
+
 ### Null versus unset
 
 Explicit nullable `null` is a stored Property value. It is distinct from removing an override.
@@ -90,9 +102,14 @@ Do not encode "unset" as `null`.
 
 ## Persistence and checkpoints
 
-Every authoritative runtime Property override participates in checkpoints and saves. There is no `Session` versus `Save` Property persistence class.
+Every authoritative runtime Property override, including a schema-less dynamic Property, participates
+in checkpoints and saves. There is no `Session` versus `Save` Property persistence class.
 
-The Save File V1 payload serializes only sparse Property overrides. Direct authored assignments, Trait configuration, declaration defaults, and other effective values are not materialized into the save. A missing override record means unset; a saved nullable null remains an explicit override.
+The Save File V1 payload serializes only sparse Property overrides. Direct authored assignments, Trait
+configuration, declaration defaults, and other effective values are not materialized into the save.
+A dynamic Property uses that same existing override record; no schema metadata is added to the save.
+A missing override record means unset; a saved null remains an explicit present value whether the key
+is authored-nullable or schema-less dynamic.
 
 Loading validates every saved target, declaration, and value before restoring the candidate session.
 
@@ -101,10 +118,16 @@ Loading validates every saved target, declaration, and value before restoring th
 Global Properties use the Game facade:
 
 ```lua
-local value, err = Game.prop("flag")
+local value, present, err = Game.prop("flag")
 local ok, err = Game.set_prop("flag", true)
 local ok, err = Game.unset_prop("flag")
 ```
+
+`Game.prop` uses the same presence convention as identity-scoped reads: `present == false` means that
+the key has no effective value, while `present == true` with `value == nil` is an explicit null.
+`Game.set_prop` and capability-bound gameplay identity `set_prop` methods may create a missing key as a
+schema-less dynamic Property. There is intentionally no separate API for dynamically declaring a typed
+or enum schema.
 
 Identity-scoped custom Properties currently use the owner-qualified API:
 
@@ -114,7 +137,8 @@ local ok, err = noveltea.properties.set(owner_kind, owner_id, property_id, value
 local ok, err = noveltea.properties.unset(owner_kind, owner_id, property_id)
 ```
 
-The `present` result is significant for nullable identity-scoped Properties: a present `nil` value is not the same as an absent/unset Property value.
+The `present` result is significant for all Property reads that may be schema-less: a present `nil`
+value is not the same as an absent/unset Property value.
 
 The retired `noveltea.variables` runtime table must not be used.
 

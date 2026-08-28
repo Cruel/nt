@@ -1001,8 +1001,8 @@ TEST_CASE("Project Bootstrap and module initialization cannot yield or use gamep
     SECTION("gameplay state")
     {
         auto project = load_script_project_with_modules(
-            {{"bootstrap",
-              "local value, err = Game.prop('count')\nassert(value == nil and err)\nreturn {}"}});
+            {{"bootstrap", "local value, present, err = Game.prop('count')\n"
+                           "assert(value == nil and not present and err)\nreturn {}"}});
         REQUIRE(fixture.runtime.prepare_project_modules(project));
         REQUIRE(fixture.runtime.run_project_bootstrap());
     }
@@ -1238,18 +1238,41 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         local missing, missing_error = noveltea.project.room("missing")
         assert(missing == nil and type(missing_error) == "string")
 
-        local count, count_error = Game.prop("count")
-        assert(count_error == nil and count == 2)
+        local count, count_present, count_error = Game.prop("count")
+        assert(count_error == nil and count_present and count == 2)
         local ok, error_message = Game.set_prop("count", 7)
         assert(ok and error_message == nil)
         ok, error_message = Game.set_prop("count", "seven")
         assert(not ok and type(error_message) == "string")
         ok, error_message = Game.set_prop("missing", 1)
-        assert(not ok and type(error_message) == "string")
+        assert(ok and error_message == nil)
+        local dynamic, dynamic_present, dynamic_error = Game.prop("missing")
+        assert(dynamic_error == nil and dynamic_present and dynamic == 1)
+        ok, error_message = Game.set_prop("missing", nil)
+        assert(ok and error_message == nil)
+        dynamic, dynamic_present, dynamic_error = Game.prop("missing")
+        assert(dynamic_error == nil and dynamic_present and dynamic == nil)
+        ok, error_message = Game.unset_prop("missing")
+        assert(ok and error_message == nil)
+        dynamic, dynamic_present, dynamic_error = Game.prop("missing")
+        assert(dynamic_error == nil and not dynamic_present and dynamic == nil)
         ok, error_message = Game.set_prop("count", {})
         assert(not ok and type(error_message) == "string")
         ok, error_message = Game.set_prop("ratio", math.huge)
         assert(not ok and type(error_message) == "string")
+
+        ok, error_message = room:set_prop("runtime-note", "hello")
+        assert(ok and error_message == nil)
+        local runtime_note, runtime_note_present, runtime_note_error = room:prop("runtime-note")
+        assert(runtime_note_error == nil and runtime_note_present and runtime_note == "hello")
+        ok, error_message = room:set_prop("runtime-note", nil)
+        assert(ok and error_message == nil)
+        runtime_note, runtime_note_present, runtime_note_error = room:prop("runtime-note")
+        assert(runtime_note_error == nil and runtime_note_present and runtime_note == nil)
+        ok, error_message = room:unset_prop("runtime-note")
+        assert(ok and error_message == nil)
+        runtime_note, runtime_note_present, runtime_note_error = room:prop("runtime-note")
+        assert(runtime_note_error == nil and not runtime_note_present and runtime_note == nil)
 
         local mood, present, property_error = noveltea.properties.get("room", "hall", "mood")
         assert(property_error == nil and present and mood == "tense")
@@ -1474,8 +1497,8 @@ TEST_CASE("script invocation capabilities are scoped to the active frontend call
     CHECK(denied.value());
 
     auto escaped = fixture.runtime.execute(
-        "local value, err = Game.prop('count'); "
-        "assert(value == nil and type(err) == 'string'); "
+        "local value, present, err = Game.prop('count'); "
+        "assert(value == nil and not present and type(err) == 'string'); "
         "local prop, present, prop_err = retained_room:prop('mood'); "
         "assert(prop == nil and not present and type(prop_err) == 'string')",
         "capability-after-return");
