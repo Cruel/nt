@@ -33,7 +33,15 @@ describe('hotspot commands', () => {
   it('adds, moves, and undoes one Room hotspot command at a time', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
-    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {}, inventories: [] });
+    room.features.push({
+      id: 'door',
+      label: 'Door',
+      traits: [],
+      properties: {},
+      localProperties: [],
+      defaultProperties: [],
+      inventories: [],
+    });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     let state = createInitialCommandBusState(toJsonValue(project));
 
@@ -68,7 +76,15 @@ describe('hotspot commands', () => {
   it('renames and deletes Room geometry without rewriting semantic Feature identity', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
-    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {}, inventories: [] });
+    room.features.push({
+      id: 'door',
+      label: 'Door',
+      traits: [],
+      properties: {},
+      localProperties: [],
+      defaultProperties: [],
+      inventories: [],
+    });
     room.hotspots = [roomHotspot()];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     const state = createInitialCommandBusState(toJsonValue(project));
@@ -102,7 +118,15 @@ describe('hotspot commands', () => {
   it('rejects stale Room and sprite-alpha hotspot rename commands without patches', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
-    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {}, inventories: [] });
+    room.features.push({
+      id: 'door',
+      label: 'Door',
+      traits: [],
+      properties: {},
+      localProperties: [],
+      defaultProperties: [],
+      inventories: [],
+    });
     room.hotspots = [roomHotspot()];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.interactables.lamp = {
@@ -135,6 +159,8 @@ describe('hotspot commands', () => {
       label: 'Switch',
       traits: [],
       properties: {},
+      localProperties: [],
+      defaultProperties: [],
       inventories: [],
     });
     if (interactable.presentation.hotspots.kind !== 'sprite-alpha')

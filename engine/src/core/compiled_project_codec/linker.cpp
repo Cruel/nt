@@ -319,13 +319,18 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         linked.reserve(values.size());
         for (std::size_t index = 0; index < values.size(); ++index) {
             auto& value = values[index];
-            auto identity = link_identity(std::move(value.identity), PropertyOwnerKind::Feature,
-                                          properties, property_index, trait_index, diagnostics,
-                                          source_path, path + "/" + std::to_string(index));
-            if (!identity)
+            const auto feature_path = path + "/" + std::to_string(index);
+            auto identity =
+                link_identity(std::move(value.identity), PropertyOwnerKind::Feature, properties,
+                              property_index, trait_index, diagnostics, source_path, feature_path);
+            auto property_contracts = link_owner_property_contracts(
+                std::move(value.properties), PropertyOwnerKind::Feature, diagnostics, source_path,
+                feature_path + "/properties");
+            if (!identity || !property_contracts)
                 continue;
             linked.push_back(compiled::FeatureDefinition{
-                std::move(*identity), std::move(value.label), std::move(value.inventories)});
+                std::move(*identity), std::move(value.label), std::move(*property_contracts),
+                std::move(value.inventories)});
         }
         return linked;
     };
@@ -352,28 +357,53 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         output_member.push_back(body);                                                             \
     }
 
-    LINK_PROPERTY_DEFINITIONS(
-        characters, characters, CharacterDefinition, PropertyOwnerKind::Character,
-        "/definitions/characters",
-        (compiled::CharacterDefinition{
-            std::move(*identity), std::move(value.display_name), std::move(value.dialogue),
-            std::move(value.defaults), std::move(value.profiles), std::move(value.expressions),
-            std::move(value.appearances), std::move(value.gestures), std::move(value.idles),
-            std::move(value.inventories), std::move(value.initial_world_state)}));
-    LINK_PROPERTY_DEFINITIONS(
-        rooms, rooms, RoomDefinition, PropertyOwnerKind::Room, "/definitions/rooms",
-        (compiled::RoomDefinition{
-            std::move(*identity), std::move(value.display_name), std::move(value.description),
-            std::move(value.background), std::move(value.presentation_space),
-            std::move(value.anchors),
+    std::vector<compiled::CharacterDefinition> characters;
+    characters.reserve(wire.characters.size());
+    for (std::size_t index = 0; index < wire.characters.size(); ++index) {
+        auto& value = wire.characters[index];
+        const auto path = "/definitions/characters/" + std::to_string(index);
+        auto identity =
+            link_identity(std::move(value.identity), PropertyOwnerKind::Character, properties,
+                          property_index, trait_index, diagnostics, source_path, path);
+        auto property_contracts =
+            link_owner_property_contracts(std::move(value.properties), PropertyOwnerKind::Character,
+                                          diagnostics, source_path, path + "/properties");
+        if (!identity || !property_contracts)
+            continue;
+        characters.push_back(compiled::CharacterDefinition{
+            std::move(*identity), std::move(value.display_name), std::move(*property_contracts),
+            std::move(value.dialogue), std::move(value.defaults), std::move(value.profiles),
+            std::move(value.expressions), std::move(value.appearances), std::move(value.gestures),
+            std::move(value.idles), std::move(value.inventories),
+            std::move(value.initial_world_state)});
+    }
+
+    std::vector<compiled::RoomDefinition> rooms;
+    rooms.reserve(wire.rooms.size());
+    for (std::size_t index = 0; index < wire.rooms.size(); ++index) {
+        auto& value = wire.rooms[index];
+        const auto path = "/definitions/rooms/" + std::to_string(index);
+        auto identity =
+            link_identity(std::move(value.identity), PropertyOwnerKind::Room, properties,
+                          property_index, trait_index, diagnostics, source_path, path);
+        auto property_contracts =
+            link_owner_property_contracts(std::move(value.properties), PropertyOwnerKind::Room,
+                                          diagnostics, source_path, path + "/properties");
+        if (!identity || !property_contracts)
+            continue;
+        rooms.push_back(compiled::RoomDefinition{
+            std::move(*identity), std::move(value.display_name), std::move(*property_contracts),
+            std::move(value.description), std::move(value.background),
+            std::move(value.presentation_space), std::move(value.anchors),
             compiled::RoomLifecycle{std::move(value.lifecycle.can_enter),
                                     std::move(value.lifecycle.can_leave)},
             std::move(value.overlays), std::move(value.cast), std::move(value.interactables),
             std::move(value.props), std::move(value.environments), std::move(value.script_hooks),
             std::move(value.placements), std::move(value.exits),
-            link_features(std::move(value.features),
-                          "/definitions/rooms/" + std::to_string(index) + "/features"),
-            std::move(value.hotspots)}));
+            link_features(std::move(value.features), path + "/features"),
+            std::move(value.hotspots)});
+    }
+
     std::vector<compiled::InteractableDefinition> interactables;
     interactables.reserve(wire.interactables.size());
     for (std::size_t index = 0; index < wire.interactables.size(); ++index) {
@@ -481,10 +511,14 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             auto identity =
                 link_identity(std::move(room->identity), PropertyOwnerKind::Room, properties,
                               property_index, trait_index, diagnostics, source_path, path);
-            if (identity)
+            auto property_contracts =
+                link_owner_property_contracts(std::move(room->properties), PropertyOwnerKind::Room,
+                                              diagnostics, source_path, path + "/properties");
+            if (identity && property_contracts)
                 configuration = compiled::RoomDefinition{
                     std::move(*identity),
                     std::move(room->display_name),
+                    std::move(*property_contracts),
                     std::move(room->description),
                     std::move(room->background),
                     std::move(room->presentation_space),
@@ -506,10 +540,14 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             auto identity = link_identity(std::move(character->identity),
                                           PropertyOwnerKind::Character, properties, property_index,
                                           trait_index, diagnostics, source_path, path);
-            if (identity)
+            auto property_contracts = link_owner_property_contracts(
+                std::move(character->properties), PropertyOwnerKind::Character, diagnostics,
+                source_path, path + "/properties");
+            if (identity && property_contracts)
                 configuration =
                     compiled::CharacterDefinition{std::move(*identity),
                                                   std::move(character->display_name),
+                                                  std::move(*property_contracts),
                                                   std::move(character->dialogue),
                                                   std::move(character->defaults),
                                                   std::move(character->profiles),

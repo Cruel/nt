@@ -285,7 +285,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                   ? 'replace'
                   : 'add',
                 path: `${base}/archetypeOverrides`,
-                value: { ...(record.archetypeOverrides ?? {}), '/traits': state.traits },
+                value: { ...record.archetypeOverrides, '/traits': state.traits },
               });
             } else {
               patches.push({
@@ -452,6 +452,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           project={project}
           features={data.features}
           anchorPrefix="interactable"
+          propertyMode="default"
           onChange={(features, label) => commit({ ...data, features }, label)}
         />
         <div

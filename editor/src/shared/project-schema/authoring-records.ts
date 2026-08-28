@@ -39,10 +39,6 @@ function recordSchema<Data extends z.ZodType>(data: Data) {
   return z.object({ ...recordIdentityShape, data }).strict();
 }
 
-function propertyRecordSchema<Data extends z.ZodType>(data: Data) {
-  return z.object({ ...recordIdentityShape, ...propertyRecordShape, data }).strict();
-}
-
 function ownerLocalPropertyRecordSchema<Data extends z.ZodType>(data: Data) {
   return z
     .object({

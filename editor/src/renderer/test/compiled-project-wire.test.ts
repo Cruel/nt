@@ -117,6 +117,7 @@ function representativeWireFixture() {
           id: 'hero',
           traits: [],
           propertyAssignments: [],
+          properties: [],
           displayName: 'Hero',
           dialogue: { name: 'Hero', nameColor: null, textColor: null, styleClass: '' },
           defaults: {
@@ -165,6 +166,7 @@ function representativeWireFixture() {
           id: 'foyer',
           traits: [],
           propertyAssignments: [{ propertyId: 'mood', value: 'calm' }],
+          properties: [],
           displayName: 'Foyer',
           background: {
             asset: { kind: 'asset', id: 'foyer-image' },

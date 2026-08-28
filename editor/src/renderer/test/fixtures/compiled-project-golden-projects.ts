@@ -1392,6 +1392,8 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       label: 'Door',
       traits: ['feature-enabled'],
       properties: { enabled: true },
+      localProperties: [],
+      defaultProperties: [],
       inventories: [{ id: 'mail-slot', label: 'Mail Slot' }],
     },
   ];
@@ -1422,7 +1424,9 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       id: 'surface',
       label: 'Key Surface',
       traits: ['feature-enabled'],
-      properties: { enabled: true },
+      properties: {},
+      localProperties: [],
+      defaultProperties: [{ id: 'enabled', type: 'boolean', nullable: false, defaultValue: true }],
       inventories: [{ id: 'groove', label: 'Key Groove' }],
     },
   ];
@@ -1443,7 +1447,9 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       id: 'face',
       label: 'Coin Face',
       traits: ['feature-enabled'],
-      properties: { enabled: true },
+      properties: {},
+      localProperties: [],
+      defaultProperties: [{ id: 'enabled', type: 'boolean', nullable: false, defaultValue: true }],
       inventories: [],
     },
   ];

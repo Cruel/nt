@@ -219,16 +219,32 @@ PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const Propert
 {
     const auto* declaration = m_project.find_property(owner, property);
     if (declaration == nullptr) {
-        if (const auto* interactable = std::get_if<InteractableInstanceId>(&owner)) {
-            const auto* definition = find_interactable(m_state, *interactable);
-            if (definition != nullptr) {
-                const compiled::OwnerPropertyContract* contract = nullptr;
-                const auto own =
-                    std::find_if(definition->properties.begin(), definition->properties.end(),
-                                 [&](const auto& value) { return value.property_id == property; });
-                if (own != definition->properties.end())
-                    contract = &*own;
-                if (contract == nullptr) {
+        const compiled::OwnerPropertyContract* contract = std::visit(
+            [this, &property](const auto& id) -> const compiled::OwnerPropertyContract* {
+                using T = std::decay_t<decltype(id)>;
+                const auto* definition = [&]() {
+                    if constexpr (std::is_same_v<T, RoomId>)
+                        return find_room(m_state, id);
+                    else if constexpr (std::is_same_v<T, CharacterId>)
+                        return find_character(m_state, id);
+                    else if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                        return find_interactable(m_state, id);
+                    else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
+                                       std::is_same_v<T, InteractableFeatureRef>)
+                        return find_feature(m_state, id);
+                    else
+                        return static_cast<const compiled::ItemDefinition*>(nullptr);
+                }();
+                if (definition == nullptr)
+                    return nullptr;
+                if constexpr (requires { definition->properties; }) {
+                    const auto own = std::find_if(
+                        definition->properties.begin(), definition->properties.end(),
+                        [&](const auto& value) { return value.property_id == property; });
+                    if (own != definition->properties.end())
+                        return &*own;
+                }
+                if constexpr (requires { definition->identity.traits; }) {
                     for (const auto& trait_id : definition->identity.traits) {
                         const auto* trait = m_project.find_trait(trait_id);
                         if (trait == nullptr)
@@ -236,30 +252,29 @@ PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const Propert
                         const auto member = std::find_if(
                             trait->properties.begin(), trait->properties.end(),
                             [&](const auto& value) { return value.property_id == property; });
-                        if (member != trait->properties.end()) {
-                            contract = &*member;
-                            break;
-                        }
+                        if (member != trait->properties.end())
+                            return &*member;
                     }
                 }
-                if (contract != nullptr) {
-                    auto realized = make_property_definition(PropertyDefinitionInput{
-                        .id = contract->property_id,
-                        .value_type = contract->value_type,
-                        .nullable = contract->nullable,
-                        .default_value = contract->configured_value,
-                        .scope = PropertyScope::Identity,
-                        .allowed_owners = {PropertyOwnerKind::Interactable},
-                        .exact_owner = std::nullopt,
-                        .label = contract->label,
-                        .description = contract->description,
-                    });
-                    if (realized)
-                        return Result<PropertyDefinition, Diagnostics>::success(
-                            std::move(*realized.value_if()));
-                    return Result<PropertyDefinition, Diagnostics>::failure(realized.error());
-                }
-            }
+                return nullptr;
+            },
+            owner);
+        if (contract != nullptr) {
+            auto realized = make_property_definition(PropertyDefinitionInput{
+                .id = contract->property_id,
+                .value_type = contract->value_type,
+                .nullable = contract->nullable,
+                .default_value = contract->configured_value,
+                .scope = PropertyScope::Identity,
+                .allowed_owners = {property_owner_kind(owner)},
+                .exact_owner = std::nullopt,
+                .label = contract->label,
+                .description = contract->description,
+            });
+            if (realized)
+                return Result<PropertyDefinition, Diagnostics>::success(
+                    std::move(*realized.value_if()));
+            return Result<PropertyDefinition, Diagnostics>::failure(realized.error());
         }
         return Result<PropertyDefinition, Diagnostics>::failure(
             property_error("runtime.unknown_property", owner, property, "is not declared"));

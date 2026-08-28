@@ -1,4 +1,7 @@
-import { resolveGameplayInstanceRecord } from './authoring-archetypes';
+import {
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from './authoring-archetypes';
 import type { InteractableInstanceData } from './authoring-interactables';
 import type { AuthoringProject } from './authoring-project';
 import {
@@ -77,32 +80,16 @@ export function effectiveInteractableDefinitionProperties(
   const byId = traitProperties(project, traitIds);
 
   if (record.archetype) {
-    const archetypeOnly = resolveGameplayInstanceRecord(project, 'interactable', {
-      ...record,
-      defaultProperties: [],
-      properties: {},
-      archetypeOverrides: record.archetypeOverrides,
-    });
-    for (const [id, value] of Object.entries(archetypeOnly?.properties ?? {})) {
-      const transitional = project.properties[id];
-      const existing = byId.get(id);
-      if (
-        !transitional ||
-        (existing && !arePropertySchemasCompatible(existing.contract, transitional))
-      )
-        continue;
-      byId.set(id, {
-        id,
-        contract: {
-          id,
-          label: transitional.label,
-          ...(transitional.description ? { description: transitional.description } : {}),
-          type: transitional.type,
-          nullable: transitional.nullable,
-          ...(transitional.enumValues ? { enumValues: [...transitional.enumValues] } : {}),
-          defaultValue: value,
-        },
-        defaultValue: value,
+    const archetype = resolveArchetypeConfiguration(project, record.archetype.$ref.id);
+    for (const property of archetype?.defaultProperties ?? []) {
+      const existing = byId.get(property.id);
+      if (existing && !arePropertySchemasCompatible(existing.contract, property)) continue;
+      const defaultValue =
+        property.defaultValue === undefined ? existing?.defaultValue : property.defaultValue;
+      byId.set(property.id, {
+        id: property.id,
+        contract: cloneContract(property),
+        ...(defaultValue === undefined ? {} : { defaultValue }),
         source: 'archetype',
         traitIds: existing?.traitIds ?? [],
       });

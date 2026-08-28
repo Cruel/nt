@@ -66,6 +66,7 @@ struct PropertyDeclaration {
 struct CharacterDefinition {
     PropertyBearingDefinition<CharacterId> identity;
     std::string display_name;
+    std::vector<OwnerPropertyContract> properties;
     CharacterDialoguePresentation dialogue;
     CharacterDefaults defaults;
     std::vector<CharacterPresentationProfile> profiles;
@@ -80,6 +81,7 @@ struct CharacterDefinition {
 struct FeatureDefinition {
     PropertyBearingDefinition<FeatureId> identity;
     std::string label;
+    std::vector<OwnerPropertyContract> properties;
     std::vector<InventoryDefinition> inventories;
 };
 
@@ -90,6 +92,7 @@ struct RoomLifecycle {
 struct RoomDefinition {
     PropertyBearingDefinition<RoomId> identity;
     std::string display_name;
+    std::vector<OwnerPropertyContract> properties;
     TextContent description;
     BackgroundPresentation background;
     WorldPresentationSpace presentation_space;

@@ -336,6 +336,56 @@ describe('Archetype authoring semantics', () => {
     ).toBe(true);
   });
 
+  it('applies nested Feature Value/Default semantics inside Archetype configurations', () => {
+    const project = createAuthoringProject();
+    addArchetype(project, 'room-base', 'room', {
+      overrides: {
+        '/data/features': [
+          {
+            id: 'door',
+            label: 'Door',
+            traits: [],
+            properties: {},
+            localProperties: [],
+            defaultProperties: [
+              { id: 'locked', type: 'boolean', nullable: false, defaultValue: true },
+            ],
+            inventories: [],
+          },
+        ],
+      },
+    });
+    addArchetype(project, 'prop-base', 'interactable', {
+      overrides: {
+        '/data/features': [
+          {
+            id: 'surface',
+            label: 'Surface',
+            traits: [],
+            properties: { visible: true },
+            localProperties: [],
+            defaultProperties: [],
+            inventories: [],
+          },
+        ],
+      },
+    });
+
+    const diagnostics = validateAuthoringProject(project);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/archetypes/room-base/data/effectiveConfiguration/data/features/0/defaultProperties',
+          message: expect.stringContaining('Room Features are concrete'),
+        }),
+        expect.objectContaining({
+          path: '/archetypes/prop-base/data/effectiveConfiguration/data/features/0/properties',
+          message: expect.stringContaining('cannot author concrete Property Values'),
+        }),
+      ]),
+    );
+  });
+
   it('routes hotspot and placement edits through effective Archetype configuration', () => {
     let project = createAuthoringProject();
     addArchetype(project, 'room-base', 'room', {
@@ -346,6 +396,8 @@ describe('Archetype authoring semantics', () => {
             label: 'Desk surface',
             traits: [],
             properties: {},
+            localProperties: [],
+            defaultProperties: [],
             inventories: [],
           },
         ],
@@ -485,5 +537,66 @@ describe('Archetype authoring semantics', () => {
       }),
     ]);
     expect(lowered.draft?.definitions).not.toHaveProperty('archetypes');
+  });
+
+  it('resolves Trait, Archetype Default, and concrete Value Property precedence', () => {
+    const project = createAuthoringProject({
+      id: 'property-precedence',
+      name: 'Property Precedence',
+    });
+    project.traits.atmosphere = {
+      id: 'atmosphere',
+      label: 'Atmosphere',
+      ownerKinds: ['room'],
+      properties: [{ id: 'mood', type: 'string', nullable: false, defaultValue: 'trait' }],
+    };
+    addArchetype(project, 'room-base', 'room', {
+      overrides: {
+        '/traits': ['atmosphere'],
+        '/defaultProperties': [
+          { id: 'mood', type: 'string', nullable: false, defaultValue: 'base' },
+        ],
+      },
+    });
+    addArchetype(project, 'room-child', 'room', {
+      base: 'room-base',
+      overrides: {
+        '/defaultProperties': [
+          { id: 'mood', type: 'string', nullable: false, defaultValue: 'child' },
+        ],
+      },
+    });
+    project.rooms.start = {
+      id: 'start',
+      label: 'Start',
+      data: defaultRoomData('Start'),
+      archetype: { $ref: { collection: 'archetypes', id: 'room-child' } },
+      archetypeOverrides: {},
+      traits: [],
+      properties: { mood: 'concrete' },
+      localProperties: [],
+    };
+    project.entrypoint = { kind: 'room', id: 'start' };
+
+    expect(resolveArchetypeConfiguration(project, 'room-base')?.defaultProperties).toEqual([
+      expect.objectContaining({ id: 'mood', defaultValue: 'base' }),
+    ]);
+    expect(resolveArchetypeConfiguration(project, 'room-child')?.defaultProperties).toEqual([
+      expect.objectContaining({ id: 'mood', defaultValue: 'child' }),
+    ]);
+
+    const lowered = lowerSharedAuthoringProject(project);
+    expect(lowered.diagnostics).toEqual([]);
+    expect(
+      lowered.draft?.archetypes.find((item) => item.id === 'room-child')?.configuration,
+    ).toMatchObject({
+      traits: ['atmosphere'],
+      properties: [expect.objectContaining({ id: 'mood', defaultValue: 'child' })],
+    });
+    expect(lowered.draft?.definitions.rooms.find((item) => item.id === 'start')).toMatchObject({
+      traits: ['atmosphere'],
+      properties: [expect.objectContaining({ id: 'mood', defaultValue: 'child' })],
+      propertyAssignments: [{ propertyId: 'mood', value: 'concrete' }],
+    });
   });
 });

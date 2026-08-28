@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Plus, RotateCcw, Trash2, Unlink } from 'lucide-react';
+import { PropertyManager } from './PropertyManager';
+import { resolveArchetypeConfiguration } from '../../../shared/project-schema/authoring-archetypes';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -13,7 +15,6 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import {
-  effectiveInteractableDefinitionProperties,
   effectiveInteractableInstanceProperties,
   effectiveInteractableInstanceTraits,
 } from '../../../shared/project-schema/authoring-interactable-properties';
@@ -31,10 +32,8 @@ import {
 } from '../../../shared/project-schema/authoring-variables';
 import {
   newTypedPropertyDraft,
-  ownerDefaultPropertyFromDraft,
   ownerLocalPropertyFromDraft,
   TypedPropertyFields,
-  typedPropertyDraftFromOwnerDefault,
   typedPropertyDraftFromOwnerLocal,
   type TypedPropertyDraft,
 } from './TypedPropertyFields';
@@ -64,254 +63,30 @@ export function InteractableDefinitionPropertiesEditor({
   attachedTraits: readonly string[];
   onChange: (state: { properties: OwnerDefaultProperty[]; traits: string[] }) => void;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<TypedPropertyDraft>(() => newTypedPropertyDraft());
-  const [message, setMessage] = useState<string | null>(null);
-  const [traitId, setTraitId] = useState('');
-  const effective = useMemo(
-    () => effectiveInteractableDefinitionProperties(project, definitionId),
-    [definitionId, project],
-  );
-  const availableTraits = useMemo(
-    () => traitChoices(project, attachedTraits),
-    [attachedTraits, project],
-  );
-  const localById = useMemo(() => new Map(properties.map((item) => [item.id, item])), [properties]);
-
-  const openNew = () => {
-    setEditingId('');
-    setDraft(newTypedPropertyDraft());
-    setMessage(null);
-  };
-  const openEdit = (property: OwnerDefaultProperty) => {
-    setEditingId(property.id);
-    setDraft(typedPropertyDraftFromOwnerDefault(property));
-    setMessage(null);
-  };
-  const submit = () => {
-    const parsed = ownerDefaultPropertyFromDraft(draft);
-    if (!parsed.ok) {
-      setMessage(parsed.message);
-      return;
-    }
-    const oldId = editingId ?? '';
-    const existingEffective = effective.find((item) => item.id === parsed.property.id);
-    if (oldId === '' && existingEffective) {
-      setMessage(
-        `Property '${parsed.property.id}' is already effective. Edit or override the existing row instead.`,
-      );
-      return;
-    }
-    const editingLocal = oldId !== '' && properties.some((item) => item.id === oldId);
-    if (oldId !== '' && !editingLocal && parsed.property.id !== oldId) {
-      setMessage('An inherited Property keeps its existing ID when specialized by the definition.');
-      return;
-    }
-    if (properties.some((item) => item.id === parsed.property.id && item.id !== oldId)) {
-      setMessage(`Property '${parsed.property.id}' already exists on this definition.`);
-      return;
-    }
-    const next =
-      oldId === ''
-        ? [...properties, parsed.property]
-        : editingLocal
-          ? properties.map((item) => (item.id === oldId ? parsed.property : item))
-          : [...properties, parsed.property];
-    onChange({ properties: next, traits: [...attachedTraits] });
-    setEditingId(null);
-  };
-  const setTraitDefault = (propertyId: string) => {
-    const row = effective.find((item) => item.id === propertyId);
-    if (!row) return;
-    const value = row.defaultValue;
-    const property: OwnerDefaultProperty = {
-      id: row.id,
-      ...(row.contract.label ? { label: row.contract.label } : {}),
-      ...(row.contract.description ? { description: row.contract.description } : {}),
-      type: row.contract.type,
-      nullable: row.contract.nullable,
-      ...(row.contract.enumValues ? { enumValues: [...row.contract.enumValues] } : {}),
-      ...(value === undefined ? {} : { defaultValue: value }),
-    };
-    openEdit(property);
-  };
-  const attachTrait = () => {
-    if (!traitId) return;
-    const trait = project.traits[traitId];
-    if (!trait) return;
-    for (const member of trait.properties) {
-      const row = effective.find((item) => item.id === member.id);
-      if (row && !arePropertySchemasCompatible(row.contract, member)) {
-        setMessage(
-          `Cannot attach '${trait.label}': Property '${member.id}' has an incompatible effective schema.`,
-        );
-        return;
-      }
-    }
-    onChange({ properties: [...properties], traits: [...attachedTraits, traitId] });
-    setTraitId('');
-    setMessage(null);
-  };
-
+  const record = project.interactables[definitionId];
+  const inheritedConfiguration = useMemo(() => {
+    if (!record?.archetype) return null;
+    return resolveArchetypeConfiguration(project, record.archetype.$ref.id);
+  }, [project, record?.archetype]);
+  const inheritedProperties = useMemo(() => {
+    if (!record?.archetype) return [];
+    return (inheritedConfiguration?.defaultProperties ?? []).map((property) => ({
+      property,
+      sourceLabel: project.archetypes[record.archetype!.$ref.id]?.label ?? 'Archetype',
+    }));
+  }, [inheritedConfiguration, project.archetypes, record?.archetype]);
   return (
-    <section
-      className="space-y-3 rounded-md border p-3"
-      data-workbench-anchor="interactable.properties"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">Properties</h3>
-          <p className="text-xs text-muted-foreground">
-            Reusable Property schemas and optional Defaults for Interactable Instances.
-          </p>
-        </div>
-        <Button size="sm" onClick={openNew}>
-          <Plus className="size-4" /> Add Property
-        </Button>
-      </div>
-
-      <div className="space-y-2 rounded border bg-muted/20 p-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium">Traits</span>
-          {attachedTraits.map((id) => (
-            <div
-              key={id}
-              className="flex items-center gap-1 rounded border bg-background px-2 py-1"
-            >
-              <span className="text-xs">{project.traits[id]?.label ?? id}</span>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label={`Detach ${id}`}
-                onClick={() =>
-                  onChange({
-                    properties: [...properties],
-                    traits: attachedTraits.filter((candidate) => candidate !== id),
-                  })
-                }
-              >
-                <Unlink className="size-3" />
-              </Button>
-            </div>
-          ))}
-          {attachedTraits.length === 0 ? (
-            <span className="text-xs text-muted-foreground">No Traits attached.</span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={traitId} onValueChange={(value) => setTraitId(value ?? '')}>
-            <SelectTrigger className="!h-8 min-w-48" aria-label="Trait to attach">
-              <SelectValue placeholder="Choose Trait" />
-            </SelectTrigger>
-            <SelectContent>
-              {availableTraits.map(([id, trait]) => (
-                <SelectItem key={id} value={id}>
-                  {trait.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button size="sm" variant="outline" disabled={!traitId} onClick={attachTrait}>
-            Attach Trait
-          </Button>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2">Property</th>
-              <th className="w-px whitespace-nowrap px-3 py-2">Type</th>
-              <th className="px-3 py-2">Default</th>
-              <th className="w-px px-2 py-2">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {effective.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="p-5 text-center text-xs text-muted-foreground">
-                  No Property contracts.
-                </td>
-              </tr>
-            ) : null}
-            {effective.map((row) => {
-              const local = localById.get(row.id);
-              return (
-                <tr key={row.id} className="border-t">
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{row.contract.label ?? row.id}</div>
-                    <div className="font-mono text-[11px] text-muted-foreground">{row.id}</div>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
-                    {row.contract.type}
-                    {row.contract.nullable ? '?' : ''}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {formatValue(row.defaultValue)}
-                    <span className="ml-2 font-sans text-muted-foreground">
-                      {local ? 'definition' : row.source}
-                    </span>
-                  </td>
-                  <td className="px-1 py-1">
-                    <div className="flex justify-end">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => (local ? openEdit(local) : setTraitDefault(row.id))}
-                      >
-                        Edit
-                      </Button>
-                      {local ? (
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          className="text-destructive"
-                          aria-label={`Delete ${row.id}`}
-                          onClick={() =>
-                            onChange({
-                              properties: properties.filter((item) => item.id !== row.id),
-                              traits: [...attachedTraits],
-                            })
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {message ? <p className="text-xs text-destructive">{message}</p> : null}
-
-      <Dialog open={editingId !== null} onOpenChange={(open) => !open && setEditingId(null)}>
-        <DialogPopup className="w-[min(620px,calc(100vw-2rem))]">
-          <DialogTitle>{editingId === '' ? 'Add Property' : 'Edit Property'}</DialogTitle>
-          <DialogDescription>
-            This reusable contract may omit its Default; concrete Instances must resolve a Value.
-          </DialogDescription>
-          <TypedPropertyFields
-            draft={draft}
-            onChange={setDraft}
-            valueLabel="Default"
-            valueOptional
-          />
-          {message ? <p className="text-xs text-destructive">{message}</p> : null}
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setEditingId(null)}>
-              Cancel
-            </Button>
-            <Button onClick={submit}>{editingId === '' ? 'Add Property' : 'Save changes'}</Button>
-          </div>
-        </DialogPopup>
-      </Dialog>
-    </section>
+    <PropertyManager
+      mode="default"
+      ownerLabel={`Interactable definition '${record?.label ?? definitionId}'`}
+      ownerKind="interactable"
+      traits={project.traits}
+      attachedTraits={attachedTraits}
+      properties={properties}
+      inheritedProperties={inheritedProperties}
+      inheritedTraits={inheritedConfiguration?.traits ?? []}
+      onChange={onChange}
+    />
   );
 }
 
@@ -358,11 +133,6 @@ export function InteractableInstancePropertiesEditor({
   );
   const editingValue = rows.find((row) => row.id === editingValueId);
 
-  const updateTraits = (nextTraits: string[]) => {
-    const add = nextTraits.filter((id) => !definitionTraits.has(id));
-    const remove = [...definitionTraits].filter((id) => !nextTraits.includes(id));
-    onChange({ ...instance, traits: { add, remove } });
-  };
   const attachTrait = () => {
     if (!traitId) return;
     const trait = project.traits[traitId];

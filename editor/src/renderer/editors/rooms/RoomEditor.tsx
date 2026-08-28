@@ -118,7 +118,10 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { RoomExitDirectionSelector } from './RoomExitDirectionSelector';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
+import {
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from '../../../shared/project-schema/authoring-archetypes';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
 
@@ -640,6 +643,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const record = roomId && project ? project.rooms[roomId] : null;
   const effectiveRecord =
     project && record ? resolveGameplayInstanceRecord(project, 'room', record) : record;
+  const inheritedPropertyConfiguration =
+    project && record?.archetype
+      ? resolveArchetypeConfiguration(project, record.archetype.$ref.id)
+      : null;
   const data =
     parseRoomData(effectiveRecord?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
@@ -1261,7 +1268,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             onChange={commitLocalProperties}
             traits={project.traits}
             ownerKind="room"
-            attachedTraits={record.traits ?? []}
+            attachedTraits={effectiveRecord?.traits ?? record.traits ?? []}
+            inheritedTraits={inheritedPropertyConfiguration?.traits ?? []}
+            inheritedProperties={(inheritedPropertyConfiguration?.defaultProperties ?? []).map(
+              (property) => ({
+                property,
+                sourceLabel: record.archetype
+                  ? (project.archetypes[record.archetype.$ref.id]?.label ?? 'Archetype')
+                  : 'Archetype',
+              }),
+            )}
             propertyOverrides={record.properties ?? {}}
             traitColorFor={(traitId) =>
               project.editor.recordMetadata.traits?.[traitId]?.color ?? null
@@ -1280,6 +1296,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               project={project}
               features={data.features}
               anchorPrefix="room"
+              propertyMode="value"
               onChange={(features, label) => commit({ ...data, features }, label)}
             />
             <HotspotAuthoringPanel

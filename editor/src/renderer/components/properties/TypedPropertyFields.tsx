@@ -159,6 +159,7 @@ export function TypedPropertyFields({
   valueLabel = 'Value',
   valueOptional = false,
   descriptionPlaceholder,
+  schemaReadOnly = false,
 }: {
   draft: TypedPropertyDraft;
   onChange: (draft: TypedPropertyDraft) => void;
@@ -166,6 +167,7 @@ export function TypedPropertyFields({
   valueLabel?: string;
   valueOptional?: boolean;
   descriptionPlaceholder?: string;
+  schemaReadOnly?: boolean;
 }) {
   const changeType = (type: VariableType) => {
     const enumValues = type === 'enum' ? ['default'] : undefined;
@@ -190,6 +192,7 @@ export function TypedPropertyFields({
             value={draft.id}
             onChange={(event) => onChange({ ...draft, id: event.currentTarget.value })}
             placeholder="has-key"
+            disabled={schemaReadOnly}
           />
         </div>
         <div className="space-y-1.5">
@@ -200,6 +203,7 @@ export function TypedPropertyFields({
             value={draft.label}
             onChange={(event) => onChange({ ...draft, label: event.currentTarget.value })}
             placeholder="Uses the ID when empty"
+            disabled={schemaReadOnly}
           />
         </div>
       </div>
@@ -212,6 +216,7 @@ export function TypedPropertyFields({
           value={draft.description}
           onChange={(event) => onChange({ ...draft, description: event.currentTarget.value })}
           placeholder={descriptionPlaceholder}
+          disabled={schemaReadOnly}
         />
       </div>
 
@@ -220,6 +225,7 @@ export function TypedPropertyFields({
           <Label>Type</Label>
           <Select
             value={draft.type}
+            disabled={schemaReadOnly}
             onValueChange={(value) => value && changeType(value as VariableType)}
           >
             <SelectTrigger className="!h-8 w-full" aria-label="Type">
@@ -250,6 +256,7 @@ export function TypedPropertyFields({
                 })
               }
               aria-label="Nullable"
+              disabled={schemaReadOnly}
             />
           </div>
         </div>

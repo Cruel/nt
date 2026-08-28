@@ -329,6 +329,8 @@ describe('authoring structural dependency graph and queries', () => {
       label: 'Handle',
       traits: [],
       properties: {},
+      localProperties: [],
+      defaultProperties: [],
       inventories: [],
     });
     item.presentation.hotspots.hotspot.target = { kind: 'owner-feature', featureId: 'handle' };

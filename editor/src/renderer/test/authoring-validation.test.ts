@@ -570,4 +570,54 @@ describe('authoring V2 validation', () => {
       expect.objectContaining({ path: '/rooms/room/properties/visit-count' }),
     );
   });
+
+  it('allows incomplete reusable Feature contracts but rejects them on an exact Interactable Instance', () => {
+    const project = createAuthoringProject();
+    project.traits['inspectable-feature'] = {
+      id: 'inspectable-feature',
+      label: 'Inspectable Feature',
+      ownerKinds: ['feature'],
+      properties: [{ id: 'clue', type: 'string', nullable: false }],
+    };
+    const data = defaultInteractableData('Cabinet');
+    data.features.push({
+      id: 'drawer',
+      label: 'Drawer',
+      traits: ['inspectable-feature'],
+      properties: {},
+      localProperties: [],
+      defaultProperties: [],
+      inventories: [],
+    });
+    project.interactables.cabinet = {
+      id: 'cabinet',
+      label: 'Cabinet',
+      traits: [],
+      properties: {},
+      defaultProperties: [],
+      data,
+    };
+
+    expect(validateAuthoringProject(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'authoring.interactable.feature.missing_property_value' }),
+    );
+
+    project.interactableInstances.cabinet = defaultInteractableInstanceData('cabinet', 'cabinet');
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.interactable.feature.missing_property_value',
+        message: expect.stringContaining("Feature 'drawer' Property 'clue'"),
+      }),
+    );
+
+    data.features[0]!.defaultProperties.push({
+      id: 'clue',
+      type: 'string',
+      nullable: false,
+      defaultValue: 'scratch marks',
+    });
+    expect(validateAuthoringProject(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'authoring.interactable.feature.missing_property_value' }),
+    );
+  });
 });

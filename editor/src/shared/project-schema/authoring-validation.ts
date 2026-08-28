@@ -18,7 +18,6 @@ import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
 import { parseInteractableData, validateInteractableData } from './authoring-interactables';
 import {
-  effectiveInteractableDefinitionProperties,
   effectiveInteractableInstanceProperties,
   effectiveInteractableInstanceTraits,
 } from './authoring-interactable-properties';
@@ -191,6 +190,125 @@ function validateArchetypePropertyConfiguration(
   // owners are checked separately before publication.
 }
 
+function validateDefaultPropertyConfiguration(
+  project: AuthoringProject,
+  ownerKind: PropertyOwnerKind,
+  traits: readonly string[],
+  defaultProperties: readonly import('./authoring-properties').OwnerDefaultProperty[],
+  basePath: string,
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
+  const contributed = new Map<string, { traitId: string; property: TraitProperty }>();
+  for (const traitId of traits) {
+    const trait = project.traits[traitId];
+    if (!trait || !trait.ownerKinds.includes(ownerKind)) continue;
+    for (const property of trait.properties) {
+      const previous = contributed.get(property.id);
+      if (!previous) contributed.set(property.id, { traitId, property });
+    }
+  }
+  for (const [index, property] of defaultProperties.entries()) {
+    const source = contributed.get(property.id);
+    if (source && !arePropertySchemasCompatible(property, source.property))
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${basePath}/defaultProperties/${index}`,
+          `Property '${property.id}' is incompatible with Trait '${source.traitId}'.`,
+        ),
+      );
+  }
+}
+
+function validateOwnerFeatures(
+  project: AuthoringProject,
+  features: readonly import('./authoring-features').FeatureData[],
+  basePath: string,
+  mode: 'value' | 'default',
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
+  const seen = new Set<string>();
+  for (const [index, feature] of features.entries()) {
+    const path = `${basePath}/${index}`;
+    if (seen.has(feature.id))
+      diagnostics.push(
+        diagnostic('error', `${path}/id`, `Feature '${feature.id}' is declared more than once.`),
+      );
+    seen.add(feature.id);
+    validateArchetypePropertyConfiguration(
+      project,
+      'feature',
+      feature.traits,
+      feature.properties,
+      path,
+      diagnostics,
+    );
+    if (mode === 'default') {
+      if (feature.localProperties.length > 0)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${path}/localProperties`,
+            'Interactable-definition Features use Property Defaults, not concrete local Values.',
+          ),
+        );
+      if (Object.keys(feature.properties).length > 0)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${path}/properties`,
+            'Interactable-definition Features are reusable configuration and cannot author concrete Property Values.',
+          ),
+        );
+      validateDefaultPropertyConfiguration(
+        project,
+        'feature',
+        feature.traits,
+        feature.defaultProperties,
+        path,
+        diagnostics,
+      );
+      continue;
+    }
+    if (feature.defaultProperties.length > 0)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${path}/defaultProperties`,
+          'Room Features are concrete and use Property Values, not definition Defaults.',
+        ),
+      );
+    const local = new Map(feature.localProperties.map((property) => [property.id, property]));
+    for (const traitId of feature.traits) {
+      const trait = project.traits[traitId];
+      if (!trait || !trait.ownerKinds.includes('feature')) continue;
+      for (const member of trait.properties) {
+        const localProperty = local.get(member.id);
+        if (localProperty && !arePropertySchemasCompatible(localProperty, member))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${path}/localProperties`,
+              `Local Property '${member.id}' is incompatible with Trait '${traitId}'.`,
+            ),
+          );
+        const hasValue =
+          localProperty !== undefined ||
+          Object.prototype.hasOwnProperty.call(feature.properties, member.id) ||
+          member.defaultValue !== undefined;
+        if (!hasValue)
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${path}/traits`,
+              `Trait '${traitId}' requires property '${member.id}' to have an authored value.`,
+            ),
+          );
+      }
+    }
+  }
+}
+
 function validateArchetypes(
   project: AuthoringProject,
   diagnostics: ProjectValidationDiagnosticLike[],
@@ -247,9 +365,17 @@ function validateArchetypes(
         `${base}/data/effectiveConfiguration`,
         diagnostics,
       );
+      validateDefaultPropertyConfiguration(
+        project,
+        data.instanceKind,
+        effective.traits,
+        effective.defaultProperties,
+        `${base}/data/effectiveConfiguration`,
+        diagnostics,
+      );
       if (data.instanceKind === 'interactable' && typeof effective.data === 'object') {
         const parsed = parseInteractableData(effective.data);
-        if (parsed)
+        if (parsed) {
           diagnostics.push(
             ...validateInteractableHotspotAuthoringSemantics(
               project,
@@ -257,6 +383,24 @@ function validateArchetypes(
               `${base}/data/effectiveConfiguration/data/presentation`,
               `Interactable Archetype '${archetypeId}'`,
             ),
+          );
+          validateOwnerFeatures(
+            project,
+            parsed.features,
+            `${base}/data/effectiveConfiguration/data/features`,
+            'default',
+            diagnostics,
+          );
+        }
+      } else if (data.instanceKind === 'room') {
+        const parsed = parseRoomData(effective.data);
+        if (parsed)
+          validateOwnerFeatures(
+            project,
+            parsed.features,
+            `${base}/data/effectiveConfiguration/data/features`,
+            'value',
+            diagnostics,
           );
       }
     }
@@ -330,44 +474,28 @@ function validateFeatures(
   project: AuthoringProject,
   diagnostics: ProjectValidationDiagnosticLike[],
 ) {
-  const validateOwnerFeatures = (
-    features: readonly {
-      id: string;
-      traits: readonly string[];
-      properties: Readonly<PropertyAssignments>;
-    }[],
-    basePath: string,
-  ) => {
-    const seen = new Set<string>();
-    for (const [index, feature] of features.entries()) {
-      const path = `${basePath}/${index}`;
-      if (seen.has(feature.id))
-        diagnostics.push(
-          diagnostic('error', `${path}/id`, `Feature '${feature.id}' is declared more than once.`),
-        );
-      seen.add(feature.id);
-      validateArchetypePropertyConfiguration(
+  for (const [roomId, record] of Object.entries(project.rooms)) {
+    const effective = resolveGameplayInstanceRecord(project, 'room', record);
+    const room = parseRoomData(effective?.data ?? record.data);
+    if (room)
+      validateOwnerFeatures(
         project,
-        'feature',
-        feature.traits,
-        feature.properties,
-        path,
+        room.features,
+        `/rooms/${escapePathSegment(roomId)}/data/features`,
+        'value',
         diagnostics,
       );
-    }
-  };
-
-  for (const [roomId, record] of Object.entries(project.rooms)) {
-    const room = parseRoomData(record.data);
-    if (room)
-      validateOwnerFeatures(room.features, `/rooms/${escapePathSegment(roomId)}/data/features`);
   }
   for (const [interactableId, record] of Object.entries(project.interactables)) {
-    const interactable = parseInteractableData(record.data);
+    const effective = resolveGameplayInstanceRecord(project, 'interactable', record);
+    const interactable = parseInteractableData(effective?.data ?? record.data);
     if (interactable)
       validateOwnerFeatures(
+        project,
         interactable.features,
         `/interactables/${escapePathSegment(interactableId)}/data/features`,
+        'default',
+        diagnostics,
       );
   }
 }
@@ -455,7 +583,19 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
     const ownerKind = propertyOwnerKindByCollection[collection];
     if (!ownerKind) continue;
     for (const [recordId, record] of Object.entries(recordsFor(project, collection))) {
-      const attachmentIds = record.traits ?? [];
+      const resolvedRecord = resolveGameplayInstanceRecord(
+        project,
+        collection === 'rooms' ? 'room' : 'character',
+        record,
+      );
+      const attachmentIds = resolvedRecord?.traits ?? record.traits ?? [];
+      const archetypeDefaults = record.archetype
+        ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ??
+          [])
+        : [];
+      const archetypeDefaultById = new Map(
+        archetypeDefaults.map((property) => [property.id, property]),
+      );
       const seenTraits = new Set<string>();
       const contributed = new Map<string, { traitId: string; property: TraitProperty }>();
       const defaults = new Map<
@@ -532,6 +672,15 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
               `Local Property '${propertyId}' is incompatible with Trait '${source.traitId}'.`,
             ),
           );
+        const archetypeDefault = archetypeDefaultById.get(propertyId);
+        if (archetypeDefault && !arePropertySchemasCompatible(archetypeDefault, source.property))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `/${collection}/${escapePathSegment(recordId)}/archetype`,
+              `Archetype Property '${propertyId}' is incompatible with Trait '${source.traitId}'.`,
+            ),
+          );
 
         const override = (record.properties ?? {})[propertyId];
         if (override !== undefined && !isPropertyValueCompatible(source.property, override))
@@ -546,7 +695,11 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
 
       for (const trait of attachedTraits) {
         for (const member of trait.properties) {
-          if (member.defaultValue !== undefined) continue;
+          if (
+            member.defaultValue !== undefined ||
+            archetypeDefaultById.get(member.id)?.defaultValue !== undefined
+          )
+            continue;
           const hasStandaloneValue = localProperties.has(member.id);
           const hasOverride = Object.prototype.hasOwnProperty.call(
             record.properties ?? {},
@@ -706,6 +859,44 @@ function validateInteractableProperties(
             'authoring.interactable.missing_property_value',
           ),
         );
+    }
+
+    const effectiveDefinition = resolveGameplayInstanceRecord(project, 'interactable', definition);
+    const definitionData = parseInteractableData(effectiveDefinition?.data ?? definition.data);
+    for (const [featureIndex, feature] of (definitionData?.features ?? []).entries()) {
+      const featurePath = `${base}/definitionFeatures/${featureIndex}`;
+      const defaultsById = new Map(
+        feature.defaultProperties.map((property) => [property.id, property]),
+      );
+      const required = new Map<
+        string,
+        TraitProperty | (typeof feature.defaultProperties)[number]
+      >();
+      for (const property of feature.defaultProperties) required.set(property.id, property);
+      for (const traitId of feature.traits) {
+        const trait = project.traits[traitId];
+        if (!trait || !trait.ownerKinds.includes('feature')) continue;
+        for (const member of trait.properties)
+          if (!required.has(member.id)) required.set(member.id, member);
+      }
+      for (const [propertyId] of required) {
+        const ownDefault = defaultsById.get(propertyId)?.defaultValue;
+        const traitDefault = feature.traits.some((traitId) =>
+          project.traits[traitId]?.properties.some(
+            (member) => member.id === propertyId && member.defaultValue !== undefined,
+          ),
+        );
+        if (ownDefault === undefined && !traitDefault)
+          diagnostics.push(
+            diagnostic(
+              'error',
+              featurePath,
+              `Interactable Instance '${instanceId}' requires Feature '${feature.id}' Property '${propertyId}' to have a Value.`,
+              'Project validation',
+              'authoring.interactable.feature.missing_property_value',
+            ),
+          );
+      }
     }
 
     const effectiveTraitIds = effectiveInteractableInstanceTraits(project, instance);
