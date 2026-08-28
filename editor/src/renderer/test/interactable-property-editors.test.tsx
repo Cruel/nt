@@ -5,6 +5,7 @@ import {
   InteractableDefinitionPropertiesEditor,
   InteractableInstancePropertiesEditor,
 } from '@/components/properties/InteractablePropertyEditors';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import {
   defaultInteractableData,
   defaultInteractableInstanceData,
@@ -97,6 +98,87 @@ describe('Interactable Property editors', () => {
       ...instance,
       localProperties: [],
     });
+  });
+
+  it('counts/navigates exact Instance references and reports standalone rename repair metadata', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    const instance = defaultInteractableInstanceData('key-instance', 'key');
+    instance.localProperties.push({
+      id: 'condition',
+      label: 'Condition',
+      type: 'string',
+      nullable: false,
+      value: 'ready',
+    });
+    project.interactableInstances['key-instance'] = instance;
+    project.scenes.references = {
+      id: 'references',
+      label: 'References',
+      data: {
+        operation: {
+          kind: 'set-property',
+          owner: {
+            kind: 'interactable',
+            interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+          },
+          property: { key: 'condition' },
+          value: 'used',
+        },
+      } as never,
+    };
+    useEntityUsagesStore.getState().clearUsages();
+
+    render(
+      <InteractableInstancePropertiesEditor
+        project={project}
+        instanceId="key-instance"
+        instance={instance}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '1 usage for condition' }));
+    expect(useEntityUsagesStore.getState().result).toEqual(
+      expect.objectContaining({
+        displayLabel: 'interactable-instance/key-instance · condition',
+        usages: [
+          expect.objectContaining({
+            sourceCollection: 'scenes',
+            sourceId: 'references',
+            path: '/scenes/references/data/operation/property/key',
+          }),
+        ],
+      }),
+    );
+
+    await user.click(screen.getByText('Condition'));
+    const idInput = screen.getByDisplayValue('condition');
+    await user.clear(idInput);
+    await user.type(idInput, 'state');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(onChange).toHaveBeenCalledWith(
+      {
+        ...instance,
+        localProperties: [
+          {
+            id: 'state',
+            label: 'Condition',
+            type: 'string',
+            nullable: false,
+            value: 'ready',
+          },
+        ],
+      },
+      { kind: 'rename', fromId: 'condition', toId: 'state' },
+    );
   });
 
   it('authors definition contracts without requiring a Default', async () => {

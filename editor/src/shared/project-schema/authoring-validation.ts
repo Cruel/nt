@@ -211,6 +211,7 @@ function validateOwnerFeatures(
   basePath: string,
   mode: 'value' | 'default',
   diagnostics: ProjectValidationDiagnosticLike[],
+  requireConcreteValues = mode === 'value',
 ) {
   const seen = new Set<string>();
   for (const [index, feature] of features.entries()) {
@@ -249,6 +250,13 @@ function validateOwnerFeatures(
         ),
       );
     const local = new Map(feature.localProperties.map((property) => [property.id, property]));
+    const traitDefaults = new Set<string>();
+    for (const traitId of feature.traits) {
+      const trait = project.traits[traitId];
+      if (!trait || !trait.ownerKinds.includes('feature')) continue;
+      for (const member of trait.properties)
+        if (member.defaultValue !== undefined) traitDefaults.add(member.id);
+    }
     for (const traitId of feature.traits) {
       const trait = project.traits[traitId];
       if (!trait || !trait.ownerKinds.includes('feature')) continue;
@@ -262,8 +270,8 @@ function validateOwnerFeatures(
               `Local Property '${member.id}' is incompatible with Trait '${traitId}'.`,
             ),
           );
-        const hasValue = localProperty !== undefined || member.defaultValue !== undefined;
-        if (!hasValue)
+        const hasValue = localProperty !== undefined || traitDefaults.has(member.id);
+        if (requireConcreteValues && !hasValue)
           diagnostics.push(
             diagnostic(
               'error',
@@ -367,6 +375,7 @@ function validateArchetypes(
             `${base}/data/effectiveConfiguration/data/features`,
             'value',
             diagnostics,
+            false,
           );
       }
     }
@@ -588,7 +597,7 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
       for (const trait of attachedTraits) {
         for (const member of trait.properties) {
           if (
-            member.defaultValue !== undefined ||
+            defaults.has(member.id) ||
             archetypeDefaultById.get(member.id)?.defaultValue !== undefined
           )
             continue;

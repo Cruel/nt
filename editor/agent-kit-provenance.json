@@ -52,7 +52,7 @@
       ]
     },
     "PROJECT_FORMAT.md": {
-      "reviewed": "2026-08-26",
+      "reviewed": "2026-08-28",
       "strategy": "Summarize the current workspace contract and persistence rules that are not safely inferable from generated JSON Schema.",
       "sources": [
         {
@@ -95,7 +95,7 @@
       ]
     },
     "docs/ARCHETYPES_TRAITS.md": {
-      "reviewed": "2026-08-26",
+      "reviewed": "2026-08-28",
       "strategy": "Explain the author-facing distinction between structural Archetype reuse, Property-backed Traits, and semantic Properties without exposing compiler/runtime implementation details.",
       "sources": [
         {

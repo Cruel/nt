@@ -11,6 +11,9 @@ import {
   type OwnerDefaultProperty,
   type OwnerLocalProperty,
 } from '../../../shared/project-schema/authoring-properties';
+import { ownerLocalPropertyReferences } from '@/project/owner-local-property-references';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
+import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { OwnerDefaultPropertiesEditor } from './OwnerDefaultPropertiesEditor';
 import { PropertyManager, type PropertyManagerRow } from './PropertyManager';
 import {
@@ -77,12 +80,27 @@ export function InteractableInstancePropertiesEditor({
   project: AuthoringProject;
   instanceId: string;
   instance: InteractableInstanceData;
-  onChange: (instance: InteractableInstanceData) => void;
+  onChange: (
+    instance: InteractableInstanceData,
+    change?: { kind: 'rename'; fromId: string; toId: string },
+  ) => void;
   compact?: boolean;
 }) {
+  const setUsages = useEntityUsagesStore((state) => state.setUsages);
+  const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const effectiveRows = useMemo(
     () => effectiveInteractableInstanceProperties(project, instance),
     [instance, project],
+  );
+  const usagesById = useMemo(
+    () =>
+      new Map(
+        effectiveRows.map((row) => [
+          row.id,
+          ownerLocalPropertyReferences(project, { kind: 'interactable', id: instanceId }, row.id),
+        ]),
+      ),
+    [effectiveRows, instanceId, project],
   );
   const effectiveTraits = useMemo(
     () => effectiveInteractableInstanceTraits(project, instance),
@@ -119,6 +137,7 @@ export function InteractableInstancePropertiesEditor({
           enumValues: row.contract.enumValues,
           ...(row.value === undefined ? {} : { value: row.value }),
           valueState: row.hasValue ? 'normal' : 'missing',
+          usageCount: usagesById.get(row.id)?.length ?? 0,
           sourceLabel: row.localOnly
             ? 'local'
             : hasOverride
@@ -138,7 +157,7 @@ export function InteractableInstancePropertiesEditor({
           deletable: row.localOnly,
         };
       }),
-    [effectiveRows, project.editor.recordMetadata.traits, project.traits],
+    [effectiveRows, project.editor.recordMetadata.traits, project.traits, usagesById],
   );
 
   const withTraitSet = (traitIds: readonly string[]): InteractableInstanceData['traits'] => ({
@@ -165,12 +184,17 @@ export function InteractableInstancePropertiesEditor({
     )
       return `Property '${parsed.property.id}' already exists on this Instance.`;
     if (!localById.has(row.id)) return 'Instance-local Property no longer exists.';
-    onChange({
-      ...instance,
-      localProperties: instance.localProperties.map((property) =>
-        property.id === row.id ? parsed.property : property,
-      ),
-    });
+    onChange(
+      {
+        ...instance,
+        localProperties: instance.localProperties.map((property) =>
+          property.id === row.id ? parsed.property : property,
+        ),
+      },
+      row.id === parsed.property.id
+        ? undefined
+        : { kind: 'rename', fromId: row.id, toId: parsed.property.id },
+    );
     return null;
   };
 
@@ -246,6 +270,14 @@ export function InteractableInstancePropertiesEditor({
           localProperties: instance.localProperties.filter((property) => property.id !== row.id),
         });
         return null;
+      }}
+      onShowUsages={(row) => {
+        setUsages(
+          { collection: 'interactables', id: instance.definition.$ref.id },
+          usagesById.get(row.id) ?? [],
+          `interactable-instance/${instanceId} · ${row.id}`,
+        );
+        setActiveBottomPanel('references');
       }}
       traits={{
         attached: effectiveTraits.map((id) => ({

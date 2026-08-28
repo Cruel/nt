@@ -535,6 +535,98 @@ describe('authoring V2 validation', () => {
     );
   });
 
+  it('lets one compatible Trait Default satisfy another Trait requirement on concrete owners and Features', () => {
+    const project = createAuthoringProject();
+    project.traits.required = {
+      id: 'required',
+      label: 'Required',
+      ownerKinds: ['room', 'feature'],
+      properties: [{ id: 'state', type: 'string', nullable: false }],
+    };
+    project.traits.configured = {
+      id: 'configured',
+      label: 'Configured',
+      ownerKinds: ['room', 'feature'],
+      properties: [{ id: 'state', type: 'string', nullable: false, defaultValue: 'ready' }],
+    };
+    const roomData = defaultRoomData('Room');
+    roomData.features.push({
+      id: 'feature',
+      label: 'Feature',
+      traits: ['required', 'configured'],
+      localProperties: [],
+      defaultProperties: [],
+      inventories: [],
+    });
+    project.rooms.room = {
+      id: 'room',
+      label: 'Room',
+      traits: ['required', 'configured'],
+      data: roomData,
+    };
+
+    const diagnostics = validateAuthoringProject(project);
+    expect(diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("requires property 'state'") }),
+      ]),
+    );
+  });
+
+  it('allows reusable Room Archetype Features to remain incomplete but blocks the concrete Room', () => {
+    const project = createAuthoringProject();
+    project.traits.configurable = {
+      id: 'configurable',
+      label: 'Configurable',
+      ownerKinds: ['feature'],
+      properties: [{ id: 'state', type: 'string', nullable: false }],
+    };
+    project.archetypes.base = {
+      id: 'base',
+      label: 'Base Room',
+      data: {
+        ...defaultArchetypeData('room'),
+        overrides: {
+          '/data/features': [
+            {
+              id: 'feature',
+              label: 'Feature',
+              traits: ['configurable'],
+              localProperties: [],
+              defaultProperties: [],
+              inventories: [],
+            },
+          ],
+        },
+      },
+    };
+
+    expect(validateAuthoringProject(project)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: expect.stringContaining('/archetypes/base/'),
+          message: expect.stringContaining("requires property 'state'"),
+        }),
+      ]),
+    );
+
+    project.rooms.room = {
+      id: 'room',
+      label: 'Room',
+      archetype: { $ref: { collection: 'archetypes', id: 'base' } },
+      archetypeOverrides: {},
+      data: defaultRoomData('Room'),
+    };
+    expect(validateAuthoringProject(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/rooms/room/data/features/0/traits',
+          message: expect.stringContaining("requires property 'state'"),
+        }),
+      ]),
+    );
+  });
+
   it('rejects the obsolete top-level Property registry and invalid Trait owner kinds', () => {
     const project = createAuthoringProject();
     const diagnostics = validateAuthoringProject({

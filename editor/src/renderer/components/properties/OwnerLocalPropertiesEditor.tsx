@@ -76,6 +76,7 @@ export function OwnerLocalPropertiesEditor({
   properties,
   onChange,
   usageCountFor,
+  onShowUsages,
   traits = {},
   ownerKind,
   attachedTraits = [],
@@ -91,6 +92,7 @@ export function OwnerLocalPropertiesEditor({
     change?: { kind: 'rename'; fromId: string; toId: string },
   ) => void;
   usageCountFor?: (propertyId: string) => number;
+  onShowUsages?: (propertyId: string) => void;
   traits?: Readonly<Record<string, TraitDefinition>>;
   ownerKind?: PropertyOwnerKind;
   attachedTraits?: readonly string[];
@@ -306,6 +308,7 @@ export function OwnerLocalPropertiesEditor({
         onChange(properties.filter((property) => property.id !== row.id));
         return null;
       }}
+      onShowUsages={onShowUsages ? (row) => onShowUsages(row.id) : undefined}
       traits={
         ownerKind && onTraitStateChange
           ? {
