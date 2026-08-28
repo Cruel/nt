@@ -540,7 +540,7 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
 std::optional<PropertyOwnerRef>
 decode_exact_property_owner(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"character", "kind", "room"}))
+    if (!decoder.object(value, pointer, {"character", "interactable", "kind", "room"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
@@ -565,7 +565,19 @@ decode_exact_property_owner(Decoder& decoder, const nlohmann::json& value, std::
         return character ? std::optional<PropertyOwnerRef>{PropertyOwnerRef{std::move(*character)}}
                          : std::nullopt;
     }
-    decoder.error(k_code_variant, "Expected Property owner kind 'room' or 'character'.",
+    if (*kind == "interactable") {
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableInstanceId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        return interactable
+                   ? std::optional<PropertyOwnerRef>{PropertyOwnerRef{std::move(*interactable)}}
+                   : std::nullopt;
+    }
+    decoder.error(k_code_variant,
+                  "Expected Property owner kind 'room', 'character', or 'interactable'.",
                   pointer_child(pointer, "kind"));
     return std::nullopt;
 }
@@ -594,12 +606,13 @@ std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohm
             global ? std::initializer_list<std::string_view>{"defaultValue", "description",
                                                              "enumValues", "id", "label",
                                                              "nullable", "scope", "type"}
-            : exact_identity ? std::initializer_list<std::string_view>{"description", "enumValues",
-                                                                       "id", "label", "nullable",
-                                                                       "owner", "scope", "type"}
-                             : std::initializer_list<std::string_view>{
-                                   "defaultValue", "description", "enumValues", "id", "label",
-                                   "nullable", "ownerKinds", "scope", "type"}))
+            : exact_identity
+                ? std::initializer_list<std::string_view>{"defaultValue", "description",
+                                                          "enumValues", "id", "label", "nullable",
+                                                          "owner", "scope", "type"}
+                : std::initializer_list<std::string_view>{"defaultValue", "description",
+                                                          "enumValues", "id", "label", "nullable",
+                                                          "ownerKinds", "scope", "type"}))
         return std::nullopt;
 
     const auto* id_value = decoder.member(value, "id", pointer);
@@ -669,6 +682,50 @@ std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohm
                                std::move(exact_owner),
                                std::move(*label),
                                std::move(*description)};
+}
+
+std::optional<TraitProperty> decode_owner_property_contract(Decoder& decoder,
+                                                            const nlohmann::json& value,
+                                                            std::string_view pointer)
+{
+    if (!decoder.object(
+            value, pointer,
+            {"defaultValue", "description", "enumValues", "id", "label", "nullable", "type"}))
+        return std::nullopt;
+    const auto* property_value = decoder.member(value, "id", pointer);
+    const auto* type_value = decoder.member(value, "type", pointer);
+    const auto* enum_value = decoder.member(value, "enumValues", pointer);
+    const auto* nullable_value = decoder.member(value, "nullable", pointer);
+    const auto* label_value = decoder.member(value, "label", pointer);
+    const auto* description_value = decoder.member(value, "description", pointer);
+    auto property = property_value
+                        ? decoder.id<PropertyId>(*property_value, pointer_child(pointer, "id"))
+                        : std::nullopt;
+    std::vector<std::string> enum_values;
+    auto type = type_value && enum_value
+                    ? decode_value_type(decoder, *type_value, *enum_value, pointer, enum_values)
+                    : std::nullopt;
+    auto nullable = nullable_value
+                        ? decoder.boolean(*nullable_value, pointer_child(pointer, "nullable"))
+                        : std::nullopt;
+    auto label = label_value ? decoder.string(*label_value, pointer_child(pointer, "label"), true)
+                             : std::nullopt;
+    auto description = description_value ? decoder.string(*description_value,
+                                                          pointer_child(pointer, "description"))
+                                         : std::nullopt;
+    const auto* default_value = json_access::member(value, "defaultValue");
+    std::optional<RuntimeValue> configured_value;
+    bool value_ok = true;
+    if (default_value != nullptr) {
+        configured_value =
+            decode_runtime_value(decoder, *default_value, pointer_child(pointer, "defaultValue"));
+        value_ok = configured_value.has_value();
+    }
+    return property && type && nullable && label && description && value_ok
+               ? std::optional<TraitProperty>(TraitProperty{
+                     std::move(*property), std::move(*type), *nullable, std::move(enum_values),
+                     std::move(configured_value), std::move(*label), std::move(*description)})
+               : std::nullopt;
 }
 
 std::optional<TraitDeclaration> decode_trait(Decoder& decoder, const nlohmann::json& value,

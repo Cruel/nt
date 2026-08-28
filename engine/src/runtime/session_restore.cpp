@@ -1,5 +1,6 @@
 #include "noveltea/core/flow_executor.hpp"
 
+#include "noveltea/core/property_resolver.hpp"
 #include "noveltea/core/save_state.hpp"
 
 #include <algorithm>
@@ -338,19 +339,14 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_blocker.reset();
     state->m_execution_fault.reset();
     state->m_property_overrides.clear();
+    PropertyResolver property_resolver(project, *state);
     for (const auto& saved_override : save.property_overrides) {
         const auto owner = property_target_owner(saved_override.target);
-        const auto* definition = owner ? project.find_property(*owner, saved_override.property)
-                                       : project.find_property(saved_override.property);
-        if (definition == nullptr)
-            return Result<SessionState, Diagnostics>::failure(restore_error(
-                "save_restore.invalid_property", "Validated property declaration disappeared."));
         auto restored =
-            make_property_override(saved_override.target, *definition, saved_override.value);
-        auto* value = restored.value_if();
-        if (value == nullptr)
+            owner ? property_resolver.set(*owner, saved_override.property, saved_override.value)
+                  : property_resolver.set_global(saved_override.property, saved_override.value);
+        if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
-        state->store_property_override(std::move(*value));
     }
     state->m_character_world = save.characters;
     state->m_interactables = save.interactables;

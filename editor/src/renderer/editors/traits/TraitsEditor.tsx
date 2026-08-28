@@ -82,6 +82,7 @@ function traitPropertyDraft(property: TraitProperty): TraitPropertyDraft {
       description: property.description ?? '',
       type: property.type,
       nullable: property.nullable,
+      valuePresent: property.defaultValue !== undefined,
       valueText:
         property.defaultValue === undefined
           ? property.type === 'boolean'

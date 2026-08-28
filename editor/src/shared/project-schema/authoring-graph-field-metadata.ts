@@ -285,6 +285,11 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #136 introduces ordered owner-local Property declarations on migrated Room/Character owners.
   // Every declaration field contributes directly to that exact owner's compiled/runtime state.
   [/^\/(?:rooms|characters)\/\*\/localProperties(?:\/|$)/, OWNER],
+  // #138 adds reusable Interactable-definition Property contracts and exact Instance-local
+  // Properties at the preserved authoring version. Both change the owning semantic object's
+  // compiled/runtime Property projection rather than creating an independent graph identity.
+  [/^\/interactables\/\*\/defaultProperties(?:\/|$)/, OWNER],
+  [/^\/interactableInstances\/\*\/localProperties(?:\/|$)/, OWNER],
   // Nullable is a new Variable runtime semantic in #136. The renamed authored `value` leaf is
   // preserved against the previous `defaultValue` review slot below.
   [/^\/variables\/\*\/data\/nullable$/, OWNER],
@@ -753,8 +758,8 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     dialogues: 'c3f27078',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
-    interactableInstances: '7a0c7522',
-    interactables: '3124672a',
+    interactableInstances: '5d0db294',
+    interactables: 'bade3ffa',
     interactions: 'dfffc1a2',
     inventories: 'a8c38dae',
     layouts: '35da7f67',

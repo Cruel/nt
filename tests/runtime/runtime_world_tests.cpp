@@ -147,6 +147,14 @@ TEST_CASE("declared Interactable Instances sharing one definition save and resto
 {
     auto document = load_fixture_document("comprehensive.json");
     document["interactableInstances"].back()["propertyOverrides"][0]["value"] = "ordinary";
+    document["interactableInstances"].back()["localProperties"] =
+        nlohmann::json::array({{{"id", "serial"},
+                                {"label", "Serial"},
+                                {"description", ""},
+                                {"type", "string"},
+                                {"nullable", false},
+                                {"enumValues", nlohmann::json::array()},
+                                {"value", "wallet-001"}}});
     for (auto& declaration : document["interactableInstances"])
         if (declaration["id"] == "key")
             declaration["traitAdds"] = nlohmann::json::array({"currency"});
@@ -162,6 +170,7 @@ TEST_CASE("declared Interactable Instances sharing one definition save and resto
     const auto credits = id<core::InteractableDefinitionId>("credits");
     const auto currency = id<core::TraitId>("currency");
     const auto quality = id<core::PropertyId>("quality");
+    const auto serial = id<core::PropertyId>("serial");
     const auto hall = id<core::RoomId>("hall");
 
     REQUIRE(project.find_interactable_instance(wallet) != nullptr);
@@ -190,6 +199,10 @@ TEST_CASE("declared Interactable Instances sharing one definition save and resto
     REQUIRE(wallet_quality);
     CHECK(std::get<core::RuntimeValue>(wallet_quality.value()) ==
           core::RuntimeValue{std::string{"ordinary"}});
+    auto wallet_serial = initial_properties.get(core::PropertyOwnerRef{wallet}, serial);
+    REQUIRE(wallet_serial);
+    CHECK(std::get<core::RuntimeValue>(wallet_serial.value()) ==
+          core::RuntimeValue{std::string{"wallet-001"}});
     REQUIRE(world.set_interactable_visible(wallet, false));
     REQUIRE(world.move_interactable(wallet, core::compiled::RoomLocation{hall}));
     core::PropertyResolver properties(project, state);
@@ -197,6 +210,8 @@ TEST_CASE("declared Interactable Instances sharing one definition save and resto
                            core::RuntimeValue{std::string{"wallet"}}));
     REQUIRE(properties.set(core::PropertyOwnerRef{spare}, id<core::PropertyId>("note"),
                            core::RuntimeValue{std::string{"spare"}}));
+    REQUIRE(properties.set(core::PropertyOwnerRef{wallet}, serial,
+                           core::RuntimeValue{std::string{"wallet-002"}}));
 
     auto saved = core::make_save_state(project, state);
     REQUIRE(saved);
@@ -242,15 +257,19 @@ TEST_CASE("declared Interactable Instances sharing one definition save and resto
         restored_properties.get(core::PropertyOwnerRef{wallet}, id<core::PropertyId>("note"));
     auto spare_note =
         restored_properties.get(core::PropertyOwnerRef{spare}, id<core::PropertyId>("note"));
+    auto restored_wallet_serial = restored_properties.get(core::PropertyOwnerRef{wallet}, serial);
     REQUIRE(restored_wallet_quality);
     REQUIRE(wallet_note);
     REQUIRE(spare_note);
+    REQUIRE(restored_wallet_serial);
     CHECK(std::get<core::RuntimeValue>(restored_wallet_quality.value()) ==
           core::RuntimeValue{std::string{"ordinary"}});
     CHECK(std::get<core::RuntimeValue>(wallet_note.value()) ==
           core::RuntimeValue{std::string{"wallet"}});
     CHECK(std::get<core::RuntimeValue>(spare_note.value()) ==
           core::RuntimeValue{std::string{"spare"}});
+    CHECK(std::get<core::RuntimeValue>(restored_wallet_serial.value()) ==
+          core::RuntimeValue{std::string{"wallet-002"}});
 }
 
 TEST_CASE(
@@ -326,6 +345,54 @@ TEST_CASE("runtime world creates deterministic typed identities from admitted co
     CHECK(room_provenance->archetype == id<core::ArchetypeId>("runtime-room"));
     CHECK(character_provenance->kind == core::RuntimeInstanceProvenanceKind::CompiledDefinition);
     CHECK(interactable_provenance->kind == core::RuntimeInstanceProvenanceKind::Clone);
+}
+
+TEST_CASE("runtime Interactable creation atomically requires effective Property Values")
+{
+    auto document = load_fixture_document("comprehensive.json");
+    auto required = document["definitions"]["interactables"][0];
+    required.erase("id");
+    required["properties"] = nlohmann::json::array({{{"id", "runtime-state"},
+                                                     {"label", "Runtime State"},
+                                                     {"description", ""},
+                                                     {"type", "string"},
+                                                     {"nullable", false},
+                                                     {"enumValues", nlohmann::json::array()}}});
+    auto defaulted = required;
+    defaulted["properties"][0]["defaultValue"] = "ready";
+    document["archetypes"] = nlohmann::json::array({{{"id", "required-interactable"},
+                                                     {"instanceKind", "interactable"},
+                                                     {"configuration", required}},
+                                                    {{"id", "defaulted-interactable"},
+                                                     {"instanceKind", "interactable"},
+                                                     {"configuration", defaulted}}});
+    const auto project = decode_fixture(std::move(document), "runtime-required-properties.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto before_count = state.runtime_interactables().size();
+    const auto before_allocator = state.next_runtime_instance_id();
+    auto missing = world.create_interactable(
+        ArchetypeInstanceConfiguration{id<core::ArchetypeId>("required-interactable")});
+    REQUIRE_FALSE(missing);
+    CHECK(missing.error().front().code == "runtime.missing_required_property");
+    CHECK(state.runtime_interactables().size() == before_count);
+    CHECK(state.next_runtime_instance_id() == before_allocator);
+
+    auto created = world.create_interactable(
+        ArchetypeInstanceConfiguration{id<core::ArchetypeId>("defaulted-interactable")});
+    REQUIRE(created);
+    CHECK(created.value().text() == "runtime-interactable-1");
+    core::PropertyResolver properties(project, state);
+    auto value = properties.get(core::PropertyOwnerRef{created.value()},
+                                id<core::PropertyId>("runtime-state"));
+    REQUIRE(value);
+    const auto* runtime_value = std::get_if<core::RuntimeValue>(value.value_if());
+    REQUIRE(runtime_value != nullptr);
+    REQUIRE(std::get_if<std::string>(runtime_value) != nullptr);
+    CHECK(*std::get_if<std::string>(runtime_value) == "ready");
 }
 
 TEST_CASE("runtime Room overlays clear back to immutable cloned birth configuration")

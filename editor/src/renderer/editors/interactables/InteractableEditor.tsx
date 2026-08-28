@@ -7,6 +7,10 @@ import {
   type HotspotEditorViewState,
 } from '@/components/image-stage/hotspot-view-state';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
+import {
+  InteractableDefinitionPropertiesEditor,
+  InteractableInstancePropertiesEditor,
+} from '@/components/properties/InteractablePropertyEditors';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
@@ -44,6 +48,10 @@ import {
 } from '@/workspace/command-palette-search';
 
 const INTERACTABLE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.interactable';
+
+function escapePointerSegment(value: string) {
+  return value.replaceAll('~', '~0').replaceAll('/', '~1');
+}
 type InteractableEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof INTERACTABLE_EDITOR_TAB_STATE_SCHEMA;
   payload: { hotspotView: HotspotEditorViewState; scroll?: ScrollViewState };
@@ -190,6 +198,14 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('interactables', interactableId),
       persistencePolicy: 'manual-save',
     });
+  const applyProjectPatches = (label: string, patches: Array<Record<string, unknown>>) =>
+    useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label,
+      payload: patches,
+      originSaveUnitId: recordSaveUnitId('interactables', interactableId),
+      persistencePolicy: 'manual-save',
+    });
   const hotspotMode = data.presentation.hotspots;
   const hotspotItems =
     hotspotMode.kind === 'none'
@@ -244,6 +260,42 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           entityId={interactableId}
           record={record}
           kind="interactable"
+        />
+      </div>
+      <div className="mt-4 max-w-3xl">
+        <InteractableDefinitionPropertiesEditor
+          project={project}
+          definitionId={interactableId}
+          properties={record.defaultProperties ?? []}
+          attachedTraits={effectiveRecord?.traits ?? record.traits ?? []}
+          onChange={(state) => {
+            const base = `/interactables/${escapePointerSegment(interactableId)}`;
+            const patches: Array<Record<string, unknown>> = [
+              {
+                op: Object.prototype.hasOwnProperty.call(record, 'defaultProperties')
+                  ? 'replace'
+                  : 'add',
+                path: `${base}/defaultProperties`,
+                value: state.properties,
+              },
+            ];
+            if (record.archetype) {
+              patches.push({
+                op: Object.prototype.hasOwnProperty.call(record, 'archetypeOverrides')
+                  ? 'replace'
+                  : 'add',
+                path: `${base}/archetypeOverrides`,
+                value: { ...(record.archetypeOverrides ?? {}), '/traits': state.traits },
+              });
+            } else {
+              patches.push({
+                op: Object.prototype.hasOwnProperty.call(record, 'traits') ? 'replace' : 'add',
+                path: `${base}/traits`,
+                value: state.traits,
+              });
+            }
+            applyProjectPatches('Update Interactable Properties', patches);
+          }}
         />
       </div>
       <div
@@ -350,23 +402,37 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         {declaredInstances.length ? (
           <div className="mt-3 divide-y rounded border">
             {declaredInstances.map(([instanceId, instance]) => (
-              <div
-                key={instanceId}
-                className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{instance.editorLabel ?? instanceId}</div>
-                  {instance.editorLabel ? (
-                    <div className="truncate text-xs text-muted-foreground">{instanceId}</div>
-                  ) : null}
+              <div key={instanceId} className="space-y-2 px-3 py-3 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{instance.editorLabel ?? instanceId}</div>
+                    {instance.editorLabel ? (
+                      <div className="truncate text-xs text-muted-foreground">{instanceId}</div>
+                    ) : null}
+                  </div>
+                  <div className="shrink-0 text-xs text-muted-foreground">
+                    {instance.location.kind === 'room'
+                      ? `Room: ${instance.location.room.$ref.id}`
+                      : instance.location.kind === 'inventory'
+                        ? `Inventory: ${instance.location.inventory.inventoryId}`
+                        : 'Unplaced'}
+                  </div>
                 </div>
-                <div className="shrink-0 text-xs text-muted-foreground">
-                  {instance.location.kind === 'room'
-                    ? `Room: ${instance.location.room.$ref.id}`
-                    : instance.location.kind === 'inventory'
-                      ? `Inventory: ${instance.location.inventory.inventoryId}`
-                      : 'Unplaced'}
-                </div>
+                <InteractableInstancePropertiesEditor
+                  compact
+                  project={project}
+                  instanceId={instanceId}
+                  instance={instance}
+                  onChange={(next) =>
+                    applyProjectPatches('Update Interactable Instance Properties', [
+                      {
+                        op: 'replace',
+                        path: `/interactableInstances/${escapePointerSegment(instanceId)}`,
+                        value: next,
+                      },
+                    ])
+                  }
+                />
               </div>
             ))}
           </div>

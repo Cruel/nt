@@ -18,6 +18,63 @@ core::Diagnostics world_error(std::string code, std::string message)
         core::Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
+core::Result<void, core::Diagnostics> validate_interactable_property_requirements(
+    const core::CompiledProject& project,
+    const core::compiled::InteractableDefinition& configuration)
+{
+    const auto has_assignment = [&](const core::PropertyId& property) {
+        return std::ranges::any_of(
+            configuration.identity.property_assignments,
+            [&](const auto& assignment) { return assignment.property_id() == property; });
+    };
+    const auto has_trait_default = [&](const core::PropertyId& property) {
+        for (const auto& trait_id : configuration.identity.traits) {
+            const auto* trait = project.find_trait(trait_id);
+            if (trait == nullptr)
+                continue;
+            if (std::ranges::any_of(trait->properties, [&](const auto& member) {
+                    return member.property_id == property && member.configured_value.has_value();
+                }))
+                return true;
+        }
+        return false;
+    };
+    const auto has_value = [&](const core::compiled::OwnerPropertyContract& contract) {
+        return has_assignment(contract.property_id) || contract.configured_value.has_value() ||
+               has_trait_default(contract.property_id);
+    };
+
+    for (const auto& contract : configuration.properties) {
+        if (!has_value(contract))
+            return core::Result<void, core::Diagnostics>::failure(world_error(
+                "runtime.missing_required_property",
+                "Interactable configuration requires Property '" + contract.property_id.text() +
+                    "' to have a Value before an Instance can be created"));
+    }
+    for (const auto& trait_id : configuration.identity.traits) {
+        const auto* trait = project.find_trait(trait_id);
+        if (trait == nullptr)
+            return core::Result<void, core::Diagnostics>::failure(world_error(
+                "runtime.invalid_trait_attachment",
+                "Interactable configuration references missing Trait '" + trait_id.text() + "'"));
+        for (const auto& member : trait->properties) {
+            const auto own = std::ranges::find_if(configuration.properties, [&](const auto& value) {
+                return value.property_id == member.property_id;
+            });
+            if (own != configuration.properties.end())
+                continue;
+            if (!has_assignment(member.property_id) && !has_trait_default(member.property_id))
+                return core::Result<void, core::Diagnostics>::failure(
+                    world_error("runtime.missing_required_property",
+                                "Interactable configuration requires Trait Property '" +
+                                    member.property_id.text() +
+                                    "' to have a Value before an Instance can be "
+                                    "created"));
+        }
+    }
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 template<class Record, class Id>
 Record* find_record(std::vector<Record>& records, const Id& id) noexcept
 {
@@ -553,6 +610,11 @@ RuntimeWorld::create_interactable(RuntimeInstanceConfigurationRequest source,
     if (request == nullptr)
         return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
             resolved.error());
+    auto property_requirements =
+        validate_interactable_property_requirements(m_project, request->configuration);
+    if (!property_requirements)
+        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
+            property_requirements.error());
 
     for (;;) {
         const auto ordinal = m_state.m_next_runtime_instance_id;

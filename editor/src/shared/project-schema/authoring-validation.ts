@@ -18,6 +18,11 @@ import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
 import { parseInteractableData, validateInteractableData } from './authoring-interactables';
 import {
+  effectiveInteractableDefinitionProperties,
+  effectiveInteractableInstanceProperties,
+  effectiveInteractableInstanceTraits,
+} from './authoring-interactable-properties';
+import {
   validateInteractionData,
   validateInteractionProgram,
   validateInteractionResolverProject,
@@ -29,6 +34,7 @@ import {
   arePropertySchemasCompatible,
   authoredRuntimeValuesEqual,
   isPropertyValueCompatible,
+  type AuthoredRuntimeValue,
   type PropertyAssignments,
   type PropertyOwnerKind,
   type TraitDefinition,
@@ -560,6 +566,188 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
   }
 }
 
+function validateInteractableProperties(
+  project: AuthoringProject,
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
+  for (const [definitionId, record] of Object.entries(project.interactables)) {
+    const base = `/interactables/${escapePathSegment(definitionId)}`;
+    const effectiveTraits =
+      resolveGameplayInstanceRecord(project, 'interactable', record)?.traits ?? record.traits ?? [];
+    const local = new Map(
+      (record.defaultProperties ?? []).map((property) => [property.id, property]),
+    );
+    const traitDefaults = new Map<string, { traitId: string; value: AuthoredRuntimeValue }>();
+    for (const traitId of effectiveTraits) {
+      const trait = project.traits[traitId];
+      if (!trait || !trait.ownerKinds.includes('interactable')) continue;
+      for (const property of trait.properties) {
+        const own = local.get(property.id);
+        if (own && !arePropertySchemasCompatible(own, property))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${base}/defaultProperties`,
+              `Definition Property '${property.id}' is incompatible with Trait '${traitId}'.`,
+            ),
+          );
+        if (property.defaultValue !== undefined) {
+          const previousDefault = traitDefaults.get(property.id);
+          if (
+            previousDefault &&
+            !authoredRuntimeValuesEqual(previousDefault.value, property.defaultValue)
+          )
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `${base}/traits`,
+                `Trait '${traitId}' provides a conflicting Default for Property '${property.id}' with Trait '${previousDefault.traitId}'.`,
+                'Project validation',
+                'authoring.trait.default_conflict',
+              ),
+            );
+          else if (!previousDefault)
+            traitDefaults.set(property.id, { traitId, value: property.defaultValue });
+        }
+      }
+    }
+  }
+
+  for (const [instanceId, instance] of Object.entries(project.interactableInstances)) {
+    const base = `/interactableInstances/${escapePathSegment(instanceId)}`;
+    const definition = project.interactables[instance.definition.$ref.id];
+    if (!definition) continue;
+    const definitionTraits = new Set(
+      resolveGameplayInstanceRecord(project, 'interactable', definition)?.traits ??
+        definition.traits ??
+        [],
+    );
+    const add = new Set<string>();
+    for (const [index, traitId] of instance.traits.add.entries()) {
+      const path = `${base}/traits/add/${index}`;
+      if (add.has(traitId))
+        diagnostics.push(diagnostic('error', path, `Trait '${traitId}' is added more than once.`));
+      add.add(traitId);
+      const trait = project.traits[traitId];
+      if (!trait)
+        diagnostics.push(diagnostic('error', path, `Trait '${traitId}' is not declared.`));
+      else if (!trait.ownerKinds.includes('interactable'))
+        diagnostics.push(
+          diagnostic('error', path, `Trait '${traitId}' cannot be attached to interactable.`),
+        );
+      if (definitionTraits.has(traitId))
+        diagnostics.push(
+          diagnostic('error', path, `Trait '${traitId}' is already inherited from the definition.`),
+        );
+    }
+    const remove = new Set<string>();
+    for (const [index, traitId] of instance.traits.remove.entries()) {
+      const path = `${base}/traits/remove/${index}`;
+      if (remove.has(traitId))
+        diagnostics.push(
+          diagnostic('error', path, `Trait '${traitId}' is removed more than once.`),
+        );
+      remove.add(traitId);
+      if (!definitionTraits.has(traitId))
+        diagnostics.push(
+          diagnostic('error', path, `Trait '${traitId}' is not inherited from the definition.`),
+        );
+      if (add.has(traitId))
+        diagnostics.push(
+          diagnostic('error', path, `Trait '${traitId}' cannot be both added and removed.`),
+        );
+    }
+
+    const effective = effectiveInteractableInstanceProperties(project, instance);
+    const inherited = new Map(
+      effective
+        .filter((property) => !property.localOnly)
+        .map((property) => [property.id, property]),
+    );
+    for (const [index, property] of instance.localProperties.entries()) {
+      const inheritedProperty = inherited.get(property.id);
+      if (inheritedProperty && !arePropertySchemasCompatible(property, inheritedProperty.contract))
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/localProperties/${index}`,
+            `Instance-local Property '${property.id}' is incompatible with its inherited Property schema.`,
+          ),
+        );
+    }
+    const effectiveById = new Map(effective.map((property) => [property.id, property]));
+    for (const [propertyId, value] of Object.entries(instance.properties)) {
+      const property = effectiveById.get(propertyId);
+      if (!property)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/properties/${escapePathSegment(propertyId)}`,
+            `Override Property '${propertyId}' has no effective Property contract.`,
+          ),
+        );
+      else if (!isPropertyValueCompatible(property.contract, value))
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/properties/${escapePathSegment(propertyId)}`,
+            `Override does not match Property '${propertyId}'.`,
+          ),
+        );
+    }
+    for (const property of effective) {
+      if (!property.hasValue)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/properties`,
+            `Interactable Instance '${instanceId}' requires Property '${property.id}' to have a Value.`,
+            'Project validation',
+            'authoring.interactable.missing_property_value',
+          ),
+        );
+    }
+
+    const effectiveTraitIds = effectiveInteractableInstanceTraits(project, instance);
+    const seen = new Map<string, TraitProperty>();
+    const defaults = new Map<string, { traitId: string; value: AuthoredRuntimeValue }>();
+    for (const traitId of effectiveTraitIds) {
+      const trait = project.traits[traitId];
+      if (!trait) continue;
+      for (const property of trait.properties) {
+        const previous = seen.get(property.id);
+        if (previous && !arePropertySchemasCompatible(previous, property))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${base}/traits`,
+              `Effective Traits contribute incompatible schemas for Property '${property.id}'.`,
+            ),
+          );
+        else if (!previous) seen.set(property.id, property);
+        if (property.defaultValue !== undefined) {
+          const previousDefault = defaults.get(property.id);
+          if (
+            previousDefault &&
+            !authoredRuntimeValuesEqual(previousDefault.value, property.defaultValue)
+          )
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `${base}/traits`,
+                `Effective Traits provide conflicting Defaults for Property '${property.id}'.`,
+                'Project validation',
+                'authoring.trait.default_conflict',
+              ),
+            );
+          else if (!previousDefault)
+            defaults.set(property.id, { traitId, value: property.defaultValue });
+        }
+      }
+    }
+  }
+}
+
 function validateAssets(project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) {
   const aliases = new Map<string, string>();
   for (const [id, record] of Object.entries(project.assets)) {
@@ -744,6 +932,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   const effectiveProject = effectiveGameplayProject(project);
   validateProperties(effectiveProject, diagnostics);
   validateTraits(effectiveProject, diagnostics);
+  validateInteractableProperties(effectiveProject, diagnostics);
   validateFeatures(effectiveProject, diagnostics);
   diagnostics.push(...validateAuthoringInventories(project));
   validateAssets(effectiveProject, diagnostics);

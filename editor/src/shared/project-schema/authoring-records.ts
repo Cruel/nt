@@ -9,7 +9,11 @@ import { dialogueDataSchema } from './authoring-dialogues';
 import { layoutDataSchema } from './authoring-layouts';
 import { materialDataSchema } from './authoring-materials';
 import { mapDataSchema } from './authoring-maps';
-import { ownerLocalPropertiesSchema, propertyAssignmentsSchema } from './authoring-properties';
+import {
+  ownerDefaultPropertiesSchema,
+  ownerLocalPropertiesSchema,
+  propertyAssignmentsSchema,
+} from './authoring-properties';
 import { roomDataSchema } from './authoring-rooms';
 import { sceneDataSchema } from './authoring-scenes';
 import { shaderDataSchema } from './authoring-shaders';
@@ -50,6 +54,17 @@ function ownerLocalPropertyRecordSchema<Data extends z.ZodType>(data: Data) {
     .strict();
 }
 
+function ownerDefaultPropertyRecordSchema<Data extends z.ZodType>(data: Data) {
+  return z
+    .object({
+      ...recordIdentityShape,
+      ...propertyRecordShape,
+      defaultProperties: ownerDefaultPropertiesSchema.optional(),
+      data,
+    })
+    .strict();
+}
+
 export const assetRecordSchema = recordSchema(assetDataSchema.strict());
 export const variableRecordSchema = recordSchema(variableDataSchema.strict());
 export const shaderRecordSchema = recordSchema(shaderDataSchema.strict());
@@ -58,7 +73,9 @@ export const layoutRecordSchema = recordSchema(layoutDataSchema.strict());
 export const archetypeRecordSchema = recordSchema(archetypeDataSchema);
 export const characterRecordSchema = ownerLocalPropertyRecordSchema(characterDataSchema.strict());
 export const roomRecordSchema = ownerLocalPropertyRecordSchema(roomDataSchema.strict());
-export const interactableRecordSchema = propertyRecordSchema(interactableDataSchema.strict());
+export const interactableRecordSchema = ownerDefaultPropertyRecordSchema(
+  interactableDataSchema.strict(),
+);
 export const verbRecordSchema = recordSchema(verbDataSchema);
 export const interactionRecordSchema = recordSchema(interactionDataSchema);
 export const dialogueRecordSchema = recordSchema(dialogueDataSchema.strict());

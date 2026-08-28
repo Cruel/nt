@@ -48,6 +48,7 @@ import {
   OwnerLocalPropertiesEditor,
   type OwnerPropertyTraitState,
 } from '@/components/properties/OwnerLocalPropertiesEditor';
+import { InteractableInstancePropertiesEditor } from '@/components/properties/InteractablePropertyEditors';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 import {
@@ -69,6 +70,10 @@ import {
   filterSelectorItems,
   type SelectorItem,
 } from '@/workspace/command-palette-search';
+
+function escapePointerSegment(value: string) {
+  return value.replaceAll('~', '~0').replaceAll('/', '~1');
+}
 import {
   defaultRoomData,
   parseRoomData,
@@ -945,10 +950,22 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const selectedPlacementInteractables = selectedPlacementId
     ? data.interactables
         .filter((entry) => entry.placementId === selectedPlacementId)
-        .map((entry) => ({
-          id: entry.id,
-          label: project.interactables[entry.interactable.$ref.id]?.label ?? entry.id,
-        }))
+        .flatMap((entry) => {
+          const instanceId = entry.interactable.$ref.id;
+          const instance = project.interactableInstances[instanceId];
+          if (!instance) return [];
+          return [
+            {
+              id: entry.id,
+              instanceId,
+              instance,
+              label:
+                instance.editorLabel ??
+                project.interactables[instance.definition.$ref.id]?.label ??
+                instanceId,
+            },
+          ];
+        })
     : [];
   const referenceResolution = projectSettingsFromProject(project).display.referenceResolution;
   const placingInteractableData = placingInteractable
@@ -2376,6 +2393,30 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                 </div>
               ) : null}
+              {selectedPlacementInteractables.map((interactable) => (
+                <InteractableInstancePropertiesEditor
+                  key={interactable.instanceId}
+                  compact
+                  project={project}
+                  instanceId={interactable.instanceId}
+                  instance={interactable.instance}
+                  onChange={(next) =>
+                    useCommandStore.getState().executeCommand({
+                      type: 'project.applyPatch',
+                      label: 'Update Interactable Instance Properties',
+                      payload: [
+                        {
+                          op: 'replace',
+                          path: `/interactableInstances/${escapePointerSegment(interactable.instanceId)}`,
+                          value: next,
+                        },
+                      ],
+                      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                      persistencePolicy: 'manual-save',
+                    })
+                  }
+                />
+              ))}
             </section>
             <section
               className="space-y-4 rounded-xl border bg-card/20 p-4"

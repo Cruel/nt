@@ -34,6 +34,11 @@ import {
   type InteractableInstanceData,
   type InteractableData,
 } from './project-schema/authoring-interactables';
+import {
+  effectiveInteractableDefinitionProperties,
+  effectiveInteractableInstanceProperties,
+  effectiveInteractableInstanceTraits,
+} from './project-schema/authoring-interactable-properties';
 import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
 import { compileRoomNavigationTransition, parseRoomData } from './project-schema/authoring-rooms';
@@ -790,9 +795,23 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       `/interactables/${id}/data`,
     );
     if (!data || !effectiveRecord) continue;
+    const definitionProperties = effectiveInteractableDefinitionProperties(project, id);
     interactables.push({
-      ...propertyBase(id, effectiveRecord),
+      id,
+      traits: [...(effectiveRecord.traits ?? [])].sort(),
+      propertyAssignments: [],
       displayName: data.displayName,
+      properties: definitionProperties
+        .filter((property) => property.source !== 'trait')
+        .map((property) => ({
+          id: property.id,
+          label: property.contract.label ?? property.id,
+          description: property.contract.description ?? '',
+          type: property.contract.type,
+          nullable: property.contract.nullable,
+          enumValues: [...(property.contract.enumValues ?? [])],
+          ...(property.defaultValue === undefined ? {} : { defaultValue: property.defaultValue }),
+        })),
       features: data.features.map(compileFeature),
       inventories: compileInventories(data.inventories),
       presentation: {
@@ -805,18 +824,40 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
 
   const interactableInstances: CompiledProjectWire['interactableInstances'] = sortedEntries(
     project.interactableInstances,
-  ).map(([id, instance]) => ({
-    id,
-    definition: { kind: 'interactable-definition', id: instance.definition.$ref.id },
-    location: compileInteractableLocation(instance.location),
-    enabled: instance.enabled,
-    visible: instance.visible,
-    traitAdds: [...instance.traits.add].sort(),
-    traitRemoves: [...instance.traits.remove].sort(),
-    propertyOverrides: Object.entries(instance.properties)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([propertyId, value]) => ({ propertyId, value })),
-  }));
+  ).map(([id, instance]) => {
+    const effectiveProperties = effectiveInteractableInstanceProperties(project, instance);
+    const overrides = new Map(Object.entries(instance.properties));
+    for (const property of effectiveProperties) {
+      if (!property.localOnly && property.localProperty)
+        overrides.set(property.id, property.localProperty.value);
+    }
+    const localOnlyIds = new Set(
+      effectiveProperties.filter((property) => property.localOnly).map((property) => property.id),
+    );
+    return {
+      id,
+      definition: { kind: 'interactable-definition', id: instance.definition.$ref.id },
+      location: compileInteractableLocation(instance.location),
+      enabled: instance.enabled,
+      visible: instance.visible,
+      traitAdds: [...instance.traits.add].sort(),
+      traitRemoves: [...instance.traits.remove].sort(),
+      propertyOverrides: [...overrides.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([propertyId, value]) => ({ propertyId, value })),
+      localProperties: instance.localProperties
+        .filter((property) => localOnlyIds.has(property.id))
+        .map((property) => ({
+          id: property.id,
+          label: property.label ?? property.id,
+          description: property.description ?? '',
+          type: property.type,
+          nullable: property.nullable,
+          enumValues: [...(property.enumValues ?? [])],
+          value: property.value,
+        })),
+    };
+  });
 
   const verbs: SharedVerbDefinition[] = [];
   for (const [id, record] of sortedEntries(project.verbs)) {
@@ -1243,6 +1284,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           traits: [...configuration.traits].sort(),
           propertyAssignments: propertyAssignments(configuration),
           displayName: data.displayName,
+          properties: [],
           features: data.features.map(compileFeature),
           inventories: compileInventories(data.inventories),
           presentation: {
@@ -1338,6 +1380,23 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           scope: 'identity',
         });
       }
+    }
+  }
+  for (const [instanceId, instance] of sortedEntries(project.interactableInstances)) {
+    for (const property of effectiveInteractableInstanceProperties(project, instance)) {
+      properties.push({
+        id: property.id,
+        label: property.contract.label ?? property.id,
+        description: property.contract.description ?? '',
+        type: property.contract.type,
+        nullable: property.contract.nullable,
+        enumValues: [...(property.contract.enumValues ?? [])],
+        owner: {
+          kind: 'interactable',
+          interactable: { kind: 'interactable', id: instanceId },
+        },
+        scope: 'identity',
+      });
     }
   }
 

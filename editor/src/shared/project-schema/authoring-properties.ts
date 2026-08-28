@@ -122,6 +122,65 @@ export const ownerLocalPropertiesSchema = z
     });
   });
 
+export const ownerDefaultPropertySchema = z
+  .object({
+    id: entityIdSchema,
+    label: z.string().min(1).optional(),
+    description: z.string().optional(),
+    type: z.enum(propertyValueTypeValues),
+    nullable: z.boolean(),
+    defaultValue: authoredRuntimeValueSchema.optional(),
+    enumValues: z.array(z.string().min(1)).optional(),
+  })
+  .strict()
+  .superRefine((property, context) => {
+    const enumValues = property.enumValues ?? [];
+    if (property.type === 'enum') {
+      if (enumValues.length === 0)
+        context.addIssue({
+          code: 'custom',
+          path: ['enumValues'],
+          message: 'Enum properties require at least one enum value.',
+        });
+      if (new Set(enumValues).size !== enumValues.length)
+        context.addIssue({
+          code: 'custom',
+          path: ['enumValues'],
+          message: 'Enum property values must be unique.',
+        });
+    } else if (property.enumValues !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['enumValues'],
+        message: 'enumValues is valid only for enum properties.',
+      });
+    }
+    if (
+      property.defaultValue !== undefined &&
+      !isPropertyValueCompatible(property, property.defaultValue)
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['defaultValue'],
+        message: 'Default does not match the Property declaration.',
+      });
+  });
+
+export const ownerDefaultPropertiesSchema = z
+  .array(ownerDefaultPropertySchema)
+  .superRefine((items, context) => {
+    const seen = new Set<string>();
+    items.forEach((item, index) => {
+      if (seen.has(item.id))
+        context.addIssue({
+          code: 'custom',
+          path: [index, 'id'],
+          message: `Property '${item.id}' is declared more than once on this owner.`,
+        });
+      seen.add(item.id);
+    });
+  });
+
 export const propertyAssignmentsSchema = z.record(entityIdSchema, authoredRuntimeValueSchema);
 
 export const traitPropertySchema = z
@@ -202,6 +261,7 @@ export type PropertyOwnerKind = (typeof propertyOwnerKindValues)[number];
 export type PropertyDefinition = z.infer<typeof propertyDefinitionSchema>;
 export type AuthoredRuntimeValue = z.infer<typeof authoredRuntimeValueSchema>;
 export type OwnerLocalProperty = z.infer<typeof ownerLocalPropertySchema>;
+export type OwnerDefaultProperty = z.infer<typeof ownerDefaultPropertySchema>;
 export type PropertyAssignments = z.infer<typeof propertyAssignmentsSchema>;
 export type TraitProperty = z.infer<typeof traitPropertySchema>;
 export type TraitDefinition = z.infer<typeof traitDefinitionSchema>;
