@@ -293,6 +293,11 @@
         "search": ["variáveis", "estado flags", "variables", "state flags"],
         "subtitle": "Abrir editor de variáveis",
         "title": "Variáveis"
+      },
+      "traits": {
+        "search": ["traits", "propriedades reutilizáveis", "property contracts"],
+        "subtitle": "Abrir editor de Traits",
+        "title": "Traits"
       }
     },
     "empty": "Nenhum comando ou registro corresponde à busca.",

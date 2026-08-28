@@ -507,13 +507,15 @@ function resolvedProperty(
   propertyId: string,
 ): { kind: 'value'; value: null | boolean | number | string } | { kind: 'missing' } {
   const record = recordForOwner(project, kind, id);
+  const local = record?.localProperties?.find((property) => property.id === propertyId);
+  if (local) return { kind: 'value', value: local.value };
   if (record && Object.hasOwn(record.properties ?? {}, propertyId))
     return { kind: 'value', value: record.properties![propertyId] };
   for (const traitId of record?.traits ?? []) {
     const member = project.traits[traitId]?.properties.find(
-      (property) => property.kind === 'configured' && property.propertyId === propertyId,
+      (property) => property.id === propertyId,
     );
-    if (member?.kind === 'configured') return { kind: 'value', value: member.value };
+    if (member?.defaultValue !== undefined) return { kind: 'value', value: member.defaultValue };
   }
   const fallback = project.properties[propertyId]?.defaultValue;
   return fallback !== undefined ? { kind: 'value', value: fallback } : { kind: 'missing' };

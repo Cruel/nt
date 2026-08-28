@@ -206,16 +206,21 @@ const featureDefinitionSchema = strict({
   inventories: z.array(inventoryDefinitionSchema),
 });
 
-const traitPropertySchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('required'), propertyId: id }),
-  strict({ kind: z.literal('configured'), propertyId: id, value: runtimeValueSchema }),
-]);
+const traitPropertySchema = strict({
+  id,
+  label: z.string().min(1),
+  description: z.string(),
+  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
+  nullable: z.boolean(),
+  enumValues: z.array(z.string().min(1)),
+  defaultValue: runtimeValueSchema.optional(),
+});
 const traitDefinitionSchema = strict({
   description: z.string(),
   id,
   label: z.string().min(1),
   ownerKinds: z.array(propertyOwnerKindSchema).min(1),
-  properties: z.array(traitPropertySchema).min(1),
+  properties: z.array(traitPropertySchema),
 });
 
 const propertyDefinitionCommon = {

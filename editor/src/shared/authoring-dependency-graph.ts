@@ -1934,23 +1934,6 @@ function deriveStructuralContributionByKey(
     if (!definition) return null;
     const key = traitDefinitionNodeKey(id);
     const ownerPath = `/traits/${escapeJsonPointerSegment(id)}`;
-    const edges = definition.properties.map((property, index) =>
-      structuralEdge(
-        key,
-        propertyDefinitionNodeKey(property.propertyId),
-        `${ownerPath}/properties/${index}/propertyId`,
-        `/properties/${escapeJsonPointerSegment(property.propertyId)}`,
-        {
-          role: 'trait-property',
-          facets: ['reference-integrity', 'tooling-reference', 'validation', 'runtime-only'],
-          targetImpactPaths: [`/properties/${escapeJsonPointerSegment(property.propertyId)}`],
-          repair: {
-            kind: 'blocked',
-            reason: 'Trait Property membership must be repaired explicitly.',
-          },
-        },
-      ),
-    );
     return {
       key: contributionKey,
       ownerPath,
@@ -1962,7 +1945,7 @@ function deriveStructuralContributionByKey(
           label: definition.label,
         },
       ],
-      edges,
+      edges: [],
       diagnostics: [],
       derivationDependencies: [],
       literalOccurrences: [],

@@ -403,6 +403,19 @@ export function buildVariablesEditorTab(selectedId?: string): WorkbenchTab {
   };
 }
 
+export function buildTraitsEditorTab(): WorkbenchTab {
+  return {
+    id: 'tab:traits',
+    title: 'Traits',
+    editorType: 'traits',
+    resource: {
+      kind: 'project',
+      stableId: 'traits',
+      collection: 'traits',
+    },
+  };
+}
+
 export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'variables') return buildVariablesEditorTab(node.entityId);
   if (node.collection === 'assets' && !node.entityId) return buildAssetsEditorTab();
@@ -567,6 +580,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'placeholder-entity') return Puzzle;
   if (editorType === 'test-detail' || editorType === 'test-suite') return ListChecks;
   if (editorType === 'variables') return SlidersHorizontal;
+  if (editorType === 'traits') return Puzzle;
   if (editorType === 'components') return Puzzle;
   if (editorType === 'settings') return Settings;
   if (editorType === 'comfyui-workflows') return Workflow;

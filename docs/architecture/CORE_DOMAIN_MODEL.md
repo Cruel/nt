@@ -137,14 +137,15 @@ Property lookup for definition `D` is exactly:
 Overrides are stored once by `(PropertyTargetRef, PropertyId)`, where the target is either the explicit
 global target or an admitted identity. Identity overrides are owner-local: no value propagates from
 one definition to another. Unsetting removes only that override and resumes the same
-assignment/Trait/default lookup. Global lookup resolves the same override store before its required
+authored/Trait-default lookup. Global lookup resolves the same override store before its required
 authored default. Production Room, Character, and Interactable reads use the same
 `RuntimeWorld::resolve_property(...)` seam; runtime consumers do not implement alternative Trait
 precedence themselves.
 
-Trait attachments and configured values are immutable compiled data. Direct assignments override
-Trait configuration. Conflicting configured Trait values, invalid owner attachments, and unsatisfied
-required members are rejected before runtime publication. Verb availability and default programs are
+Trait attachments and their self-contained typed Property contracts are immutable compiled data.
+Concrete authored values/defaults override Trait Defaults. Incompatible same-key Trait schemas,
+conflicting Trait Defaults, invalid owner attachments, and unsatisfied no-Default members on concrete
+owners are rejected before runtime publication. Verb availability and default programs are
 owned only by that Verb; an unhandled selected program falls back to the selected Verb's own default
 program and then to the project undefined-interaction fallback. There is no generic same-type gameplay
 definition inheritance.
@@ -158,8 +159,8 @@ defaults remain immutable in `CompiledProject`; backend resources, renderer stat
 internals, tween internals, and Lua VM or coroutine state are excluded.
 
 The Save File V1 payload is the persisted subset of `SessionState`. Every authoritative
-Property override is serialized once at its actual target; authored assignments, Trait configuration,
-declaration defaults, and other effective values are never materialized into a save. There is no Session-versus-Save Property class. A missing
+Property override is serialized once at its actual target; authored values/defaults, Trait contracts
+and Defaults, and other effective values are never materialized into a save. There is no Session-versus-Save Property class. A missing
 override record means unset, while an admitted nullable null is an explicit saved override. Stable flow
 positions and remaining logical duration waits may be saved. Visual/audio operations restore to
 documented logical post-step state rather than backend snapshots. Every save carries the exact

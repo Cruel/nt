@@ -9,6 +9,7 @@ import {
   buildProjectSettingsTab,
   buildSettingsTab,
   buildTestsEditorTab,
+  buildTraitsEditorTab,
   buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
@@ -65,6 +66,7 @@ function tabForItem(item: CommandPaletteItem): WorkbenchTab | null {
   if (item.action === 'project-settings') return buildProjectSettingsTab();
   if (item.action === 'assets') return buildAssetsEditorTab();
   if (item.action === 'variables') return buildVariablesEditorTab();
+  if (item.action === 'traits') return buildTraitsEditorTab();
   if (item.action === 'tests') return buildTestsEditorTab();
   return null;
 }

@@ -332,7 +332,7 @@ describe('authoring compiler framework', () => {
       id: 'tense-room',
       label: 'Tense Room',
       ownerKinds: ['room'],
-      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+      properties: [{ id: 'mood', type: 'string', nullable: false, defaultValue: 'tense' }],
     };
     project.rooms.hall = {
       ...project.rooms.hall!,
@@ -375,7 +375,17 @@ describe('authoring compiler framework', () => {
         label: 'Tense Room',
         description: '',
         ownerKinds: ['room'],
-        properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+        properties: [
+          {
+            id: 'mood',
+            label: 'mood',
+            description: '',
+            type: 'string',
+            nullable: false,
+            enumValues: [],
+            defaultValue: 'tense',
+          },
+        ],
       },
     ]);
     expect(draft.definitions.rooms[1]).toMatchObject({
@@ -389,6 +399,13 @@ describe('authoring compiler framework', () => {
     });
     expect(draft.properties).toEqual([
       expect.objectContaining({ id: 'mood', scope: 'identity', enumValues: ['calm', 'tense'] }),
+      expect.objectContaining({
+        id: 'mood',
+        scope: 'identity',
+        owner: { kind: 'room', room: { kind: 'room', id: 'hall' } },
+        type: 'string',
+        enumValues: [],
+      }),
       expect.objectContaining({
         id: 'visited',
         scope: 'global',
@@ -1231,7 +1248,7 @@ describe('authoring compiler framework', () => {
       id: 'quest',
       label: 'Quest object',
       ownerKinds: ['interactable'],
-      properties: [{ kind: 'required', propertyId: 'polished' }],
+      properties: [{ id: 'polished', type: 'boolean', nullable: false }],
     };
     project.interactables.key = {
       id: 'key',

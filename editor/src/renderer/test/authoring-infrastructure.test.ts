@@ -54,7 +54,7 @@ describe('authoring V2 infrastructure', () => {
       id: 'tense-room',
       label: 'Tense Room',
       ownerKinds: ['room'],
-      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+      properties: [{ id: 'mood', type: 'string', nullable: false, defaultValue: 'tense' }],
     };
     project.rooms.child = {
       id: 'child',

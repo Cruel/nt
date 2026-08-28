@@ -44,7 +44,10 @@ import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
 import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
-import { OwnerLocalPropertiesEditor } from '@/components/properties/OwnerLocalPropertiesEditor';
+import {
+  OwnerLocalPropertiesEditor,
+  type OwnerPropertyTraitState,
+} from '@/components/properties/OwnerLocalPropertiesEditor';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 import {
@@ -789,6 +792,30 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+  const commitPropertyTraitState = (state: OwnerPropertyTraitState) =>
+    useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: `Update ${roomId} Trait Properties`,
+      payload: [
+        {
+          op: Object.prototype.hasOwnProperty.call(record, 'traits') ? 'replace' : 'add',
+          path: `/rooms/${roomId}/traits`,
+          value: state.traits,
+        },
+        {
+          op: Object.prototype.hasOwnProperty.call(record, 'properties') ? 'replace' : 'add',
+          path: `/rooms/${roomId}/properties`,
+          value: state.properties,
+        },
+        {
+          op: Object.prototype.hasOwnProperty.call(record, 'localProperties') ? 'replace' : 'add',
+          path: `/rooms/${roomId}/localProperties`,
+          value: state.localProperties,
+        },
+      ],
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
   const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
     useCommandStore.getState().executeCommand({
       type,
@@ -1215,6 +1242,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             ownerLabel={`Room '${record.label}'`}
             properties={record.localProperties ?? []}
             onChange={commitLocalProperties}
+            traits={project.traits}
+            ownerKind="room"
+            attachedTraits={record.traits ?? []}
+            propertyOverrides={record.properties ?? {}}
+            traitColorFor={(traitId) =>
+              project.editor.recordMetadata.traits?.[traitId]?.color ?? null
+            }
+            onTraitStateChange={commitPropertyTraitState}
             usageCountFor={(propertyId) =>
               ownerLocalPropertyReferencePaths(project, { kind: 'room', id: roomId }, propertyId)
                 .length

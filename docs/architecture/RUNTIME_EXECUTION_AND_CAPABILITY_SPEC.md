@@ -365,8 +365,9 @@ provenance, Flow, Location, Inventory, presentation, topology, or lifecycle refe
 identity.
 
 Gameplay Instance Property reads use `RuntimeWorld::resolve_property(...)`, which applies target
-override, own authored assignment, configured Trait value, declaration default, and typed-missing
-semantics behind the same world boundary. Property overrides and ordinary Character/Interactable
+override, more-specific concrete authored value/default, attached Trait Default, and typed-missing
+semantics behind the same world boundary. Trait schema is supplied directly by the self-contained
+Trait contract and projected to exact runtime owners where needed. Property overrides and ordinary Character/Interactable
 world state remain authoritative mutable `SessionState`, separate from structural configuration.
 Checkpoint projection serializes runtime identity/provenance, configuration source snapshots and Room
 exit overlays, topology/state, and the deterministic allocator position; restoration reconstructs the

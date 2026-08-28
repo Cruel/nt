@@ -11,7 +11,8 @@ owner-local typed Properties directly on the Room authoring record. Those Proper
 exact Room identity, carry their own type/nullability/enum contract plus concrete authored Value,
 and do not require a project-wide identity Property declaration. The same Property key may therefore
 mean something unrelated on another Room. Rooms may also attach compatible Traits; Trait-backed
-Properties still use the transitional shared identity Property registry until their later migration
+Properties derive their typed schema directly from those Trait contracts and compile as exact-owner
+Property declarations for the Room runtime identity
 slice and do not merge Features, exits, placements, overlays, resources, or programs.
 
 A declared Room authoring record may attach one same-kind Archetype. The editor resolves the complete

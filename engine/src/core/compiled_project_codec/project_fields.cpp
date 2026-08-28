@@ -711,44 +711,55 @@ std::optional<TraitDeclaration> decode_trait(Decoder& decoder, const nlohmann::j
                           decoder.error(k_code_type, "Expected an object.", member_pointer);
                           return std::nullopt;
                       }
-                      const auto* kind_value = decoder.member(member, "kind", member_pointer);
-                      auto kind = kind_value ? decoder.string(*kind_value,
-                                                              pointer_child(member_pointer, "kind"))
-                                             : std::nullopt;
-                      if (!kind || (*kind != "required" && *kind != "configured")) {
-                          if (kind)
-                              decoder.error(k_code_variant, "Unknown Trait Property kind.",
-                                            pointer_child(member_pointer, "kind"));
+                      if (!decoder.object(member, member_pointer,
+                                          {"defaultValue", "description", "enumValues", "id",
+                                           "label", "nullable", "type"}))
                           return std::nullopt;
-                      }
-                      const bool configured = *kind == "configured";
-                      if (!decoder.object(
-                              member, member_pointer,
-                              configured
-                                  ? std::initializer_list<std::string_view>{"kind", "propertyId",
-                                                                            "value"}
-                                  : std::initializer_list<std::string_view>{"kind", "propertyId"}))
-                          return std::nullopt;
-                      const auto* property_value =
-                          decoder.member(member, "propertyId", member_pointer);
+                      const auto* property_value = decoder.member(member, "id", member_pointer);
+                      const auto* type_value = decoder.member(member, "type", member_pointer);
+                      const auto* enum_value = decoder.member(member, "enumValues", member_pointer);
+                      const auto* nullable_value =
+                          decoder.member(member, "nullable", member_pointer);
+                      const auto* label_value = decoder.member(member, "label", member_pointer);
+                      const auto* description_value =
+                          decoder.member(member, "description", member_pointer);
                       auto property =
-                          property_value
-                              ? decoder.id<PropertyId>(*property_value,
-                                                       pointer_child(member_pointer, "propertyId"))
+                          property_value ? decoder.id<PropertyId>(
+                                               *property_value, pointer_child(member_pointer, "id"))
+                                         : std::nullopt;
+                      std::vector<std::string> enum_values;
+                      auto type = type_value && enum_value
+                                      ? decode_value_type(decoder, *type_value, *enum_value,
+                                                          member_pointer, enum_values)
+                                      : std::nullopt;
+                      auto nullable =
+                          nullable_value
+                              ? decoder.boolean(*nullable_value,
+                                                pointer_child(member_pointer, "nullable"))
                               : std::nullopt;
+                      auto label =
+                          label_value ? decoder.string(*label_value,
+                                                       pointer_child(member_pointer, "label"), true)
+                                      : std::nullopt;
+                      auto description =
+                          description_value
+                              ? decoder.string(*description_value,
+                                               pointer_child(member_pointer, "description"))
+                              : std::nullopt;
+                      const auto* default_value = json_access::member(member, "defaultValue");
                       std::optional<RuntimeValue> configured_value;
-                      bool value_ok = !configured;
-                      if (configured) {
-                          const auto* value_value = decoder.member(member, "value", member_pointer);
-                          if (value_value) {
-                              configured_value = decode_runtime_value(
-                                  decoder, *value_value, pointer_child(member_pointer, "value"));
-                              value_ok = configured_value.has_value();
-                          }
+                      bool value_ok = true;
+                      if (default_value != nullptr) {
+                          configured_value =
+                              decode_runtime_value(decoder, *default_value,
+                                                   pointer_child(member_pointer, "defaultValue"));
+                          value_ok = configured_value.has_value();
                       }
-                      return property && value_ok
+                      return property && type && nullable && label && description && value_ok
                                  ? std::optional<TraitProperty>(TraitProperty{
-                                       std::move(*property), std::move(configured_value)})
+                                       std::move(*property), std::move(*type), *nullable,
+                                       std::move(enum_values), std::move(configured_value),
+                                       std::move(*label), std::move(*description)})
                                  : std::nullopt;
                   })
             : std::nullopt;
@@ -767,11 +778,10 @@ std::optional<TraitDeclaration> decode_trait(Decoder& decoder, const nlohmann::j
                 decoder.error(
                     k_code_duplicate, "Duplicate Trait Property '" + text + "'.",
                     pointer_child(pointer_index(pointer_child(pointer, "properties"), index),
-                                  "propertyId"));
+                                  "id"));
         }
     }
-    if (!id || !label || !description || !owners || owners->empty() || !properties ||
-        properties->empty())
+    if (!id || !label || !description || !owners || owners->empty() || !properties)
         return std::nullopt;
     return TraitDeclaration{std::move(*id), std::move(*label), std::move(*description),
                             std::move(*owners), std::move(*properties)};

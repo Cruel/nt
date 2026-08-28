@@ -739,13 +739,18 @@ TEST_CASE("typed Room flow targets run lifecycle and Trait-backed Properties hav
                                       {"enumValues", nlohmann::json::array()},
                                       {"ownerKinds", nlohmann::json::array({"room"})},
                                       {"scope", "identity"}});
-    document["traits"].push_back({{"id", "mapped-room"},
-                                  {"label", "Mapped Room"},
-                                  {"description", "Provides the ordinary map Property."},
-                                  {"ownerKinds", nlohmann::json::array({"room"})},
-                                  {"properties", nlohmann::json::array({{{"kind", "configured"},
-                                                                         {"propertyId", "map"},
-                                                                         {"value", "house"}}})}});
+    document["traits"].push_back(
+        {{"id", "mapped-room"},
+         {"label", "Mapped Room"},
+         {"description", "Provides the ordinary map Property."},
+         {"ownerKinds", nlohmann::json::array({"room"})},
+         {"properties", nlohmann::json::array({{{"id", "map"},
+                                                {"label", "Map"},
+                                                {"description", "Room map"},
+                                                {"type", "string"},
+                                                {"nullable", false},
+                                                {"enumValues", nlohmann::json::array()},
+                                                {"defaultValue", "house"}}})}});
     room_document(document, "start")["propertyAssignments"].push_back(
         {{"propertyId", "map"}, {"value", "start-map"}});
     room_document(document, "hall")["traits"].push_back("mapped-room");

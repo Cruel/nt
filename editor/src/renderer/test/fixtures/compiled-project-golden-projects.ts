@@ -422,8 +422,14 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     description: 'Configures a tense mood while requiring visit tracking.',
     ownerKinds: ['room'],
     properties: [
-      { kind: 'configured', propertyId: 'mood', value: 'tense' },
-      { kind: 'required', propertyId: 'visit-count' },
+      {
+        id: 'mood',
+        type: 'enum',
+        nullable: false,
+        enumValues: ['calm', 'tense'],
+        defaultValue: 'tense',
+      },
+      { id: 'visit-count', type: 'integer', nullable: false },
     ],
   };
   project.traits['feature-enabled'] = {
@@ -431,13 +437,21 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     label: 'Feature Enabled',
     description: 'Requires an enabled state for semantic Features.',
     ownerKinds: ['feature'],
-    properties: [{ kind: 'required', propertyId: 'enabled' }],
+    properties: [{ id: 'enabled', type: 'boolean', nullable: false }],
   };
   project.traits.currency = {
     id: 'currency',
     label: 'Currency',
     ownerKinds: ['interactable'],
-    properties: [{ kind: 'configured', propertyId: 'quality', value: 'polished' }],
+    properties: [
+      {
+        id: 'quality',
+        type: 'enum',
+        nullable: false,
+        enumValues: ['ordinary', 'polished'],
+        defaultValue: 'polished',
+      },
+    ],
   };
   project.inventories = [{ id: 'player', label: 'Player Inventory' }];
 

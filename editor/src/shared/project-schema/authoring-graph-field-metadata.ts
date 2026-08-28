@@ -770,7 +770,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     settings: 'e2c61a79',
     shaders: '94d3aa6e',
     tests: '260b9d4f',
-    traits: 'e06af863',
+    traits: 'f6534a48',
     undefinedInteractionProgram: '132464ef',
     variables: '9c9e4800',
     verbs: 'dd471160',

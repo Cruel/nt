@@ -176,7 +176,7 @@ describe('authoring V2 validation', () => {
       id: 'inspectable',
       label: 'Inspectable',
       ownerKinds: ['room'],
-      properties: [{ kind: 'required', propertyId: 'clue' }],
+      properties: [{ id: 'clue', type: 'string', nullable: false }],
     };
     project.rooms.a = {
       id: 'a',
@@ -217,7 +217,7 @@ describe('authoring V2 validation', () => {
       id: 'room-state',
       label: 'Room State',
       ownerKinds: ['room'],
-      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+      properties: [{ id: 'mood', type: 'string', nullable: false, defaultValue: 'tense' }],
     };
     project.rooms.a = {
       id: 'a',
@@ -246,6 +246,137 @@ describe('authoring V2 validation', () => {
     );
   });
 
+  it('accepts empty Traits and concrete owner Values for required Trait Properties', () => {
+    const project = createAuthoringProject();
+    project.traits.marker = {
+      id: 'marker',
+      label: 'Marker',
+      ownerKinds: ['room'],
+      properties: [],
+    };
+    project.traits.inspectable = {
+      id: 'inspectable',
+      label: 'Inspectable',
+      ownerKinds: ['room'],
+      properties: [{ id: 'clue', type: 'string', nullable: false }],
+    };
+    project.rooms.a = {
+      id: 'a',
+      label: 'A',
+      traits: ['marker', 'inspectable'],
+      localProperties: [
+        {
+          id: 'clue',
+          type: 'string',
+          nullable: false,
+          value: 'portrait',
+        },
+      ],
+      data: defaultRoomData('A'),
+    };
+
+    expect(validateAuthoringProject(project)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('requires property') }),
+      ]),
+    );
+  });
+
+  it('rejects incompatible same-key Trait schemas and conflicting Defaults', () => {
+    const project = createAuthoringProject();
+    project.traits.first = {
+      id: 'first',
+      label: 'First',
+      ownerKinds: ['room'],
+      properties: [
+        {
+          id: 'mood',
+          type: 'enum',
+          nullable: false,
+          enumValues: ['calm', 'tense'],
+          defaultValue: 'calm',
+        },
+        { id: 'light', type: 'number', nullable: false, defaultValue: 0.5 },
+      ],
+    };
+    project.traits.second = {
+      id: 'second',
+      label: 'Second',
+      ownerKinds: ['room'],
+      properties: [
+        {
+          id: 'mood',
+          label: 'Different display label is irrelevant',
+          type: 'enum',
+          nullable: false,
+          enumValues: ['tense', 'calm'],
+          defaultValue: 'calm',
+        },
+        { id: 'light', type: 'number', nullable: false, defaultValue: 0.75 },
+      ],
+    };
+    project.rooms.a = {
+      id: 'a',
+      label: 'A',
+      traits: ['first', 'second'],
+      data: defaultRoomData('A'),
+    };
+
+    const diagnostics = validateAuthoringProject(project);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/rooms/a/traits/1',
+          message: expect.stringContaining("property 'mood' with a schema incompatible"),
+        }),
+        expect.objectContaining({
+          path: '/rooms/a/traits/1',
+          message: expect.stringContaining("conflicting Default for property 'light'"),
+        }),
+      ]),
+    );
+  });
+
+  it('allows compatible same-key Trait schemas when Defaults match exactly', () => {
+    const project = createAuthoringProject();
+    for (const traitId of ['first', 'second']) {
+      project.traits[traitId] = {
+        id: traitId,
+        label: traitId,
+        ownerKinds: ['room'],
+        properties: [
+          {
+            id: 'mood',
+            label: traitId === 'first' ? 'Mood' : 'Room Mood',
+            description: traitId,
+            type: 'enum',
+            nullable: false,
+            enumValues: ['calm', 'tense'],
+            defaultValue: 'calm',
+          },
+        ],
+      };
+    }
+    project.rooms.a = {
+      id: 'a',
+      label: 'A',
+      traits: ['first', 'second'],
+      data: defaultRoomData('A'),
+    };
+
+    const diagnostics = validateAuthoringProject(project);
+    expect(diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('incompatible') }),
+      ]),
+    );
+    expect(diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('conflicting Default') }),
+      ]),
+    );
+  });
+
   it('limits Property and Trait owner kinds to stateful Gameplay Instances', () => {
     const project = createAuthoringProject();
     const diagnostics = validateAuthoringProject({
@@ -264,7 +395,7 @@ describe('authoring V2 validation', () => {
           id: 'scene-trait',
           label: 'Scene Trait',
           ownerKinds: ['scene'],
-          properties: [{ kind: 'required', propertyId: 'scene-state' }],
+          properties: [{ id: 'scene-state', type: 'string', nullable: false }],
         },
       },
     });
