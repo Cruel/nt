@@ -181,6 +181,10 @@ const propertyOwnerKindSchema = z.enum([
   'feature',
   'item-stack',
 ]);
+const exactPropertyOwnerSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
+  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+]);
 
 const inventoryDefinitionSchema = strict({ id, label: z.string().min(1) });
 const inventoryOwnerSchema = z.discriminatedUnion('kind', [
@@ -223,7 +227,7 @@ const propertyDefinitionCommon = {
   type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
 };
 
-const propertyDefinitionSchema = z.discriminatedUnion('scope', [
+const propertyDefinitionSchema = z.union([
   strict({
     ...propertyDefinitionCommon,
     defaultValue: runtimeValueSchema,
@@ -233,6 +237,11 @@ const propertyDefinitionSchema = z.discriminatedUnion('scope', [
     ...propertyDefinitionCommon,
     defaultValue: runtimeValueSchema.optional(),
     ownerKinds: z.array(propertyOwnerKindSchema).min(1),
+    scope: z.literal('identity'),
+  }),
+  strict({
+    ...propertyDefinitionCommon,
+    owner: exactPropertyOwnerSchema,
     scope: z.literal('identity'),
   }),
 ]);
@@ -1746,7 +1755,6 @@ export const compiledProjectWireSchema = strict({
     { path: ['definitions', 'rooms'], records: project.definitions.rooms },
     { path: ['definitions', 'scenes'], records: project.definitions.scenes },
     { path: ['definitions', 'verbs'], records: project.definitions.verbs },
-    { path: ['properties'], records: project.properties },
     { path: ['traits'], records: project.traits },
     { path: ['archetypes'], records: project.archetypes },
     { path: ['interactableInstances'], records: project.interactableInstances },
@@ -1765,6 +1773,22 @@ export const compiledProjectWireSchema = strict({
         });
       ids.add(record.id);
     });
+  });
+  const propertyIdentities = new Set<string>();
+  project.properties.forEach((property, index) => {
+    const identity =
+      property.scope === 'global' || !('owner' in property)
+        ? `registry:${property.id}`
+        : property.owner.kind === 'room'
+          ? `room:${property.owner.room.id}:${property.id}`
+          : `character:${property.owner.character.id}:${property.id}`;
+    if (propertyIdentities.has(identity))
+      context.addIssue({
+        code: 'custom',
+        message: `Duplicate Property identity '${property.id}'.`,
+        path: ['properties', index, 'id'],
+      });
+    propertyIdentities.add(identity);
   });
   for (const scale of ['uiScale', 'textScale'] as const) {
     const policy = project.settings.accessibility[scale];

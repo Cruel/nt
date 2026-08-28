@@ -37,6 +37,7 @@ import {
   MAX_ITEM_STACK_QUANTITY,
 } from './authoring-items';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
+import { isPropertyValueCompatible } from './authoring-properties';
 import { resolveMaterialData } from './authoring-materials';
 import {
   isUniformValueCompatible,
@@ -119,9 +120,10 @@ export const sceneEffectSchema = effectSchema;
 const sceneTraitRefSchema = strict({
   $ref: strict({ collection: z.literal('traits'), id: entityIdSchema }),
 });
-const scenePropertyRefSchema = strict({
-  $ref: strict({ collection: z.literal('properties'), id: entityIdSchema }),
-});
+const scenePropertyRefSchema = z.union([
+  strict({ key: entityIdSchema }),
+  strict({ $ref: strict({ collection: z.literal('properties'), id: entityIdSchema }) }),
+]);
 const scenePropertyOwnerSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room'), room: roomRefSchema }),
   strict({ kind: z.literal('character'), character: characterRefSchema }),
@@ -1473,28 +1475,96 @@ export function validateSceneData(
             `${operationPath}/value`,
           );
         if (operation.kind === 'set-property' || operation.kind === 'unset-property') {
-          requireRecord('properties', operation.property.$ref.id, `${operationPath}/property`);
           const owner = operation.owner;
-          if (owner.kind === 'room')
+          if (owner.kind === 'room') {
             requireRecord('rooms', owner.room.$ref.id, `${operationPath}/owner/room`);
-          else if (owner.kind === 'character')
+            const propertyId =
+              'key' in operation.property ? operation.property.key : operation.property.$ref.id;
+            const local = project.rooms[owner.room.$ref.id]?.localProperties?.find(
+              (property) => property.id === propertyId,
+            );
+            if ('key' in operation.property && !local)
+              diagnostics.push(
+                diagnostic(
+                  `${operationPath}/property/key`,
+                  `Room '${owner.room.$ref.id}' does not declare Property '${propertyId}'.`,
+                ),
+              );
+            if (!('key' in operation.property))
+              requireRecord('properties', propertyId, `${operationPath}/property`);
+            if (
+              operation.kind === 'set-property' &&
+              local &&
+              !isPropertyValueCompatible(local, operation.value)
+            )
+              diagnostics.push(
+                diagnostic(
+                  `${operationPath}/value`,
+                  `Value does not match Property '${propertyId}' on Room '${owner.room.$ref.id}'.`,
+                ),
+              );
+          } else if (owner.kind === 'character') {
             requireRecord(
               'characters',
               owner.character.$ref.id,
               `${operationPath}/owner/character`,
             );
-          else if (owner.kind === 'interactable')
+            const propertyId =
+              'key' in operation.property ? operation.property.key : operation.property.$ref.id;
+            const local = project.characters[owner.character.$ref.id]?.localProperties?.find(
+              (property) => property.id === propertyId,
+            );
+            if ('key' in operation.property && !local)
+              diagnostics.push(
+                diagnostic(
+                  `${operationPath}/property/key`,
+                  `Character '${owner.character.$ref.id}' does not declare Property '${propertyId}'.`,
+                ),
+              );
+            if (!('key' in operation.property))
+              requireRecord('properties', propertyId, `${operationPath}/property`);
+            if (
+              operation.kind === 'set-property' &&
+              local &&
+              !isPropertyValueCompatible(local, operation.value)
+            )
+              diagnostics.push(
+                diagnostic(
+                  `${operationPath}/value`,
+                  `Value does not match Property '${propertyId}' on Character '${owner.character.$ref.id}'.`,
+                ),
+              );
+          } else if (owner.kind === 'interactable') {
             requireRecord(
               'interactables',
               owner.interactable.$ref.id,
               `${operationPath}/owner/interactable`,
             );
-          else
+            if ('key' in operation.property)
+              diagnostics.push(
+                diagnostic(
+                  `${operationPath}/property`,
+                  'Interactables still use the transitional project Property registry.',
+                ),
+              );
+            else
+              requireRecord('properties', operation.property.$ref.id, `${operationPath}/property`);
+          } else {
             requireRecord(
               'itemStacks',
               owner.itemStack.$ref.id,
               `${operationPath}/owner/itemStack`,
             );
+            if ('key' in operation.property)
+              diagnostics.push(
+                diagnostic(
+                  `${operationPath}/property`,
+                  'Item Stacks still use the transitional project Property registry.',
+                ),
+              );
+            else
+              requireRecord('properties', operation.property.$ref.id, `${operationPath}/property`);
+          }
         }
         if (operation.kind === 'move-character' || operation.kind === 'set-character-state')
           requireRecord('characters', operation.character.$ref.id, `${operationPath}/character`);

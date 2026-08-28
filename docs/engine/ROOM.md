@@ -6,9 +6,13 @@ A `RoomDefinition` is immutable compiled gameplay content. It owns its backgroun
 Features, image-relative Hotspots, conditional world-overlay Layout mounts, declarative cast, props,
 and reconstructible environment loops, an optional typed composition Script hook, description,
 ordered declarative enter/leave effect programs, direct Script Hook mappings, exits, and generic
-`RoomPlacement` anchors. Room is a Property-bearing
-identity and may attach compatible Traits; Trait members are ordinary Properties and do not merge
-Features, exits, placements, overlays, resources, or programs.
+`RoomPlacement` anchors. Room is a Property-bearing identity and may declare an ordered set of
+owner-local typed Properties directly on the Room authoring record. Those Properties belong to the
+exact Room identity, carry their own type/nullability/enum contract plus concrete authored Value,
+and do not require a project-wide identity Property declaration. The same Property key may therefore
+mean something unrelated on another Room. Rooms may also attach compatible Traits; Trait-backed
+Properties still use the transitional shared identity Property registry until their later migration
+slice and do not merge Features, exits, placements, overlays, resources, or programs.
 
 A declared Room authoring record may attach one same-kind Archetype. The editor resolves the complete
 single-base Archetype chain for editing and preview, stores instance edits as explicit overrides, and
@@ -16,8 +20,8 @@ materializes the effective Room configuration when the Archetype is detached. Th
 the flattened `RoomDefinition`; Archetypes never become runtime Room identities or mutable state.
 
 `SessionState` owns mutable Room state: the active and previous Room, visit counts, presentation
-state, and sparse property overrides. Categories, tags, selections, graph coordinates, and preview
-state are editor-only metadata.
+state, and sparse Property overrides addressed by exact Room identity plus Property key. Categories,
+tags, selections, graph coordinates, and preview state are editor-only metadata.
 
 ## Navigation and lifecycle
 

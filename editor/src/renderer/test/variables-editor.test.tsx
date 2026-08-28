@@ -66,7 +66,10 @@ describe('VariablesEditor', () => {
     expect(useProjectStore.getState().document).toMatchObject({
       variables: {
         'has-key': { label: 'has-key' },
-        score: { label: 'Score', data: { kind: 'variable', type: 'boolean', defaultValue: false } },
+        score: {
+          label: 'Score',
+          data: { kind: 'variable', type: 'boolean', nullable: false, value: false },
+        },
       },
     });
   });
@@ -78,7 +81,7 @@ describe('VariablesEditor', () => {
       id: 'state',
       label: 'State',
       description: '',
-      data: { ...defaultVariableData('enum'), enumValues: ['default'], defaultValue: 'default' },
+      data: { ...defaultVariableData('enum'), enumValues: ['default'], value: 'default' },
     };
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -108,7 +111,7 @@ describe('VariablesEditor', () => {
         state: {
           label: 'State Label',
           description: 'Current state',
-          data: { type: 'enum', enumValues: ['idle', 'active'], defaultValue: 'idle' },
+          data: { type: 'enum', enumValues: ['idle', 'active'], value: 'idle' },
         },
       },
     });
@@ -123,7 +126,7 @@ describe('VariablesEditor', () => {
       data: {
         ...defaultVariableData('enum'),
         enumValues: ['first', 'second'],
-        defaultValue: 'first',
+        value: 'first',
       },
     };
     useProjectStore.getState().loadProjectDocument({

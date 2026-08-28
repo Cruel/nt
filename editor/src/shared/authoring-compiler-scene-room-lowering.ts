@@ -511,14 +511,26 @@ function compileSceneStep(
               return {
                 kind: 'set-property' as const,
                 owner: compilePropertyOwner(operation.owner),
-                property: { kind: 'property' as const, id: operation.property.$ref.id },
+                property: {
+                  kind: 'property' as const,
+                  id:
+                    'key' in operation.property
+                      ? operation.property.key
+                      : operation.property.$ref.id,
+                },
                 value: operation.value,
               };
             case 'unset-property':
               return {
                 kind: 'unset-property' as const,
                 owner: compilePropertyOwner(operation.owner),
-                property: { kind: 'property' as const, id: operation.property.$ref.id },
+                property: {
+                  kind: 'property' as const,
+                  id:
+                    'key' in operation.property
+                      ? operation.property.key
+                      : operation.property.$ref.id,
+                },
               };
             case 'move-character':
               return {

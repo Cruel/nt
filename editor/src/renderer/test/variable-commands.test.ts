@@ -15,7 +15,7 @@ describe('variable commands', () => {
       payload: { variableId: 'score', defaultValue: 1.5 },
     });
     expect(invalid.ok).toBe(false);
-    expect(invalid.diagnostics[0]).toMatchObject({ path: '/variables/score/data/defaultValue' });
+    expect(invalid.diagnostics[0]).toMatchObject({ path: '/variables/score/data/value' });
 
     const valid = executeCommand(state, {
       type: 'variable.setDefaultValue',
@@ -24,11 +24,11 @@ describe('variable commands', () => {
     });
     expect(valid.ok).toBe(true);
     expect(valid.projectChanged).toBe(true);
-    expect(valid.document).toMatchObject({ variables: { score: { data: { defaultValue: 3 } } } });
+    expect(valid.document).toMatchObject({ variables: { score: { data: { value: 3 } } } });
 
     state = valid.state;
     const undone = undoCommand(state);
-    expect(undone.document).toMatchObject({ variables: { score: { data: { defaultValue: 0 } } } });
+    expect(undone.document).toMatchObject({ variables: { score: { data: { value: 0 } } } });
   });
 
   it('uses the variable ID as the canonical runtime name', () => {

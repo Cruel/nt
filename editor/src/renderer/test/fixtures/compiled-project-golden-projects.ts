@@ -351,17 +351,17 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
   const count = defaultVariableData('integer');
-  count.defaultValue = 2;
+  count.value = 2;
   project.variables.count = { id: 'count', label: 'Count', data: count };
   const ratio = defaultVariableData('number');
-  ratio.defaultValue = 0.5;
+  ratio.value = 0.5;
   project.variables.ratio = { id: 'ratio', label: 'Ratio', data: ratio };
   const playerName = defaultVariableData('string');
-  playerName.defaultValue = 'Ada';
+  playerName.value = 'Ada';
   project.variables['player-name'] = { id: 'player-name', label: 'Player Name', data: playerName };
   const moodVariable = defaultVariableData('enum');
   moodVariable.enumValues = ['calm', 'tense'];
-  moodVariable.defaultValue = 'calm';
+  moodVariable.value = 'calm';
   project.variables['mood-variable'] = { id: 'mood-variable', label: 'Mood', data: moodVariable };
 
   const allOwnerKinds = ['room', 'character', 'interactable', 'feature'] as const;

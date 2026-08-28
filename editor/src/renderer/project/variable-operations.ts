@@ -2,7 +2,7 @@ import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
 import {
   defaultValueForVariableType,
-  isVariableDefaultValueCompatible,
+  isVariableValueCompatible,
   parseVariableData,
   type VariableData,
   type VariableType,
@@ -66,13 +66,13 @@ export function replaceVariableDataPatches(
       patches: [],
       diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))],
     };
-  if (!isVariableDefaultValueCompatible(data.type, data.defaultValue, data.enumValues)) {
+  if (!isVariableValueCompatible(data.type, data.value, data.enumValues, data.nullable)) {
     return {
       patches: [],
       diagnostics: [
         error(
-          `Default value does not match ${data.type}.`,
-          buildJsonPointer(['variables', payload.variableId, 'data', 'defaultValue']),
+          `Value does not match ${data.type}.`,
+          buildJsonPointer(['variables', payload.variableId, 'data', 'value']),
         ),
       ],
     };
@@ -154,15 +154,15 @@ export function setVariableTypePatches(
           ? current.enumValues
           : ['default']
       : undefined;
-  const defaultValue =
+  const value =
     payload.defaultValue !== undefined &&
-    isVariableDefaultValueCompatible(payload.type, payload.defaultValue, enumValues)
+    isVariableValueCompatible(payload.type, payload.defaultValue, enumValues, current.nullable)
       ? payload.defaultValue
       : defaultValueForVariableType(payload.type, enumValues);
   const data: VariableData = {
     ...current,
     type: payload.type,
-    defaultValue,
+    value,
     enumValues,
   };
   if (payload.type !== 'enum') delete data.enumValues;
@@ -183,19 +183,26 @@ export function setVariableDefaultValuePatches(
       patches: [],
       diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))],
     };
-  if (!isVariableDefaultValueCompatible(current.type, payload.defaultValue, current.enumValues)) {
+  if (
+    !isVariableValueCompatible(
+      current.type,
+      payload.defaultValue,
+      current.enumValues,
+      current.nullable,
+    )
+  ) {
     return {
       patches: [],
       diagnostics: [
         error(
-          `Default value does not match ${current.type}.`,
-          buildJsonPointer(['variables', payload.variableId, 'data', 'defaultValue']),
+          `Value does not match ${current.type}.`,
+          buildJsonPointer(['variables', payload.variableId, 'data', 'value']),
         ),
       ],
     };
   }
   return replaceVariableDataPatches(document, {
     variableId: payload.variableId,
-    data: { ...current, defaultValue: payload.defaultValue },
+    data: { ...current, value: payload.defaultValue },
   });
 }

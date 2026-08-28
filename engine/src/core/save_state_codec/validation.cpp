@@ -1522,7 +1522,9 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     for (const auto& item : save.property_overrides) {
         const auto key = std::to_string(item.target.index()) + ":" + target_text(item.target) +
                          ":" + item.property.text();
-        const auto* definition = project.find_property(item.property);
+        const auto owner = property_target_owner(item.target);
+        const auto* definition = owner ? project.find_property(*owner, item.property)
+                                       : project.find_property(item.property);
         if (!overrides.insert(key).second)
             error("save_codec.duplicate_record", "Property override appears more than once.");
         if (!target_exists(project, save, item.target) || !definition ||

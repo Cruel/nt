@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Boxes,
+  Braces,
   Camera,
   ChevronsUpDown,
   Image,
@@ -34,11 +35,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import {
+  ownerLocalPropertyReferencePaths,
+  renameOwnerLocalPropertyReferencePatches,
+} from '@/project/owner-local-property-references';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
 import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
+import { OwnerLocalPropertiesEditor } from '@/components/properties/OwnerLocalPropertiesEditor';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 import {
@@ -106,6 +112,7 @@ import { RoomExitDirectionSelector } from './RoomExitDirectionSelector';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
+import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
 
 const backgroundFitLabels = {
   cover: 'Cover',
@@ -121,6 +128,7 @@ type RoomEditorCategory =
   | 'hotspots'
   | 'navigation'
   | 'contents'
+  | 'properties'
   | 'behavior';
 
 const roomEditorCategories: readonly CategorizedEditorCategory<RoomEditorCategory>[] = [
@@ -161,6 +169,12 @@ const roomEditorCategories: readonly CategorizedEditorCategory<RoomEditorCategor
     icon: Layers3,
   },
   {
+    id: 'properties',
+    label: 'Properties',
+    description: 'Author typed state local to this exact Room.',
+    icon: Braces,
+  },
+  {
     id: 'behavior',
     label: 'Behavior',
     description: 'Configure Room guards and frozen Hook Registry mappings.',
@@ -173,6 +187,8 @@ function isRoomEditorCategory(value: unknown): value is RoomEditorCategory {
 }
 
 function roomEditorCategoryForTarget(targetId: string): RoomEditorCategory {
+  if (targetId.startsWith('room.properties') || targetId.startsWith('room.property.'))
+    return 'properties';
   if (targetId.startsWith('room.camera') || targetId.startsWith('room.anchor')) return 'camera';
   if (targetId.startsWith('room.hotspot')) return 'hotspots';
   if (targetId.startsWith('room.exit') || targetId === 'room.exits') return 'navigation';
@@ -748,6 +764,31 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+  const commitLocalProperties = (
+    localProperties: OwnerLocalProperty[],
+    change?: { kind: 'rename'; fromId: string; toId: string },
+  ) =>
+    useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: `Update ${roomId} Properties`,
+      payload: [
+        {
+          op: Object.prototype.hasOwnProperty.call(record, 'localProperties') ? 'replace' : 'add',
+          path: `/rooms/${roomId}/localProperties`,
+          value: localProperties,
+        },
+        ...(change
+          ? renameOwnerLocalPropertyReferencePatches(
+              project,
+              { kind: 'room', id: roomId },
+              change.fromId,
+              change.toId,
+            )
+          : []),
+      ],
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
   const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
     useCommandStore.getState().executeCommand({
       type,
@@ -952,6 +993,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           trailing:
             data.overlays.length + data.cast.length + data.props.length + data.environments.length,
         };
+      case 'properties':
+        return { ...category, trailing: record.localProperties?.length ?? 0 };
       default:
         return category;
     }
@@ -1165,6 +1208,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
             </div>
           </section>
+        ) : null}
+
+        {activeCategory === 'properties' ? (
+          <OwnerLocalPropertiesEditor
+            ownerLabel={`Room '${record.label}'`}
+            properties={record.localProperties ?? []}
+            onChange={commitLocalProperties}
+            usageCountFor={(propertyId) =>
+              ownerLocalPropertyReferencePaths(project, { kind: 'room', id: roomId }, propertyId)
+                .length
+            }
+          />
         ) : null}
 
         {activeCategory === 'hotspots' ? (

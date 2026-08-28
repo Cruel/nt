@@ -263,17 +263,31 @@ function compileCondition(condition: Condition): CompiledCondition {
   };
 }
 
-function propertyAssignments(record: Pick<AuthoringRecordBase, 'properties'>) {
-  return Object.entries(record.properties ?? {})
+function propertyAssignments(
+  record: Pick<AuthoringRecordBase, 'properties'> &
+    Partial<Pick<AuthoringRecordBase, 'localProperties'>>,
+) {
+  const local = record.localProperties ?? [];
+  const localIds = new Set(local.map((property) => property.id));
+  const transitional = Object.entries(record.properties ?? {})
+    .filter(([propertyId]) => !localIds.has(propertyId))
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([propertyId, value]) => ({ propertyId, value }));
+  return [
+    ...transitional,
+    ...local.map((property) => ({ propertyId: property.id, value: property.value })),
+  ];
 }
 
 function definitionBase(id: string) {
   return { id };
 }
 
-function propertyBase(id: string, record: Pick<AuthoringRecordBase, 'traits' | 'properties'>) {
+function propertyBase(
+  id: string,
+  record: Pick<AuthoringRecordBase, 'traits' | 'properties'> &
+    Partial<Pick<AuthoringRecordBase, 'localProperties'>>,
+) {
   return {
     id,
     traits: [...(record.traits ?? [])].sort(),
@@ -1255,6 +1269,35 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }),
   );
 
+  for (const [roomId, record] of sortedEntries(project.rooms)) {
+    for (const property of record.localProperties ?? []) {
+      properties.push({
+        id: property.id,
+        label: property.label ?? property.id,
+        description: property.description ?? '',
+        type: property.type,
+        nullable: property.nullable,
+        enumValues: [...(property.enumValues ?? [])],
+        owner: { kind: 'room', room: roomRef(roomId) },
+        scope: 'identity',
+      });
+    }
+  }
+  for (const [characterId, record] of sortedEntries(project.characters)) {
+    for (const property of record.localProperties ?? []) {
+      properties.push({
+        id: property.id,
+        label: property.label ?? property.id,
+        description: property.description ?? '',
+        type: property.type,
+        nullable: property.nullable,
+        enumValues: [...(property.enumValues ?? [])],
+        owner: { kind: 'character', character: characterRef({ $ref: { id: characterId } })! },
+        scope: 'identity',
+      });
+    }
+  }
+
   const materialInterfaces: WireResources['materialInterfaces'] = [];
   for (const [id] of sortedEntries(project.materials)) {
     const resolved = resolveMaterialData(project, id);
@@ -1302,7 +1345,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }),
   );
 
-  const propertyIds = new Set(properties.map((property) => property.id));
+  const propertyIds = new Set(
+    properties.filter((property) => !('owner' in property)).map((property) => property.id),
+  );
   for (const [id, record] of sortedEntries(project.variables)) {
     const data = requireData(parseVariableData(record.data), `/variables/${id}/data`);
     if (!data) continue;
@@ -1320,8 +1365,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       label: record.label,
       description: record.description ?? '',
       type: data.type,
-      nullable: false,
-      defaultValue: data.defaultValue,
+      nullable: data.nullable,
+      defaultValue: data.value,
       enumValues: [...(data.enumValues ?? [])],
       scope: 'global',
     });

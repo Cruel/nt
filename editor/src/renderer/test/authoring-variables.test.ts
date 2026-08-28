@@ -3,9 +3,9 @@ import { validateAuthoringProject } from '../../shared/project-schema/authoring-
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   defaultVariableData,
-  isVariableDefaultValueCompatible,
+  isVariableValueCompatible,
   parseEnumValuesText,
-  parseVariableDefaultText,
+  parseVariableValueText,
   variableRef,
 } from '../../shared/project-schema/authoring-variables';
 import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
@@ -15,36 +15,43 @@ describe('authoring variables schema', () => {
     expect(defaultVariableData('boolean')).toMatchObject({
       kind: 'variable',
       type: 'boolean',
-      defaultValue: false,
+      nullable: false,
+      value: false,
     });
     expect(defaultVariableData('integer')).toMatchObject({
       kind: 'variable',
       type: 'integer',
-      defaultValue: 0,
+      value: 0,
     });
     expect(defaultVariableData('enum')).toMatchObject({
       kind: 'variable',
       type: 'enum',
-      defaultValue: 'default',
+      value: 'default',
       enumValues: ['default'],
     });
-    expect(isVariableDefaultValueCompatible('integer', 1)).toBe(true);
-    expect(isVariableDefaultValueCompatible('integer', 1.5)).toBe(false);
-    expect(isVariableDefaultValueCompatible('enum', 'open', ['open', 'closed'])).toBe(true);
-    expect(isVariableDefaultValueCompatible('enum', 'missing', ['open', 'closed'])).toBe(false);
+    expect(isVariableValueCompatible('integer', 1)).toBe(true);
+    expect(isVariableValueCompatible('integer', 1.5)).toBe(false);
+    expect(isVariableValueCompatible('enum', 'open', ['open', 'closed'])).toBe(true);
+    expect(isVariableValueCompatible('enum', 'missing', ['open', 'closed'])).toBe(false);
+    expect(isVariableValueCompatible('string', null, undefined, true)).toBe(true);
+    expect(isVariableValueCompatible('string', null, undefined, false)).toBe(false);
   });
 
-  it('parses editor default text by type', () => {
-    expect(parseVariableDefaultText('boolean', 'true')).toEqual({ ok: true, value: true });
-    expect(parseVariableDefaultText('integer', '42')).toEqual({ ok: true, value: 42 });
-    expect(parseVariableDefaultText('number', '3.5')).toEqual({ ok: true, value: 3.5 });
-    expect(parseVariableDefaultText('string', 'hello')).toEqual({ ok: true, value: 'hello' });
+  it('parses editor value text by type, including nullable values', () => {
+    expect(parseVariableValueText('boolean', 'true')).toEqual({ ok: true, value: true });
+    expect(parseVariableValueText('integer', '42')).toEqual({ ok: true, value: 42 });
+    expect(parseVariableValueText('number', '3.5')).toEqual({ ok: true, value: 3.5 });
+    expect(parseVariableValueText('string', 'hello')).toEqual({ ok: true, value: 'hello' });
+    expect(parseVariableValueText('string', 'null', undefined, true)).toEqual({
+      ok: true,
+      value: null,
+    });
     expect(parseEnumValuesText('idle, active\ncomplete')).toEqual(['idle', 'active', 'complete']);
-    expect(parseVariableDefaultText('enum', 'active', ['idle', 'active'])).toEqual({
+    expect(parseVariableValueText('enum', 'active', ['idle', 'active'])).toEqual({
       ok: true,
       value: 'active',
     });
-    expect(parseVariableDefaultText('enum', 'missing', ['idle', 'active']).ok).toBe(false);
+    expect(parseVariableValueText('enum', 'missing', ['idle', 'active']).ok).toBe(false);
   });
 
   it('validates variable data in authoring projects', () => {
@@ -52,13 +59,13 @@ describe('authoring variables schema', () => {
     project.variables.score = {
       id: 'score',
       label: 'Score',
-      data: { kind: 'variable', type: 'integer', scope: 'global', defaultValue: 1.5 },
+      data: { kind: 'variable', type: 'integer', scope: 'global', nullable: false, value: 1.5 },
     };
 
     expect(validateAuthoringProject(project)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: '/variables/score/data/defaultValue',
+          path: '/variables/score/data/value',
           category: 'Variables',
         }),
       ]),

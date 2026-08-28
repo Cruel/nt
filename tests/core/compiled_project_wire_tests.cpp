@@ -815,6 +815,84 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         CHECK(diagnostic->json_pointer == "/properties/6/defaultValue");
     }
 
+    SECTION("same Property key is valid on different exact Room owners")
+    {
+        auto document = fixture("comprehensive");
+        auto* properties = path_member(document, {"properties"});
+        auto* rooms = path_member(document, {"definitions", "rooms"});
+        REQUIRE(properties != nullptr);
+        REQUIRE(rooms != nullptr);
+        REQUIRE(rooms->size() >= 2);
+        auto* first_room = json_access::element(*rooms, 0);
+        auto* second_room = json_access::element(*rooms, 1);
+        REQUIRE(first_room != nullptr);
+        REQUIRE(second_room != nullptr);
+        const auto first_id = (*first_room)["id"].get<std::string>();
+        const auto second_id = (*second_room)["id"].get<std::string>();
+
+        properties->push_back(
+            {{"id", "state"},
+             {"label", "Boolean state"},
+             {"description", ""},
+             {"type", "boolean"},
+             {"nullable", false},
+             {"enumValues", nlohmann::json::array()},
+             {"owner", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", first_id}}}}},
+             {"scope", "identity"}});
+        properties->push_back(
+            {{"id", "state"},
+             {"label", "String state"},
+             {"description", ""},
+             {"type", "string"},
+             {"nullable", false},
+             {"enumValues", nlohmann::json::array()},
+             {"owner", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", second_id}}}}},
+             {"scope", "identity"}});
+        (*first_room)["propertyAssignments"].push_back({{"propertyId", "state"}, {"value", true}});
+        (*second_room)["propertyAssignments"].push_back(
+            {{"propertyId", "state"}, {"value", "open"}});
+
+        auto result = decode_compiled_project(document, "exact-owner-properties.json");
+        REQUIRE(result);
+        const auto state = PropertyId::create("state").value();
+        const PropertyOwnerRef first{RoomId::create(first_id).value()};
+        const PropertyOwnerRef second{RoomId::create(second_id).value()};
+        REQUIRE(result.value().find_property(first, state) != nullptr);
+        REQUIRE(result.value().find_property(second, state) != nullptr);
+        CHECK(std::holds_alternative<BooleanPropertyType>(
+            result.value().find_property(first, state)->value_type()));
+        CHECK(std::holds_alternative<StringPropertyType>(
+            result.value().find_property(second, state)->value_type()));
+    }
+
+    SECTION("duplicate exact-owner Property identity is rejected")
+    {
+        auto document = fixture("comprehensive");
+        auto* properties = path_member(document, {"properties"});
+        auto* rooms = path_member(document, {"definitions", "rooms"});
+        REQUIRE(properties != nullptr);
+        REQUIRE(rooms != nullptr);
+        REQUIRE_FALSE(rooms->empty());
+        const auto room_id = (*rooms)[0]["id"].get<std::string>();
+        const nlohmann::json declaration = {
+            {"id", "state"},
+            {"label", "State"},
+            {"description", ""},
+            {"type", "boolean"},
+            {"nullable", false},
+            {"enumValues", nlohmann::json::array()},
+            {"owner", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", room_id}}}}},
+            {"scope", "identity"}};
+        properties->push_back(declaration);
+        properties->push_back(declaration);
+
+        auto result = decode_shared_project(document, "duplicate-exact-owner-property.json");
+        REQUIRE_FALSE(result);
+        const auto* diagnostic = find_code(result.error(), "compiled_project.duplicate_id");
+        REQUIRE(diagnostic != nullptr);
+        CHECK(diagnostic->json_pointer == "/properties/12/id");
+    }
+
     SECTION("duplicate collection ID")
     {
         auto document = fixture("comprehensive");

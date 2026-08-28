@@ -1294,6 +1294,70 @@ describe('authoring compiler framework', () => {
     ]);
   });
 
+  it('lowers same-key Room Properties as independent exact-owner declarations', () => {
+    const project = validProject(['foyer', 'hall']);
+    project.variables.state = {
+      id: 'state',
+      label: 'Global state',
+      data: defaultVariableData('integer'),
+    };
+    project.rooms.foyer!.localProperties = [
+      {
+        id: 'state',
+        label: 'Open state',
+        type: 'boolean',
+        nullable: false,
+        value: true,
+      },
+    ];
+    project.rooms.hall!.localProperties = [
+      {
+        id: 'state',
+        description: 'Unrelated textual state',
+        type: 'string',
+        nullable: true,
+        value: null,
+      },
+    ];
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    expect(result.project.schemaVersion).toBe(1);
+    expect(result.project.properties).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'state',
+          type: 'boolean',
+          nullable: false,
+          owner: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
+          scope: 'identity',
+        }),
+        expect.objectContaining({
+          id: 'state',
+          type: 'string',
+          nullable: true,
+          owner: { kind: 'room', room: { kind: 'room', id: 'hall' } },
+          scope: 'identity',
+        }),
+        expect.objectContaining({
+          id: 'state',
+          type: 'integer',
+          scope: 'global',
+        }),
+      ]),
+    );
+    expect(
+      result.project.definitions.rooms.find((room) => room.id === 'foyer')?.propertyAssignments,
+    ).toEqual([{ propertyId: 'state', value: true }]);
+    expect(
+      result.project.definitions.rooms.find((room) => room.id === 'hall')?.propertyAssignments,
+    ).toEqual([{ propertyId: 'state', value: null }]);
+  });
+
   it('strictly rejects invalid V2 boundary data and produces deterministic diagnostics independent of map insertion order', () => {
     const invalid = Object.assign(validProject(), { unknownWireInput: true });
     const invalidResult = compileAuthoringProject(invalid);

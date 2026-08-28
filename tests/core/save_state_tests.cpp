@@ -285,6 +285,57 @@ TEST_CASE("native SaveState projects all typed Property overrides")
     CHECK(std::get<SavedRoomTransitionFrame>(save.flow_stack.front()).snapshot_id.value == 1);
 }
 
+TEST_CASE("owner-local Property overrides survive save encode decode and restore")
+{
+    const auto project =
+        load_fixture("trait-properties-localization.json", [](nlohmann::json& document) {
+            document["properties"].push_back(
+                {{"id", "local-state"},
+                 {"label", "Local state"},
+                 {"description", ""},
+                 {"type", "boolean"},
+                 {"nullable", false},
+                 {"enumValues", nlohmann::json::array()},
+                 {"owner", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", "start"}}}}},
+                 {"scope", "identity"}});
+            auto& rooms = document["definitions"]["rooms"];
+            const auto start =
+                std::find_if(rooms.begin(), rooms.end(),
+                             [](const nlohmann::json& room) { return room["id"] == "start"; });
+            REQUIRE(start != rooms.end());
+            (*start)["propertyAssignments"].push_back(
+                {{"propertyId", "local-state"}, {"value", true}});
+        });
+    auto state = make_state(project);
+    PropertyResolver properties(project, state);
+    const PropertyOwnerRef owner{id<RoomId>("start")};
+    const auto property = id<PropertyId>("local-state");
+    REQUIRE(properties.set(owner, property, RuntimeValue{false}));
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    const auto saved = std::find_if(
+        snapshot.value().property_overrides.begin(), snapshot.value().property_overrides.end(),
+        [&](const SavedPropertyOverride& item) {
+            return item.property == property && item.target == property_target(owner);
+        });
+    REQUIRE(saved != snapshot.value().property_overrides.end());
+    CHECK(saved->value == RuntimeValue{false});
+
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    auto decoded = decode_save_state(project, encoded.value(), "owner-local-property-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    PropertyResolver restored_properties(project, restored.value());
+    auto value = restored_properties.get(owner, property);
+    REQUIRE(value);
+    const auto* restored_value = std::get_if<RuntimeValue>(&value.value());
+    REQUIRE(restored_value != nullptr);
+    CHECK(*restored_value == RuntimeValue{false});
+}
+
 TEST_CASE("save snapshots use distinct stable records for every live frame variant")
 {
     const auto scene_project = load_fixture("scene-program.json");

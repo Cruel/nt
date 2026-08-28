@@ -98,6 +98,111 @@ function JsonOperationsEditor({
     </div>
   );
 }
+
+type MigratedScenePropertyOwner =
+  | { kind: 'room'; room: { $ref: { collection: 'rooms'; id: string } } }
+  | { kind: 'character'; character: { $ref: { collection: 'characters'; id: string } } };
+
+type MigratedScenePropertyOperation = {
+  kind: 'set-property' | 'unset-property';
+  owner: MigratedScenePropertyOwner;
+  property: { key: string } | { $ref: { collection: 'properties'; id: string } };
+};
+
+function migratedPropertyOperation(value: unknown): MigratedScenePropertyOperation | null {
+  if (!value || typeof value !== 'object') return null;
+  const operation = value as Partial<MigratedScenePropertyOperation>;
+  if (operation.kind !== 'set-property' && operation.kind !== 'unset-property') return null;
+  if (operation.owner?.kind !== 'room' && operation.owner?.kind !== 'character') return null;
+  return operation as MigratedScenePropertyOperation;
+}
+
+function migratedPropertyOwnerId(owner: MigratedScenePropertyOwner): string {
+  return owner.kind === 'room' ? owner.room.$ref.id : owner.character.$ref.id;
+}
+
+function MigratedPropertyOperationSelectors({
+  project,
+  operations,
+  onCommit,
+}: {
+  project: NonNullable<ReturnType<typeof useProjectStore.getState>['document']>;
+  operations: readonly unknown[];
+  onCommit: (operations: unknown[]) => void;
+}) {
+  if (!isAuthoringProject(project)) return null;
+  const migrated = operations
+    .map((operation, index) => ({ operation: migratedPropertyOperation(operation), index }))
+    .filter(
+      (item): item is { operation: MigratedScenePropertyOperation; index: number } =>
+        item.operation !== null,
+    );
+  if (migrated.length === 0) return null;
+
+  const replaceOperation = (index: number, operation: MigratedScenePropertyOperation) => {
+    const next = [...operations];
+    next[index] = operation;
+    onCommit(next);
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <div className="text-xs font-medium">Migrated Property references</div>
+      {migrated.map(({ operation, index }) => {
+        const ownerId = migratedPropertyOwnerId(operation.owner);
+        const ownerRecords = operation.owner.kind === 'room' ? project.rooms : project.characters;
+        const ownerRecord = ownerRecords[ownerId];
+        const localProperties = ownerRecord?.localProperties ?? [];
+        const propertyKey = 'key' in operation.property ? operation.property.key : '';
+        return (
+          <div key={index} className="grid gap-2 md:grid-cols-2">
+            <Label>
+              {title(operation.owner.kind)} owner
+              <Select
+                value={ownerId}
+                onValueChange={(id) => {
+                  if (!id) return;
+                  const nextOwner: MigratedScenePropertyOwner =
+                    operation.owner.kind === 'room'
+                      ? { kind: 'room', room: sceneRoomRef(id) }
+                      : { kind: 'character', character: sceneCharacterRef(id) };
+                  const nextRecord = ownerRecords[id];
+                  const nextKey = nextRecord?.localProperties?.[0]?.id;
+                  replaceOperation(index, {
+                    ...operation,
+                    owner: nextOwner,
+                    property: nextKey ? { key: nextKey } : operation.property,
+                  });
+                }}
+              >
+                {Object.entries(ownerRecords).map(([id, record]) => (
+                  <SelectItem key={id} value={id}>
+                    {record.label || id}
+                  </SelectItem>
+                ))}
+              </Select>
+            </Label>
+            <Label>
+              Property
+              <Select
+                value={propertyKey}
+                onValueChange={(key) =>
+                  key && replaceOperation(index, { ...operation, property: { key } })
+                }
+              >
+                {localProperties.map((property) => (
+                  <SelectItem key={property.id} value={property.id}>
+                    {property.label || property.id}
+                  </SelectItem>
+                ))}
+              </Select>
+            </Label>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 function isPresentationOwnedStep(step: SceneStepData): step is Extract<
   SceneStepData,
   {
@@ -316,7 +421,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
     }
     if (step.type === 'set-variable') {
       const id = Object.keys(project.variables)[0];
-      const value = project.variables[id!]?.data.defaultValue;
+      const value = project.variables[id!]?.data.value;
       return id &&
         (value === null ||
           typeof value === 'boolean' ||
@@ -327,7 +432,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
     }
     if (step.type === 'gameplay-effect-batch') {
       const id = Object.keys(project.variables)[0];
-      const value = project.variables[id!]?.data.defaultValue;
+      const value = project.variables[id!]?.data.value;
       return id &&
         (value === null ||
           typeof value === 'boolean' ||
@@ -489,7 +594,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                   kind: 'variable-comparison',
                   variable: sceneVariableRef(variableId),
                   operator: 'equal',
-                  value: project.variables[variableId]!.data.defaultValue as
+                  value: project.variables[variableId]!.data.value as
                     | string
                     | number
                     | boolean
@@ -526,11 +631,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     onChange({
                       ...condition,
                       variable: sceneVariableRef(id),
-                      value: project.variables[id]!.data.defaultValue as
-                        | string
-                        | number
-                        | boolean
-                        | null,
+                      value: project.variables[id]!.data.value as string | number | boolean | null,
                     });
                 }}
               >
@@ -594,7 +695,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
               onChange({
                 kind: 'set-variable',
                 variable: sceneVariableRef(variableId),
-                value: project.variables[variableId]!.data.defaultValue as
+                value: project.variables[variableId]!.data.value as
                   | string
                   | number
                   | boolean
@@ -623,11 +724,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 onChange({
                   ...effect,
                   variable: sceneVariableRef(id),
-                  value: project.variables[id]!.data.defaultValue as
-                    | string
-                    | number
-                    | boolean
-                    | null,
+                  value: project.variables[id]!.data.value as string | number | boolean | null,
                 });
             }}
           >
@@ -2146,10 +2243,22 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
               </>
             )}
             {selected.type === 'gameplay-effect-batch' && (
-              <Label>
-                Atomic gameplay operations
-                <JsonOperationsEditor
-                  value={selected.operations}
+              <div className="space-y-3">
+                <Label>
+                  Atomic gameplay operations
+                  <JsonOperationsEditor
+                    value={selected.operations}
+                    onCommit={(operations) =>
+                      replaceStep({
+                        ...selected,
+                        operations: operations as typeof selected.operations,
+                      })
+                    }
+                  />
+                </Label>
+                <MigratedPropertyOperationSelectors
+                  project={project}
+                  operations={selected.operations}
                   onCommit={(operations) =>
                     replaceStep({
                       ...selected,
@@ -2157,7 +2266,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     })
                   }
                 />
-              </Label>
+              </div>
             )}
             {selected.type === 'runtime-world-transaction' && (
               <Label>

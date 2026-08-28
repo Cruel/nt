@@ -48,6 +48,7 @@ struct PropertyDeclaration {
     PropertyScope scope;
     std::vector<std::string> enum_values;
     std::vector<PropertyOwnerKind> allowed_owners;
+    std::optional<PropertyOwnerRef> exact_owner;
     std::string label;
     std::string description;
 };

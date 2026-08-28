@@ -129,12 +129,35 @@ CompiledProject project()
         .scope = PropertyScope::Global,
         .allowed_owners = {},
     });
+    const auto root = id<RoomId>("area");
+    const auto child = id<RoomId>("hall");
+    const auto leaf = id<RoomId>("tower");
+    auto root_state = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("state"),
+        .value_type = BooleanPropertyType{},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{root},
+    });
+    auto child_state = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("state"),
+        .value_type = StringPropertyType{},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
+        .allowed_owners = {},
+        .exact_owner = PropertyOwnerRef{child},
+    });
     REQUIRE(mood);
     REQUIRE(note);
     REQUIRE(light);
     REQUIRE(flag);
     REQUIRE(count);
     REQUIRE(weather);
+    REQUIRE(root_state);
+    REQUIRE(child_state);
 
     auto root_mood = make_property_assignment(PropertyOwnerKind::Room, mood.value(),
                                               RuntimeValue{std::string{"tense"}});
@@ -142,16 +165,21 @@ CompiledProject project()
         make_property_assignment(PropertyOwnerKind::Room, light.value(), RuntimeValue{0.5});
     auto leaf_mood = make_property_assignment(PropertyOwnerKind::Room, mood.value(),
                                               RuntimeValue{std::string{"calm"}});
+    auto root_state_value =
+        make_property_assignment(PropertyOwnerKind::Room, root_state.value(), RuntimeValue{true});
+    auto child_state_value = make_property_assignment(PropertyOwnerKind::Room, child_state.value(),
+                                                      RuntimeValue{std::string{"open"}});
     REQUIRE(root_mood);
     REQUIRE(root_light);
     REQUIRE(leaf_mood);
-
-    const auto root = id<RoomId>("area");
-    const auto child = id<RoomId>("hall");
-    const auto leaf = id<RoomId>("tower");
+    REQUIRE(root_state_value);
+    REQUIRE(child_state_value);
     std::vector<PropertyAssignment> root_assignments;
     root_assignments.push_back(std::move(root_mood).value());
     root_assignments.push_back(std::move(root_light).value());
+    root_assignments.push_back(std::move(root_state_value).value());
+    std::vector<PropertyAssignment> child_assignments;
+    child_assignments.push_back(std::move(child_state_value).value());
     std::vector<PropertyAssignment> leaf_assignments;
     leaf_assignments.push_back(std::move(leaf_mood).value());
 
@@ -162,6 +190,8 @@ CompiledProject project()
     properties.push_back(std::move(flag).value());
     properties.push_back(std::move(count).value());
     properties.push_back(std::move(weather).value());
+    properties.push_back(std::move(root_state).value());
+    properties.push_back(std::move(child_state).value());
 
     const auto dim_room = id<TraitId>("dim-room");
     std::vector<compiled::TraitDefinition> traits;
@@ -176,7 +206,7 @@ CompiledProject project()
 
     std::vector<compiled::RoomDefinition> rooms;
     rooms.push_back(room(root, {}, std::move(root_assignments)));
-    rooms.push_back(room(child, {dim_room}));
+    rooms.push_back(room(child, {dim_room}, std::move(child_assignments)));
     rooms.push_back(room(leaf, {dim_room}, std::move(leaf_assignments)));
     rooms.push_back(room(id<RoomId>("garden")));
 
@@ -219,6 +249,27 @@ const RuntimeValue& resolved_value(const Result<PropertyLookupResult, Diagnostic
     return *value;
 }
 } // namespace
+
+TEST_CASE("owner-local property keys resolve against the exact owner")
+{
+    const auto compiled_project = project();
+    auto state_result = SessionState::create(compiled_project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    PropertyResolver resolver(compiled_project, state);
+    const auto key = id<PropertyId>("state");
+    const PropertyOwnerRef root{id<RoomId>("area")};
+    const PropertyOwnerRef child{id<RoomId>("hall")};
+
+    CHECK(resolved_value(resolver.get(root, key)) == RuntimeValue{true});
+    CHECK(resolved_value(resolver.get(child, key)) == RuntimeValue{std::string{"open"}});
+    CHECK_FALSE(resolver.set(root, key, RuntimeValue{std::string{"wrong-type"}}));
+    CHECK_FALSE(resolver.set(child, key, RuntimeValue{false}));
+    REQUIRE(resolver.set(root, key, RuntimeValue{false}));
+    REQUIRE(resolver.set(child, key, RuntimeValue{std::string{"closed"}}));
+    CHECK(resolved_value(resolver.get(root, key)) == RuntimeValue{false});
+    CHECK(resolved_value(resolver.get(child, key)) == RuntimeValue{std::string{"closed"}});
+}
 
 TEST_CASE("global properties resolve authored defaults and enforce their types")
 {
