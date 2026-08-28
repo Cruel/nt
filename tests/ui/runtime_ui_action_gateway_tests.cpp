@@ -227,8 +227,8 @@ TEST_CASE("RuntimeUiActionGateway directly submits one-slot offers and progressi
 
     const auto room = noveltea::core::RoomId::create("room");
     const auto placement = noveltea::core::RoomPlacementId::create("placement");
-    const auto key = noveltea::core::InteractableId::create("key");
-    const auto coin = noveltea::core::InteractableId::create("coin");
+    const auto key = noveltea::core::InteractableInstanceId::create("key");
+    const auto coin = noveltea::core::InteractableInstanceId::create("coin");
     const auto use = noveltea::core::VerbId::create("use");
     const auto combine = noveltea::core::VerbId::create("combine");
     const auto target = noveltea::core::VerbSlotId::create("target");
@@ -395,7 +395,7 @@ TEST_CASE("RuntimeUiActionGateway exposes replacement Command Builder transport 
     CHECK(begun->watched_subjects.front() ==
           noveltea::core::compiled::InteractionSubject{
               noveltea::core::compiled::InteractableInteractionSubject{
-                  noveltea::core::InteractableId::create("key").value()}});
+                  noveltea::core::InteractableInstanceId::create("key").value()}});
 
     values.revision = 2;
     values.view.command_builder.active = true;
@@ -474,8 +474,8 @@ TEST_CASE("RuntimeUiActionGateway rejects stale hidden and disabled typed gamepl
     const auto exit_enabled = noveltea::core::RoomExitId::create("exit-enabled");
     const auto exit_disabled = noveltea::core::RoomExitId::create("exit-disabled");
     const auto placement = noveltea::core::RoomPlacementId::create("placement");
-    const auto interactable = noveltea::core::InteractableId::create("key");
-    const auto hidden_interactable = noveltea::core::InteractableId::create("hidden-key");
+    const auto interactable = noveltea::core::InteractableInstanceId::create("key");
+    const auto hidden_interactable = noveltea::core::InteractableInstanceId::create("hidden-key");
     const auto character = noveltea::core::CharacterId::create("alice");
     const auto disabled_character = noveltea::core::CharacterId::create("bob");
     const auto verb_enabled = noveltea::core::VerbId::create("inspect");

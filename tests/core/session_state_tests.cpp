@@ -359,8 +359,8 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
     auto state_result = SessionState::create(compiled_project);
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
-    const auto coin = id<InteractableId>("coin");
-    const auto key = id<InteractableId>("key");
+    const auto coin = id<InteractableInstanceId>("coin");
+    const auto key = id<InteractableInstanceId>("key");
 
     const compiled::InventoryRef player_inventory{compiled::ProjectInventoryOwner{},
                                                   id<InventoryId>("player")};
@@ -380,7 +380,7 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
 
     REQUIRE(
         state.move_interactable(compiled_project, coin, compiled::InventoryLocation{key_hidden}));
-    CHECK(state.inventory_members(key_hidden) == std::vector<InteractableId>{coin});
+    CHECK(state.inventory_members(key_hidden) == std::vector<InteractableInstanceId>{coin});
     CHECK(state.effective_room(compiled_project, coin) == id<RoomId>("start"));
     const auto coin_direct_location = state.interactable(coin)->location;
 
@@ -408,12 +408,12 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
     CHECK_FALSE(state.interactable(key)->enabled);
     CHECK_FALSE(state.interactable(key)->visible);
 
-    CHECK_FALSE(state.move_interactable(compiled_project, id<InteractableId>("missing"),
+    CHECK_FALSE(state.move_interactable(compiled_project, id<InteractableInstanceId>("missing"),
                                         compiled::UnplacedLocation{}));
-    CHECK_FALSE(
-        state.set_interactable_enabled(compiled_project, id<InteractableId>("missing"), true));
-    CHECK_FALSE(
-        state.set_interactable_visible(compiled_project, id<InteractableId>("missing"), true));
+    CHECK_FALSE(state.set_interactable_enabled(compiled_project,
+                                               id<InteractableInstanceId>("missing"), true));
+    CHECK_FALSE(state.set_interactable_visible(compiled_project,
+                                               id<InteractableInstanceId>("missing"), true));
 
     noveltea::runtime::RuntimeWorld world(compiled_project, state);
     noveltea::runtime::RuntimeCommandGateway gateway(

@@ -5,7 +5,10 @@ import {
   createAuthoringProject,
   isAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -704,7 +707,7 @@ describe('RoomEditor', () => {
               interactables: [
                 expect.objectContaining({
                   id: 'key',
-                  interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                  interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
                   placementId: 'key-placement',
                 }),
               ],
@@ -724,6 +727,77 @@ describe('RoomEditor', () => {
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
   });
 
+  it('places an existing exact Interactable Instance without creating a clone', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass Key',
+      data: defaultInteractableData('Brass Key'),
+    };
+    project.interactableInstances['special-key'] = defaultInteractableInstanceData(
+      'special-key',
+      'key',
+    );
+    project.interactableInstances['special-key'].editorLabel = 'Special Key';
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+    selectRoomCategory('Composition');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
+    fireEvent.click(screen.getByRole('button', { name: /Special Key/i }));
+    const stage = screen.getByTestId('room-composition-stage');
+    Object.defineProperty(stage, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        toJSON: () => ({}),
+      }),
+    });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 300, clientY: 150 });
+    fireEvent.mouseUp(window, { clientX: 300, clientY: 150 });
+
+    await waitFor(() => {
+      const document = useProjectStore.getState().document;
+      expect(document).toMatchObject({
+        rooms: {
+          foyer: {
+            data: {
+              interactables: [
+                expect.objectContaining({
+                  id: 'special-key',
+                  interactable: {
+                    $ref: { registry: 'interactableInstances', id: 'special-key' },
+                  },
+                  placementId: 'special-key-placement',
+                }),
+              ],
+            },
+          },
+        },
+        interactableInstances: {
+          'special-key': {
+            editorLabel: 'Special Key',
+            definition: { $ref: { collection: 'interactables', id: 'key' } },
+            location: {
+              kind: 'room',
+              room: { $ref: { collection: 'rooms', id: 'foyer' } },
+            },
+          },
+        },
+      });
+      if (!isAuthoringProject(document)) throw new Error('Expected an authoring project.');
+      expect(Object.keys(document.interactableInstances)).toEqual(['special-key']);
+    });
+  });
+
   it('moves and resizes an existing placement through window-level pointer gestures', async () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
@@ -736,14 +810,10 @@ describe('RoomEditor', () => {
       },
     ];
     const key = defaultInteractableData('Brass Key');
-    key.initialState.location = {
-      kind: 'room',
-      room: { $ref: { collection: 'rooms', id: 'foyer' } },
-    };
     room.interactables = [
       {
         id: 'key',
-        interactable: { $ref: { collection: 'interactables', id: 'key' } },
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
         condition: { kind: 'always' },
         placementId: 'key-placement',
         visible: true,
@@ -752,6 +822,10 @@ describe('RoomEditor', () => {
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.interactables.key = { id: 'key', label: 'Brass Key', data: key };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
     selectRoomCategory('Composition');
@@ -819,14 +893,10 @@ describe('RoomEditor', () => {
       },
     ];
     const key = defaultInteractableData('Brass Key');
-    key.initialState.location = {
-      kind: 'room',
-      room: { $ref: { collection: 'rooms', id: 'foyer' } },
-    };
     room.interactables = [
       {
         id: 'key',
-        interactable: { $ref: { collection: 'interactables', id: 'key' } },
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
         condition: { kind: 'always' },
         placementId: 'key-placement',
         visible: true,
@@ -835,6 +905,10 @@ describe('RoomEditor', () => {
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.interactables.key = { id: 'key', label: 'Brass Key', data: key };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
     selectRoomCategory('Composition');

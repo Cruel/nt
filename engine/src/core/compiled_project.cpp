@@ -560,12 +560,13 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
         [](const compiled::type& value) -> const id_type& { return value.identity.id; }, label)
     BUILD_DEFINITION_INDEX(CharacterId, characters, CharacterDefinition, "character");
     BUILD_DEFINITION_INDEX(RoomId, rooms, RoomDefinition, "room");
-    BUILD_DEFINITION_INDEX(InteractableId, interactables, InteractableDefinition, "interactable");
-    BUILD_DEFINITION_INDEX(ItemDefinitionId, item_definitions, ItemDefinition, "item definition");
+    BUILD_DEFINITION_INDEX(InteractableDefinitionId, interactables, InteractableDefinition,
+                           "interactable definition");
     BUILD_INDEX(
-        ItemStackId, item_stacks,
-        [](const compiled::ItemStackDeclaration& value) -> const ItemStackId& { return value.id; },
-        "item stack");
+        InteractableInstanceId, interactable_instances,
+        [](const compiled::InteractableInstanceDeclaration& value)
+            -> const InteractableInstanceId& { return value.id; },
+        "interactable instance");
     BUILD_DEFINITION_INDEX(VerbId, verbs, VerbDefinition, "verb");
     BUILD_DEFINITION_INDEX(InteractionId, interactions, InteractionDefinition, "interaction");
     BUILD_DEFINITION_INDEX(SceneId, scenes, SceneDefinition, "scene");
@@ -593,9 +594,8 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
       m_material_interfaces(std::move(input.material_interfaces)),
       m_scripts(std::move(input.scripts)), m_characters(std::move(input.characters)),
       m_rooms(std::move(input.rooms)), m_interactables(std::move(input.interactables)),
-      m_item_definitions(std::move(input.item_definitions)),
-      m_item_stacks(std::move(input.item_stacks)), m_verbs(std::move(input.verbs)),
-      m_interactions(std::move(input.interactions)),
+      m_interactable_instances(std::move(input.interactable_instances)),
+      m_verbs(std::move(input.verbs)), m_interactions(std::move(input.interactions)),
       m_undefined_interaction_program(std::move(input.undefined_interaction_program)),
       m_scenes(std::move(input.scenes)), m_dialogues(std::move(input.dialogues)),
       m_maps(std::move(input.maps))
@@ -637,8 +637,13 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
         [](const compiled::type& value) -> const id_type& { return value.identity.id; }, label)
     INDEX_DEFINITION(CharacterId, character, characters, CharacterDefinition, "character");
     INDEX_DEFINITION(RoomId, room, rooms, RoomDefinition, "room");
-    INDEX_DEFINITION(InteractableId, interactable, interactables, InteractableDefinition,
-                     "interactable");
+    INDEX_DEFINITION(InteractableDefinitionId, interactable_definition, interactables,
+                     InteractableDefinition, "interactable definition");
+    INDEX(
+        InteractableInstanceId, interactable_instance, interactable_instances,
+        [](const compiled::InteractableInstanceDeclaration& value)
+            -> const InteractableInstanceId& { return value.id; },
+        "interactable instance");
     INDEX_DEFINITION(ItemDefinitionId, item_definition, item_definitions, ItemDefinition,
                      "item definition");
     INDEX(
@@ -669,7 +674,10 @@ FIND(material_interface, material_interfaces, MaterialId, compiled::MaterialInte
 FIND(script, scripts, ScriptId, compiled::ScriptResource)
 FIND(character, characters, CharacterId, compiled::CharacterDefinition)
 FIND(room, rooms, RoomId, compiled::RoomDefinition)
-FIND(interactable, interactables, InteractableId, compiled::InteractableDefinition)
+FIND(interactable_definition, interactables, InteractableDefinitionId,
+     compiled::InteractableDefinition)
+FIND(interactable_instance, interactable_instances, InteractableInstanceId,
+     compiled::InteractableInstanceDeclaration)
 FIND(item_definition, item_definitions, ItemDefinitionId, compiled::ItemDefinition)
 FIND(item_stack, item_stacks, ItemStackId, compiled::ItemStackDeclaration)
 
@@ -688,7 +696,8 @@ CompiledProject::find_feature(const RoomFeatureRef& reference) const noexcept
 const compiled::FeatureDefinition*
 CompiledProject::find_feature(const InteractableFeatureRef& reference) const noexcept
 {
-    const auto* owner = find_interactable(reference.interactable);
+    const auto* instance = find_interactable_instance(reference.interactable);
+    const auto* owner = instance ? find_interactable_definition(instance->definition) : nullptr;
     if (owner == nullptr)
         return nullptr;
     const auto found = std::ranges::find_if(owner->features, [&](const auto& feature) {
@@ -715,7 +724,9 @@ CompiledProject::find_inventory(const compiled::InventoryRef& reference) const n
                 const auto* definition = find_character(owner.character);
                 return definition ? &definition->inventories : nullptr;
             } else if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>) {
-                const auto* definition = find_interactable(owner.interactable);
+                const auto* instance = find_interactable_instance(owner.interactable);
+                const auto* definition =
+                    instance ? find_interactable_definition(instance->definition) : nullptr;
                 return definition ? &definition->inventories : nullptr;
             } else {
                 const auto* definition = find_feature(owner);

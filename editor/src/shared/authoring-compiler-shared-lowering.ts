@@ -31,13 +31,9 @@ import { parseMapData } from './project-schema/authoring-maps';
 import { resolveMaterialData } from './project-schema/authoring-materials';
 import {
   parseInteractableData,
+  type InteractableInstanceData,
   type InteractableData,
 } from './project-schema/authoring-interactables';
-import {
-  parseItemDefinitionData,
-  parseItemStackData,
-  type ItemStackData,
-} from './project-schema/authoring-items';
 import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
 import { compileRoomNavigationTransition, parseRoomData } from './project-schema/authoring-rooms';
@@ -57,7 +53,6 @@ export type SharedRoomDefinition = Omit<WireDefinitions['rooms'][number], 'lifec
   lifecycle: Omit<WireDefinitions['rooms'][number]['lifecycle'], 'hooks'>;
 };
 export type SharedInteractableDefinition = WireDefinitions['interactables'][number];
-export type SharedItemDefinition = WireDefinitions['itemDefinitions'][number];
 export type SharedVerbDefinition = Omit<
   WireDefinitions['verbs'][number],
   'availability' | 'defaultProgram'
@@ -86,7 +81,7 @@ export interface CompiledProjectSharedDraft {
   traits: CompiledProjectWire['traits'];
   archetypes: CompiledProjectWire['archetypes'];
   inventories: CompiledProjectWire['inventories'];
-  itemStacks: CompiledProjectWire['itemStacks'];
+  interactableInstances: CompiledProjectWire['interactableInstances'];
   localization: CompiledProjectWire['localization'];
   resources: WireResources;
   saveContract: CompiledProjectWire['saveContract'];
@@ -94,7 +89,6 @@ export interface CompiledProjectSharedDraft {
     characters: SharedCharacterDefinition[];
     rooms: SharedRoomDefinition[];
     interactables: SharedInteractableDefinition[];
-    itemDefinitions: SharedItemDefinition[];
     verbs: SharedVerbDefinition[];
     interactions: SharedInteractionDefinition[];
     scenes: SharedSceneDefinition[];
@@ -323,7 +317,7 @@ function compileInventoryReference(inventory: InventoryReferenceData) {
   return { owner: compiledOwner, inventoryId: inventory.inventoryId };
 }
 
-function compileInteractableLocation(location: InteractableData['initialState']['location']) {
+function compileInteractableLocation(location: InteractableInstanceData['location']) {
   if (location.kind === 'unplaced') return { kind: 'unplaced' as const };
   if (location.kind === 'room')
     return { kind: 'room' as const, room: roomRef(location.room.$ref.id) };
@@ -331,10 +325,6 @@ function compileInteractableLocation(location: InteractableData['initialState'][
     kind: 'inventory' as const,
     inventory: compileInventoryReference(location.inventory),
   };
-}
-
-function compileItemStackLocation(location: ItemStackData['location']) {
-  return compileInteractableLocation(location);
 }
 
 function compileFeature(feature: FeatureData) {
@@ -796,41 +786,23 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         material: materialRef(data.presentation.material),
         hotspots: compileInteractableHotspots(data.presentation.hotspots),
       },
-      initialState: {
-        enabled: data.initialState.enabled,
-        visible: data.initialState.visible,
-        location: compileInteractableLocation(data.initialState.location),
-      },
     });
   }
 
-  const itemDefinitions: SharedItemDefinition[] = [];
-  for (const [id, record] of sortedEntries(project.itemDefinitions)) {
-    const data = requireData(parseItemDefinitionData(record.data), `/itemDefinitions/${id}/data`);
-    if (!data) continue;
-    itemDefinitions.push({
-      ...propertyBase(id, record),
-      displayName: data.displayName,
-      description: data.description,
-      presentation: {
-        sprite: assetRef(data.presentation.sprite),
-        material: materialRef(data.presentation.material),
-      },
-      stackLimit: data.stackLimit,
-    });
-  }
-
-  const itemStacks: CompiledProjectWire['itemStacks'] = [];
-  for (const [id, record] of sortedEntries(project.itemStacks)) {
-    const data = requireData(parseItemStackData(record.data), `/itemStacks/${id}/data`);
-    if (!data) continue;
-    itemStacks.push({
-      id,
-      definition: { kind: 'item-definition', id: data.definition.$ref.id },
-      quantity: data.quantity,
-      location: compileItemStackLocation(data.location),
-    });
-  }
+  const interactableInstances: CompiledProjectWire['interactableInstances'] = sortedEntries(
+    project.interactableInstances,
+  ).map(([id, instance]) => ({
+    id,
+    definition: { kind: 'interactable-definition', id: instance.definition.$ref.id },
+    location: compileInteractableLocation(instance.location),
+    enabled: instance.enabled,
+    visible: instance.visible,
+    traitAdds: [...instance.traits.add].sort(),
+    traitRemoves: [...instance.traits.remove].sort(),
+    propertyOverrides: Object.entries(instance.properties)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([propertyId, value]) => ({ propertyId, value })),
+  }));
 
   const verbs: SharedVerbDefinition[] = [];
   for (const [id, record] of sortedEntries(project.verbs)) {
@@ -1248,11 +1220,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         },
       });
     } else {
-      const raw = {
-        ...(configuration.data as object),
-        initialState: { location: { kind: 'unplaced' }, enabled: true, visible: true },
-      };
-      const data = requireData(parseInteractableData(raw), `/archetypes/${id}/data`);
+      const data = requireData(parseInteractableData(configuration.data), `/archetypes/${id}/data`);
       if (!data) continue;
       archetypes.push({
         id,
@@ -1408,7 +1376,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     traits,
     archetypes,
     inventories: compileInventories(project.inventories),
-    itemStacks,
+    interactableInstances,
     localization: {
       defaultLocale: project.localization.defaultLocale,
       fallbackLocale: project.localization.fallbackLocale,
@@ -1422,7 +1390,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       characters,
       rooms,
       interactables,
-      itemDefinitions,
       verbs,
       interactions,
       scenes,

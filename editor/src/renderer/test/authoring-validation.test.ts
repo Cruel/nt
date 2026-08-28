@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { validateHotspotAuthoringSemantics } from '../../shared/project-schema/authoring-hotspot-validation';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -80,6 +83,11 @@ describe('authoring V2 validation', () => {
       label: 'Key',
       data: defaultInteractableData('Key'),
     };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'start' } } },
+    );
     const room = defaultRoomData('Start');
     room.placements.push({
       id: 'key-placement',
@@ -88,7 +96,7 @@ describe('authoring V2 validation', () => {
     });
     room.interactables.push({
       id: 'key-instance',
-      interactable: { $ref: { collection: 'interactables', id: 'key' } },
+      interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
       condition: { kind: 'always' },
       placementId: 'key-placement',
       visible: true,
@@ -101,7 +109,7 @@ describe('authoring V2 validation', () => {
         code: 'room.interactable.sprite-missing',
         severity: 'warning',
         path: '/rooms/start/data/interactables/0/interactable/$ref',
-        message: expect.stringContaining("Visible Interactable 'key' has no sprite"),
+        message: expect.stringContaining("Visible Interactable 'key-instance' has no sprite"),
       }),
     );
 

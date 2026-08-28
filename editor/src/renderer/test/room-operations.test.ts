@@ -3,7 +3,10 @@ import { createInitialCommandBusState, executeCommand, undoCommand } from './com
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
 import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
@@ -78,17 +81,13 @@ describe('room commands', () => {
     room.interactables = [
       {
         id: 'lamp',
-        interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
+        interactable: { $ref: { registry: 'interactableInstances', id: 'lamp' } },
         condition: { kind: 'always' },
         placementId: 'lamp-placement',
         visible: true,
         order: 0,
       },
     ];
-    lamp.initialState.location = {
-      kind: 'room',
-      room: { $ref: { collection: 'rooms', id: 'foyer' } },
-    };
     const guard = defaultCharacterData('Guard');
     guard.initialWorldState.location = {
       kind: 'room',
@@ -96,6 +95,10 @@ describe('room commands', () => {
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.interactables.lamp = { id: 'lamp', label: 'Lamp', data: lamp };
+    project.interactableInstances.lamp = defaultInteractableInstanceData('lamp', 'lamp', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
     project.characters.guard = { id: 'guard', label: 'Guard', data: guard };
     let state = createInitialCommandBusState(toJsonValue(project));
 

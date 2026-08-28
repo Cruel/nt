@@ -218,10 +218,10 @@ decode_scene_property_owner(Decoder& decoder, const nlohmann::json& value, std::
     if (*kind == "interactable") {
         decoder.object(value, pointer, {"interactable", "kind"});
         const auto* member = decoder.member(value, "interactable", pointer);
-        auto id = member ? decode_reference<InteractableId>(decoder, *member,
-                                                            pointer_child(pointer, "interactable"),
-                                                            "interactable")
-                         : std::nullopt;
+        auto id =
+            member ? decode_reference<InteractableInstanceId>(
+                         decoder, *member, pointer_child(pointer, "interactable"), "interactable")
+                   : std::nullopt;
         return id ? std::optional<PropertyOwnerRef>(*id) : std::nullopt;
     }
     if (*kind == "item-stack") {
@@ -269,10 +269,10 @@ decode_scene_instance_ref(Decoder& decoder, const nlohmann::json& value, std::st
     if (*kind == "interactable") {
         decoder.object(value, pointer, {"interactable", "kind"});
         const auto* member = decoder.member(value, "interactable", pointer);
-        auto id = member ? decode_reference<InteractableId>(decoder, *member,
-                                                            pointer_child(pointer, "interactable"),
-                                                            "interactable")
-                         : std::nullopt;
+        auto id =
+            member ? decode_reference<InteractableInstanceId>(
+                         decoder, *member, pointer_child(pointer, "interactable"), "interactable")
+                   : std::nullopt;
         return id ? std::optional<SceneGameplayInstanceRef>(*id) : std::nullopt;
     }
     decoder.error(k_code_variant, "Unknown Scene Gameplay Instance reference kind.",
@@ -443,7 +443,7 @@ decode_scene_gameplay_effect_operation(Decoder& decoder, const nlohmann::json& v
         }
         const auto* member = decoder.member(value, "interactable", pointer);
         auto interactable =
-            member ? decode_reference<InteractableId>(
+            member ? decode_reference<InteractableInstanceId>(
                          decoder, *member, pointer_child(pointer, "interactable"), "interactable")
                    : std::nullopt;
         return interactable
@@ -456,7 +456,7 @@ decode_scene_gameplay_effect_operation(Decoder& decoder, const nlohmann::json& v
         const auto* interactable_value = decoder.member(value, "interactable", pointer);
         const auto* location_value = decoder.member(value, "location", pointer);
         auto interactable = interactable_value
-                                ? decode_reference<InteractableId>(
+                                ? decode_reference<InteractableInstanceId>(
                                       decoder, *interactable_value,
                                       pointer_child(pointer, "interactable"), "interactable")
                                 : std::nullopt;

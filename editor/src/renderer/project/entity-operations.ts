@@ -13,10 +13,6 @@ import { defaultMaterialData } from '../../shared/project-schema/authoring-mater
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
-import {
-  defaultItemDefinitionData,
-  defaultItemStackData,
-} from '../../shared/project-schema/authoring-items';
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { defaultScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
@@ -192,8 +188,6 @@ export function defaultDataForCollection(
   if (collection === 'interactables') return defaultInteractableData(label);
   if (collection === 'verbs') return defaultVerbData(label);
   if (collection === 'interactions') return defaultInteractionData();
-  if (collection === 'itemDefinitions') return defaultItemDefinitionData(label);
-  if (collection === 'itemStacks') return defaultItemStackData('item');
   if (collection === 'maps') return defaultMapData();
   if (collection === 'scripts') return defaultScriptModuleData();
   return {};

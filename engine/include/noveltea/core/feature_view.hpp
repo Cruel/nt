@@ -145,7 +145,7 @@ struct InventoryContainerView {
     std::optional<RoomId> effective_room;
 };
 struct InventoryItemView {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     compiled::InventoryRef inventory;
     std::optional<RoomId> effective_room;
     std::string display_name;

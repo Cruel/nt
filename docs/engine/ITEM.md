@@ -1,87 +1,28 @@
-# Item Definitions and Item Stacks
+# Retired Item Model
 
-## Contract
+## Current contract
 
-An Item Definition is immutable Project content for fungible inventory. It owns a stable
-`ItemDefinitionId`, display name, description, optional sprite/material presentation, attached Traits,
-authored Property assignments, and an optional positive Stack limit. An Item Stack is a live,
-authoritative identity containing exactly one definition, a positive checked quantity, one direct
-Location, attached Traits, and sparse runtime Property overrides.
+`ItemDefinition` and `ItemStack` are not canonical authoring or Compiled Project content. The
+Project has no `itemDefinitions` or `itemStacks` top-level collections, and the Compiled Project
+decoder rejects those retired fields rather than treating them as aliases.
 
-The authoring Project uses a current-only source schema, compiled gameplay uses Compiled Project
-Format V1, and persistence uses Save File V1. Current shapes are replaced atomically across those
-boundaries; normal readers require the current fields and reject retired shapes. There is no
-compatibility reader or missing-field compatibility default.
+Inventory-capable world objects use the Interactable definition/Instance model described in
+`docs/engine/INTERACTABLE.md`. An Interactable Definition is immutable configuration. Every live
+object has an exact `InteractableInstanceId`, a definition reference, one Location, enabled/visible
+state, and Instance-local Trait/Property deltas.
 
-## Identity and arithmetic
+The old Item Stack runtime types and mutation implementation remain temporarily as unreachable
+internal scaffolding. They are not seeded by canonical Project data, are not exposed as editor
+collections, and must not be used as a project-format compatibility path. Follow-up work replaces
+stackability and quantity on top of Interactable Instances before the legacy internals are removed.
 
-Authored Stack IDs are declared identities. Runtime allocations use the saved monotonic
-`runtime-item-stack-N` allocator. Operations use lexicographic Stack-ID order wherever more than one
-candidate can participate:
+## Authoring and editor
 
-- split keeps the source identity and creates one identity carrying copied Traits and Property
-  overrides;
-- merge keeps the explicit receiver and ends the donor;
-- transfer preserves the source for a whole-quantity move when it can, otherwise it splits and then
-  coalesces or keeps the result separate according to the explicit placement policy;
-- grant fills compatible existing Stacks first, then creates the fewest limit-respecting Stacks;
-- consume by filter uses stable ID order and ends every fully consumed identity;
-- aggregate is a checked sum and never changes state.
+The editor exposes Interactable Definitions as the reusable authoring collection. Exact Instances
+live in the project-level `interactableInstances` registry, which is infrastructure rather than an
+Explorer collection. Room authoring can either create a new Instance from a Definition or place an
+already-declared Instance without changing its identity.
 
-Every mutation validates its complete result before publication and is atomic. Quantities and sums
-are positive safe integers bounded by `9,007,199,254,740,991`; definition Stack limits are enforced.
-An ended identity is immediately stale: it is erased with its Property overrides, never redirects to
-a surviving Stack, and is rejected by new Property and Interaction lookups and by saved authoritative
-references.
-
-## Compatibility and Properties
-
-Two Stacks may coalesce only when their definitions and all effective semantic state match. This
-includes the canonical Trait set and every Item-Stack Property after ordinary Property resolution:
-runtime override, definition assignment, configured Trait value, declaration default, or typed
-missing value. No Property reducer or implicit value synthesis exists. Split copies sparse overrides;
-merge is legal only when effective values already agree.
-
-## Location, publication, and Interaction
-
-Stack Location is the same closed Unplaced, Room, or owner-qualified Inventory union used for
-Interactables. Inventory membership follows only direct Location. Effective Room follows Inventory
-ownership without rewriting descendants. `RoomView` and `InventoryView` publish exact `ItemStackView`
-entries, including identity, definition, quantity, Location, effective Room, presentation, and Traits.
-UI may group equal-looking rows, but a grouping is derived display state and is never an Interaction,
-Property, mutation, or save identity.
-
-`ItemStackInteractionSubject` carries one exact live Stack ID. Runtime Room eligibility includes
-Stacks whose effective Room is the active Room. Authoring Interactions, playback tests, recorder
-drafts, preview protocol, active selection, Flow frames, and saves preserve that exact identity.
-Interaction rules may also use the narrow `AnyItemStack` operand matcher; it never substitutes an Item
-Definition for a complete command's exact live Stack reference.
-
-## Save, Lua, and editor surfaces
-
-The Save File V1 payload stores every live Stack exactly, its declared/runtime provenance flag, direct Location,
-Traits, sparse Property overrides, and the next allocator value. Restore validates all definitions,
-limits, Locations, Traits, owners, references, and allocator ordering before atomically publishing a
-fresh SessionState.
-
-Gameplay Lua exposes `noveltea.item_stacks.get`, `set_traits`, `split`, `merge`, `transfer`, `grant`,
-`consume`, `consume_definition`, and `aggregate_definition`. Ordinary `noveltea.properties` calls use
-owner kind `item-stack`. Results
-report exact surviving, changed, created, and ended IDs; a later lookup of an ended ID fails as
-stale.
-
-The editor provides Item Definition and Item Stack explorer collections, typed creation wizard paths,
-typed detail forms, validation, compilation, exact Interaction/test subject selection, and canonical
-golden fixtures. Definition Trait/Property attachments continue to use the shared record tooling.
-
-## Main implementation areas
-
-- Authoring/compiler: `editor/src/shared/project-schema/authoring-items.ts` and shared compiler/schema
-  modules.
-- Editor: `editor/src/renderer/editors/items/ItemEditor.tsx`, collection metadata, and new-entity/test
-  tooling.
-- Native model/codec: `compiled_project.hpp`, compiled Project decoder/validation, and
-  `save_state` codec modules.
-- Runtime: `feature_state.hpp`, `session_state.cpp`, `runtime_world.cpp`, Property resolution,
-  presentation publication, and Interaction execution.
-- Lua: `runtime_command_gateway`, `runtime_script_api`, and `bind_typed_script_host.cpp`.
+Do not add Item Definition/Item Stack creation flows, schemas, generated agent-kit record schemas,
+or compatibility readers. Any future counted/stackable inventory behavior must preserve exact
+Interactable Instance identity and extend that model rather than restoring the retired Item family.

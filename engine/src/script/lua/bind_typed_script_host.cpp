@@ -100,7 +100,7 @@ core::Result<core::PropertyOwnerRef, core::Diagnostics> property_owner(std::stri
     }
     NOVELTEA_PARSE_OWNER("room", core::RoomId)
     NOVELTEA_PARSE_OWNER("character", core::CharacterId)
-    NOVELTEA_PARSE_OWNER("interactable", core::InteractableId)
+    NOVELTEA_PARSE_OWNER("interactable", core::InteractableInstanceId)
     NOVELTEA_PARSE_OWNER("item-stack", core::ItemStackId)
 #undef NOVELTEA_PARSE_OWNER
     return Result::failure(core::Diagnostics{core::Diagnostic{
@@ -123,7 +123,7 @@ feature_ref(std::string owner_kind, std::string owner_id, std::string feature_id
                      : Result::failure(owner.error());
     }
     if (owner_kind == "interactable") {
-        auto owner = parse_id<core::InteractableId>(std::move(owner_id));
+        auto owner = parse_id<core::InteractableInstanceId>(std::move(owner_id));
         return owner ? Result::success(core::FeatureRef{core::InteractableFeatureRef{
                            std::move(*owner.value_if()), std::move(*feature.value_if())}})
                      : Result::failure(owner.error());
@@ -175,7 +175,7 @@ interaction_subject(const sol::table& subject)
                       : Result::failure(parsed.error());
     }
     if (kind == "interactable") {
-        auto parsed = parse_id<core::InteractableId>(id);
+        auto parsed = parse_id<core::InteractableInstanceId>(id);
         return parsed ? Result::success(core::compiled::InteractableInteractionSubject{
                             std::move(*parsed.value_if())})
                       : Result::failure(parsed.error());
@@ -339,7 +339,7 @@ parse_inventory_owner(const sol::table& value)
         if (!id.is<std::string>())
             return Result::failure(
                 location_error("Interactable Inventory owner requires interactable"));
-        auto parsed = parse_id<core::InteractableId>(id.as<std::string>());
+        auto parsed = parse_id<core::InteractableInstanceId>(id.as<std::string>());
         return parsed ? Result::success(core::compiled::InteractableInventoryOwner{
                             std::move(*parsed.value_if())})
                       : Result::failure(parsed.error());
@@ -365,7 +365,8 @@ parse_inventory_owner(const sol::table& value)
         if (!interactable.is<std::string>() || !feature.is<std::string>())
             return Result::failure(location_error(
                 "Interactable Feature Inventory owner requires interactable and feature"));
-        auto interactable_id = parse_id<core::InteractableId>(interactable.as<std::string>());
+        auto interactable_id =
+            parse_id<core::InteractableInstanceId>(interactable.as<std::string>());
         auto feature_id = parse_id<core::FeatureId>(feature.as<std::string>());
         if (!interactable_id)
             return Result::failure(interactable_id.error());
@@ -559,7 +560,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
                                             nil(view)}
                              : failure(view, value.error());
             }
-            if (const auto* interactable = std::get_if<core::InteractableId>(&self.owner)) {
+            if (const auto* interactable = std::get_if<core::InteractableInstanceId>(&self.owner)) {
                 auto value = self.host->interactable_location(*interactable);
                 return value ? ObjectResult{location_object(view, *value.value_if()), nil(view)}
                              : failure(view, value.error());
@@ -577,7 +578,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
                                 : mutation(view, core::Result<void, core::Diagnostics>::failure(
                                                      location.error()));
             }
-            if (const auto* interactable = std::get_if<core::InteractableId>(&self.owner)) {
+            if (const auto* interactable = std::get_if<core::InteractableInstanceId>(&self.owner)) {
                 auto location = parse_interactable_location(target);
                 return location
                            ? mutation(view, self.host->request_interactable_location(
@@ -597,7 +598,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
     bind_definition_reader(project, "dialogue", core::ProjectDefinitionKind::Dialogue, host);
     bind_identity_reader<core::CharacterId>(
         project, "character", core::ProjectDefinitionKind::Character, "character", host);
-    bind_identity_reader<core::InteractableId>(
+    bind_identity_reader<core::InteractableInstanceId>(
         project, "interactable", core::ProjectDefinitionKind::Interactable, "interactable", host);
     project.set_function(
         "feature",
@@ -803,7 +804,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
     interactables.set_function(
         "location", [host](std::string id, sol::this_state state) -> ObjectResult {
             sol::state_view view(state);
-            auto parsed = parse_id<core::InteractableId>(std::move(id));
+            auto parsed = parse_id<core::InteractableInstanceId>(std::move(id));
             const auto* interactable = parsed.value_if();
             if (interactable == nullptr)
                 return failure(view, parsed.error());
@@ -816,7 +817,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
         "set_location",
         [host](std::string id, sol::table target, sol::this_state state) -> MutationResult {
             sol::state_view view(state);
-            auto interactable = parse_id<core::InteractableId>(std::move(id));
+            auto interactable = parse_id<core::InteractableInstanceId>(std::move(id));
             auto location = parse_interactable_location(target);
             if (!interactable)
                 return mutation(
@@ -1102,7 +1103,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
     });
     game.set_function("select_object", [host](std::string id, sol::this_state state) {
         sol::state_view view(state);
-        auto parsed = parse_id<core::InteractableId>(std::move(id));
+        auto parsed = parse_id<core::InteractableInstanceId>(std::move(id));
         auto* value = parsed.value_if();
         return value
                    ? mutation(view, host->select_interactable(std::move(*value)))

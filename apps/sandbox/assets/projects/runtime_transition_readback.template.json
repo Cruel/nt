@@ -64,6 +64,7 @@
   "inventories": [],
   "traits": [],
   "archetypes": [],
+  "interactableInstances": [],
   "localization": {
     "defaultLocale": "en",
     "fallbackLocale": null,
@@ -154,7 +155,6 @@
     ]
   },
   "definitions": {
-    "itemDefinitions": [],
     "characters": [],
     "dialogues": [],
     "interactables": [],
@@ -191,6 +191,5 @@
         "terminal": { "kind": "complete-game" }
       }
     ]
-  },
-  "itemStacks": []
+  }
 }

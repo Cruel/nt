@@ -919,13 +919,13 @@ TEST_CASE("reset replacement request leaves live checkpoint state untouched unti
 TEST_CASE("stop and candidate replacement cancel staged runtime commands without mutation")
 {
     Fixture fixture;
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     const auto original = fixture.session->gateway().interactable_location(key);
     REQUIRE(original);
     const auto* original_room = std::get_if<core::compiled::RoomLocation>(original.value_if());
     REQUIRE(original_room != nullptr);
 
-    const auto missing = make_id<core::InteractableIdTag>("missing");
+    const auto missing = make_id<core::InteractableInstanceIdTag>("missing");
     auto invalid = fixture.session->gateway().request_interactable_location(
         missing, player_inventory_location());
     REQUIRE_FALSE(invalid);
@@ -956,7 +956,7 @@ TEST_CASE("stop and candidate replacement cancel staged runtime commands without
 TEST_CASE("successful load candidate discards commands staged against the replaced session state")
 {
     Fixture fixture;
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     const auto slot = core::TypedSaveSlotId::manual(6);
@@ -1152,7 +1152,7 @@ TEST_CASE("internal runtime commands settle before checkpoint evaluation")
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     const auto use = make_id<core::VerbIdTag>("use");
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     auto invoked = dispatch_settled(*fixture.session,
                                     core::RuntimeInputMessage{core::InvokeInteractionInput{
                                         use,
@@ -1174,7 +1174,7 @@ TEST_CASE("semantic Verb menu publication never auto-selects a primary Offer")
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     const core::compiled::InteractionSubject subject =
         core::compiled::InteractableInteractionSubject{key};
 
@@ -1202,7 +1202,7 @@ TEST_CASE("Primary Activate executes the unique primary Verb Offer")
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     const core::compiled::InteractionSubject subject =
         core::compiled::InteractableInteractionSubject{key};
 
@@ -1237,7 +1237,7 @@ TEST_CASE("ambiguous primary Verb Offers diagnose and open the ordinary menu")
     });
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     const core::compiled::InteractionSubject subject =
         core::compiled::InteractableInteractionSubject{key};
 
@@ -1295,7 +1295,7 @@ TEST_CASE(
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
 
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     const core::compiled::InteractionSubject key_subject =
         core::compiled::InteractableInteractionSubject{key};
     REQUIRE(dispatch_settled(
@@ -1385,7 +1385,8 @@ TEST_CASE("Command Builder is transient and terminates on runtime lifecycle chan
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     const core::compiled::InteractionSubject subject =
-        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("key")};
+        core::compiled::InteractableInteractionSubject{
+            make_id<core::InteractableInstanceIdTag>("key")};
     REQUIRE(
         dispatch_settled(*fixture.session,
                          core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{subject}}})
@@ -1462,9 +1463,11 @@ TEST_CASE("Command Builder enforces runtime capture authority")
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     const core::compiled::InteractionSubject key_subject =
-        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("key")};
+        core::compiled::InteractableInteractionSubject{
+            make_id<core::InteractableInstanceIdTag>("key")};
     const core::compiled::InteractionSubject unauthorized_subject =
-        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("coin")};
+        core::compiled::InteractableInteractionSubject{
+            make_id<core::InteractableInstanceIdTag>("coin")};
     const core::compiled::InteractionSubject door_subject =
         core::compiled::FeatureInteractionSubject{core::RoomFeatureRef{
             make_id<core::RoomIdTag>("start"), make_id<core::FeatureIdTag>("door")}};
@@ -1526,7 +1529,8 @@ TEST_CASE("Command Builder transient Draft state does not change saved gameplay"
     REQUIRE(baseline_save);
 
     const core::compiled::InteractionSubject key_subject =
-        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("key")};
+        core::compiled::InteractableInteractionSubject{
+            make_id<core::InteractableInstanceIdTag>("key")};
     REQUIRE(dispatch_settled(
                 *fixture.session,
                 core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{key_subject}}})
@@ -1553,7 +1557,8 @@ TEST_CASE("Command Builder terminates after an accepted direct control command")
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     const core::compiled::InteractionSubject key_subject =
-        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("key")};
+        core::compiled::InteractableInteractionSubject{
+            make_id<core::InteractableInstanceIdTag>("key")};
     REQUIRE(dispatch_settled(
                 *fixture.session,
                 core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{key_subject}}})
@@ -1584,14 +1589,15 @@ TEST_CASE("deferred runtime commands execute inside one outer transaction")
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{core::InvokeInteractionInput{
-        make_id<core::VerbIdTag>("use"),
-        {{make_id<core::VerbSlotIdTag>("target"), core::compiled::InteractableInteractionSubject{
-                                                      make_id<core::InteractableIdTag>("key")}}}}});
+    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{
+        core::InvokeInteractionInput{make_id<core::VerbIdTag>("use"),
+                                     {{make_id<core::VerbSlotIdTag>("target"),
+                                       core::compiled::InteractableInteractionSubject{
+                                           make_id<core::InteractableInstanceIdTag>("key")}}}}});
     REQUIRE(invoked.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
-    const auto location =
-        fixture.session->gateway().interactable_location(make_id<core::InteractableIdTag>("key"));
+    const auto location = fixture.session->gateway().interactable_location(
+        make_id<core::InteractableInstanceIdTag>("key"));
     REQUIRE(location);
     CHECK(std::holds_alternative<core::compiled::InventoryLocation>(location.value()));
     CHECK(std::none_of(
@@ -1802,7 +1808,7 @@ TEST_CASE("deferred command self-enqueue is bounded by the transaction command b
     REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
 
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     REQUIRE(fixture.session->gateway().request_navigation(core::compiled::RoomExitRef{
         make_id<core::RoomIdTag>("start"), make_id<core::RoomExitIdTag>("north-exit")}));
     auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
@@ -1868,7 +1874,7 @@ TEST_CASE("frame-destructive commands make later commands from the old owner sta
     Fixture fixture("scene-program.json");
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
-    const auto key = make_id<core::InteractableIdTag>("key");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
     REQUIRE(fixture.session->gateway().request_tail_replacement(
         core::FlowTarget{make_id<core::SceneIdTag>("closing")}));
     REQUIRE(

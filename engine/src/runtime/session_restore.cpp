@@ -79,14 +79,14 @@ materialize_character(const CompiledProject& project, const RuntimeConfiguration
 
 std::optional<compiled::InteractableDefinition>
 materialize_interactable(const CompiledProject& project, const RuntimeConfigurationSource& source,
-                         const InteractableId& id)
+                         const InteractableInstanceId& id)
 {
     std::optional<compiled::InteractableDefinition> result;
     std::visit(
         [&](const auto& value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, CompiledInteractableConfigurationSource>) {
-                if (const auto* definition = project.find_interactable(value.interactable))
+                if (const auto* definition = project.find_interactable_definition(value.definition))
                     result = *definition;
             } else if constexpr (std::is_same_v<T, ArchetypeConfigurationSource>) {
                 const auto* archetype = project.find_archetype(value.archetype);
@@ -98,8 +98,7 @@ materialize_interactable(const CompiledProject& project, const RuntimeConfigurat
             }
         },
         source);
-    if (result)
-        replace_identity(*result, id);
+    (void)id;
     return result;
 }
 
@@ -302,6 +301,18 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
             return Result<SessionState, Diagnostics>::failure(restore_error(
                 "save_restore.invalid_runtime_configuration",
                 "Saved Interactable birth configuration source cannot be reconstructed."));
+        if (saved.declared) {
+            const auto* declaration = project.find_interactable_instance(saved.id);
+            const auto* source =
+                std::get_if<CompiledInteractableConfigurationSource>(&saved.birth_source);
+            if (declaration == nullptr || source == nullptr ||
+                source->definition != declaration->definition)
+                return Result<SessionState, Diagnostics>::failure(
+                    restore_error("save_restore.invalid_runtime_configuration",
+                                  "Saved declared Interactable does not match its Project Instance "
+                                  "declaration."));
+            *birth = realize_declared_interactable_configuration(*birth, *declaration);
+        }
         std::optional<compiled::InteractableDefinition> structural_override;
         if (saved.structural_override_source) {
             structural_override =

@@ -60,7 +60,7 @@ public:
     [[nodiscard]] const core::compiled::CharacterDefinition*
     resolved_configuration(const core::CharacterId& id) const noexcept;
     [[nodiscard]] const core::compiled::InteractableDefinition*
-    resolved_configuration(const core::InteractableId& id) const noexcept;
+    resolved_configuration(const core::InteractableInstanceId& id) const noexcept;
     [[nodiscard]] const core::RuntimeInstanceProvenance*
     provenance(const core::GameplayInstanceRef& instance) const noexcept;
     [[nodiscard]] bool runtime_created(const core::GameplayInstanceRef& instance) const noexcept;
@@ -71,7 +71,7 @@ public:
     create_character(RuntimeInstanceConfigurationRequest source,
                      core::CharacterWorldLocation location = core::compiled::UnplacedLocation{},
                      bool enabled = true, bool visible = true);
-    [[nodiscard]] core::Result<core::InteractableId, core::Diagnostics> create_interactable(
+    [[nodiscard]] core::Result<core::InteractableInstanceId, core::Diagnostics> create_interactable(
         RuntimeInstanceConfigurationRequest source,
         core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
         bool enabled = true, bool visible = true);
@@ -83,14 +83,14 @@ public:
     replace_structural_configuration(const core::CharacterId& id,
                                      RuntimeInstanceConfigurationRequest source);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    replace_structural_configuration(const core::InteractableId& id,
+    replace_structural_configuration(const core::InteractableInstanceId& id,
                                      RuntimeInstanceConfigurationRequest source);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     clear_structural_configuration(const core::RoomId& id);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     clear_structural_configuration(const core::CharacterId& id);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    clear_structural_configuration(const core::InteractableId& id);
+    clear_structural_configuration(const core::InteractableInstanceId& id);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     retarget_room_exit(const core::RoomId& room, const core::RoomExitId& exit,
                        const core::RoomId& target);
@@ -102,22 +102,23 @@ public:
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
     resolve_property(const core::CharacterId& id, const core::PropertyId& property) const;
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
-    resolve_property(const core::InteractableId& id, const core::PropertyId& property) const;
+    resolve_property(const core::InteractableInstanceId& id,
+                     const core::PropertyId& property) const;
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
     resolve_property(const core::ItemStackId& id, const core::PropertyId& property) const;
 
     [[nodiscard]] const core::CharacterWorldState*
     character_state(const core::CharacterId& id) const noexcept;
     [[nodiscard]] const core::InteractableState*
-    interactable_state(const core::InteractableId& id) const noexcept;
+    interactable_state(const core::InteractableInstanceId& id) const noexcept;
     [[nodiscard]] bool
     has_room_placement(const core::compiled::RoomPlacementRef& placement) const noexcept;
     [[nodiscard]] bool has_inventory(const core::compiled::InventoryRef& inventory) const noexcept;
     [[nodiscard]] std::optional<core::RoomId>
     effective_room(const core::CharacterId& id) const noexcept;
     [[nodiscard]] std::optional<core::RoomId>
-    effective_room(const core::InteractableId& id) const noexcept;
-    [[nodiscard]] std::vector<core::InteractableId>
+    effective_room(const core::InteractableInstanceId& id) const noexcept;
+    [[nodiscard]] std::vector<core::InteractableInstanceId>
     inventory_members(const core::compiled::InventoryRef& inventory) const;
     [[nodiscard]] const core::ItemStackState*
     item_stack(const core::ItemStackId& id) const noexcept;
@@ -155,12 +156,12 @@ public:
     set_character_visible(const core::CharacterId& id, bool visible);
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    move_interactable(const core::InteractableId& id,
+    move_interactable(const core::InteractableInstanceId& id,
                       core::compiled::InteractableLocation location);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    set_interactable_enabled(const core::InteractableId& id, bool enabled);
+    set_interactable_enabled(const core::InteractableInstanceId& id, bool enabled);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    set_interactable_visible(const core::InteractableId& id, bool visible);
+    set_interactable_visible(const core::InteractableInstanceId& id, bool visible);
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     commit_room_navigation(const core::RoomPresentationResolution& target);
@@ -173,7 +174,7 @@ private:
         const core::CharacterId& id,
         const core::compiled::CharacterDefinition& configuration) const;
     [[nodiscard]] core::Result<void, core::Diagnostics> validate_interactable_configuration_change(
-        const core::InteractableId& id,
+        const core::InteractableInstanceId& id,
         const core::compiled::InteractableDefinition& configuration) const;
     [[nodiscard]] core::Result<core::ItemStackId, core::Diagnostics> allocate_item_stack_id();
     [[nodiscard]] bool item_stack_compatible(const core::ItemStackState& left,

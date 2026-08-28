@@ -639,13 +639,13 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
     TypedRuntimeUIViewState view;
     view.mode = "room";
     view.can_continue = true;
-    auto selected = InteractableId::create("door");
+    auto selected = InteractableInstanceId::create("door");
     REQUIRE(selected);
     view.selected_subjects.push_back(
         compiled::InteractableInteractionSubject{std::move(selected.value())});
     auto inventory_id = InventoryId::create("player");
     auto room_id = RoomId::create("start");
-    auto key_id = InteractableId::create("key");
+    auto key_id = InteractableInstanceId::create("key");
     REQUIRE(inventory_id);
     REQUIRE(room_id);
     REQUIRE(key_id);

@@ -112,7 +112,6 @@ function representativeWireFixture() {
       scripts: [{ id: 'bootstrap', source: { kind: 'inline-lua', source: 'return {}' } }],
     },
     definitions: {
-      itemDefinitions: [],
       characters: [
         {
           id: 'hero',
@@ -212,14 +211,6 @@ function representativeWireFixture() {
               kind: 'custom',
               hotspots: [],
             },
-          },
-          initialState: {
-            location: {
-              kind: 'inventory',
-              inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
-            },
-            enabled: true,
-            visible: true,
           },
         },
       ],
@@ -355,7 +346,21 @@ function representativeWireFixture() {
         },
       ],
     },
-    itemStacks: [],
+    interactableInstances: [
+      {
+        id: 'key',
+        definition: { kind: 'interactable-definition', id: 'key' },
+        location: {
+          kind: 'inventory',
+          inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+        },
+        enabled: true,
+        visible: true,
+        traitAdds: [],
+        traitRemoves: [],
+        propertyOverrides: [],
+      },
+    ],
   };
 }
 

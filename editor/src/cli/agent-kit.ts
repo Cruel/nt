@@ -188,8 +188,6 @@ const schemaSources = {
   'records/characters.schema.json': authoringRecordSchemas.characters,
   'records/rooms.schema.json': authoringRecordSchemas.rooms,
   'records/interactables.schema.json': authoringRecordSchemas.interactables,
-  'records/itemDefinitions.schema.json': authoringRecordSchemas.itemDefinitions,
-  'records/itemStacks.schema.json': authoringRecordSchemas.itemStacks,
   'records/verbs.schema.json': authoringRecordSchemas.verbs,
   'records/interactions.schema.json': authoringRecordSchemas.interactions,
   'records/dialogues.schema.json': authoringRecordSchemas.dialogues,

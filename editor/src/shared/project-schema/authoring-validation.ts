@@ -16,12 +16,7 @@ import {
 } from './authoring-archetypes';
 import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
-import {
-  defaultInteractableData,
-  parseInteractableData,
-  validateInteractableData,
-} from './authoring-interactables';
-import { parseItemDefinitionData, parseItemStackData } from './authoring-items';
+import { parseInteractableData, validateInteractableData } from './authoring-interactables';
 import {
   validateInteractionData,
   validateInteractionProgram,
@@ -84,7 +79,6 @@ const propertyOwnerKindByCollection: Partial<Record<AuthoringCollectionKey, Prop
   rooms: 'room',
   characters: 'character',
   interactables: 'interactable',
-  itemDefinitions: 'item-stack',
 };
 
 function recordsFor(
@@ -229,10 +223,7 @@ function validateArchetypes(
         diagnostics,
       );
       if (data.instanceKind === 'interactable' && typeof effective.data === 'object') {
-        const parsed = parseInteractableData({
-          ...(effective.data as object),
-          initialState: defaultInteractableData('Interactable').initialState,
-        });
+        const parsed = parseInteractableData(effective.data);
         if (parsed)
           diagnostics.push(
             ...validateInteractableHotspotAuthoringSemantics(
@@ -703,47 +694,54 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
     diagnostics.push(...validateRoomData(effectiveProject, id, record));
   for (const [id, record] of Object.entries(effectiveProject.interactables))
     diagnostics.push(...validateInteractableData(effectiveProject, id, record));
-  for (const [id, record] of Object.entries(effectiveProject.itemDefinitions)) {
-    const data = parseItemDefinitionData(record.data);
-    if (!data)
+  for (const [id, instance] of Object.entries(effectiveProject.interactableInstances)) {
+    const base = `/interactableInstances/${escapePathSegment(id)}`;
+    if (instance.id !== id)
       diagnostics.push(
         diagnostic(
           'error',
-          `/itemDefinitions/${escapePathSegment(id)}/data`,
-          'Item Definition record data is invalid.',
-          'Item Definitions',
+          `${base}/id`,
+          `Interactable Instance ID must match registry key '${id}'.`,
         ),
       );
-  }
-  for (const [id, record] of Object.entries(effectiveProject.itemStacks)) {
-    const data = parseItemStackData(record.data);
-    const base = `/itemStacks/${escapePathSegment(id)}/data`;
-    if (!data) {
-      diagnostics.push(
-        diagnostic('error', base, 'Item Stack record data is invalid.', 'Item Stacks'),
-      );
-      continue;
-    }
-    const definition = effectiveProject.itemDefinitions[data.definition.$ref.id];
-    const definitionData = parseItemDefinitionData(definition?.data);
-    if (!definitionData)
+    if (!effectiveProject.interactables[instance.definition.$ref.id])
       diagnostics.push(
         diagnostic(
           'error',
           `${base}/definition/$ref`,
-          `Missing Item Definition '${data.definition.$ref.id}'.`,
-          'Item Stacks',
+          `Missing Interactable definition '${instance.definition.$ref.id}'.`,
         ),
       );
-    else if (definitionData.stackLimit !== null && data.quantity > definitionData.stackLimit)
+    if (
+      instance.location.kind === 'room' &&
+      !effectiveProject.rooms[instance.location.room.$ref.id]
+    )
       diagnostics.push(
         diagnostic(
           'error',
-          `${base}/quantity`,
-          `Quantity exceeds Item Definition Stack limit ${definitionData.stackLimit}.`,
-          'Item Stacks',
+          `${base}/location/room/$ref`,
+          `Missing Room '${instance.location.room.$ref.id}'.`,
         ),
       );
+    const added = new Set(instance.traits.add);
+    for (const traitId of instance.traits.remove) {
+      if (added.has(traitId))
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/traits`,
+            `Trait '${traitId}' cannot be both added and removed on the same Interactable Instance.`,
+          ),
+        );
+    }
+    validateArchetypePropertyConfiguration(
+      effectiveProject,
+      'interactable',
+      instance.traits.add,
+      instance.properties,
+      base,
+      diagnostics,
+    );
   }
   diagnostics.push(...validateHotspotAuthoringSemantics(effectiveProject));
   for (const [id, record] of Object.entries(project.verbs)) {

@@ -61,10 +61,10 @@ bool property_target_owned_by(const core::PropertyTargetRef& target,
         const auto* value = std::get_if<core::CharacterId>(&target);
         return value != nullptr && *value == *character;
     }
-    const auto* interactable = std::get_if<core::InteractableId>(&instance);
+    const auto* interactable = std::get_if<core::InteractableInstanceId>(&instance);
     if (interactable == nullptr)
         return false;
-    if (const auto* value = std::get_if<core::InteractableId>(&target))
+    if (const auto* value = std::get_if<core::InteractableInstanceId>(&target))
         return *value == *interactable;
     if (const auto* value = std::get_if<core::InteractableFeatureRef>(&target))
         return value->interactable == *interactable;
@@ -167,11 +167,11 @@ void upsert_exit_override(std::vector<core::RuntimeRoomExitTargetOverride>& valu
         found->target = std::move(edit.target);
 }
 
-std::optional<core::InteractableId>
+std::optional<core::InteractableInstanceId>
 inventory_interactable_owner(const core::compiled::InventoryRef& inventory) noexcept
 {
     return std::visit(
-        [](const auto& owner) -> std::optional<core::InteractableId> {
+        [](const auto& owner) -> std::optional<core::InteractableInstanceId> {
             using T = std::decay_t<decltype(owner)>;
             if constexpr (std::is_same_v<T, core::compiled::InteractableInventoryOwner>)
                 return owner.interactable;
@@ -353,14 +353,19 @@ resolve_interactable_request(const core::CompiledProject& project, const core::S
                             core::RuntimeInstanceProvenanceKind::Archetype, source.archetype,
                             std::nullopt}};
             } else {
-                const auto* id = std::get_if<core::InteractableId>(&source.instance);
+                const auto* id = std::get_if<core::InteractableInstanceId>(&source.instance);
                 if (id == nullptr)
                     return;
                 if constexpr (std::is_same_v<T, CompiledInstanceConfiguration>) {
-                    const auto* definition = project.find_interactable(*id);
-                    if (definition != nullptr)
+                    const auto* declaration = project.find_interactable_instance(*id);
+                    const auto* definition =
+                        declaration != nullptr
+                            ? project.find_interactable_definition(declaration->definition)
+                            : nullptr;
+                    if (definition != nullptr && declaration != nullptr)
                         resolved = ResolvedInteractableRequest{
-                            *definition, core::CompiledInteractableConfigurationSource{*id},
+                            *definition,
+                            core::CompiledInteractableConfigurationSource{declaration->definition},
                             core::RuntimeInstanceProvenance{
                                 core::RuntimeInstanceProvenanceKind::CompiledDefinition,
                                 std::nullopt, source.instance}};
@@ -403,7 +408,7 @@ RuntimeWorld::resolved_configuration(const core::CharacterId& id) const noexcept
 }
 
 const core::compiled::InteractableDefinition*
-RuntimeWorld::resolved_configuration(const core::InteractableId& id) const noexcept
+RuntimeWorld::resolved_configuration(const core::InteractableInstanceId& id) const noexcept
 {
     const auto* record = find_record(m_state.m_runtime_interactables, id);
     return record != nullptr ? &record->effective_configuration() : nullptr;
@@ -528,51 +533,50 @@ RuntimeWorld::create_character(RuntimeInstanceConfigurationRequest source,
     }
 }
 
-core::Result<core::InteractableId, core::Diagnostics>
+core::Result<core::InteractableInstanceId, core::Diagnostics>
 RuntimeWorld::create_interactable(RuntimeInstanceConfigurationRequest source,
                                   core::compiled::InteractableLocation location, bool enabled,
                                   bool visible)
 {
     if (const auto* room = std::get_if<core::compiled::RoomLocation>(&location);
         room != nullptr && resolved_configuration(room->room) == nullptr)
-        return core::Result<core::InteractableId, core::Diagnostics>::failure(world_error(
+        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(world_error(
             "runtime.invalid_interactable_location", "Interactable Room Location is unresolved"));
     if (const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&location);
         inventory != nullptr && !has_inventory(inventory->inventory))
-        return core::Result<core::InteractableId, core::Diagnostics>::failure(
+        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
             world_error("runtime.invalid_interactable_location",
                         "Interactable Inventory Location is unresolved"));
 
     auto resolved = resolve_interactable_request(m_project, m_state, *this, source);
     auto* request = resolved.value_if();
     if (request == nullptr)
-        return core::Result<core::InteractableId, core::Diagnostics>::failure(resolved.error());
+        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
+            resolved.error());
 
     for (;;) {
         const auto ordinal = m_state.m_next_runtime_instance_id;
         if (ordinal == std::numeric_limits<std::uint64_t>::max())
-            return core::Result<core::InteractableId, core::Diagnostics>::failure(
+            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
                 world_error("runtime.instance_identity_exhausted",
                             "Runtime Gameplay Instance identity allocator is exhausted"));
         auto candidate =
-            core::InteractableId::create("runtime-interactable-" + std::to_string(ordinal));
+            core::InteractableInstanceId::create("runtime-interactable-" + std::to_string(ordinal));
         const auto* id = candidate.value_if();
         if (id == nullptr)
-            return core::Result<core::InteractableId, core::Diagnostics>::failure(
+            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
                 candidate.error());
         if (resolved_configuration(*id) != nullptr) {
             ++m_state.m_next_runtime_instance_id;
             continue;
         }
         auto birth = request->configuration;
-        replace_definition_identity(birth, *id);
-        birth.initial_state = {enabled, location, visible};
         m_state.m_runtime_interactables.push_back(core::RuntimeInteractableConfiguration{
             *id, false, request->source, std::nullopt, request->provenance, birth, std::nullopt});
         m_state.m_interactables.push_back(
             core::InteractableState{*id, std::move(location), enabled, visible});
         ++m_state.m_next_runtime_instance_id;
-        return core::Result<core::InteractableId, core::Diagnostics>::success(*id);
+        return core::Result<core::InteractableInstanceId, core::Diagnostics>::success(*id);
     }
 }
 
@@ -709,7 +713,7 @@ core::Result<void, core::Diagnostics> RuntimeWorld::validate_character_configura
 }
 
 core::Result<void, core::Diagnostics> RuntimeWorld::validate_interactable_configuration_change(
-    const core::InteractableId& id,
+    const core::InteractableInstanceId& id,
     const core::compiled::InteractableDefinition& configuration) const
 {
     for (const auto& frame : m_state.m_flow_stack) {
@@ -888,7 +892,6 @@ RuntimeWorld::replace_structural_configuration(const core::CharacterId& id,
         return core::Result<void, core::Diagnostics>::failure(resolved.error());
 
     auto configuration = request->configuration;
-    replace_definition_identity(configuration, id);
     for (const auto& state : m_state.m_interactables) {
         const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&state.location);
         if (inventory == nullptr)
@@ -935,7 +938,7 @@ RuntimeWorld::replace_structural_configuration(const core::CharacterId& id,
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeWorld::replace_structural_configuration(const core::InteractableId& id,
+RuntimeWorld::replace_structural_configuration(const core::InteractableInstanceId& id,
                                                RuntimeInstanceConfigurationRequest source)
 {
     auto* target = find_record(m_state.m_runtime_interactables, id);
@@ -948,7 +951,6 @@ RuntimeWorld::replace_structural_configuration(const core::InteractableId& id,
         return core::Result<void, core::Diagnostics>::failure(resolved.error());
 
     auto configuration = request->configuration;
-    replace_definition_identity(configuration, id);
     for (const auto& state : m_state.m_interactables) {
         const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&state.location);
         if (inventory == nullptr)
@@ -1037,7 +1039,7 @@ RuntimeWorld::clear_structural_configuration(const core::CharacterId& id)
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeWorld::clear_structural_configuration(const core::InteractableId& id)
+RuntimeWorld::clear_structural_configuration(const core::InteractableInstanceId& id)
 {
     auto* record = find_record(m_state.m_runtime_interactables, id);
     if (record == nullptr)
@@ -1291,7 +1293,7 @@ RuntimeWorld::resolve_property(const core::CharacterId& id, const core::Property
 }
 
 core::Result<core::PropertyLookupResult, core::Diagnostics>
-RuntimeWorld::resolve_property(const core::InteractableId& id,
+RuntimeWorld::resolve_property(const core::InteractableInstanceId& id,
                                const core::PropertyId& property) const
 {
     core::PropertyResolver resolver(m_project, m_state);
@@ -1315,7 +1317,7 @@ RuntimeWorld::character_state(const core::CharacterId& id) const noexcept
 }
 
 const core::InteractableState*
-RuntimeWorld::interactable_state(const core::InteractableId& id) const noexcept
+RuntimeWorld::interactable_state(const core::InteractableInstanceId& id) const noexcept
 {
     const auto found = std::find_if(m_state.m_interactables.begin(), m_state.m_interactables.end(),
                                     [&](const auto& value) { return value.interactable == id; });
@@ -1382,9 +1384,9 @@ std::optional<core::RoomId> RuntimeWorld::effective_room(const core::CharacterId
 }
 
 std::optional<core::RoomId>
-RuntimeWorld::effective_room(const core::InteractableId& id) const noexcept
+RuntimeWorld::effective_room(const core::InteractableInstanceId& id) const noexcept
 {
-    core::InteractableId current = id;
+    core::InteractableInstanceId current = id;
     for (std::size_t depth = 0; depth <= m_state.m_interactables.size(); ++depth) {
         const auto* state = interactable_state(current);
         if (state == nullptr)
@@ -1395,7 +1397,7 @@ RuntimeWorld::effective_room(const core::InteractableId& id) const noexcept
         if (inventory == nullptr)
             return std::nullopt;
         std::optional<core::RoomId> direct_room;
-        std::optional<core::InteractableId> next_interactable;
+        std::optional<core::InteractableInstanceId> next_interactable;
         std::visit(
             [&](const auto& owner) {
                 using T = std::decay_t<decltype(owner)>;
@@ -1418,10 +1420,10 @@ RuntimeWorld::effective_room(const core::InteractableId& id) const noexcept
     return std::nullopt;
 }
 
-std::vector<core::InteractableId>
+std::vector<core::InteractableInstanceId>
 RuntimeWorld::inventory_members(const core::compiled::InventoryRef& inventory) const
 {
-    std::vector<core::InteractableId> members;
+    std::vector<core::InteractableInstanceId> members;
     for (const auto& state : m_state.m_interactables) {
         const auto* location = std::get_if<core::compiled::InventoryLocation>(&state.location);
         if (location != nullptr && location->inventory == inventory)
@@ -2004,7 +2006,7 @@ RuntimeWorld::set_character_visible(const core::CharacterId& id, bool visible)
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeWorld::move_interactable(const core::InteractableId& id,
+RuntimeWorld::move_interactable(const core::InteractableInstanceId& id,
                                 core::compiled::InteractableLocation location)
 {
     auto found = std::find_if(m_state.m_interactables.begin(), m_state.m_interactables.end(),
@@ -2021,7 +2023,7 @@ RuntimeWorld::move_interactable(const core::InteractableId& id,
             return core::Result<void, core::Diagnostics>::failure(
                 world_error("runtime.invalid_interactable_location",
                             "Interactable Inventory Location is unresolved"));
-        std::vector<core::InteractableId> visited{id};
+        std::vector<core::InteractableInstanceId> visited{id};
         auto owner = inventory_interactable_owner(inventory->inventory);
         while (owner) {
             if (std::find(visited.begin(), visited.end(), *owner) != visited.end())
@@ -2044,7 +2046,7 @@ RuntimeWorld::move_interactable(const core::InteractableId& id,
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeWorld::set_interactable_enabled(const core::InteractableId& id, bool enabled)
+RuntimeWorld::set_interactable_enabled(const core::InteractableInstanceId& id, bool enabled)
 {
     auto found = std::find_if(m_state.m_interactables.begin(), m_state.m_interactables.end(),
                               [&](const auto& value) { return value.interactable == id; });
@@ -2056,7 +2058,7 @@ RuntimeWorld::set_interactable_enabled(const core::InteractableId& id, bool enab
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeWorld::set_interactable_visible(const core::InteractableId& id, bool visible)
+RuntimeWorld::set_interactable_visible(const core::InteractableInstanceId& id, bool visible)
 {
     auto found = std::find_if(m_state.m_interactables.begin(), m_state.m_interactables.end(),
                               [&](const auto& value) { return value.interactable == id; });

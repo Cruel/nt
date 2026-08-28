@@ -40,7 +40,6 @@ export interface CompiledProjectSceneRoomDraft extends Omit<
     characters: WireDefinitions['characters'];
     rooms: WireDefinitions['rooms'];
     interactables: WireDefinitions['interactables'];
-    itemDefinitions: WireDefinitions['itemDefinitions'];
     verbs: SharedVerbDefinition[];
     interactions: SharedInteractionDefinition[];
     scenes: WireDefinitions['scenes'];

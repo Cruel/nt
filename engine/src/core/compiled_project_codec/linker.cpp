@@ -314,14 +314,47 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             std::move(*identity), std::move(value.display_name),
             link_features(std::move(value.features),
                           "/definitions/interactables/" + std::to_string(index) + "/features"),
-            std::move(value.inventories), std::move(value.initial_state),
-            std::move(value.presentation)}));
-    LINK_PROPERTY_DEFINITIONS(
-        item_definitions, item_definitions, ItemDefinition, PropertyOwnerKind::ItemStack,
-        "/definitions/itemDefinitions",
-        (compiled::ItemDefinition{std::move(*identity), std::move(value.display_name),
-                                  std::move(value.description), std::move(value.presentation),
-                                  value.stack_limit}));
+            std::move(value.inventories), std::move(value.presentation)}));
+
+    std::vector<compiled::InteractableInstanceDeclaration> interactable_instances;
+    interactable_instances.reserve(wire.interactable_instances.size());
+    for (std::size_t index = 0; index < wire.interactable_instances.size(); ++index) {
+        auto& value = wire.interactable_instances[index];
+        std::vector<PropertyAssignment> property_overrides;
+        property_overrides.reserve(value.property_overrides.size());
+        for (std::size_t assignment_index = 0; assignment_index < value.property_overrides.size();
+             ++assignment_index) {
+            auto& assignment = value.property_overrides[assignment_index];
+            const auto found = property_index.find(assignment.property_id);
+            const auto path = "/interactableInstances/" + std::to_string(index) +
+                              "/propertyOverrides/" + std::to_string(assignment_index);
+            if (found == property_index.end()) {
+                diagnostics.push_back(Diagnostic{.code = "compiled_project.unresolved_reference",
+                                                 .message = "Unresolved property reference '" +
+                                                            assignment.property_id.text() + "'.",
+                                                 .severity = ErrorSeverity::Error,
+                                                 .source_path = std::string(source_path),
+                                                 .json_pointer = path + "/propertyId"});
+                continue;
+            }
+            auto linked = make_property_assignment(PropertyOwnerKind::Interactable, *found->second,
+                                                   std::move(assignment.value));
+            if (!linked) {
+                append(diagnostics, linked.error(), source_path, path);
+                continue;
+            }
+            (void)linked.transform([&property_overrides](const PropertyAssignment& assignment) {
+                property_overrides.push_back(assignment);
+                return true;
+            });
+        }
+        if (property_overrides.size() != value.property_overrides.size())
+            continue;
+        interactable_instances.push_back(compiled::InteractableInstanceDeclaration{
+            std::move(value.id), std::move(value.definition), std::move(value.location),
+            value.enabled, value.visible, std::move(value.trait_adds),
+            std::move(value.trait_removes), std::move(property_overrides)});
+    }
 
     std::vector<compiled::ArchetypeDefinition> archetypes;
     archetypes.reserve(wire.archetypes.size());
@@ -378,12 +411,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                               property_index, trait_index, diagnostics, source_path, path);
             if (identity)
                 configuration = compiled::InteractableDefinition{
-                    std::move(*identity),
-                    std::move(interactable->display_name),
+                    std::move(*identity), std::move(interactable->display_name),
                     link_features(std::move(interactable->features), path + "/features"),
-                    std::move(interactable->inventories),
-                    std::move(interactable->initial_state),
-                    std::move(interactable->presentation)};
+                    std::move(interactable->inventories), std::move(interactable->presentation)};
         }
         if (configuration)
             archetypes.push_back(compiled::ArchetypeDefinition{
@@ -437,8 +467,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         .characters = std::move(characters),
         .rooms = std::move(rooms),
         .interactables = std::move(interactables),
-        .item_definitions = std::move(item_definitions),
-        .item_stacks = std::move(wire.item_stacks),
+        .interactable_instances = std::move(interactable_instances),
         .verbs = std::move(verbs),
         .interactions = std::move(interactions),
         .undefined_interaction_program = std::move(wire.undefined_interaction_program),

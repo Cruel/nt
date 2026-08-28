@@ -37,7 +37,7 @@ struct SavedRuntimeCharacterConfiguration {
     RuntimeInstanceProvenance provenance;
 };
 struct SavedRuntimeInteractableConfiguration {
-    InteractableId id;
+    InteractableInstanceId id;
     bool declared = false;
     RuntimeConfigurationSource birth_source;
     std::optional<RuntimeConfigurationSource> structural_override_source;

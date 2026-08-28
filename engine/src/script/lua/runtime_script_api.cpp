@@ -224,7 +224,7 @@ RuntimeScriptApi::create_character(runtime::RuntimeInstanceConfigurationRequest 
         gateway->create_character(std::move(source), std::move(location), enabled, visible));
 }
 
-core::Result<core::InteractableId, core::Diagnostics>
+core::Result<core::InteractableInstanceId, core::Diagnostics>
 RuntimeScriptApi::create_interactable(runtime::RuntimeInstanceConfigurationRequest source,
                                       core::compiled::InteractableLocation location, bool enabled,
                                       bool visible)
@@ -374,7 +374,7 @@ RuntimeScriptApi::instance_provenance(const core::GameplayInstanceRef& instance)
 }
 
 core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-RuntimeScriptApi::interactable_location(const core::InteractableId& interactable) const
+RuntimeScriptApi::interactable_location(const core::InteractableInstanceId& interactable) const
 {
     NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Interactable,
                            "Interactable location query",
@@ -387,7 +387,7 @@ RuntimeScriptApi::character_location(const core::CharacterId& character) const
                            provider->character_location(character));
 }
 core::Result<void, core::Diagnostics>
-RuntimeScriptApi::request_interactable_location(core::InteractableId interactable,
+RuntimeScriptApi::request_interactable_location(core::InteractableInstanceId interactable,
                                                 core::compiled::InteractableLocation target)
 {
     NOVELTEA_WITH_COMMAND(
@@ -1140,7 +1140,8 @@ RuntimeScriptApi::set_composed_character_visible(core::CharacterId character, bo
     return draft->set_character_visible(character, visible);
 }
 core::Result<void, core::Diagnostics>
-RuntimeScriptApi::set_composed_interactable_visible(core::InteractableId interactable, bool visible)
+RuntimeScriptApi::set_composed_interactable_visible(core::InteractableInstanceId interactable,
+                                                    bool visible)
 {
     std::scoped_lock lock(m_state->mutex);
     if (!m_state->capabilities)
@@ -1207,7 +1208,7 @@ core::Result<void, core::Diagnostics> RuntimeScriptApi::navigate(std::size_t ind
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeScriptApi::select_interactable(core::InteractableId interactable)
+RuntimeScriptApi::select_interactable(core::InteractableInstanceId interactable)
 {
     std::scoped_lock lock(m_state->mutex);
     if (!m_state->capabilities)

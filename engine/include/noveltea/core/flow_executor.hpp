@@ -172,7 +172,7 @@ private:
     [[nodiscard]] const compiled::CharacterDefinition*
     character_definition(const CharacterId& character) const noexcept;
     [[nodiscard]] const compiled::InteractableDefinition*
-    interactable_definition(const InteractableId& interactable) const noexcept;
+    interactable_definition(const InteractableInstanceId& interactable) const noexcept;
     [[nodiscard]] const compiled::FeatureDefinition*
     feature_definition(const FeatureRef& feature) const noexcept;
     [[nodiscard]] const ExecutionProvenance*

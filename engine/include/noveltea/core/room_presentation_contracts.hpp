@@ -54,7 +54,7 @@ struct RoomPresentationDefinitionView {
     };
     struct InteractableOccurrence {
         RoomInteractableEntryId id;
-        InteractableId interactable;
+        InteractableInstanceId interactable;
         RoomPresentationConditionToken condition = 0;
         RoomPlacementId placement;
         bool visible = true;
@@ -119,7 +119,7 @@ struct RoomPresentationStateView {
         bool visible = true;
     };
     struct Interactable {
-        InteractableId interactable;
+        InteractableInstanceId interactable;
         bool enabled = true;
         bool visible = true;
     };
@@ -160,7 +160,7 @@ struct ResolvedRoomActor {
 
 struct ResolvedRoomInteractable {
     RoomInteractableEntryId occurrence;
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     RoomPlacementId placement;
     bool enabled = true;
     bool visible = true;

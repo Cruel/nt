@@ -117,7 +117,7 @@ parse_layout_property_target(const sol::table& target)
         return parsed ? Result::success(*parsed.value_if()) : Result::failure(parsed.error());
     }
     if (*kind == "interactable" && target_id) {
-        auto parsed = parse_id<core::InteractableId>(*target_id);
+        auto parsed = parse_id<core::InteractableInstanceId>(*target_id);
         return parsed ? Result::success(*parsed.value_if()) : Result::failure(parsed.error());
     }
     if (*kind == "item-stack" && target_id) {
@@ -133,7 +133,7 @@ parse_layout_property_target(const sol::table& target)
                    : Result::failure(!room ? room.error() : feature_id.error());
     }
     if (*kind == "interactable-feature" && target_id && feature) {
-        auto interactable = parse_id<core::InteractableId>(*target_id);
+        auto interactable = parse_id<core::InteractableInstanceId>(*target_id);
         auto feature_id = parse_id<core::FeatureId>(*feature);
         return interactable && feature_id
                    ? Result::success(core::InteractableFeatureRef{*interactable.value_if(),
@@ -254,7 +254,7 @@ parse_gameplay_instance_ref(const std::string& kind, std::string id)
         return value ? Result::success(*value) : Result::failure(parsed.error());
     }
     if (kind == "interactable") {
-        auto parsed = parse_id<core::InteractableId>(std::move(id));
+        auto parsed = parse_id<core::InteractableInstanceId>(std::move(id));
         const auto* value = parsed.value_if();
         return value ? Result::success(*value) : Result::failure(parsed.error());
     }
@@ -814,7 +814,7 @@ sol::table material_property_target_table(sol::state_view lua,
             } else if constexpr (std::is_same_v<T, core::CharacterId>) {
                 table["kind"] = "character";
                 table["id"] = typed.text();
-            } else if constexpr (std::is_same_v<T, core::InteractableId>) {
+            } else if constexpr (std::is_same_v<T, core::InteractableInstanceId>) {
                 table["kind"] = "interactable";
                 table["id"] = typed.text();
             } else if constexpr (std::is_same_v<T, core::ItemStackId>) {
@@ -1133,7 +1133,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
         "set_interactable_visible",
         [api](std::string interactable_id, bool visible, sol::this_state state) -> MutationResult {
             sol::state_view view(state);
-            auto parsed = parse_id<core::InteractableId>(std::move(interactable_id));
+            auto parsed = parse_id<core::InteractableInstanceId>(std::move(interactable_id));
             const auto* id = parsed.value_if();
             return id ? mutation(view, api->set_composed_interactable_visible(*id, visible))
                       : mutation(view, core::Result<void, core::Diagnostics>::failure(

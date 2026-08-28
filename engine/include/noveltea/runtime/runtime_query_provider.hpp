@@ -24,7 +24,7 @@ public:
     [[nodiscard]] virtual core::Result<core::PropertyLookupResult, core::Diagnostics>
     property(const core::PropertyOwnerRef& owner, const core::PropertyId& property) const = 0;
     [[nodiscard]] virtual core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-    interactable_location(const core::InteractableId& interactable) const = 0;
+    interactable_location(const core::InteractableInstanceId& interactable) const = 0;
     [[nodiscard]] virtual core::Result<core::CharacterWorldLocation, core::Diagnostics>
     character_location(const core::CharacterId& character) const = 0;
 };

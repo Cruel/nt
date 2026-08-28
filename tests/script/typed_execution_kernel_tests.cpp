@@ -197,11 +197,12 @@ TEST_CASE("typed execution kernel initializes each frame category from compiled 
     const auto rule_id = core::InteractionRuleId::create("any-context").value();
     const auto verb_id = core::VerbId::create("use").value();
     REQUIRE(kernel.flow().start_interaction(
-        core::InteractionInvocationContext{verb_id,
-                                           core::RoomId::create("start").value(),
-                                           {{core::VerbSlotId::create("target").value(),
-                                             core::compiled::InteractableInteractionSubject{
-                                                 core::InteractableId::create("key").value()}}}},
+        core::InteractionInvocationContext{
+            verb_id,
+            core::RoomId::create("start").value(),
+            {{core::VerbSlotId::create("target").value(),
+              core::compiled::InteractableInteractionSubject{
+                  core::InteractableInstanceId::create("key").value()}}}},
         core::InteractionRuleProgramRef{interaction_id, rule_id}));
     CHECK(has_root_frame<core::InteractionFrame>(kernel));
 }
@@ -220,7 +221,7 @@ TEST_CASE("flow admission accepts Features on runtime-created Interactable owner
     REQUIRE(kernel->flow().complete_room_transition());
 
     auto instance = kernel->gateway().create_interactable(runtime::CompiledInstanceConfiguration{
-        core::GameplayInstanceRef{core::InteractableId::create("key").value()}});
+        core::GameplayInstanceRef{core::InteractableInstanceId::create("key").value()}});
     REQUIRE(instance);
     const auto subject = core::compiled::FeatureInteractionSubject{
         core::InteractableFeatureRef{instance.value(), core::FeatureId::create("surface").value()}};

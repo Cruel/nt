@@ -32,13 +32,13 @@ struct RuntimeSourceContext {
 };
 
 struct MoveInteractableCommand {
-    core::InteractableId interactable;
+    core::InteractableInstanceId interactable;
     core::compiled::InteractableLocation target;
     bool operator==(const MoveInteractableCommand&) const = default;
 };
 
 struct SetInteractableWorldStateCommand {
-    core::InteractableId interactable;
+    core::InteractableInstanceId interactable;
     std::optional<core::compiled::InteractableLocation> location;
     std::optional<bool> enabled;
     std::optional<bool> visible;

@@ -161,8 +161,8 @@ TEST_CASE(
 
     REQUIRE(kernel->interact(
         id<core::VerbId>("use"),
-        {{id<core::VerbSlotId>("target"),
-          core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}}));
+        {{id<core::VerbSlotId>("target"), core::compiled::InteractableInteractionSubject{
+                                              id<core::InteractableInstanceId>("key")}}}));
     auto active = kernel->interaction_view("en");
     REQUIRE(active);
     REQUIRE(active.value().program);
@@ -181,7 +181,7 @@ TEST_CASE(
     CHECK(runtime_ui.value().room->room == id<core::RoomId>("start"));
     drive_interaction(*kernel);
 
-    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    const auto* key = kernel->state().interactable(id<core::InteractableInstanceId>("key"));
     REQUIRE(key != nullptr);
     CHECK(std::holds_alternative<core::compiled::InventoryLocation>(key->location));
 }
@@ -214,8 +214,8 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
 
     REQUIRE(kernel->interact(
         id<core::VerbId>("use"),
-        {{id<core::VerbSlotId>("target"),
-          core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}}));
+        {{id<core::VerbSlotId>("target"), core::compiled::InteractableInteractionSubject{
+                                              id<core::InteractableInstanceId>("key")}}}));
     auto interaction = kernel->interaction_view("en");
     REQUIRE(interaction);
     REQUIRE(interaction.value().program);
@@ -251,7 +251,7 @@ TEST_CASE("Interaction Guard fallthrough advances from a false narrower tier to 
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
     auto interaction = kernel->interaction_view("en");
     REQUIRE(interaction);
@@ -285,7 +285,7 @@ TEST_CASE("Interaction priority selects one passing rule within a structural tie
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
     auto interaction = kernel->interaction_view("en");
     REQUIRE(interaction);
@@ -321,10 +321,10 @@ TEST_CASE("equal-priority passing Interaction rules fault as ambiguous before ex
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key_subject =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     CHECK_FALSE(
         kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
-    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    const auto* key = kernel->state().interactable(id<core::InteractableInstanceId>("key"));
     REQUIRE(key != nullptr);
     CHECK(std::holds_alternative<core::compiled::RoomLocation>(key->location));
     CHECK(std::holds_alternative<core::RoomMode>(kernel->state().mode()));
@@ -352,10 +352,10 @@ TEST_CASE("Interaction Guard errors fault before behavior execution")
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key_subject =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     CHECK_FALSE(
         kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
-    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    const auto* key = kernel->state().interactable(id<core::InteractableInstanceId>("key"));
     REQUIRE(key != nullptr);
     CHECK(std::holds_alternative<core::compiled::RoomLocation>(key->location));
 }
@@ -403,12 +403,12 @@ TEST_CASE("compact Interaction mutation batches validate atomically before commi
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key_subject =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     REQUIRE(
         kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
     auto outcome = kernel->run_until_blocked(8, "en");
     REQUIRE(std::holds_alternative<core::FlowFaultOutcome>(outcome));
-    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    const auto* key = kernel->state().interactable(id<core::InteractableInstanceId>("key"));
     REQUIRE(key != nullptr);
     CHECK(std::holds_alternative<core::compiled::RoomLocation>(key->location));
 }
@@ -444,12 +444,12 @@ TEST_CASE("committed Interaction effects survive a later Lua handoff failure wit
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key_subject =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     REQUIRE(
         kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
     auto outcome = kernel->run_until_blocked(8, "en");
     REQUIRE(std::holds_alternative<core::FlowFaultOutcome>(outcome));
-    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    const auto* key = kernel->state().interactable(id<core::InteractableInstanceId>("key"));
     REQUIRE(key != nullptr);
     CHECK(std::holds_alternative<core::compiled::InventoryLocation>(key->location));
     const auto fallback = std::find_if(
@@ -482,7 +482,7 @@ TEST_CASE("named Verb slots allow the same live subject to bind more than once")
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject subject =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("source"), subject},
                                                        {id<core::VerbSlotId>("target"), subject}}));
     auto interaction = kernel->interaction_view("en");
@@ -490,89 +490,6 @@ TEST_CASE("named Verb slots allow the same live subject to bind more than once")
     CHECK(interaction.value().bindings ==
           std::vector<core::InteractionSubjectBinding>{{id<core::VerbSlotId>("source"), subject},
                                                        {id<core::VerbSlotId>("target"), subject}});
-}
-
-TEST_CASE("runtime-created subjects match live Trait and qualified-pattern selectors")
-{
-    auto document = load_document();
-    auto& use = definition(document, "verbs", "use");
-    use["availability"] = {{"kind", "always"}};
-    use["slots"][0]["selectors"] = nlohmann::json::array(
-        {{{"kind", "trait"}, {"trait", {{"kind", "trait"}, {"id", "currency"}}}},
-         {{"kind", "qualified-pattern"},
-          {"family", "item-stack"},
-          {"pattern", "item-stack:runtime-item-stack-*"}}});
-    auto rule = definition(document, "interactions", "actions")["rules"][2];
-    rule["id"] = "runtime-created";
-    rule["program"] = program(nlohmann::json::array());
-    rule["slots"][0]["selectors"] = use["slots"][0]["selectors"];
-    definition(document, "interactions", "actions")["rules"] =
-        nlohmann::json::array({std::move(rule)});
-
-    RuntimeFixture fixture;
-    auto project = decode(std::move(document));
-    auto created = test_support::create_execution_kernel(project, fixture.runtime);
-    REQUIRE(created);
-    auto kernel = std::move(created).value();
-    drive_to_room(*kernel);
-
-    auto split = kernel->gateway().split_item_stack(id<core::ItemStackId>("wallet"), 5);
-    REQUIRE(split);
-    REQUIRE(split.value().created.size() == 1);
-    const auto created_stack = split.value().created.front();
-    REQUIRE(kernel->gateway().transfer_item_quantity(
-        created_stack, 5, core::compiled::RoomLocation{id<core::RoomId>("start")},
-        runtime::ItemStackPlacementPolicy::KeepSeparate));
-    kernel->invalidate_room_presentation();
-    REQUIRE(kernel->refresh_room_presentation("en"));
-    const core::compiled::InteractionSubject subject =
-        core::compiled::ItemStackInteractionSubject{created_stack};
-    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), subject}}));
-    auto interaction = kernel->interaction_view("en");
-    REQUIRE(interaction);
-    REQUIRE(interaction.value().program);
-    const auto* selected =
-        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
-    REQUIRE(selected != nullptr);
-    CHECK(selected->rule == id<core::InteractionRuleId>("runtime-created"));
-}
-
-TEST_CASE("item Stack definitions participate in Subject Selector matching")
-{
-    auto document = load_document();
-    auto& use = definition(document, "verbs", "use");
-    use["availability"] = {{"kind", "always"}};
-    use["slots"][0]["selectors"] = nlohmann::json::array(
-        {{{"kind", "item-definition"},
-          {"itemDefinition", {{"kind", "item-definition"}, {"id", "credits"}}}}});
-    auto rule = definition(document, "interactions", "actions")["rules"][2];
-    rule["id"] = "credits-stack";
-    rule["program"] = program(nlohmann::json::array());
-    rule["slots"][0]["selectors"] = use["slots"][0]["selectors"];
-    definition(document, "interactions", "actions")["rules"] =
-        nlohmann::json::array({std::move(rule)});
-
-    RuntimeFixture fixture;
-    auto project = decode(std::move(document));
-    auto created = test_support::create_execution_kernel(project, fixture.runtime);
-    REQUIRE(created);
-    auto kernel = std::move(created).value();
-    const auto wallet_id = id<core::ItemStackId>("wallet");
-    REQUIRE(kernel->gateway().transfer_item_quantity(
-        wallet_id, 25, core::compiled::RoomLocation{id<core::RoomId>("start")},
-        runtime::ItemStackPlacementPolicy::KeepSeparate));
-    drive_to_room(*kernel);
-
-    const core::compiled::InteractionSubject wallet =
-        core::compiled::ItemStackInteractionSubject{wallet_id};
-    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), wallet}}));
-    auto interaction = kernel->interaction_view("en");
-    REQUIRE(interaction);
-    REQUIRE(interaction.value().program);
-    const auto* selected =
-        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
-    REQUIRE(selected != nullptr);
-    CHECK(selected->rule == id<core::InteractionRuleId>("credits-stack"));
 }
 
 TEST_CASE("typed Interaction selector unions cannot overwrite an earlier mismatch")
@@ -612,7 +529,7 @@ TEST_CASE("typed Interaction selector unions cannot overwrite an earlier mismatc
     drive_to_room(*kernel);
 
     const auto key =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     REQUIRE(kernel->interact(id<core::VerbId>("combine"), {{id<core::VerbSlotId>("first"), key},
                                                            {id<core::VerbSlotId>("second"), key}}));
     auto interaction = kernel->interaction_view("en");
@@ -622,58 +539,6 @@ TEST_CASE("typed Interaction selector unions cannot overwrite an earlier mismatc
         std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
     REQUIRE(selected != nullptr);
     CHECK(selected->rule == id<core::InteractionRuleId>("matching-wildcards"));
-}
-
-TEST_CASE("typed Interaction and Room publication preserve exact live item Stack identity")
-{
-    auto document = load_document();
-    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
-    auto exact = definition(document, "interactions", "actions")["rules"][2];
-    exact["id"] = "exact-wallet";
-    exact["slots"] = nlohmann::json::array(
-        {{{"slotId", "target"},
-          {"selectors", nlohmann::json::array(
-                            {{{"kind", "exact"},
-                              {"subject",
-                               {{"kind", "item-stack"},
-                                {"itemStack", {{"kind", "item-stack"}, {"id", "wallet"}}}}}}})}}});
-    exact["program"] = program(nlohmann::json::array());
-    auto wildcard = exact;
-    wildcard["id"] = "item-stack-family";
-    wildcard["slots"] = nlohmann::json::array(
-        {{{"slotId", "target"},
-          {"selectors", nlohmann::json::array({{{"kind", "family"}, {"family", "item-stack"}}})}}});
-    definition(document, "interactions", "actions")["rules"] =
-        nlohmann::json::array({std::move(wildcard), std::move(exact)});
-
-    RuntimeFixture fixture;
-    auto project = decode(std::move(document));
-    auto created = test_support::create_execution_kernel(project, fixture.runtime);
-    REQUIRE(created);
-    auto kernel = std::move(created).value();
-    const auto wallet = id<core::ItemStackId>("wallet");
-    REQUIRE(kernel->gateway().transfer_item_quantity(
-        wallet, 25, core::compiled::RoomLocation{id<core::RoomId>("start")},
-        runtime::ItemStackPlacementPolicy::KeepSeparate));
-    drive_to_room(*kernel);
-    auto room = kernel->room_view("en");
-    REQUIRE(room);
-    REQUIRE(room.value().item_stacks.size() == 1);
-    CHECK(room.value().item_stacks.front().stack == wallet);
-    CHECK(room.value().item_stacks.front().quantity == 25);
-
-    const core::compiled::InteractionSubject subject =
-        core::compiled::ItemStackInteractionSubject{wallet};
-    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), subject}}));
-    auto interaction = kernel->interaction_view("en");
-    REQUIRE(interaction);
-    CHECK(interaction.value().bindings ==
-          std::vector<core::InteractionSubjectBinding>{{id<core::VerbSlotId>("target"), subject}});
-    REQUIRE(interaction.value().program);
-    const auto* selected =
-        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
-    REQUIRE(selected != nullptr);
-    CHECK(selected->rule == id<core::InteractionRuleId>("exact-wallet"));
 }
 
 TEST_CASE("Verb Offers resolve exact rule-derived declarations before broader Verb declarations")
@@ -689,7 +554,7 @@ TEST_CASE("Verb Offers resolve exact rule-derived declarations before broader Ve
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     auto offers = kernel->verb_offers(key, "en");
     REQUIRE(offers);
     const auto use =
@@ -756,7 +621,7 @@ TEST_CASE("Verb Offer publication orders equal authored ranks by stable Verb ID"
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     auto offers = kernel->verb_offers(key, "en");
     REQUIRE(offers);
     const auto inspect_offer =
@@ -791,7 +656,7 @@ TEST_CASE("direct complete-command submission does not require a discoverable Ve
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     auto offers = kernel->verb_offers(key, "en");
     REQUIRE(offers);
     CHECK(std::none_of(offers.value().begin(), offers.value().end(),
@@ -820,8 +685,8 @@ TEST_CASE(
 
     REQUIRE(kernel->interact(
         id<core::VerbId>("unlock"),
-        {{id<core::VerbSlotId>("target"),
-          core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}}));
+        {{id<core::VerbSlotId>("target"), core::compiled::InteractableInteractionSubject{
+                                              id<core::InteractableInstanceId>("key")}}}));
     drive_interaction(*kernel);
     const auto found = std::find_if(
         kernel->gateway().events().begin(), kernel->gateway().events().end(),
@@ -833,9 +698,7 @@ TEST_CASE(
 
     auto inventory = kernel->inventory_view("en");
     REQUIRE(inventory);
-    REQUIRE(inventory.value().item_stacks.size() == 1);
-    CHECK(inventory.value().item_stacks.front().stack == id<core::ItemStackId>("wallet"));
-    CHECK(inventory.value().item_stacks.front().quantity == 25);
+    CHECK(inventory.value().item_stacks.empty());
     CHECK_FALSE(inventory.value().controls.empty());
     auto room = kernel->room_view("en");
     REQUIRE(room);
@@ -864,7 +727,7 @@ TEST_CASE("Interaction fallback uses optional Project behavior before the engine
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
     drive_interaction(*kernel);
     const auto project_fallback = std::find_if(
@@ -900,7 +763,7 @@ TEST_CASE("undefined Interaction engine fallback is localized by runtime locale"
     drive_to_room(*kernel);
 
     const core::compiled::InteractionSubject key =
-        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
     REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
     drive_interaction(*kernel, "es");
     const auto localized =
@@ -952,7 +815,7 @@ TEST_CASE("Room and Interactable Features preserve owner-qualified semantic invo
 
         const core::compiled::InteractionSubject subject =
             core::compiled::FeatureInteractionSubject{core::InteractableFeatureRef{
-                id<core::InteractableId>("key"), id<core::FeatureId>("surface")}};
+                id<core::InteractableInstanceId>("key"), id<core::FeatureId>("surface")}};
         REQUIRE(
             kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), subject}}));
         auto interaction = kernel->interaction_view("en");
@@ -981,8 +844,8 @@ TEST_CASE("Interactable subjects remain distinct from owner Feature subjects")
 
     REQUIRE(kernel->interact(
         id<core::VerbId>("use"),
-        {{id<core::VerbSlotId>("target"),
-          core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}}));
+        {{id<core::VerbSlotId>("target"), core::compiled::InteractableInteractionSubject{
+                                              id<core::InteractableInstanceId>("key")}}}));
     auto active = kernel->interaction_view("en");
     REQUIRE(active);
     REQUIRE(active.value().program);

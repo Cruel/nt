@@ -311,7 +311,7 @@ inline std::optional<FeatureRef> decode_feature_ref(Decoder& decoder, const nloh
         decoder.object(value, pointer, {"featureId", "interactable", "ownerKind"})) {
         const auto* interactable_value = decoder.member(value, "interactable", pointer);
         auto interactable = interactable_value
-                                ? decode_reference<InteractableId>(
+                                ? decode_reference<InteractableInstanceId>(
                                       decoder, *interactable_value,
                                       pointer_child(pointer, "interactable"), "interactable")
                                 : std::nullopt;
@@ -348,7 +348,7 @@ decode_interaction_subject(Decoder& decoder, const nlohmann::json& value, std::s
     if (*kind == "interactable" && decoder.object(value, pointer, {"interactable", "kind"})) {
         const auto* interactable_value = decoder.member(value, "interactable", pointer);
         auto interactable = interactable_value
-                                ? decode_reference<InteractableId>(
+                                ? decode_reference<InteractableInstanceId>(
                                       decoder, *interactable_value,
                                       pointer_child(pointer, "interactable"), "interactable")
                                 : std::nullopt;

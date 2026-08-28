@@ -70,7 +70,7 @@ dialogue_reveal_input(const core::TypedRuntimeUIViewState* view, std::size_t pag
 }
 
 bool interactable_available(const core::TypedRuntimeUIViewState& view,
-                            const core::InteractableId& interactable)
+                            const core::InteractableInstanceId& interactable)
 {
     const bool available_in_room =
         view.room &&
@@ -271,7 +271,7 @@ ActiveTextPresenter::activate(const core::TypedRuntimeUIViewState* view, float x
     ActiveTextPresenterActivation activation;
     activation.consumed = true;
     if (const auto object_id = m_layout.object_at({x, y})) {
-        auto interactable = core::InteractableId::create(*object_id);
+        auto interactable = core::InteractableInstanceId::create(*object_id);
         if (!interactable) {
             core::append_diagnostics(m_diagnostics, std::move(interactable).error());
             return activation;

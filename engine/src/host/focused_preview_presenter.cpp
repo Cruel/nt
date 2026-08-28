@@ -369,7 +369,7 @@ public:
                     kind = "room";
                 else if constexpr (std::is_same_v<T, core::CharacterId>)
                     kind = "character";
-                else if constexpr (std::is_same_v<T, core::InteractableId>)
+                else if constexpr (std::is_same_v<T, core::InteractableInstanceId>)
                     kind = "interactable";
                 else if constexpr (std::is_same_v<T, core::RoomFeatureRef>) {
                     kind = "feature";
@@ -407,7 +407,7 @@ public:
     }
 
     core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-    interactable_location(const core::InteractableId& interactable) const override
+    interactable_location(const core::InteractableInstanceId& interactable) const override
     {
         if (!m_locations.contains(interactable.text()))
             return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::failure(
@@ -786,7 +786,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
     for (const auto& interactable : document.world.interactables)
         definition.interactables.push_back(
             {decoded_id<core::RoomInteractableEntryId>(interactable.occurrence_id),
-             decoded_id<core::InteractableId>(interactable.interactable_id),
+             decoded_id<core::InteractableInstanceId>(interactable.interactable_id),
              condition_token(interactable.condition),
              decoded_id<core::RoomPlacementId>(interactable.placement_id),
              interactable.occurrence_visible, interactable.order});
@@ -853,7 +853,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         append_character_state(decoded_id<core::CharacterId>(cast.character_id), cast.enabled,
                                cast.visible);
     for (const auto& interactable : document.world.interactables) {
-        const auto id = decoded_id<core::InteractableId>(interactable.interactable_id);
+        const auto id = decoded_id<core::InteractableInstanceId>(interactable.interactable_id);
         if (std::none_of(state.interactables.begin(), state.interactables.end(),
                          [&](const auto& current) { return current.interactable == id; }))
             state.interactables.push_back({id, interactable.enabled, interactable.visible});
@@ -1001,7 +1001,7 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
         append_character(cast.character_id, cast.visual);
     for (const auto& interactable : document.world.interactables)
         result.interactables.push_back(
-            {decoded_id<core::InteractableId>(interactable.interactable_id),
+            {decoded_id<core::InteractableInstanceId>(interactable.interactable_id),
              interactable.sprite_asset_id
                  ? std::optional{decoded_id<core::AssetId>(*interactable.sprite_asset_id)}
                  : std::nullopt,

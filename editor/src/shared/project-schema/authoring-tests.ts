@@ -215,6 +215,10 @@ function validateRef(
 ) {
   if (!ref) return;
   const { collection, id } = ref.$ref;
+  if (collection === 'itemStacks') {
+    diagnostics.push(diagnostic(`${path}/$ref`, 'Item Stack test subjects are retired.'));
+    return;
+  }
   if (!project[collection][id])
     diagnostics.push(diagnostic(`${path}/$ref`, `Missing ${collection} record '${id}'.`));
 }

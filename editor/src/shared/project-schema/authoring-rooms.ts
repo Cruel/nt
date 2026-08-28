@@ -6,7 +6,6 @@ import {
   characterRefSchema,
   conditionSchema,
   inlineTextContent,
-  interactableRefSchema,
   layoutRefSchema,
   materialRefSchema,
   roomRefSchema,
@@ -19,7 +18,7 @@ import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, roomHotspotTargetSchema } from './authoring-features';
 import { parseCharacterData } from './authoring-characters';
-import { parseInteractableData } from './authoring-interactables';
+import { interactableInstanceRefSchema, parseInteractableData } from './authoring-interactables';
 import { resolveGameplayInstanceRecord } from './authoring-archetypes';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -48,7 +47,7 @@ export const roomAssetRefSchema = assetRefSchema;
 export const roomMaterialRefSchema = materialRefSchema;
 export const roomLayoutRefSchema = layoutRefSchema;
 export const roomCharacterRefSchema = characterRefSchema;
-export const roomInteractableRefSchema = interactableRefSchema;
+export const roomInteractableRefSchema = interactableInstanceRefSchema;
 export const roomScriptRefSchema = scriptRefSchema;
 export const roomRoomRefSchema = roomRefSchema;
 export const roomNormalizedRectSchema = strict({
@@ -581,16 +580,26 @@ export function validateRoomData(
   });
   data.interactables.forEach((entry, index) => {
     const path = `${base}/interactables/${index}`;
-    const interactableRecord = project.interactables[entry.interactable.$ref.id];
+    const instance = project.interactableInstances[entry.interactable.$ref.id];
+    const interactableRecord = instance
+      ? project.interactables[instance.definition.$ref.id]
+      : undefined;
     const effectiveRecord = interactableRecord
       ? resolveGameplayInstanceRecord(project, 'interactable', interactableRecord)
       : null;
     const interactable = effectiveRecord ? parseInteractableData(effectiveRecord.data) : null;
-    if (!interactableRecord)
+    if (!instance)
       diagnostics.push(
         diagnostic(
           `${path}/interactable/$ref`,
-          `Missing Interactable definition '${entry.interactable.$ref.id}'.`,
+          `Missing Interactable Instance '${entry.interactable.$ref.id}'.`,
+        ),
+      );
+    else if (!interactableRecord)
+      diagnostics.push(
+        diagnostic(
+          `${path}/interactable/$ref`,
+          `Interactable Instance '${entry.interactable.$ref.id}' has no valid definition.`,
         ),
       );
     else if (entry.visible && interactable && !interactable.presentation.sprite)

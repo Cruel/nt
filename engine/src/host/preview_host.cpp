@@ -264,7 +264,7 @@ std::optional<core::GameplayInstanceRef> gameplay_instance_ref(std::string_view 
         return parsed ? std::optional<core::GameplayInstanceRef>{*parsed.value_if()} : std::nullopt;
     }
     if (kind == "interactable") {
-        auto parsed = core::InteractableId::create(id);
+        auto parsed = core::InteractableInstanceId::create(id);
         return parsed ? std::optional<core::GameplayInstanceRef>{*parsed.value_if()} : std::nullopt;
     }
     return std::nullopt;

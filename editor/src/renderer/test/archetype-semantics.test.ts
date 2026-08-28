@@ -115,11 +115,6 @@ describe('Archetype authoring semantics', () => {
       properties: {},
     };
     const interactable = defaultInteractableData('Local Prop');
-    interactable.initialState = {
-      ...interactable.initialState,
-      enabled: false,
-      visible: false,
-    };
     project.interactables.prop = {
       id: 'prop',
       label: 'Prop',
@@ -147,7 +142,6 @@ describe('Archetype authoring semantics', () => {
     });
     expect(effectiveInteractable?.data).toMatchObject({
       displayName: 'Inherited Prop',
-      initialState: interactable.initialState,
     });
   });
 

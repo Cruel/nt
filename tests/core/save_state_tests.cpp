@@ -259,7 +259,7 @@ TEST_CASE("native SaveState projects all typed Property overrides")
     CHECK(enabled_override->value == RuntimeValue{false});
     REQUIRE(save.interactables.size() == project.interactables().size());
     const auto find_interactable = [&save](std::string value) {
-        const auto wanted = id<InteractableId>(std::move(value));
+        const auto wanted = id<InteractableInstanceId>(std::move(value));
         return std::find_if(
             save.interactables.begin(), save.interactables.end(),
             [&wanted](const InteractableState& state) { return state.interactable == wanted; });
@@ -318,7 +318,7 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
             id<VerbId>("use"),
             id<RoomId>("start"),
             {{id<VerbSlotId>("target"),
-              compiled::InteractableInteractionSubject{id<InteractableId>("key")}}}},
+              compiled::InteractableInteractionSubject{id<InteractableInstanceId>("key")}}}},
         InteractionRuleProgramRef{id<InteractionId>("actions"),
                                   id<InteractionRuleId>("any-context")}));
     auto interaction = make_save_state(interaction_project, interaction_state);
@@ -600,7 +600,7 @@ TEST_CASE("current save-state round-trips the Project undefined Interaction fall
             id<VerbId>("use"),
             id<RoomId>("start"),
             {{id<VerbSlotId>("target"),
-              compiled::InteractableInteractionSubject{id<InteractableId>("key")}}}},
+              compiled::InteractableInteractionSubject{id<InteractableInstanceId>("key")}}}},
         ProjectUndefinedProgramRef{}));
 
     auto snapshot = make_save_state(project, state);
@@ -628,7 +628,7 @@ TEST_CASE("current save-state round-trips owner-qualified Feature interaction su
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::Complete));
     REQUIRE(flow.complete_room_transition());
     const compiled::InteractionSubject feature = compiled::FeatureInteractionSubject{
-        InteractableFeatureRef{id<InteractableId>("key"), id<FeatureId>("surface")}};
+        InteractableFeatureRef{id<InteractableInstanceId>("key"), id<FeatureId>("surface")}};
     REQUIRE(flow.start_interaction(
         InteractionInvocationContext{
             id<VerbId>("use"), id<RoomId>("start"), {{id<VerbSlotId>("target"), feature}}},
@@ -1227,60 +1227,6 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
              {"property", "quality"},
              {"value", "ordinary"}});
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
-    }
-
-    SECTION("saved item Stack Traits are canonical, conflict-free, and satisfied")
-    {
-        const auto trait_project =
-            load_fixture("trait-properties-localization.json", [](nlohmann::json& document) {
-                document["properties"].push_back({{"description", ""},
-                                                  {"enumValues", nlohmann::json::array()},
-                                                  {"id", "serial"},
-                                                  {"label", "Serial"},
-                                                  {"nullable", false},
-                                                  {"ownerKinds", {"item-stack"}},
-                                                  {"scope", "identity"},
-                                                  {"type", "string"}});
-                document["traits"].push_back({{"description", ""},
-                                              {"id", "matching-currency"},
-                                              {"label", "Matching Currency"},
-                                              {"ownerKinds", {"item-stack"}},
-                                              {"properties",
-                                               {{{"kind", "configured"},
-                                                 {"propertyId", "quality"},
-                                                 {"value", "polished"}}}}});
-                document["traits"].push_back({{"description", ""},
-                                              {"id", "ordinary-currency"},
-                                              {"label", "Ordinary Currency"},
-                                              {"ownerKinds", {"item-stack"}},
-                                              {"properties",
-                                               {{{"kind", "configured"},
-                                                 {"propertyId", "quality"},
-                                                 {"value", "ordinary"}}}}});
-                document["traits"].push_back(
-                    {{"description", ""},
-                     {"id", "serial-required"},
-                     {"label", "Serial Required"},
-                     {"ownerKinds", {"item-stack"}},
-                     {"properties", {{{"kind", "required"}, {"propertyId", "serial"}}}}});
-            });
-        auto trait_state = make_state(trait_project);
-        auto trait_snapshot = make_save_state(trait_project, trait_state);
-        REQUIRE(trait_snapshot);
-        auto trait_encoded = encode_save_state(trait_project, trait_snapshot.value());
-        REQUIRE(trait_encoded);
-
-        auto invalid = trait_encoded.value();
-        invalid["itemStacks"][0]["traits"] = {"matching-currency", "currency"};
-        CHECK_FALSE(decode_save_state(trait_project, invalid, "save-fixture.json"));
-
-        invalid = trait_encoded.value();
-        invalid["itemStacks"][0]["traits"] = {"currency", "ordinary-currency"};
-        CHECK_FALSE(decode_save_state(trait_project, invalid, "save-fixture.json"));
-
-        invalid = trait_encoded.value();
-        invalid["itemStacks"][0]["traits"] = {"serial-required"};
-        CHECK_FALSE(decode_save_state(trait_project, invalid, "save-fixture.json"));
     }
 
     SECTION("Save Contract mismatch and missing contract data reject the entire candidate")

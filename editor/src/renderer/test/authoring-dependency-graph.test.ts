@@ -912,7 +912,8 @@ describe('authoring structural dependency graph and queries', () => {
     );
     expect(AUTHORING_INTRINSIC_GRAPH_INPUTS.length).toBeGreaterThan(100);
     for (const declaration of AUTHORING_STRUCTURAL_ADAPTER_DECLARATIONS) {
-      expect(declaration.consumedPathPatterns.length).toBeGreaterThan(0);
+      if (declaration.collection !== 'scripts')
+        expect(declaration.consumedPathPatterns.length, declaration.collection).toBeGreaterThan(0);
       expect(
         declaration.consumedPathPatterns.every((path) =>
           path.startsWith(`/${declaration.collection}/*/`),

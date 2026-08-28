@@ -61,11 +61,6 @@ function withoutCharacterState(data: CharacterData): Omit<CharacterData, 'initia
   return configuration;
 }
 
-function withoutInteractableState(data: InteractableData): Omit<InteractableData, 'initialState'> {
-  const { initialState: _initialState, ...configuration } = data;
-  return configuration;
-}
-
 export function defaultArchetypeConfiguration(
   kind: GameplayInstanceKind,
 ): InheritableConfiguration {
@@ -80,7 +75,7 @@ export function defaultArchetypeConfiguration(
   return {
     traits: [],
     properties: {},
-    data: withoutInteractableState(defaultInteractableData('Interactable')),
+    data: defaultInteractableData('Interactable'),
   };
 }
 
@@ -130,8 +125,6 @@ export function isArchetypeOverridePathAllowed(
   if (!['traits', 'properties', 'data'].includes(segments[0]!)) return false;
   if (kind === 'character' && segments[0] === 'data' && segments[1] === 'initialWorldState')
     return false;
-  if (kind === 'interactable' && segments[0] === 'data' && segments[1] === 'initialState')
-    return false;
   return true;
 }
 
@@ -174,17 +167,12 @@ function parseConfiguration(kind: GameplayInstanceKind, configuration: Inheritab
       ? { traits: traits.data, properties: properties.data, data: withoutCharacterState(data.data) }
       : null;
   }
-  if (!isObject(configuration.data)) return null;
-  const base = defaultInteractableData('Interactable');
-  const data = interactableDataSchema.safeParse({
-    ...configuration.data,
-    initialState: base.initialState,
-  });
+  const data = interactableDataSchema.safeParse(configuration.data);
   return data.success
     ? {
         traits: traits.data,
         properties: properties.data,
-        data: withoutInteractableState(data.data),
+        data: data.data,
       }
     : null;
 }
@@ -276,7 +264,7 @@ function rawInheritableConfiguration(
     ? {
         traits: [...(record.traits ?? [])],
         properties: { ...record.properties },
-        data: withoutInteractableState(parsed.data),
+        data: parsed.data,
       }
     : null;
 }
@@ -307,9 +295,6 @@ export function resolveGameplayInstanceRecord(
   if (kind === 'character') {
     const local = characterDataSchema.parse(record.data);
     data = { ...(parsed.data as object), initialWorldState: local.initialWorldState };
-  } else if (kind === 'interactable') {
-    const local = interactableDataSchema.parse(record.data);
-    data = { ...(parsed.data as object), initialState: local.initialState };
   }
   return {
     ...record,

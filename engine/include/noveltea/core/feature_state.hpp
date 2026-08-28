@@ -329,7 +329,7 @@ struct DesiredAudioInstance {
 };
 
 struct InteractableState {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     compiled::InteractableLocation location;
     bool enabled = true;
     bool visible = true;

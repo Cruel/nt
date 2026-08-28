@@ -8,7 +8,7 @@ import {
 } from '../../../shared/project-schema/authoring-inventory-queries';
 import type { InventoryDefinitionData } from '../../../shared/project-schema/authoring-inventories';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
-import type { InteractableData } from '../../../shared/project-schema/authoring-interactables';
+import type { InteractableInstanceData } from '../../../shared/project-schema/authoring-interactables';
 
 export function InventoryDeclarationsEditor({
   inventories,
@@ -94,8 +94,8 @@ export function InteractableLocationEditor({
   onChange,
 }: {
   project: AuthoringProject;
-  location: InteractableData['initialState']['location'];
-  onChange: (location: InteractableData['initialState']['location']) => void;
+  location: InteractableInstanceData['location'];
+  onChange: (location: InteractableInstanceData['location']) => void;
 }) {
   const inventories = enumerateAuthoringInventories(project);
   const selectedInventory =

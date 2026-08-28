@@ -69,7 +69,7 @@ struct PresentationActor {
 };
 
 struct PresentationInteractable {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     compiled::RoomPlacementRef placement;
     compiled::NormalizedRect bounds;
     std::optional<AssetId> sprite;

@@ -315,7 +315,7 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
          PresentationPlane::WorldContent,
          40,
          true});
-    snapshot.interactables.push_back({id<InteractableId>("key"),
+    snapshot.interactables.push_back({id<InteractableInstanceId>("key"),
                                       {id<RoomId>("atrium"), id<RoomPlacementId>("table")},
                                       {0.4, 0.5, 0.1, 0.15},
                                       id<AssetId>("item"),
@@ -658,7 +658,7 @@ TEST_CASE("Interactable hotspot overlays inherit placement geometry and authored
     resources.add_texture("item", 23, 400, 200);
     WorldPresentationBackend backend(resources);
     auto snapshot = base_snapshot();
-    snapshot.interactables.push_back({id<InteractableId>("key"),
+    snapshot.interactables.push_back({id<InteractableInstanceId>("key"),
                                       {id<RoomId>("room"), id<RoomPlacementId>("table")},
                                       {0.25, 0.4, 0.3, 0.2},
                                       id<AssetId>("item"),
@@ -667,8 +667,8 @@ TEST_CASE("Interactable hotspot overlays inherit placement geometry and authored
                                       12,
                                       true,
                                       true});
-    const compiled::HotspotRef hotspot_ref =
-        compiled::InteractableHotspotRef{id<InteractableId>("key"), id<HotspotId>("inspect")};
+    const compiled::HotspotRef hotspot_ref = compiled::InteractableHotspotRef{
+        id<InteractableInstanceId>("key"), id<HotspotId>("inspect")};
     snapshot.hotspots.push_back(
         {hotspot_ref, "Inspect", true, true, semantic_target("inspect"), AlphaHotspotShape{}, 0,
          compiled::MaterialHotspotHighlight{id<core::MaterialId>("custom-highlight")},
@@ -727,7 +727,7 @@ TEST_CASE("world hotspot controller honors draw order input order and background
     auto snapshot = base_snapshot();
     snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
                                                  .fit = compiled::BackgroundFit::Cover};
-    snapshot.interactables.push_back({id<InteractableId>("item"),
+    snapshot.interactables.push_back({id<InteractableInstanceId>("item"),
                                       {id<RoomId>("room"), id<RoomPlacementId>("item-place")},
                                       {0.4, 0.4, 0.2, 0.2},
                                       id<AssetId>("item"),
@@ -740,8 +740,8 @@ TEST_CASE("world hotspot controller honors draw order input order and background
         compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("low")};
     const compiled::HotspotRef room_high =
         compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("high")};
-    const compiled::HotspotRef item =
-        compiled::InteractableHotspotRef{id<InteractableId>("item"), id<HotspotId>("item-hotspot")};
+    const compiled::HotspotRef item = compiled::InteractableHotspotRef{
+        id<InteractableInstanceId>("item"), id<HotspotId>("item-hotspot")};
     snapshot.hotspots = {
         {room_low, "Low", true, true, semantic_target("low"),
          compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 1, compiled::NoHotspotHighlight{},
@@ -831,7 +831,7 @@ TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
     WorldPresentationBackend backend(resources);
     WorldHotspotController controller(backend);
     auto snapshot = base_snapshot();
-    snapshot.interactables.push_back({id<InteractableId>("item"),
+    snapshot.interactables.push_back({id<InteractableInstanceId>("item"),
                                       {id<RoomId>("room"), id<RoomPlacementId>("item-place")},
                                       {0.0, 0.0, 1.0, 1.0},
                                       id<AssetId>("item"),
@@ -840,8 +840,8 @@ TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
                                       0,
                                       true,
                                       true});
-    const compiled::HotspotRef alpha =
-        compiled::InteractableHotspotRef{id<InteractableId>("item"), id<HotspotId>("alpha")};
+    const compiled::HotspotRef alpha = compiled::InteractableHotspotRef{
+        id<InteractableInstanceId>("item"), id<HotspotId>("alpha")};
     snapshot.hotspots.push_back(
         {alpha, "Alpha", true, true, semantic_target("alpha"), AlphaHotspotShape{}, 0,
          compiled::NoHotspotHighlight{}, id<AssetId>("item"), 2, 1,

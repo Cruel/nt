@@ -25,6 +25,7 @@ import { editorProjectStateSchema, emptyEditorProjectState } from './editor-proj
 import { defaultExportProfile, exportProfileSchema } from './authoring-export';
 import { platformExportProfileSchema } from './platform-export-contracts';
 import { inventoryDefinitionSchema } from './authoring-inventories';
+import { interactableInstanceDataSchema } from './authoring-interactables';
 import { scriptRefSchema } from './authoring-flow';
 import { interactionProgramSchema } from './authoring-interaction-programs';
 
@@ -75,6 +76,7 @@ export const authoringProjectSchema = z
     properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
     inventories: z.array(inventoryDefinitionSchema),
+    interactableInstances: z.record(entityIdSchema, interactableInstanceDataSchema),
     localization: authoringLocalizationSchema.default(defaultAuthoringLocalization()),
     editor: editorProjectStateSchema.default(emptyEditorProjectState),
     ...authoringCollectionSchemas,
@@ -161,6 +163,7 @@ export function createAuthoringProject(
     properties: {},
     traits: {},
     inventories: [],
+    interactableInstances: {},
     localization: defaultAuthoringLocalization(),
     editor: emptyEditorProjectState(),
     ...collections,

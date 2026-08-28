@@ -25,8 +25,9 @@ enum class PropertyScope : std::uint8_t {
 struct GlobalPropertyTarget {
     bool operator==(const GlobalPropertyTarget&) const = default;
 };
-using PropertyTargetRef = std::variant<GlobalPropertyTarget, RoomId, CharacterId, InteractableId,
-                                       RoomFeatureRef, InteractableFeatureRef, ItemStackId>;
+using PropertyTargetRef =
+    std::variant<GlobalPropertyTarget, RoomId, CharacterId, InteractableInstanceId, RoomFeatureRef,
+                 InteractableFeatureRef, ItemStackId>;
 
 struct BooleanPropertyType {};
 struct IntegerPropertyType {};
@@ -142,7 +143,7 @@ using PropertyLookupResult = std::variant<RuntimeValue, MissingPropertyValue>;
                 return PropertyOwnerKind::Room;
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return PropertyOwnerKind::Character;
-            else if constexpr (std::is_same_v<T, InteractableId>)
+            else if constexpr (std::is_same_v<T, InteractableInstanceId>)
                 return PropertyOwnerKind::Interactable;
             else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
                                std::is_same_v<T, InteractableFeatureRef>)

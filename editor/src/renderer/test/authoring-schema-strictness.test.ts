@@ -39,8 +39,26 @@ import {
   variableDataSchema,
 } from '../../shared/project-schema/authoring-variables';
 import { defaultVerbData, verbDataSchema } from '../../shared/project-schema/authoring-verbs';
+import {
+  authoringProjectSchema,
+  createAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 
 describe('authoring schema strictness', () => {
+  it('rejects retired Item collections and definition-owned Interactable state', () => {
+    const project = createAuthoringProject();
+    expect(authoringProjectSchema.safeParse({ ...project, itemDefinitions: {} }).success).toBe(
+      false,
+    );
+    expect(authoringProjectSchema.safeParse({ ...project, itemStacks: {} }).success).toBe(false);
+    expect(
+      interactableDataSchema.safeParse({
+        ...defaultInteractableData(),
+        initialState: { enabled: true, visible: true },
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects unknown fields at representative nested data in every collection family', () => {
     const character = defaultCharacterData();
     const dialogue = defaultDialogueData();

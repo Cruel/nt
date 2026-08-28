@@ -930,8 +930,6 @@ describe('NovelTea headless CLI', () => {
         'schemas/editor.schema.json',
         'schemas/records/layouts.schema.json',
         'schemas/records/archetypes.schema.json',
-        'schemas/records/itemDefinitions.schema.json',
-        'schemas/records/itemStacks.schema.json',
         'schemas/records/scripts.schema.json',
         'schemas/records/tests.schema.json',
         'system-layouts/manifest.json',

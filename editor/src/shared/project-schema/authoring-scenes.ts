@@ -990,7 +990,15 @@ export function validateSceneData(
   const data = parsed.data;
   const diagnostics: SceneSchemaDiagnostic[] = [];
   const ids = new Set<string>();
-  const requireRecord = (collection: keyof AuthoringProject, id: string, path: string) => {
+  const requireRecord = (
+    collection: keyof AuthoringProject | 'itemDefinitions' | 'itemStacks',
+    id: string,
+    path: string,
+  ) => {
+    if (collection === 'itemDefinitions' || collection === 'itemStacks') {
+      diagnostics.push(diagnostic(path, `${collection} are retired; use Interactable Instances.`));
+      return;
+    }
     const value = project[collection];
     if (typeof value !== 'object' || value === null || !(id in value))
       diagnostics.push(diagnostic(path, `Missing ${String(collection)} record '${id}'.`));

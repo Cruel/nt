@@ -98,9 +98,8 @@ RoomCompositionDraftAccess::set_character_visible(const core::CharacterId& chara
     return core::Result<void, core::Diagnostics>::success();
 }
 
-core::Result<void, core::Diagnostics>
-RoomCompositionDraftAccess::set_interactable_visible(const core::InteractableId& interactable,
-                                                     bool visible)
+core::Result<void, core::Diagnostics> RoomCompositionDraftAccess::set_interactable_visible(
+    const core::InteractableInstanceId& interactable, bool visible)
 {
     if (!m_active || m_draft == nullptr)
         return core::Result<void, core::Diagnostics>::failure(
@@ -167,7 +166,7 @@ RuntimeCommandGateway::definition(core::ProjectDefinitionKind kind, std::string 
                                                      "Character definition is missing or invalid"));
     }
     case core::ProjectDefinitionKind::Interactable: {
-        auto parsed = core::InteractableId::create(std::move(id));
+        auto parsed = core::InteractableInstanceId::create(std::move(id));
         const auto* parsed_id = parsed.value_if();
         const auto* value = parsed_id ? m_world.resolved_configuration(*parsed_id) : nullptr;
         return value ? Result::success(summary(kind, *value))
@@ -261,7 +260,7 @@ RuntimeCommandGateway::property(const core::PropertyOwnerRef& owner,
             const auto& id) -> core::Result<core::PropertyLookupResult, core::Diagnostics> {
             using T = std::decay_t<decltype(id)>;
             if constexpr (std::is_same_v<T, core::RoomId> || std::is_same_v<T, core::CharacterId> ||
-                          std::is_same_v<T, core::InteractableId>) {
+                          std::is_same_v<T, core::InteractableInstanceId>) {
                 return m_world.resolve_property(id, property_id);
             } else {
                 core::PropertyResolver resolver(m_project, m_state);
@@ -322,7 +321,7 @@ RuntimeCommandGateway::create_character(RuntimeInstanceConfigurationRequest sour
     return created;
 }
 
-core::Result<core::InteractableId, core::Diagnostics>
+core::Result<core::InteractableInstanceId, core::Diagnostics>
 RuntimeCommandGateway::create_interactable(RuntimeInstanceConfigurationRequest source,
                                            core::compiled::InteractableLocation location,
                                            bool enabled, bool visible)
@@ -479,7 +478,7 @@ RuntimeCommandGateway::instance_provenance(const core::GameplayInstanceRef& inst
 }
 
 core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-RuntimeCommandGateway::interactable_location(const core::InteractableId& interactable) const
+RuntimeCommandGateway::interactable_location(const core::InteractableInstanceId& interactable) const
 {
     const auto* state = m_world.interactable_state(interactable);
     if (state == nullptr) {
@@ -492,7 +491,7 @@ RuntimeCommandGateway::interactable_location(const core::InteractableId& interac
 }
 
 core::Result<core::InteractableState, core::Diagnostics>
-RuntimeCommandGateway::interactable_state(const core::InteractableId& interactable) const
+RuntimeCommandGateway::interactable_state(const core::InteractableInstanceId& interactable) const
 {
     const auto* state = m_world.interactable_state(interactable);
     return state != nullptr
@@ -546,7 +545,7 @@ RuntimeCommandGateway::enqueue(DeferredRuntimeCommandPayload payload)
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::request_interactable_location(core::InteractableId interactable,
+RuntimeCommandGateway::request_interactable_location(core::InteractableInstanceId interactable,
                                                      core::compiled::InteractableLocation target)
 {
     if (m_world.resolved_configuration(interactable) == nullptr)
@@ -565,8 +564,9 @@ RuntimeCommandGateway::request_interactable_location(core::InteractableId intera
 }
 
 core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_interactable_state(
-    core::InteractableId interactable, std::optional<core::compiled::InteractableLocation> location,
-    std::optional<bool> enabled, std::optional<bool> visible)
+    core::InteractableInstanceId interactable,
+    std::optional<core::compiled::InteractableLocation> location, std::optional<bool> enabled,
+    std::optional<bool> visible)
 {
     if (m_world.resolved_configuration(interactable) == nullptr)
         return core::Result<void, core::Diagnostics>::failure(
@@ -1236,7 +1236,7 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::navigate(std::size_
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::select_interactable(core::InteractableId interactable)
+RuntimeCommandGateway::select_interactable(core::InteractableInstanceId interactable)
 {
     auto available = require_services("Game.select_interactable");
     if (!available)

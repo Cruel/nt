@@ -101,7 +101,7 @@ TEST_CASE("property owner mapping is exhaustive and independent of enum ordering
     const std::array cases{
         std::pair{PropertyOwnerRef{id<RoomId>("room")}, PropertyOwnerKind::Room},
         std::pair{PropertyOwnerRef{id<CharacterId>("character")}, PropertyOwnerKind::Character},
-        std::pair{PropertyOwnerRef{id<InteractableId>("interactable")},
+        std::pair{PropertyOwnerRef{id<InteractableInstanceId>("interactable")},
                   PropertyOwnerKind::Interactable},
     };
     for (const auto& [owner, expected] : cases)
@@ -113,7 +113,7 @@ TEST_CASE("property factories enforce owner scalar type nullability and finitene
     const auto definition = number_property();
     const auto room = PropertyOwnerRef{id<RoomId>("atrium")};
     const auto character = PropertyOwnerRef{id<CharacterId>("hero")};
-    const auto interactable = PropertyOwnerRef{id<InteractableId>("key")};
+    const auto interactable = PropertyOwnerRef{id<InteractableInstanceId>("key")};
 
     CHECK(make_property_assignment(PropertyOwnerKind::Room, definition,
                                    RuntimeValue{std::int64_t{2}}));

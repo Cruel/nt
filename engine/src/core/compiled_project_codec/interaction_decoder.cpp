@@ -57,7 +57,7 @@ std::optional<InteractionInstruction> decode_interaction_instruction(Decoder& de
         const auto* interactable_value = decoder.member(value, "interactable", pointer);
         const auto* target_value = decoder.member(value, "target", pointer);
         auto interactable = interactable_value
-                                ? decode_reference<InteractableId>(
+                                ? decode_reference<InteractableInstanceId>(
                                       decoder, *interactable_value,
                                       pointer_child(pointer, "interactable"), "interactable")
                                 : std::nullopt;
@@ -73,7 +73,7 @@ std::optional<InteractionInstruction> decode_interaction_instruction(Decoder& de
         decoder.object(value, pointer, {"enabled", "id", "interactable", "kind", "visible"});
         const auto* interactable_value = decoder.member(value, "interactable", pointer);
         auto interactable = interactable_value
-                                ? decode_reference<InteractableId>(
+                                ? decode_reference<InteractableInstanceId>(
                                       decoder, *interactable_value,
                                       pointer_child(pointer, "interactable"), "interactable")
                                 : std::nullopt;

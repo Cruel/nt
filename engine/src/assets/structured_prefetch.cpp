@@ -177,7 +177,7 @@ struct StructuredAssetDependencyIndex::Impl {
     std::unordered_map<core::LayoutId, const core::compiled::LayoutResource*> layouts;
     std::unordered_map<core::CharacterId, const core::compiled::CharacterDefinition*> characters;
     std::unordered_map<core::RoomId, const core::compiled::RoomDefinition*> rooms;
-    std::unordered_map<core::InteractableId, const core::compiled::InteractableDefinition*>
+    std::unordered_map<core::InteractableInstanceId, const core::compiled::InteractableDefinition*>
         interactables;
     std::unordered_map<core::SceneId, const core::compiled::SceneDefinition*> scenes;
     std::unordered_map<core::DialogueId, const core::compiled::DialogueDefinition*> dialogues;
@@ -185,7 +185,11 @@ struct StructuredAssetDependencyIndex::Impl {
     std::unordered_map<core::LayoutId, LayoutDependencies> layout_dependencies;
     std::unordered_map<core::RoomId, std::vector<const core::compiled::CharacterDefinition*>>
         initial_characters_by_room;
-    std::unordered_map<core::RoomId, std::vector<const core::compiled::InteractableDefinition*>>
+    struct InitialInteractable {
+        core::InteractableInstanceId instance;
+        const core::compiled::InteractableDefinition* definition;
+    };
+    std::unordered_map<core::RoomId, std::vector<InitialInteractable>>
         initial_interactables_by_room;
 
     [[nodiscard]] const core::compiled::AssetResource* find_asset(const core::AssetId& id) const
@@ -317,6 +321,7 @@ struct StructuredAssetDependencyIndex::Impl {
     }
 
     void append_interactable_hotspots(DescriptorAccumulator& output,
+                                      const core::InteractableInstanceId& instance,
                                       const core::compiled::InteractableDefinition& interactable,
                                       core::Diagnostics& collection_diagnostics) const
     {
@@ -326,8 +331,7 @@ struct StructuredAssetDependencyIndex::Impl {
             return;
         bool requires_mask = false;
         HotspotMaskAssetRequest request{
-            .owner = core::compiled::InteractableHotspotOwnerRef{.interactable =
-                                                                     interactable.identity.id},
+            .owner = core::compiled::InteractableHotspotOwnerRef{.interactable = instance},
             .regions = {}};
         for (const auto& hotspot : custom->hotspots) {
             requires_mask |=
@@ -555,7 +559,8 @@ struct StructuredAssetDependencyIndex::Impl {
         }
         if (const auto initial = initial_interactables_by_room.find(id);
             initial != initial_interactables_by_room.end()) {
-            for (const auto* interactable : initial->second) {
+            for (const auto& placed : initial->second) {
+                const auto* interactable = placed.definition;
                 if (interactable->presentation.sprite)
                     append_asset(output, *interactable->presentation.sprite,
                                  core::compiled::AssetKind::Image, collection_diagnostics,
@@ -563,7 +568,8 @@ struct StructuredAssetDependencyIndex::Impl {
                 if (interactable->presentation.material)
                     append_material(output, *interactable->presentation.material,
                                     collection_diagnostics, "Room initial interactable");
-                append_interactable_hotspots(output, *interactable, collection_diagnostics);
+                append_interactable_hotspots(output, placed.instance, *interactable,
+                                             collection_diagnostics);
             }
         }
     }
@@ -782,7 +788,6 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
     for (const auto& dialogue : project.dialogues())
         impl->dialogues.emplace(dialogue.identity.id, &dialogue);
     for (const auto& interactable : project.interactables()) {
-        impl->interactables.emplace(interactable.identity.id, &interactable);
         if (interactable.presentation.sprite &&
             std::holds_alternative<core::compiled::SpriteAlphaHotspots>(
                 interactable.presentation.hotspots)) {
@@ -793,10 +798,15 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
                     TexturePreparationRequirements{.retain_alpha_coverage = true});
             }
         }
-        if (const auto* location =
-                std::get_if<core::compiled::RoomLocation>(&interactable.initial_state.location)) {
-            impl->initial_interactables_by_room[location->room].push_back(&interactable);
-        }
+    }
+    for (const auto& instance : project.interactable_instances()) {
+        const auto* definition = project.find_interactable_definition(instance.definition);
+        if (definition == nullptr)
+            continue;
+        impl->interactables.emplace(instance.id, definition);
+        if (const auto* location = std::get_if<core::compiled::RoomLocation>(&instance.location))
+            impl->initial_interactables_by_room[location->room].push_back(
+                Impl::InitialInteractable{instance.id, definition});
     }
 
     if (package.shader_materials()) {
@@ -947,8 +957,8 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
             if (const auto definition =
                     m_index.m_impl->interactables.find(interactable.interactable);
                 definition != m_index.m_impl->interactables.end()) {
-                m_index.m_impl->append_interactable_hotspots(current, *definition->second,
-                                                             current_diagnostics);
+                m_index.m_impl->append_interactable_hotspots(
+                    current, interactable.interactable, *definition->second, current_diagnostics);
             }
         }
         if (snapshot->current_room) {
