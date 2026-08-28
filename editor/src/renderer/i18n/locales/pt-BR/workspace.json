@@ -307,6 +307,28 @@
   "preview": {
     "show": "Mostrar prévia"
   },
+  "hookRegistryResolution": {
+    "summary": {
+      "resolved": "Resolvido estaticamente: {{handler}}",
+      "ambiguous": "Resolução estática ambígua",
+      "incomplete": "O resultado estático pode estar incompleto",
+      "none": "Nenhum registro estático correspondente"
+    },
+    "target": "Sala de destino:",
+    "winner": "Registro vencedor",
+    "fallbacks": "Ordem de fallback",
+    "conflicts": "Registros conflitantes",
+    "dynamic": {
+      "title": "O resultado estático pode estar incompleto",
+      "description": "Registro dinâmico no Bootstrap ou comportamento dinâmico de importação impede uma resposta estática completa. O congelamento do Hook Registry em runtime continua sendo a autoridade."
+    },
+    "noStaticWinner": "Nenhum vencedor estaticamente determinável está disponível para este hook e Sala.",
+    "noMatch": "Nenhum registro do Hook Registry corresponde a este hook e Sala.",
+    "source": {
+      "direct": "Definição da Sala",
+      "bootstrap": "Bootstrap"
+    }
+  },
   "roomExits": {
     "addReturn": "Adicionar saída de retorno",
     "fixReturn": "Alterar para {{direction}}",

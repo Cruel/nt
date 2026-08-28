@@ -271,6 +271,28 @@
   "preview": {
     "show": "⟦Show Preview⟧"
   },
+  "hookRegistryResolution": {
+    "summary": {
+      "resolved": "⟦Resolved statically: {{handler}}⟧",
+      "ambiguous": "⟦Ambiguous static resolution⟧",
+      "incomplete": "⟦Static result may be incomplete⟧",
+      "none": "⟦No matching static registration⟧"
+    },
+    "target": "⟦Target Room:⟧",
+    "winner": "⟦Winning registration⟧",
+    "fallbacks": "⟦Fallback order⟧",
+    "conflicts": "⟦Conflicting registrations⟧",
+    "dynamic": {
+      "title": "⟦Static result may be incomplete⟧",
+      "description": "⟦Dynamic Bootstrap registration or import behavior prevents a complete static answer. Runtime Hook Registry freeze remains authoritative.⟧"
+    },
+    "noStaticWinner": "⟦No statically knowable winner is available for this hook and Room.⟧",
+    "noMatch": "⟦No Hook Registry registration matches this hook and Room.⟧",
+    "source": {
+      "direct": "⟦Room definition⟧",
+      "bootstrap": "⟦Bootstrap⟧"
+    }
+  },
   "roomExits": {
     "addReturn": "⟦Add return exit⟧",
     "fixReturn": "⟦Change to {{direction}}⟧",

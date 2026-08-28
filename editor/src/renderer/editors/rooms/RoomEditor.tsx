@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
+import { HookRegistryResolutionInspector } from '@/components/HookRegistryResolutionInspector';
 import {
   AlertTriangle,
   ArrowRight,
@@ -129,6 +130,7 @@ import {
 } from '../../../shared/project-schema/authoring-archetypes';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
+import { analyzeHookRegistry } from '../../../shared/hook-registry-analysis';
 
 const backgroundFitLabels = {
   cover: 'Cover',
@@ -648,6 +650,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(document) ? document : null;
+  const hookRegistryAnalysis = useMemo(
+    () => (project && activeCategory === 'behavior' ? analyzeHookRegistry(project) : null),
+    [activeCategory, project],
+  );
   const record = roomId && project ? project.rooms[roomId] : null;
   const effectiveRecord =
     project && record ? resolveGameplayInstanceRecord(project, 'room', record) : record;
@@ -3360,6 +3366,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         }}
                       />
                     </div>
+                    {hookRegistryAnalysis && roomId ? (
+                      <HookRegistryResolutionInspector
+                        analysis={hookRegistryAnalysis}
+                        hook={hook}
+                        target={roomId}
+                      />
+                    ) : null}
                   </div>
                 );
               })}

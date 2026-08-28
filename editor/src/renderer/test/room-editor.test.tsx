@@ -78,6 +78,34 @@ describe('RoomEditor', () => {
     selectRoomCategory('Composition');
     expect(screen.getByText('Placements')).toBeInTheDocument();
   });
+  it('exposes canonical Hook Registry resolution from the Behavior surface', () => {
+    const project = createAuthoringProject();
+    project.scripts['room-hooks'] = {
+      id: 'room-hooks',
+      label: 'Room Hooks',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'inline-lua', source: 'return { before_enter = function() end }' },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.scriptHooks.push({
+      hook: 'before-enter',
+      handler: {
+        module: { $ref: { collection: 'scripts', id: 'room-hooks' } },
+        export: 'before_enter',
+      },
+    });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    selectRoomCategory('Behavior');
+
+    expect(screen.getByText('Resolved statically: room-hooks.before_enter')).toBeInTheDocument();
+    expect(screen.getByText('Room definition')).toBeInTheDocument();
+    expect(screen.getAllByText('gameplay-effect').length).toBeGreaterThanOrEqual(1);
+  });
   it('uses one temporary add action instead of persistent hotspot interaction modes', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
