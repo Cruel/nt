@@ -26,9 +26,13 @@ import { validateLayoutData, validateSystemLayoutSettings } from './authoring-la
 import { validateMaterialData } from './authoring-materials';
 import { validateMapData } from './authoring-maps';
 import {
+  arePropertySchemasCompatible,
+  authoredRuntimeValuesEqual,
   isPropertyValueCompatible,
   type PropertyAssignments,
   type PropertyOwnerKind,
+  type TraitDefinition,
+  type TraitProperty,
 } from './authoring-properties';
 import { parseRoomData, validateRoomData } from './authoring-rooms';
 import {
@@ -96,24 +100,12 @@ function validateArchetypePropertyConfiguration(
   basePath: string,
   diagnostics: ProjectValidationDiagnosticLike[],
 ) {
-  for (const [propertyId, value] of Object.entries(properties)) {
-    const path = `${basePath}/properties/${escapePathSegment(propertyId)}`;
-    const definition = project.properties[propertyId];
-    if (!definition)
-      diagnostics.push(diagnostic('error', path, `Property '${propertyId}' is not declared.`));
-    else if (!definition.ownerKinds.includes(ownerKind))
-      diagnostics.push(
-        diagnostic('error', path, `Property '${propertyId}' cannot be assigned to ${ownerKind}.`),
-      );
-    else if (!isPropertyValueCompatible(definition, value))
-      diagnostics.push(
-        diagnostic('error', path, `Assignment does not match property '${propertyId}'.`),
-      );
-  }
-
+  const traitProperties = new Map<string, { traitId: string; property: TraitProperty }>();
+  const traitDefaults = new Map<
+    string,
+    { traitId: string; value: Exclude<TraitProperty['defaultValue'], undefined> }
+  >();
   const seenTraits = new Set<string>();
-  const configured = new Map<string, { traitId: string; value: unknown }>();
-  const attachedTraits: Array<(typeof project.traits)[string]> = [];
   for (const [index, traitId] of traits.entries()) {
     const path = `${basePath}/traits/${index}`;
     if (seenTraits.has(traitId)) {
@@ -132,38 +124,65 @@ function validateArchetypePropertyConfiguration(
       );
       continue;
     }
-    attachedTraits.push(trait);
     for (const member of trait.properties) {
-      if (member.kind !== 'configured') continue;
-      const previous = configured.get(member.propertyId);
-      if (previous && previous.value !== member.value)
+      const previous = traitProperties.get(member.id);
+      if (previous && !arePropertySchemasCompatible(previous.property, member))
         diagnostics.push(
           diagnostic(
             'error',
             path,
-            `Trait '${traitId}' configures property '${member.propertyId}' incompatibly with Trait '${previous.traitId}'.`,
+            `Trait '${traitId}' contributes property '${member.id}' with a schema incompatible with Trait '${previous.traitId}'.`,
+            'Project validation',
+            'authoring.trait.schema_conflict',
           ),
         );
-      else if (!previous) configured.set(member.propertyId, { traitId, value: member.value });
+      else if (!previous) traitProperties.set(member.id, { traitId, property: member });
+
+      if (member.defaultValue !== undefined) {
+        const previousDefault = traitDefaults.get(member.id);
+        if (
+          previousDefault &&
+          !authoredRuntimeValuesEqual(previousDefault.value, member.defaultValue)
+        )
+          diagnostics.push(
+            diagnostic(
+              'error',
+              path,
+              `Trait '${traitId}' provides a conflicting Default for property '${member.id}' with Trait '${previousDefault.traitId}'.`,
+              'Project validation',
+              'authoring.trait.default_conflict',
+            ),
+          );
+        else if (!previousDefault)
+          traitDefaults.set(member.id, { traitId, value: member.defaultValue });
+      }
     }
   }
-  for (const trait of attachedTraits) {
-    for (const member of trait.properties) {
-      if (member.kind !== 'required') continue;
-      const definition = project.properties[member.propertyId];
-      const hasOwnAssignment = Object.prototype.hasOwnProperty.call(properties, member.propertyId);
-      const hasConfiguredValue = configured.has(member.propertyId);
-      const hasDeclarationDefault = definition?.defaultValue !== undefined;
-      if (!hasOwnAssignment && !hasConfiguredValue && !hasDeclarationDefault)
+
+  for (const [propertyId, value] of Object.entries(properties)) {
+    const path = `${basePath}/properties/${escapePathSegment(propertyId)}`;
+    const traitProperty = traitProperties.get(propertyId)?.property;
+    if (traitProperty) {
+      if (!isPropertyValueCompatible(traitProperty, value))
         diagnostics.push(
-          diagnostic(
-            'error',
-            `${basePath}/traits`,
-            `Trait '${trait.id}' requires property '${member.propertyId}' to have an authored value.`,
-          ),
+          diagnostic('error', path, `Assignment does not match Trait Property '${propertyId}'.`),
         );
+      continue;
     }
+    const definition = project.properties[propertyId];
+    if (!definition)
+      diagnostics.push(diagnostic('error', path, `Property '${propertyId}' is not declared.`));
+    else if (!definition.ownerKinds.includes(ownerKind))
+      diagnostics.push(
+        diagnostic('error', path, `Property '${propertyId}' cannot be assigned to ${ownerKind}.`),
+      );
+    else if (!isPropertyValueCompatible(definition, value))
+      diagnostics.push(
+        diagnostic('error', path, `Assignment does not match property '${propertyId}'.`),
+      );
   }
+  // Reusable configuration sources may intentionally leave Trait contracts incomplete. Concrete
+  // owners are checked separately before publication.
 }
 
 function validateArchetypes(
@@ -367,8 +386,29 @@ function validateProperties(
     const ownerKind = propertyOwnerKindByCollection[collection];
     if (!ownerKind) continue;
     for (const [recordId, record] of Object.entries(recordsFor(project, collection))) {
+      const traitPropertyById = new Map<string, TraitProperty>();
+      if (collection === 'rooms' || collection === 'characters') {
+        for (const traitId of record.traits ?? []) {
+          const trait = project.traits[traitId];
+          if (!trait || !trait.ownerKinds.includes(ownerKind)) continue;
+          for (const property of trait.properties)
+            if (!traitPropertyById.has(property.id)) traitPropertyById.set(property.id, property);
+        }
+      }
       for (const [propertyId, value] of Object.entries(record.properties ?? {})) {
         const path = `/${collection}/${escapePathSegment(recordId)}/properties/${escapePathSegment(propertyId)}`;
+        const traitProperty = traitPropertyById.get(propertyId);
+        if (traitProperty) {
+          if (!isPropertyValueCompatible(traitProperty, value))
+            diagnostics.push(
+              diagnostic(
+                'error',
+                path,
+                `Assignment does not match Trait Property '${propertyId}'.`,
+              ),
+            );
+          continue;
+        }
         const definition = project.properties[propertyId];
         if (!definition) {
           diagnostics.push(diagnostic('error', path, `Property '${propertyId}' is not declared.`));
@@ -401,49 +441,22 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
           `Trait id '${trait.id}' must match map key '${traitId}'.`,
         ),
       );
-    for (const [index, member] of trait.properties.entries()) {
-      const path = `${base}/properties/${index}`;
-      const definition = project.properties[member.propertyId];
-      if (!definition) {
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${path}/propertyId`,
-            `Property '${member.propertyId}' is not declared.`,
-          ),
-        );
-        continue;
-      }
-      const unsupportedOwners = trait.ownerKinds.filter(
-        (ownerKind) => !definition.ownerKinds.includes(ownerKind),
-      );
-      if (unsupportedOwners.length > 0)
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${path}/propertyId`,
-            `Property '${member.propertyId}' is not valid for Trait owner kind${unsupportedOwners.length === 1 ? '' : 's'} ${unsupportedOwners.join(', ')}.`,
-          ),
-        );
-      if (member.kind === 'configured' && !isPropertyValueCompatible(definition, member.value))
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${path}/value`,
-            `Configured value does not match property '${member.propertyId}'.`,
-          ),
-        );
-    }
   }
 
-  for (const collection of authoringCollectionKeys) {
+  // #137 migrates the concrete Room and Character owners established by #136. Reusable and
+  // remaining Property-bearing owners are intentionally handled by #138/#139.
+  for (const collection of ['rooms', 'characters'] as const) {
     const ownerKind = propertyOwnerKindByCollection[collection];
     if (!ownerKind) continue;
     for (const [recordId, record] of Object.entries(recordsFor(project, collection))) {
       const attachmentIds = record.traits ?? [];
       const seenTraits = new Set<string>();
-      const configured = new Map<string, { traitId: string; value: unknown }>();
-      const attachedTraits: Array<(typeof project.traits)[string]> = [];
+      const contributed = new Map<string, { traitId: string; property: TraitProperty }>();
+      const defaults = new Map<
+        string,
+        { traitId: string; value: Exclude<TraitProperty['defaultValue'], undefined> }
+      >();
+      const attachedTraits: TraitDefinition[] = [];
       for (const [index, traitId] of attachmentIds.entries()) {
         const path = `/${collection}/${escapePathSegment(recordId)}/traits/${index}`;
         if (seenTraits.has(traitId)) {
@@ -466,36 +479,79 @@ function validateTraits(project: AuthoringProject, diagnostics: ProjectValidatio
         }
         attachedTraits.push(trait);
         for (const member of trait.properties) {
-          if (member.kind !== 'configured') continue;
-          const previous = configured.get(member.propertyId);
-          if (previous && previous.value !== member.value)
+          const previous = contributed.get(member.id);
+          if (previous && !arePropertySchemasCompatible(previous.property, member))
             diagnostics.push(
               diagnostic(
                 'error',
                 path,
-                `Trait '${traitId}' configures property '${member.propertyId}' incompatibly with Trait '${previous.traitId}'.`,
+                `Trait '${traitId}' contributes property '${member.id}' with a schema incompatible with Trait '${previous.traitId}'.`,
+                'Project validation',
+                'authoring.trait.schema_conflict',
               ),
             );
-          else if (!previous) configured.set(member.propertyId, { traitId, value: member.value });
+          else if (!previous) contributed.set(member.id, { traitId, property: member });
+
+          if (member.defaultValue !== undefined) {
+            const previousDefault = defaults.get(member.id);
+            if (
+              previousDefault &&
+              !authoredRuntimeValuesEqual(previousDefault.value, member.defaultValue)
+            )
+              diagnostics.push(
+                diagnostic(
+                  'error',
+                  path,
+                  `Trait '${traitId}' provides a conflicting Default for property '${member.id}' with Trait '${previousDefault.traitId}'.`,
+                  'Project validation',
+                  'authoring.trait.default_conflict',
+                ),
+              );
+            else if (!previousDefault)
+              defaults.set(member.id, { traitId, value: member.defaultValue });
+          }
         }
+      }
+
+      const localProperties = new Map(
+        (record.localProperties ?? []).map((item) => [item.id, item]),
+      );
+      for (const [propertyId, source] of contributed) {
+        const local = localProperties.get(propertyId);
+        if (local && !arePropertySchemasCompatible(local, source.property))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `/${collection}/${escapePathSegment(recordId)}/localProperties`,
+              `Local Property '${propertyId}' is incompatible with Trait '${source.traitId}'.`,
+            ),
+          );
+
+        const override = (record.properties ?? {})[propertyId];
+        if (override !== undefined && !isPropertyValueCompatible(source.property, override))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `/${collection}/${escapePathSegment(recordId)}/properties/${escapePathSegment(propertyId)}`,
+              `Override does not match Trait Property '${propertyId}'.`,
+            ),
+          );
       }
 
       for (const trait of attachedTraits) {
         for (const member of trait.properties) {
-          if (member.kind !== 'required') continue;
-          const definition = project.properties[member.propertyId];
-          const hasOwnAssignment = Object.prototype.hasOwnProperty.call(
+          if (member.defaultValue !== undefined) continue;
+          const hasStandaloneValue = localProperties.has(member.id);
+          const hasOverride = Object.prototype.hasOwnProperty.call(
             record.properties ?? {},
-            member.propertyId,
+            member.id,
           );
-          const hasConfiguredValue = configured.has(member.propertyId);
-          const hasDeclarationDefault = definition?.defaultValue !== undefined;
-          if (!hasOwnAssignment && !hasConfiguredValue && !hasDeclarationDefault)
+          if (!hasStandaloneValue && !hasOverride)
             diagnostics.push(
               diagnostic(
                 'error',
                 `/${collection}/${escapePathSegment(recordId)}/traits`,
-                `Trait '${trait.id}' requires property '${member.propertyId}' to have an authored value.`,
+                `Trait '${trait.id}' requires property '${member.id}' to have an authored value.`,
               ),
             );
         }
@@ -649,6 +705,19 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   }
 
   for (const [collection, records] of Object.entries(project.editor.recordMetadata ?? {})) {
+    if (collection === 'traits') {
+      for (const id of Object.keys(records)) {
+        if (!project.traits[id])
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `/editor/recordMetadata/traits/${escapePathSegment(id)}`,
+              'Trait editor metadata target does not exist.',
+            ),
+          );
+      }
+      continue;
+    }
     if (!isAuthoringCollectionKey(collection)) {
       diagnostics.push(
         diagnostic(

@@ -76,7 +76,7 @@ There is no compiled Variable reference or separate Variable runtime store.
 
 `PropertyTargetRef` is either the explicit global target or a Room, Character, or Interactable identity target. Globals do not use a fake Game/entity owner ID.
 
-`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. For an owner-qualified read it first resolves an exact owner-local declaration for that owner and key, then falls back to the transitional registry when no exact declaration exists. Global reads resolve an override first and otherwise return the required authored Value/default. Transitional identity reads retain runtime override, direct authored assignment, configured attached Trait value, declaration default, then typed missing precedence. Exact owner-local Room/Character reads resolve runtime override before their concrete authored assignment. Values never propagate between owners that happen to use the same key.
+`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. For an owner-qualified read it first resolves an exact owner-local declaration for that owner and key. Global reads resolve an override first and otherwise return the required authored Value/default. Migrated Room/Character Trait contracts are projected to exact-owner declarations by the compiler; runtime resolution uses the concrete authored value when present, then the compatible Trait Default, then typed missing. Exact owner-local Room/Character reads resolve runtime override before authored data. Values never propagate between owners that happen to use the same key.
 
 ### Null versus unset
 

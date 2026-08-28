@@ -20,7 +20,12 @@ struct PropertyAssignment {
 
 struct TraitProperty {
     PropertyId property_id;
+    PropertyValueType value_type;
+    bool nullable;
+    std::vector<std::string> enum_values;
     std::optional<RuntimeValue> configured_value;
+    std::string label;
+    std::string description;
 };
 struct TraitDeclaration {
     TraitId id;

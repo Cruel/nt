@@ -25,7 +25,7 @@ underlying values remain owned by `SessionState` and the definitions remain owne
 live Scene invocation, current Room visit, named Room, runtime session, or shell. Actor, background
 override, presentation-only prop, environment/loop, and mounted-Layout records carry stable typed
 identities. Presentation plane does not imply authority; gameplay and shell records remain independent.
-Identity-scoped Property reads resolve through the target runtime override, the target's own authored assignment, any compatible configured Trait value attached to that target, the declaration default, and finally a typed missing result. Global Properties resolve their runtime override before their required authored default. Trait requirements and conflicting providers are rejected before runtime publication.
+Identity-scoped Property reads resolve through the target runtime override, the target's more-specific authored value/default, any compatible attached Trait Default, and finally a typed missing result. Trait Property schema is owned by the Trait contract itself and is projected to the exact runtime owner where needed; there is no project-wide identity Property registry. Global Properties resolve their runtime override before their required authored default. Incompatible Trait schemas, conflicting Trait Defaults, and unsatisfied no-Default Trait Properties are rejected before runtime publication.
 
 There is no JSON property bag, fake player object, legacy parent lookup, or mutable
 `ProjectDocument`.

@@ -124,21 +124,52 @@ export const ownerLocalPropertiesSchema = z
 
 export const propertyAssignmentsSchema = z.record(entityIdSchema, authoredRuntimeValueSchema);
 
-export const traitPropertySchema = z.discriminatedUnion('kind', [
-  z
-    .object({
-      kind: z.literal('required'),
-      propertyId: entityIdSchema,
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('configured'),
-      propertyId: entityIdSchema,
-      value: authoredRuntimeValueSchema,
-    })
-    .strict(),
-]);
+export const traitPropertySchema = z
+  .object({
+    id: entityIdSchema,
+    label: z.string().min(1).optional(),
+    description: z.string().optional(),
+    type: z.enum(propertyValueTypeValues),
+    nullable: z.boolean(),
+    defaultValue: authoredRuntimeValueSchema.optional(),
+    enumValues: z.array(z.string().min(1)).optional(),
+  })
+  .strict()
+  .superRefine((property, context) => {
+    const enumValues = property.enumValues ?? [];
+    if (property.type === 'enum') {
+      if (enumValues.length === 0) {
+        context.addIssue({
+          code: 'custom',
+          path: ['enumValues'],
+          message: 'Enum Trait Properties require at least one enum value.',
+        });
+      }
+      if (new Set(enumValues).size !== enumValues.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['enumValues'],
+          message: 'Enum Trait Property values must be unique.',
+        });
+      }
+    } else if (property.enumValues !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['enumValues'],
+        message: 'enumValues is valid only for enum Trait Properties.',
+      });
+    }
+    if (
+      property.defaultValue !== undefined &&
+      !isPropertyValueCompatible(property, property.defaultValue)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['defaultValue'],
+        message: 'Default does not match the Trait Property declaration.',
+      });
+    }
+  });
 
 export const traitDefinitionSchema = z
   .object({
@@ -146,7 +177,7 @@ export const traitDefinitionSchema = z
     label: z.string().min(1),
     description: z.string().optional(),
     ownerKinds: z.array(z.enum(propertyOwnerKindValues)).min(1),
-    properties: z.array(traitPropertySchema).min(1),
+    properties: z.array(traitPropertySchema),
   })
   .strict()
   .superRefine((trait, context) => {
@@ -157,7 +188,7 @@ export const traitDefinitionSchema = z
         message: 'Trait owner kinds must be unique.',
       });
     }
-    const propertyIds = trait.properties.map((property) => property.propertyId);
+    const propertyIds = trait.properties.map((property) => property.id);
     if (new Set(propertyIds).size !== propertyIds.length) {
       context.addIssue({
         code: 'custom',
@@ -185,4 +216,25 @@ export function isPropertyValueCompatible(
   if (definition.type === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (definition.type === 'string') return typeof value === 'string';
   return typeof value === 'string' && (definition.enumValues ?? []).includes(value);
+}
+
+export function arePropertySchemasCompatible(
+  left: Pick<PropertyDefinition, 'type' | 'nullable' | 'enumValues'>,
+  right: Pick<PropertyDefinition, 'type' | 'nullable' | 'enumValues'>,
+): boolean {
+  if (left.type !== right.type || left.nullable !== right.nullable) return false;
+  if (left.type !== 'enum') return true;
+  const leftValues = left.enumValues ?? [];
+  const rightValues = right.enumValues ?? [];
+  return (
+    leftValues.length === rightValues.length &&
+    leftValues.every((value, index) => value === rightValues[index])
+  );
+}
+
+export function authoredRuntimeValuesEqual(
+  left: AuthoredRuntimeValue,
+  right: AuthoredRuntimeValue,
+): boolean {
+  return Object.is(left, right);
 }

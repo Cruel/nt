@@ -1,8 +1,31 @@
-import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Plus, RotateCcw, Trash2, Unlink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import {
+  arePropertySchemasCompatible,
+  authoredRuntimeValuesEqual,
+  type AuthoredRuntimeValue,
+  type OwnerLocalProperty,
+  type PropertyAssignments,
+  type PropertyOwnerKind,
+  type TraitDefinition,
+  type TraitProperty,
+} from '../../../shared/project-schema/authoring-properties';
+import {
+  parseVariableValueText,
+  variableValueToText,
+} from '../../../shared/project-schema/authoring-variables';
 import {
   newTypedPropertyDraft,
   ownerLocalPropertyFromDraft,
@@ -11,11 +34,90 @@ import {
   type TypedPropertyDraft,
 } from './TypedPropertyFields';
 
-function formatValue(property: OwnerLocalProperty) {
-  if (property.value === null) return 'null';
-  return typeof property.value === 'string'
-    ? JSON.stringify(property.value)
-    : String(property.value);
+interface TraitSource {
+  traitId: string;
+  trait: TraitDefinition;
+  property: TraitProperty;
+}
+
+export interface OwnerPropertyTraitState {
+  traits: string[];
+  localProperties: OwnerLocalProperty[];
+  properties: PropertyAssignments;
+}
+
+function formatValue(value: AuthoredRuntimeValue | undefined) {
+  if (value === undefined) return 'Missing';
+  if (value === null) return 'null';
+  return typeof value === 'string' ? JSON.stringify(value) : String(value);
+}
+
+function traitSources(
+  traits: Readonly<Record<string, TraitDefinition>>,
+  attachedTraits: readonly string[],
+) {
+  const byProperty = new Map<string, TraitSource[]>();
+  for (const traitId of attachedTraits) {
+    const trait = traits[traitId];
+    if (!trait) continue;
+    for (const property of trait.properties) {
+      const sources = byProperty.get(property.id) ?? [];
+      sources.push({ traitId, trait, property });
+      byProperty.set(property.id, sources);
+    }
+  }
+  return byProperty;
+}
+
+function resolvedTraitDefault(sources: readonly TraitSource[]) {
+  const defaults = sources.flatMap((source) =>
+    source.property.defaultValue === undefined ? [] : [source.property.defaultValue],
+  );
+  if (defaults.length === 0) return { kind: 'missing' as const };
+  if (defaults.every((value) => authoredRuntimeValuesEqual(value, defaults[0]!)))
+    return { kind: 'value' as const, value: defaults[0]! };
+  return { kind: 'conflict' as const };
+}
+
+function ownerLocalFromTrait(
+  property: TraitProperty,
+  value: AuthoredRuntimeValue,
+): OwnerLocalProperty {
+  return {
+    id: property.id,
+    ...(property.label ? { label: property.label } : {}),
+    ...(property.description ? { description: property.description } : {}),
+    type: property.type,
+    nullable: property.nullable,
+    value,
+    ...(property.enumValues ? { enumValues: [...property.enumValues] } : {}),
+  };
+}
+
+function parseTraitValue(property: TraitProperty, valueText: string) {
+  return parseVariableValueText(property.type, valueText, property.enumValues, property.nullable);
+}
+
+function traitUseBackground(
+  sources: readonly TraitSource[],
+  traitColorFor: ((traitId: string) => string | null) | undefined,
+): string | undefined {
+  const colors = [...sources]
+    .sort((left, right) => left.traitId.localeCompare(right.traitId))
+    .flatMap((source) => {
+      const color = traitColorFor?.(source.traitId) ?? null;
+      return color ? [color] : [];
+    });
+  if (colors.length === 0) return undefined;
+  if (colors.length === 1) return colors[0];
+  const segment = 100 / colors.length;
+  return `linear-gradient(to right, ${colors
+    .flatMap((color, index) => {
+      const start = index * segment;
+      const end = (index + 1) * segment;
+      return [`${color} ${start}%`, `${color} ${end}%`];
+    })
+    .join(', ')})`;
 }
 
 export function OwnerLocalPropertiesEditor({
@@ -23,6 +125,12 @@ export function OwnerLocalPropertiesEditor({
   properties,
   onChange,
   usageCountFor,
+  traits = {},
+  ownerKind,
+  attachedTraits = [],
+  propertyOverrides = {},
+  traitColorFor,
+  onTraitStateChange,
 }: {
   ownerLabel: string;
   properties: readonly OwnerLocalProperty[];
@@ -31,6 +139,12 @@ export function OwnerLocalPropertiesEditor({
     change?: { kind: 'rename'; fromId: string; toId: string },
   ) => void;
   usageCountFor?: (propertyId: string) => number;
+  traits?: Readonly<Record<string, TraitDefinition>>;
+  ownerKind?: PropertyOwnerKind;
+  attachedTraits?: readonly string[];
+  propertyOverrides?: Readonly<PropertyAssignments>;
+  traitColorFor?: (traitId: string) => string | null;
+  onTraitStateChange?: (state: OwnerPropertyTraitState) => void;
 }) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draft, setDraft] = useState<TypedPropertyDraft>(() => newTypedPropertyDraft());
@@ -40,6 +154,27 @@ export function OwnerLocalPropertiesEditor({
     propertyId: string;
     usages: number;
   } | null>(null);
+  const [attachTraitId, setAttachTraitId] = useState('');
+  const [editingTraitProperty, setEditingTraitProperty] = useState<{
+    propertyId: string;
+    valueText: string;
+  } | null>(null);
+
+  const sourcesByProperty = useMemo(
+    () => traitSources(traits, attachedTraits),
+    [attachedTraits, traits],
+  );
+  const availableTraits = useMemo(
+    () =>
+      Object.entries(traits)
+        .filter(
+          ([traitId, trait]) =>
+            !attachedTraits.includes(traitId) &&
+            (!ownerKind || trait.ownerKinds.includes(ownerKind)),
+        )
+        .sort(([, left], [, right]) => left.label.localeCompare(right.label)),
+    [attachedTraits, ownerKind, traits],
+  );
 
   const openNew = () => {
     setEditingIndex(-1);
@@ -57,6 +192,10 @@ export function OwnerLocalPropertiesEditor({
     const parsed = ownerLocalPropertyFromDraft(draft);
     if (!parsed.ok) {
       setMessage(parsed.message);
+      return;
+    }
+    if (sourcesByProperty.has(parsed.property.id)) {
+      setMessage(`Property '${parsed.property.id}' is supplied by an attached Trait.`);
       return;
     }
     const duplicateIndex = properties.findIndex(
@@ -79,19 +218,172 @@ export function OwnerLocalPropertiesEditor({
     setEditingIndex(null);
   };
 
+  const attachTrait = () => {
+    if (!attachTraitId || !onTraitStateChange) return;
+    const trait = traits[attachTraitId];
+    if (!trait) return;
+    for (const contract of trait.properties) {
+      const existingSources = sourcesByProperty.get(contract.id) ?? [];
+      const incompatibleSource = existingSources.find(
+        (source) => !arePropertySchemasCompatible(source.property, contract),
+      );
+      if (incompatibleSource) {
+        setMessage(
+          `Cannot attach '${trait.label}': Property '${contract.id}' is incompatible with Trait '${incompatibleSource.trait.label}'.`,
+        );
+        return;
+      }
+      if (contract.defaultValue !== undefined) {
+        const conflictingDefault = existingSources.find(
+          (source) =>
+            source.property.defaultValue !== undefined &&
+            !authoredRuntimeValuesEqual(source.property.defaultValue, contract.defaultValue!),
+        );
+        if (conflictingDefault) {
+          setMessage(
+            `Cannot attach '${trait.label}': Property '${contract.id}' has a Default that conflicts with Trait '${conflictingDefault.trait.label}'.`,
+          );
+          return;
+        }
+      }
+      const local = properties.find((property) => property.id === contract.id);
+      if (local && !arePropertySchemasCompatible(local, contract)) {
+        setMessage(
+          `Cannot attach '${trait.label}': local Property '${contract.id}' has an incompatible schema.`,
+        );
+        return;
+      }
+    }
+    const nextLocal = [...properties];
+    const nextOverrides = { ...propertyOverrides };
+    for (const contract of trait.properties) {
+      const localIndex = nextLocal.findIndex((property) => property.id === contract.id);
+      if (localIndex < 0) continue;
+      const local = nextLocal[localIndex]!;
+      if (!arePropertySchemasCompatible(local, contract)) continue;
+      nextOverrides[contract.id] = local.value;
+      nextLocal.splice(localIndex, 1);
+    }
+    onTraitStateChange({
+      traits: [...attachedTraits, attachTraitId],
+      localProperties: nextLocal,
+      properties: nextOverrides,
+    });
+    setAttachTraitId('');
+  };
+
+  const detachTrait = (traitId: string) => {
+    if (!onTraitStateChange) return;
+    const departing = traits[traitId];
+    const remainingTraits = attachedTraits.filter((id) => id !== traitId);
+    const remainingSources = traitSources(traits, remainingTraits);
+    const nextLocal = [...properties];
+    const nextOverrides = { ...propertyOverrides };
+    for (const contract of departing?.properties ?? []) {
+      if (remainingSources.has(contract.id)) continue;
+      if (!Object.prototype.hasOwnProperty.call(nextOverrides, contract.id)) continue;
+      if (!nextLocal.some((property) => property.id === contract.id))
+        nextLocal.push(ownerLocalFromTrait(contract, nextOverrides[contract.id]!));
+      delete nextOverrides[contract.id];
+    }
+    onTraitStateChange({
+      traits: remainingTraits,
+      localProperties: nextLocal,
+      properties: nextOverrides,
+    });
+  };
+
+  const saveTraitValue = () => {
+    if (!editingTraitProperty || !onTraitStateChange) return;
+    const sources = sourcesByProperty.get(editingTraitProperty.propertyId);
+    const contract = sources?.[0]?.property;
+    if (!contract) return;
+    const parsed = parseTraitValue(contract, editingTraitProperty.valueText);
+    if (!parsed.ok) {
+      setMessage(parsed.message);
+      return;
+    }
+    onTraitStateChange({
+      traits: [...attachedTraits],
+      localProperties: [...properties],
+      properties: { ...propertyOverrides, [contract.id]: parsed.value },
+    });
+    setEditingTraitProperty(null);
+    setMessage(null);
+  };
+
+  const resetTraitValue = (propertyId: string) => {
+    if (!onTraitStateChange) return;
+    const nextOverrides = { ...propertyOverrides };
+    delete nextOverrides[propertyId];
+    onTraitStateChange({
+      traits: [...attachedTraits],
+      localProperties: [...properties],
+      properties: nextOverrides,
+    });
+  };
+
   return (
-    <section className="space-y-3 rounded-md border p-3" data-workbench-anchor="properties.local">
+    <section className="space-y-4 rounded-md border p-3" data-workbench-anchor="properties.local">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">Properties</h3>
           <p className="text-xs text-muted-foreground">
-            Typed state local to {ownerLabel}. Property IDs are scoped to this exact owner.
+            Typed state local to {ownerLabel}, including contracts supplied by attached Traits.
           </p>
         </div>
         <Button size="sm" onClick={openNew}>
           <Plus className="size-4" /> Add Property
         </Button>
       </div>
+
+      {ownerKind && onTraitStateChange ? (
+        <div className="space-y-2 rounded border bg-muted/20 p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium">Traits</span>
+            {attachedTraits.map((traitId) => (
+              <div
+                key={traitId}
+                className="flex items-center gap-1 rounded border bg-background px-2 py-1"
+              >
+                <span
+                  className="size-2 rounded-full border"
+                  style={{ backgroundColor: traitColorFor?.(traitId) ?? undefined }}
+                />
+                <span className="text-xs">{traits[traitId]?.label ?? traitId}</span>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Detach ${traitId}`}
+                  onClick={() => detachTrait(traitId)}
+                >
+                  <Unlink className="size-3" />
+                </Button>
+              </div>
+            ))}
+            {attachedTraits.length === 0 ? (
+              <span className="text-xs text-muted-foreground">No Traits attached.</span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={attachTraitId} onValueChange={(value) => setAttachTraitId(value ?? '')}>
+              <SelectTrigger className="!h-8 min-w-48" aria-label="Trait to attach">
+                <SelectValue placeholder="Choose Trait" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableTraits.map(([traitId, trait]) => (
+                  <SelectItem key={traitId} value={traitId}>
+                    {trait.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="outline" disabled={!attachTraitId} onClick={attachTrait}>
+              Attach Trait
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded border">
         <table className="w-full text-sm">
@@ -100,60 +392,143 @@ export function OwnerLocalPropertiesEditor({
               <th className="px-3 py-2">Property</th>
               <th className="w-px whitespace-nowrap px-3 py-2">Type</th>
               <th className="px-3 py-2">Value</th>
-              <th className="w-px whitespace-nowrap px-3 py-2 text-right">Uses</th>
+              <th className="w-px whitespace-nowrap px-3 py-2 text-center">Use</th>
               <th className="w-px">
                 <span className="sr-only">Actions</span>
               </th>
             </tr>
           </thead>
           <tbody>
-            {properties.length === 0 ? (
+            {properties.length === 0 && sourcesByProperty.size === 0 ? (
               <tr>
                 <td colSpan={5} className="p-5 text-center text-xs text-muted-foreground">
-                  No local Properties.
+                  No local or Trait Properties.
                 </td>
               </tr>
             ) : null}
-            {properties.map((property, index) => (
-              <tr
-                key={`${property.id}:${index}`}
-                className="cursor-pointer border-t hover:bg-muted/30"
-                onClick={() => openEdit(index)}
-              >
-                <td className="px-3 py-2">
-                  <div className="font-medium">{property.label ?? property.id}</div>
-                  {property.label ? (
-                    <div className="font-mono text-[11px] text-muted-foreground">{property.id}</div>
-                  ) : null}
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
-                  {property.type}
-                  {property.nullable ? '?' : ''}
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">{formatValue(property)}</td>
-                <td className="px-3 py-2 text-right text-xs text-muted-foreground">
-                  {usageCountFor?.(property.id) ?? 0}
-                </td>
-                <td className="px-1 py-1">
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    className="text-destructive"
-                    aria-label={`Delete ${property.id}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setDeleteTarget({
-                        index,
-                        propertyId: property.id,
-                        usages: usageCountFor?.(property.id) ?? 0,
-                      });
-                    }}
+            {[...sourcesByProperty.entries()].map(([propertyId, sources]) => {
+              const contract = sources[0]!.property;
+              const useBackground = traitUseBackground(sources, traitColorFor);
+              const hasOverride = Object.prototype.hasOwnProperty.call(
+                propertyOverrides,
+                propertyId,
+              );
+              const fallback = resolvedTraitDefault(sources);
+              const value = hasOverride
+                ? propertyOverrides[propertyId]
+                : fallback.kind === 'value'
+                  ? fallback.value
+                  : undefined;
+              return (
+                <tr key={`trait:${propertyId}`} className="border-t bg-muted/10">
+                  <td className="px-3 py-2">
+                    <div className="font-medium">{contract.label ?? propertyId}</div>
+                    {contract.label ? (
+                      <div className="font-mono text-[11px] text-muted-foreground">
+                        {propertyId}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
+                    {contract.type}
+                    {contract.nullable ? '?' : ''}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {fallback.kind === 'conflict' && !hasOverride
+                      ? 'Conflicting Defaults'
+                      : formatValue(value)}
+                    {hasOverride ? (
+                      <span className="ml-2 font-sans text-muted-foreground">override</span>
+                    ) : null}
+                  </td>
+                  <td
+                    className="px-3 py-2 text-center text-xs"
+                    style={{ background: useBackground }}
+                    title={`Trait sources: ${sources.map((source) => source.trait.label).join(', ')}`}
+                    aria-label={`Use count ${usageCountFor?.(propertyId) ?? 0}; Trait sources: ${sources
+                      .map((source) => source.trait.label)
+                      .join(', ')}`}
                   >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </td>
-              </tr>
-            ))}
+                    <span className="rounded bg-background/85 px-1.5 py-0.5 text-foreground shadow-sm">
+                      {usageCountFor?.(propertyId) ?? 0}
+                    </span>
+                  </td>
+                  <td className="px-1 py-1">
+                    <div className="flex">
+                      {hasOverride ? (
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Reset ${propertyId}`}
+                          onClick={() => resetTraitValue(propertyId)}
+                        >
+                          <RotateCcw className="size-4" />
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setEditingTraitProperty({
+                            propertyId,
+                            valueText: variableValueToText(value ?? null),
+                          })
+                        }
+                      >
+                        Set Value
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {properties
+              .filter((property) => !sourcesByProperty.has(property.id))
+              .map((property) => {
+                const index = properties.indexOf(property);
+                return (
+                  <tr
+                    key={`${property.id}:${index}`}
+                    className="cursor-pointer border-t hover:bg-muted/30"
+                    onClick={() => openEdit(index)}
+                  >
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{property.label ?? property.id}</div>
+                      {property.label ? (
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {property.id}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
+                      {property.type}
+                      {property.nullable ? '?' : ''}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{formatValue(property.value)}</td>
+                    <td className="px-3 py-2 text-center text-xs text-muted-foreground">
+                      {usageCountFor?.(property.id) ?? 0}
+                    </td>
+                    <td className="px-1 py-1">
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        aria-label={`Delete ${property.id}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDeleteTarget({
+                            index,
+                            propertyId: property.id,
+                            usages: usageCountFor?.(property.id) ?? 0,
+                          });
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </div>
@@ -177,6 +552,120 @@ export function OwnerLocalPropertiesEditor({
             <Button onClick={submit}>
               {editingIndex === -1 ? 'Add Property' : 'Save changes'}
             </Button>
+          </div>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog
+        open={editingTraitProperty !== null}
+        onOpenChange={(open) => !open && setEditingTraitProperty(null)}
+      >
+        <DialogPopup className="w-[min(480px,calc(100vw-2rem))]">
+          <DialogTitle>Set Trait Property Value</DialogTitle>
+          <DialogDescription>
+            The Trait owns this Property schema. This owner may only provide a more-specific Value.
+          </DialogDescription>
+          {editingTraitProperty
+            ? (() => {
+                const contract = sourcesByProperty.get(editingTraitProperty.propertyId)?.[0]
+                  ?.property;
+                if (!contract) return null;
+                const nullSelected = contract.nullable && editingTraitProperty.valueText === 'null';
+                return (
+                  <div className="space-y-3">
+                    <div className="rounded border bg-muted/20 p-2 text-xs">
+                      <span className="font-mono">{contract.id}</span> · {contract.type}
+                      {contract.nullable ? '?' : ''}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Value</Label>
+                      {contract.nullable ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Switch
+                            checked={nullSelected}
+                            onCheckedChange={(checked) =>
+                              setEditingTraitProperty({
+                                ...editingTraitProperty,
+                                valueText: checked
+                                  ? 'null'
+                                  : contract.type === 'boolean'
+                                    ? 'false'
+                                    : contract.type === 'enum'
+                                      ? (contract.enumValues?.[0] ?? '')
+                                      : contract.type === 'string'
+                                        ? ''
+                                        : '0',
+                              })
+                            }
+                          />
+                          Null
+                        </div>
+                      ) : null}
+                      {!nullSelected ? (
+                        contract.type === 'boolean' ? (
+                          <Switch
+                            checked={editingTraitProperty.valueText === 'true'}
+                            onCheckedChange={(checked) =>
+                              setEditingTraitProperty({
+                                ...editingTraitProperty,
+                                valueText: String(checked),
+                              })
+                            }
+                          />
+                        ) : contract.type === 'enum' ? (
+                          <Select
+                            value={editingTraitProperty.valueText}
+                            onValueChange={(value) =>
+                              value &&
+                              setEditingTraitProperty({ ...editingTraitProperty, valueText: value })
+                            }
+                          >
+                            <SelectTrigger className="!h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(contract.enumValues ?? []).map((value) => (
+                                <SelectItem key={value} value={value}>
+                                  {value}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            type={
+                              contract.type === 'integer' || contract.type === 'number'
+                                ? 'number'
+                                : 'text'
+                            }
+                            step={
+                              contract.type === 'integer'
+                                ? 1
+                                : contract.type === 'number'
+                                  ? 'any'
+                                  : undefined
+                            }
+                            value={editingTraitProperty.valueText}
+                            onChange={(event) =>
+                              setEditingTraitProperty({
+                                ...editingTraitProperty,
+                                valueText: event.currentTarget.value,
+                              })
+                            }
+                          />
+                        )
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })()
+            : null}
+          {message ? <div className="text-xs text-destructive">{message}</div> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setEditingTraitProperty(null)}>
+              Cancel
+            </Button>
+            <Button onClick={saveTraitValue}>Save Value</Button>
           </div>
         </DialogPopup>
       </Dialog>

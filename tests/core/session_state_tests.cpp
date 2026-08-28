@@ -200,8 +200,20 @@ CompiledProject project()
         "Dim room",
         "Configures Room mood and light through ordinary Properties.",
         {PropertyOwnerKind::Room},
-        {{id<PropertyId>("mood"), RuntimeValue{std::string{"tense"}}},
-         {id<PropertyId>("light"), RuntimeValue{0.5}}},
+        {{id<PropertyId>("mood"),
+          EnumPropertyType{{"calm", "tense", "bright"}},
+          false,
+          {"calm", "tense", "bright"},
+          RuntimeValue{std::string{"tense"}},
+          "mood",
+          ""},
+         {id<PropertyId>("light"),
+          NumberPropertyType{},
+          false,
+          {},
+          RuntimeValue{0.5},
+          "light",
+          ""}},
     });
 
     std::vector<compiled::RoomDefinition> rooms;

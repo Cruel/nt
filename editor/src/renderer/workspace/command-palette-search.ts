@@ -52,6 +52,7 @@ export interface SelectorItem {
     | 'project-settings'
     | 'comfyui-workflows'
     | 'assets'
+    | 'traits'
     | 'variables'
     | 'tests'
     | 'toggle-preview';
@@ -134,6 +135,7 @@ const actionDefinitions = [
     projectOnly: true,
   },
   { id: 'action:assets', action: 'assets', key: 'assets', projectOnly: true },
+  { id: 'action:traits', action: 'traits', key: 'traits', projectOnly: true },
   { id: 'action:variables', action: 'variables', key: 'variables', projectOnly: true },
   { id: 'action:tests', action: 'tests', key: 'tests', projectOnly: true },
 ] as const;

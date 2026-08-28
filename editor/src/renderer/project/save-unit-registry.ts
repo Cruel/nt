@@ -21,6 +21,7 @@ export const SAVE_UNIT_IDS = {
   assetCollection: 'collection:assets',
   testCollection: 'collection:tests',
   variableCollection: 'collection:variables',
+  traitCollection: 'collection:traits',
   projectSettings: PROJECT_SETTINGS_SAVE_UNIT_ID,
   platformExportProfiles: 'project:platform-export-profiles',
   projectChapters: 'project:chapters',
@@ -228,7 +229,9 @@ export function resolveSaveUnitForResource(
         ? { id: SAVE_UNIT_IDS.testCollection, path: '/tests', collection: 'tests' }
         : editorType === 'variables'
           ? { id: SAVE_UNIT_IDS.variableCollection, path: '/variables', collection: 'variables' }
-          : null;
+          : editorType === 'traits'
+            ? { id: SAVE_UNIT_IDS.traitCollection, path: '/traits', collection: 'traits' }
+            : null;
   if (collectionEditor) {
     return {
       status: 'savable',

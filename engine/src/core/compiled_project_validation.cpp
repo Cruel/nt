@@ -608,6 +608,7 @@ private:
 
         std::unordered_set<TraitId> seen_traits;
         std::unordered_map<PropertyId, RuntimeValue> configured_values;
+        std::unordered_map<PropertyId, const TraitProperty*> contributed_properties;
         std::vector<const TraitDefinition*> attached_traits;
         for (std::size_t index = 0; index < definition.identity.traits.size(); ++index) {
             const auto& trait_id = definition.identity.traits[index];
@@ -631,6 +632,20 @@ private:
             }
             attached_traits.push_back(attached);
             for (const auto& member : attached->properties) {
+                const auto [contributed, contributed_inserted] =
+                    contributed_properties.emplace(member.property_id, &member);
+                if (!contributed_inserted) {
+                    const auto* previous = contributed->second;
+                    const bool compatible =
+                        previous->value_type.index() == member.value_type.index() &&
+                        previous->nullable == member.nullable &&
+                        previous->enum_values == member.enum_values;
+                    if (!compatible)
+                        error("compiled_project.invalid_trait_property",
+                              "Attached Traits contribute incompatible schemas for Property '" +
+                                  member.property_id.text() + "'.",
+                              trait_path);
+                }
                 if (!member.configured_value)
                     continue;
                 const auto [existing, inserted] =
@@ -642,18 +657,18 @@ private:
                           trait_path);
             }
         }
-        for (const auto* attached : attached_traits) {
-            for (const auto& member : attached->properties) {
-                if (member.configured_value)
-                    continue;
-                const auto* declaration = property(member.property_id);
-                const bool has_default = declaration && declaration->default_value().has_value();
-                if (!own_properties.contains(member.property_id) &&
-                    !configured_values.contains(member.property_id) && !has_default)
-                    error("compiled_project.missing_trait_requirement",
-                          "Trait '" + attached->id.text() + "' requires Property '" +
-                              member.property_id.text() + "' to have an authored value.",
-                          path + "/traits");
+        if constexpr (std::is_same_v<Id, RoomId> || std::is_same_v<Id, CharacterId>) {
+            for (const auto* attached : attached_traits) {
+                for (const auto& member : attached->properties) {
+                    if (member.configured_value)
+                        continue;
+                    if (!own_properties.contains(member.property_id) &&
+                        !configured_values.contains(member.property_id))
+                        error("compiled_project.missing_trait_requirement",
+                              "Trait '" + attached->id.text() + "' requires Property '" +
+                                  member.property_id.text() + "' to have an authored value.",
+                              path + "/traits");
+                }
             }
         }
     }
@@ -675,9 +690,6 @@ private:
                     error("compiled_project.invalid_trait_definition",
                           "Trait owner kinds must be unique.", base + "/ownerKinds");
             }
-            if (definition.properties.empty())
-                error("compiled_project.invalid_trait_definition",
-                      "Trait must declare at least one Property.", base + "/properties");
             std::unordered_set<PropertyId> property_ids;
             for (std::size_t member_index = 0; member_index < definition.properties.size();
                  ++member_index) {
@@ -685,28 +697,20 @@ private:
                 const auto member_path = base + "/properties/" + std::to_string(member_index);
                 if (!property_ids.insert(member.property_id).second)
                     error("compiled_project.invalid_trait_definition",
-                          "Trait Properties must be unique.", member_path + "/propertyId");
-                const auto* declaration = property(member.property_id);
-                if (!declaration) {
-                    require(m_properties, member.property_id, "property",
-                            member_path + "/propertyId");
-                    continue;
-                }
-                const bool owners_compatible = std::all_of(
-                    definition.allowed_owners.begin(), definition.allowed_owners.end(),
-                    [&](PropertyOwnerKind owner) {
-                        return std::binary_search(declaration->allowed_owners().begin(),
-                                                  declaration->allowed_owners().end(), owner);
-                    });
-                if (!owners_compatible)
+                          "Trait Properties must be unique.", member_path + "/id");
+                auto contract = make_property_definition(PropertyDefinitionInput{
+                    .id = member.property_id,
+                    .value_type = member.value_type,
+                    .nullable = member.nullable,
+                    .default_value = member.configured_value,
+                    .scope = PropertyScope::Identity,
+                    .allowed_owners = definition.allowed_owners,
+                    .label = member.label,
+                    .description = member.description,
+                });
+                if (!contract)
                     error("compiled_project.invalid_trait_property",
-                          "Trait Property is not valid for every Trait owner kind.",
-                          member_path + "/propertyId");
-                if (member.configured_value &&
-                    !property_value_matches(*declaration, *member.configured_value))
-                    error("compiled_project.invalid_trait_property",
-                          "Configured Trait value does not match its Property declaration.",
-                          member_path + "/value");
+                          "Trait Property has an invalid typed contract or Default.", member_path);
             }
         }
     }

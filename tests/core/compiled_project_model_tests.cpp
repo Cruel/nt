@@ -68,7 +68,13 @@ compiled::CompiledProjectInput project_input()
         "Dimly lit",
         "Provides a dim ambient-light value.",
         {PropertyOwnerKind::Room},
-        {{id<PropertyId>("ambient-light"), RuntimeValue{0.5}}},
+        {{id<PropertyId>("ambient-light"),
+          NumberPropertyType{},
+          false,
+          {},
+          RuntimeValue{0.5},
+          "Ambient light",
+          "Room lighting intensity."}},
     });
     return compiled::CompiledProjectInput{
         .identity = {id<ProjectId>("sample-project"), "Sample", "1.0", "Author", "Description"},

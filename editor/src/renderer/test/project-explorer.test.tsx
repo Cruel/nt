@@ -239,7 +239,7 @@ describe('ProjectExplorer', () => {
       id: 'tracked',
       label: 'Tracked',
       ownerKinds: ['interactable'],
-      properties: [{ kind: 'required', propertyId: 'serial' }],
+      properties: [{ id: 'serial', type: 'string', nullable: false }],
     };
     project.archetypes['prop-template'] = {
       id: 'prop-template',

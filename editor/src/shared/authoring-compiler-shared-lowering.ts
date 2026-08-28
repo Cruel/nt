@@ -1270,7 +1270,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   );
 
   for (const [roomId, record] of sortedEntries(project.rooms)) {
+    const exactPropertyIds = new Set<string>();
     for (const property of record.localProperties ?? []) {
+      exactPropertyIds.add(property.id);
       properties.push({
         id: property.id,
         label: property.label ?? property.id,
@@ -1282,9 +1284,29 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         scope: 'identity',
       });
     }
+    for (const traitId of record.traits ?? []) {
+      const trait = project.traits[traitId];
+      if (!trait || !trait.ownerKinds.includes('room')) continue;
+      for (const property of trait.properties) {
+        if (exactPropertyIds.has(property.id)) continue;
+        exactPropertyIds.add(property.id);
+        properties.push({
+          id: property.id,
+          label: property.label ?? property.id,
+          description: property.description ?? '',
+          type: property.type,
+          nullable: property.nullable,
+          enumValues: [...(property.enumValues ?? [])],
+          owner: { kind: 'room', room: roomRef(roomId) },
+          scope: 'identity',
+        });
+      }
+    }
   }
   for (const [characterId, record] of sortedEntries(project.characters)) {
+    const exactPropertyIds = new Set<string>();
     for (const property of record.localProperties ?? []) {
+      exactPropertyIds.add(property.id);
       properties.push({
         id: property.id,
         label: property.label ?? property.id,
@@ -1295,6 +1317,27 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         owner: { kind: 'character', character: characterRef({ $ref: { id: characterId } })! },
         scope: 'identity',
       });
+    }
+    for (const traitId of record.traits ?? []) {
+      const trait = project.traits[traitId];
+      if (!trait || !trait.ownerKinds.includes('character')) continue;
+      for (const property of trait.properties) {
+        if (exactPropertyIds.has(property.id)) continue;
+        exactPropertyIds.add(property.id);
+        properties.push({
+          id: property.id,
+          label: property.label ?? property.id,
+          description: property.description ?? '',
+          type: property.type,
+          nullable: property.nullable,
+          enumValues: [...(property.enumValues ?? [])],
+          owner: {
+            kind: 'character',
+            character: characterRef({ $ref: { id: characterId } })!,
+          },
+          scope: 'identity',
+        });
+      }
     }
   }
 
@@ -1339,9 +1382,15 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       label: trait.label,
       description: trait.description ?? '',
       ownerKinds: [...trait.ownerKinds].sort(),
-      properties: trait.properties
-        .map((property) => ({ ...property }))
-        .sort((left, right) => left.propertyId.localeCompare(right.propertyId)),
+      properties: trait.properties.map((property) => ({
+        id: property.id,
+        label: property.label ?? property.id,
+        description: property.description ?? '',
+        type: property.type,
+        nullable: property.nullable,
+        enumValues: [...(property.enumValues ?? [])],
+        ...(property.defaultValue === undefined ? {} : { defaultValue: property.defaultValue }),
+      })),
     }),
   );
 

@@ -124,6 +124,7 @@ function isProjectScopedUtilityEditorType(editorType: string): boolean {
     'asset-library',
     'test-suite',
     'variables',
+    'traits',
     'project-settings',
     'project-chapters',
     'project-tags',

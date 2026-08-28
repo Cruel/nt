@@ -59,6 +59,19 @@ nlohmann::json* path_member(nlohmann::json& root, std::initializer_list<std::str
     return current;
 }
 
+std::pair<nlohmann::json*, std::size_t> property_by_id(nlohmann::json& root, std::string_view id)
+{
+    auto* properties = path_member(root, {"properties"});
+    if (properties == nullptr || !properties->is_array())
+        return {nullptr, 0};
+    for (std::size_t index = 0; index < properties->size(); ++index) {
+        auto* property = json_access::element(*properties, index);
+        if (property != nullptr && property->is_object() && property->value("id", "") == id)
+            return {property, index};
+    }
+    return {nullptr, 0};
+}
+
 } // namespace
 
 TEST_CASE("compiled project shared decoder consumes every golden boundary")
@@ -85,8 +98,8 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:1a57ed12102be08009b1ca4295415704");
-    CHECK(project.properties.size() == 11);
+    CHECK(project.save_contract == "sc1:b3be1215908fc51fb32716c57af9380b");
+    CHECK(project.properties.size() == 13);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
     CHECK(project.scripts.size() == 3);
@@ -801,9 +814,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
     SECTION("missing Global Property default")
     {
         auto document = fixture("comprehensive");
-        auto* properties = path_member(document, {"properties"});
-        REQUIRE(properties != nullptr);
-        auto* property = json_access::element(*properties, 6);
+        auto [property, property_index] = property_by_id(document, "count");
         REQUIRE(property != nullptr);
         REQUIRE((*property)["id"] == "count");
         REQUIRE((*property)["scope"] == "global");
@@ -812,7 +823,8 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         REQUIRE_FALSE(result);
         const auto* diagnostic = find_code(result.error(), "compiled_project.missing_field");
         REQUIRE(diagnostic != nullptr);
-        CHECK(diagnostic->json_pointer == "/properties/6/defaultValue");
+        CHECK(diagnostic->json_pointer ==
+              "/properties/" + std::to_string(property_index) + "/defaultValue");
     }
 
     SECTION("same Property key is valid on different exact Room owners")
@@ -883,6 +895,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
             {"enumValues", nlohmann::json::array()},
             {"owner", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", room_id}}}}},
             {"scope", "identity"}};
+        const auto duplicate_index = properties->size() + 1;
         properties->push_back(declaration);
         properties->push_back(declaration);
 
@@ -890,7 +903,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         REQUIRE_FALSE(result);
         const auto* diagnostic = find_code(result.error(), "compiled_project.duplicate_id");
         REQUIRE(diagnostic != nullptr);
-        CHECK(diagnostic->json_pointer == "/properties/12/id");
+        CHECK(diagnostic->json_pointer == "/properties/" + std::to_string(duplicate_index) + "/id");
     }
 
     SECTION("duplicate collection ID")
@@ -936,7 +949,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
         noveltea::core::decode_compiled_project(fixture("comprehensive"), "comprehensive.json");
     REQUIRE(comprehensive);
     const auto& complete = comprehensive.value();
-    CHECK(complete.properties().size() == 11);
+    CHECK(complete.properties().size() == 13);
     CHECK(complete.assets().size() == 9);
     CHECK(complete.layouts().size() == 2);
     CHECK(complete.scripts().size() == 3);
@@ -1414,7 +1427,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("Global Property default enum membership")
     {
         auto document = fixture("trait-properties-localization");
-        auto* property = path_member(document, {"properties", "8"});
+        auto [property, property_index] = property_by_id(document, "mood-variable");
+        (void)property_index;
         REQUIRE(property != nullptr);
         REQUIRE((*property)["id"] == "mood-variable");
         REQUIRE((*property)["scope"] == "global");

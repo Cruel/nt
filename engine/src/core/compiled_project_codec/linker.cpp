@@ -94,6 +94,7 @@ link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOw
     std::vector<TraitId> attachments;
     attachments.reserve(identity.traits.size());
     std::unordered_map<PropertyId, RuntimeValue> configured_values;
+    std::unordered_map<PropertyId, const compiled::TraitProperty*> contributed_properties;
     for (std::size_t index = 0; index < identity.traits.size(); ++index) {
         auto& trait_id = identity.traits[index];
         const auto found = traits.find(trait_id);
@@ -118,6 +119,24 @@ link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOw
             continue;
         }
         for (const auto& member : trait.properties) {
+            const auto [contributed, contributed_inserted] =
+                contributed_properties.emplace(member.property_id, &member);
+            if (!contributed_inserted) {
+                const auto* previous = contributed->second;
+                const bool compatible = previous->value_type.index() == member.value_type.index() &&
+                                        previous->nullable == member.nullable &&
+                                        previous->enum_values == member.enum_values;
+                if (!compatible) {
+                    diagnostics.push_back(Diagnostic{
+                        .code = "compiled_project.invalid_trait_property",
+                        .message =
+                            "Attached Traits contribute incompatible schemas for Property '" +
+                            member.property_id.text() + "'.",
+                        .severity = ErrorSeverity::Error,
+                        .source_path = std::string(source_path),
+                        .json_pointer = path + "/traits/" + std::to_string(index)});
+                }
+            }
             if (!member.configured_value)
                 continue;
             const auto [configured, inserted] =
@@ -137,31 +156,29 @@ link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOw
     if (attachments.size() != identity.traits.size())
         return std::nullopt;
 
-    for (const auto& trait_id : attachments) {
-        const auto found = traits.find(trait_id);
-        if (found == traits.end())
-            return std::nullopt;
-        const auto* trait = found->second;
-        for (const auto& member : trait->properties) {
-            if (member.configured_value)
-                continue;
-            const auto own =
-                std::find_if(assignments.begin(), assignments.end(), [&](const auto& value) {
-                    return value.property_id() == member.property_id;
-                });
-            const auto property = properties.find(member.property_id);
-            const bool has_default =
-                property != properties.end() && property->second->default_value().has_value();
-            if (own == assignments.end() &&
-                configured_values.find(member.property_id) == configured_values.end() &&
-                !has_default) {
-                diagnostics.push_back(Diagnostic{
-                    .code = "compiled_project.missing_trait_requirement",
-                    .message = "Trait '" + trait_id.text() + "' requires Property '" +
-                               member.property_id.text() + "' to have an authored value.",
-                    .severity = ErrorSeverity::Error,
-                    .source_path = std::string(source_path),
-                    .json_pointer = path + "/traits"});
+    if constexpr (std::is_same_v<Id, RoomId> || std::is_same_v<Id, CharacterId>) {
+        for (const auto& trait_id : attachments) {
+            const auto found = traits.find(trait_id);
+            if (found == traits.end())
+                return std::nullopt;
+            const auto* trait = found->second;
+            for (const auto& member : trait->properties) {
+                if (member.configured_value)
+                    continue;
+                const auto own =
+                    std::find_if(assignments.begin(), assignments.end(), [&](const auto& value) {
+                        return value.property_id() == member.property_id;
+                    });
+                if (own == assignments.end() &&
+                    configured_values.find(member.property_id) == configured_values.end()) {
+                    diagnostics.push_back(Diagnostic{
+                        .code = "compiled_project.missing_trait_requirement",
+                        .message = "Trait '" + trait_id.text() + "' requires Property '" +
+                                   member.property_id.text() + "' to have an authored value.",
+                        .severity = ErrorSeverity::Error,
+                        .source_path = std::string(source_path),
+                        .json_pointer = path + "/traits"});
+                }
             }
         }
     }
@@ -220,48 +237,32 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         for (std::size_t member_index = 0; member_index < declaration.properties.size();
              ++member_index) {
             auto& member = declaration.properties[member_index];
-            const auto found = property_index.find(member.property_id);
             const auto member_path =
                 "/traits/" + std::to_string(index) + "/properties/" + std::to_string(member_index);
-            if (found == property_index.end()) {
-                diagnostics.push_back(Diagnostic{.code = "compiled_project.unresolved_reference",
-                                                 .message = "Unresolved property reference '" +
-                                                            member.property_id.text() + "'.",
-                                                 .severity = ErrorSeverity::Error,
-                                                 .source_path = source_path,
-                                                 .json_pointer = member_path + "/propertyId"});
-                continue;
-            }
-            const auto& property = *found->second;
-            const bool owners_compatible =
-                std::all_of(declaration.allowed_owners.begin(), declaration.allowed_owners.end(),
-                            [&](PropertyOwnerKind owner) {
-                                return std::binary_search(property.allowed_owners().begin(),
-                                                          property.allowed_owners().end(), owner);
-                            });
-            if (!owners_compatible) {
+            auto contract = make_property_definition(PropertyDefinitionInput{
+                .id = member.property_id,
+                .value_type = member.value_type,
+                .nullable = member.nullable,
+                .default_value = member.configured_value,
+                .scope = PropertyScope::Identity,
+                .allowed_owners = declaration.allowed_owners,
+                .label = member.label,
+                .description = member.description,
+            });
+            if (!contract) {
                 diagnostics.push_back(
                     Diagnostic{.code = "compiled_project.invalid_trait_property",
                                .message = "Trait Property '" + member.property_id.text() +
-                                          "' is not valid for every Trait owner kind.",
+                                          "' has an invalid typed contract or Default.",
                                .severity = ErrorSeverity::Error,
                                .source_path = source_path,
-                               .json_pointer = member_path + "/propertyId"});
+                               .json_pointer = member_path});
                 continue;
             }
-            if (member.configured_value &&
-                !property_value_matches(property, *member.configured_value)) {
-                diagnostics.push_back(
-                    Diagnostic{.code = "compiled_project.invalid_trait_property",
-                               .message = "Configured Trait value does not match Property '" +
-                                          member.property_id.text() + "'.",
-                               .severity = ErrorSeverity::Error,
-                               .source_path = source_path,
-                               .json_pointer = member_path + "/value"});
-                continue;
-            }
-            members.push_back(compiled::TraitProperty{std::move(member.property_id),
-                                                      std::move(member.configured_value)});
+            members.push_back(compiled::TraitProperty{
+                std::move(member.property_id), std::move(member.value_type), member.nullable,
+                std::move(member.enum_values), std::move(member.configured_value),
+                std::move(member.label), std::move(member.description)});
         }
         if (diagnostics.size() != diagnostic_count)
             continue;

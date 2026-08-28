@@ -257,6 +257,11 @@
         "search": ["variables", "state flags"],
         "subtitle": "⟦Open variables editor⟧",
         "title": "⟦Variables⟧"
+      },
+      "traits": {
+        "search": ["traits", "reusable properties", "property contracts"],
+        "subtitle": "⟦Open Traits editor⟧",
+        "title": "⟦Traits⟧"
       }
     },
     "empty": "⟦No commands or records match.⟧",

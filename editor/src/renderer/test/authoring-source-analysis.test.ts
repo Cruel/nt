@@ -1403,7 +1403,7 @@ describe('typed source registry and graph evidence', () => {
       id: 'standing-room',
       label: 'Standing Room',
       ownerKinds: ['room'],
-      properties: [{ kind: 'configured', propertyId: 'pose', value: 'standing' }],
+      properties: [{ id: 'pose', type: 'string', nullable: false, defaultValue: 'standing' }],
     };
     project.rooms.child = {
       id: 'child',

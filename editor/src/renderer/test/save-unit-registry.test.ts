@@ -43,6 +43,7 @@ const representativeResources: Record<string, WorkbenchResource> = {
   'map-detail': recordResource('maps', 'world'),
   'script-module-detail': recordResource('scripts', 'startup'),
   variables: { kind: 'project', stableId: 'variables' },
+  traits: { kind: 'project', stableId: 'traits', collection: 'traits' },
   components: { kind: 'tool', stableId: 'utility:components' },
   settings: { kind: 'tool', stableId: 'utility:settings' },
   'project-settings': { kind: 'project', stableId: 'project:settings' },

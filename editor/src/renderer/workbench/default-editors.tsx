@@ -36,6 +36,7 @@ import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
 import { TestSuiteEditor } from '@/editors/tests/TestSuiteEditor';
+import { TraitsEditor } from '@/editors/traits/TraitsEditor';
 import { EnginePreviewEditor } from '@/editors/preview/EnginePreviewEditor';
 import { FullGamePreviewEditor } from '@/editors/preview/FullGamePreviewEditor';
 import { ChaptersEditor } from '@/editors/project/ChaptersEditor';
@@ -203,6 +204,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Variables',
     icon: SlidersHorizontal,
     component: VariablesEditor,
+  },
+  {
+    type: 'traits',
+    label: 'Traits',
+    icon: Puzzle,
+    component: TraitsEditor,
   },
   {
     type: 'components',

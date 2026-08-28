@@ -9,7 +9,10 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { useCommandStore } from '@/commands/command-store';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
-import { OwnerLocalPropertiesEditor } from '@/components/properties/OwnerLocalPropertiesEditor';
+import {
+  OwnerLocalPropertiesEditor,
+  type OwnerPropertyTraitState,
+} from '@/components/properties/OwnerLocalPropertiesEditor';
 import {
   ownerLocalPropertyReferencePaths,
   renameOwnerLocalPropertyReferencePatches,
@@ -253,6 +256,34 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
               change.toId,
             )
           : []),
+      ],
+      originSaveUnitId: recordSaveUnitId('characters', activeCharacterId),
+      persistencePolicy: 'manual-save',
+    });
+  }
+
+  function commitPropertyTraitState(state: OwnerPropertyTraitState) {
+    useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: `Update ${activeCharacterId} Trait Properties`,
+      payload: [
+        {
+          op: Object.prototype.hasOwnProperty.call(activeRecord, 'traits') ? 'replace' : 'add',
+          path: `/characters/${activeCharacterId}/traits`,
+          value: state.traits,
+        },
+        {
+          op: Object.prototype.hasOwnProperty.call(activeRecord, 'properties') ? 'replace' : 'add',
+          path: `/characters/${activeCharacterId}/properties`,
+          value: state.properties,
+        },
+        {
+          op: Object.prototype.hasOwnProperty.call(activeRecord, 'localProperties')
+            ? 'replace'
+            : 'add',
+          path: `/characters/${activeCharacterId}/localProperties`,
+          value: state.localProperties,
+        },
       ],
       originSaveUnitId: recordSaveUnitId('characters', activeCharacterId),
       persistencePolicy: 'manual-save',
@@ -925,6 +956,14 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           ownerLabel={`Character '${activeRecord.label}'`}
           properties={activeRecord.localProperties ?? []}
           onChange={commitLocalProperties}
+          traits={activeProject.traits}
+          ownerKind="character"
+          attachedTraits={activeRecord.traits ?? []}
+          propertyOverrides={activeRecord.properties ?? {}}
+          traitColorFor={(traitId) =>
+            activeProject.editor.recordMetadata.traits?.[traitId]?.color ?? null
+          }
+          onTraitStateChange={commitPropertyTraitState}
           usageCountFor={(propertyId) =>
             ownerLocalPropertyReferencePaths(
               activeProject,

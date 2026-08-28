@@ -434,7 +434,7 @@ describe('authoring structural dependency graph and queries', () => {
       id: 'tense-room',
       label: 'Tense Room',
       ownerKinds: ['room'],
-      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+      properties: [{ id: 'mood', type: 'string', nullable: false, defaultValue: 'tense' }],
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
     project.rooms.hall = {
@@ -844,7 +844,7 @@ describe('authoring structural dependency graph and queries', () => {
       id: 'tense-room',
       label: 'Tense Room',
       ownerKinds: ['room'],
-      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+      properties: [{ id: 'mood', type: 'string', nullable: false, defaultValue: 'tense' }],
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
     project.rooms.hall = {
@@ -871,7 +871,7 @@ describe('authoring structural dependency graph and queries', () => {
       id: 'tense-room',
       label: 'Tense Room',
       ownerKinds: ['room'],
-      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+      properties: [{ id: 'mood', type: 'string', nullable: false, defaultValue: 'tense' }],
     };
     project.variables.score = {
       id: 'score',
@@ -886,7 +886,7 @@ describe('authoring structural dependency graph and queries', () => {
 
     const graph = buildAuthoringStructuralDependencyGraph(project);
     const repairs = [...graph.edgesById.values()]
-      .filter((edge) => edge.role === 'trait-property' || edge.role === 'variable-ref')
+      .filter((edge) => edge.role === 'variable-ref')
       .map((edge) => [edge.role, edge.repair]);
     expect(repairs).toEqual([
       [
@@ -894,13 +894,6 @@ describe('authoring structural dependency graph and queries', () => {
         {
           kind: 'blocked',
           reason: 'This reference role has no safe automatic repair encoding.',
-        },
-      ],
-      [
-        'trait-property',
-        {
-          kind: 'blocked',
-          reason: 'Trait Property membership must be repaired explicitly.',
         },
       ],
     ]);
