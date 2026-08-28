@@ -258,6 +258,169 @@ export function canonicalFlowGoldenProject(): AuthoringProject {
   return project;
 }
 
+export function canonicalFastForwardGoldenProject(): AuthoringProject {
+  const project = comprehensiveGoldenProject();
+  renameProject(project, 'golden-canonical-fast-forward', 'Golden Canonical Fast Forward');
+
+  const scene = defaultSceneData('Fast Forward');
+  scene.stage = {
+    kind: 'blank',
+    background: { asset: null, material: null, color: '#0f172a', fit: 'cover' },
+    layout: null,
+  };
+  scene.events = [
+    {
+      ...defaultSceneStep('show-text'),
+      id: 'intro-text',
+      text: { markup: 'plain', source: { kind: 'inline', text: 'Intro' } },
+      wait: 'input',
+      autosaveSafePoint: true,
+    },
+    {
+      ...defaultSceneStep('audio-cue'),
+      id: 'skipped-audio',
+      owner: 'invocation',
+      action: 'play',
+      purpose: 'sound-effect',
+      lifetime: 'one-shot',
+      pausePolicy: 'gameplay',
+      asset: sceneAssetRef('audio-voice'),
+      fadeMs: 0,
+      gain: 1,
+      pan: 0,
+      panSource: null,
+      waitForCompletion: true,
+      causality: 'causal',
+      synchronized: false,
+      skipBehavior: 'stop',
+      instanceId: null,
+      replacementGroup: null,
+    },
+    {
+      ...defaultSceneStep('run-lua'),
+      id: 'semantic-effect',
+      source:
+        "local value, present, err = Game.prop('count'); assert(present, err); local ok, set_err = Game.set_prop('count', value + 1); assert(ok, set_err)",
+      mayYield: false,
+      autosaveSafePoint: false,
+    },
+    {
+      ...defaultSceneStep('wait'),
+      id: 'skippable-delay',
+      waitKind: 'duration',
+      durationMs: 1500,
+      skippable: true,
+    },
+    {
+      id: 'real-barrier',
+      label: 'Real Barrier',
+      enabled: true,
+      type: 'wait',
+      timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+      completionDependencies: [],
+      waitKind: 'input',
+      skippable: false,
+    },
+    {
+      ...defaultSceneStep('set-variable'),
+      id: 'after-barrier',
+      variable: sceneVariableRef('count'),
+      value: 9,
+    },
+  ];
+  scene.terminal = { kind: 'complete-game' };
+  project.scenes['fast-forward'] = {
+    id: 'fast-forward',
+    label: 'Fast Forward',
+    data: scene,
+  };
+  project.entrypoint = { kind: 'scene', id: 'fast-forward' };
+  return project;
+}
+
+export function canonicalLayoutSignalGoldenProject(): AuthoringProject {
+  const project = comprehensiveGoldenProject();
+  renameProject(project, 'golden-canonical-layout-signal', 'Golden Canonical Layout Signal');
+
+  const statefulLayout = defaultLayoutData('Stateful Overlay', 'document');
+  statefulLayout.target = 'room-overlay';
+  statefulLayout.contract = {
+    inputs: {},
+    signals: {
+      confirm: {
+        fields: { accepted: { type: 'boolean', nullable: false, required: true } },
+      },
+    },
+    state: {
+      type: 'object',
+      nullable: false,
+      fields: {
+        page: {
+          required: true,
+          shape: { type: 'integer', nullable: false, defaultValue: 0 },
+        },
+      },
+      defaultValue: { page: 0 },
+    },
+  };
+  project.layouts['stateful-overlay'] = {
+    id: 'stateful-overlay',
+    label: 'Stateful Overlay',
+    data: statefulLayout,
+  };
+
+  const scene = defaultSceneData('Layout Signal');
+  scene.stage = {
+    kind: 'blank',
+    background: { asset: null, material: null, color: '#111827', fit: 'cover' },
+    layout: null,
+  };
+  scene.events = [
+    {
+      ...defaultSceneStep('set-layout'),
+      id: 'mount-layout',
+      owner: 'invocation',
+      layout: sceneLayoutRef('stateful-overlay'),
+      slot: 'custom',
+      action: 'show',
+    },
+    {
+      id: 'wait-confirm',
+      label: 'Wait Confirm',
+      enabled: true,
+      type: 'wait',
+      timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+      completionDependencies: [],
+      waitKind: 'layout-signal',
+      owner: 'invocation',
+      slot: 'custom',
+      signalId: 'confirm',
+      skippable: false,
+    },
+    {
+      ...defaultSceneStep('set-variable'),
+      id: 'signal-effect',
+      variable: sceneVariableRef('count'),
+      value: 7,
+    },
+    {
+      ...defaultSceneStep('show-text'),
+      id: 'signal-complete',
+      text: { markup: 'plain', source: { kind: 'inline', text: 'Signal accepted.' } },
+      wait: 'input',
+      autosaveSafePoint: true,
+    },
+  ];
+  scene.terminal = { kind: 'complete-game' };
+  project.scenes['layout-signal'] = {
+    id: 'layout-signal',
+    label: 'Layout Signal',
+    data: scene,
+  };
+  project.entrypoint = { kind: 'scene', id: 'layout-signal' };
+  return project;
+}
+
 export function comprehensiveGoldenProject(): AuthoringProject {
   const project = createAuthoringProject({
     id: 'golden-comprehensive',

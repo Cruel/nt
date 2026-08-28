@@ -153,6 +153,10 @@ a Scene may wait on a pure condition, the exact finite presentation operation st
 Event ID, the exact one-shot audio operation started by an earlier Audio Cue Event ID, or an exact
 Layout Signal. Layout Signal waits capture the mounted Layout owner, logical slot, concrete mount
 occurrence, and signal ID; a signal from a replacement mount or different owner cannot wake the wait.
+Reaching a Layout Signal wait connects that declared signal to the exact current Mount before the
+settled publication is exposed, so a Scene-authored `SetLayout` does not need a separate signal-
+connection field. The connection remains part of reconstructible Mount intent for checkpoints; restore
+allocates a fresh Mount occurrence and reconstructs the wait against that occurrence.
 Operation/audio waits correlate through the earlier Scene Event identity rather than exposing backend
 handles to authoring. Pure-condition waits re-evaluate through the normal primitive evaluator when
 runtime state changes. These waits keep their semantic target on the Scene cursor while the ordinary
