@@ -102,6 +102,7 @@ const workspaceManifestSchema = z
     bootstrapModule: authoringProjectSchema.shape.bootstrapModule,
     entrypoint: authoringProjectSchema.shape.entrypoint,
     inventories: authoringProjectSchema.shape.inventories,
+    interactableInstances: authoringProjectSchema.shape.interactableInstances,
   })
   .strict();
 
@@ -583,6 +584,7 @@ export function projectWorkspaceFiles(
       bootstrapModule: project.bootstrapModule,
       entrypoint: project.entrypoint,
       inventories: project.inventories,
+      interactableInstances: project.interactableInstances,
     },
     workspaceManifestSchema,
   );
@@ -764,8 +766,9 @@ export class ProjectWorkspaceService {
             'bootstrapModule',
             'entrypoint',
             'inventories',
+            'interactableInstances',
           ];
-          if (Object.keys(manifest).length !== 8 || !required.every((key) => key in manifest))
+          if (Object.keys(manifest).length !== 9 || !required.every((key) => key in manifest))
             return fail('project.json has an unsupported workspace-v1 shape.');
           let properties: unknown;
           let traits: unknown;

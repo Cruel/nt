@@ -43,7 +43,7 @@ const compiled::CharacterDefinition* find_character(const SessionState& state,
 }
 
 const compiled::InteractableDefinition* find_interactable(const SessionState& state,
-                                                          const InteractableId& id) noexcept
+                                                          const InteractableInstanceId& id) noexcept
 {
     const auto found =
         std::find_if(state.runtime_interactables().begin(), state.runtime_interactables().end(),
@@ -240,7 +240,7 @@ bool PropertyResolver::owner_exists(const PropertyOwnerRef& owner) const noexcep
                 return find_room(m_state, id) != nullptr;
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return find_character(m_state, id) != nullptr;
-            else if constexpr (std::is_same_v<T, InteractableId>)
+            else if constexpr (std::is_same_v<T, InteractableInstanceId>)
                 return find_interactable(m_state, id) != nullptr;
             else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
                                std::is_same_v<T, InteractableFeatureRef>)
@@ -322,7 +322,7 @@ Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOw
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
                                           find_character(m_state, id));
-            else if constexpr (std::is_same_v<T, InteractableId>)
+            else if constexpr (std::is_same_v<T, InteractableInstanceId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
                                           find_interactable(m_state, id));
             else if constexpr (std::is_same_v<T, RoomFeatureRef> ||

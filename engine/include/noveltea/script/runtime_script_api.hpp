@@ -197,7 +197,7 @@ public:
     create_character(runtime::RuntimeInstanceConfigurationRequest source,
                      core::CharacterWorldLocation location = core::compiled::UnplacedLocation{},
                      bool enabled = true, bool visible = true);
-    [[nodiscard]] core::Result<core::InteractableId, core::Diagnostics> create_interactable(
+    [[nodiscard]] core::Result<core::InteractableInstanceId, core::Diagnostics> create_interactable(
         runtime::RuntimeInstanceConfigurationRequest source,
         core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
         bool enabled = true, bool visible = true);
@@ -236,11 +236,11 @@ public:
     [[nodiscard]] core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>
     instance_provenance(const core::GameplayInstanceRef& instance) const;
     [[nodiscard]] core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-    interactable_location(const core::InteractableId& interactable) const;
+    interactable_location(const core::InteractableInstanceId& interactable) const;
     [[nodiscard]] core::Result<core::CharacterWorldLocation, core::Diagnostics>
     character_location(const core::CharacterId& character) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    request_interactable_location(core::InteractableId interactable,
+    request_interactable_location(core::InteractableInstanceId interactable,
                                   core::compiled::InteractableLocation target);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_character_location(core::CharacterId character, core::CharacterWorldLocation target);
@@ -382,13 +382,13 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_composed_character_visible(core::CharacterId character, bool visible);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    set_composed_interactable_visible(core::InteractableId interactable, bool visible);
+    set_composed_interactable_visible(core::InteractableInstanceId interactable, bool visible);
 
     [[nodiscard]] core::Result<void, core::Diagnostics> continue_game();
     [[nodiscard]] core::Result<void, core::Diagnostics> choose(std::size_t zero_based_index);
     [[nodiscard]] core::Result<void, core::Diagnostics> navigate(std::size_t zero_based_index);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    select_interactable(core::InteractableId interactable);
+    select_interactable(core::InteractableInstanceId interactable);
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_selection();
     [[nodiscard]] core::Result<void, core::Diagnostics>
     run_interaction(core::VerbId verb, std::vector<core::InteractionSubjectBinding> bindings);

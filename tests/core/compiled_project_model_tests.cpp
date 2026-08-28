@@ -15,6 +15,12 @@ template<class Id> Id id(std::string value)
     return std::move(result).value();
 }
 
+template<class T>
+concept ExposesItemDefinitions = requires(const T& value) { value.item_definitions(); };
+
+template<class T>
+concept ExposesItemStacks = requires(const T& value) { value.item_stacks(); };
+
 TextContent text(std::string value)
 {
     return TextContent{InlineText{std::move(value)}, TextMarkup::Plain};
@@ -95,6 +101,9 @@ compiled::CompiledProjectInput project_input()
 
 TEST_CASE("compiled wire identity families remain strongly separated")
 {
+    STATIC_REQUIRE(!std::is_same_v<InteractableDefinitionId, InteractableInstanceId>);
+    STATIC_REQUIRE(!std::is_convertible_v<InteractableDefinitionId, InteractableInstanceId>);
+    STATIC_REQUIRE(!std::is_convertible_v<InteractableInstanceId, InteractableDefinitionId>);
     STATIC_REQUIRE(!std::is_convertible_v<MaterialId, AssetId>);
     STATIC_REQUIRE(!std::is_convertible_v<CharacterPoseId, CharacterExpressionId>);
     STATIC_REQUIRE(!std::is_convertible_v<RoomOverlayId, RoomPlacementId>);
@@ -209,6 +218,8 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
 TEST_CASE("compiled project publishes immutable collections and checked indexes")
 {
     STATIC_REQUIRE(!std::is_default_constructible_v<CompiledProject>);
+    STATIC_REQUIRE(!ExposesItemDefinitions<CompiledProject>);
+    STATIC_REQUIRE(!ExposesItemStacks<CompiledProject>);
     STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().rooms()),
                                   const std::vector<compiled::RoomDefinition>&>);
     STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_property(
@@ -232,9 +243,14 @@ TEST_CASE("compiled project publishes immutable collections and checked indexes"
     STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_room(
                                       std::declval<const RoomId&>())),
                                   const compiled::RoomDefinition*>);
-    STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_interactable(
-                                      std::declval<const InteractableId&>())),
-                                  const compiled::InteractableDefinition*>);
+    STATIC_REQUIRE(
+        std::is_same_v<decltype(std::declval<const CompiledProject&>().find_interactable_definition(
+                           std::declval<const InteractableDefinitionId&>())),
+                       const compiled::InteractableDefinition*>);
+    STATIC_REQUIRE(
+        std::is_same_v<decltype(std::declval<const CompiledProject&>().find_interactable_instance(
+                           std::declval<const InteractableInstanceId&>())),
+                       const compiled::InteractableInstanceDeclaration*>);
     STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_verb(
                                       std::declval<const VerbId&>())),
                                   const compiled::VerbDefinition*>);

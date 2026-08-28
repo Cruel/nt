@@ -1137,8 +1137,8 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
             } else if (name && *name == "interactable") {
                 d.object(*source, subject_path, {"kind", "id"});
                 const auto* id = d.member(*source, "id", subject_path);
-                auto subject_id =
-                    id ? d.id<InteractableId>(*id, child(subject_path, "id")) : std::nullopt;
+                auto subject_id = id ? d.id<InteractableInstanceId>(*id, child(subject_path, "id"))
+                                     : std::nullopt;
                 if (subject_id)
                     decoded_subject =
                         compiled::InteractableInteractionSubject{std::move(*subject_id)};
@@ -1161,9 +1161,9 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                         decoded_subject = compiled::FeatureInteractionSubject{
                             RoomFeatureRef{std::move(*parsed_owner), std::move(*parsed_feature)}};
                 } else if (owner_name && *owner_name == "interactable") {
-                    auto parsed_owner =
-                        owner_id ? d.id<InteractableId>(*owner_id, child(subject_path, "ownerId"))
-                                 : std::nullopt;
+                    auto parsed_owner = owner_id ? d.id<InteractableInstanceId>(
+                                                       *owner_id, child(subject_path, "ownerId"))
+                                                 : std::nullopt;
                     if (parsed_owner && parsed_feature)
                         decoded_subject =
                             compiled::FeatureInteractionSubject{InteractableFeatureRef{

@@ -182,8 +182,8 @@ const compiled::CharacterDefinition* runtime_character(const SessionState& state
     return found == state.runtime_characters().end() ? nullptr : &found->effective_configuration();
 }
 
-const compiled::InteractableDefinition* runtime_interactable(const SessionState& state,
-                                                             const InteractableId& id) noexcept
+const compiled::InteractableDefinition*
+runtime_interactable(const SessionState& state, const InteractableInstanceId& id) noexcept
 {
     const auto found =
         std::find_if(state.runtime_interactables().begin(), state.runtime_interactables().end(),
@@ -383,11 +383,11 @@ bool valid_interactable_location(const CompiledProject& project, const SessionSt
     return true;
 }
 
-std::optional<InteractableId>
+std::optional<InteractableInstanceId>
 inventory_interactable_owner(const compiled::InventoryRef& inventory) noexcept
 {
     return std::visit(
-        [](const auto& owner) -> std::optional<InteractableId> {
+        [](const auto& owner) -> std::optional<InteractableInstanceId> {
             using T = std::decay_t<decltype(owner)>;
             if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>)
                 return owner.interactable;
@@ -836,23 +836,25 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
     }
 
     std::vector<RuntimeInteractableConfiguration> interactable_configurations;
-    interactable_configurations.reserve(project.interactables().size());
+    interactable_configurations.reserve(project.interactable_instances().size());
     std::vector<InteractableState> interactables;
-    interactables.reserve(project.interactables().size());
-    for (const auto& definition : project.interactables()) {
-        if (!valid_interactable_location(project, definition.initial_state.location))
+    interactables.reserve(project.interactable_instances().size());
+    for (const auto& declaration : project.interactable_instances()) {
+        const auto* definition = project.find_interactable_definition(declaration.definition);
+        if (definition == nullptr || !valid_interactable_location(project, declaration.location))
             return Result<SessionState, Diagnostics>::failure(
                 feature_error("runtime.invalid_interactable_location",
-                              "Interactable initial Location is unresolved"));
+                              "Interactable Instance declaration is unresolved"));
+        auto effective_definition =
+            realize_declared_interactable_configuration(*definition, declaration);
         interactable_configurations.push_back(RuntimeInteractableConfiguration{
-            definition.identity.id, true,
-            CompiledInteractableConfigurationSource{definition.identity.id}, std::nullopt,
+            declaration.id, true, CompiledInteractableConfigurationSource{declaration.definition},
+            std::nullopt,
             RuntimeInstanceProvenance{RuntimeInstanceProvenanceKind::Declared, std::nullopt,
                                       std::nullopt},
-            definition, std::nullopt});
-        interactables.push_back(
-            InteractableState{definition.identity.id, definition.initial_state.location,
-                              definition.initial_state.enabled, definition.initial_state.visible});
+            std::move(effective_definition), std::nullopt});
+        interactables.push_back(InteractableState{declaration.id, declaration.location,
+                                                  declaration.enabled, declaration.visible});
     }
     std::vector<RuntimeCharacterConfiguration> character_configurations;
     character_configurations.reserve(project.characters().size());
@@ -875,19 +877,9 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
             definition.identity.id, definition.initial_world_state.location,
             definition.initial_world_state.enabled, definition.initial_world_state.visible});
     }
+    // Item Definitions/Stacks are no longer canonical CompiledProject content. The legacy runtime
+    // subsystem remains unreachable until its dedicated contraction ticket removes it.
     std::vector<ItemStackState> item_stacks;
-    item_stacks.reserve(project.item_stacks().size());
-    for (const auto& declaration : project.item_stacks()) {
-        const auto* definition = project.find_item_definition(declaration.definition);
-        if (definition == nullptr || !valid_interactable_location(project, declaration.location))
-            return Result<SessionState, Diagnostics>::failure(feature_error(
-                "runtime.invalid_item_stack_declaration", "Item Stack declaration is unresolved"));
-        auto traits = definition->identity.traits;
-        std::ranges::sort(traits, {}, [](const auto& id) { return id.text(); });
-        item_stacks.push_back(ItemStackState{declaration.id, declaration.definition,
-                                             declaration.quantity, declaration.location,
-                                             std::move(traits), true});
-    }
     return Result<SessionState, Diagnostics>::success(
         SessionState(FlowMode{}, std::move(*initial_stack), std::move(rooms),
                      std::move(character_configurations), std::move(interactable_configurations),
@@ -1868,7 +1860,7 @@ SessionState::resolve_audio_pan(const CompiledProject& project, const Presentati
     return Result<double, Diagnostics>::success(std::clamp(fixed_pan + *source_pan, -1.0, 1.0));
 }
 
-const InteractableState* SessionState::interactable(const InteractableId& id) const noexcept
+const InteractableState* SessionState::interactable(const InteractableInstanceId& id) const noexcept
 {
     const auto found =
         std::find_if(m_interactables.begin(), m_interactables.end(),
@@ -1897,12 +1889,12 @@ std::optional<RoomId> SessionState::effective_room(const CompiledProject& projec
 }
 
 std::optional<RoomId> SessionState::effective_room(const CompiledProject& project,
-                                                   const InteractableId& id) const noexcept
+                                                   const InteractableInstanceId& id) const noexcept
 {
     if (runtime_interactable(*this, id) == nullptr)
         return std::nullopt;
-    std::vector<InteractableId> visited;
-    InteractableId current = id;
+    std::vector<InteractableInstanceId> visited;
+    InteractableInstanceId current = id;
     while (std::find(visited.begin(), visited.end(), current) == visited.end()) {
         visited.push_back(current);
         const auto* state = interactable(current);
@@ -1914,7 +1906,7 @@ std::optional<RoomId> SessionState::effective_room(const CompiledProject& projec
         if (inventory == nullptr)
             return std::nullopt;
         std::optional<RoomId> resolved_room;
-        std::optional<InteractableId> next_interactable;
+        std::optional<InteractableInstanceId> next_interactable;
         std::visit(
             [&](const auto& owner) {
                 using T = std::decay_t<decltype(owner)>;
@@ -1937,10 +1929,10 @@ std::optional<RoomId> SessionState::effective_room(const CompiledProject& projec
     return std::nullopt;
 }
 
-std::vector<InteractableId>
+std::vector<InteractableInstanceId>
 SessionState::inventory_members(const compiled::InventoryRef& inventory) const
 {
-    std::vector<InteractableId> members;
+    std::vector<InteractableInstanceId> members;
     for (const auto& state : m_interactables) {
         const auto* location = std::get_if<compiled::InventoryLocation>(&state.location);
         if (location && location->inventory == inventory)
@@ -1996,7 +1988,7 @@ Result<void, Diagnostics> SessionState::set_character_visible(const CompiledProj
 }
 
 Result<void, Diagnostics> SessionState::move_interactable(const CompiledProject& project,
-                                                          const InteractableId& id,
+                                                          const InteractableInstanceId& id,
                                                           compiled::InteractableLocation location)
 {
     auto found =
@@ -2009,7 +2001,7 @@ Result<void, Diagnostics> SessionState::move_interactable(const CompiledProject&
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_interactable_location", "Interactable Location is unresolved"));
     if (const auto* inventory = std::get_if<compiled::InventoryLocation>(&location)) {
-        std::vector<InteractableId> visited{id};
+        std::vector<InteractableInstanceId> visited{id};
         auto owner = inventory_interactable_owner(inventory->inventory);
         while (owner) {
             if (std::find(visited.begin(), visited.end(), *owner) != visited.end())
@@ -2033,7 +2025,7 @@ Result<void, Diagnostics> SessionState::move_interactable(const CompiledProject&
 }
 
 Result<void, Diagnostics> SessionState::set_interactable_enabled(const CompiledProject& project,
-                                                                 const InteractableId& id,
+                                                                 const InteractableInstanceId& id,
                                                                  bool enabled)
 {
     (void)project;
@@ -2048,7 +2040,7 @@ Result<void, Diagnostics> SessionState::set_interactable_enabled(const CompiledP
 }
 
 Result<void, Diagnostics> SessionState::set_interactable_visible(const CompiledProject& project,
-                                                                 const InteractableId& id,
+                                                                 const InteractableInstanceId& id,
                                                                  bool visible)
 {
     (void)project;

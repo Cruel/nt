@@ -11,10 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
-import {
-  InteractableLocationEditor,
-  InventoryDeclarationsEditor,
-} from '@/components/inventories/InventoryControls';
+import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
@@ -117,6 +114,15 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   );
   const selectedMaterialItem = materialItems.find(
     (item) => item.entityId === data.presentation.material?.$ref.id,
+  );
+  const declaredInstances = useMemo(
+    () =>
+      project
+        ? Object.entries(project.interactableInstances)
+            .filter(([, instance]) => instance.definition.$ref.id === interactableId)
+            .sort(([left], [right]) => left.localeCompare(right))
+        : [],
+    [interactableId, project],
   );
   const [spriteSelectorOpen, setSpriteSelectorOpen] = useState(false);
   const [materialSelectorOpen, setMaterialSelectorOpen] = useState(false);
@@ -327,50 +333,48 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
             ) : null}
           </div>
         </div>
-        <div className="md:col-span-2">
-          <InteractableLocationEditor
-            project={project}
-            location={data.initialState.location}
-            onChange={(location) =>
-              commit(
-                { ...data, initialState: { ...data.initialState, location } },
-                'Update interactable initial location',
-              )
-            }
-          />
+      </div>
+      <div
+        className="mt-4 max-w-2xl rounded border p-3"
+        data-workbench-anchor="interactable.instances"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>Declared Instances</Label>
+            <p className="text-xs text-muted-foreground">
+              Exact live identities using this immutable definition.
+            </p>
+          </div>
+          <Badge variant="secondary">{declaredInstances.length}</Badge>
         </div>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={data.initialState.enabled}
-            onChange={(event) =>
-              commit(
-                {
-                  ...data,
-                  initialState: { ...data.initialState, enabled: event.currentTarget.checked },
-                },
-                'Update interactable enabled state',
-              )
-            }
-          />
-          Enabled initially
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={data.initialState.visible}
-            onChange={(event) =>
-              commit(
-                {
-                  ...data,
-                  initialState: { ...data.initialState, visible: event.currentTarget.checked },
-                },
-                'Update interactable visibility',
-              )
-            }
-          />
-          Visible initially
-        </label>
+        {declaredInstances.length ? (
+          <div className="mt-3 divide-y rounded border">
+            {declaredInstances.map(([instanceId, instance]) => (
+              <div
+                key={instanceId}
+                className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{instance.editorLabel ?? instanceId}</div>
+                  {instance.editorLabel ? (
+                    <div className="truncate text-xs text-muted-foreground">{instanceId}</div>
+                  ) : null}
+                </div>
+                <div className="shrink-0 text-xs text-muted-foreground">
+                  {instance.location.kind === 'room'
+                    ? `Room: ${instance.location.room.$ref.id}`
+                    : instance.location.kind === 'inventory'
+                      ? `Inventory: ${instance.location.inventory.inventoryId}`
+                      : 'Unplaced'}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">
+            No declared instances. Add this Interactable from a Room editor.
+          </p>
+        )}
       </div>
       <div className="mt-4 max-w-5xl space-y-4">
         <InventoryDeclarationsEditor

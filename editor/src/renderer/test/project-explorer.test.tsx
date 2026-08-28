@@ -214,8 +214,9 @@ describe('ProjectExplorer', () => {
     expect(document.interactables['silver-key']).toMatchObject({
       id: 'silver-key',
       label: 'Silver Key',
-      data: { kind: 'interactable', initialState: { enabled: true, visible: true } },
+      data: { kind: 'interactable' },
     });
+    expect(document.interactableInstances['silver-key']).toBeUndefined();
     expect(
       useWorkbenchStore.getState().tabsById['tab:interactable-detail:interactables:silver-key'],
     ).toMatchObject({

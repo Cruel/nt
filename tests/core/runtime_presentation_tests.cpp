@@ -517,7 +517,7 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(scene_actor->order == 1);
 
     REQUIRE(snapshot.interactables.size() == 1);
-    CHECK(snapshot.interactables.front().interactable == id<InteractableId>("key"));
+    CHECK(snapshot.interactables.front().interactable == id<InteractableInstanceId>("key"));
     CHECK(snapshot.interactables.front().placement.placement_id ==
           id<RoomPlacementId>("key-placement"));
     CHECK(snapshot.interactables.front().sprite == id<AssetId>("image-main"));
@@ -641,9 +641,9 @@ TEST_CASE(
     CHECK(alpha->target_available);
     CHECK(inspect->target == compiled::ResolvedHotspotTarget{compiled::FeatureInteractionSubject{
                                  RoomFeatureRef{id<RoomId>("start"), id<FeatureId>("door")}}});
-    CHECK(alpha->target ==
-          compiled::ResolvedHotspotTarget{compiled::FeatureInteractionSubject{
-              InteractableFeatureRef{id<InteractableId>("key"), id<FeatureId>("surface")}}});
+    CHECK(alpha->target == compiled::ResolvedHotspotTarget{
+                               compiled::FeatureInteractionSubject{InteractableFeatureRef{
+                                   id<InteractableInstanceId>("key"), id<FeatureId>("surface")}}});
 
     auto runtime = project_snapshot(project, state, &resolution.value().presentation);
     REQUIRE(runtime);

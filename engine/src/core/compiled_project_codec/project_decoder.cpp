@@ -39,9 +39,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     Decoder decoder(std::move(source_path));
     if (!decoder.object(document, "",
                         {"archetypes", "bootstrapModule", "definitions", "entrypoint",
-                         "inventories", "localization", "project", "properties", "resources",
-                         "itemStacks", "saveContract", "schema", "schemaVersion", "settings",
-                         "traits", "undefinedInteractionProgram"}))
+                         "interactableInstances", "inventories", "localization", "project",
+                         "properties", "resources", "saveContract", "schema", "schemaVersion",
+                         "settings", "traits", "undefinedInteractionProgram"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -53,7 +53,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* save_contract_value = decoder.member(document, "saveContract", "");
     const auto* localization_value = decoder.member(document, "localization", "");
     const auto* inventories_value = decoder.member(document, "inventories", "");
-    const auto* item_stacks_value = decoder.member(document, "itemStacks", "");
+    const auto* interactable_instances_value =
+        decoder.member(document, "interactableInstances", "");
     const auto* properties_value = decoder.member(document, "properties", "");
     const auto* traits_value = decoder.member(document, "traits", "");
     const auto* archetypes_value = decoder.member(document, "archetypes", "");
@@ -148,46 +149,105 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                     return decode_property(decoder, item, pointer);
                                 })
                           : std::nullopt;
-    auto item_stacks =
-        item_stacks_value
-            ? decoder.array<ItemStackDeclaration>(
-                  *item_stacks_value, "/itemStacks",
-                  [&](const nlohmann::json& item,
-                      const std::string& pointer) -> std::optional<ItemStackDeclaration> {
+    auto interactable_instances =
+        interactable_instances_value
+            ? decoder.array<InteractableInstanceDeclaration>(
+                  *interactable_instances_value, "/interactableInstances",
+                  [&](const nlohmann::json& item, const std::string& pointer)
+                      -> std::optional<InteractableInstanceDeclaration> {
                       if (!decoder.object(item, pointer,
-                                          {"definition", "id", "location", "quantity"}))
+                                          {"definition", "enabled", "id", "location",
+                                           "propertyOverrides", "traitAdds", "traitRemoves",
+                                           "visible"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", pointer);
                       const auto* definition_value = decoder.member(item, "definition", pointer);
-                      const auto* quantity_value = decoder.member(item, "quantity", pointer);
                       const auto* location_value = decoder.member(item, "location", pointer);
-                      auto id = id_value ? decoder.id<ItemStackId>(*id_value,
-                                                                   pointer_child(pointer, "id"))
+                      const auto* enabled_value = decoder.member(item, "enabled", pointer);
+                      const auto* visible_value = decoder.member(item, "visible", pointer);
+                      const auto* adds_value = decoder.member(item, "traitAdds", pointer);
+                      const auto* removes_value = decoder.member(item, "traitRemoves", pointer);
+                      const auto* overrides_value =
+                          decoder.member(item, "propertyOverrides", pointer);
+                      auto id = id_value ? decoder.id<InteractableInstanceId>(
+                                               *id_value, pointer_child(pointer, "id"))
                                          : std::nullopt;
-                      auto definition = definition_value ? decode_reference<ItemDefinitionId>(
-                                                               decoder, *definition_value,
-                                                               pointer_child(pointer, "definition"),
-                                                               "item-definition")
-                                                         : std::nullopt;
-                      auto quantity = quantity_value ? decoder.unsigned_integer<std::uint64_t>(
-                                                           *quantity_value,
-                                                           pointer_child(pointer, "quantity"), true)
-                                                     : std::nullopt;
-                      if (quantity && *quantity > max_item_stack_quantity) {
-                          decoder.error(k_code_number,
-                                        "Item Stack quantity exceeds the portable numeric range.",
-                                        pointer_child(pointer, "quantity"));
-                          quantity.reset();
-                      }
+                      auto definition =
+                          definition_value
+                              ? decode_reference<InteractableDefinitionId>(
+                                    decoder, *definition_value,
+                                    pointer_child(pointer, "definition"), "interactable-definition")
+                              : std::nullopt;
                       auto location = location_value
                                           ? decode_location(decoder, *location_value,
                                                             pointer_child(pointer, "location"))
                                           : std::nullopt;
-                      return id && definition && quantity && location
-                                 ? std::optional<ItemStackDeclaration>(
-                                       ItemStackDeclaration{std::move(*id), std::move(*definition),
-                                                            *quantity, std::move(*location)})
-                                 : std::nullopt;
+                      auto enabled =
+                          enabled_value
+                              ? decoder.boolean(*enabled_value, pointer_child(pointer, "enabled"))
+                              : std::nullopt;
+                      auto visible =
+                          visible_value
+                              ? decoder.boolean(*visible_value, pointer_child(pointer, "visible"))
+                              : std::nullopt;
+                      const auto decode_traits =
+                          [&](const nlohmann::json* value,
+                              std::string_view member) -> std::optional<std::vector<TraitId>> {
+                          if (!value)
+                              return std::nullopt;
+                          return decoder.array<TraitId>(
+                              *value, pointer_child(pointer, member),
+                              [&](const nlohmann::json& trait,
+                                  const std::string& item_pointer) -> std::optional<TraitId> {
+                                  return decoder.id<TraitId>(trait, item_pointer);
+                              });
+                      };
+                      auto trait_adds = decode_traits(adds_value, "traitAdds");
+                      auto trait_removes = decode_traits(removes_value, "traitRemoves");
+                      auto property_overrides =
+                          overrides_value
+                              ? decoder.array<PropertyAssignment>(
+                                    *overrides_value, pointer_child(pointer, "propertyOverrides"),
+                                    [&](const nlohmann::json& assignment,
+                                        const std::string& item_pointer)
+                                        -> std::optional<PropertyAssignment> {
+                                        if (!decoder.object(assignment, item_pointer,
+                                                            {"propertyId", "value"}))
+                                            return std::nullopt;
+                                        const auto* property_value =
+                                            decoder.member(assignment, "propertyId", item_pointer);
+                                        const auto* value_value =
+                                            decoder.member(assignment, "value", item_pointer);
+                                        auto property =
+                                            property_value
+                                                ? decoder.id<PropertyId>(
+                                                      *property_value,
+                                                      pointer_child(item_pointer, "propertyId"))
+                                                : std::nullopt;
+                                        auto runtime_value =
+                                            value_value ? decode_runtime_value(
+                                                              decoder, *value_value,
+                                                              pointer_child(item_pointer, "value"))
+                                                        : std::nullopt;
+                                        return property && runtime_value
+                                                   ? std::optional<PropertyAssignment>(
+                                                         PropertyAssignment{
+                                                             std::move(*property),
+                                                             std::move(*runtime_value)})
+                                                   : std::nullopt;
+                                    })
+                              : std::nullopt;
+                      if (!id || !definition || !location || !enabled || !visible || !trait_adds ||
+                          !trait_removes || !property_overrides)
+                          return std::nullopt;
+                      return InteractableInstanceDeclaration{std::move(*id),
+                                                             std::move(*definition),
+                                                             std::move(*location),
+                                                             *enabled,
+                                                             *visible,
+                                                             std::move(*trait_adds),
+                                                             std::move(*trait_removes),
+                                                             std::move(*property_overrides)};
                   })
             : std::nullopt;
     auto traits = traits_value ? decoder.array<TraitDeclaration>(
@@ -335,16 +395,14 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     std::optional<std::vector<CharacterDefinition>> characters;
     std::optional<std::vector<RoomDefinition>> rooms;
     std::optional<std::vector<InteractableDefinition>> interactables;
-    std::optional<std::vector<ItemDefinition>> item_definitions;
     std::optional<std::vector<VerbDefinition>> verbs;
     std::optional<std::vector<InteractionDefinition>> interactions;
     std::optional<std::vector<SceneDefinition>> scenes;
     std::optional<std::vector<DialogueDefinition>> dialogues;
     std::optional<std::vector<MapDefinition>> maps;
-    if (definitions_value &&
-        decoder.object(*definitions_value, "/definitions",
-                       {"characters", "dialogues", "interactables", "interactions",
-                        "itemDefinitions", "maps", "rooms", "scenes", "verbs"})) {
+    if (definitions_value && decoder.object(*definitions_value, "/definitions",
+                                            {"characters", "dialogues", "interactables",
+                                             "interactions", "maps", "rooms", "scenes", "verbs"})) {
 #define NOVELTEA_DECODE_DEFINITION(member_name, variable_name, type_name, function_name)           \
     if (const auto* collection = decoder.member(*definitions_value, member_name, "/definitions"))  \
     variable_name =                                                                                \
@@ -356,8 +414,6 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         NOVELTEA_DECODE_DEFINITION("rooms", rooms, RoomDefinition, decode_room);
         NOVELTEA_DECODE_DEFINITION("interactables", interactables, InteractableDefinition,
                                    decode_interactable);
-        NOVELTEA_DECODE_DEFINITION("itemDefinitions", item_definitions, ItemDefinition,
-                                   decode_item_definition);
         NOVELTEA_DECODE_DEFINITION("verbs", verbs, VerbDefinition, decode_verb);
         NOVELTEA_DECODE_DEFINITION("interactions", interactions, InteractionDefinition,
                                    decode_interaction);
@@ -375,10 +431,12 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         decoder.duplicate_ids(
             *properties, "/properties",
             [](const PropertyDeclaration& value) -> const PropertyId& { return value.id; });
-    if (item_stacks)
+    if (interactable_instances)
         decoder.duplicate_ids(
-            *item_stacks, "/itemStacks",
-            [](const ItemStackDeclaration& value) -> const ItemStackId& { return value.id; });
+            *interactable_instances, "/interactableInstances",
+            [](const InteractableInstanceDeclaration& value) -> const InteractableInstanceId& {
+                return value.id;
+            });
     if (traits)
         decoder.duplicate_ids(
             *traits, "/traits",
@@ -409,9 +467,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                           [](const auto& value) -> const id_type& { return value.identity.id; })
     NOVELTEA_DUPLICATE_DEFINITION(characters, "/definitions/characters", CharacterId);
     NOVELTEA_DUPLICATE_DEFINITION(rooms, "/definitions/rooms", RoomId);
-    NOVELTEA_DUPLICATE_DEFINITION(interactables, "/definitions/interactables", InteractableId);
-    NOVELTEA_DUPLICATE_DEFINITION(item_definitions, "/definitions/itemDefinitions",
-                                  ItemDefinitionId);
+    NOVELTEA_DUPLICATE_DEFINITION(interactables, "/definitions/interactables",
+                                  InteractableDefinitionId);
     NOVELTEA_DUPLICATE_DEFINITION(verbs, "/definitions/verbs", VerbId);
     NOVELTEA_DUPLICATE_DEFINITION(interactions, "/definitions/interactions", InteractionId);
     NOVELTEA_DUPLICATE_DEFINITION(scenes, "/definitions/scenes", SceneId);
@@ -421,8 +478,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
                           save_contract && localization && inventories && properties && traits &&
-                          archetypes && item_stacks && assets && layouts && material_interfaces &&
-                          scripts && characters && rooms && interactables && item_definitions &&
+                          archetypes && interactable_instances && assets && layouts &&
+                          material_interfaces && scripts && characters && rooms && interactables &&
                           verbs && interactions && undefined_interaction_valid && scenes &&
                           dialogues && maps;
     if (!complete || decoder.failed())
@@ -446,8 +503,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                       std::move(*characters),
                       std::move(*rooms),
                       std::move(*interactables),
-                      std::move(*item_definitions),
-                      std::move(*item_stacks),
+                      std::move(*interactable_instances),
                       std::move(*verbs),
                       std::move(*interactions),
                       std::move(undefined_interaction_program),

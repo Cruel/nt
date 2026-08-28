@@ -29,7 +29,7 @@ struct RoomPresentationVisualCatalog {
         std::optional<compiled::CharacterIdle> idle;
     };
     struct InteractableVisual {
-        InteractableId interactable;
+        InteractableInstanceId interactable;
         std::optional<AssetId> sprite;
         std::optional<MaterialId> material;
     };

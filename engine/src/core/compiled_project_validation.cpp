@@ -26,8 +26,7 @@ public:
         INDEX(characters, input.characters[index].identity.id);
         INDEX(rooms, input.rooms[index].identity.id);
         INDEX(interactables, input.interactables[index].identity.id);
-        INDEX(item_definitions, input.item_definitions[index].identity.id);
-        INDEX(item_stacks, input.item_stacks[index].id);
+        INDEX(interactable_instances, input.interactable_instances[index].id);
         INDEX(verbs, input.verbs[index].identity.id);
         INDEX(interactions, input.interactions[index].identity.id);
         INDEX(scenes, input.scenes[index].identity.id);
@@ -122,10 +121,25 @@ private:
         return found == m_rooms.end() ? nullptr : &m_input.rooms[found->second];
     }
 
-    const InteractableDefinition* interactable(const InteractableId& id) const
+    const InteractableDefinition* interactable_definition(const InteractableDefinitionId& id) const
     {
         const auto found = m_interactables.find(id);
         return found == m_interactables.end() ? nullptr : &m_input.interactables[found->second];
+    }
+
+    const InteractableInstanceDeclaration*
+    interactable_instance(const InteractableInstanceId& id) const
+    {
+        const auto found = m_interactable_instances.find(id);
+        return found == m_interactable_instances.end()
+                   ? nullptr
+                   : &m_input.interactable_instances[found->second];
+    }
+
+    const InteractableDefinition* interactable(const InteractableInstanceId& id) const
+    {
+        const auto* instance = interactable_instance(id);
+        return instance ? interactable_definition(instance->definition) : nullptr;
     }
 
     const FeatureDefinition* feature(const RoomFeatureRef& reference) const
@@ -200,7 +214,7 @@ private:
                 if constexpr (std::is_same_v<T, CharacterInventoryOwner>)
                     require(m_characters, owner.character, "character", path + "/owner/character");
                 else if constexpr (std::is_same_v<T, InteractableInventoryOwner>)
-                    require(m_interactables, owner.interactable, "interactable",
+                    require(m_interactable_instances, owner.interactable, "interactable instance",
                             path + "/owner/interactable");
                 else if constexpr (std::is_same_v<T, RoomFeatureRef>) {
                     require(m_rooms, owner.room, "room", path + "/owner/room");
@@ -209,7 +223,7 @@ private:
                               "Inventory owner Feature does not exist in its Room.",
                               path + "/owner/featureId");
                 } else if constexpr (std::is_same_v<T, InteractableFeatureRef>) {
-                    require(m_interactables, owner.interactable, "interactable",
+                    require(m_interactable_instances, owner.interactable, "interactable instance",
                             path + "/owner/interactable");
                     if (!feature(owner))
                         error("compiled_project.unresolved_nested_reference",
@@ -224,10 +238,11 @@ private:
                   path + "/inventoryId");
     }
 
-    std::optional<InteractableId> inventory_interactable_owner(const InventoryRef& reference) const
+    std::optional<InteractableInstanceId>
+    inventory_interactable_owner(const InventoryRef& reference) const
     {
         return std::visit(
-            [](const auto& owner) -> std::optional<InteractableId> {
+            [](const auto& owner) -> std::optional<InteractableInstanceId> {
                 using T = std::decay_t<decltype(owner)>;
                 if constexpr (std::is_same_v<T, InteractableInventoryOwner>)
                     return owner.interactable;
@@ -418,7 +433,7 @@ private:
                 if constexpr (std::is_same_v<T, CharacterInteractionSubject>)
                     require(m_characters, value.character, "character", path + "/character");
                 else if constexpr (std::is_same_v<T, InteractableInteractionSubject>)
-                    require(m_interactables, value.interactable, "interactable",
+                    require(m_interactable_instances, value.interactable, "interactable instance",
                             path + "/interactable");
                 else if constexpr (std::is_same_v<T, ItemStackInteractionSubject>)
                     require(m_item_stacks, value.item_stack, "item stack", path + "/itemStack");
@@ -434,8 +449,8 @@ private:
                                           "owning Room.",
                                           path + "/featureId");
                             } else {
-                                require(m_interactables, reference.interactable, "interactable",
-                                        path + "/interactable");
+                                require(m_interactable_instances, reference.interactable,
+                                        "interactable instance", path + "/interactable");
                                 if (!feature(reference))
                                     error("compiled_project.unresolved_nested_reference",
                                           "Feature reference does not identify a Feature in its "
@@ -527,12 +542,12 @@ private:
                     if constexpr (std::is_same_v<T, ApplyEffectInstruction>)
                         validate_effect(instruction.effect, instruction_path + "/effect");
                     else if constexpr (std::is_same_v<T, MoveInteractableInstruction>) {
-                        require(m_interactables, instruction.interactable, "interactable",
-                                instruction_path + "/interactable");
+                        require(m_interactable_instances, instruction.interactable,
+                                "interactable instance", instruction_path + "/interactable");
                         validate_location(instruction.target, instruction_path + "/target");
                     } else if constexpr (std::is_same_v<T, SetInteractableStateInstruction>)
-                        require(m_interactables, instruction.interactable, "interactable",
-                                instruction_path + "/interactable");
+                        require(m_interactable_instances, instruction.interactable,
+                                "interactable instance", instruction_path + "/interactable");
                     else if constexpr (std::is_same_v<T, NotifyInstruction>)
                         validate_text(instruction.message, instruction_path + "/message");
                     else if constexpr (std::is_same_v<T, CallSceneInteractionInstruction>)
@@ -806,7 +821,7 @@ private:
         validate_characters();
         validate_rooms();
         validate_interactables();
-        validate_items();
+        validate_interactable_instances();
         validate_inventory_cycles();
         validate_verbs_and_interactions();
         validate_scenes();
@@ -1195,7 +1210,7 @@ private:
                 if (!interactable_ids.insert(entry.id).second)
                     error("compiled_project.duplicate_nested_id",
                           "Duplicate Room interactable occurrence ID.", entry_path + "/id");
-                require(m_interactables, entry.interactable, "interactable",
+                require(m_interactable_instances, entry.interactable, "interactable instance",
                         entry_path + "/interactable");
                 if (!placement(RoomPlacementRef{value.identity.id, entry.placement_id}))
                     error("compiled_project.unresolved_nested_reference",
@@ -1308,7 +1323,6 @@ private:
             validate_assignments(value, PropertyOwnerKind::Interactable, path);
             validate_features(value, path);
             validate_inventories(value.inventories, path + "/inventories");
-            validate_location(value.initial_state.location, path + "/initialState/location");
             if (value.presentation.sprite)
                 require(m_assets, *value.presentation.sprite, "asset",
                         path + "/presentation/sprite");
@@ -1350,8 +1364,11 @@ private:
                             [&](const auto& target) {
                                 using H = std::decay_t<decltype(target)>;
                                 if constexpr (std::is_same_v<H, HotspotOwnerFeatureTarget>) {
-                                    if (!feature(InteractableFeatureRef{value.identity.id,
-                                                                        target.feature_id}))
+                                    const auto feature = std::ranges::find_if(
+                                        value.features, [&](const FeatureDefinition& candidate) {
+                                            return candidate.identity.id == target.feature_id;
+                                        });
+                                    if (feature == value.features.end())
                                         error("compiled_project.unresolved_nested_reference",
                                               "Interactable hotspot references a Feature outside "
                                               "its owning Interactable.",
@@ -1386,61 +1403,90 @@ private:
         }
     }
 
-    void validate_items()
+    void validate_interactable_instances()
     {
-        for (std::size_t index = 0; index < m_input.item_definitions.size(); ++index) {
-            const auto& value = m_input.item_definitions[index];
-            const auto path = item("/definitions/itemDefinitions", index);
-            validate_assignments(value, PropertyOwnerKind::ItemStack, path);
-            if (value.presentation.sprite)
-                require(m_assets, *value.presentation.sprite, "asset",
-                        path + "/presentation/sprite");
-            if (value.stack_limit &&
-                (*value.stack_limit == 0 || *value.stack_limit > max_item_stack_quantity))
-                error("compiled_project.invalid_item_stack_limit",
-                      "Item Definition Stack limit must be in the portable positive range.",
-                      path + "/stackLimit");
-        }
-        for (std::size_t index = 0; index < m_input.item_stacks.size(); ++index) {
-            const auto& value = m_input.item_stacks[index];
-            const auto path = item("/itemStacks", index);
-            require(m_item_definitions, value.definition, "item definition", path + "/definition");
+        for (std::size_t index = 0; index < m_input.interactable_instances.size(); ++index) {
+            const auto& value = m_input.interactable_instances[index];
+            const auto path = item("/interactableInstances", index);
+            require(m_interactables, value.definition, "interactable definition",
+                    path + "/definition");
             validate_location(value.location, path + "/location");
-            if (value.quantity == 0 || value.quantity > max_item_stack_quantity)
-                error("compiled_project.invalid_item_stack_quantity",
-                      "Item Stack quantity must be in the portable positive range.",
-                      path + "/quantity");
-            const auto definition = m_item_definitions.find(value.definition);
-            if (definition != m_item_definitions.end()) {
-                const auto& item_definition = m_input.item_definitions[definition->second];
-                if (item_definition.stack_limit && value.quantity > *item_definition.stack_limit)
-                    error("compiled_project.item_stack_limit_exceeded",
-                          "Declared Item Stack quantity exceeds its Item Definition limit.",
-                          path + "/quantity");
+            std::unordered_set<TraitId> adds;
+            std::unordered_set<TraitId> removes;
+            for (std::size_t trait_index = 0; trait_index < value.trait_adds.size();
+                 ++trait_index) {
+                const auto& trait_id = value.trait_adds[trait_index];
+                const auto trait_path = path + "/traitAdds/" + std::to_string(trait_index);
+                if (!adds.insert(trait_id).second)
+                    error("compiled_project.duplicate_trait_attachment",
+                          "Interactable Instance Trait add is duplicated.", trait_path);
+                const auto* declaration = trait(trait_id);
+                if (!declaration)
+                    require(m_traits, trait_id, "Trait", trait_path);
+                else if (std::find(
+                             declaration->allowed_owners.begin(), declaration->allowed_owners.end(),
+                             PropertyOwnerKind::Interactable) == declaration->allowed_owners.end())
+                    error("compiled_project.invalid_trait_attachment",
+                          "Trait cannot be attached to an Interactable Instance.", trait_path);
+            }
+            for (std::size_t trait_index = 0; trait_index < value.trait_removes.size();
+                 ++trait_index) {
+                const auto& trait_id = value.trait_removes[trait_index];
+                const auto trait_path = path + "/traitRemoves/" + std::to_string(trait_index);
+                if (!removes.insert(trait_id).second)
+                    error("compiled_project.duplicate_trait_attachment",
+                          "Interactable Instance Trait removal is duplicated.", trait_path);
+                if (adds.contains(trait_id))
+                    error("compiled_project.conflicting_trait_delta",
+                          "An Interactable Instance cannot both add and remove the same Trait.",
+                          trait_path);
+                if (!trait(trait_id))
+                    require(m_traits, trait_id, "Trait", trait_path);
+            }
+            std::unordered_set<PropertyId> properties;
+            for (std::size_t property_index = 0; property_index < value.property_overrides.size();
+                 ++property_index) {
+                const auto& assignment = value.property_overrides[property_index];
+                const auto assignment_path =
+                    path + "/propertyOverrides/" + std::to_string(property_index);
+                if (!properties.insert(assignment.property_id()).second)
+                    error("compiled_project.duplicate_property_assignment",
+                          "Interactable Instance Property override is duplicated.",
+                          assignment_path + "/propertyId");
+                const auto* declaration = property(assignment.property_id());
+                if (!declaration)
+                    require(m_properties, assignment.property_id(), "property",
+                            assignment_path + "/propertyId");
+                else if (!std::binary_search(declaration->allowed_owners().begin(),
+                                             declaration->allowed_owners().end(),
+                                             PropertyOwnerKind::Interactable) ||
+                         !property_value_matches(*declaration, assignment.assigned_value()))
+                    error("compiled_project.invalid_property_assignment",
+                          "Interactable Instance Property override is incompatible with its "
+                          "declaration.",
+                          assignment_path);
             }
         }
     }
 
     void validate_inventory_cycles()
     {
-        for (std::size_t index = 0; index < m_input.interactables.size(); ++index) {
-            const auto& start = m_input.interactables[index];
-            std::unordered_set<InteractableId> visited;
-            visited.insert(start.identity.id);
-            const InteractableDefinition* current = &start;
-            while (const auto* location =
-                       std::get_if<InventoryLocation>(&current->initial_state.location)) {
+        for (std::size_t index = 0; index < m_input.interactable_instances.size(); ++index) {
+            const auto& start = m_input.interactable_instances[index];
+            std::unordered_set<InteractableInstanceId> visited;
+            visited.insert(start.id);
+            const InteractableInstanceDeclaration* current = &start;
+            while (const auto* location = std::get_if<InventoryLocation>(&current->location)) {
                 const auto owner = inventory_interactable_owner(location->inventory);
                 if (!owner)
                     break;
                 if (!visited.insert(*owner).second) {
                     error("compiled_project.inventory_containment_cycle",
                           "Inventory containment must be acyclic.",
-                          item("/definitions/interactables", index) +
-                              "/initialState/location/inventory");
+                          item("/interactableInstances", index) + "/location/inventory");
                     break;
                 }
-                current = interactable(*owner);
+                current = interactable_instance(*owner);
                 if (!current)
                     break;
             }
@@ -2892,7 +2938,8 @@ private:
     MAP(scripts, ScriptId);
     MAP(characters, CharacterId);
     MAP(rooms, RoomId);
-    MAP(interactables, InteractableId);
+    MAP(interactables, InteractableDefinitionId);
+    MAP(interactable_instances, InteractableInstanceId);
     MAP(item_definitions, ItemDefinitionId);
     MAP(item_stacks, ItemStackId);
     MAP(verbs, VerbId);

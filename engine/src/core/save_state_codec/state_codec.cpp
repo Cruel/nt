@@ -189,7 +189,7 @@ decode_gameplay_instance_ref(Decoder& d, const nlohmann::json& value, std::strin
         return decoded ? std::optional<GameplayInstanceRef>{std::move(*decoded)} : std::nullopt;
     }
     if (*name == "interactable") {
-        auto decoded = d.id<InteractableId>(*id, child(pointer, "id"));
+        auto decoded = d.id<InteractableInstanceId>(*id, child(pointer, "id"));
         return decoded ? std::optional<GameplayInstanceRef>{std::move(*decoded)} : std::nullopt;
     }
     d.error(k_variant, "Unknown Gameplay Instance reference kind.", child(pointer, "kind"));
@@ -206,7 +206,7 @@ nlohmann::json encode_configuration_source(const RuntimeConfigurationSource& sou
             else if constexpr (std::is_same_v<T, CompiledCharacterConfigurationSource>)
                 return {{"kind", "character-definition"}, {"id", value.character.text()}};
             else if constexpr (std::is_same_v<T, CompiledInteractableConfigurationSource>)
-                return {{"kind", "interactable-definition"}, {"id", value.interactable.text()}};
+                return {{"kind", "interactable-definition"}, {"id", value.definition.text()}};
             else
                 return {{"kind", "archetype"}, {"id", value.archetype.text()}};
         },
@@ -237,7 +237,7 @@ decode_configuration_source(Decoder& d, const nlohmann::json& value, std::string
                    : std::nullopt;
     }
     if (*name == "interactable-definition") {
-        auto decoded = d.id<InteractableId>(*id, child(pointer, "id"));
+        auto decoded = d.id<InteractableDefinitionId>(*id, child(pointer, "id"));
         return decoded ? std::optional<
                              RuntimeConfigurationSource>{CompiledInteractableConfigurationSource{
                              std::move(*decoded)}}
@@ -827,8 +827,8 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                 const auto* birth_value = d.member(value, "birthSource", pointer);
                 const auto* override_value = d.member(value, "structuralOverrideSource", pointer);
                 const auto* provenance_value = d.member(value, "provenance", pointer);
-                auto id =
-                    id_value ? d.id<InteractableId>(*id_value, child(pointer, "id")) : std::nullopt;
+                auto id = id_value ? d.id<InteractableInstanceId>(*id_value, child(pointer, "id"))
+                                   : std::nullopt;
                 auto declared = declared_value
                                     ? d.boolean(*declared_value, child(pointer, "declared"))
                                     : std::nullopt;
@@ -889,7 +889,8 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
             const auto* location = d.member(value, "location", pointer);
             const auto* enabled = d.member(value, "enabled", pointer);
             const auto* visible = d.member(value, "visible", pointer);
-            auto interactable = id ? d.id<InteractableId>(*id, child(pointer, "id")) : std::nullopt;
+            auto interactable =
+                id ? d.id<InteractableInstanceId>(*id, child(pointer, "id")) : std::nullopt;
             auto saved_location =
                 location ? decode_location(d, *location, child(pointer, "location")) : std::nullopt;
             auto saved_enabled =

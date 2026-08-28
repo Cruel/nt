@@ -15,14 +15,11 @@ import {
 } from '../../../shared/project-schema/authoring-dialogues';
 import {
   defaultInteractableData,
+  defaultInteractableInstanceData,
   interactableAssetRef,
   interactableMaterialRef,
 } from '../../../shared/project-schema/authoring-interactables';
 import { defaultInteractionData } from '../../../shared/project-schema/authoring-interactions';
-import {
-  defaultItemDefinitionData,
-  defaultItemStackData,
-} from '../../../shared/project-schema/authoring-items';
 import {
   defaultLayoutData,
   layoutRecordRef,
@@ -417,7 +414,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     nullable: false,
     defaultValue: 'ordinary',
     enumValues: ['ordinary', 'polished'],
-    ownerKinds: ['item-stack'],
+    ownerKinds: ['interactable'],
   };
   project.traits['tense-room'] = {
     id: 'tense-room',
@@ -439,31 +436,29 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.traits.currency = {
     id: 'currency',
     label: 'Currency',
-    ownerKinds: ['item-stack'],
+    ownerKinds: ['interactable'],
     properties: [{ kind: 'configured', propertyId: 'quality', value: 'polished' }],
   };
   project.inventories = [{ id: 'player', label: 'Player Inventory' }];
 
-  const credits = defaultItemDefinitionData('Credits');
-  credits.description = 'Standard currency';
+  const credits = defaultInteractableData('Credits');
   credits.presentation = {
-    sprite: assetReference('image-main'),
-    material: { $ref: { collection: 'materials', id: 'sprite-material' } },
+    sprite: interactableAssetRef('image-main'),
+    material: interactableMaterialRef('sprite-material'),
+    hotspots: { kind: 'none' },
   };
-  credits.stackLimit = 100;
-  project.itemDefinitions.credits = {
+  project.interactables.credits = {
     id: 'credits',
     label: 'Credits',
     traits: ['currency'],
     data: credits,
   };
-  const wallet = defaultItemStackData('credits');
-  wallet.quantity = 25;
-  wallet.location = {
+  project.interactableInstances.wallet = defaultInteractableInstanceData('wallet', 'credits', {
     kind: 'inventory',
     inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
-  };
-  project.itemStacks.wallet = { id: 'wallet', label: 'Wallet credits', data: wallet };
+  });
+  project.interactableInstances.wallet.editorLabel = 'Wallet credits';
+  project.interactableInstances.wallet.properties.quality = 'polished';
 
   const hero = defaultCharacterData('Hero');
   hero.profiles[0]!.poses[0]!.layers[0]!.sprite = characterAssetRef('image-main');
@@ -497,7 +492,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     hotspots: key.presentation.hotspots,
   };
   key.inventories = [{ id: 'hidden', label: 'Hidden Compartment' }];
-  key.initialState.location = { kind: 'room', room: roomReference('start') };
   project.interactables.key = {
     id: 'key',
     label: 'Key',
@@ -518,6 +512,12 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   const dust = defaultInteractableData('Dust');
   dust.presentation.hotspots = { kind: 'custom', hotspots: [] };
   project.interactables.dust = { id: 'dust', label: 'Dust', data: dust };
+  project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
+    kind: 'room',
+    room: roomReference('start'),
+  });
+  project.interactableInstances.coin = defaultInteractableInstanceData('coin', 'coin');
+  project.interactableInstances.dust = defaultInteractableInstanceData('dust', 'dust');
 
   const start = defaultRoomData('Start');
   start.background = {
@@ -549,7 +549,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   start.interactables = [
     {
       id: 'key',
-      interactable: { $ref: { collection: 'interactables', id: 'key' } },
+      interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
       condition: { kind: 'always' },
       placementId: 'key-placement',
       visible: true,
@@ -1770,17 +1770,15 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
     data: defaultArchetypeData('interactable'),
   };
 
-  const spare = defaultItemStackData('credits');
-  spare.quantity = 10;
-  spare.location = {
-    kind: 'inventory',
-    inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
-  };
-  project.itemStacks['wallet-spare'] = {
-    id: 'wallet-spare',
-    label: 'Spare credits',
-    data: spare,
-  };
+  project.interactableInstances['wallet-spare'] = defaultInteractableInstanceData(
+    'wallet-spare',
+    'credits',
+    {
+      kind: 'inventory',
+      inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+    },
+  );
+  project.interactableInstances['wallet-spare'].editorLabel = 'Spare credits';
 
   const selectorVerb = defaultVerbData('Selector Vocabulary');
   const selectorText = {
@@ -1796,10 +1794,6 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
         { kind: 'any-subject' },
         { kind: 'family', family: 'feature' },
         { kind: 'trait', trait: { $ref: { collection: 'traits', id: 'feature-enabled' } } },
-        {
-          kind: 'item-definition',
-          itemDefinition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
-        },
         { kind: 'qualified-pattern', family: 'interactable', pattern: 'key*' },
         {
           kind: 'exact',
@@ -1934,43 +1928,6 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
           interactable: interactableReference('key'),
           enabled: true,
           visible: false,
-        },
-        {
-          kind: 'split-item-stack',
-          stack: { $ref: { collection: 'itemStacks', id: 'wallet' } },
-          quantity: 5,
-        },
-        {
-          kind: 'merge-item-stacks',
-          receiver: { $ref: { collection: 'itemStacks', id: 'wallet' } },
-          donor: { $ref: { collection: 'itemStacks', id: 'wallet-spare' } },
-        },
-        {
-          kind: 'transfer-item-quantity',
-          stack: { $ref: { collection: 'itemStacks', id: 'wallet' } },
-          quantity: 3,
-          location: { kind: 'room', room: roomReference('hall') },
-          placement: 'keep-separate',
-        },
-        {
-          kind: 'grant-item-quantity',
-          definition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
-          quantity: 4,
-          location: {
-            kind: 'inventory',
-            inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
-          },
-          placement: 'coalesce',
-        },
-        {
-          kind: 'consume-item-quantity',
-          stack: { $ref: { collection: 'itemStacks', id: 'wallet' } },
-          quantity: 2,
-        },
-        {
-          kind: 'set-item-stack-traits',
-          stack: { $ref: { collection: 'itemStacks', id: 'wallet' } },
-          traits: [{ $ref: { collection: 'traits', id: 'currency' } }],
         },
       ],
     },
@@ -2462,16 +2419,6 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
           interactable: interactableReference('key'),
           enabled: true,
           visible: false,
-        },
-        {
-          kind: 'grant-item-quantity',
-          definition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
-          quantity: 7,
-          location: {
-            kind: 'inventory',
-            inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
-          },
-          placement: 'keep-separate',
         },
         {
           kind: 'set-property',

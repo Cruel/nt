@@ -1920,7 +1920,7 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                          : std::nullopt;
                       auto interactable =
                           interactable_value
-                              ? decode_reference<InteractableId>(
+                              ? decode_reference<InteractableInstanceId>(
                                     decoder, *interactable_value,
                                     pointer_child(item_pointer, "interactable"), "interactable")
                               : std::nullopt;
@@ -2225,14 +2225,13 @@ std::optional<InteractableDefinition>
 decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"displayName", "features", "id", "initialState", "inventories",
-                         "presentation", "propertyAssignments", "traits"}))
+                        {"displayName", "features", "id", "inventories", "presentation",
+                         "propertyAssignments", "traits"}))
         return std::nullopt;
-    auto identity = decode_identity<InteractableId>(decoder, value, pointer);
+    auto identity = decode_identity<InteractableDefinitionId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
     const auto* features_value = decoder.member(value, "features", pointer);
     const auto* inventories_value = decoder.member(value, "inventories", pointer);
-    const auto* state_value = decoder.member(value, "initialState", pointer);
     const auto* presentation_value = decoder.member(value, "presentation", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
@@ -2249,25 +2248,6 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
     auto inventories = inventories_value ? decode_inventories(decoder, *inventories_value,
                                                               pointer_child(pointer, "inventories"))
                                          : std::nullopt;
-    std::optional<InteractableInitialState> state;
-    if (state_value && decoder.object(*state_value, pointer_child(pointer, "initialState"),
-                                      {"enabled", "location", "visible"})) {
-        const auto state_pointer = pointer_child(pointer, "initialState");
-        const auto* enabled_value = decoder.member(*state_value, "enabled", state_pointer);
-        const auto* location_value = decoder.member(*state_value, "location", state_pointer);
-        const auto* visible_value = decoder.member(*state_value, "visible", state_pointer);
-        auto enabled =
-            enabled_value ? decoder.boolean(*enabled_value, pointer_child(state_pointer, "enabled"))
-                          : std::nullopt;
-        auto location = location_value ? decode_location(decoder, *location_value,
-                                                         pointer_child(state_pointer, "location"))
-                                       : std::nullopt;
-        auto visible =
-            visible_value ? decoder.boolean(*visible_value, pointer_child(state_pointer, "visible"))
-                          : std::nullopt;
-        if (enabled && location && visible)
-            state = InteractableInitialState{*enabled, std::move(*location), *visible};
-    }
     std::optional<InteractablePresentation> presentation;
     if (presentation_value &&
         decoder.object(*presentation_value, pointer_child(pointer, "presentation"),
@@ -2392,11 +2372,10 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                               [](const FeatureDefinition& feature) -> const FeatureId& {
                                   return feature.identity.id;
                               });
-    if (!identity || !display || !features || !inventories || !state || !presentation)
+    if (!identity || !display || !features || !inventories || !presentation)
         return std::nullopt;
-    return InteractableDefinition{std::move(*identity), std::move(*display),
-                                  std::move(*features), std::move(*inventories),
-                                  std::move(*state),    std::move(*presentation)};
+    return InteractableDefinition{std::move(*identity), std::move(*display), std::move(*features),
+                                  std::move(*inventories), std::move(*presentation)};
 }
 
 std::optional<ItemDefinition> decode_item_definition(Decoder& decoder, const nlohmann::json& value,
@@ -2501,8 +2480,6 @@ std::optional<ArchetypeDefinition> decode_archetype(Decoder& decoder, const nloh
         return std::nullopt;
     }
     if (*kind == "interactable") {
-        configuration["initialState"] = {
-            {"enabled", true}, {"location", {{"kind", "unplaced"}}}, {"visible", true}};
         auto decoded = decode_interactable(decoder, configuration, configuration_pointer);
         if (decoded)
             return ArchetypeDefinition{std::move(*id), GameplayInstanceKind::Interactable,

@@ -7,7 +7,10 @@ paths accept no legacy monolithic project file or alternate manifest name.
 ## Tracked source
 
 `project.json` has schema `noveltea.project.workspace` at version `1` and owns project identity,
-project settings, top-level export configuration, the stable Bootstrap Module reference, and entrypoint. `/settings` is the
+project settings, top-level export configuration, the stable Bootstrap Module reference, entrypoint,
+Project-level Inventory declarations, and the infrastructure-level `interactableInstances` registry.
+The Instance registry is not an Explorer collection and is not persisted under `records/`.
+`/settings` is the
 Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
 built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
 choices remain editor-local. `properties.json`, `localization.json`, and `editor.json`

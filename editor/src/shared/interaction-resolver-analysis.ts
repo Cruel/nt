@@ -55,15 +55,7 @@ function exactTraits(
     const traits = project.interactables[subject.interactable.$ref.id]?.traits;
     return traits ? new Set(traits) : null;
   }
-  if (subject.kind === 'item-stack') {
-    const stack = project.itemStacks[subject.itemStack.$ref.id]?.data as
-      | { definition?: { $ref?: { id?: unknown } } }
-      | undefined;
-    const definitionId = stack?.definition?.$ref?.id;
-    if (typeof definitionId !== 'string') return null;
-    const traits = project.itemDefinitions[definitionId]?.traits;
-    return traits ? new Set(traits) : null;
-  }
+  if (subject.kind === 'item-stack') return null;
   if (subject.feature.ownerKind === 'room') {
     const data = parseRoomData(project.rooms[subject.feature.room.$ref.id]?.data);
     const feature = data?.features.find((item) => item.id === subject.feature.featureId);
@@ -76,15 +68,8 @@ function exactTraits(
   return feature ? new Set(feature.traits) : null;
 }
 
-function exactItemDefinition(
-  project: AuthoringProject,
-  subject: InteractionSubjectData,
-): string | null {
-  if (subject.kind !== 'item-stack') return null;
-  const data = project.itemStacks[subject.itemStack.$ref.id]?.data as
-    | { definition?: { $ref?: { id?: unknown } } }
-    | undefined;
-  return typeof data?.definition?.$ref?.id === 'string' ? data.definition.$ref.id : null;
+function exactItemDefinition(_project: AuthoringProject, _subject: InteractionSubjectData): null {
+  return null;
 }
 
 function patternPrefix(selector: Extract<SubjectSelector, { kind: 'qualified-pattern' }>) {

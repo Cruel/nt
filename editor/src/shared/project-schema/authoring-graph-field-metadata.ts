@@ -143,7 +143,10 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/bootstrapModule\//, OWNER],
   [/^\/assets\/\*\/data\/imageMetadata\//, OWNER],
   [/\/inventor(?:y|ies)\//, OWNER],
-  [/^\/interactables\/\*\/data\/initialState\/location\//, OWNER],
+  // #116 introduces the canonical project-level declared Interactable Instance registry. Every
+  // registry field contributes directly to the runtime world projection; definition records remain
+  // reusable immutable configuration and no longer own initial state.
+  [/^\/interactableInstances\//, OWNER],
   [/^\/interactables\/\*\/data\/features\//, OWNER],
   [/^\/interactables\/\*\/data\/presentation\/hotspots\//, OWNER],
   [/\/feature\//, OWNER],
@@ -534,6 +537,11 @@ const legacySchemaLeafPaths = [
   // Interactable Location in its place. Keep the retired leaf only to preserve the pre-#71
   // reviewed-effect alignment; the new Location leaves are classified explicitly above.
   '/rooms/*/data/interactables/*/enabled' as JsonPointer,
+  // #116 moves declared Interactable enabled/visible state from reusable definitions to the exact
+  // project-level Instance registry. Registry leaves are classified explicitly above; retain the
+  // two removed definition-state leaves solely to preserve the reviewed sequence alignment.
+  '/interactables/*/data/initialState/enabled' as JsonPointer,
+  '/interactables/*/data/initialState/visible' as JsonPointer,
   // #72 atomically replaces the one-leaf startupHook source with a two-leaf typed Script Module
   // reference at the same schema version. The new reference leaves are classified explicitly above;
   // retain the retired source leaf only so the preserved pre-replacement reviewed sequence does not
@@ -737,18 +745,17 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     dialogues: 'c3f27078',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
-    interactables: '86412986',
+    interactableInstances: '7a0c7522',
+    interactables: '3124672a',
     interactions: 'dfffc1a2',
     inventories: 'a8c38dae',
-    itemDefinitions: '255e512e',
-    itemStacks: '3eaf965c',
     layouts: '35da7f67',
     localization: '3f6d0d11',
     maps: 'af4e0eba',
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: 'af3ac4c1',
+    rooms: '93cad5aa',
     scenes: '21280450',
     schema: '63fb9bb9',
     scripts: 'f3482815',

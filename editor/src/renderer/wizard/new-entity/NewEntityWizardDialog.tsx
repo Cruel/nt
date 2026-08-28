@@ -196,13 +196,7 @@ export function NewEntityWizardDialog({
     if (interactableArchetypeId) {
       const createdData = parseInteractableData(extra.data);
       const archetype = resolveArchetypeConfiguration(activeProject, interactableArchetypeId);
-      const inheritedData =
-        createdData && archetype
-          ? parseInteractableData({
-              ...(archetype.data as object),
-              initialState: createdData.initialState,
-            })
-          : null;
+      const inheritedData = createdData && archetype ? parseInteractableData(archetype.data) : null;
       if (!createdData || !inheritedData) {
         setError('Selected Interactable Archetype does not resolve to a valid configuration.');
         return;

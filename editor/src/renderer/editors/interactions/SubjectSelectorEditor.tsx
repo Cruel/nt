@@ -25,12 +25,6 @@ function defaultExactSubject(project: AuthoringEditorProject): SubjectSelector {
       kind: 'exact',
       subject: { kind: 'character', character: typedRef('characters', character) },
     };
-  const stack = Object.keys(project.itemStacks)[0];
-  if (stack)
-    return {
-      kind: 'exact',
-      subject: { kind: 'item-stack', itemStack: typedRef('itemStacks', stack) },
-    };
   return { kind: 'any-subject' };
 }
 
@@ -52,7 +46,6 @@ export function SubjectSelectorEditor({
   onDelete?: () => void;
 }) {
   const firstTrait = Object.keys(project.traits)[0];
-  const firstDefinition = Object.keys(project.itemDefinitions)[0];
   const firstRoom = Object.keys(project.rooms)[0];
   const firstInteractable = Object.keys(project.interactables)[0];
   const exactFeature =
@@ -66,8 +59,6 @@ export function SubjectSelectorEditor({
           if (kind === 'family') onChange({ kind, family: 'interactable' });
           else if (kind === 'trait' && firstTrait)
             onChange({ kind, trait: typedRef('traits', firstTrait) });
-          else if (kind === 'item-definition' && firstDefinition)
-            onChange({ kind, itemDefinition: typedRef('itemDefinitions', firstDefinition) });
           else if (kind === 'qualified-pattern')
             onChange({ kind, family: 'interactable', pattern: 'interactable:*' });
           else if (kind === 'exact') onChange(defaultExactSubject(project));
@@ -78,9 +69,6 @@ export function SubjectSelectorEditor({
         <SelectItem value="family">Subject family</SelectItem>
         <SelectItem value="trait" disabled={!firstTrait}>
           Trait
-        </SelectItem>
-        <SelectItem value="item-definition" disabled={!firstDefinition}>
-          Item definition
         </SelectItem>
         <SelectItem value="qualified-pattern">Qualified pattern</SelectItem>
         <SelectItem value="exact">Exact subject</SelectItem>
@@ -96,7 +84,6 @@ export function SubjectSelectorEditor({
             <SelectItem value="character">Character</SelectItem>
             <SelectItem value="interactable">Interactable</SelectItem>
             <SelectItem value="feature">Feature</SelectItem>
-            <SelectItem value="item-stack">Item stack</SelectItem>
           </Select>
         )}
         {value.kind === 'trait' && (
@@ -114,21 +101,7 @@ export function SubjectSelectorEditor({
           </Select>
         )}
         {value.kind === 'item-definition' && (
-          <Select
-            value={value.itemDefinition.$ref.id}
-            onValueChange={(id) =>
-              onChange({
-                kind: 'item-definition',
-                itemDefinition: typedRef('itemDefinitions', String(id)),
-              })
-            }
-          >
-            {Object.entries(project.itemDefinitions).map(([id, record]) => (
-              <SelectItem value={id} key={id}>
-                {record.label}
-              </SelectItem>
-            ))}
-          </Select>
+          <div className="text-sm text-muted-foreground">Retired Item Definition selector</div>
         )}
         {value.kind === 'qualified-pattern' && (
           <>
@@ -141,7 +114,6 @@ export function SubjectSelectorEditor({
               <SelectItem value="character">Character</SelectItem>
               <SelectItem value="interactable">Interactable</SelectItem>
               <SelectItem value="feature">Feature</SelectItem>
-              <SelectItem value="item-stack">Item stack</SelectItem>
             </Select>
             <Input
               value={value.pattern}
@@ -168,13 +140,6 @@ export function SubjectSelectorEditor({
                     onChange({
                       kind: 'exact',
                       subject: { kind, interactable: typedRef('interactables', id) },
-                    });
-                } else if (kind === 'item-stack') {
-                  const id = Object.keys(project.itemStacks)[0];
-                  if (id)
-                    onChange({
-                      kind: 'exact',
-                      subject: { kind, itemStack: typedRef('itemStacks', id) },
                     });
                 } else if (firstRoom) {
                   onChange({
@@ -203,9 +168,6 @@ export function SubjectSelectorEditor({
               </SelectItem>
               <SelectItem value="feature" disabled={!firstRoom && !firstInteractable}>
                 Feature
-              </SelectItem>
-              <SelectItem value="item-stack" disabled={!Object.keys(project.itemStacks).length}>
-                Item stack
               </SelectItem>
             </Select>
             {value.subject.kind === 'character' && (
@@ -249,24 +211,7 @@ export function SubjectSelectorEditor({
               </Select>
             )}
             {value.subject.kind === 'item-stack' && (
-              <Select
-                value={value.subject.itemStack.$ref.id}
-                onValueChange={(id) =>
-                  onChange({
-                    kind: 'exact',
-                    subject: {
-                      kind: 'item-stack',
-                      itemStack: typedRef('itemStacks', String(id)),
-                    },
-                  })
-                }
-              >
-                {Object.keys(project.itemStacks).map((id) => (
-                  <SelectItem value={id} key={id}>
-                    {id}
-                  </SelectItem>
-                ))}
-              </Select>
+              <div className="text-sm text-muted-foreground">Retired Item Stack subject</div>
             )}
             {exactFeature && (
               <>

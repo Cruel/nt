@@ -396,7 +396,8 @@ public:
     {
         return m_interactables;
     }
-    [[nodiscard]] const InteractableState* interactable(const InteractableId& id) const noexcept;
+    [[nodiscard]] const InteractableState*
+    interactable(const InteractableInstanceId& id) const noexcept;
     [[nodiscard]] const std::vector<ItemStackState>& item_stacks() const noexcept
     {
         return m_item_stacks;
@@ -410,9 +411,9 @@ public:
     [[nodiscard]] const CharacterWorldState* character_world(const CharacterId& id) const noexcept;
     [[nodiscard]] std::optional<RoomId> effective_room(const CompiledProject& project,
                                                        const CharacterId& id) const noexcept;
-    [[nodiscard]] std::optional<RoomId> effective_room(const CompiledProject& project,
-                                                       const InteractableId& id) const noexcept;
-    [[nodiscard]] std::vector<InteractableId>
+    [[nodiscard]] std::optional<RoomId>
+    effective_room(const CompiledProject& project, const InteractableInstanceId& id) const noexcept;
+    [[nodiscard]] std::vector<InteractableInstanceId>
     inventory_members(const compiled::InventoryRef& inventory) const;
     [[nodiscard]] Result<void, Diagnostics> move_character(const CompiledProject& project,
                                                            const CharacterId& id,
@@ -430,14 +431,14 @@ public:
         return m_room_entry_sequence;
     }
     [[nodiscard]] Result<void, Diagnostics>
-    move_interactable(const CompiledProject& project, const InteractableId& id,
+    move_interactable(const CompiledProject& project, const InteractableInstanceId& id,
                       compiled::InteractableLocation location);
-    [[nodiscard]] Result<void, Diagnostics> set_interactable_enabled(const CompiledProject& project,
-                                                                     const InteractableId& id,
-                                                                     bool enabled);
-    [[nodiscard]] Result<void, Diagnostics> set_interactable_visible(const CompiledProject& project,
-                                                                     const InteractableId& id,
-                                                                     bool visible);
+    [[nodiscard]] Result<void, Diagnostics>
+    set_interactable_enabled(const CompiledProject& project, const InteractableInstanceId& id,
+                             bool enabled);
+    [[nodiscard]] Result<void, Diagnostics>
+    set_interactable_visible(const CompiledProject& project, const InteractableInstanceId& id,
+                             bool visible);
 
     [[nodiscard]] std::uint64_t room_visits(const RoomId& room) const noexcept;
     [[nodiscard]] Result<void, Diagnostics> record_room_visit(const CompiledProject& project,

@@ -85,20 +85,20 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:00494610d29ed5f60202474067604d7a");
+    CHECK(project.save_contract == "sc1:1a57ed12102be08009b1ca4295415704");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
     CHECK(project.scripts.size() == 3);
     CHECK(project.characters.size() == 1);
     CHECK(project.rooms.size() == 3);
-    CHECK(project.interactables.size() == 3);
-    REQUIRE(project.item_definitions.size() == 1);
-    CHECK(project.item_definitions.front().identity.id.text() == "credits");
-    CHECK(project.item_definitions.front().stack_limit == 100);
-    REQUIRE(project.item_stacks.size() == 1);
-    CHECK(project.item_stacks.front().id.text() == "wallet");
-    CHECK(project.item_stacks.front().quantity == 25);
+    CHECK(project.interactables.size() == 4);
+    REQUIRE(project.interactable_instances.size() == 4);
+    const auto wallet = std::ranges::find_if(project.interactable_instances, [](const auto& value) {
+        return value.id.text() == "wallet";
+    });
+    REQUIRE(wallet != project.interactable_instances.end());
+    CHECK(wallet->definition.text() == "credits");
     CHECK(project.verbs.size() == 1);
     CHECK(project.interactions.size() == 1);
     CHECK(project.scenes.size() == 1);
@@ -115,28 +115,43 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.localization.catalogs.size() == 2);
 }
 
-TEST_CASE("compiled project Item Stack boundary is strict within the current format")
+TEST_CASE("compiled project Interactable Instance boundary is strict within the current format")
 {
     SECTION("required root collection")
     {
         auto document = fixture("minimal");
-        document.erase("itemStacks");
-        const auto result = decode_shared_project(document, "missing-item-stacks.json");
+        document.erase("interactableInstances");
+        const auto result = decode_shared_project(document, "missing-interactable-instances.json");
         REQUIRE_FALSE(result);
     }
-    SECTION("resolved definition and bounded positive quantity")
+    SECTION("resolved definition")
     {
         auto document = fixture("comprehensive");
-        document["itemStacks"][0]["definition"]["id"] = "missing";
-        auto unresolved =
-            noveltea::core::decode_compiled_project(document, "unresolved-item-definition.json");
+        document["interactableInstances"][0]["definition"]["id"] = "missing";
+        auto unresolved = noveltea::core::decode_compiled_project(
+            document, "unresolved-interactable-definition.json");
         REQUIRE_FALSE(unresolved);
-        document = fixture("comprehensive");
-        document["itemStacks"][0]["quantity"] = 101;
-        auto over_limit =
-            noveltea::core::decode_compiled_project(document, "item-stack-over-limit.json");
-        REQUIRE_FALSE(over_limit);
-        CHECK(has_code(over_limit.error(), "compiled_project.item_stack_limit_exceeded"));
+        CHECK(has_code(unresolved.error(), "compiled_project.unresolved_reference"));
+    }
+    SECTION("retired Item top-level collections are not aliases")
+    {
+        auto document = fixture("minimal");
+        document["definitions"]["itemDefinitions"] = nlohmann::json::array();
+        auto item_definitions = decode_shared_project(document, "retired-item-definitions.json");
+        REQUIRE_FALSE(item_definitions);
+
+        document = fixture("minimal");
+        document["itemStacks"] = nlohmann::json::array();
+        auto item_stacks = decode_shared_project(document, "retired-item-stacks.json");
+        REQUIRE_FALSE(item_stacks);
+    }
+    SECTION("definition-owned mutable state is not accepted")
+    {
+        auto document = fixture("minimal");
+        document["definitions"]["interactables"][0]["initialState"] = {{"enabled", true},
+                                                                       {"visible", true}};
+        auto result = decode_shared_project(document, "retired-interactable-initial-state.json");
+        REQUIRE_FALSE(result);
     }
 }
 
@@ -179,7 +194,7 @@ TEST_CASE("compiled project decoder accepts the generated canonical vocabulary g
     CHECK(project.archetypes.size() == 3);
     CHECK(project.scenes.size() >= 4);
     CHECK(project.dialogues.size() >= 2);
-    CHECK(project.item_stacks.size() >= 2);
+    CHECK(project.interactable_instances.size() >= 5);
 }
 
 TEST_CASE("compiled Scene boundary rejects detached targets that await foreground-only work")
@@ -849,7 +864,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     CHECK(complete.scripts().size() == 3);
     CHECK(complete.characters().size() == 1);
     CHECK(complete.rooms().size() == 3);
-    CHECK(complete.interactables().size() == 3);
+    CHECK(complete.interactables().size() == 4);
     CHECK(complete.verbs().size() == 1);
     CHECK(complete.interactions().size() == 1);
     CHECK(complete.scenes().size() == 1);
@@ -866,7 +881,10 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     CHECK(complete.find_layout(LayoutId::create("hud-inline").value()) != nullptr);
     CHECK(complete.find_script(ScriptId::create("inline-module").value()) != nullptr);
     CHECK(complete.find_character(CharacterId::create("hero").value()) != nullptr);
-    CHECK(complete.find_interactable(InteractableId::create("coin").value()) != nullptr);
+    CHECK(complete.find_interactable_definition(InteractableDefinitionId::create("coin").value()) !=
+          nullptr);
+    CHECK(complete.find_interactable_instance(InteractableInstanceId::create("coin").value()) !=
+          nullptr);
     CHECK(complete.find_verb(VerbId::create("look").value()) != nullptr);
     CHECK(complete.find_interaction(InteractionId::create("look").value()) != nullptr);
     CHECK(complete.find_scene(SceneId::create("opening").value()) != nullptr);
@@ -1453,10 +1471,9 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("Interactable initial location references a missing owner-qualified Inventory")
     {
         auto document = fixture("comprehensive");
-        auto* key =
-            test_support::json_object_by_id(document["definitions"]["interactables"], "key");
+        auto* key = test_support::json_object_by_id(document["interactableInstances"], "key");
         REQUIRE(key != nullptr);
-        (*key)["initialState"]["location"] = {
+        (*key)["location"] = {
             {"kind", "inventory"},
             {"inventory",
              {{"owner", {{"kind", "project"}}}, {"inventoryId", "missing-inventory"}}}};

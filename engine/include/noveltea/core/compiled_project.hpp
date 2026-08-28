@@ -95,7 +95,7 @@ struct CharacterInventoryOwner {
     bool operator==(const CharacterInventoryOwner&) const = default;
 };
 struct InteractableInventoryOwner {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     bool operator==(const InteractableInventoryOwner&) const = default;
 };
 using InventoryOwnerRef =
@@ -536,7 +536,7 @@ struct CharacterInteractionSubject {
     bool operator==(const CharacterInteractionSubject&) const = default;
 };
 struct InteractableInteractionSubject {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     bool operator==(const InteractableInteractionSubject&) const = default;
 };
 struct FeatureInteractionSubject {
@@ -561,7 +561,7 @@ struct RoomHotspotRef {
     auto operator<=>(const RoomHotspotRef&) const = default;
 };
 struct InteractableHotspotRef {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     HotspotId hotspot_id;
     auto operator<=>(const InteractableHotspotRef&) const = default;
 };
@@ -571,7 +571,7 @@ struct RoomHotspotOwnerRef {
     auto operator<=>(const RoomHotspotOwnerRef&) const = default;
 };
 struct InteractableHotspotOwnerRef {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     auto operator<=>(const InteractableHotspotOwnerRef&) const = default;
 };
 using HotspotOwnerRef = std::variant<RoomHotspotOwnerRef, InteractableHotspotOwnerRef>;
@@ -730,7 +730,7 @@ struct RoomCastEntry {
 };
 struct RoomInteractableEntry {
     RoomInteractableEntryId id;
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     Condition condition;
     RoomPlacementId placement_id;
     bool visible;
@@ -799,23 +799,27 @@ struct RoomDefinition {
 };
 
 using InteractableLocation = std::variant<InventoryLocation, UnplacedLocation, RoomLocation>;
-struct InteractableInitialState {
-    bool enabled;
-    InteractableLocation location;
-    bool visible;
-};
 struct InteractablePresentation {
     std::optional<MaterialId> material;
     std::optional<AssetId> sprite;
     InteractableHotspots hotspots;
 };
 struct InteractableDefinition {
-    PropertyBearingDefinition<InteractableId> identity;
+    PropertyBearingDefinition<InteractableDefinitionId> identity;
     std::string display_name;
     std::vector<FeatureDefinition> features;
     std::vector<InventoryDefinition> inventories;
-    InteractableInitialState initial_state;
     InteractablePresentation presentation;
+};
+struct InteractableInstanceDeclaration {
+    InteractableInstanceId id;
+    InteractableDefinitionId definition;
+    InteractableLocation location;
+    bool enabled;
+    bool visible;
+    std::vector<TraitId> trait_adds;
+    std::vector<TraitId> trait_removes;
+    std::vector<PropertyAssignment> property_overrides;
 };
 
 inline constexpr std::uint64_t max_item_stack_quantity = 9'007'199'254'740'991ULL;
@@ -863,12 +867,12 @@ struct ApplyEffectInstruction {
 };
 struct MoveInteractableInstruction {
     InteractionInstructionId id;
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     InteractableLocation target;
 };
 struct SetInteractableStateInstruction {
     InteractionInstructionId id;
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     std::optional<bool> enabled;
     std::optional<bool> visible;
 };
@@ -1153,11 +1157,11 @@ struct SetCharacterStateSceneOperation {
     std::optional<bool> visible;
 };
 struct MoveInteractableSceneOperation {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     InteractableLocation location;
 };
 struct SetInteractableStateSceneOperation {
-    InteractableId interactable;
+    InteractableInstanceId interactable;
     std::optional<bool> enabled;
     std::optional<bool> visible;
 };
@@ -1204,7 +1208,7 @@ struct GameplayEffectBatchSceneInstruction {
     std::optional<Condition> condition;
     std::vector<SceneGameplayEffectOperation> operations;
 };
-using SceneGameplayInstanceRef = std::variant<RoomId, CharacterId, InteractableId>;
+using SceneGameplayInstanceRef = std::variant<RoomId, CharacterId, InteractableInstanceId>;
 struct SceneArchetypeConfigurationSource {
     ArchetypeId archetype;
 };
@@ -1862,8 +1866,7 @@ struct CompiledProjectInput {
     std::vector<CharacterDefinition> characters;
     std::vector<RoomDefinition> rooms;
     std::vector<InteractableDefinition> interactables;
-    std::vector<ItemDefinition> item_definitions;
-    std::vector<ItemStackDeclaration> item_stacks;
+    std::vector<InteractableInstanceDeclaration> interactable_instances;
     std::vector<VerbDefinition> verbs;
     std::vector<InteractionDefinition> interactions;
     std::optional<InteractionProgram> undefined_interaction_program;
@@ -1939,13 +1942,10 @@ public:
     {
         return m_interactables;
     }
-    [[nodiscard]] const std::vector<compiled::ItemDefinition>& item_definitions() const noexcept
+    [[nodiscard]] const std::vector<compiled::InteractableInstanceDeclaration>&
+    interactable_instances() const noexcept
     {
-        return m_item_definitions;
-    }
-    [[nodiscard]] const std::vector<compiled::ItemStackDeclaration>& item_stacks() const noexcept
-    {
-        return m_item_stacks;
+        return m_interactable_instances;
     }
     [[nodiscard]] const std::vector<compiled::VerbDefinition>& verbs() const noexcept
     {
@@ -1988,7 +1988,9 @@ public:
     find_character(const CharacterId& id) const noexcept;
     [[nodiscard]] const compiled::RoomDefinition* find_room(const RoomId& id) const noexcept;
     [[nodiscard]] const compiled::InteractableDefinition*
-    find_interactable(const InteractableId& id) const noexcept;
+    find_interactable_definition(const InteractableDefinitionId& id) const noexcept;
+    [[nodiscard]] const compiled::InteractableInstanceDeclaration*
+    find_interactable_instance(const InteractableInstanceId& id) const noexcept;
     [[nodiscard]] const compiled::ItemDefinition*
     find_item_definition(const ItemDefinitionId& id) const noexcept;
     [[nodiscard]] const compiled::ItemStackDeclaration*
@@ -2027,6 +2029,9 @@ private:
     std::vector<compiled::CharacterDefinition> m_characters;
     std::vector<compiled::RoomDefinition> m_rooms;
     std::vector<compiled::InteractableDefinition> m_interactables;
+    std::vector<compiled::InteractableInstanceDeclaration> m_interactable_instances;
+    // Retained only as unreachable backing for legacy internal Item APIs until #127 removes that
+    // subsystem. Canonical CompiledProject input and enumerable collections do not expose Items.
     std::vector<compiled::ItemDefinition> m_item_definitions;
     std::vector<compiled::ItemStackDeclaration> m_item_stacks;
     std::vector<compiled::VerbDefinition> m_verbs;
@@ -2046,7 +2051,8 @@ private:
     NOVELTEA_COMPILED_INDEX(ScriptId, script);
     NOVELTEA_COMPILED_INDEX(CharacterId, character);
     NOVELTEA_COMPILED_INDEX(RoomId, room);
-    NOVELTEA_COMPILED_INDEX(InteractableId, interactable);
+    NOVELTEA_COMPILED_INDEX(InteractableDefinitionId, interactable_definition);
+    NOVELTEA_COMPILED_INDEX(InteractableInstanceId, interactable_instance);
     NOVELTEA_COMPILED_INDEX(ItemDefinitionId, item_definition);
     NOVELTEA_COMPILED_INDEX(ItemStackId, item_stack);
     NOVELTEA_COMPILED_INDEX(VerbId, verb);

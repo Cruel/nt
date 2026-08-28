@@ -617,12 +617,8 @@ function buildAdmissionAndState(
             : null,
       })),
       interactableLocations: sortedLocationIds.flatMap((interactableId) => {
-        const data = parseInteractableData(
-          recordForOwner(project, 'interactable', interactableId)?.data,
-        );
-        return data
-          ? [{ interactableId, location: structuredClone(data.initialState.location) }]
-          : [];
+        const instance = project.interactableInstances[interactableId];
+        return instance ? [{ interactableId, location: structuredClone(instance.location) }] : [];
       }),
     },
   };
@@ -841,28 +837,30 @@ export async function buildFocusedRoomPreview(
   const persistentCharacters: RoomPreviewDocument['world']['persistentCharacters'] = [];
   const interactables = [...room.interactables]
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
-    .flatMap((instance) => {
-      const definition = parseInteractableData(
-        recordForOwner(project, 'interactable', instance.interactable.$ref.id)?.data,
-      );
+    .flatMap((occurrence) => {
+      const instance = project.interactableInstances[occurrence.interactable.$ref.id];
       if (
-        !definition ||
-        definition.initialState.location.kind !== 'room' ||
-        definition.initialState.location.room.$ref.id !== roomId
+        !instance ||
+        instance.location.kind !== 'room' ||
+        instance.location.room.$ref.id !== roomId
       )
         return [];
+      const definition = parseInteractableData(
+        recordForOwner(project, 'interactable', instance.definition.$ref.id)?.data,
+      );
+      if (!definition) return [];
       return [
         {
-          occurrenceId: instance.id,
-          interactableId: instance.interactable.$ref.id,
-          condition: focusedCondition(instance.condition),
-          placementId: instance.placementId,
+          occurrenceId: occurrence.id,
+          interactableId: instance.id,
+          condition: focusedCondition(occurrence.condition),
+          placementId: occurrence.placementId,
           spriteAssetId: definition.presentation.sprite?.$ref.id ?? null,
           materialId: definition.presentation.material?.$ref.id ?? null,
-          enabled: definition.initialState.enabled,
-          visible: definition.initialState.visible,
-          occurrenceVisible: instance.visible,
-          order: instance.order,
+          enabled: instance.enabled,
+          visible: instance.visible,
+          occurrenceVisible: occurrence.visible,
+          order: occurrence.order,
         },
       ];
     });

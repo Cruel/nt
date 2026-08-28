@@ -17,7 +17,7 @@ Read the specific component doc before changing its schema, commands, editor UI,
 - `docs/engine/DIALOGUE.md` — the V2 specialized dialogue graph/program, call-return and state semantics, and current scaffolding.
 - `docs/engine/SCENE.md` — the V2 Scene program and frame contract, call-return and safe-point semantics, and current scaffolding.
 - `docs/engine/INTERACTABLE.md` — unique Interactable definitions, owner-local Features, semantic Hotspot targets, and placement/location/state separation.
-- `docs/engine/ITEM.md` — immutable Item Definitions, live exact Item Stacks, checked arithmetic, publication, Interaction, Lua, and save rules.
+- `docs/engine/ITEM.md` — retirement boundary for the former Item Definition/Item Stack project model; current inventory objects use exact Interactable Instances.
 - `docs/engine/VERB.md` — named Verb slots, Subject Selectors, binding order, localized command templates, availability, and definition-local fallback.
 - `docs/engine/INTERACTION.md` — Character/Interactable/Feature subject identity, Interaction matching, typed programs, outcomes, and mutable-state effects.
 - `docs/engine/MAP.md` — exit-backed map presentation and selection without duplicate navigation topology.

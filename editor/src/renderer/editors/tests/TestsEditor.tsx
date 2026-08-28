@@ -253,10 +253,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
     id,
     label: item.label,
   }));
-  const itemStacks = Object.entries(activeProject.itemStacks).map(([id, item]) => ({
-    id,
-    label: item.label,
-  }));
+  const itemStacks: Array<{ id: string; label: string }> = [];
   const verbs = Object.entries(activeProject.verbs).map(([id, item]) => ({
     id,
     label: item.label,

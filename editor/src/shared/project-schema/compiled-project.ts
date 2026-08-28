@@ -27,6 +27,7 @@ const assetReferenceSchema = typedReference('asset');
 const archetypeReferenceSchema = typedReference('archetype');
 const characterReferenceSchema = typedReference('character');
 const dialogueReferenceSchema = typedReference('dialogue');
+const interactableDefinitionReferenceSchema = typedReference('interactable-definition');
 const interactableReferenceSchema = typedReference('interactable');
 const itemDefinitionReferenceSchema = typedReference('item-definition');
 const itemStackReferenceSchema = typedReference('item-stack');
@@ -612,11 +613,6 @@ const interactableDefinitionSchema = strict({
   displayName: z.string(),
   features: z.array(featureDefinitionSchema),
   inventories: z.array(inventoryDefinitionSchema),
-  initialState: strict({
-    enabled: z.boolean(),
-    location: interactableLocationSchema,
-    visible: z.boolean(),
-  }),
   presentation: strict({
     material: materialReferenceSchema.nullable(),
     sprite: assetReferenceSchema.nullable(),
@@ -639,23 +635,15 @@ const interactableDefinitionSchema = strict({
     ]),
   }),
 });
-
-const itemDefinitionSchema = strict({
-  ...propertyBearingDefinition,
-  displayName: z.string(),
-  description: z.string(),
-  presentation: strict({
-    material: materialReferenceSchema.nullable(),
-    sprite: assetReferenceSchema.nullable(),
-  }),
-  stackLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
-});
-
-const itemStackDeclarationSchema = strict({
+const interactableInstanceDeclarationSchema = strict({
   id,
-  definition: itemDefinitionReferenceSchema,
-  quantity: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  definition: interactableDefinitionReferenceSchema,
   location: interactableLocationSchema,
+  enabled: z.boolean(),
+  visible: z.boolean(),
+  traitAdds: z.array(id),
+  traitRemoves: z.array(id),
+  propertyOverrides: z.array(propertyAssignmentSchema),
 });
 
 const archetypeDefinitionSchema = z.discriminatedUnion('instanceKind', [
@@ -672,7 +660,7 @@ const archetypeDefinitionSchema = z.discriminatedUnion('instanceKind', [
   strict({
     id,
     instanceKind: z.literal('interactable'),
-    configuration: interactableDefinitionSchema.omit({ id: true, initialState: true }),
+    configuration: interactableDefinitionSchema.omit({ id: true }),
   }),
 ]);
 
@@ -1713,7 +1701,6 @@ export const compiledProjectWireSchema = strict({
     characters: z.array(characterDefinitionSchema),
     dialogues: z.array(dialogueDefinitionSchema),
     interactables: z.array(interactableDefinitionSchema),
-    itemDefinitions: z.array(itemDefinitionSchema),
     interactions: z.array(interactionDefinitionSchema),
     maps: z.array(mapDefinitionSchema),
     rooms: z.array(roomDefinitionSchema),
@@ -1736,7 +1723,7 @@ export const compiledProjectWireSchema = strict({
   properties: z.array(propertyDefinitionSchema),
   traits: z.array(traitDefinitionSchema),
   inventories: z.array(inventoryDefinitionSchema),
-  itemStacks: z.array(itemStackDeclarationSchema),
+  interactableInstances: z.array(interactableInstanceDeclarationSchema),
   resources: strict({
     assets: z.array(assetResourceSchema),
     layouts: z.array(layoutResourceSchema),
@@ -1754,7 +1741,6 @@ export const compiledProjectWireSchema = strict({
     { path: ['definitions', 'characters'], records: project.definitions.characters },
     { path: ['definitions', 'dialogues'], records: project.definitions.dialogues },
     { path: ['definitions', 'interactables'], records: project.definitions.interactables },
-    { path: ['definitions', 'itemDefinitions'], records: project.definitions.itemDefinitions },
     { path: ['definitions', 'interactions'], records: project.definitions.interactions },
     { path: ['definitions', 'maps'], records: project.definitions.maps },
     { path: ['definitions', 'rooms'], records: project.definitions.rooms },
@@ -1763,7 +1749,7 @@ export const compiledProjectWireSchema = strict({
     { path: ['properties'], records: project.properties },
     { path: ['traits'], records: project.traits },
     { path: ['archetypes'], records: project.archetypes },
-    { path: ['itemStacks'], records: project.itemStacks },
+    { path: ['interactableInstances'], records: project.interactableInstances },
     { path: ['resources', 'assets'], records: project.resources.assets },
     { path: ['resources', 'layouts'], records: project.resources.layouts },
     { path: ['resources', 'scripts'], records: project.resources.scripts },
@@ -1929,7 +1915,7 @@ export function computeCompiledProjectSaveContract(project: CompiledProjectWire)
     archetypes: project.archetypes as CanonicalJson,
     definitions: project.definitions as CanonicalJson,
     inventories: project.inventories as CanonicalJson,
-    itemStacks: project.itemStacks as CanonicalJson,
+    interactableInstances: project.interactableInstances as CanonicalJson,
     properties: project.properties as CanonicalJson,
     resources: {
       assets: project.resources.assets.map((asset) => asset.id),

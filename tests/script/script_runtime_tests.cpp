@@ -148,7 +148,7 @@ public:
             {{.code = "test.unadmitted", .message = "Property is not admitted"}});
     }
     [[nodiscard]] core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-    interactable_location(const core::InteractableId&) const override
+    interactable_location(const core::InteractableInstanceId&) const override
     {
         return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::failure(
             {{.code = "test.unadmitted", .message = "Interactable is not admitted"}});
@@ -1286,40 +1286,6 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
             "key", { kind = "room", room = "hall" })
         assert(ok and error_message == nil)
 
-        local wallet, wallet_error = noveltea.item_stacks.get("wallet")
-        assert(wallet_error == nil and wallet.definition == "credits" and wallet.quantity == 25)
-        local quality, quality_present, quality_error =
-            noveltea.properties.get("item-stack", "wallet", "quality")
-        assert(quality_error == nil and quality_present and quality == "polished")
-        local trait_change, trait_error = noveltea.item_stacks.set_traits("wallet", {})
-        assert(trait_error == nil and trait_change.changed[1] == "wallet")
-        quality, quality_present, quality_error =
-            noveltea.properties.get("item-stack", "wallet", "quality")
-        assert(quality_error == nil and quality_present and quality == "ordinary")
-        trait_change, trait_error = noveltea.item_stacks.set_traits("wallet", { "currency" })
-        assert(trait_error == nil and trait_change.changed[1] == "wallet")
-        local split, split_error = noveltea.item_stacks.split("wallet", 5)
-        assert(split_error == nil and split.created[1] == "runtime-item-stack-1")
-        assert(split.changed[1] == "wallet")
-        local split_id = split.created[1]
-        local split_stack, split_lookup_error = noveltea.item_stacks.get(split_id)
-        assert(split_lookup_error == nil and split_stack.quantity == 5)
-        local merged, merge_error = noveltea.item_stacks.merge("wallet", split_id)
-        assert(merge_error == nil and merged.quantity == 5 and merged.ended[1] == split_id)
-        split_stack, split_lookup_error = noveltea.item_stacks.get(split_id)
-        assert(split_stack == nil and type(split_lookup_error) == "string")
-        local total, total_error = noveltea.item_stacks.aggregate_definition("credits")
-        assert(total_error == nil and total == 25)
-        local granted, grant_error = noveltea.item_stacks.grant(
-            "credits", 10, { kind = "unplaced" }, true)
-        assert(grant_error == nil and granted.quantity == 10 and #granted.created == 1)
-        local aggregate_consumed, aggregate_consume_error =
-            noveltea.item_stacks.consume_definition("credits", 5)
-        assert(aggregate_consume_error == nil and aggregate_consumed.quantity == 5)
-        assert(aggregate_consumed.changed[1] == granted.created[1])
-        local consumed, consume_error = noveltea.item_stacks.consume(granted.created[1], 5)
-        assert(consume_error == nil and consumed.quantity == 5 and #consumed.ended == 1)
-
         ok, error_message = noveltea.flow.call_scene("closing")
         assert(ok and error_message == nil)
         ok, error_message = noveltea.flow.call_dialogue("intro")
@@ -1369,36 +1335,6 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     CHECK(std::holds_alternative<runtime::NotificationEvent>(events.front()));
     CHECK(invoker.gateway().command_queue().empty());
     CHECK(invoker.gateway().events().empty());
-}
-
-TEST_CASE("typed Lua item Stack Trait changes reject conflicting configured values")
-{
-    RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
-    auto project = load_compiled_fixture("scene-program.json", [](nlohmann::json& document) {
-        document["traits"].push_back(
-            {{"description", ""},
-             {"id", "ordinary-currency"},
-             {"label", "Ordinary Currency"},
-             {"ownerKinds", {"item-stack"}},
-             {"properties",
-              {{{"kind", "configured"}, {"propertyId", "quality"}, {"value", "ordinary"}}}}});
-    });
-    auto state_result = core::SessionState::create(project);
-    REQUIRE(state_result);
-    auto state = std::move(state_result).value();
-    core::FlowExecutor executor(project, state);
-    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
-
-    auto executed = invoker.execute(R"(
-        local change, error_message =
-            noveltea.item_stacks.set_traits("wallet", { "currency", "ordinary-currency" })
-        assert(change == nil and type(error_message) == "string")
-        local wallet, lookup_error = noveltea.item_stacks.get("wallet")
-        assert(lookup_error == nil and wallet.traits[1] == "currency" and wallet.traits[2] == nil)
-    )",
-                                    "conflicting-item-stack-traits");
-    REQUIRE(executed);
 }
 
 TEST_CASE("typed Lua host services distinguish Room transient and navigation requests")

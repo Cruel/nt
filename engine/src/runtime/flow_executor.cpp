@@ -309,7 +309,7 @@ FlowExecutor::character_definition(const CharacterId& character) const noexcept
 }
 
 const compiled::InteractableDefinition*
-FlowExecutor::interactable_definition(const InteractableId& interactable) const noexcept
+FlowExecutor::interactable_definition(const InteractableInstanceId& interactable) const noexcept
 {
     return m_world->resolved_configuration(interactable);
 }

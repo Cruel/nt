@@ -97,12 +97,22 @@ struct RoomDefinition {
 };
 
 struct InteractableDefinition {
-    PropertyBearingDefinition<InteractableId> identity;
+    PropertyBearingDefinition<InteractableDefinitionId> identity;
     std::string display_name;
     std::vector<FeatureDefinition> features;
     std::vector<InventoryDefinition> inventories;
-    InteractableInitialState initial_state;
     InteractablePresentation presentation;
+};
+
+struct InteractableInstanceDeclaration {
+    InteractableInstanceId id;
+    InteractableDefinitionId definition;
+    InteractableLocation location;
+    bool enabled;
+    bool visible;
+    std::vector<TraitId> trait_adds;
+    std::vector<TraitId> trait_removes;
+    std::vector<PropertyAssignment> property_overrides;
 };
 
 struct ItemDefinition {
@@ -179,8 +189,7 @@ struct SharedProject {
     std::vector<CharacterDefinition> characters;
     std::vector<RoomDefinition> rooms;
     std::vector<InteractableDefinition> interactables;
-    std::vector<ItemDefinition> item_definitions;
-    std::vector<ItemStackDeclaration> item_stacks;
+    std::vector<InteractableInstanceDeclaration> interactable_instances;
     std::vector<VerbDefinition> verbs;
     std::vector<InteractionDefinition> interactions;
     std::optional<InteractionProgram> undefined_interaction_program;

@@ -412,10 +412,7 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
     CHECK(started.publication->gameplay_ui.maps.front().map.text() == "house");
     REQUIRE(started.publication->gameplay_ui.maps.front().current_room);
     CHECK(started.publication->gameplay_ui.maps.front().current_room->text() == "start");
-    CHECK(std::any_of(
-        started.publication->gameplay_ui.inventory.item_stacks.begin(),
-        started.publication->gameplay_ui.inventory.item_stacks.end(),
-        [](const auto& stack) { return stack.stack.text() == "wallet" && stack.quantity == 25; }));
+    CHECK(started.publication->gameplay_ui.inventory.item_stacks.empty());
 
     const core::compiled::InteractionSubject door_subject =
         core::compiled::FeatureInteractionSubject{core::RoomFeatureRef{
@@ -432,7 +429,8 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
                       }));
 
     const core::compiled::InteractionSubject key_subject =
-        core::compiled::InteractableInteractionSubject{core::InteractableId::create("key").value()};
+        core::compiled::InteractableInteractionSubject{
+            core::InteractableInstanceId::create("key").value()};
     auto activated =
         game.session().dispatch(core::RuntimeInputMessage{core::PrimaryActivateInput{key_subject}});
     REQUIRE(activated.diagnostics.empty());
@@ -446,11 +444,7 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
         if (!instance.declared)
             runtime_instances.push_back(instance.instance);
     CHECK(runtime_instances.size() == 2);
-    CHECK(std::any_of(activated.publication->gameplay_ui.inventory.item_stacks.begin(),
-                      activated.publication->gameplay_ui.inventory.item_stacks.end(),
-                      [](const auto& stack) {
-                          return stack.definition.text() == "credits" && stack.quantity == 7;
-                      }));
+    CHECK(activated.publication->gameplay_ui.inventory.item_stacks.empty());
 
     const auto layout =
         std::find_if(activated.publication->presentation.layouts.begin(),
@@ -504,11 +498,7 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
         if (!instance.declared)
             restored_runtime_instances.push_back(instance.instance);
     CHECK(restored_runtime_instances == runtime_instances);
-    CHECK(std::any_of(restored_publication.gameplay_ui.inventory.item_stacks.begin(),
-                      restored_publication.gameplay_ui.inventory.item_stacks.end(),
-                      [](const auto& stack) {
-                          return stack.definition.text() == "credits" && stack.quantity == 7;
-                      }));
+    CHECK(restored_publication.gameplay_ui.inventory.item_stacks.empty());
     const auto restored_layout =
         std::find_if(restored_publication.presentation.layouts.begin(),
                      restored_publication.presentation.layouts.end(), [](const auto& candidate) {
@@ -560,17 +550,16 @@ TEST_CASE("compiled running game preserves declared Gameplay Instance lookup and
     REQUIRE(started.disposition != runtime::RuntimeInputDisposition::Failed);
 
     const auto hero = core::CharacterId::create("hero").value();
-    const auto key = core::InteractableId::create("key").value();
+    const auto key = core::InteractableInstanceId::create("key").value();
     const auto* hero_definition = loaded.value()->package().project().find_character(hero);
-    const auto* key_definition = loaded.value()->package().project().find_interactable(key);
+    const auto* key_instance = loaded.value()->package().project().find_interactable_instance(key);
     REQUIRE(hero_definition != nullptr);
-    REQUIRE(key_definition != nullptr);
+    REQUIRE(key_instance != nullptr);
     REQUIRE(session.gateway().character_world_state(hero));
     REQUIRE(session.gateway().interactable_state(key));
     CHECK(session.gateway().character_world_state(hero).value().visible ==
           hero_definition->initial_world_state.visible);
-    CHECK(session.gateway().interactable_state(key).value().visible ==
-          key_definition->initial_state.visible);
+    CHECK(session.gateway().interactable_state(key).value().visible == key_instance->visible);
 
     REQUIRE(
         session.gateway().request_character_world_state(hero, std::nullopt, std::nullopt, false));
@@ -583,7 +572,7 @@ TEST_CASE("compiled running game preserves declared Gameplay Instance lookup and
     CHECK_FALSE(session.gateway().character_world_state(hero).value().visible);
     CHECK_FALSE(session.gateway().interactable_state(key).value().visible);
     CHECK(hero_definition->initial_world_state.visible);
-    CHECK(key_definition->initial_state.visible);
+    CHECK(key_instance->visible);
 }
 
 TEST_CASE("compiled runtime rejects malformed package data before session construction")

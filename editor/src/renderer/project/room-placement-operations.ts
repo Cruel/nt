@@ -4,6 +4,7 @@ import { resolveGameplayInstanceRecord } from '../../shared/project-schema/autho
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import {
+  defaultInteractableInstanceData,
   parseInteractableData,
   type InteractableData,
 } from '../../shared/project-schema/authoring-interactables';
@@ -14,8 +15,8 @@ import {
   type RoomNormalizedRect,
   type RoomPlacementData,
 } from '../../shared/project-schema/authoring-rooms';
-import { replaceInteractableDataPatches } from './interactable-operations';
 import { replaceRoomDataPatches } from './room-operations';
+import { toJsonValue } from './json-value';
 
 const INT32_MAX = 2_147_483_647;
 
@@ -126,12 +127,25 @@ export function placeInteractablePatches(
 ): EntityOperationResult {
   const loaded = loadedRecords(document, payload.roomId, payload.interactableId);
   if ('patches' in loaded) return loaded;
+  if (!isAuthoringProject(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if (!validBounds(payload.bounds))
     return { patches: [], diagnostics: [error('Room placement bounds are invalid.')] };
   if (loaded.room.placements.some((item) => item.id === payload.placementId))
     return { patches: [], diagnostics: [error('Room placement ID already exists.')] };
   if (loaded.room.interactables.some((item) => item.id === payload.instanceId))
     return { patches: [], diagnostics: [error('Room Interactable instance ID already exists.')] };
+  const existingInstance = document.interactableInstances[payload.instanceId];
+  if (existingInstance && existingInstance.definition.$ref.id !== payload.interactableId)
+    return {
+      patches: [],
+      diagnostics: [error('Interactable Instance does not use the selected definition.')],
+    };
+  if (existingInstance?.location.kind === 'room')
+    return {
+      patches: [],
+      diagnostics: [error('Interactable Instance is already assigned to a Room.')],
+    };
   const maximumOrder = loaded.room.placements.reduce(
     (maximum, placement) => Math.max(maximum, placement.order ?? 0),
     -1,
@@ -145,7 +159,7 @@ export function placeInteractablePatches(
       layout: null,
     },
   };
-  const room = roomResult(document, payload.roomId, {
+  const roomData: RoomData = {
     ...loaded.room,
     placements: [...loaded.room.placements, placement],
     interactables: [
@@ -153,31 +167,34 @@ export function placeInteractablePatches(
       {
         id: payload.instanceId,
         interactable: {
-          $ref: { collection: 'interactables', id: payload.interactableId },
+          $ref: { registry: 'interactableInstances', id: payload.instanceId },
         },
         condition: { kind: 'always' },
         placementId: payload.placementId,
-        visible: loaded.interactable!.initialState.visible,
+        visible: true,
         order: loaded.room.interactables.length,
       },
     ],
-  });
+  };
+  const location = {
+    kind: 'room' as const,
+    room: { $ref: { collection: 'rooms' as const, id: payload.roomId } },
+  };
+  const instance = existingInstance
+    ? { ...existingInstance, location }
+    : defaultInteractableInstanceData(payload.instanceId, payload.interactableId, location);
+  const prospectiveDocument = structuredClone(document);
+  prospectiveDocument.interactableInstances[payload.instanceId] = instance;
+  const room = roomResult(prospectiveDocument, payload.roomId, roomData);
   if (room.diagnostics?.some((item) => item.severity === 'error')) return room;
-  const interactable = replaceInteractableDataPatches(document, {
-    interactableId: payload.interactableId,
-    data: {
-      ...loaded.interactable!,
-      initialState: {
-        ...loaded.interactable!.initialState,
-        location: {
-          kind: 'room',
-          room: { $ref: { collection: 'rooms', id: payload.roomId } },
-        },
-      },
+  const patches = [
+    {
+      op: existingInstance ? ('replace' as const) : ('add' as const),
+      path: buildJsonPointer(['interactableInstances', payload.instanceId]),
+      value: toJsonValue(instance),
     },
-  });
-  if (interactable.diagnostics?.some((item) => item.severity === 'error')) return interactable;
-  const patches = [...room.patches, ...interactable.patches];
+    ...room.patches,
+  ];
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }
 

@@ -7,7 +7,10 @@ import {
 import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE } from '../../shared/preview-display';
 import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
@@ -38,7 +41,7 @@ function fixture() {
   room.interactables = [
     {
       id: 'key',
-      interactable: { $ref: { collection: 'interactables', id: 'key' } },
+      interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
       condition: { kind: 'always' },
       placementId: 'door',
       visible: true,
@@ -56,11 +59,11 @@ function fixture() {
   project.characters.alice = { id: 'alice', label: 'Alice', data: character };
 
   const interactable = defaultInteractableData('Key');
-  interactable.initialState.location = {
+  project.interactables.key = { id: 'key', label: 'Key', data: interactable };
+  project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
     kind: 'room',
     room: { $ref: { collection: 'rooms', id: 'bedroom' } },
-  };
-  project.interactables.key = { id: 'key', label: 'Key', data: interactable };
+  });
   return project;
 }
 

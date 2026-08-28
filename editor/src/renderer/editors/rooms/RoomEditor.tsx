@@ -55,7 +55,11 @@ import {
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
-import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import {
+  buildCommandPaletteItems,
+  filterSelectorItems,
+  type SelectorItem,
+} from '@/workspace/command-palette-search';
 import {
   defaultRoomData,
   parseRoomData,
@@ -581,7 +585,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [compositionBackgroundUrl, setCompositionBackgroundUrl] = useState<string | null>(null);
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
   const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
-  const [placingInteractableId, setPlacingInteractableId] = useState<string | null>(null);
+  const [placingInteractable, setPlacingInteractable] = useState<
+    | { kind: 'definition'; definitionId: string }
+    | { kind: 'instance'; instanceId: string; definitionId: string }
+    | null
+  >(null);
   const [activeCategory, setActiveCategory] = useState<RoomEditorCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState
@@ -628,14 +636,33 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       }),
     [selectorItems],
   );
-  const interactableItems = useMemo(
-    () =>
-      filterSelectorItems(selectorItems, {
-        collections: ['interactables'],
-        includeActions: false,
-      }),
-    [selectorItems],
-  );
+  const interactableItems = useMemo(() => {
+    const definitionItems = filterSelectorItems(selectorItems, {
+      collections: ['interactables'],
+      includeActions: false,
+    }).map((item) => ({
+      ...item,
+      id: `definition:${item.entityId ?? item.id}`,
+      subtitle: item.subtitle ? `New instance · ${item.subtitle}` : 'New instance',
+    }));
+    if (!project) return definitionItems;
+    const instanceItems: SelectorItem[] = Object.entries(project.interactableInstances)
+      .filter(([, instance]) => instance.location.kind !== 'room')
+      .map(([instanceId, instance]) => {
+        const definition = project.interactables[instance.definition.$ref.id];
+        return {
+          id: `instance:${instanceId}`,
+          kind: 'record',
+          title: instance.editorLabel ?? instanceId,
+          subtitle: `Existing instance · ${definition?.label ?? instance.definition.$ref.id}`,
+          entityId: instanceId,
+          tags: [instanceId, instance.definition.$ref.id],
+          collectionTerms: ['interactable', 'instance'],
+          actionTerms: [],
+        };
+      });
+    return [...instanceItems, ...definitionItems];
+  }, [project, selectorItems]);
   useWorkbenchEditorTabState<RoomEditorTabState>(
     tab.id,
     useMemo(
@@ -797,16 +824,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       .filter((entry) => entry.placementId === placementId)
       .map((entry) => project.interactables[entry.interactable.$ref.id]?.label ?? entry.id),
   ];
-  const placeInteractable = (interactableId: string, bounds: RoomNormalizedRect) => {
+  const placeInteractable = (
+    target: NonNullable<typeof placingInteractable>,
+    bounds: RoomNormalizedRect,
+  ) => {
+    const interactableId = target.definitionId;
     const interactableRecord = project.interactables[interactableId];
     const interactable = parseInteractableData(interactableRecord?.data);
     if (!interactable) return;
-    const instanceId = nextId(
-      Object.values(project.rooms).flatMap(
-        (room) => parseRoomData(room.data)?.interactables.map((entry) => entry.id) ?? [],
-      ),
-      interactableId,
-    );
+    const instanceId =
+      target.kind === 'instance'
+        ? target.instanceId
+        : nextId(Object.keys(project.interactableInstances), interactableId);
     const placementId = nextId(
       data.placements.map((placement) => placement.id),
       `${instanceId}-placement`,
@@ -819,7 +848,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
     setSelectedPlacementId(placementId);
-    setPlacingInteractableId(null);
+    setPlacingInteractable(null);
   };
   const detachInteractable = (interactableId: string, sourcePlacementId: string) => {
     const placementId = nextId(
@@ -854,11 +883,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         }))
     : [];
   const referenceResolution = projectSettingsFromProject(project).display.referenceResolution;
-  const placingInteractable = placingInteractableId
-    ? parseInteractableData(project.interactables[placingInteractableId]?.data)
+  const placingInteractableData = placingInteractable
+    ? parseInteractableData(project.interactables[placingInteractable.definitionId]?.data)
     : null;
-  const placingSprite = placingInteractable?.presentation.sprite
-    ? parseAssetData(project.assets[placingInteractable.presentation.sprite.$ref.id]?.data)
+  const placingSprite = placingInteractableData?.presentation.sprite
+    ? parseAssetData(project.assets[placingInteractableData.presentation.sprite.$ref.id]?.data)
     : null;
   const placingImageMetadata = placingSprite?.kind === 'image' ? placingSprite.imageMetadata : null;
   const placementDraftSize = placingImageMetadata
@@ -2161,14 +2190,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </div>
                 <Button
                   size="sm"
-                  variant={placingInteractableId ? 'secondary' : 'outline'}
+                  variant={placingInteractable ? 'secondary' : 'outline'}
                   onClick={() => {
-                    if (placingInteractableId) setPlacingInteractableId(null);
+                    if (placingInteractable) setPlacingInteractable(null);
                     else setInteractableSelectorOpen(true);
                   }}
                 >
                   <Plus data-icon="inline-start" />
-                  {placingInteractableId
+                  {placingInteractable
                     ? t('roomComposition.cancelPlacement')
                     : t('roomComposition.placeInteractable')}
                 </Button>
@@ -2188,8 +2217,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 }))}
                 selectedId={selectedPlacementId}
                 placementDraftLabel={
-                  placingInteractableId
-                    ? (project.interactables[placingInteractableId]?.label ?? placingInteractableId)
+                  placingInteractable
+                    ? placingInteractable.kind === 'instance'
+                      ? (project.interactableInstances[placingInteractable.instanceId]
+                          ?.editorLabel ?? placingInteractable.instanceId)
+                      : (project.interactables[placingInteractable.definitionId]?.label ??
+                        placingInteractable.definitionId)
                     : null
                 }
                 onSelectionChange={setSelectedPlacementId}
@@ -2203,11 +2236,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   })
                 }
                 onCommitPlacement={(bounds) => {
-                  if (placingInteractableId) placeInteractable(placingInteractableId, bounds);
+                  if (placingInteractable) placeInteractable(placingInteractable, bounds);
                 }}
-                onCancelPlacement={() => setPlacingInteractableId(null)}
+                onCancelPlacement={() => setPlacingInteractable(null)}
               />
-              {placingInteractableId ? (
+              {placingInteractable ? (
                 <p className="text-xs text-muted-foreground">
                   {t('roomComposition.dragPlacement')}
                 </p>
@@ -3148,7 +3181,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           onOpenChange={setInteractableSelectorOpen}
           onSelect={(item) => {
             if (!item.entityId) return;
-            setPlacingInteractableId(item.entityId);
+            if (item.id.startsWith('instance:')) {
+              const instance = project.interactableInstances[item.entityId];
+              if (!instance) return;
+              setPlacingInteractable({
+                kind: 'instance',
+                instanceId: item.entityId,
+                definitionId: instance.definition.$ref.id,
+              });
+            } else {
+              setPlacingInteractable({ kind: 'definition', definitionId: item.entityId });
+            }
             setInteractableSelectorOpen(false);
           }}
         />

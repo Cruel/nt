@@ -2,6 +2,7 @@
 
 #include "noveltea/core/compiled_project.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <variant>
 
@@ -16,7 +17,7 @@ struct CompiledCharacterConfigurationSource {
     auto operator<=>(const CompiledCharacterConfigurationSource&) const = default;
 };
 struct CompiledInteractableConfigurationSource {
-    InteractableId interactable;
+    InteractableDefinitionId definition;
     auto operator<=>(const CompiledInteractableConfigurationSource&) const = default;
 };
 struct ArchetypeConfigurationSource {
@@ -27,7 +28,7 @@ using RuntimeConfigurationSource =
     std::variant<CompiledRoomConfigurationSource, CompiledCharacterConfigurationSource,
                  CompiledInteractableConfigurationSource, ArchetypeConfigurationSource>;
 
-using GameplayInstanceRef = std::variant<RoomId, CharacterId, InteractableId>;
+using GameplayInstanceRef = std::variant<RoomId, CharacterId, InteractableInstanceId>;
 
 enum class RuntimeInstanceProvenanceKind : std::uint8_t {
     Declared,
@@ -84,6 +85,35 @@ struct RuntimeRoomConfiguration {
 using RuntimeCharacterConfiguration =
     RuntimeInstanceConfiguration<CharacterId, compiled::CharacterDefinition>;
 using RuntimeInteractableConfiguration =
-    RuntimeInstanceConfiguration<InteractableId, compiled::InteractableDefinition>;
+    RuntimeInstanceConfiguration<InteractableInstanceId, compiled::InteractableDefinition>;
+
+[[nodiscard]] inline compiled::InteractableDefinition realize_declared_interactable_configuration(
+    const compiled::InteractableDefinition& definition,
+    const compiled::InteractableInstanceDeclaration& declaration)
+{
+    auto effective = definition;
+    auto& traits = effective.identity.traits;
+    for (const auto& removed : declaration.trait_removes)
+        std::erase(traits, removed);
+    for (const auto& added : declaration.trait_adds)
+        if (std::find(traits.begin(), traits.end(), added) == traits.end())
+            traits.push_back(added);
+    std::ranges::sort(traits, {}, [](const auto& id) { return id.text(); });
+
+    auto& assignments = effective.identity.property_assignments;
+    for (const auto& override : declaration.property_overrides) {
+        const auto found =
+            std::find_if(assignments.begin(), assignments.end(), [&](const auto& value) {
+                return value.property_id() == override.property_id();
+            });
+        if (found == assignments.end())
+            assignments.push_back(override);
+        else
+            *found = override;
+    }
+    std::ranges::sort(assignments, {},
+                      [](const auto& value) { return value.property_id().text(); });
+    return effective;
+}
 
 } // namespace noveltea::core

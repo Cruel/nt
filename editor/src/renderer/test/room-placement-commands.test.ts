@@ -3,7 +3,10 @@ import { toJsonValue } from '@/project/json-value';
 import { createInitialCommandBusState, executeCommand, undoCommand } from './command-test-utils';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 
 describe('Room placement commands', () => {
   it('places an Interactable with exact defaults and undoes both records atomically', () => {
@@ -57,7 +60,7 @@ describe('Room placement commands', () => {
             interactables: [
               {
                 id: 'key',
-                interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
                 condition: { kind: 'always' },
                 placementId: 'key-placement',
                 visible: true,
@@ -67,19 +70,81 @@ describe('Room placement commands', () => {
           },
         },
       },
-      interactables: {
+      interactableInstances: {
         key: {
-          data: {
-            initialState: {
-              location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
-            },
+          definition: { $ref: { collection: 'interactables', id: 'key' } },
+          location: {
+            kind: 'room',
+            room: { $ref: { collection: 'rooms', id: 'foyer' } },
           },
         },
       },
     });
     expect(placed.historyEntry?.affectedPaths).toEqual([
-      '/interactables/key/data',
+      '/interactableInstances/key',
       '/rooms/foyer/data',
+    ]);
+    expect(undoCommand(placed.state).document).toEqual(state.document);
+  });
+
+  it('places an existing exact Instance without cloning or discarding its deltas', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass key',
+      data: defaultInteractableData('Brass key'),
+    };
+    const instance = defaultInteractableInstanceData('special-key', 'key');
+    instance.editorLabel = 'Special key';
+    instance.traits.add = ['important'];
+    instance.properties.note = 'keep me';
+    project.interactableInstances['special-key'] = instance;
+
+    const state = createInitialCommandBusState(toJsonValue(project));
+    const placed = executeCommand(state, {
+      type: 'room.placeInteractable',
+      payload: {
+        roomId: 'foyer',
+        interactableId: 'key',
+        instanceId: 'special-key',
+        placementId: 'special-key-placement',
+        bounds: { x: 0.2, y: 0.3, width: 0.2, height: 0.2 },
+      },
+    });
+
+    expect(placed.ok).toBe(true);
+    expect(placed.document).toMatchObject({
+      interactableInstances: {
+        'special-key': {
+          editorLabel: 'Special key',
+          definition: { $ref: { collection: 'interactables', id: 'key' } },
+          traits: { add: ['important'] },
+          properties: { note: 'keep me' },
+          location: {
+            kind: 'room',
+            room: { $ref: { collection: 'rooms', id: 'foyer' } },
+          },
+        },
+      },
+      rooms: {
+        foyer: {
+          data: {
+            interactables: [
+              expect.objectContaining({
+                id: 'special-key',
+                interactable: {
+                  $ref: { registry: 'interactableInstances', id: 'special-key' },
+                },
+                placementId: 'special-key-placement',
+              }),
+            ],
+          },
+        },
+      },
+    });
+    expect(Object.keys((placed.document as typeof project).interactableInstances)).toEqual([
+      'special-key',
     ]);
     expect(undoCommand(placed.state).document).toEqual(state.document);
   });
@@ -102,14 +167,10 @@ describe('Room placement commands', () => {
       },
     ];
     const key = defaultInteractableData('Key');
-    key.initialState.location = {
-      kind: 'room',
-      room: { $ref: { collection: 'rooms', id: 'foyer' } },
-    };
     room.interactables = [
       {
         id: 'key',
-        interactable: { $ref: { collection: 'interactables', id: 'key' } },
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
         condition: { kind: 'always' },
         placementId: 'shared',
         visible: true,
@@ -118,6 +179,10 @@ describe('Room placement commands', () => {
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.interactables.key = { id: 'key', label: 'Key', data: key };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
     let state = createInitialCommandBusState(toJsonValue(project));
 
     const moved = executeCommand(state, {

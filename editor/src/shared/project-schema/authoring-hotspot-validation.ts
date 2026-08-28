@@ -54,16 +54,14 @@ function validateSubject(
           ),
         ];
   if (subject.kind === 'item-stack')
-    return project.itemStacks[subject.itemStack.$ref.id]
-      ? []
-      : [
-          diagnostic(
-            category,
-            `${path}/itemStack/$ref`,
-            `Missing Item Stack '${subject.itemStack.$ref.id}'.`,
-            'hotspot.authoring.target.item-stack-missing',
-          ),
-        ];
+    return [
+      diagnostic(
+        category,
+        `${path}/itemStack/$ref`,
+        'Item Stack subjects are retired; use Interactable Instances.',
+        'hotspot.authoring.target.item-stack-retired',
+      ),
+    ];
   const feature = subject.feature;
   if (feature.ownerKind === 'room') {
     const room = parseRoomData(project.rooms[feature.room.$ref.id]?.data);

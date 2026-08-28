@@ -18,10 +18,6 @@ import {
 import { defaultCharacterData } from '../../../../shared/project-schema/authoring-characters';
 import { defaultInteractableData } from '../../../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../../../shared/project-schema/authoring-hotspots';
-import {
-  defaultItemDefinitionData,
-  defaultItemStackData,
-} from '../../../../shared/project-schema/authoring-items';
 import { defaultDialogueData } from '../../../../shared/project-schema/authoring-dialogues';
 import {
   defaultLayoutData,
@@ -228,40 +224,6 @@ function InteractableWizardOptions({
 }
 
 export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
-  {
-    collection: 'itemDefinitions',
-    category: 'world',
-    supportLevel: 'typed',
-    summary: 'Immutable semantic and presentation defaults shared by fungible item Stacks.',
-    currentScope: 'Creates an Item Definition with optional sprite, material, and Stack limit.',
-    ...visual('itemDefinitions'),
-    buildPayload: ({ draft }) => ({ data: defaultItemDefinitionData(draft.basics.label) }),
-  },
-  {
-    collection: 'itemStacks',
-    category: 'world',
-    supportLevel: 'typed',
-    summary: 'An exact authored live Stack identity with quantity and initial Location.',
-    currentScope: 'Creates a positive Stack for one existing Item Definition.',
-    ...visual('itemStacks'),
-    defaultOptions: (project) => ({
-      definitionId: Object.keys(project.itemDefinitions)[0] ?? '__none__',
-    }),
-    renderOptions: ({ project, draft, setOption }) => (
-      <div className="space-y-1">
-        <Label>Item Definition</Label>
-        <Select
-          value={String(draft.options.definitionId ?? '__none__')}
-          onValueChange={(value) => setOption('definitionId', String(value))}
-        >
-          {recordOptions(project.itemDefinitions, 'Choose an Item Definition')}
-        </Select>
-      </div>
-    ),
-    buildPayload: ({ draft }) => ({
-      data: defaultItemStackData(selected(draft.options.definitionId) ?? 'item'),
-    }),
-  },
   {
     collection: 'archetypes',
     category: 'world',

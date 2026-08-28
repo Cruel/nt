@@ -130,7 +130,7 @@ nlohmann::json encode_owner(const PropertyOwnerRef& owner)
                 return nlohmann::json{{"kind", "room"}, {"id", value.text()}};
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return nlohmann::json{{"kind", "character"}, {"id", value.text()}};
-            else if constexpr (std::is_same_v<T, InteractableId>)
+            else if constexpr (std::is_same_v<T, InteractableInstanceId>)
                 return nlohmann::json{{"kind", "interactable"}, {"id", value.text()}};
             else if constexpr (std::is_same_v<T, RoomFeatureRef>)
                 return nlohmann::json{{"kind", "feature"},
@@ -183,7 +183,7 @@ std::optional<PropertyOwnerRef> decode_owner(Decoder& d, const nlohmann::json& v
         const auto* id = d.member(value, "id", pointer);
         if (!id)
             return std::nullopt;
-        auto result = d.id<InteractableId>(*id, child(pointer, "id"));
+        auto result = d.id<InteractableInstanceId>(*id, child(pointer, "id"));
         return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
     }
     if (*name == "item-stack") {
@@ -212,7 +212,7 @@ std::optional<PropertyOwnerRef> decode_owner(Decoder& d, const nlohmann::json& v
                                 : std::nullopt;
         }
         if (*owner_name == "interactable") {
-            auto parsed_owner = d.id<InteractableId>(*owner_id, child(pointer, "ownerId"));
+            auto parsed_owner = d.id<InteractableInstanceId>(*owner_id, child(pointer, "ownerId"));
             return parsed_owner ? std::optional<PropertyOwnerRef>(InteractableFeatureRef{
                                       std::move(*parsed_owner), std::move(*parsed_feature)})
                                 : std::nullopt;
@@ -307,7 +307,8 @@ decode_inventory_owner(Decoder& d, const nlohmann::json& value, std::string_view
     if (*name == "interactable") {
         d.object(value, pointer, {"interactable", "kind"});
         const auto* id = d.member(value, "interactable", pointer);
-        auto parsed = id ? d.id<InteractableId>(*id, child(pointer, "interactable")) : std::nullopt;
+        auto parsed =
+            id ? d.id<InteractableInstanceId>(*id, child(pointer, "interactable")) : std::nullopt;
         return parsed ? std::optional<compiled::InventoryOwnerRef>(
                             compiled::InteractableInventoryOwner{std::move(*parsed)})
                       : std::nullopt;
@@ -328,8 +329,9 @@ decode_inventory_owner(Decoder& d, const nlohmann::json& value, std::string_view
         const auto* interactable = d.member(value, "interactable", pointer);
         const auto* feature = d.member(value, "feature", pointer);
         auto interactable_id =
-            interactable ? d.id<InteractableId>(*interactable, child(pointer, "interactable"))
-                         : std::nullopt;
+            interactable
+                ? d.id<InteractableInstanceId>(*interactable, child(pointer, "interactable"))
+                : std::nullopt;
         auto feature_id =
             feature ? d.id<FeatureId>(*feature, child(pointer, "feature")) : std::nullopt;
         return interactable_id && feature_id

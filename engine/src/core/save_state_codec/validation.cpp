@@ -20,8 +20,8 @@ const SavedRuntimeCharacterConfiguration* saved_character(const SaveState& save,
     return found == save.runtime_characters.end() ? nullptr : &*found;
 }
 
-const SavedRuntimeInteractableConfiguration* saved_interactable(const SaveState& save,
-                                                                const InteractableId& id) noexcept
+const SavedRuntimeInteractableConfiguration*
+saved_interactable(const SaveState& save, const InteractableInstanceId& id) noexcept
 {
     const auto found =
         std::find_if(save.runtime_interactables.begin(), save.runtime_interactables.end(),
@@ -82,14 +82,15 @@ materialize_character_source(const CompiledProject& project,
 
 std::optional<compiled::InteractableDefinition>
 materialize_interactable_source(const CompiledProject& project,
-                                const RuntimeConfigurationSource& source, const InteractableId& id)
+                                const RuntimeConfigurationSource& source,
+                                const InteractableInstanceId& id)
 {
     std::optional<compiled::InteractableDefinition> result;
     std::visit(
         [&](const auto& value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, CompiledInteractableConfigurationSource>) {
-                if (const auto* definition = project.find_interactable(value.interactable))
+                if (const auto* definition = project.find_interactable_definition(value.definition))
                     result = *definition;
             } else if constexpr (std::is_same_v<T, ArchetypeConfigurationSource>) {
                 const auto* archetype = project.find_archetype(value.archetype);
@@ -101,8 +102,7 @@ materialize_interactable_source(const CompiledProject& project,
             }
         },
         source);
-    if (result)
-        result->identity.id = id;
+    (void)id;
     return result;
 }
 
@@ -161,7 +161,7 @@ resolved_character(const CompiledProject& project, const SaveState& save, const 
 
 std::optional<compiled::InteractableDefinition>
 resolved_interactable(const CompiledProject& project, const SaveState& save,
-                      const InteractableId& id)
+                      const InteractableInstanceId& id)
 {
     const auto* record = saved_interactable(save, id);
     return record == nullptr
@@ -201,7 +201,7 @@ bool owner_exists(const CompiledProject& project, const SaveState& save,
                 return resolved_room(project, save, id).has_value();
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return resolved_character(project, save, id).has_value();
-            else if constexpr (std::is_same_v<T, InteractableId>)
+            else if constexpr (std::is_same_v<T, InteractableInstanceId>)
                 return resolved_interactable(project, save, id).has_value();
             else if constexpr (std::is_same_v<T, ItemStackId>)
                 return std::ranges::any_of(save.item_stacks,
@@ -376,10 +376,11 @@ bool valid_character_location(const CompiledProject& project, const SaveState& s
     return room == nullptr || resolved_room(project, save, room->room).has_value();
 }
 
-std::optional<InteractableId> inventory_interactable_owner(const compiled::InventoryRef& inventory)
+std::optional<InteractableInstanceId>
+inventory_interactable_owner(const compiled::InventoryRef& inventory)
 {
     return std::visit(
-        [](const auto& owner) -> std::optional<InteractableId> {
+        [](const auto& owner) -> std::optional<InteractableInstanceId> {
             using T = std::decay_t<decltype(owner)>;
             if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>)
                 return owner.interactable;
@@ -1385,7 +1386,7 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                                (kind == compiled::GameplayInstanceKind::Character &&
                                 std::is_same_v<T, CharacterId>) ||
                                (kind == compiled::GameplayInstanceKind::Interactable &&
-                                std::is_same_v<T, InteractableId>);
+                                std::is_same_v<T, InteractableInstanceId>);
                     },
                     *provenance.source_instance);
                 if (!same_kind)
@@ -1488,7 +1489,8 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (!runtime_interactable_ids.insert(record.id.text()).second)
             error("save_codec.duplicate_runtime_instance",
                   "Runtime Interactable configuration appears more than once.");
-        const bool declared = project.find_interactable(record.id) != nullptr;
+        const auto* declaration = project.find_interactable_instance(record.id);
+        const bool declared = declaration != nullptr;
         if (record.declared != declared)
             error("save_codec.invalid_runtime_instance",
                   "Runtime Interactable declared flag does not match compiled Project identity.");
@@ -1501,7 +1503,7 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (declared) {
             const auto* source =
                 std::get_if<CompiledInteractableConfigurationSource>(&record.birth_source);
-            if (source == nullptr || source->interactable != record.id)
+            if (source == nullptr || source->definition != declaration->definition)
                 error("save_codec.invalid_runtime_configuration",
                       "Declared Interactable birth configuration must be its compiled definition.");
         }
@@ -1509,8 +1511,8 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         validate_provenance(record.provenance, declared,
                             compiled::GameplayInstanceKind::Interactable);
     }
-    for (const auto& interactable : project.interactables()) {
-        const auto* record = saved_interactable(save, interactable.identity.id);
+    for (const auto& interactable : project.interactable_instances()) {
+        const auto* record = saved_interactable(save, interactable.id);
         if (record == nullptr || !record->declared)
             error("save_codec.incomplete_runtime_world",
                   "Save must retain every declared Interactable Gameplay Instance.");
@@ -1622,7 +1624,7 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         }
     }
     for (const auto& start : save.interactables) {
-        std::unordered_set<InteractableId> visited;
+        std::unordered_set<InteractableInstanceId> visited;
         visited.insert(start.interactable);
         const InteractableState* current = &start;
         while (const auto* location =

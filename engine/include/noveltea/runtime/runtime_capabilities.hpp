@@ -50,7 +50,7 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_character_visible(const core::CharacterId& character, bool visible);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    set_interactable_visible(const core::InteractableId& interactable, bool visible);
+    set_interactable_visible(const core::InteractableInstanceId& interactable, bool visible);
 
 private:
     core::RoomPresentationDraft* m_draft = nullptr;

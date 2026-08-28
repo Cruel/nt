@@ -60,7 +60,8 @@ command_builder_lua_subject(const sol::object& value, core::Diagnostics& diagnos
         return core::compiled::CharacterInteractionSubject{std::move(*id)};
     }
     if (kind == "interactable") {
-        auto id = command_builder_lua_id<core::InteractableId>(subject["id"], diagnostics, "id");
+        auto id =
+            command_builder_lua_id<core::InteractableInstanceId>(subject["id"], diagnostics, "id");
         if (!id)
             return std::nullopt;
         return core::compiled::InteractableInteractionSubject{std::move(*id)};
@@ -110,7 +111,7 @@ command_builder_lua_subject(const sol::object& value, core::Diagnostics& diagnos
                 core::RoomFeatureRef{std::move(*owner.value_if()), std::move(*feature.value_if())}};
         }
         if (id.starts_with(interactable_prefix)) {
-            auto owner = core::InteractableId::create(
+            auto owner = core::InteractableInstanceId::create(
                 id.substr(interactable_prefix.size(), separator - interactable_prefix.size()));
             if (!owner) {
                 append_command_builder_lua_error(
@@ -486,7 +487,7 @@ RuntimeUiActionGateway::resolve_subject(std::string kind, std::string text)
         return std::nullopt;
     std::optional<core::compiled::InteractionSubject> subject;
     if (kind == "interactable") {
-        auto id = core::InteractableId::create(std::move(text));
+        auto id = core::InteractableInstanceId::create(std::move(text));
         if (!id) {
             core::append_diagnostics(m_diagnostics, id.error());
             return std::nullopt;

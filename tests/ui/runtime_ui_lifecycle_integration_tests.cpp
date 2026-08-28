@@ -690,7 +690,7 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     const auto target = noveltea::core::RoomId::create("target");
     const auto exit = noveltea::core::RoomExitId::create("exit-enabled");
     const auto placement = noveltea::core::RoomPlacementId::create("placement");
-    const auto interactable = noveltea::core::InteractableId::create("key");
+    const auto interactable = noveltea::core::InteractableInstanceId::create("key");
     const auto character = noveltea::core::CharacterId::create("alice");
     const auto verb = noveltea::core::VerbId::create("inspect");
     const auto target_slot = noveltea::core::VerbSlotId::create("target");
@@ -1345,8 +1345,8 @@ TEST_CASE("RuntimeUI renders gameplay collections in an ordinary non-system Layo
     const auto north = noveltea::core::RoomExitId::create("north");
     const auto south = noveltea::core::RoomExitId::create("south-disabled");
     const auto placement = noveltea::core::RoomPlacementId::create("placement");
-    const auto interactable = noveltea::core::InteractableId::create("key");
-    const auto hidden_interactable = noveltea::core::InteractableId::create("hidden-key");
+    const auto interactable = noveltea::core::InteractableInstanceId::create("key");
+    const auto hidden_interactable = noveltea::core::InteractableInstanceId::create("hidden-key");
     const auto player_inventory = noveltea::core::InventoryId::create("player");
     const auto verb = noveltea::core::VerbId::create("inspect");
     const auto disabled_verb = noveltea::core::VerbId::create("use");
@@ -2074,8 +2074,8 @@ TEST_CASE("built-in Command Builder Layout begins and repairs a multi-slot Draft
     ui.bind_input_sink(&input_sink);
     const auto room = noveltea::core::RoomId::create("start");
     const auto placement = noveltea::core::RoomPlacementId::create("placement");
-    const auto key = noveltea::core::InteractableId::create("key");
-    const auto coin = noveltea::core::InteractableId::create("coin");
+    const auto key = noveltea::core::InteractableInstanceId::create("key");
+    const auto coin = noveltea::core::InteractableInstanceId::create("coin");
     const auto combine = noveltea::core::VerbId::create("combine");
     const auto first = noveltea::core::VerbSlotId::create("first");
     const auto second = noveltea::core::VerbSlotId::create("second");

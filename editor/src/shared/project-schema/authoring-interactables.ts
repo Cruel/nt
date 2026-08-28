@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import { assetRefSchema, materialRefSchema, roomRefSchema } from './authoring-flow';
+import { entityIdSchema } from './authoring-common';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
+import { propertyAssignmentsSchema } from './authoring-properties';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -32,6 +34,25 @@ export const interactableLocationSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room'), room: roomRefSchema }),
   strict({ kind: z.literal('inventory'), inventory: inventoryReferenceSchema }),
 ]);
+export const interactableDefinitionRefSchema = strict({
+  $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
+});
+export const interactableInstanceRefSchema = strict({
+  $ref: strict({ registry: z.literal('interactableInstances'), id: entityIdSchema }),
+});
+export const interactableInstanceDataSchema = strict({
+  id: entityIdSchema,
+  definition: interactableDefinitionRefSchema,
+  editorLabel: z.string().min(1).optional(),
+  location: interactableLocationSchema,
+  enabled: z.boolean(),
+  visible: z.boolean(),
+  traits: strict({
+    add: z.array(entityIdSchema),
+    remove: z.array(entityIdSchema),
+  }),
+  properties: propertyAssignmentsSchema,
+});
 
 export const interactableDataSchema = strict({
   kind: z.literal('interactable'),
@@ -43,13 +64,10 @@ export const interactableDataSchema = strict({
   }),
   features: z.array(featureDataSchema),
   inventories: z.array(inventoryDefinitionSchema),
-  initialState: strict({
-    location: interactableLocationSchema,
-    enabled: z.boolean(),
-    visible: z.boolean(),
-  }),
 });
 export type InteractableData = z.infer<typeof interactableDataSchema>;
+export type InteractableInstanceData = z.infer<typeof interactableInstanceDataSchema>;
+export type InteractableInstanceRef = z.infer<typeof interactableInstanceRefSchema>;
 export type InteractableHotspots = z.infer<typeof interactableHotspotsSchema>;
 export type InteractableFeatureData = z.infer<typeof featureDataSchema>;
 export interface InteractableSchemaDiagnostic {
@@ -86,7 +104,21 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
     },
     features: [],
     inventories: [],
-    initialState: { location: { kind: 'unplaced' }, enabled: true, visible: true },
+  };
+}
+export function defaultInteractableInstanceData(
+  id: string,
+  definitionId: string,
+  location: InteractableInstanceData['location'] = { kind: 'unplaced' },
+): InteractableInstanceData {
+  return {
+    id,
+    definition: { $ref: { collection: 'interactables', id: definitionId } },
+    location,
+    enabled: true,
+    visible: true,
+    traits: { add: [], remove: [] },
+    properties: {},
   };
 }
 export const interactableAssetRef = (id: string) => ({
@@ -131,16 +163,6 @@ export function validateInteractableData(
       diagnostic(
         `${base}/presentation/material/$ref`,
         `Missing material '${data.presentation.material.$ref.id}'.`,
-      ),
-    );
-  if (
-    data.initialState.location.kind === 'room' &&
-    !project.rooms[data.initialState.location.room.$ref.id]
-  )
-    diagnostics.push(
-      diagnostic(
-        `${base}/initialState/location/room/$ref`,
-        `Missing room '${data.initialState.location.room.$ref.id}'.`,
       ),
     );
   return diagnostics;

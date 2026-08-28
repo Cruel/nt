@@ -39,6 +39,10 @@ nlohmann::json load_fixture_document(std::string_view filename)
 core::CompiledProject decode_fixture(nlohmann::json document, std::string_view filename)
 {
     auto decoded = core::decode_compiled_project(document, std::string(filename));
+    if (!decoded)
+        for (const auto& diagnostic : decoded.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
+                                          << diagnostic.source_path);
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -58,7 +62,6 @@ core::CompiledProject load_fixture_with_runtime_archetypes()
     character.erase("initialWorldState");
     auto interactable = document["definitions"]["interactables"][0];
     interactable.erase("id");
-    interactable.erase("initialState");
     document["archetypes"] = nlohmann::json::array(
         {{{"id", "runtime-room"}, {"instanceKind", "room"}, {"configuration", room}},
          {{"id", "runtime-character"}, {"instanceKind", "character"}, {"configuration", character}},
@@ -78,7 +81,7 @@ TEST_CASE("runtime world resolves declared gameplay instances without owning def
 
     const auto start = id<core::RoomId>("start");
     const auto hero = id<core::CharacterId>("hero");
-    const auto key = id<core::InteractableId>("key");
+    const auto key = id<core::InteractableInstanceId>("key");
 
     REQUIRE(world.resolved_configuration(start) != nullptr);
     REQUIRE(world.resolved_configuration(hero) != nullptr);
@@ -87,11 +90,13 @@ TEST_CASE("runtime world resolves declared gameplay instances without owning def
           project.find_room(start)->display_name);
     CHECK(world.resolved_configuration(hero)->display_name ==
           project.find_character(hero)->display_name);
+    const auto* key_instance = project.find_interactable_instance(key);
+    REQUIRE(key_instance != nullptr);
     CHECK(world.resolved_configuration(key)->display_name ==
-          project.find_interactable(key)->display_name);
+          project.find_interactable_definition(key_instance->definition)->display_name);
     CHECK(world.resolved_configuration(id<core::RoomId>("missing")) == nullptr);
     CHECK(world.resolved_configuration(id<core::CharacterId>("missing")) == nullptr);
-    CHECK(world.resolved_configuration(id<core::InteractableId>("missing")) == nullptr);
+    CHECK(world.resolved_configuration(id<core::InteractableInstanceId>("missing")) == nullptr);
 
     REQUIRE(world.character_state(hero) != nullptr);
     REQUIRE(world.interactable_state(key) != nullptr);
@@ -108,7 +113,7 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
     RuntimeWorld world(project, state);
 
     const auto hero = id<core::CharacterId>("hero");
-    const auto key = id<core::InteractableId>("key");
+    const auto key = id<core::InteractableInstanceId>("key");
     const auto hall = id<core::RoomId>("hall");
 
     const auto* hero_definition = world.resolved_configuration(hero);
@@ -116,7 +121,8 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
     REQUIRE(hero_definition != nullptr);
     REQUIRE(key_definition != nullptr);
     CHECK(hero_definition->initial_world_state.visible);
-    CHECK(key_definition->initial_state.visible);
+    REQUIRE(project.find_interactable_instance(key) != nullptr);
+    CHECK(project.find_interactable_instance(key)->visible);
 
     REQUIRE(world.set_character_visible(hero, false));
     REQUIRE(world.set_interactable_visible(key, false));
@@ -132,9 +138,119 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
     CHECK(moved->room == hall);
 
     CHECK(hero_definition->initial_world_state.visible);
-    CHECK(key_definition->initial_state.visible);
+    CHECK(project.find_interactable_instance(key)->visible);
     CHECK(world.resolved_configuration(hero) == hero_definition);
     CHECK(world.resolved_configuration(key) == key_definition);
+}
+
+TEST_CASE("declared Interactable Instances sharing one definition save and restore independently")
+{
+    auto document = load_fixture_document("comprehensive.json");
+    document["interactableInstances"].back()["propertyOverrides"][0]["value"] = "ordinary";
+    for (auto& declaration : document["interactableInstances"])
+        if (declaration["id"] == "key")
+            declaration["traitAdds"] = nlohmann::json::array({"currency"});
+    auto spare_declaration = document["interactableInstances"].back();
+    spare_declaration["id"] = "wallet-spare";
+    spare_declaration["propertyOverrides"] = nlohmann::json::array();
+    spare_declaration["traitRemoves"] = {"currency"};
+    document["interactableInstances"].push_back(std::move(spare_declaration));
+    const auto project = decode_fixture(std::move(document), "shared-interactable-definition.json");
+    const auto wallet = id<core::InteractableInstanceId>("wallet");
+    const auto spare = id<core::InteractableInstanceId>("wallet-spare");
+    const auto key = id<core::InteractableInstanceId>("key");
+    const auto credits = id<core::InteractableDefinitionId>("credits");
+    const auto currency = id<core::TraitId>("currency");
+    const auto quality = id<core::PropertyId>("quality");
+    const auto hall = id<core::RoomId>("hall");
+
+    REQUIRE(project.find_interactable_instance(wallet) != nullptr);
+    REQUIRE(project.find_interactable_instance(spare) != nullptr);
+    CHECK(project.find_interactable_instance(wallet)->definition == credits);
+    CHECK(project.find_interactable_instance(spare)->definition == credits);
+
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    REQUIRE(world.interactable_state(wallet) != nullptr);
+    REQUIRE(world.interactable_state(spare) != nullptr);
+    REQUIRE(world.resolved_configuration(wallet) != nullptr);
+    REQUIRE(world.resolved_configuration(spare) != nullptr);
+    CHECK(std::ranges::find(world.resolved_configuration(wallet)->identity.traits, currency) !=
+          world.resolved_configuration(wallet)->identity.traits.end());
+    CHECK(std::ranges::find(world.resolved_configuration(spare)->identity.traits, currency) ==
+          world.resolved_configuration(spare)->identity.traits.end());
+    REQUIRE(world.resolved_configuration(key) != nullptr);
+    CHECK(std::ranges::find(world.resolved_configuration(key)->identity.traits, currency) !=
+          world.resolved_configuration(key)->identity.traits.end());
+    core::PropertyResolver initial_properties(project, state);
+    auto wallet_quality = initial_properties.get(core::PropertyOwnerRef{wallet}, quality);
+    REQUIRE(wallet_quality);
+    CHECK(std::get<core::RuntimeValue>(wallet_quality.value()) ==
+          core::RuntimeValue{std::string{"ordinary"}});
+    REQUIRE(world.set_interactable_visible(wallet, false));
+    REQUIRE(world.move_interactable(wallet, core::compiled::RoomLocation{hall}));
+    core::PropertyResolver properties(project, state);
+    REQUIRE(properties.set(core::PropertyOwnerRef{wallet}, id<core::PropertyId>("note"),
+                           core::RuntimeValue{std::string{"wallet"}}));
+    REQUIRE(properties.set(core::PropertyOwnerRef{spare}, id<core::PropertyId>("note"),
+                           core::RuntimeValue{std::string{"spare"}}));
+
+    auto saved = core::make_save_state(project, state);
+    REQUIRE(saved);
+    auto encoded = core::encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    auto decoded =
+        core::decode_save_state(project, encoded.value(), "shared-interactable-definition");
+    REQUIRE(decoded);
+    auto restored_result = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored_result);
+    auto restored = std::move(restored_result).value();
+    RuntimeWorld restored_world(project, restored);
+
+    const auto* restored_wallet = restored_world.interactable_state(wallet);
+    const auto* restored_spare = restored_world.interactable_state(spare);
+    REQUIRE(restored_wallet != nullptr);
+    REQUIRE(restored_spare != nullptr);
+    CHECK_FALSE(restored_wallet->visible);
+    CHECK(restored_spare->visible);
+    const auto* wallet_room = std::get_if<core::compiled::RoomLocation>(&restored_wallet->location);
+    REQUIRE(wallet_room != nullptr);
+    CHECK(wallet_room->room == hall);
+    CHECK(std::holds_alternative<core::compiled::InventoryLocation>(restored_spare->location));
+
+    REQUIRE(restored_world.resolved_configuration(wallet) != nullptr);
+    REQUIRE(restored_world.resolved_configuration(spare) != nullptr);
+    CHECK(restored_world.resolved_configuration(wallet)->identity.id == credits);
+    CHECK(restored_world.resolved_configuration(spare)->identity.id == credits);
+    CHECK(std::ranges::find(restored_world.resolved_configuration(wallet)->identity.traits,
+                            currency) !=
+          restored_world.resolved_configuration(wallet)->identity.traits.end());
+    CHECK(std::ranges::find(restored_world.resolved_configuration(spare)->identity.traits,
+                            currency) ==
+          restored_world.resolved_configuration(spare)->identity.traits.end());
+    REQUIRE(restored_world.resolved_configuration(key) != nullptr);
+    CHECK(
+        std::ranges::find(restored_world.resolved_configuration(key)->identity.traits, currency) !=
+        restored_world.resolved_configuration(key)->identity.traits.end());
+
+    core::PropertyResolver restored_properties(project, restored);
+    auto restored_wallet_quality = restored_properties.get(core::PropertyOwnerRef{wallet}, quality);
+    auto wallet_note =
+        restored_properties.get(core::PropertyOwnerRef{wallet}, id<core::PropertyId>("note"));
+    auto spare_note =
+        restored_properties.get(core::PropertyOwnerRef{spare}, id<core::PropertyId>("note"));
+    REQUIRE(restored_wallet_quality);
+    REQUIRE(wallet_note);
+    REQUIRE(spare_note);
+    CHECK(std::get<core::RuntimeValue>(restored_wallet_quality.value()) ==
+          core::RuntimeValue{std::string{"ordinary"}});
+    CHECK(std::get<core::RuntimeValue>(wallet_note.value()) ==
+          core::RuntimeValue{std::string{"wallet"}});
+    CHECK(std::get<core::RuntimeValue>(spare_note.value()) ==
+          core::RuntimeValue{std::string{"spare"}});
 }
 
 TEST_CASE(
@@ -192,8 +308,8 @@ TEST_CASE("runtime world creates deterministic typed identities from admitted co
     REQUIRE(character);
     CHECK(character.value().text() == "runtime-character-2");
 
-    auto interactable = world.create_interactable(
-        EffectiveInstanceConfiguration{core::GameplayInstanceRef{id<core::InteractableId>("key")}});
+    auto interactable = world.create_interactable(EffectiveInstanceConfiguration{
+        core::GameplayInstanceRef{id<core::InteractableInstanceId>("key")}});
     REQUIRE(interactable);
     CHECK(interactable.value().text() == "runtime-interactable-3");
     CHECK(state.next_runtime_instance_id() == 4);
@@ -260,10 +376,10 @@ TEST_CASE("runtime structural replacement rejects dependent inventory invalidati
     auto state = std::move(state_result).value();
     RuntimeWorld world(project, state);
 
-    auto owner = world.create_interactable(
-        CompiledInstanceConfiguration{core::GameplayInstanceRef{id<core::InteractableId>("key")}});
-    auto member = world.create_interactable(
-        CompiledInstanceConfiguration{core::GameplayInstanceRef{id<core::InteractableId>("dust")}});
+    auto owner = world.create_interactable(CompiledInstanceConfiguration{
+        core::GameplayInstanceRef{id<core::InteractableInstanceId>("key")}});
+    auto member = world.create_interactable(CompiledInstanceConfiguration{
+        core::GameplayInstanceRef{id<core::InteractableInstanceId>("dust")}});
     REQUIRE(owner);
     REQUIRE(member);
     const core::compiled::InventoryRef inventory{
@@ -272,8 +388,8 @@ TEST_CASE("runtime structural replacement rejects dependent inventory invalidati
 
     const auto before = world.resolved_configuration(owner.value())->display_name;
     auto replaced = world.replace_structural_configuration(
-        owner.value(),
-        CompiledInstanceConfiguration{core::GameplayInstanceRef{id<core::InteractableId>("dust")}});
+        owner.value(), CompiledInstanceConfiguration{
+                           core::GameplayInstanceRef{id<core::InteractableInstanceId>("dust")}});
     REQUIRE_FALSE(replaced);
     CHECK(replaced.error().front().code == "runtime.invalid_structural_edit");
     REQUIRE(world.resolved_configuration(owner.value()) != nullptr);
@@ -288,8 +404,8 @@ TEST_CASE("runtime structural clear rejects dependent invalidation atomically")
     auto state = std::move(state_result).value();
     RuntimeWorld world(project, state);
 
-    const auto dust = id<core::InteractableId>("dust");
-    const auto key = id<core::InteractableId>("key");
+    const auto dust = id<core::InteractableInstanceId>("dust");
+    const auto key = id<core::InteractableInstanceId>("key");
     auto owner =
         world.create_interactable(CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}});
     REQUIRE(owner);
@@ -306,8 +422,10 @@ TEST_CASE("runtime structural clear rejects dependent invalidation atomically")
     REQUIRE_FALSE(cleared);
     CHECK(cleared.error().front().code == "runtime.invalid_structural_edit");
     REQUIRE(world.resolved_configuration(owner.value()) != nullptr);
+    const auto* key_instance = project.find_interactable_instance(key);
+    REQUIRE(key_instance != nullptr);
     CHECK(world.resolved_configuration(owner.value())->display_name ==
-          project.find_interactable(key)->display_name);
+          project.find_interactable_definition(key_instance->definition)->display_name);
     CHECK(world.has_inventory(inventory));
 }
 
@@ -334,14 +452,6 @@ TEST_CASE(
         ArchetypeInstanceConfiguration{id<core::ArchetypeId>("runtime-interactable")},
         core::compiled::RoomLocation{room.value()}, true, false);
     REQUIRE(interactable);
-    const auto wallet = id<core::ItemStackId>("wallet");
-    auto split_stack = world.split_item_stack(wallet, 5);
-    REQUIRE(split_stack);
-    REQUIRE(split_stack.value().created.size() == 1);
-    const auto split_stack_id = split_stack.value().created.front();
-    core::PropertyResolver properties(project, state);
-    REQUIRE(properties.set(core::PropertyOwnerRef{split_stack_id}, id<core::PropertyId>("quality"),
-                           core::RuntimeValue{std::string{"ordinary"}}));
 
     auto saved = core::make_save_state(project, state);
     REQUIRE(saved);
@@ -371,25 +481,9 @@ TEST_CASE(
     CHECK(provenance->kind == core::RuntimeInstanceProvenanceKind::Archetype);
     CHECK(provenance->archetype == id<core::ArchetypeId>("runtime-character"));
     CHECK(restored.next_runtime_instance_id() == 4);
-    REQUIRE(restored_world.item_stack(wallet) != nullptr);
-    CHECK(restored_world.item_stack(wallet)->quantity == 20);
-    REQUIRE(restored_world.item_stack(split_stack_id) != nullptr);
-    CHECK(restored_world.item_stack(split_stack_id)->quantity == 5);
-    core::PropertyResolver restored_properties(project, restored);
-    auto restored_quality = restored_properties.get(core::PropertyOwnerRef{split_stack_id},
-                                                    id<core::PropertyId>("quality"));
-    REQUIRE(restored_quality);
-    CHECK(std::get<core::RuntimeValue>(restored_quality.value()) ==
-          core::RuntimeValue{std::string{"ordinary"}});
-    CHECK(restored.next_item_stack_id() == 2);
 
-    auto next_stack = restored_world.split_item_stack(wallet, 1);
-    REQUIRE(next_stack);
-    REQUIRE(next_stack.value().created.size() == 1);
-    CHECK(next_stack.value().created.front().text() == "runtime-item-stack-2");
-
-    auto next = restored_world.create_interactable(
-        CompiledInstanceConfiguration{core::GameplayInstanceRef{id<core::InteractableId>("dust")}});
+    auto next = restored_world.create_interactable(CompiledInstanceConfiguration{
+        core::GameplayInstanceRef{id<core::InteractableInstanceId>("dust")}});
     REQUIRE(next);
     CHECK(next.value().text() == "runtime-interactable-4");
 }
@@ -424,67 +518,6 @@ TEST_CASE("runtime destruction is explicit non-cascading and rejects live depend
     auto declared = world.destroy(core::GameplayInstanceRef{id<core::RoomId>("start")});
     REQUIRE_FALSE(declared);
     CHECK(declared.error().front().code == "runtime.declared_instance_not_destroyable");
-}
-
-TEST_CASE("Item Stack arithmetic preserves exact identities compatibility and stable order")
-{
-    const auto project = load_fixture("comprehensive.json");
-    auto state_result = core::SessionState::create(project);
-    REQUIRE(state_result);
-    auto state = std::move(state_result).value();
-    RuntimeWorld world(project, state);
-
-    const auto wallet = id<core::ItemStackId>("wallet");
-    const auto credits = id<core::ItemDefinitionId>("credits");
-    const auto quality = id<core::PropertyId>("quality");
-    REQUIRE(world.item_stack(wallet) != nullptr);
-    CHECK(world.item_stack(wallet)->quantity == 25);
-
-    auto split = world.split_item_stack(wallet, 5);
-    REQUIRE(split);
-    REQUIRE(split.value().created.size() == 1);
-    const auto split_id = split.value().created.front();
-    CHECK(split_id.text() == "runtime-item-stack-1");
-    CHECK(split.value().changed == std::vector<core::ItemStackId>{wallet});
-    REQUIRE(world.item_stack(split_id) != nullptr);
-    CHECK(world.item_stack(split_id)->quantity == 5);
-    CHECK(world.item_stack(wallet)->quantity == 20);
-
-    core::PropertyResolver properties(project, state);
-    REQUIRE(properties.set(core::PropertyOwnerRef{split_id}, quality,
-                           core::RuntimeValue{std::string{"ordinary"}}));
-    auto incompatible = world.merge_item_stacks(wallet, split_id);
-    REQUIRE_FALSE(incompatible);
-    CHECK(world.item_stack(wallet)->quantity == 20);
-    CHECK(world.item_stack(split_id)->quantity == 5);
-    REQUIRE(properties.unset(core::PropertyOwnerRef{split_id}, quality));
-
-    auto merged = world.merge_item_stacks(wallet, split_id);
-    REQUIRE(merged);
-    CHECK(world.item_stack(wallet)->quantity == 25);
-    CHECK(world.item_stack(split_id) == nullptr);
-    CHECK(merged.value().changed == std::vector<core::ItemStackId>{wallet});
-    CHECK(merged.value().ended == std::vector<core::ItemStackId>{split_id});
-
-    auto granted = world.grant_item_quantity(
-        credits, 180,
-        core::compiled::InventoryLocation{core::compiled::InventoryRef{
-            core::compiled::ProjectInventoryOwner{}, id<core::InventoryId>("player")}});
-    REQUIRE(granted);
-    CHECK(granted.value().created.size() == 2);
-    CHECK(granted.value().created[0].text() == "runtime-item-stack-2");
-    CHECK(granted.value().created[1].text() == "runtime-item-stack-3");
-
-    ItemStackFilter filter{.definition = credits};
-    auto total = world.aggregate_item_quantity(filter);
-    REQUIRE(total);
-    CHECK(total.value() == 205);
-    auto consumed = world.consume_item_quantity(filter, 110);
-    REQUIRE(consumed);
-    CHECK(consumed.value().ended == granted.value().created);
-    REQUIRE(world.item_stack(wallet) != nullptr);
-    CHECK(world.item_stack(wallet)->quantity == 95);
-    CHECK(state.next_item_stack_id() == 4);
 }
 
 } // namespace

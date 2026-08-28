@@ -25,7 +25,10 @@ import { defaultInteractionData } from '../../shared/project-schema/authoring-in
 import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -1213,77 +1216,80 @@ describe('authoring compiler framework', () => {
     );
   });
 
-  it('lowers Item Definitions and declared Item Stacks without changing the compiled schema version', () => {
-    const project = validProject() as ReturnType<typeof validProject> & {
-      itemDefinitions: Record<string, unknown>;
-      itemStacks: Record<string, unknown>;
-    };
-    project.properties.quality = {
-      id: 'quality',
-      label: 'Quality',
-      description: 'Stack condition',
-      type: 'enum',
+  it('lowers multiple declared Interactable Instances from one immutable definition without changing the compiled schema version', () => {
+    const project = validProject();
+    project.properties.polished = {
+      id: 'polished',
+      label: 'Polished',
+      description: 'Instance finish',
+      type: 'boolean',
       nullable: false,
-      defaultValue: 'ordinary',
-      enumValues: ['ordinary', 'polished'],
-      ownerKinds: ['item-stack'] as never,
+      defaultValue: false,
+      ownerKinds: ['interactable'],
     };
-    project.traits.currency = {
-      id: 'currency',
-      label: 'Currency',
-      ownerKinds: ['item-stack'] as never,
-      properties: [{ kind: 'configured', propertyId: 'quality', value: 'polished' }],
+    project.traits.quest = {
+      id: 'quest',
+      label: 'Quest object',
+      ownerKinds: ['interactable'],
+      properties: [{ kind: 'required', propertyId: 'polished' }],
     };
-    project.itemDefinitions = {
-      credits: {
-        id: 'credits',
-        label: 'Credits',
-        traits: ['currency'],
-        properties: {},
-        data: {
-          kind: 'item-definition',
-          displayName: 'Credits',
-          description: 'Standard currency',
-          presentation: { sprite: null, material: null },
-          stackLimit: 100,
-        },
-      },
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+      traits: [],
+      properties: { polished: false },
     };
-    project.itemStacks = {
-      wallet: {
-        id: 'wallet',
-        label: 'Wallet credits',
-        data: {
-          kind: 'item-stack',
-          definition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
-          quantity: 25,
-          location: { kind: 'unplaced' },
-        },
-      },
+    project.interactableInstances['key-foyer'] = {
+      ...defaultInteractableInstanceData('key-foyer', 'key', {
+        kind: 'room',
+        room: { $ref: { collection: 'rooms', id: 'foyer' } },
+      }),
+      editorLabel: 'Foyer key',
+      traits: { add: ['quest'], remove: [] },
+      properties: { polished: true },
     };
+    project.interactableInstances['key-spare'] = defaultInteractableInstanceData(
+      'key-spare',
+      'key',
+    );
 
     const result = compileAuthoringProject(project);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.project.schemaVersion).toBe(1);
-    expect(result.project.definitions.itemDefinitions).toEqual([
+    expect(result.project.definitions.interactables).toEqual([
       {
-        id: 'credits',
-        displayName: 'Credits',
-        description: 'Standard currency',
-        presentation: { sprite: null, material: null },
-        stackLimit: 100,
-        traits: ['currency'],
-        propertyAssignments: [],
+        id: 'key',
+        displayName: 'Key',
+        features: [],
+        inventories: [],
+        presentation: { sprite: null, material: null, hotspots: { kind: 'none' } },
+        traits: [],
+        propertyAssignments: [{ propertyId: 'polished', value: false }],
       },
     ]);
-    expect(result.project.itemStacks).toEqual([
+    expect(result.project.interactableInstances).toEqual([
       {
-        id: 'wallet',
-        definition: { kind: 'item-definition', id: 'credits' },
-        quantity: 25,
+        id: 'key-foyer',
+        definition: { kind: 'interactable-definition', id: 'key' },
+        enabled: true,
+        visible: true,
+        location: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
+        traitAdds: ['quest'],
+        traitRemoves: [],
+        propertyOverrides: [{ propertyId: 'polished', value: true }],
+      },
+      {
+        id: 'key-spare',
+        definition: { kind: 'interactable-definition', id: 'key' },
+        enabled: true,
+        visible: true,
         location: { kind: 'unplaced' },
+        traitAdds: [],
+        traitRemoves: [],
+        propertyOverrides: [],
       },
     ]);
   });

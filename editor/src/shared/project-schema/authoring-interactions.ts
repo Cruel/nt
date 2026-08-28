@@ -265,13 +265,12 @@ function validateSubjectSelector(
     return;
   }
   if (selector.kind === 'item-definition') {
-    if (!project.itemDefinitions[selector.itemDefinition.$ref.id])
-      diagnostics.push(
-        diagnostic(
-          `${path}/itemDefinition/$ref`,
-          `Missing Item Definition '${selector.itemDefinition.$ref.id}'.`,
-        ),
-      );
+    diagnostics.push(
+      diagnostic(
+        `${path}/itemDefinition/$ref`,
+        'Item Definition selectors are retired; use Interactable Instance/definition matching.',
+      ),
+    );
     return;
   }
   if (selector.kind !== 'exact') return;
@@ -283,11 +282,11 @@ function validateSubjectSelector(
         `Missing interactable '${subject.interactable.$ref.id}'.`,
       ),
     );
-  else if (subject.kind === 'item-stack' && !project.itemStacks[subject.itemStack.$ref.id])
+  else if (subject.kind === 'item-stack')
     diagnostics.push(
       diagnostic(
         `${path}/subject/itemStack/$ref`,
-        `Missing Item Stack '${subject.itemStack.$ref.id}'.`,
+        'Item Stack subjects are retired; use Interactable Instances.',
       ),
     );
   else if (subject.kind === 'character' && !project.characters[subject.character.$ref.id])

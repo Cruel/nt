@@ -1,6 +1,6 @@
 import { resolveGameplayInstanceRecord } from './authoring-archetypes';
 import { parseCharacterData } from './authoring-characters';
-import { parseInteractableData, type InteractableData } from './authoring-interactables';
+import { parseInteractableData, type InteractableInstanceData } from './authoring-interactables';
 import type { InventoryReferenceData } from './authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { parseRoomData } from './authoring-rooms';
@@ -153,7 +153,7 @@ export function validateAuthoringInventories(
   const diagnostics: InventorySchemaDiagnostic[] = [];
   validateInventoryIds(project.inventories, '/inventories', diagnostics);
 
-  const interactableLocations = new Map<string, InteractableData['initialState']['location']>();
+  const interactableLocations = new Map<string, InteractableInstanceData['location']>();
 
   for (const [id, rawRecord] of Object.entries(project.characters)) {
     const record = effectiveRecord(project, 'character', rawRecord);
@@ -181,13 +181,17 @@ export function validateAuthoringInventories(
     const base = `/interactables/${escapePathSegment(id)}/data`;
     validateInventoryIds(data.inventories, `${base}/inventories`, diagnostics);
     validateFeatureInventoryIds(data.features, `${base}/features`, diagnostics);
-    interactableLocations.set(id, data.initialState.location);
-    if (data.initialState.location.kind === 'inventory')
+  }
+
+  for (const [id, instance] of Object.entries(project.interactableInstances)) {
+    const base = `/interactableInstances/${escapePathSegment(id)}`;
+    interactableLocations.set(id, instance.location);
+    if (instance.location.kind === 'inventory')
       diagnostics.push(
         ...validateInventoryReference(
           project,
-          data.initialState.location.inventory,
-          `${base}/initialState/location/inventory`,
+          instance.location.inventory,
+          `${base}/location/inventory`,
         ),
       );
   }
@@ -202,7 +206,7 @@ export function validateAuthoringInventories(
       if (visited.has(ownerId)) {
         diagnostics.push(
           diagnostic(
-            `/interactables/${escapePathSegment(id)}/data/initialState/location/inventory`,
+            `/interactableInstances/${escapePathSegment(id)}/location/inventory`,
             `Inventory containment cycle reaches Interactable '${ownerId}'.`,
             'authoring.inventory.containment-cycle',
           ),

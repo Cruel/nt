@@ -462,7 +462,7 @@ decode_inventory_owner(Decoder& decoder, const nlohmann::json& value, std::strin
         decoder.object(value, pointer, {"interactable", "kind"});
         const auto* interactable_value = decoder.member(value, "interactable", pointer);
         auto interactable = interactable_value
-                                ? decode_reference<InteractableId>(
+                                ? decode_reference<InteractableInstanceId>(
                                       decoder, *interactable_value,
                                       pointer_child(pointer, "interactable"), "interactable")
                                 : std::nullopt;
@@ -491,7 +491,7 @@ decode_inventory_owner(Decoder& decoder, const nlohmann::json& value, std::strin
                                                              pointer_child(pointer, "featureId"))
                                      : std::nullopt;
         auto interactable = interactable_value
-                                ? decode_reference<InteractableId>(
+                                ? decode_reference<InteractableInstanceId>(
                                       decoder, *interactable_value,
                                       pointer_child(pointer, "interactable"), "interactable")
                                 : std::nullopt;

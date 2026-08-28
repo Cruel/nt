@@ -165,7 +165,7 @@ std::optional<PropertyOwnerRef> property_owner_field(const nlohmann::json& objec
     }
     DECODE_OWNER("room", RoomId)
     DECODE_OWNER("character", CharacterId)
-    DECODE_OWNER("interactable", InteractableId)
+    DECODE_OWNER("interactable", InteractableInstanceId)
 #undef DECODE_OWNER
     if (*kind == "feature") {
         exact_fields(*found, {"kind", "ownerKind", "ownerId", "featureId"}, diagnostics,
@@ -181,8 +181,8 @@ std::optional<PropertyOwnerRef> property_owner_field(const nlohmann::json& objec
                          : std::nullopt;
         }
         if (*owner_kind == "interactable") {
-            auto owner =
-                id_field<InteractableId>(*found, "ownerId", diagnostics, owner_path, limits);
+            auto owner = id_field<InteractableInstanceId>(*found, "ownerId", diagnostics,
+                                                          owner_path, limits);
             return owner ? std::optional<PropertyOwnerRef>{InteractableFeatureRef{
                                std::move(*owner), std::move(*feature)}}
                          : std::nullopt;
@@ -705,7 +705,7 @@ subject_array(const nlohmann::json& object, std::string_view key, Diagnostics& d
                 result.emplace_back(compiled::CharacterInteractionSubject{std::move(*id)});
         } else if (kind && *kind == "interactable") {
             exact_fields(item, {"kind", "id"}, diagnostics, item_path);
-            auto id = id_field<InteractableId>(item, "id", diagnostics, item_path, limits);
+            auto id = id_field<InteractableInstanceId>(item, "id", diagnostics, item_path, limits);
             if (id)
                 result.emplace_back(compiled::InteractableInteractionSubject{std::move(*id)});
         } else if (kind && *kind == "feature") {
@@ -721,8 +721,8 @@ subject_array(const nlohmann::json& object, std::string_view key, Diagnostics& d
                     result.emplace_back(compiled::FeatureInteractionSubject{
                         RoomFeatureRef{std::move(*owner), std::move(*feature)}});
             } else if (*owner_kind == "interactable") {
-                auto owner =
-                    id_field<InteractableId>(item, "ownerId", diagnostics, item_path, limits);
+                auto owner = id_field<InteractableInstanceId>(item, "ownerId", diagnostics,
+                                                              item_path, limits);
                 if (owner)
                     result.emplace_back(compiled::FeatureInteractionSubject{
                         InteractableFeatureRef{std::move(*owner), std::move(*feature)}});
@@ -1458,7 +1458,7 @@ decode_editor_interaction_subjects_text(std::string_view text,
             if (id)
                 subjects.emplace_back(compiled::CharacterInteractionSubject{std::move(*id)});
         } else if (*kind == "interactable") {
-            auto id = id_field<InteractableId>(item, "id", diagnostics, path, limits);
+            auto id = id_field<InteractableInstanceId>(item, "id", diagnostics, path, limits);
             if (id)
                 subjects.emplace_back(compiled::InteractableInteractionSubject{std::move(*id)});
         } else if (*kind == "item-stack") {
@@ -2159,7 +2159,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         }
         if (kind == "interactable") {
             exact_fields(value, {"kind", "interactable"}, diagnostics, path);
-            auto interactable = focused_id.template operator()<InteractableId>(
+            auto interactable = focused_id.template operator()<InteractableInstanceId>(
                 required_string(value, "interactable", path), path + "/interactable");
             return interactable
                        ? std::optional<compiled::InventoryOwnerRef>(
@@ -2178,7 +2178,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         }
         if (kind == "interactable-feature") {
             exact_fields(value, {"kind", "interactable", "featureId"}, diagnostics, path);
-            auto interactable = focused_id.template operator()<InteractableId>(
+            auto interactable = focused_id.template operator()<InteractableInstanceId>(
                 required_string(value, "interactable", path), path + "/interactable");
             auto feature = focused_id.template operator()<FeatureId>(
                 required_string(value, "featureId", path), path + "/featureId");

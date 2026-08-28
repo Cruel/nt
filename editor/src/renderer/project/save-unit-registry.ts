@@ -95,7 +95,6 @@ const RECORD_EDITOR_COLLECTIONS = {
   'placeholder-entity': null,
   'verb-detail': 'verbs',
   'interaction-detail': 'interactions',
-  'item-detail': ['itemDefinitions', 'itemStacks'],
   'map-detail': 'maps',
   'script-module-detail': 'scripts',
 } as const satisfies Record<string, string | readonly string[] | null>;
