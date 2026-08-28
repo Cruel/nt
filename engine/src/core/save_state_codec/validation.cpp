@@ -1621,58 +1621,9 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
             !valid_location(project, save, item.location))
             error("save_codec.invalid_item_stack",
                   "Item Stack has an invalid definition, quantity, or Location.");
-        if (!std::ranges::is_sorted(item.traits, {},
-                                    [](const TraitId& value) { return value.text(); }))
+        if (!item.traits.empty())
             error("save_codec.invalid_item_stack_trait",
-                  "Item Stack Traits must be in canonical lexical order.");
-        std::unordered_set<std::string> traits;
-        std::unordered_map<PropertyId, RuntimeValue> configured_values;
-        std::vector<const compiled::TraitDefinition*> attached_traits;
-        for (const auto& trait_id : item.traits) {
-            const auto* trait = project.find_trait(trait_id);
-            if (!traits.insert(trait_id.text()).second || trait == nullptr ||
-                !std::binary_search(trait->allowed_owners.begin(), trait->allowed_owners.end(),
-                                    PropertyOwnerKind::ItemStack)) {
-                error("save_codec.invalid_item_stack_trait",
-                      "Item Stack Trait is duplicate, missing, or disallows Item Stacks.");
-                continue;
-            }
-            attached_traits.push_back(trait);
-            for (const auto& member : trait->properties) {
-                if (!member.configured_value)
-                    continue;
-                const auto [existing, inserted] =
-                    configured_values.emplace(member.property_id, *member.configured_value);
-                if (!inserted && existing->second != *member.configured_value)
-                    error("save_codec.invalid_item_stack_trait",
-                          "Item Stack Traits configure a Property with conflicting values.");
-            }
-        }
-        for (const auto* trait : attached_traits) {
-            for (const auto& member : trait->properties) {
-                if (member.configured_value)
-                    continue;
-                const bool has_override =
-                    std::ranges::any_of(save.property_overrides, [&](const auto& value) {
-                        const auto* target = std::get_if<ItemStackId>(&value.target);
-                        return target != nullptr && *target == item.id &&
-                               value.property == member.property_id;
-                    });
-                const bool has_assignment =
-                    definition != nullptr &&
-                    std::ranges::any_of(definition->identity.property_assignments,
-                                        [&](const auto& value) {
-                                            return value.property_id() == member.property_id;
-                                        });
-                const auto* property = project.find_property(member.property_id);
-                const bool has_default =
-                    property != nullptr && property->default_value().has_value();
-                if (!has_override && !has_assignment &&
-                    !configured_values.contains(member.property_id) && !has_default)
-                    error("save_codec.invalid_item_stack_trait",
-                          "Item Stack Trait Property requirement is not satisfied.");
-            }
-        }
+                  "Item Stacks cannot carry Traits or identity Properties.");
         const auto* declared = project.find_item_stack(item.id);
         if (item.declared != (declared != nullptr))
             error("save_codec.invalid_item_stack",

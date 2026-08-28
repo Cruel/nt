@@ -24,16 +24,9 @@ enum class ItemStackPlacementPolicy : std::uint8_t {
     KeepSeparate
 };
 
-struct ItemStackPropertyConstraint {
-    core::PropertyId property;
-    core::RuntimeValue value;
-};
-
 struct ItemStackFilter {
     std::optional<core::ItemDefinitionId> definition;
     std::optional<core::compiled::ItemStackLocation> location;
-    std::vector<core::TraitId> traits;
-    std::vector<ItemStackPropertyConstraint> properties;
 };
 
 struct ItemStackMutation {
@@ -104,9 +97,6 @@ public:
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
     resolve_property(const core::InteractableInstanceId& id,
                      const core::PropertyId& property) const;
-    [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
-    resolve_property(const core::ItemStackId& id, const core::PropertyId& property) const;
-
     [[nodiscard]] const core::CharacterWorldState*
     character_state(const core::CharacterId& id) const noexcept;
     [[nodiscard]] const core::InteractableState*
@@ -145,9 +135,6 @@ public:
     aggregate_item_quantity(const ItemStackFilter& filter) const;
     [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
     consume_item_quantity(const ItemStackFilter& filter, std::uint64_t quantity);
-    [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
-    set_item_stack_traits(const core::ItemStackId& stack, std::vector<core::TraitId> traits);
-
     [[nodiscard]] core::Result<void, core::Diagnostics>
     move_character(const core::CharacterId& id, core::CharacterWorldLocation location);
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -182,8 +169,6 @@ private:
     [[nodiscard]] bool item_stack_matches(const core::ItemStackState& stack,
                                           const ItemStackFilter& filter) const;
     void erase_item_stack(const core::ItemStackId& id);
-    void copy_item_stack_overrides(const core::ItemStackId& source,
-                                   const core::ItemStackId& target);
 
     const core::CompiledProject& m_project;
     core::SessionState& m_state;

@@ -58,9 +58,8 @@ function representativeWireFixture() {
         description: 'The current mood.',
         type: 'enum',
         nullable: false,
-        defaultValue: 'calm',
         enumValues: ['calm', 'tense'],
-        ownerKinds: ['room'],
+        owner: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
         scope: 'identity',
       },
       {

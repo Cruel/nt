@@ -228,13 +228,6 @@ describe('ProjectExplorer', () => {
   it('creates an Interactable from only identity, Archetype, and sprite choices', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.properties.serial = {
-      id: 'serial',
-      label: 'Serial',
-      type: 'string',
-      nullable: false,
-      ownerKinds: ['interactable'],
-    };
     project.traits.tracked = {
       id: 'tracked',
       label: 'Tracked',
@@ -248,7 +241,15 @@ describe('ProjectExplorer', () => {
         ...defaultArchetypeData('interactable'),
         overrides: {
           '/traits': ['tracked'],
-          '/properties/serial': 'template-serial',
+          '/defaultProperties': [
+            {
+              id: 'serial',
+              label: 'Serial',
+              type: 'string',
+              nullable: false,
+              defaultValue: 'template-serial',
+            },
+          ],
           '/data/displayName': 'Template Prop',
           '/data/inventories': [{ id: 'pocket', label: 'Pocket' }],
           '/data/presentation/sprite': {
@@ -330,10 +331,12 @@ describe('ProjectExplorer', () => {
     });
     const created = document.interactables['silver-key']!;
     expect(created.archetypeOverrides).not.toHaveProperty('/traits');
-    expect(created.archetypeOverrides).not.toHaveProperty('/properties/serial');
+    expect(created.archetypeOverrides).not.toHaveProperty('/defaultProperties');
     expect(resolveGameplayInstanceRecord(document, 'interactable', created)).toMatchObject({
       traits: ['tracked'],
-      properties: { serial: 'template-serial' },
+      defaultProperties: [
+        expect.objectContaining({ id: 'serial', defaultValue: 'template-serial' }),
+      ],
     });
 
     act(() => dispatchWorkspaceToolbarCommand('new-entity'));

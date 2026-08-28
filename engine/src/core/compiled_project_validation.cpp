@@ -587,11 +587,32 @@ private:
              ++index) {
             const auto& assignment = definition.identity.property_assignments[index];
             own_properties.insert(assignment.property_id());
-            const auto* declaration = exact_owner ? property(*exact_owner, assignment.property_id())
-                                                  : property(assignment.property_id());
+            std::optional<PropertyDefinition> owner_local_declaration;
+            const auto owner_local = std::find_if(
+                definition.properties.begin(), definition.properties.end(),
+                [&](const auto& value) { return value.property_id == assignment.property_id(); });
+            if (owner_local != definition.properties.end()) {
+                auto realized = make_property_definition(PropertyDefinitionInput{
+                    .id = owner_local->property_id,
+                    .value_type = owner_local->value_type,
+                    .nullable = owner_local->nullable,
+                    .default_value = owner_local->configured_value,
+                    .scope = PropertyScope::Identity,
+                    .allowed_owners = {owner},
+                    .label = owner_local->label,
+                    .description = owner_local->description,
+                });
+                if (realized)
+                    owner_local_declaration = *realized.value_if();
+            }
+            const auto* declaration =
+                owner_local_declaration
+                    ? &*owner_local_declaration
+                    : (exact_owner ? property(*exact_owner, assignment.property_id()) : nullptr);
             if (!declaration) {
-                require(m_properties, assignment.property_id(), "property",
-                        path + "/propertyAssignments/" + std::to_string(index) + "/propertyId");
+                error("compiled_project.unresolved_reference",
+                      "Unresolved Property reference '" + assignment.property_id().text() + "'.",
+                      path + "/propertyAssignments/" + std::to_string(index) + "/propertyId");
                 continue;
             }
             const bool owner_allowed =
@@ -683,7 +704,7 @@ private:
                       "Trait must admit at least one owner kind.", base + "/ownerKinds");
             std::unordered_set<PropertyOwnerKind> owners;
             for (const auto owner : definition.allowed_owners) {
-                if (owner > PropertyOwnerKind::ItemStack)
+                if (owner > PropertyOwnerKind::Feature)
                     error("compiled_project.invalid_trait_definition",
                           "Trait owner kind is invalid.", base + "/ownerKinds");
                 if (!owners.insert(owner).second)

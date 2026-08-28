@@ -327,7 +327,6 @@ describe('authoring interactions', () => {
       id: 'key',
       label: 'Key',
       traits: [],
-      properties: {},
       data: defaultInteractableData('Key'),
     };
     project.verbs.use = {

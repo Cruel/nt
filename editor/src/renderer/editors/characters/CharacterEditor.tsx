@@ -280,11 +280,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           value: state.traits,
         },
         {
-          op: Object.prototype.hasOwnProperty.call(activeRecord, 'properties') ? 'replace' : 'add',
-          path: `/characters/${activeCharacterId}/properties`,
-          value: state.properties,
-        },
-        {
           op: Object.prototype.hasOwnProperty.call(activeRecord, 'localProperties')
             ? 'replace'
             : 'add',
@@ -975,7 +970,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                 : 'Archetype',
             }),
           )}
-          propertyOverrides={activeRecord.properties ?? {}}
           traitColorFor={(traitId) =>
             activeProject.editor.recordMetadata.traits?.[traitId]?.color ?? null
           }

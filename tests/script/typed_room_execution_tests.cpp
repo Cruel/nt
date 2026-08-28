@@ -51,6 +51,10 @@ nlohmann::json load_document(std::string_view filename)
 core::CompiledProject decode_document(nlohmann::json document, std::string_view source)
 {
     auto decoded = core::decode_compiled_project(document, std::string(source));
+    if (!decoded)
+        for (const auto& diagnostic : decoded.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
+                                          << diagnostic.json_pointer);
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -730,15 +734,22 @@ TEST_CASE("typed Room flow targets run lifecycle and Trait-backed Properties hav
     RuntimeFixture fixture;
     install_room_scripts(fixture);
     auto document = load_document("comprehensive.json");
-    document["properties"].push_back({{"id", "map"},
-                                      {"label", "Map"},
-                                      {"description", "Room map"},
-                                      {"type", "string"},
-                                      {"nullable", false},
-                                      {"defaultValue", "default-map"},
-                                      {"enumValues", nlohmann::json::array()},
-                                      {"ownerKinds", nlohmann::json::array({"room"})},
-                                      {"scope", "identity"}});
+    room_document(document, "start")["properties"].push_back(
+        {{"id", "map"},
+         {"label", "Map"},
+         {"description", "Room map"},
+         {"type", "string"},
+         {"nullable", false},
+         {"enumValues", nlohmann::json::array()}});
+    document["properties"].push_back(
+        {{"id", "map"},
+         {"label", "Map"},
+         {"description", "Room map"},
+         {"type", "string"},
+         {"nullable", false},
+         {"enumValues", nlohmann::json::array()},
+         {"owner", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", "tower"}}}}},
+         {"scope", "identity"}});
     document["traits"].push_back(
         {{"id", "mapped-room"},
          {"label", "Mapped Room"},

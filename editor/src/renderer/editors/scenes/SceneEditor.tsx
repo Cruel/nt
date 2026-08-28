@@ -44,6 +44,11 @@ import {
 } from '../../../shared/project-schema/authoring-shaders';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from '../../../shared/project-schema/authoring-archetypes';
+import { effectiveInteractableInstanceProperties } from '../../../shared/project-schema/authoring-interactable-properties';
+import {
   buildScenePreviewDocumentData,
   scenePreviewRevision,
 } from '../../../shared/project-schema/scene-project';
@@ -99,29 +104,74 @@ function JsonOperationsEditor({
   );
 }
 
-type MigratedScenePropertyOwner =
+type SceneIdentityPropertyOwner =
   | { kind: 'room'; room: { $ref: { collection: 'rooms'; id: string } } }
-  | { kind: 'character'; character: { $ref: { collection: 'characters'; id: string } } };
+  | { kind: 'character'; character: { $ref: { collection: 'characters'; id: string } } }
+  | {
+      kind: 'interactable';
+      interactable: { $ref: { registry: 'interactableInstances'; id: string } };
+    };
 
-type MigratedScenePropertyOperation = {
+type SceneIdentityPropertyOperation = {
   kind: 'set-property' | 'unset-property';
-  owner: MigratedScenePropertyOwner;
-  property: { key: string } | { $ref: { collection: 'properties'; id: string } };
+  owner: SceneIdentityPropertyOwner;
+  property: { key: string };
 };
 
-function migratedPropertyOperation(value: unknown): MigratedScenePropertyOperation | null {
+function identityPropertyOperation(value: unknown): SceneIdentityPropertyOperation | null {
   if (!value || typeof value !== 'object') return null;
-  const operation = value as Partial<MigratedScenePropertyOperation>;
+  const operation = value as Partial<SceneIdentityPropertyOperation>;
   if (operation.kind !== 'set-property' && operation.kind !== 'unset-property') return null;
-  if (operation.owner?.kind !== 'room' && operation.owner?.kind !== 'character') return null;
-  return operation as MigratedScenePropertyOperation;
+  if (
+    operation.owner?.kind !== 'room' &&
+    operation.owner?.kind !== 'character' &&
+    operation.owner?.kind !== 'interactable'
+  )
+    return null;
+  if (!operation.property || typeof operation.property.key !== 'string') return null;
+  return operation as SceneIdentityPropertyOperation;
 }
 
-function migratedPropertyOwnerId(owner: MigratedScenePropertyOwner): string {
-  return owner.kind === 'room' ? owner.room.$ref.id : owner.character.$ref.id;
+function identityPropertyOwnerId(owner: SceneIdentityPropertyOwner): string {
+  if (owner.kind === 'room') return owner.room.$ref.id;
+  if (owner.kind === 'character') return owner.character.$ref.id;
+  return owner.interactable.$ref.id;
 }
 
-function MigratedPropertyOperationSelectors({
+function staticallyKnownIdentityProperties(
+  project: Parameters<typeof effectiveInteractableInstanceProperties>[0],
+  owner: SceneIdentityPropertyOwner,
+) {
+  if (owner.kind === 'interactable') {
+    const instance = project.interactableInstances[owner.interactable.$ref.id];
+    if (!instance) return [];
+    return effectiveInteractableInstanceProperties(project, instance).map((property) => ({
+      id: property.id,
+      label: property.contract.label ?? property.id,
+    }));
+  }
+  const collection = owner.kind === 'room' ? 'rooms' : 'characters';
+  const ownerId = identityPropertyOwnerId(owner);
+  const record = project[collection][ownerId];
+  if (!record) return [];
+  const byId = new Map<string, { id: string; label: string }>();
+  if (record.archetype) {
+    for (const property of resolveArchetypeConfiguration(project, record.archetype.$ref.id)
+      ?.defaultProperties ?? [])
+      byId.set(property.id, { id: property.id, label: property.label ?? property.id });
+  }
+  for (const property of record.localProperties ?? [])
+    byId.set(property.id, { id: property.id, label: property.label ?? property.id });
+  const effective = resolveGameplayInstanceRecord(project, owner.kind, record);
+  for (const traitId of effective?.traits ?? record.traits ?? []) {
+    for (const property of project.traits[traitId]?.properties ?? [])
+      if (!byId.has(property.id))
+        byId.set(property.id, { id: property.id, label: property.label ?? property.id });
+  }
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function IdentityPropertyOperationSelectors({
   project,
   operations,
   onCommit,
@@ -131,15 +181,15 @@ function MigratedPropertyOperationSelectors({
   onCommit: (operations: unknown[]) => void;
 }) {
   if (!isAuthoringProject(project)) return null;
-  const migrated = operations
-    .map((operation, index) => ({ operation: migratedPropertyOperation(operation), index }))
+  const identityOperations = operations
+    .map((operation, index) => ({ operation: identityPropertyOperation(operation), index }))
     .filter(
-      (item): item is { operation: MigratedScenePropertyOperation; index: number } =>
+      (item): item is { operation: SceneIdentityPropertyOperation; index: number } =>
         item.operation !== null,
     );
-  if (migrated.length === 0) return null;
+  if (identityOperations.length === 0) return null;
 
-  const replaceOperation = (index: number, operation: MigratedScenePropertyOperation) => {
+  const replaceOperation = (index: number, operation: SceneIdentityPropertyOperation) => {
     const next = [...operations];
     next[index] = operation;
     onCommit(next);
@@ -147,13 +197,17 @@ function MigratedPropertyOperationSelectors({
 
   return (
     <div className="space-y-3 rounded-md border p-3">
-      <div className="text-xs font-medium">Migrated Property references</div>
-      {migrated.map(({ operation, index }) => {
-        const ownerId = migratedPropertyOwnerId(operation.owner);
-        const ownerRecords = operation.owner.kind === 'room' ? project.rooms : project.characters;
-        const ownerRecord = ownerRecords[ownerId];
-        const localProperties = ownerRecord?.localProperties ?? [];
-        const propertyKey = 'key' in operation.property ? operation.property.key : '';
+      <div className="text-xs font-medium">Identity Property references</div>
+      {identityOperations.map(({ operation, index }) => {
+        const ownerId = identityPropertyOwnerId(operation.owner);
+        const ownerRecords =
+          operation.owner.kind === 'room'
+            ? project.rooms
+            : operation.owner.kind === 'character'
+              ? project.characters
+              : project.interactableInstances;
+        const knownProperties = staticallyKnownIdentityProperties(project, operation.owner);
+        const propertyKey = operation.property.key;
         return (
           <div key={index} className="grid gap-2 md:grid-cols-2">
             <Label>
@@ -162,12 +216,18 @@ function MigratedPropertyOperationSelectors({
                 value={ownerId}
                 onValueChange={(id) => {
                   if (!id) return;
-                  const nextOwner: MigratedScenePropertyOwner =
+                  const nextOwner: SceneIdentityPropertyOwner =
                     operation.owner.kind === 'room'
                       ? { kind: 'room', room: sceneRoomRef(id) }
-                      : { kind: 'character', character: sceneCharacterRef(id) };
-                  const nextRecord = ownerRecords[id];
-                  const nextKey = nextRecord?.localProperties?.[0]?.id;
+                      : operation.owner.kind === 'character'
+                        ? { kind: 'character', character: sceneCharacterRef(id) }
+                        : {
+                            kind: 'interactable',
+                            interactable: {
+                              $ref: { registry: 'interactableInstances', id },
+                            },
+                          };
+                  const nextKey = staticallyKnownIdentityProperties(project, nextOwner)[0]?.id;
                   replaceOperation(index, {
                     ...operation,
                     owner: nextOwner,
@@ -177,7 +237,11 @@ function MigratedPropertyOperationSelectors({
               >
                 {Object.entries(ownerRecords).map(([id, record]) => (
                   <SelectItem key={id} value={id}>
-                    {record.label || id}
+                    {'label' in record
+                      ? record.label || id
+                      : record.editorLabel ||
+                        project.interactables[record.definition.$ref.id]?.label ||
+                        id}
                   </SelectItem>
                 ))}
               </Select>
@@ -190,7 +254,7 @@ function MigratedPropertyOperationSelectors({
                   key && replaceOperation(index, { ...operation, property: { key } })
                 }
               >
-                {localProperties.map((property) => (
+                {knownProperties.map((property) => (
                   <SelectItem key={property.id} value={property.id}>
                     {property.label || property.id}
                   </SelectItem>
@@ -2256,7 +2320,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     }
                   />
                 </Label>
-                <MigratedPropertyOperationSelectors
+                <IdentityPropertyOperationSelectors
                   project={project}
                   operations={selected.operations}
                   onCommit={(operations) =>

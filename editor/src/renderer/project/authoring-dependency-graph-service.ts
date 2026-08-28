@@ -10,7 +10,6 @@ import {
   createAuthoringDependencyGraphContributionSet,
   deriveAuthoringDependencyContribution,
   enumerateAuthoringDependencyContributionKeys,
-  propertyDefinitionContributionKey,
   traitDefinitionContributionKey,
   recordContributionKey,
   reprojectAuthoringDependencyContributionFromCachedSources,
@@ -766,19 +765,6 @@ function directOwnerAdmission(
     const id = segments[1];
     if (!root || !id) continue;
     const ownerMetadataChanged = segments.length === 3 && segments[2] === 'label';
-    if (root === 'properties') {
-      const ownerPath = buildJsonPointer(['properties', id]);
-      const previous = publication.previousProject?.properties[id];
-      const current = publication.project.properties[id];
-      if (
-        (previous || current) &&
-        (ownerMetadataChanged ||
-          !ownerPaths.has(ownerPath) ||
-          Boolean(previous) !== Boolean(current))
-      )
-        contributionKeys.add(propertyDefinitionContributionKey(id));
-      continue;
-    }
     if (root === 'traits') {
       const ownerPath = buildJsonPointer(['traits', id]);
       const previous = publication.previousProject?.traits[id];

@@ -106,8 +106,6 @@ public:
     consume_item_quantity(ItemStackFilter filter, std::uint64_t quantity);
     [[nodiscard]] core::Result<std::uint64_t, core::Diagnostics>
     aggregate_item_quantity(const ItemStackFilter& filter) const;
-    [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
-    set_item_stack_traits(core::ItemStackId stack, std::vector<core::TraitId> traits);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     replace_instance_configuration(core::GameplayInstanceRef instance,
                                    RuntimeInstanceConfigurationRequest source);

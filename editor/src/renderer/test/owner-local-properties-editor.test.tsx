@@ -57,7 +57,7 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
     expect(useCell.getAttribute('style')).toContain('rgb(220, 38, 38)');
   });
 
-  it('materializes an explicit override as a standalone local Property on last-source detach', async () => {
+  it('preserves an explicit local override as a standalone Property on last-source detach', async () => {
     const user = userEvent.setup();
     const onTraitStateChange = vi.fn();
     const inspectable: TraitDefinition = {
@@ -78,12 +78,11 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
     render(
       <OwnerLocalPropertiesEditor
         ownerLabel="Room"
-        properties={[]}
         onChange={vi.fn()}
         traits={{ inspectable }}
         ownerKind="room"
         attachedTraits={['inspectable']}
-        propertyOverrides={{ clue: 'portrait' }}
+        properties={[{ id: 'clue', type: 'string', nullable: false, value: 'portrait' }]}
         onTraitStateChange={onTraitStateChange}
       />,
     );
@@ -92,12 +91,9 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
 
     expect(onTraitStateChange).toHaveBeenCalledWith({
       traits: [],
-      properties: {},
       localProperties: [
         {
           id: 'clue',
-          label: 'Clue',
-          description: 'Visible evidence',
           type: 'string',
           nullable: false,
           value: 'portrait',
@@ -140,7 +136,6 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
     await user.click(screen.getByRole('button', { name: 'Reset mood' }));
     expect(onTraitStateChange).toHaveBeenCalledWith({
       traits: [],
-      properties: {},
       localProperties: [],
     });
   });

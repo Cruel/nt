@@ -395,10 +395,7 @@ function admissionTargets(
   closure: ReturnType<typeof roomClosure>,
 ): AdmissionTarget[] {
   const targets: AdmissionTarget[] = [];
-  const correlatedProperties = new Map<
-    string,
-    { definition: boolean; owner: boolean; target: AdmissionTarget }
-  >();
+  const correlatedProperties = new Map<string, { owner: boolean; target: AdmissionTarget }>();
   for (const edgeId of closure.edgeIds) {
     const edge = snapshot.graph.edgesById.get(edgeId);
     if (
@@ -419,7 +416,6 @@ function admissionTargets(
       if (!ownerKind) continue;
       const correlationKey = `${edge.role}:${edge.sourcePath}:${propertyOwnerCollection}:${propertyOwnerId}:${propertyId}:${edge.evidence?.map((item) => JSON.stringify(item)).join('|') ?? ''}`;
       const correlated = correlatedProperties.get(correlationKey) ?? {
-        definition: false,
         owner: false,
         target: {
           kind: 'property-value' as const,
@@ -427,12 +423,6 @@ function admissionTargets(
           propertyId,
         },
       };
-      if (
-        edge.target.kind === 'property-definition' &&
-        edge.target.id === propertyId &&
-        snapshot.graph.nodesByKey.has(nodeText(edge.target))
-      )
-        correlated.definition = true;
       if (
         edge.target.kind === 'record' &&
         edge.target.collection === propertyOwnerCollection &&
@@ -447,7 +437,7 @@ function admissionTargets(
     if (target) targets.push(target);
   }
   for (const correlation of correlatedProperties.values())
-    if (correlation.definition && correlation.owner) targets.push(correlation.target);
+    if (correlation.owner) targets.push(correlation.target);
   const byKey = new Map<string, AdmissionTarget>();
   for (const target of targets) byKey.set(JSON.stringify(target), target);
   return [...byKey.values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -509,16 +499,13 @@ function resolvedProperty(
   const record = recordForOwner(project, kind, id);
   const local = record?.localProperties?.find((property) => property.id === propertyId);
   if (local) return { kind: 'value', value: local.value };
-  if (record && Object.hasOwn(record.properties ?? {}, propertyId))
-    return { kind: 'value', value: record.properties![propertyId] };
   for (const traitId of record?.traits ?? []) {
     const member = project.traits[traitId]?.properties.find(
       (property) => property.id === propertyId,
     );
     if (member?.defaultValue !== undefined) return { kind: 'value', value: member.defaultValue };
   }
-  const fallback = project.properties[propertyId]?.defaultValue;
-  return fallback !== undefined ? { kind: 'value', value: fallback } : { kind: 'missing' };
+  return { kind: 'missing' };
 }
 
 function buildAdmissionAndState(

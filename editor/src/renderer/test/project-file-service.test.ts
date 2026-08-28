@@ -49,7 +49,7 @@ describe('project-file-service workspace-v1', () => {
     const result = await createProject({ projectName: 'My Project', projectDirectory });
     expect(result.success).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'project.json'))).toBe(true);
-    expect(fs.existsSync(path.join(projectDirectory, 'properties.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'properties.json'))).toBe(false);
     expect(fs.existsSync(path.join(projectDirectory, 'localization.json'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'editor.json'))).toBe(true);
     expect(fs.readFileSync(path.join(projectDirectory, '.gitignore'), 'utf8')).toBe(
@@ -268,7 +268,7 @@ describe('project-file-service workspace-v1', () => {
         archetype: null,
         archetypeOverrides: {},
         traits: [],
-        properties: {},
+        localProperties: [],
         data: defaultRoomData(label),
       };
       const created = await saveActiveProjectContent(

@@ -281,7 +281,6 @@ function compilePropertyOwner(
         | { kind: 'room'; room: { $ref: { id: string } } }
         | { kind: 'character'; character: { $ref: { id: string } } }
         | { kind: 'interactable'; interactable: { $ref: { id: string } } }
-        | { kind: 'item-stack'; itemStack: { $ref: { id: string } } }
     : never,
 ) {
   if (owner.kind === 'room')
@@ -296,10 +295,7 @@ function compilePropertyOwner(
       kind: 'interactable' as const,
       interactable: { kind: 'interactable' as const, id: owner.interactable.$ref.id },
     };
-  return {
-    kind: 'item-stack' as const,
-    itemStack: { kind: 'item-stack' as const, id: owner.itemStack.$ref.id },
-  };
+  return owner satisfies never;
 }
 
 function compileGameplayInstanceRef(
@@ -511,26 +507,14 @@ function compileSceneStep(
               return {
                 kind: 'set-property' as const,
                 owner: compilePropertyOwner(operation.owner),
-                property: {
-                  kind: 'property' as const,
-                  id:
-                    'key' in operation.property
-                      ? operation.property.key
-                      : operation.property.$ref.id,
-                },
+                property: { kind: 'property' as const, id: operation.property.key },
                 value: operation.value,
               };
             case 'unset-property':
               return {
                 kind: 'unset-property' as const,
                 owner: compilePropertyOwner(operation.owner),
-                property: {
-                  kind: 'property' as const,
-                  id:
-                    'key' in operation.property
-                      ? operation.property.key
-                      : operation.property.$ref.id,
-                },
+                property: { kind: 'property' as const, id: operation.property.key },
               };
             case 'move-character':
               return {
@@ -600,15 +584,6 @@ function compileSceneStep(
                 kind: 'consume-item-quantity' as const,
                 stack: { kind: 'item-stack' as const, id: operation.stack.$ref.id },
                 quantity: operation.quantity,
-              };
-            case 'set-item-stack-traits':
-              return {
-                kind: 'set-item-stack-traits' as const,
-                stack: { kind: 'item-stack' as const, id: operation.stack.$ref.id },
-                traits: operation.traits.map((trait) => ({
-                  kind: 'trait' as const,
-                  id: trait.$ref.id,
-                })),
               };
           }
         }),

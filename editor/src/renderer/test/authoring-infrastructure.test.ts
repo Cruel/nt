@@ -42,14 +42,6 @@ describe('authoring V2 infrastructure', () => {
 
   it('keeps category and tag metadata separate from runtime Traits and assignments', () => {
     const project = createAuthoringProject();
-    project.properties.mood = {
-      id: 'mood',
-      label: 'Mood',
-      type: 'string',
-      nullable: false,
-      defaultValue: 'calm',
-      ownerKinds: ['room'],
-    };
     project.traits['tense-room'] = {
       id: 'tense-room',
       label: 'Tense Room',
@@ -60,7 +52,6 @@ describe('authoring V2 infrastructure', () => {
       id: 'child',
       label: 'Child',
       traits: ['tense-room'],
-      properties: {},
       data: defaultRoomData('Child'),
     };
     project.editor.chapters.records.area = { id: 'area', label: 'Area category' };
@@ -71,24 +62,16 @@ describe('authoring V2 infrastructure', () => {
     expect(project.rooms.child.traits).toEqual(['tense-room']);
   });
 
-  it('validates property declarations, owner allowlists, nullability, and assignment types', () => {
+  it('validates owner-local Property nullability and value types', () => {
     const project = createAuthoringProject();
-    project.properties.map = {
-      id: 'map',
-      label: 'Map',
-      type: 'string',
-      nullable: false,
-      defaultValue: 'main',
-      ownerKinds: ['room'],
-    };
     project.rooms.area = {
       id: 'area',
       label: 'Area',
-      properties: { map: null },
+      localProperties: [{ id: 'map', label: 'Map', type: 'string', nullable: false, value: null }],
       data: defaultRoomData('Area'),
     };
     expect(validateAuthoringProject(project)).toContainEqual(
-      expect.objectContaining({ path: '/rooms/area/properties/map' }),
+      expect.objectContaining({ path: '/rooms/area/localProperties/0/value' }),
     );
   });
 

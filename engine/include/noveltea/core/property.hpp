@@ -27,7 +27,7 @@ struct GlobalPropertyTarget {
 };
 using PropertyTargetRef =
     std::variant<GlobalPropertyTarget, RoomId, CharacterId, InteractableInstanceId, RoomFeatureRef,
-                 InteractableFeatureRef, ItemStackId>;
+                 InteractableFeatureRef>;
 
 struct BooleanPropertyType {};
 struct IntegerPropertyType {};
@@ -157,8 +157,6 @@ using PropertyLookupResult = std::variant<RuntimeValue, MissingPropertyValue>;
             else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
                                std::is_same_v<T, InteractableFeatureRef>)
                 return PropertyOwnerKind::Feature;
-            else if constexpr (std::is_same_v<T, ItemStackId>)
-                return PropertyOwnerKind::ItemStack;
             else
                 static_assert(std::is_same_v<T, void>, "Unhandled property owner type");
         },
@@ -251,7 +249,7 @@ make_property_definition(PropertyDefinitionInput input)
                        .message = "Global Properties require a default and no owner; identity "
                                   "Properties require either owner kinds or one exact owner"}});
     for (const auto owner : input.allowed_owners) {
-        if (owner > PropertyOwnerKind::ItemStack)
+        if (owner > PropertyOwnerKind::Feature)
             return Result<PropertyDefinition, Diagnostics>::failure(
                 Diagnostics{Diagnostic{.code = "domain.invalid_property_definition",
                                        .message = "Property owner kind is invalid"}});

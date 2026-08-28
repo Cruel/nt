@@ -9,11 +9,7 @@ import { dialogueDataSchema } from './authoring-dialogues';
 import { layoutDataSchema } from './authoring-layouts';
 import { materialDataSchema } from './authoring-materials';
 import { mapDataSchema } from './authoring-maps';
-import {
-  ownerDefaultPropertiesSchema,
-  ownerLocalPropertiesSchema,
-  propertyAssignmentsSchema,
-} from './authoring-properties';
+import { ownerDefaultPropertiesSchema, ownerLocalPropertiesSchema } from './authoring-properties';
 import { roomDataSchema } from './authoring-rooms';
 import { sceneDataSchema } from './authoring-scenes';
 import { shaderDataSchema } from './authoring-shaders';
@@ -32,7 +28,6 @@ const propertyRecordShape = {
   archetype: archetypeRefSchema.nullable().optional(),
   archetypeOverrides: z.record(z.string(), z.json()).optional(),
   traits: z.array(entityIdSchema).optional(),
-  properties: propertyAssignmentsSchema.optional(),
 };
 
 function recordSchema<Data extends z.ZodType>(data: Data) {

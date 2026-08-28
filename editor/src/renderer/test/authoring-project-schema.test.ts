@@ -19,7 +19,6 @@ describe('authoring project schema', () => {
       project: { id: 'demo-project', name: 'Demo Project' },
       bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
       entrypoint: null,
-      properties: {},
       localization: { defaultLocale: 'en', fallbackLocale: null, catalogs: { en: {} } },
       editor: { schema: EDITOR_PROJECT_STATE_SCHEMA, recordMetadata: {} },
     });

@@ -146,30 +146,18 @@ export function InteractableInstancePropertiesEditor({
         return;
       }
     }
-    const nextLocal = [...instance.localProperties];
-    const nextOverrides = { ...instance.properties };
-    for (const member of trait.properties) {
-      const localIndex = nextLocal.findIndex((property) => property.id === member.id);
-      if (localIndex < 0) continue;
-      const local = nextLocal[localIndex]!;
-      if (!arePropertySchemasCompatible(local, member)) continue;
-      nextOverrides[member.id] = local.value;
-      nextLocal.splice(localIndex, 1);
-    }
     const nextTraits = [...effectiveTraits, traitId];
     const add = nextTraits.filter((id) => !definitionTraits.has(id));
     const remove = [...definitionTraits].filter((id) => !nextTraits.includes(id));
     onChange({
       ...instance,
       traits: { add, remove },
-      properties: nextOverrides,
-      localProperties: nextLocal,
+      localProperties: [...instance.localProperties],
     });
     setTraitId('');
     setMessage(null);
   };
   const detachTrait = (id: string) => {
-    const departing = project.traits[id];
     const remainingTraits = effectiveTraits.filter((candidate) => candidate !== id);
     const remainingInstance: InteractableInstanceData = {
       ...instance,
@@ -178,28 +166,7 @@ export function InteractableInstancePropertiesEditor({
         remove: [...definitionTraits].filter((candidate) => !remainingTraits.includes(candidate)),
       },
     };
-    const remainingRows = effectiveInteractableInstanceProperties(project, remainingInstance);
-    const remainingIds = new Set(remainingRows.map((row) => row.id));
-    const nextOverrides = { ...instance.properties };
-    const nextLocal = [...instance.localProperties];
-    for (const member of departing?.properties ?? []) {
-      if (remainingIds.has(member.id)) continue;
-      if (!Object.prototype.hasOwnProperty.call(nextOverrides, member.id)) continue;
-      const value = nextOverrides[member.id]!;
-      if (!nextLocal.some((item) => item.id === member.id)) {
-        nextLocal.push({
-          id: member.id,
-          ...(member.label ? { label: member.label } : {}),
-          ...(member.description ? { description: member.description } : {}),
-          type: member.type,
-          nullable: member.nullable,
-          value,
-          ...(member.enumValues ? { enumValues: [...member.enumValues] } : {}),
-        });
-      }
-      delete nextOverrides[member.id];
-    }
-    onChange({ ...remainingInstance, properties: nextOverrides, localProperties: nextLocal });
+    onChange({ ...remainingInstance, localProperties: [...instance.localProperties] });
   };
   const openNew = () => {
     setEditingLocalId('');
@@ -260,13 +227,25 @@ export function InteractableInstancePropertiesEditor({
       setMessage(parsed.message);
       return;
     }
+    const contract = editingValue.contract;
+    const replacement: OwnerLocalProperty = {
+      id: contract.id,
+      ...(contract.label ? { label: contract.label } : {}),
+      ...(contract.description ? { description: contract.description } : {}),
+      type: contract.type,
+      nullable: contract.nullable,
+      value: parsed.value,
+      ...(contract.enumValues ? { enumValues: [...contract.enumValues] } : {}),
+    };
+    const existing = instance.localProperties.findIndex((item) => item.id === editingValue.id);
     onChange({
       ...instance,
-      properties: { ...instance.properties, [editingValue.id]: parsed.value },
       localProperties:
-        !editingValue.localOnly && editingValue.localProperty
-          ? instance.localProperties.filter((item) => item.id !== editingValue.id)
-          : instance.localProperties,
+        existing < 0
+          ? [...instance.localProperties, replacement]
+          : instance.localProperties.map((item, index) =>
+              index === existing ? replacement : item,
+            ),
     });
     setEditingValueId(null);
   };
@@ -339,12 +318,8 @@ export function InteractableInstancePropertiesEditor({
               </tr>
             ) : null}
             {rows.map((row) => {
-              const hasStoredOverride = Object.prototype.hasOwnProperty.call(
-                instance.properties,
-                row.id,
-              );
               const hasLocalOverride = !row.localOnly && row.localProperty !== undefined;
-              const hasOverride = hasStoredOverride || hasLocalOverride;
+              const hasOverride = hasLocalOverride;
               return (
                 <tr key={row.id} className={`border-t ${row.localOnly ? 'bg-muted/15' : ''}`}>
                   <td className="px-3 py-2">
@@ -402,17 +377,14 @@ export function InteractableInstancePropertiesEditor({
                               size="icon-sm"
                               variant="ghost"
                               aria-label={`Reset ${row.id}`}
-                              onClick={() => {
-                                const properties = { ...instance.properties };
-                                delete properties[row.id];
+                              onClick={() =>
                                 onChange({
                                   ...instance,
-                                  properties,
-                                  localProperties: hasLocalOverride
-                                    ? instance.localProperties.filter((item) => item.id !== row.id)
-                                    : instance.localProperties,
-                                });
-                              }}
+                                  localProperties: instance.localProperties.filter(
+                                    (item) => item.id !== row.id,
+                                  ),
+                                })
+                              }
                             >
                               <RotateCcw className="size-4" />
                             </Button>

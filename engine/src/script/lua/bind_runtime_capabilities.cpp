@@ -120,10 +120,6 @@ parse_layout_property_target(const sol::table& target)
         auto parsed = parse_id<core::InteractableInstanceId>(*target_id);
         return parsed ? Result::success(*parsed.value_if()) : Result::failure(parsed.error());
     }
-    if (*kind == "item-stack" && target_id) {
-        auto parsed = parse_id<core::ItemStackId>(*target_id);
-        return parsed ? Result::success(*parsed.value_if()) : Result::failure(parsed.error());
-    }
     const auto feature = table_option<std::string>(target, "feature");
     if (*kind == "room-feature" && target_id && feature) {
         auto room = parse_id<core::RoomId>(*target_id);
@@ -143,7 +139,7 @@ parse_layout_property_target(const sol::table& target)
     return Result::failure(invalid(
         "runtime.invalid_layout_property_target",
         "Layout Property binding target requires a valid global, room, character, interactable, "
-        "item-stack, room-feature, or interactable-feature reference"));
+        "room-feature, or interactable-feature reference"));
 }
 
 core::Result<std::vector<core::LayoutInputAssignment>, core::Diagnostics>

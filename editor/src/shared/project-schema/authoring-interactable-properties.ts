@@ -147,9 +147,7 @@ export function effectiveInteractableInstanceProperties(
 
   const inherited: EffectiveInteractableInstanceProperty[] = [...byId.values()].map((property) => {
     const local = instance.localProperties.find((item) => item.id === property.id);
-    const hasOverride = Object.prototype.hasOwnProperty.call(instance.properties, property.id);
-    const value =
-      local?.value ?? (hasOverride ? instance.properties[property.id] : property.defaultValue);
+    const value = local?.value ?? property.defaultValue;
     return {
       ...property,
       ...(value === undefined ? {} : { value }),

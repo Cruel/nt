@@ -98,7 +98,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:b2414cd8aadef6e21bd65e08a017c23e");
+    CHECK(project.save_contract == "sc1:a1be1184551166a6179760f46ce63a72");
     CHECK(project.properties.size() == 14);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -930,6 +930,10 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
         auto result =
             noveltea::core::decode_compiled_project(document, std::string(name) + ".json");
         INFO(name);
+        if (!result)
+            for (const auto& diagnostic : result.error())
+                UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
+                                              << diagnostic.json_pointer);
         REQUIRE(result);
         CHECK(document == original);
         CHECK(result.value().identity().id.text().starts_with("golden-"));
@@ -963,8 +967,10 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     CHECK(complete.maps().size() == 1);
     CHECK(complete.find_property(PropertyId::create("count").value()) != nullptr);
     CHECK(complete.find_property(PropertyId::create("count").value())->is_global());
-    CHECK(complete.find_property(PropertyId::create("mood").value()) != nullptr);
-    CHECK_FALSE(complete.find_property(PropertyId::create("mood").value())->is_global());
+    const auto start_owner = PropertyOwnerRef{RoomId::create("start").value()};
+    CHECK(complete.find_property(start_owner, PropertyId::create("mood").value()) != nullptr);
+    CHECK_FALSE(
+        complete.find_property(start_owner, PropertyId::create("mood").value())->is_global());
     const auto image_asset_id = AssetId::create("image-main").value();
     REQUIRE(complete.find_asset(image_asset_id) != nullptr);
     REQUIRE(complete.find_asset(image_asset_id)->sampling);
@@ -1302,7 +1308,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
             nlohmann::json::array({{{"propertyId", "mood"}, {"value", "calm"}}});
         auto result = noveltea::core::decode_compiled_project(document, "properties.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "domain.invalid_property_assignment"));
+        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
     }
 
     SECTION("property nullability")

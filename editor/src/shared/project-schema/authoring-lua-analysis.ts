@@ -22,20 +22,10 @@ export const luaExplicitDependencyTargetSchema = z.discriminatedUnion('kind', [
     collection: z.enum(authoringCollectionKeys),
     id: z.string().min(1),
   }),
-  strict({ kind: z.literal('property-definition'), propertyId: z.string().min(1) }),
   strict({
     kind: z.literal('property-value'),
     owner: strict({
-      kind: z.enum([
-        'room',
-        'scene',
-        'dialogue',
-        'character',
-        'interactable',
-        'verb',
-        'interaction',
-        'map',
-      ]),
+      kind: z.enum(['room', 'character', 'interactable']),
       id: z.string().min(1),
     }),
     propertyId: z.string().min(1),
@@ -50,8 +40,6 @@ export const luaExplicitDependencyTargetSchema = z.discriminatedUnion('kind', [
 export type LuaExplicitDependencyTarget = z.infer<typeof luaExplicitDependencyTargetSchema>;
 export function serializeLuaExplicitDependencyTarget(target: LuaExplicitDependencyTarget): string {
   if (target.kind === 'record') return JSON.stringify(['record', target.collection, target.id]);
-  if (target.kind === 'property-definition')
-    return JSON.stringify(['property-definition', target.propertyId]);
   if (target.kind === 'property-value')
     return JSON.stringify([
       'property-value',

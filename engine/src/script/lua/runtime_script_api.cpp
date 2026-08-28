@@ -303,13 +303,6 @@ RuntimeScriptApi::aggregate_item_quantity(const runtime::ItemStackFilter& filter
                         gateway->aggregate_item_quantity(filter));
 }
 
-core::Result<runtime::ItemStackMutation, core::Diagnostics>
-RuntimeScriptApi::set_item_stack_traits(core::ItemStackId stack, std::vector<core::TraitId> traits)
-{
-    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack Trait mutation",
-                          gateway->set_item_stack_traits(std::move(stack), std::move(traits)));
-}
-
 core::Result<void, core::Diagnostics> RuntimeScriptApi::replace_instance_configuration(
     core::GameplayInstanceRef instance, runtime::RuntimeInstanceConfigurationRequest source)
 {

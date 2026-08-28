@@ -1,7 +1,6 @@
 import type {
   OwnerDefaultProperty,
   OwnerLocalProperty,
-  PropertyAssignments,
   PropertyOwnerKind,
   TraitDefinition,
 } from '../../../shared/project-schema/authoring-properties';
@@ -27,7 +26,6 @@ export type PropertyManagerProps =
   | (CommonProps & {
       mode: 'value';
       properties: readonly OwnerLocalProperty[];
-      propertyOverrides?: Readonly<PropertyAssignments>;
       inheritedProperties?: readonly InheritedDefaultProperty[];
       inheritedTraits?: readonly string[];
       onChange: (
@@ -55,7 +53,6 @@ export function PropertyManager(props: PropertyManagerProps) {
         traits={props.traits}
         ownerKind={props.ownerKind}
         attachedTraits={props.attachedTraits}
-        propertyOverrides={props.propertyOverrides}
         inheritedProperties={props.inheritedProperties}
         inheritedTraits={props.inheritedTraits}
         traitColorFor={props.traitColorFor}

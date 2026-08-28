@@ -101,7 +101,6 @@ core::Result<core::PropertyOwnerRef, core::Diagnostics> property_owner(std::stri
     NOVELTEA_PARSE_OWNER("room", core::RoomId)
     NOVELTEA_PARSE_OWNER("character", core::CharacterId)
     NOVELTEA_PARSE_OWNER("interactable", core::InteractableInstanceId)
-    NOVELTEA_PARSE_OWNER("item-stack", core::ItemStackId)
 #undef NOVELTEA_PARSE_OWNER
     return Result::failure(core::Diagnostics{core::Diagnostic{
         .code = "script_host.invalid_owner_kind",
@@ -849,32 +848,6 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
                      : failure(view, value.error());
     });
     item_stacks.set_function(
-        "set_traits",
-        [host](std::string id, sol::table values, sol::this_state state) -> ObjectResult {
-            sol::state_view view(state);
-            auto stack = parse_id<core::ItemStackId>(std::move(id));
-            if (!stack)
-                return failure(view, stack.error());
-
-            std::vector<core::TraitId> traits;
-            traits.reserve(values.size());
-            for (std::size_t index = 1; index <= values.size(); ++index) {
-                const sol::object value = values[index];
-                if (!value.is<std::string>())
-                    return failure(
-                        view,
-                        location_error("Item Stack Traits must be an array of Trait ID strings"));
-                auto trait = parse_id<core::TraitId>(value.as<std::string>());
-                if (!trait)
-                    return failure(view, trait.error());
-                traits.push_back(std::move(*trait.value_if()));
-            }
-            auto value =
-                host->set_item_stack_traits(std::move(*stack.value_if()), std::move(traits));
-            return value ? ObjectResult{item_mutation_object(view, *value.value_if()), nil(view)}
-                         : failure(view, value.error());
-        });
-    item_stacks.set_function(
         "split",
         [host](std::string id, std::uint64_t quantity, sol::this_state state) -> ObjectResult {
             sol::state_view view(state);
@@ -955,7 +928,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
             if (!parsed)
                 return failure(view, parsed.error());
             auto value = host->aggregate_item_quantity(
-                runtime::ItemStackFilter{std::move(*parsed.value_if()), std::nullopt, {}, {}});
+                runtime::ItemStackFilter{std::move(*parsed.value_if()), std::nullopt});
             return value ? ObjectResult{sol::make_object(view, *value.value_if()), nil(view)}
                          : failure(view, value.error());
         });
@@ -968,8 +941,7 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
             if (!parsed)
                 return failure(view, parsed.error());
             auto value = host->consume_item_quantity(
-                runtime::ItemStackFilter{std::move(*parsed.value_if()), std::nullopt, {}, {}},
-                quantity);
+                runtime::ItemStackFilter{std::move(*parsed.value_if()), std::nullopt}, quantity);
             return value ? ObjectResult{item_mutation_object(view, *value.value_if()), nil(view)}
                          : failure(view, value.error());
         });

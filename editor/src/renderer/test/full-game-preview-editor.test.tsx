@@ -886,7 +886,6 @@ describe('FullGamePreviewEditor', () => {
       id: 'key',
       label: 'Brass Key',
       traits: [],
-      properties: {},
       data: defaultInteractableData('Brass Key'),
     };
     project.verbs.look = {

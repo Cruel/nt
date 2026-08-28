@@ -92,9 +92,8 @@ enum class PropertyOwnerKind : std::uint8_t {
     Room,
     Character,
     Interactable,
-    Feature,
-    ItemStack
+    Feature
 };
 using PropertyOwnerRef = std::variant<RoomId, CharacterId, InteractableInstanceId, RoomFeatureRef,
-                                      InteractableFeatureRef, ItemStackId>;
+                                      InteractableFeatureRef>;
 } // namespace noveltea::core

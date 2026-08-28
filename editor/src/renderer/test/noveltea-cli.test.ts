@@ -924,7 +924,6 @@ describe('NovelTea headless CLI', () => {
         'docs/RMLUI_CUSTOM_COMPONENTS.md',
         'docs/RMLUI_LUA.md',
         'schemas/project.schema.json',
-        'schemas/properties.schema.json',
         'schemas/traits.schema.json',
         'schemas/localization.schema.json',
         'schemas/editor.schema.json',

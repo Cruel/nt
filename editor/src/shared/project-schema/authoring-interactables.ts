@@ -6,7 +6,7 @@ import type { AuthoringProject, AuthoringRecordBase } from './authoring-project'
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
-import { ownerLocalPropertiesSchema, propertyAssignmentsSchema } from './authoring-properties';
+import { ownerLocalPropertiesSchema } from './authoring-properties';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -51,7 +51,6 @@ export const interactableInstanceDataSchema = strict({
     add: z.array(entityIdSchema),
     remove: z.array(entityIdSchema),
   }),
-  properties: propertyAssignmentsSchema,
   localProperties: ownerLocalPropertiesSchema,
 });
 
@@ -119,7 +118,6 @@ export function defaultInteractableInstanceData(
     enabled: true,
     visible: true,
     traits: { add: [], remove: [] },
-    properties: {},
     localProperties: [],
   };
 }

@@ -2,8 +2,6 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { authoringLocalizationSchema } from '../shared/project-schema/authoring-localization';
-import { entityIdSchema } from '../shared/project-schema/authoring-common';
-import { propertyDefinitionSchema } from '../shared/project-schema/authoring-properties';
 import { authoringRecordSchemas } from '../shared/project-schema/authoring-records';
 import {
   layoutAssetRefSchema,
@@ -175,7 +173,6 @@ const systemLayoutReferenceByRole: Readonly<
 
 const schemaSources = {
   'project.schema.json': workspaceManifestSchema,
-  'properties.schema.json': z.record(entityIdSchema, propertyDefinitionSchema),
   'traits.schema.json': authoringProjectSchema.shape.traits,
   'localization.schema.json': authoringLocalizationSchema,
   'editor.schema.json': trackedEditorSchema,

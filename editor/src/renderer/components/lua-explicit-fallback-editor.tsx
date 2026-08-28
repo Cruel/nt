@@ -12,7 +12,6 @@ const targetKey = (target: LuaExplicitDependencyTarget) => JSON.stringify(target
 
 function defaultTarget(kind: LuaExplicitDependencyTarget['kind']): LuaExplicitDependencyTarget {
   if (kind === 'record') return { kind, collection: 'characters', id: 'target' };
-  if (kind === 'property-definition') return { kind, propertyId: 'property' };
   if (kind === 'property-value')
     return { kind, owner: { kind: 'character', id: 'target' }, propertyId: 'property' };
   if (kind === 'room-placement') return { kind, roomId: 'room', placementId: 'placement' };
@@ -59,7 +58,6 @@ export function LuaExplicitFallbackEditor({
             }
           >
             <SelectItem value="record">Record</SelectItem>
-            <SelectItem value="property-definition">Property definition</SelectItem>
             <SelectItem value="property-value">Property value</SelectItem>
             <SelectItem value="room-placement">Room placement</SelectItem>
             <SelectItem value="room-exit">Room exit</SelectItem>
@@ -87,14 +85,6 @@ export function LuaExplicitFallbackEditor({
                 onChange={(event) => replace(index, { ...target, id: event.currentTarget.value })}
               />
             </div>
-          ) : target.kind === 'property-definition' ? (
-            <Input
-              aria-label="Property ID"
-              value={target.propertyId}
-              onChange={(event) =>
-                replace(index, { ...target, propertyId: event.currentTarget.value })
-              }
-            />
           ) : target.kind === 'property-value' ? (
             <div className="grid gap-2 md:grid-cols-3">
               <Select
@@ -106,16 +96,7 @@ export function LuaExplicitFallbackEditor({
                   })
                 }
               >
-                {[
-                  'room',
-                  'scene',
-                  'dialogue',
-                  'character',
-                  'interactable',
-                  'verb',
-                  'interaction',
-                  'map',
-                ].map((kind) => (
+                {['room', 'character', 'interactable'].map((kind) => (
                   <SelectItem key={kind} value={kind}>
                     {kind}
                   </SelectItem>

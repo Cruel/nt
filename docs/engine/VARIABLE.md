@@ -29,9 +29,17 @@ interface VariableData {
 
 Global Variables always require a concrete authored Value. Nullable Variables may author `null` as that Value. Non-null numbers must be finite, integers must be finite whole numbers, and enum Values must be one of the declared enum values.
 
-Variable IDs share the normal project entity-ID syntax and become the compiled `PropertyId`. They must remain unique in the global/transitional Property registry, but may use the same key as an exact owner-local Room or Character Property because that Property is identified by owner plus key.
+Variable IDs share the normal project entity-ID syntax and become the compiled `PropertyId`. They
+are unique among Variables, but may use the same key as an owner-local Property because identity
+Properties are addressed by exact owner plus key rather than by a project-wide identity registry.
 
-Rooms and Characters now author ordered owner-local Property declarations directly on the owner record. Each entry carries its key/ID, optional label/description, type, nullability, enum domain when applicable, and concrete Value. The same key may therefore have unrelated schemas on different Rooms or Characters. Other Property-bearing surfaces remain on the transitional project-wide identity Property registry until their migration slice.
+Rooms and Characters author ordered owner-local Property declarations directly on the owner record.
+Interactable definitions author ordered Property Defaults/contracts, while Interactable Instances may
+carry exact instance-local Properties and exact override state. Features use their owner-local
+Property contracts. Each contract carries its key/ID, optional label/description, type, nullability,
+and enum domain when applicable; concrete Values/Defaults live with the appropriate owner surface.
+The same key may therefore have unrelated schemas on different owners. Traits remain self-contained
+reusable contracts and do not depend on a project-wide identity Property declaration.
 
 ## Compiled contract
 
@@ -52,9 +60,11 @@ enumValues
 
 The compiled Global Property preserves the authored Variable nullability and always carries `defaultValue`, which is the authored Value.
 
-Migrated Room and Character Properties compile as exact identity declarations with `scope: "identity"` plus an exact `owner` reference. Their concrete authored Value is emitted as that owner's Property assignment. Exact declarations do not use `ownerKinds`, and identity is `(owner, PropertyId)` rather than `PropertyId` alone.
-
-Unmigrated Property-bearing surfaces continue to compile through the transitional identity declaration form with admitted `ownerKinds`. Scene, Dialogue, Verb, Interaction, and Map definitions are not Property targets.
+Identity Properties compile as exact declarations with `scope: "identity"` plus an exact `owner`
+reference when a standalone declaration is needed. Concrete authored state is emitted on the owning
+definition/instance contract. Exact declarations do not use `ownerKinds`, and identity is
+`(owner, PropertyId)` rather than `PropertyId` alone. Scene, Dialogue, Verb, Interaction, and Map
+definitions are not Property targets.
 
 Conditions and effects that originate from Variable authoring also compile to Property vocabulary:
 
@@ -74,9 +84,16 @@ There is no compiled Variable reference or separate Variable runtime store.
 (PropertyTargetRef, PropertyId)
 ```
 
-`PropertyTargetRef` is either the explicit global target or a Room, Character, or Interactable identity target. Globals do not use a fake Game/entity owner ID.
+`PropertyTargetRef` is either the explicit global target or an exact Room, Character, Interactable,
+or Feature identity target. Item Stacks are not Property owners. Globals do not use a fake
+Game/entity owner ID.
 
-`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. For an owner-qualified read it first resolves an exact owner-local declaration for that owner and key. Global reads resolve an override first and otherwise return the required authored Value/default. Migrated Room/Character Trait contracts are projected to exact-owner declarations by the compiler; runtime resolution uses the concrete authored value when present, then the compatible Trait Default, then typed missing. Exact owner-local Room/Character reads resolve runtime override before authored data. Values never propagate between owners that happen to use the same key.
+`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and
+identity-scoped writes. For an owner-qualified read it resolves the exact owner's authored contract
+and compatible attached Trait contracts for that key. Global reads resolve an override first and
+otherwise return the required authored Value/default. Identity resolution uses runtime override,
+concrete authored value/default, compatible Trait Default, then typed missing. Values never
+propagate between owners that happen to use the same key.
 
 Lua may also create a Property key that has no authored/effective schema. Such a dynamic Property is
 Session-only authoring-independent state: it stores only `(target, key, RuntimeValue)`, may change

@@ -95,7 +95,6 @@ describe('Interactable Property editors', () => {
 
     expect(onChange).toHaveBeenCalledWith({
       ...instance,
-      properties: {},
       localProperties: [],
     });
   });
@@ -168,7 +167,6 @@ describe('Interactable Property editors', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'base' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
       defaultProperties: [
         {
           id: 'quality',
@@ -224,7 +222,6 @@ describe('Interactable Property editors', () => {
       archetype: { $ref: { collection: 'archetypes', id: 'base' } },
       archetypeOverrides: {},
       traits: [],
-      properties: {},
       data: defaultInteractableData('Key'),
     };
 

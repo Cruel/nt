@@ -235,8 +235,6 @@ export function serializeAuthoringDependencyNodeKey(key: AuthoringDependencyNode
       return JSON.stringify(['record', key.collection, key.id]);
     case 'nested':
       return JSON.stringify(['nested', key.ownerCollection, key.ownerId, key.family, key.id]);
-    case 'property-definition':
-      return JSON.stringify(['property-definition', key.id]);
     case 'trait-definition':
       return JSON.stringify(['trait-definition', key.id]);
     case 'localization-key':
@@ -268,10 +266,6 @@ export function nestedNodeKey(
   return Object.freeze({ kind: 'nested', ownerCollection, ownerId, family, id });
 }
 
-export function propertyDefinitionNodeKey(id: string): AuthoringDependencyNodeKey {
-  return Object.freeze({ kind: 'property-definition', id });
-}
-
 export function traitDefinitionNodeKey(id: string): AuthoringDependencyNodeKey {
   return Object.freeze({ kind: 'trait-definition', id });
 }
@@ -290,10 +284,6 @@ export function recordContributionKey(collection: AuthoringCollectionKey, id: st
 
 export function projectFieldContributionKey(path: JsonPointer): string {
   return `project-field:${JSON.stringify(path)}`;
-}
-
-export function propertyDefinitionContributionKey(id: string): string {
-  return `property-definition:${JSON.stringify(id)}`;
 }
 
 export function traitDefinitionContributionKey(id: string): string {
@@ -1317,26 +1307,6 @@ function nestedRoomNodesAndEdges(
         );
       });
     }
-    if (isRecord(feature.properties)) {
-      for (const propertyId of Object.keys(feature.properties)) {
-        edges.push(
-          structuralEdge(
-            key,
-            propertyDefinitionNodeKey(propertyId),
-            `${path}/properties/${escapeJsonPointerSegment(propertyId)}`,
-            `/properties/${escapeJsonPointerSegment(propertyId)}`,
-            {
-              role: 'property-assignment',
-              facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
-              repair: {
-                kind: 'blocked',
-                reason: 'Feature Property assignment requires a declaration.',
-              },
-            },
-          ),
-        );
-      }
-    }
   });
   tolerantObjectArray(record.data, 'hotspots').forEach((hotspot, index) => {
     if (typeof hotspot.id !== 'string') return;
@@ -1465,26 +1435,6 @@ function nestedInteractableNodesAndEdges(
           ),
         );
       });
-    }
-    if (isRecord(feature.properties)) {
-      for (const propertyId of Object.keys(feature.properties)) {
-        edges.push(
-          structuralEdge(
-            key,
-            propertyDefinitionNodeKey(propertyId),
-            `${path}/properties/${escapeJsonPointerSegment(propertyId)}`,
-            `/properties/${escapeJsonPointerSegment(propertyId)}`,
-            {
-              role: 'property-assignment',
-              facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
-              repair: {
-                kind: 'blocked',
-                reason: 'Feature Property assignment requires a declaration.',
-              },
-            },
-          ),
-        );
-      }
     }
   });
   if (!isRecord(record.data.presentation) || !isRecord(record.data.presentation.hotspots))
@@ -1795,25 +1745,6 @@ function recordContribution(
       ),
     );
   }
-  for (const propertyId of Object.keys(record.properties ?? {}).sort()) {
-    edges.push(
-      structuralEdge(
-        source,
-        propertyDefinitionNodeKey(propertyId),
-        `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
-        `/properties/${escapeJsonPointerSegment(propertyId)}`,
-        {
-          role: 'property-assignment',
-          facets: ['reference-integrity', 'tooling-reference', 'validation'],
-          targetImpactPaths: [`/properties/${escapeJsonPointerSegment(propertyId)}`],
-          repair: {
-            kind: 'remove-map-entry',
-            entryPath: `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
-          },
-        },
-      ),
-    );
-  }
   scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
   if (collection === 'archetypes') {
     for (let index = edges.length - 1; index >= 0; index -= 1) {
@@ -1951,30 +1882,6 @@ function deriveStructuralContributionByKey(
       literalOccurrences: [],
     };
   }
-  if (contributionKey.startsWith('property-definition:')) {
-    const id = JSON.parse(contributionKey.slice('property-definition:'.length)) as unknown;
-    if (typeof id !== 'string') return null;
-    const definition = project.properties[id];
-    if (!definition) return null;
-    const key = propertyDefinitionNodeKey(id);
-    const ownerPath = `/properties/${escapeJsonPointerSegment(id)}`;
-    return {
-      key: contributionKey,
-      ownerPath,
-      nodes: [
-        {
-          key,
-          keyText: serializeAuthoringDependencyNodeKey(key),
-          owningPath: ownerPath,
-          label: definition.label,
-        },
-      ],
-      edges: [],
-      diagnostics: [],
-      derivationDependencies: [],
-      literalOccurrences: [],
-    };
-  }
   if (contributionKey.startsWith('localization-key:')) {
     const parsed = JSON.parse(contributionKey.slice('localization-key:'.length)) as unknown;
     if (
@@ -2052,8 +1959,6 @@ export function enumerateAuthoringDependencyContributionKeys(
   project: AuthoringProject,
 ): readonly string[] {
   const keys: string[] = [];
-  for (const id of Object.keys(project.properties))
-    keys.push(propertyDefinitionContributionKey(id));
   for (const id of Object.keys(project.traits)) keys.push(traitDefinitionContributionKey(id));
   for (const [locale, catalog] of Object.entries(project.localization.catalogs))
     for (const key of Object.keys(catalog)) keys.push(localizationContributionKey(locale, key));
@@ -2118,8 +2023,6 @@ export function buildAuthoringStructuralDependencyGraph(
 function luaTargetPath(target: AuthoringDependencyNodeKey): JsonPointer {
   if (target.kind === 'record')
     return `/${target.collection}/${escapeJsonPointerSegment(target.id)}`;
-  if (target.kind === 'property-definition')
-    return `/properties/${escapeJsonPointerSegment(target.id)}`;
   if (target.kind === 'trait-definition') return `/traits/${escapeJsonPointerSegment(target.id)}`;
   if (target.kind === 'localization-key')
     return buildJsonPointer(['localization', 'catalogs', target.locale, target.key]);
@@ -2137,7 +2040,6 @@ function explicitTargetNode(
   target: Exclude<LuaExplicitDependencyTarget, { kind: 'property-value' }>,
 ): AuthoringDependencyNodeKey {
   if (target.kind === 'record') return recordNodeKey(target.collection, target.id);
-  if (target.kind === 'property-definition') return propertyDefinitionNodeKey(target.propertyId);
   if (target.kind === 'room-placement')
     return nestedNodeKey('rooms', target.roomId, 'room-placement', target.placementId);
   return nestedNodeKey('rooms', target.roomId, 'room-exit', target.exitId);
@@ -2199,8 +2101,11 @@ function propertyResolutionImpactPaths(
   const base = `/${collection}/${escapeJsonPointerSegment(ownerId)}`;
   const record = project[collection][ownerId] as AuthoringRecordBase | undefined;
   return [
-    `${base}/properties`,
+    `${base}/localProperties`,
+    `${base}/defaultProperties`,
     `${base}/traits`,
+    `${base}/archetype`,
+    `${base}/archetypeOverrides`,
     ...(record?.traits ?? []).map(
       (traitId) => `/traits/${escapeJsonPointerSegment(traitId)}` as JsonPointer,
     ),
@@ -2218,7 +2123,6 @@ function buildLuaSymbolProjection(
   };
   for (const collection of authoringCollectionKeys)
     for (const id of Object.keys(project[collection])) add(id, recordNodeKey(collection, id));
-  for (const id of Object.keys(project.properties)) add(id, propertyDefinitionNodeKey(id));
   for (const id of Object.keys(project.traits)) add(id, traitDefinitionNodeKey(id));
   return new Map(
     [...byLiteral].map(([literal, keys]) => [
@@ -2329,7 +2233,6 @@ function addLuaEvidenceToContribution(
       if (raw.kind === 'property-value') {
         const propertyTarget = raw;
         const ownerCollection = `${propertyTarget.owner.kind}s` as AuthoringCollectionKey;
-        const definitionTarget = propertyDefinitionNodeKey(propertyTarget.propertyId);
         const ownerTarget = recordNodeKey(ownerCollection, propertyTarget.owner.id);
         derivationDependencies.push({
           kind: 'property-resolution',
@@ -2345,23 +2248,6 @@ function addLuaEvidenceToContribution(
         const previewFacet =
           descriptor.focusedAdmission && descriptor.focusedFacet ? [descriptor.focusedFacet] : [];
         edges.push(
-          structuralEdge(
-            descriptor.semanticOwner,
-            definitionTarget,
-            descriptor.sourcePath,
-            luaTargetPath(definitionTarget),
-            {
-              role: 'lua-explicit-reference',
-              facets: ['tooling-reference', 'validation', ...previewFacet],
-              targetImpactPaths: previewFacet.length > 0 ? [luaTargetPath(definitionTarget)] : [],
-              repair: {
-                kind: 'blocked',
-                reason: 'Explicit Lua dependency fallback must be updated manually.',
-              },
-              evidence,
-              detail,
-            },
-          ),
           structuralEdge(
             descriptor.semanticOwner,
             ownerTarget,
