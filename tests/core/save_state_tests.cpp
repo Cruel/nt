@@ -1312,11 +1312,11 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
 
     SECTION("project-aware linking rejects stale references and invalid typed values")
     {
-        auto invalid = encoded.value();
-        invalid["propertyOverrides"][0]["property"] = "missing";
-        CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
+        auto dynamic = encoded.value();
+        dynamic["propertyOverrides"][0]["property"] = "missing";
+        CHECK(decode_save_state(project, dynamic, "save-fixture.json"));
 
-        invalid = encoded.value();
+        auto invalid = encoded.value();
         invalid["propertyOverrides"][0]["value"] = "not-a-boolean";
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
     }
@@ -1435,6 +1435,44 @@ TEST_CASE("typed save restoration atomically reconstructs fresh session ownershi
     const auto fallback_visits = fallback.get(hall, visits);
     REQUIRE(fallback_visits);
     CHECK(std::get<RuntimeValue>(fallback_visits.value()) == RuntimeValue{std::int64_t{7}});
+}
+
+TEST_CASE("schema-less dynamic properties survive save encode decode and restore exactly")
+{
+    const auto project = load_fixture("trait-properties-localization.json");
+    auto state = make_state(project);
+    PropertyResolver properties(project, state);
+    const auto global = id<PropertyId>("runtime-global");
+    const auto local = id<PropertyId>("runtime-local");
+    const PropertyOwnerRef start{id<RoomId>("start")};
+    const PropertyOwnerRef hall{id<RoomId>("hall")};
+
+    REQUIRE(properties.set_global(global, RuntimeValue{}));
+    REQUIRE(properties.set(start, local, RuntimeValue{std::string{"created-at-runtime"}}));
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    auto decoded = decode_save_state(project, encoded.value(), "dynamic-properties-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    PropertyResolver restored_properties(project, restored.value());
+
+    const auto restored_global = restored_properties.get_global(global);
+    REQUIRE(restored_global);
+    REQUIRE(std::holds_alternative<RuntimeValue>(restored_global.value()));
+    CHECK(std::holds_alternative<std::monostate>(std::get<RuntimeValue>(restored_global.value())));
+
+    const auto restored_local = restored_properties.get(start, local);
+    REQUIRE(restored_local);
+    CHECK(std::get<RuntimeValue>(restored_local.value()) ==
+          RuntimeValue{std::string{"created-at-runtime"}});
+
+    const auto absent_local = restored_properties.get(hall, local);
+    REQUIRE(absent_local);
+    CHECK(std::holds_alternative<MissingPropertyValue>(absent_local.value()));
 }
 
 TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue flow")

@@ -125,6 +125,8 @@ public:
 private:
     friend Result<PropertyOverride, Diagnostics>
     make_property_override(PropertyTargetRef, const PropertyDefinition&, RuntimeValue);
+    friend Result<PropertyOverride, Diagnostics>
+        make_dynamic_property_override(PropertyTargetRef, PropertyId, RuntimeValue);
     PropertyOverride(PropertyTargetRef target, PropertyId property_id, RuntimeValue value)
         : m_target(std::move(target)), m_property_id(std::move(property_id)),
           m_value(std::move(value))
@@ -320,6 +322,17 @@ make_property_override(PropertyTargetRef target, const PropertyDefinition& defin
                        .message = "Property override does not match its declaration or target"}});
     return Result<PropertyOverride, Diagnostics>::success(
         PropertyOverride(std::move(target), definition.id(), std::move(value)));
+}
+
+[[nodiscard]] inline Result<PropertyOverride, Diagnostics>
+make_dynamic_property_override(PropertyTargetRef target, PropertyId property, RuntimeValue value)
+{
+    if (!runtime_value_is_finite(value))
+        return Result<PropertyOverride, Diagnostics>::failure(Diagnostics{
+            Diagnostic{.code = "domain.invalid_dynamic_property_override",
+                       .message = "Dynamic Property values must be finite scalar RuntimeValues"}});
+    return Result<PropertyOverride, Diagnostics>::success(
+        PropertyOverride(std::move(target), std::move(property), std::move(value)));
 }
 
 } // namespace noveltea::core

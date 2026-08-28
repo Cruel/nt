@@ -294,9 +294,10 @@ std::string lua_counter_compiled_project_fixture()
         {{"id", "counter-hooks"},
          {"source",
           {{"kind", "inline-lua"},
-           {"source", "return { before_enter = function() local count, err = "
-                      "Game.prop('hook-count'); assert(err == nil); local ok, set_err = "
-                      "Game.set_prop('hook-count', count + 1); assert(ok, set_err) end }"}}}});
+           {"source",
+            "return { before_enter = function() local count, present, err = "
+            "Game.prop('hook-count'); assert(present and err == nil); local ok, set_err = "
+            "Game.set_prop('hook-count', count + 1); assert(ok, set_err) end }"}}}});
     project["definitions"]["rooms"][0]["scriptHooks"].push_back(
         {{"hook", "before-enter"},
          {"handler",
@@ -995,8 +996,8 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
                                  .chunk_name = "preview-tooling-test"}));
     REQUIRE(preview.preview_diagnostics().empty());
 
-    auto cleared = scripts.execute("local value, err = Game.prop('missing'); "
-                                   "assert(value == nil and err ~= nil)",
+    auto cleared = scripts.execute("local value, present, err = Game.prop('missing'); "
+                                   "assert(value == nil and not present and err ~= nil)",
                                    "preview-tooling-cleared-test");
     REQUIRE(cleared);
 

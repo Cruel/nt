@@ -169,6 +169,12 @@ Result<void, Diagnostics> SharedPrimitiveEvaluator::apply(const Effect& effect)
         [this](const auto& value) -> Result<void, Diagnostics> {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, SetGlobalProperty>) {
+                const auto* declaration = m_project.find_property(value.property_id);
+                if (declaration == nullptr || !declaration->is_global())
+                    return Result<void, Diagnostics>::failure(
+                        evaluation_error("execution.unknown_global_property",
+                                         "Effect references an undeclared Global Property '" +
+                                             value.property_id.text() + "'"));
                 PropertyResolver resolver(m_project, m_state);
                 return resolver.set_global(value.property_id, value.value);
             } else

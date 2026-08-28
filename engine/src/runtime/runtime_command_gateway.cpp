@@ -207,8 +207,7 @@ RuntimeCommandGateway::definition(core::ProjectDefinitionKind kind, std::string 
 core::Result<core::RuntimeValue, core::Diagnostics>
 RuntimeCommandGateway::global_property(const core::PropertyId& id) const
 {
-    core::PropertyResolver resolver(m_project, m_state);
-    auto resolved = resolver.get_global(id);
+    auto resolved = global_property_lookup(id);
     const auto* lookup = resolved.value_if();
     if (lookup == nullptr)
         return core::Result<core::RuntimeValue, core::Diagnostics>::failure(resolved.error());
@@ -217,6 +216,13 @@ RuntimeCommandGateway::global_property(const core::PropertyId& id) const
         return core::Result<core::RuntimeValue, core::Diagnostics>::failure(gateway_error(
             "runtime.missing_global_property", "Global Property resolved without a value"));
     return core::Result<core::RuntimeValue, core::Diagnostics>::success(*value);
+}
+
+core::Result<core::PropertyLookupResult, core::Diagnostics>
+RuntimeCommandGateway::global_property_lookup(const core::PropertyId& id) const
+{
+    core::PropertyResolver resolver(m_project, m_state);
+    return resolver.get_global(id);
 }
 
 core::Result<void, core::Diagnostics>

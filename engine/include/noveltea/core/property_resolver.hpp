@@ -30,7 +30,7 @@ public:
 private:
     [[nodiscard]] Result<const PropertyDefinition*, Diagnostics>
     validate_global(const PropertyId& property) const;
-    [[nodiscard]] Result<PropertyDefinition, Diagnostics>
+    [[nodiscard]] Result<std::optional<PropertyDefinition>, Diagnostics>
     validate_identity(const PropertyOwnerRef& owner, const PropertyId& property) const;
     [[nodiscard]] bool owner_exists(const PropertyOwnerRef& owner) const noexcept;
 

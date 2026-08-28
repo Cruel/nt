@@ -172,6 +172,12 @@ RuntimeScriptApi::global_property(const core::PropertyId& id) const
     NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Properties, "Global Property read",
                            provider->global_property(id));
 }
+core::Result<core::PropertyLookupResult, core::Diagnostics>
+RuntimeScriptApi::global_property_lookup(const core::PropertyId& id) const
+{
+    NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Properties, "Global Property read",
+                           provider->global_property_lookup(id));
+}
 core::Result<void, core::Diagnostics>
 RuntimeScriptApi::set_global_property(const core::PropertyId& id, core::RuntimeValue value)
 {

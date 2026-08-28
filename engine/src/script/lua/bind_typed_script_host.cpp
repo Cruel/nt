@@ -623,16 +623,23 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
 
     sol::table game_properties = lua["Game"].get_or_create<sol::table>();
     game_properties.set_function(
-        "prop", [host](std::string id, sol::this_state state) -> ObjectResult {
+        "prop",
+        [host](std::string id,
+               sol::this_state state) -> std::tuple<sol::object, bool, sol::object> {
             sol::state_view view(state);
             auto parsed = parse_id<core::PropertyId>(std::move(id));
             const auto* parsed_id = parsed.value_if();
             if (parsed_id == nullptr)
-                return failure(view, parsed.error());
-            auto value = host->global_property(*parsed_id);
-            const auto* runtime = value.value_if();
-            return runtime ? ObjectResult{lua_value(view, *runtime), nil(view)}
-                           : failure(view, value.error());
+                return {nil(view), false,
+                        sol::make_object(view, diagnostic_message(parsed.error()))};
+            auto value = host->global_property_lookup(*parsed_id);
+            const auto* lookup = value.value_if();
+            if (lookup == nullptr)
+                return {nil(view), false,
+                        sol::make_object(view, diagnostic_message(value.error()))};
+            if (const auto* present = std::get_if<core::RuntimeValue>(lookup))
+                return {lua_value(view, *present), true, nil(view)};
+            return {nil(view), false, nil(view)};
         });
     game_properties.set_function(
         "set_prop",
