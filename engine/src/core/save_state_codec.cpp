@@ -1,6 +1,6 @@
 #include "noveltea/core/save_state_codec.hpp"
 
-#include "save_state_codec/codec_internal.hpp"
+#include "save_state_codec/internal.hpp"
 
 #include <cstdint>
 #include <utility>

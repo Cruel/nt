@@ -784,4 +784,11 @@ Result<CompiledProject, Diagnostics> decode_compiled_project(const nlohmann::jso
     return link(std::move(*wire), std::move(source_path));
 }
 
+Result<CompiledProject, Diagnostics> decode_compiled_project_json(std::string_view text,
+                                                                  std::string source_path)
+{
+    auto document = nlohmann::json::parse(text, nullptr, false);
+    return decode_compiled_project(document, std::move(source_path));
+}
+
 } // namespace noveltea::core

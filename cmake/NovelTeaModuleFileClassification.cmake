@@ -91,13 +91,14 @@ set(NOVELTEA_MODULE_FILES_noveltea_content
     engine/src/core/compiled_project_codec/scene_decoder.cpp
     engine/src/core/compiled_project_codec/shared_values.cpp
     engine/src/core/compiled_project_wire.hpp
+    engine/src/core/json_decoder.hpp
     engine/src/core/editor_protocol.cpp
     engine/src/core/package_export.cpp
     engine/src/core/player_bootstrap.cpp
     engine/src/core/rich_text_codec.cpp
     engine/src/core/runtime_user_settings_codec.cpp
     engine/src/core/save_state_codec.cpp
-    engine/src/core/save_state_codec/codec_internal.hpp
+    engine/src/core/save_state_codec/internal.hpp
     engine/src/core/save_state_codec/flow_codec.cpp
     engine/src/core/save_state_codec/presentation_codec.cpp
     engine/src/core/save_state_codec/shared_values.cpp

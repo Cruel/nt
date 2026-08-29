@@ -31,6 +31,15 @@ void rejected(std::vector<int>& values, std::map<int, int>& mapping) {
 }
 ]=])
 
+file(WRITE "${fixture_root}/engine/positive.cpp" [=[
+struct ResultLike {
+    int value() const noexcept { return 1; }
+};
+int accepted(const ResultLike& result) {
+    return result.value();
+}
+]=])
+
 execute_process(
     COMMAND "${CMAKE_COMMAND}"
         "-DSOURCE_ROOT=${fixture_root}"
@@ -51,3 +60,19 @@ foreach(expected IN ITEMS exception-syntax compiler-rtti container-at throwing-n
         message(FATAL_ERROR "Negative fixture did not trigger ${expected}:\n${combined}")
     endif()
 endforeach()
+
+file(REMOVE "${fixture_root}/engine/negative.cpp")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_ROOT=${fixture_root}"
+        "-DALLOWLIST=${fixture_root}/allowlist.txt"
+        -P "${SOURCE_ROOT}/cmake/CheckCxxRuntimePolicy.cmake"
+    RESULT_VARIABLE positive_result
+    OUTPUT_VARIABLE positive_output
+    ERROR_VARIABLE positive_error)
+
+if(NOT positive_result EQUAL 0)
+    message(FATAL_ERROR
+        "The C++ runtime policy checker rejected an ordinary non-JSON value() method:\n"
+        "${positive_output}\n${positive_error}")
+endif()

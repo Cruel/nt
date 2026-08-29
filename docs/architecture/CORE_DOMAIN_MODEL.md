@@ -194,7 +194,10 @@ base or mutable JSON root.
 
 All recoverable decoding, construction, linking, lookup, execution, and save failures use
 `core::Result` with typed errors or canonical `core::Diagnostics`. Untrusted nlohmann-json input uses
-the audited nonthrowing helpers. `decode_compiled_project` is the public gameplay boundary.
+the audited nonthrowing helpers. Shared JSON mechanics are concentrated in the content-owned
+`JsonDecoder`; artifact codecs retain schema/version semantics rather than exposing that helper as a
+generic serialization interface. `decode_compiled_project_json` is the serialized gameplay entry
+point for runtime/host consumers, while the JSON-DOM overload remains codec-local/tooling-facing.
 It strictly decodes schema identity/version, root settings, declarations, resources, shared
 primitives, every definition field, and the complete Scene, Dialogue, Interaction, Verb-default, and
 Room-hook program vocabulary into internal DTOs. A distinct semantic pass then validates typed and
@@ -213,6 +216,11 @@ remains an authoring concern: the authoritative editor builder validates its gra
 runtime material as a flattened complete definition, which the native decoder then validates against
 its shader interface. Platform capabilities remain in the separate player bootstrap contract rather
 than being duplicated in the package manifest.
+
+`RunningGameLoadInput` carries only this typed `LoadedCompiledPackage` plus runtime locale. Package and
+loose-project loaders finish JSON parsing/decoding before crossing into runtime construction. A future
+packed Compiled Project or save format can therefore add an artifact-specific codec path without
+making the runtime pretend the packed representation is a JSON-shaped document.
 
 Unsupported schemas, including the removed provisional schema, are rejected by the gameplay decoder
 with structured diagnostics and no fallback. The runtime is built on
