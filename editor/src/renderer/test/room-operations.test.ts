@@ -41,6 +41,7 @@ describe('room commands', () => {
         direction: 'north',
         target: roomRoomRef('missing'),
         condition: { kind: 'always' },
+        onRejected: [],
       },
     ];
     const invalid = executeCommand(state, {

@@ -1629,11 +1629,25 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
             *anchors, pointer_child(pointer, "anchors"),
             [](const RoomAnchor& anchor) -> const RoomAnchorId& { return anchor.id; });
     std::optional<RoomLifecycle> lifecycle;
-    if (lifecycle_value && decoder.object(*lifecycle_value, pointer_child(pointer, "lifecycle"),
-                                          {"canEnter", "canLeave"})) {
+    if (lifecycle_value &&
+        decoder.object(*lifecycle_value, pointer_child(pointer, "lifecycle"),
+                       {"afterEnter", "afterLeave", "beforeEnter", "beforeLeave", "canEnter",
+                        "canLeave", "onEnterRejected", "onLeaveRejected"})) {
         const auto lifecycle_pointer = pointer_child(pointer, "lifecycle");
         const auto* enter_value = decoder.member(*lifecycle_value, "canEnter", lifecycle_pointer);
         const auto* leave_value = decoder.member(*lifecycle_value, "canLeave", lifecycle_pointer);
+        const auto* before_enter_value =
+            decoder.member(*lifecycle_value, "beforeEnter", lifecycle_pointer);
+        const auto* after_enter_value =
+            decoder.member(*lifecycle_value, "afterEnter", lifecycle_pointer);
+        const auto* before_leave_value =
+            decoder.member(*lifecycle_value, "beforeLeave", lifecycle_pointer);
+        const auto* after_leave_value =
+            decoder.member(*lifecycle_value, "afterLeave", lifecycle_pointer);
+        const auto* on_enter_rejected_value =
+            decoder.member(*lifecycle_value, "onEnterRejected", lifecycle_pointer);
+        const auto* on_leave_rejected_value =
+            decoder.member(*lifecycle_value, "onLeaveRejected", lifecycle_pointer);
         auto enter = enter_value
                          ? decode_condition_impl(decoder, *enter_value,
                                                  pointer_child(lifecycle_pointer, "canEnter"))
@@ -1642,8 +1656,46 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                          ? decode_condition_impl(decoder, *leave_value,
                                                  pointer_child(lifecycle_pointer, "canLeave"))
                          : std::nullopt;
-        if (enter && leave)
-            lifecycle = RoomLifecycle{std::move(*enter), std::move(*leave)};
+        auto before_enter =
+            before_enter_value
+                ? decode_gameplay_commands(decoder, *before_enter_value,
+                                           pointer_child(lifecycle_pointer, "beforeEnter"))
+                : std::nullopt;
+        auto after_enter =
+            after_enter_value
+                ? decode_gameplay_commands(decoder, *after_enter_value,
+                                           pointer_child(lifecycle_pointer, "afterEnter"))
+                : std::nullopt;
+        auto before_leave =
+            before_leave_value
+                ? decode_gameplay_commands(decoder, *before_leave_value,
+                                           pointer_child(lifecycle_pointer, "beforeLeave"))
+                : std::nullopt;
+        auto after_leave =
+            after_leave_value
+                ? decode_gameplay_commands(decoder, *after_leave_value,
+                                           pointer_child(lifecycle_pointer, "afterLeave"))
+                : std::nullopt;
+        auto on_enter_rejected =
+            on_enter_rejected_value
+                ? decode_gameplay_commands(decoder, *on_enter_rejected_value,
+                                           pointer_child(lifecycle_pointer, "onEnterRejected"))
+                : std::nullopt;
+        auto on_leave_rejected =
+            on_leave_rejected_value
+                ? decode_gameplay_commands(decoder, *on_leave_rejected_value,
+                                           pointer_child(lifecycle_pointer, "onLeaveRejected"))
+                : std::nullopt;
+        if (enter && leave && before_enter && after_enter && before_leave && after_leave &&
+            on_enter_rejected && on_leave_rejected)
+            lifecycle = RoomLifecycle{std::move(*enter),
+                                      std::move(*leave),
+                                      std::move(*before_enter),
+                                      std::move(*after_enter),
+                                      std::move(*before_leave),
+                                      std::move(*after_leave),
+                                      std::move(*on_enter_rejected),
+                                      std::move(*on_leave_rejected)};
     }
     auto overlays =
         overlays_value
@@ -1752,9 +1804,9 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                   *exits_value, pointer_child(pointer, "exits"),
                   [&](const nlohmann::json& exit,
                       const std::string& item_pointer) -> std::optional<RoomExit> {
-                      if (!decoder.object(
-                              exit, item_pointer,
-                              {"condition", "direction", "id", "label", "target", "transition"}))
+                      if (!decoder.object(exit, item_pointer,
+                                          {"condition", "direction", "id", "label", "onRejected",
+                                           "target", "transition"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(exit, "id", item_pointer);
                       const auto* condition_value = decoder.member(exit, "condition", item_pointer);
@@ -1763,6 +1815,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       const auto* target_value = decoder.member(exit, "target", item_pointer);
                       const auto* transition_value =
                           decoder.member(exit, "transition", item_pointer);
+                      const auto* on_rejected_value =
+                          decoder.member(exit, "onRejected", item_pointer);
                       auto id = id_value ? decoder.id<RoomExitId>(*id_value,
                                                                   pointer_child(item_pointer, "id"))
                                          : std::nullopt;
@@ -1801,10 +1855,17 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               pointer_child(item_pointer, "transition"));
                           transition_ok = transition.has_value();
                       }
-                      if (id && condition && direction && label && target && transition_ok)
-                          return RoomExit{std::move(*id),     std::move(*condition),
-                                          *direction,         std::move(*label),
-                                          std::move(*target), std::move(transition)};
+                      auto on_rejected =
+                          on_rejected_value
+                              ? decode_gameplay_commands(decoder, *on_rejected_value,
+                                                         pointer_child(item_pointer, "onRejected"))
+                              : std::nullopt;
+                      if (id && condition && direction && label && target && transition_ok &&
+                          on_rejected)
+                          return RoomExit{
+                              std::move(*id),         std::move(*condition), *direction,
+                              std::move(*label),      std::move(*target),    std::move(transition),
+                              std::move(*on_rejected)};
                       return std::nullopt;
                   })
             : std::nullopt;

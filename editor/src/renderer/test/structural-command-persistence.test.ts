@@ -392,6 +392,7 @@ describe('structural command persistence', () => {
         direction: 'east',
         target: roomRoomRef('hall'),
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -403,6 +404,7 @@ describe('structural command persistence', () => {
         direction: 'west',
         target: roomRoomRef('foyer'),
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -470,6 +472,7 @@ describe('structural command persistence', () => {
         direction: 'south',
         target: roomRoomRef('foyer'),
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -490,6 +493,7 @@ describe('structural command persistence', () => {
         direction: 'north',
         target: roomRoomRef('hall'),
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -564,6 +568,7 @@ describe('structural command persistence', () => {
         direction: 'south',
         target: roomRoomRef('foyer'),
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -584,6 +589,7 @@ describe('structural command persistence', () => {
         direction: 'north',
         target: roomRoomRef('hall'),
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];

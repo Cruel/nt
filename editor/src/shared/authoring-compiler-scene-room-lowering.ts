@@ -8,6 +8,8 @@ import { compileCondition } from './authoring-condition-lowering';
 import { compileGameplayCommand } from './authoring-compiler-dialogue-interaction-lowering';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import { parseCharacterData } from './project-schema/authoring-characters';
+import { parseRoomData } from './project-schema/authoring-rooms';
+import { resolveArchetypeConfiguration } from './project-schema/authoring-archetypes';
 import { resolveMaterialData } from './project-schema/authoring-materials';
 import { parseShaderData, type ShaderUniformValue } from './project-schema/authoring-shaders';
 import {
@@ -825,11 +827,61 @@ export function lowerSceneAndRoomPrograms(
     });
   }
 
-  const rooms: WireDefinitions['rooms'] = shared.definitions.rooms;
+  const rooms: WireDefinitions['rooms'] = shared.definitions.rooms.map((room) => {
+    const data = parseRoomData(project.rooms[room.id]?.data);
+    if (!data) return room;
+    return {
+      ...room,
+      exits: room.exits.map((exit) => ({
+        ...exit,
+        onRejected:
+          data.exits
+            .find((candidate) => candidate.id === exit.id)
+            ?.onRejected.map(compileGameplayCommand) ?? [],
+      })),
+      lifecycle: {
+        ...room.lifecycle,
+        beforeEnter: data.lifecycle.beforeEnter.map(compileGameplayCommand),
+        afterEnter: data.lifecycle.afterEnter.map(compileGameplayCommand),
+        beforeLeave: data.lifecycle.beforeLeave.map(compileGameplayCommand),
+        afterLeave: data.lifecycle.afterLeave.map(compileGameplayCommand),
+        onEnterRejected: data.lifecycle.onEnterRejected.map(compileGameplayCommand),
+        onLeaveRejected: data.lifecycle.onLeaveRejected.map(compileGameplayCommand),
+      },
+    };
+  });
+
+  const archetypes = shared.archetypes.map((archetype) => {
+    if (archetype.instanceKind !== 'room') return archetype;
+    const data = parseRoomData(resolveArchetypeConfiguration(project, archetype.id)?.data);
+    if (!data) return archetype;
+    return {
+      ...archetype,
+      configuration: {
+        ...archetype.configuration,
+        exits: archetype.configuration.exits.map((exit) => ({
+          ...exit,
+          onRejected:
+            data.exits
+              .find((candidate) => candidate.id === exit.id)
+              ?.onRejected.map(compileGameplayCommand) ?? [],
+        })),
+        lifecycle: {
+          ...archetype.configuration.lifecycle,
+          beforeEnter: data.lifecycle.beforeEnter.map(compileGameplayCommand),
+          afterEnter: data.lifecycle.afterEnter.map(compileGameplayCommand),
+          beforeLeave: data.lifecycle.beforeLeave.map(compileGameplayCommand),
+          afterLeave: data.lifecycle.afterLeave.map(compileGameplayCommand),
+          onEnterRejected: data.lifecycle.onEnterRejected.map(compileGameplayCommand),
+          onLeaveRejected: data.lifecycle.onLeaveRejected.map(compileGameplayCommand),
+        },
+      },
+    };
+  });
 
   if (diagnostics.length > 0) return { diagnostics };
   return {
     diagnostics,
-    draft: { ...shared, definitions: { ...shared.definitions, rooms, scenes } },
+    draft: { ...shared, archetypes, definitions: { ...shared.definitions, rooms, scenes } },
   };
 }

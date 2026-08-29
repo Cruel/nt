@@ -52,9 +52,10 @@ SavedFlowFrame save_frame(const SavedFrameMap& frame_ids, const FlowFrame& frame
                                              value.destination, value.command_results};
             else
                 return SavedRoomTransitionFrame{
-                    snapshot_id,          value.source_room, value.target_room,
-                    value.selected_exit,  value.kind,        value.entry_cause,
-                    value.source_context, value.position,    value.destination};
+                    snapshot_id,           value.source_room,    value.target_room,
+                    value.selected_exit,   value.kind,           value.entry_cause,
+                    value.source_context,  value.position,       value.destination,
+                    value.rejection_stage, value.command_results};
         },
         frame);
 }

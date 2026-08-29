@@ -1613,6 +1613,7 @@ describe('authoring compiler framework', () => {
         target: { $ref: { collection: 'rooms', id: 'hall' } },
         label: 'North',
         condition: { kind: 'always' },
+        onRejected: [],
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };

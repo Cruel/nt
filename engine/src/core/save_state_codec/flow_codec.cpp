@@ -574,9 +574,11 @@ decode_interaction_position(Decoder& d, const nlohmann::json& value, std::string
 
 nlohmann::json encode_room_position(const RoomTransitionPosition& value)
 {
-    static constexpr std::string_view stages[] = {
-        "source-can-leave",   "exit-condition", "target-can-enter", "before-leave", "before-enter",
-        "commit-room-switch", "after-leave",    "after-enter",      "complete"};
+    static constexpr std::string_view stages[] = {"source-can-leave",  "exit-condition",
+                                                  "target-can-enter",  "before-leave",
+                                                  "before-enter",      "commit-room-switch",
+                                                  "after-leave",       "after-enter",
+                                                  "rejection-program", "complete"};
     return {{"stage", stages[static_cast<std::size_t>(value.stage)]},
             {"nextEffect", value.next_effect},
             {"awaitingCompletion", value.awaiting_completion}};
@@ -598,9 +600,11 @@ std::optional<RoomTransitionPosition> decode_room_position(Decoder& d, const nlo
         awaiting ? d.boolean(*awaiting, child(pointer, "awaitingCompletion")) : std::nullopt;
     if (!name || !effect_index || !awaiting_value)
         return std::nullopt;
-    const std::array<std::string_view, 9> names = {
-        "source-can-leave",   "exit-condition", "target-can-enter", "before-leave", "before-enter",
-        "commit-room-switch", "after-leave",    "after-enter",      "complete"};
+    const std::array<std::string_view, 10> names = {"source-can-leave",  "exit-condition",
+                                                    "target-can-enter",  "before-leave",
+                                                    "before-enter",      "commit-room-switch",
+                                                    "after-leave",       "after-enter",
+                                                    "rejection-program", "complete"};
     const auto found = std::find(names.begin(), names.end(), *name);
     if (found == names.end()) {
         d.error(k_variant, "Unknown Room transition stage '" + *name + "'.",
@@ -1016,7 +1020,17 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                         {"entryCause", room_entry_cause_name(value.entry_cause)},
                         {"sourceContext", encode_room_context(value.source_context)},
                         {"position", encode_room_position(value.position)},
-                        {"destination", encode_destination(value.destination)}};
+                        {"destination", encode_destination(value.destination)},
+                        {"rejectionStage",
+                         value.rejection_stage
+                             ? nlohmann::json(
+                                   value.rejection_stage == RoomRejectionStage::SourceCanLeave
+                                       ? "source-can-leave"
+                                   : value.rejection_stage == RoomRejectionStage::ExitEligibility
+                                       ? "exit-eligibility"
+                                       : "target-can-enter")
+                             : nlohmann::json(nullptr)},
+                        {"commandResults", encode_command_results(value.command_results)}};
         },
         frame);
 }
@@ -1310,7 +1324,8 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
     if (*name == "room-transition") {
         d.object(value, pointer,
                  {"kind", "id", "sourceRoom", "targetRoom", "selectedExit", "transitionKind",
-                  "entryCause", "sourceContext", "position", "destination"});
+                  "entryCause", "sourceContext", "position", "destination", "rejectionStage",
+                  "commandResults"});
         const auto* source = d.member(value, "sourceRoom", pointer);
         const auto* target = d.member(value, "targetRoom", pointer);
         const auto* selected = d.member(value, "selectedExit", pointer);
@@ -1319,6 +1334,8 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         const auto* source_context = d.member(value, "sourceContext", pointer);
         const auto* position = d.member(value, "position", pointer);
         const auto* destination = d.member(value, "destination", pointer);
+        const auto* rejection_stage = d.member(value, "rejectionStage", pointer);
+        const auto* command_results = d.member(value, "commandResults", pointer);
         auto source_id = source ? d.optional_id<RoomId>(*source, child(pointer, "sourceRoom"))
                                 : Decoder::OptionalId<RoomId>{};
         auto target_id =
@@ -1355,8 +1372,32 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         auto saved_destination =
             destination ? decode_destination(d, *destination, child(pointer, "destination"))
                         : std::nullopt;
+        std::optional<RoomRejectionStage> parsed_rejection_stage;
+        bool rejection_stage_ok = rejection_stage != nullptr;
+        if (rejection_stage && !rejection_stage->is_null()) {
+            auto parsed = d.string(*rejection_stage, child(pointer, "rejectionStage"));
+            if (parsed) {
+                if (*parsed == "source-can-leave")
+                    parsed_rejection_stage = RoomRejectionStage::SourceCanLeave;
+                else if (*parsed == "exit-eligibility")
+                    parsed_rejection_stage = RoomRejectionStage::ExitEligibility;
+                else if (*parsed == "target-can-enter")
+                    parsed_rejection_stage = RoomRejectionStage::TargetCanEnter;
+                else {
+                    d.error(k_variant, "Unknown Room rejection stage '" + *parsed + "'.",
+                            child(pointer, "rejectionStage"));
+                    rejection_stage_ok = false;
+                }
+            } else
+                rejection_stage_ok = false;
+        }
+        auto decoded_command_results =
+            command_results
+                ? decode_command_results(d, *command_results, child(pointer, "commandResults"))
+                : std::nullopt;
         return source_id && target_id && parsed_kind && parsed_cause && parsed_source_context &&
-                       saved_position && saved_destination &&
+                       saved_position && saved_destination && rejection_stage_ok &&
+                       decoded_command_results &&
                        (selected == nullptr || selected->is_null() || exit)
                    ? std::optional<SavedFlowFrame>(
                          SavedRoomTransitionFrame{{*snapshot},
@@ -1367,7 +1408,9 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                                                   *parsed_cause,
                                                   std::move(*parsed_source_context),
                                                   std::move(*saved_position),
-                                                  std::move(*saved_destination)})
+                                                  std::move(*saved_destination),
+                                                  std::move(parsed_rejection_stage),
+                                                  std::move(*decoded_command_results)})
                    : std::nullopt;
     }
     d.error(k_variant, "Unknown flow frame kind '" + *name + "'.", child(pointer, "kind"));

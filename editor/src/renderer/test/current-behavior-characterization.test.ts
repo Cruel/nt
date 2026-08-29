@@ -19,6 +19,7 @@ describe('current-behavior characterization', () => {
         direction: 'north',
         target: roomRoomRef('hall'),
         condition: { kind: 'always' },
+        onRejected: [],
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };

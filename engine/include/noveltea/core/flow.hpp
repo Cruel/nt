@@ -212,6 +212,7 @@ enum class RoomTransitionStage : std::uint8_t {
     CommitRoomSwitch,
     AfterLeave,
     AfterEnter,
+    RejectionProgram,
     Complete
 };
 struct RoomTransitionPosition {
@@ -268,6 +269,8 @@ struct RoomTransitionFrame {
     std::optional<RoomVisitContext> source_context;
     RoomTransitionPosition position;
     ReturnDestination destination = NoReturnDestination{};
+    std::optional<RoomRejectionStage> rejection_stage;
+    std::vector<CommandResultBinding> command_results;
 };
 using FlowFrame = std::variant<SceneFrame, DialogueFrame, InteractionFrame, RoomTransitionFrame>;
 using FlowStack = std::vector<FlowFrame>;

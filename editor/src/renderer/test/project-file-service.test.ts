@@ -397,6 +397,7 @@ describe('project-file-service workspace-v1', () => {
         direction: 'east',
         target: roomRoomRef('hall'),
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -422,6 +423,7 @@ describe('project-file-service workspace-v1', () => {
         direction: 'west',
         target: roomRoomRef('foyer'),
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -582,6 +584,7 @@ describe('project-file-service workspace-v1', () => {
         direction: 'north',
         target: roomRoomRef('hall'),
         condition: { kind: 'always' },
+        onRejected: [],
       },
     ];
     project.rooms.kitchen = {

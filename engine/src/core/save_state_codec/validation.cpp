@@ -756,13 +756,81 @@ bool valid_dialogue_presentation_state(const CompiledProject& project, const Sav
     return true;
 }
 
-bool valid_room_position(const CompiledProject&, const SaveState&,
+std::size_t room_program_node_count(std::span<const GameplayCommand> commands)
+{
+    std::size_t count = 0;
+    for (const auto& command : commands) {
+        ++count;
+        if (const auto* branch = std::get_if<IfGameplayCommand>(&command.value)) {
+            count += room_program_node_count(branch->then_commands);
+            count += room_program_node_count(branch->else_commands);
+        }
+    }
+    return count;
+}
+
+bool valid_room_position(const CompiledProject& project, const SaveState& save,
                          const SavedRoomTransitionFrame& frame)
 {
     const auto& position = frame.position;
-    if (position.stage > RoomTransitionStage::Complete || position.next_effect != 0)
+    if (position.stage > RoomTransitionStage::Complete)
         return false;
-    return !position.awaiting_completion || position.stage == RoomTransitionStage::CommitRoomSwitch;
+    const bool program_stage = position.stage == RoomTransitionStage::BeforeLeave ||
+                               position.stage == RoomTransitionStage::BeforeEnter ||
+                               position.stage == RoomTransitionStage::AfterLeave ||
+                               position.stage == RoomTransitionStage::AfterEnter ||
+                               position.stage == RoomTransitionStage::RejectionProgram;
+    if (!program_stage)
+        return position.next_effect == 0 &&
+               (!position.awaiting_completion ||
+                position.stage == RoomTransitionStage::CommitRoomSwitch) &&
+               !frame.rejection_stage;
+
+    auto source =
+        frame.source_room ? resolved_room(project, save, *frame.source_room) : std::nullopt;
+    auto target = resolved_room(project, save, frame.target_room);
+    if (!target)
+        return false;
+    std::span<const GameplayCommand> commands;
+    switch (position.stage) {
+    case RoomTransitionStage::BeforeLeave:
+        if (!source)
+            return false;
+        commands = source->lifecycle.before_leave;
+        break;
+    case RoomTransitionStage::BeforeEnter:
+        commands = target->lifecycle.before_enter;
+        break;
+    case RoomTransitionStage::AfterLeave:
+        if (!source)
+            return false;
+        commands = source->lifecycle.after_leave;
+        break;
+    case RoomTransitionStage::AfterEnter:
+        commands = target->lifecycle.after_enter;
+        break;
+    case RoomTransitionStage::RejectionProgram:
+        if (!frame.rejection_stage || !source)
+            return false;
+        if (*frame.rejection_stage == RoomRejectionStage::TargetCanEnter)
+            commands = target->lifecycle.on_enter_rejected;
+        else if (*frame.rejection_stage == RoomRejectionStage::ExitEligibility &&
+                 frame.selected_exit) {
+            const auto* exit = find_exit(*source, frame.selected_exit->exit_id);
+            commands = exit != nullptr && !exit->on_rejected.empty()
+                           ? std::span<const GameplayCommand>{exit->on_rejected}
+                           : std::span<const GameplayCommand>{source->lifecycle.on_leave_rejected};
+        } else
+            commands = source->lifecycle.on_leave_rejected;
+        break;
+    default:
+        return false;
+    }
+    if (position.next_effect > room_program_node_count(commands))
+        return false;
+    return !position.awaiting_completion || position.stage == RoomTransitionStage::AfterLeave ||
+           position.stage == RoomTransitionStage::AfterEnter ||
+           position.stage == RoomTransitionStage::RejectionProgram;
 }
 
 bool valid_room_visit_context(const CompiledProject& project, const SaveState& save,

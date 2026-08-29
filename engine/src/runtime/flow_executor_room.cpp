@@ -50,6 +50,7 @@ RoomTransitionStage next_stage(const RoomTransitionFrame& transition) noexcept
     case RoomTransitionStage::AfterLeave:
         return RoomTransitionStage::AfterEnter;
     case RoomTransitionStage::AfterEnter:
+    case RoomTransitionStage::RejectionProgram:
     case RoomTransitionStage::Complete:
         return RoomTransitionStage::Complete;
     }
@@ -93,7 +94,9 @@ Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
                                                           RoomEntryCause::NavigationAttempt,
                                                           *source_context,
                                                           {RoomTransitionStage::SourceCanLeave, 0},
-                                                          NoReturnDestination{}});
+                                                          NoReturnDestination{},
+                                                          std::nullopt,
+                                                          {}});
     record_execution_provenance(id, ExecutionRelationship::Navigation);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
@@ -141,7 +144,9 @@ Result<void, Diagnostics> FlowExecutor::call_navigation(const RoomId& target,
                                                           RoomEntryCause::NavigationAttempt,
                                                           *source_context,
                                                           {RoomTransitionStage::SourceCanLeave, 0},
-                                                          CallerDestination{}});
+                                                          CallerDestination{},
+                                                          std::nullopt,
+                                                          {}});
     record_execution_provenance(id, ExecutionRelationship::Navigation, caller);
     return Result<void, Diagnostics>::success();
 }
@@ -184,7 +189,9 @@ FlowExecutor::call_directed_room_change(const RoomId& target,
                                                           RoomEntryCause::DirectedRoomChange,
                                                           source_context,
                                                           {first_stage, 0},
-                                                          CallerDestination{}});
+                                                          CallerDestination{},
+                                                          std::nullopt,
+                                                          {}});
     record_execution_provenance(id, ExecutionRelationship::Navigation, caller);
     return Result<void, Diagnostics>::success();
 }
@@ -221,6 +228,7 @@ FlowExecutor::advance_room_transition(const RoomTransitionPosition& expected_pos
     auto valid = validate_position(*transition, FlowFramePosition{next_position});
     if (!valid)
         return fail(valid.error());
+    transition->command_results.clear();
     transition->position = std::move(next_position);
     return Result<void, Diagnostics>::success();
 }
@@ -234,13 +242,19 @@ FlowExecutor::mark_room_transition_wait(const RoomTransitionPosition& expected_p
     auto* transition = !m_state.m_flow_stack.empty()
                            ? std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back())
                            : nullptr;
+    const bool waitable_stage = expected_position.stage == RoomTransitionStage::CommitRoomSwitch ||
+                                expected_position.stage == RoomTransitionStage::AfterLeave ||
+                                expected_position.stage == RoomTransitionStage::AfterEnter ||
+                                expected_position.stage == RoomTransitionStage::RejectionProgram;
     if (transition == nullptr || transition->position != expected_position || !m_state.m_blocker ||
-        flow_blocker_owner(*m_state.m_blocker) != transition->frame_id ||
-        expected_position.stage != RoomTransitionStage::CommitRoomSwitch ||
+        flow_blocker_owner(*m_state.m_blocker) != transition->frame_id || !waitable_stage ||
         expected_position.awaiting_completion || next_position.stage != expected_position.stage ||
-        next_position.next_effect != 0 || !next_position.awaiting_completion)
+        (expected_position.stage == RoomTransitionStage::CommitRoomSwitch &&
+         next_position.next_effect != 0) ||
+        !next_position.awaiting_completion)
         return fail(execution_error("execution.invalid_room_transition_wait",
-                                    "Only the committed Room presentation transition may block"));
+                                    "Only Flow-capable Room programs or the committed Room "
+                                    "presentation transition may block"));
     auto valid = validate_position(*transition, FlowFramePosition{next_position});
     if (!valid)
         return fail(valid.error());
@@ -248,18 +262,64 @@ FlowExecutor::mark_room_transition_wait(const RoomTransitionPosition& expected_p
     return Result<void, Diagnostics>::success();
 }
 
-Result<void, Diagnostics> FlowExecutor::reject_room_transition()
+Result<void, Diagnostics>
+FlowExecutor::advance_room_program(const RoomTransitionPosition& expected_position,
+                                   RoomTransitionPosition next_position)
+{
+    auto ready = ensure_flow_ready();
+    if (!ready)
+        return fail(ready.error());
+    auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back());
+    const bool program_stage = expected_position.stage == RoomTransitionStage::BeforeLeave ||
+                               expected_position.stage == RoomTransitionStage::BeforeEnter ||
+                               expected_position.stage == RoomTransitionStage::AfterLeave ||
+                               expected_position.stage == RoomTransitionStage::AfterEnter ||
+                               expected_position.stage == RoomTransitionStage::RejectionProgram;
+    if (transition == nullptr || transition->position != expected_position || !program_stage ||
+        next_position.stage != expected_position.stage || next_position.awaiting_completion)
+        return fail(execution_error("execution.invalid_room_program_position",
+                                    "Room program advancement does not match the active cursor"));
+    auto valid = validate_position(*transition, FlowFramePosition{next_position});
+    if (!valid)
+        return fail(valid.error());
+    transition->position = std::move(next_position);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+FlowExecutor::finalize_room_rejection(const RoomTransitionPosition& expected_position,
+                                      RoomRejectionStage rejection_stage)
+{
+    auto ready = ensure_flow_ready();
+    if (!ready)
+        return fail(ready.error());
+    auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back());
+    if (transition == nullptr || transition->position != expected_position ||
+        transition->kind != RoomTransitionKind::NavigationAttempt ||
+        transition->position.stage > RoomTransitionStage::TargetCanEnter ||
+        !transition->source_context || !transition->source_room ||
+        transition->source_context->room != *transition->source_room)
+        return fail(execution_error("execution.invalid_room_rejection",
+                                    "Only a pre-commit Navigation Attempt may be finalized as "
+                                    "rejected"));
+    transition->rejection_stage = rejection_stage;
+    transition->command_results.clear();
+    transition->position = {RoomTransitionStage::RejectionProgram, 0, false};
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> FlowExecutor::complete_room_rejection()
 {
     auto ready = ensure_flow_ready();
     if (!ready)
         return fail(ready.error());
     const auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back());
     if (transition == nullptr || transition->kind != RoomTransitionKind::NavigationAttempt ||
-        transition->position.stage > RoomTransitionStage::TargetCanEnter ||
-        !transition->source_context || !transition->source_room ||
+        transition->position.stage != RoomTransitionStage::RejectionProgram ||
+        !transition->rejection_stage || !transition->source_context || !transition->source_room ||
         transition->source_context->room != *transition->source_room)
         return fail(execution_error("execution.invalid_room_rejection",
-                                    "Only a pre-commit Navigation Attempt may be rejected"));
+                                    "Room rejection is not finalized and ready to complete"));
     const RoomId source = *transition->source_room;
     const auto destination = transition->destination;
     if (std::holds_alternative<CallerDestination>(destination)) {

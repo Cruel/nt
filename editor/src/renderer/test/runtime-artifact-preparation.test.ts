@@ -51,6 +51,7 @@ function roomProject() {
       direction: 'north',
       target: roomRoomRef('kitchen'),
       condition: { kind: 'always' },
+      onRejected: [],
     },
   ];
   const kitchen = defaultRoomData('Kitchen');

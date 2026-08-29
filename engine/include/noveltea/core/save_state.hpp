@@ -132,6 +132,8 @@ struct SavedRoomTransitionFrame {
     std::optional<RoomVisitContext> source_context;
     RoomTransitionPosition position;
     ReturnDestination destination;
+    std::optional<RoomRejectionStage> rejection_stage;
+    std::vector<CommandResultBinding> command_results;
 };
 using SavedFlowFrame = std::variant<SavedSceneFrame, SavedDialogueFrame, SavedInteractionFrame,
                                     SavedRoomTransitionFrame>;

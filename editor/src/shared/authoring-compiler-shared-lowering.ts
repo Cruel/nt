@@ -834,10 +834,17 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         target: roomRef(exit.target.$ref.id),
         condition: compileCondition(exit.condition),
         transition: exit.transition ? compileRoomNavigationTransition(exit.transition) : null,
+        onRejected: [],
       })),
       lifecycle: {
         canEnter: compileCondition(data.lifecycle.canEnter),
         canLeave: compileCondition(data.lifecycle.canLeave),
+        beforeEnter: [],
+        afterEnter: [],
+        beforeLeave: [],
+        afterLeave: [],
+        onEnterRejected: [],
+        onLeaveRejected: [],
       },
     });
   }
@@ -1122,10 +1129,17 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           target: roomRef(exit.target.$ref.id),
           condition: compileCondition(exit.condition),
           transition: exit.transition ? compileRoomNavigationTransition(exit.transition) : null,
+          onRejected: [],
         })),
         lifecycle: {
           canEnter: compileCondition(data.lifecycle.canEnter),
           canLeave: compileCondition(data.lifecycle.canLeave),
+          beforeEnter: [],
+          afterEnter: [],
+          beforeLeave: [],
+          afterLeave: [],
+          onEnterRejected: [],
+          onLeaveRejected: [],
         },
         overlays: data.overlays.map((overlay) => ({
           id: overlay.id,
