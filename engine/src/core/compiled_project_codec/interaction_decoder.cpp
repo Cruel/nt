@@ -176,8 +176,7 @@ std::optional<SubjectFamily> decode_subject_family(Decoder& decoder, const nlohm
     return decoder.enumeration<SubjectFamily>(value, pointer,
                                               {{"character", SubjectFamily::Character},
                                                {"interactable", SubjectFamily::Interactable},
-                                               {"feature", SubjectFamily::Feature},
-                                               {"item-stack", SubjectFamily::ItemStack}});
+                                               {"feature", SubjectFamily::Feature}});
 }
 
 std::optional<SubjectSelector>
@@ -215,17 +214,34 @@ decode_subject_selector(Decoder& decoder, const nlohmann::json& value, std::stri
         return trait ? std::optional<SubjectSelector>(TraitSubjectSelector{std::move(*trait)})
                      : std::nullopt;
     }
-    if (*kind == "item-definition") {
-        decoder.object(value, pointer, {"itemDefinition", "kind"});
-        const auto* definition_value = decoder.member(value, "itemDefinition", pointer);
-        auto definition = definition_value
-                              ? decode_reference<ItemDefinitionId>(
-                                    decoder, *definition_value,
-                                    pointer_child(pointer, "itemDefinition"), "item-definition")
-                              : std::nullopt;
+    if (*kind == "interactable-definition") {
+        decoder.object(value, pointer, {"interactableDefinition", "kind"});
+        const auto* definition_value = decoder.member(value, "interactableDefinition", pointer);
+        auto definition = definition_value ? decode_reference<InteractableDefinitionId>(
+                                                 decoder, *definition_value,
+                                                 pointer_child(pointer, "interactableDefinition"),
+                                                 "interactable-definition")
+                                           : std::nullopt;
         return definition ? std::optional<SubjectSelector>(
-                                ItemDefinitionSubjectSelector{std::move(*definition)})
+                                InteractableDefinitionSubjectSelector{std::move(*definition)})
                           : std::nullopt;
+    }
+    if (*kind == "interactable-feature") {
+        decoder.object(value, pointer, {"featureId", "interactableDefinition", "kind"});
+        const auto* definition_value = decoder.member(value, "interactableDefinition", pointer);
+        const auto* feature_value = decoder.member(value, "featureId", pointer);
+        auto definition = definition_value ? decode_reference<InteractableDefinitionId>(
+                                                 decoder, *definition_value,
+                                                 pointer_child(pointer, "interactableDefinition"),
+                                                 "interactable-definition")
+                                           : std::nullopt;
+        auto feature = feature_value ? decoder.id<FeatureId>(*feature_value,
+                                                             pointer_child(pointer, "featureId"))
+                                     : std::nullopt;
+        return definition && feature
+                   ? std::optional<SubjectSelector>(InteractableFeatureSubjectSelector{
+                         std::move(*definition), std::move(*feature)})
+                   : std::nullopt;
     }
     if (*kind == "qualified-pattern") {
         decoder.object(value, pointer, {"family", "kind", "pattern"});

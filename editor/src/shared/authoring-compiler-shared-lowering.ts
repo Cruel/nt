@@ -139,11 +139,6 @@ export function compileInteractionSubject(subject: InteractionSubjectData) {
       kind: 'interactable' as const,
       interactable: { kind: 'interactable' as const, id: subject.interactable.$ref.id },
     };
-  if (subject.kind === 'item-stack')
-    return {
-      kind: 'item-stack' as const,
-      itemStack: { kind: 'item-stack' as const, id: subject.itemStack.$ref.id },
-    };
   return {
     kind: 'feature' as const,
     feature:
@@ -172,10 +167,22 @@ export function compileSubjectSelector(selector: SubjectSelector) {
       kind: 'trait' as const,
       trait: { kind: 'trait' as const, id: selector.trait.$ref.id },
     };
-  if (selector.kind === 'item-definition')
+  if (selector.kind === 'interactable-definition')
     return {
-      kind: 'item-definition' as const,
-      itemDefinition: { kind: 'item-definition' as const, id: selector.itemDefinition.$ref.id },
+      kind: 'interactable-definition' as const,
+      interactableDefinition: {
+        kind: 'interactable-definition' as const,
+        id: selector.interactableDefinition.$ref.id,
+      },
+    };
+  if (selector.kind === 'interactable-feature')
+    return {
+      kind: 'interactable-feature' as const,
+      interactableDefinition: {
+        kind: 'interactable-definition' as const,
+        id: selector.interactableDefinition.$ref.id,
+      },
+      featureId: selector.featureId,
     };
   if (selector.kind === 'qualified-pattern')
     return {

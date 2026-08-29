@@ -37,9 +37,40 @@ struct ItemStackMutation {
     std::vector<core::ItemStackId> ended;
 };
 
-struct InteractableQuantityFilter {
+struct InteractablePropertyMatch {
+    core::PropertyId property;
+    core::RuntimeValue value;
+};
+
+// Narrow reusable matcher for exact live Interactable Instances. Empty fields mean broad matching;
+// populated fields are conjunctive rather than a second recursive boolean expression language.
+struct InteractableMatcher {
     std::optional<core::InteractableDefinitionId> definition;
+    std::vector<core::TraitId> traits;
+    std::vector<InteractablePropertyMatch> properties;
+    std::optional<core::InteractableInstanceId> instance;
+
+    InteractableMatcher() = default;
+    explicit InteractableMatcher(core::InteractableDefinitionId definition_id)
+        : definition(std::move(definition_id))
+    {
+    }
+    explicit InteractableMatcher(std::optional<core::InteractableDefinitionId> definition_id)
+        : definition(std::move(definition_id))
+    {
+    }
+};
+
+struct InteractableQuantityFilter {
+    InteractableMatcher matcher;
     std::optional<core::compiled::InteractableLocation> location;
+
+    InteractableQuantityFilter() = default;
+    InteractableQuantityFilter(std::optional<core::InteractableDefinitionId> definition,
+                               std::optional<core::compiled::InteractableLocation> target_location)
+        : matcher(std::move(definition)), location(std::move(target_location))
+    {
+    }
 };
 
 struct InteractableQuantityMutation {
@@ -127,6 +158,8 @@ public:
     effective_room(const core::InteractableInstanceId& id) const noexcept;
     [[nodiscard]] std::vector<core::InteractableInstanceId>
     inventory_members(const core::compiled::InventoryRef& inventory) const;
+    [[nodiscard]] bool matches_interactable(const core::InteractableInstanceId& instance,
+                                            const InteractableMatcher& matcher) const;
     [[nodiscard]] const core::ItemStackState*
     item_stack(const core::ItemStackId& id) const noexcept;
     [[nodiscard]] std::vector<core::ItemStackId>

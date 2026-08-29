@@ -296,6 +296,49 @@ TEST_CASE("runtime world creates splits merges and transfers stackable Interacta
 }
 
 TEST_CASE(
+    "runtime world Interactable Matcher covers broad definition Trait Property and exact Instance")
+{
+    auto document = load_fixture_document("comprehensive.json");
+    for (auto& definition : document["definitions"]["interactables"])
+        if (definition["id"] == "key")
+            definition["traits"] = nlohmann::json::array({"currency"});
+    const auto project = decode_fixture(std::move(document), "interactable-matcher.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto definition = id<core::InteractableDefinitionId>("key");
+    const auto declared = id<core::InteractableInstanceId>("key");
+    auto created =
+        world.create_interactable_quantity(definition, 1, core::compiled::UnplacedLocation{});
+    REQUIRE(created);
+    REQUIRE(created.value().created.size() == 1);
+    const auto runtime_created = created.value().created.front();
+
+    CHECK(world.matches_interactable(declared, InteractableMatcher{}));
+    CHECK(world.matches_interactable(runtime_created, InteractableMatcher{}));
+    CHECK(world.matches_interactable(declared, InteractableMatcher{definition}));
+    CHECK(world.matches_interactable(runtime_created, InteractableMatcher{definition}));
+
+    InteractableMatcher trait_matcher;
+    trait_matcher.traits.push_back(id<core::TraitId>("currency"));
+    CHECK(world.matches_interactable(declared, trait_matcher));
+    CHECK(world.matches_interactable(runtime_created, trait_matcher));
+
+    InteractableMatcher property_matcher;
+    property_matcher.properties.push_back(
+        {id<core::PropertyId>("enabled"), core::RuntimeValue{true}});
+    CHECK(world.matches_interactable(declared, property_matcher));
+    CHECK(world.matches_interactable(runtime_created, property_matcher));
+
+    InteractableMatcher exact_matcher;
+    exact_matcher.instance = runtime_created;
+    CHECK_FALSE(world.matches_interactable(declared, exact_matcher));
+    CHECK(world.matches_interactable(runtime_created, exact_matcher));
+}
+
+TEST_CASE(
     "runtime world Add Quantity uses only default semantic state and aggregate mutation is atomic")
 {
     const auto project = load_stackable_interactable_fixture();

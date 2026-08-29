@@ -349,11 +349,6 @@ function compileInteractionSubject(
       kind: 'interactable' as const,
       interactable: { kind: 'interactable' as const, id: subject.interactable.$ref.id },
     };
-  if (subject.kind === 'item-stack')
-    return {
-      kind: 'item-stack' as const,
-      itemStack: { kind: 'item-stack' as const, id: subject.itemStack.$ref.id },
-    };
   return {
     kind: 'feature' as const,
     feature:

@@ -422,7 +422,7 @@ TEST_CASE("RuntimeUiActionGateway exposes replacement Command Builder transport 
     REQUIRE(luaL_dostring(
                 state, "assert(Game.ui.submit_command_builder('combine', {"
                        "  { slotId = 'first', subject = { kind = 'interactable', id = 'key' } },"
-                       "  { slotId = 'second', subject = { kind = 'item-stack', id = 'stack-1' } }"
+                       "  { slotId = 'second', subject = { kind = 'interactable', id = 'coin' } }"
                        "}))") == LUA_OK);
     REQUIRE(sink.last_gameplay_input);
     const auto* submitted =
@@ -434,8 +434,8 @@ TEST_CASE("RuntimeUiActionGateway exposes replacement Command Builder transport 
     CHECK(submitted->bindings[1].slot_id == noveltea::core::VerbSlotId::create("second").value());
     CHECK(submitted->bindings[1].subject ==
           noveltea::core::compiled::InteractionSubject{
-              noveltea::core::compiled::ItemStackInteractionSubject{
-                  noveltea::core::ItemStackId::create("stack-1").value()}});
+              noveltea::core::compiled::InteractableInteractionSubject{
+                  noveltea::core::InteractableInstanceId::create("coin").value()}});
 
     const auto before_invalid = sink.gameplay_inputs;
     REQUIRE(

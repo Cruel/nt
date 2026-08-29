@@ -363,16 +363,6 @@ decode_interaction_subject(Decoder& decoder, const nlohmann::json& value, std::s
         if (feature)
             return FeatureInteractionSubject{std::move(*feature)};
     }
-    if (*kind == "item-stack" && decoder.object(value, pointer, {"itemStack", "kind"})) {
-        const auto* item_stack_value = decoder.member(value, "itemStack", pointer);
-        auto item_stack =
-            item_stack_value
-                ? decode_reference<ItemStackId>(decoder, *item_stack_value,
-                                                pointer_child(pointer, "itemStack"), "item-stack")
-                : std::nullopt;
-        if (item_stack)
-            return ItemStackInteractionSubject{std::move(*item_stack)};
-    }
     decoder.error(k_code_variant, "Unknown interaction subject kind.",
                   pointer_child(pointer, "kind"));
     return std::nullopt;

@@ -10,13 +10,13 @@ import type { SubjectSelector } from '../../../shared/project-schema/authoring-v
 import { typedRef, type AuthoringEditorProject } from './InteractionProgramEditor';
 
 function defaultExactSubject(project: AuthoringEditorProject): SubjectSelector {
-  const interactable = Object.keys(project.interactables)[0];
+  const interactable = Object.keys(project.interactableInstances)[0];
   if (interactable)
     return {
       kind: 'exact',
       subject: {
         kind: 'interactable',
-        interactable: typedRef('interactables', interactable),
+        interactable: { $ref: { registry: 'interactableInstances', id: interactable } },
       },
     };
   const character = Object.keys(project.characters)[0];
@@ -46,6 +46,7 @@ export function SubjectSelectorEditor({
   onDelete?: () => void;
 }) {
   const firstTrait = Object.keys(project.traits)[0];
+  const firstInteractableDefinition = Object.keys(project.interactables)[0];
   const firstRoom = Object.keys(project.rooms)[0];
   const firstInteractableInstance = Object.keys(project.interactableInstances)[0];
   const exactFeature =
@@ -59,6 +60,20 @@ export function SubjectSelectorEditor({
           if (kind === 'family') onChange({ kind, family: 'interactable' });
           else if (kind === 'trait' && firstTrait)
             onChange({ kind, trait: typedRef('traits', firstTrait) });
+          else if (kind === 'interactable-definition' && firstInteractableDefinition)
+            onChange({
+              kind,
+              interactableDefinition: typedRef('interactables', firstInteractableDefinition),
+            });
+          else if (kind === 'interactable-feature' && firstInteractableDefinition)
+            onChange({
+              kind,
+              interactableDefinition: typedRef('interactables', firstInteractableDefinition),
+              featureId:
+                project.interactables[firstInteractableDefinition]?.data.kind === 'interactable'
+                  ? (project.interactables[firstInteractableDefinition].data.features[0]?.id ?? '')
+                  : '',
+            });
           else if (kind === 'qualified-pattern')
             onChange({ kind, family: 'interactable', pattern: 'interactable:*' });
           else if (kind === 'exact') onChange(defaultExactSubject(project));
@@ -69,6 +84,12 @@ export function SubjectSelectorEditor({
         <SelectItem value="family">Subject family</SelectItem>
         <SelectItem value="trait" disabled={!firstTrait}>
           Trait
+        </SelectItem>
+        <SelectItem value="interactable-definition" disabled={!firstInteractableDefinition}>
+          Interactable definition
+        </SelectItem>
+        <SelectItem value="interactable-feature" disabled={!firstInteractableDefinition}>
+          Interactable feature
         </SelectItem>
         <SelectItem value="qualified-pattern">Qualified pattern</SelectItem>
         <SelectItem value="exact">Exact subject</SelectItem>
@@ -100,8 +121,51 @@ export function SubjectSelectorEditor({
             ))}
           </Select>
         )}
-        {value.kind === 'item-definition' && (
-          <div className="text-sm text-muted-foreground">Retired Item Definition selector</div>
+        {value.kind === 'interactable-definition' && (
+          <Select
+            value={value.interactableDefinition.$ref.id}
+            onValueChange={(id) =>
+              onChange({
+                kind: 'interactable-definition',
+                interactableDefinition: typedRef('interactables', String(id)),
+              })
+            }
+          >
+            {Object.entries(project.interactables).map(([id, record]) => (
+              <SelectItem value={id} key={id}>
+                {record.label}
+              </SelectItem>
+            ))}
+          </Select>
+        )}
+        {value.kind === 'interactable-feature' && (
+          <>
+            <Select
+              value={value.interactableDefinition.$ref.id}
+              onValueChange={(id) => {
+                const definition = project.interactables[String(id)];
+                onChange({
+                  kind: 'interactable-feature',
+                  interactableDefinition: typedRef('interactables', String(id)),
+                  featureId:
+                    definition?.data.kind === 'interactable'
+                      ? (definition.data.features[0]?.id ?? '')
+                      : '',
+                });
+              }}
+            >
+              {Object.entries(project.interactables).map(([id, record]) => (
+                <SelectItem value={id} key={id}>
+                  {record.label}
+                </SelectItem>
+              ))}
+            </Select>
+            <Input
+              value={value.featureId}
+              placeholder="feature-id"
+              onChange={(event) => onChange({ ...value, featureId: event.currentTarget.value })}
+            />
+          </>
         )}
         {value.kind === 'qualified-pattern' && (
           <>
@@ -135,11 +199,14 @@ export function SubjectSelectorEditor({
                       subject: { kind, character: typedRef('characters', id) },
                     });
                 } else if (kind === 'interactable') {
-                  const id = Object.keys(project.interactables)[0];
+                  const id = Object.keys(project.interactableInstances)[0];
                   if (id)
                     onChange({
                       kind: 'exact',
-                      subject: { kind, interactable: typedRef('interactables', id) },
+                      subject: {
+                        kind,
+                        interactable: { $ref: { registry: 'interactableInstances', id } },
+                      },
                     });
                 } else if (firstRoom) {
                   onChange({
@@ -162,9 +229,9 @@ export function SubjectSelectorEditor({
               </SelectItem>
               <SelectItem
                 value="interactable"
-                disabled={!Object.keys(project.interactables).length}
+                disabled={!Object.keys(project.interactableInstances).length}
               >
-                Interactable
+                Interactable Instance
               </SelectItem>
               <SelectItem value="feature" disabled={!firstRoom && !firstInteractableInstance}>
                 Feature
@@ -198,20 +265,22 @@ export function SubjectSelectorEditor({
                     kind: 'exact',
                     subject: {
                       kind: 'interactable',
-                      interactable: typedRef('interactables', String(id)),
+                      interactable: {
+                        $ref: { registry: 'interactableInstances', id: String(id) },
+                      },
                     },
                   })
                 }
               >
-                {Object.entries(project.interactables).map(([id, record]) => (
+                {Object.entries(project.interactableInstances).map(([id, instance]) => (
                   <SelectItem value={id} key={id}>
-                    {record.label}
+                    {instance.editorLabel ?? id} (
+                    {project.interactables[instance.definition.$ref.id]?.label ??
+                      instance.definition.$ref.id}
+                    )
                   </SelectItem>
                 ))}
               </Select>
-            )}
-            {value.subject.kind === 'item-stack' && (
-              <div className="text-sm text-muted-foreground">Retired Item Stack subject</div>
             )}
             {exactFeature && (
               <>

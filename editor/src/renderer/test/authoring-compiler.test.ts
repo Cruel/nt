@@ -59,15 +59,20 @@ describe('authoring compiler framework', () => {
         trait: { $ref: { collection: 'traits' as const, id: 'portable' } },
       },
       {
-        kind: 'item-definition' as const,
-        itemDefinition: { $ref: { collection: 'itemDefinitions' as const, id: 'credits' } },
+        kind: 'interactable-definition' as const,
+        interactableDefinition: { $ref: { collection: 'interactables' as const, id: 'key' } },
+      },
+      {
+        kind: 'interactable-feature' as const,
+        interactableDefinition: { $ref: { collection: 'interactables' as const, id: 'key' } },
+        featureId: 'lock',
       },
       { kind: 'qualified-pattern' as const, family: 'interactable' as const, pattern: 'runtime-*' },
       {
         kind: 'exact' as const,
         subject: {
           kind: 'interactable' as const,
-          interactable: { $ref: { collection: 'interactables' as const, id: 'key' } },
+          interactable: { $ref: { registry: 'interactableInstances' as const, id: 'key' } },
         },
       },
     ];
@@ -76,7 +81,15 @@ describe('authoring compiler framework', () => {
       { kind: 'any-subject' },
       { kind: 'family', family: 'feature' },
       { kind: 'trait', trait: { kind: 'trait', id: 'portable' } },
-      { kind: 'item-definition', itemDefinition: { kind: 'item-definition', id: 'credits' } },
+      {
+        kind: 'interactable-definition',
+        interactableDefinition: { kind: 'interactable-definition', id: 'key' },
+      },
+      {
+        kind: 'interactable-feature',
+        interactableDefinition: { kind: 'interactable-definition', id: 'key' },
+        featureId: 'lock',
+      },
       { kind: 'qualified-pattern', family: 'interactable', pattern: 'runtime-*' },
       {
         kind: 'exact',
@@ -919,7 +932,7 @@ describe('authoring compiler framework', () => {
                 kind: 'exact',
                 subject: {
                   kind: 'interactable',
-                  interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                  interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
                 },
               },
             ],

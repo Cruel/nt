@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vite-plus/test';
 import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import {
   defaultInteractionData,
   parseInteractionData,
@@ -321,7 +324,7 @@ describe('authoring interactions', () => {
     );
   });
 
-  it('indexes typed Verb and Interactable references', () => {
+  it('indexes typed Verb and Interactable definition references', () => {
     const project = createAuthoringProject();
     project.interactables.key = {
       id: 'key',
@@ -343,11 +346,8 @@ describe('authoring interactions', () => {
           slotId: 'target',
           selectors: [
             {
-              kind: 'exact',
-              subject: {
-                kind: 'interactable',
-                interactable: { $ref: { collection: 'interactables', id: 'key' } },
-              },
+              kind: 'interactable-definition',
+              interactableDefinition: { $ref: { collection: 'interactables', id: 'key' } },
             },
           ],
         },
@@ -367,7 +367,7 @@ describe('authoring interactions', () => {
     expect(findUsages(index, { collection: 'interactables', id: 'key' })).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: '/interactions/use/data/rules/0/slots/0/selectors/0/subject/interactable/$ref',
+          path: '/interactions/use/data/rules/0/slots/0/selectors/0/interactableDefinition/$ref',
         }),
       ]),
     );
@@ -382,6 +382,7 @@ describe('authoring interactions', () => {
     const project = createAuthoringProject();
     project.characters.guard = { id: 'guard', label: 'Guard', data: defaultCharacterData('Guard') };
     project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key');
     project.verbs.combine = {
       id: 'combine',
       label: 'Combine',
@@ -417,7 +418,7 @@ describe('authoring interactions', () => {
                 kind: 'exact',
                 subject: {
                   kind: 'interactable',
-                  interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                  interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
                 },
               },
             ],

@@ -1760,13 +1760,35 @@ RuntimeWorld::allocate_interactable_instance_id()
 bool RuntimeWorld::interactable_quantity_matches(const core::InteractableState& state,
                                                  const InteractableQuantityFilter& filter) const
 {
-    const auto* record = find_record(m_state.m_runtime_interactables, state.interactable);
-    if (record == nullptr)
+    return matches_interactable(state.interactable, filter.matcher) &&
+           (!filter.location || state.location == *filter.location);
+}
+
+bool RuntimeWorld::matches_interactable(const core::InteractableInstanceId& instance,
+                                        const InteractableMatcher& matcher) const
+{
+    const auto* state = interactable_state(instance);
+    const auto* record = find_record(m_state.m_runtime_interactables, instance);
+    const auto* configuration = resolved_configuration(instance);
+    if (state == nullptr || record == nullptr || configuration == nullptr)
         return false;
     const auto origin = interactable_origin_definition(*record);
-    if (!origin || (filter.definition && *origin != *filter.definition))
+    if (!origin || (matcher.definition && *origin != *matcher.definition) ||
+        (matcher.instance && instance != *matcher.instance))
         return false;
-    return !filter.location || state.location == *filter.location;
+    for (const auto& trait : matcher.traits) {
+        if (std::ranges::find(configuration->identity.traits, trait) ==
+            configuration->identity.traits.end())
+            return false;
+    }
+    for (const auto& property : matcher.properties) {
+        auto resolved = resolve_property(instance, property.property);
+        const auto* result = resolved.value_if();
+        const auto* value = result != nullptr ? std::get_if<core::RuntimeValue>(result) : nullptr;
+        if (value == nullptr || *value != property.value)
+            return false;
+    }
+    return true;
 }
 
 namespace {

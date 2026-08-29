@@ -23,7 +23,6 @@ import {
   testFeatureSubject,
   testInputTypeValues,
   testInteractableSubject,
-  testItemStackSubject,
   testVerbRef,
   validateTestData,
   type TestData,
@@ -100,7 +99,6 @@ function refValue(ref: { $ref: { id: string } } | null | undefined) {
 function subjectId(subject: TestInteractionSubject) {
   if (subject.kind === 'character') return subject.character.$ref.id;
   if (subject.kind === 'interactable') return subject.interactable.$ref.id;
-  if (subject.kind === 'item-stack') return subject.itemStack.$ref.id;
   return subject.feature.ownerKind === 'room'
     ? `${subject.feature.room.$ref.id}:${subject.feature.featureId}`
     : `${subject.feature.interactable.$ref.id}:${subject.feature.featureId}`;
@@ -253,7 +251,6 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
     id,
     label: item.label,
   }));
-  const itemStacks: Array<{ id: string; label: string }> = [];
   const verbs = Object.entries(activeProject.verbs).map(([id, item]) => ({
     id,
     label: item.label,
@@ -649,27 +646,6 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                         selectSubjects: {
                           subjects: [
                             ...activeStep.selectSubjects.subjects,
-                            testItemStackSubject(String(value)),
-                          ],
-                        },
-                      })
-                    }
-                  >
-                    <SelectItem value="__add__">Add item Stack</SelectItem>
-                    {itemStacks.map((stack) => (
-                      <SelectItem key={stack.id} value={stack.id}>
-                        {stack.label} ({stack.id})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    value="__add__"
-                    onValueChange={(value) =>
-                      value !== '__add__' &&
-                      replaceStep(activeStep.id, {
-                        selectSubjects: {
-                          subjects: [
-                            ...activeStep.selectSubjects.subjects,
                             testInteractableSubject(String(value)),
                           ],
                         },
@@ -797,35 +773,6 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                       {objects.map((object) => (
                         <SelectItem key={object.id} value={object.id}>
                           {object.label} ({object.id})
-                        </SelectItem>
-                      ))}
-                    </Select>
-                  ) : null}
-                  {nextRunInteractionSlotId ? (
-                    <Select
-                      value="__add__"
-                      onValueChange={(value) =>
-                        value !== '__add__' &&
-                        replaceStep(activeStep.id, {
-                          runInteraction: {
-                            ...activeStep.runInteraction,
-                            bindings: [
-                              ...activeStep.runInteraction.bindings,
-                              {
-                                slotId: nextRunInteractionSlotId,
-                                subject: testItemStackSubject(String(value)),
-                              },
-                            ],
-                          },
-                        })
-                      }
-                    >
-                      <SelectItem value="__add__">
-                        Bind Item Stack to {nextRunInteractionSlotId}
-                      </SelectItem>
-                      {itemStacks.map((stack) => (
-                        <SelectItem key={stack.id} value={stack.id}>
-                          {stack.label} ({stack.id})
                         </SelectItem>
                       ))}
                     </Select>

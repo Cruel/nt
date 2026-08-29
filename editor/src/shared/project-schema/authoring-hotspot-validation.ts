@@ -43,25 +43,16 @@ function validateSubject(
           ),
         ];
   if (subject.kind === 'interactable')
-    return project.interactables[subject.interactable.$ref.id]
+    return project.interactableInstances[subject.interactable.$ref.id]
       ? []
       : [
           diagnostic(
             category,
             `${path}/interactable/$ref`,
-            `Missing Interactable '${subject.interactable.$ref.id}'.`,
+            `Missing Interactable Instance '${subject.interactable.$ref.id}'.`,
             'hotspot.authoring.target.interactable-missing',
           ),
         ];
-  if (subject.kind === 'item-stack')
-    return [
-      diagnostic(
-        category,
-        `${path}/itemStack/$ref`,
-        'Item Stack subjects are retired; use Interactable Instances.',
-        'hotspot.authoring.target.item-stack-retired',
-      ),
-    ];
   const feature = subject.feature;
   if (feature.ownerKind === 'room') {
     const room = parseRoomData(project.rooms[feature.room.$ref.id]?.data);

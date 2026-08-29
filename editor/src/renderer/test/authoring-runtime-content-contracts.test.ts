@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import {
@@ -39,6 +42,7 @@ describe('runtime-content authoring contracts', () => {
       traits: [],
       data: key,
     };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key');
     const verb = oneSlotVerb('Use');
     project.verbs.use = { id: 'use', label: 'Use', data: verb };
     const interaction = defaultInteractionData();
@@ -53,7 +57,7 @@ describe('runtime-content authoring contracts', () => {
               kind: 'exact',
               subject: {
                 kind: 'interactable',
-                interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
               },
             },
           ],

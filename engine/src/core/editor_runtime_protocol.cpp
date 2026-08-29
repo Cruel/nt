@@ -731,16 +731,11 @@ subject_array(const nlohmann::json& object, std::string_view key, Diagnostics& d
                                             "Feature ownerKind must be room or interactable.",
                                             item_path + "/ownerKind"));
             }
-        } else if (kind && *kind == "item-stack") {
-            exact_fields(item, {"kind", "id"}, diagnostics, item_path);
-            auto id = id_field<ItemStackId>(item, "id", diagnostics, item_path, limits);
-            if (id)
-                result.emplace_back(compiled::ItemStackInteractionSubject{std::move(*id)});
         } else if (kind) {
-            diagnostics.push_back(error(
-                "editor_protocol.invalid_subject_kind",
-                "Interaction subject kind must be character, interactable, feature, or item-stack.",
-                item_path + "/kind"));
+            diagnostics.push_back(
+                error("editor_protocol.invalid_subject_kind",
+                      "Interaction subject kind must be character, interactable, or feature.",
+                      item_path + "/kind"));
         }
     }
     return diagnostics.empty() ? std::optional{std::move(result)} : std::nullopt;
@@ -793,7 +788,7 @@ nlohmann::json encode_subject(const compiled::InteractionSubject& subject)
                 return nlohmann::json{{"kind", "character"}, {"id", value.character.text()}};
             else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>)
                 return nlohmann::json{{"kind", "interactable"}, {"id", value.interactable.text()}};
-            else if constexpr (std::is_same_v<T, compiled::FeatureInteractionSubject>)
+            else
                 return std::visit(
                     [](const auto& reference) -> nlohmann::json {
                         using R = std::decay_t<decltype(reference)>;
@@ -809,8 +804,6 @@ nlohmann::json encode_subject(const compiled::InteractionSubject& subject)
                                     {"featureId", reference.feature_id.text()}};
                     },
                     value.feature);
-            else
-                return nlohmann::json{{"kind", "item-stack"}, {"id", value.item_stack.text()}};
         },
         subject);
 }
@@ -1120,8 +1113,7 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                                                  T, compiled::InteractableInteractionSubject>) {
                             encoded["kind"] = "interactable";
                             encoded["interactable"] = subject.interactable.text();
-                        } else if constexpr (std::is_same_v<T,
-                                                            compiled::FeatureInteractionSubject>) {
+                        } else {
                             encoded.update(std::visit(
                                 [](const auto& reference) -> nlohmann::json {
                                     using R = std::decay_t<decltype(reference)>;
@@ -1137,9 +1129,6 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                                                 {"featureId", reference.feature_id.text()}};
                                 },
                                 subject.feature));
-                        } else {
-                            encoded["kind"] = "item-stack";
-                            encoded["itemStack"] = subject.item_stack.text();
                         }
                     },
                     occupant.subject);
@@ -1461,10 +1450,6 @@ decode_editor_interaction_subjects_text(std::string_view text,
             auto id = id_field<InteractableInstanceId>(item, "id", diagnostics, path, limits);
             if (id)
                 subjects.emplace_back(compiled::InteractableInteractionSubject{std::move(*id)});
-        } else if (*kind == "item-stack") {
-            auto id = id_field<ItemStackId>(item, "id", diagnostics, path, limits);
-            if (id)
-                subjects.emplace_back(compiled::ItemStackInteractionSubject{std::move(*id)});
         } else {
             diagnostics.push_back(error("editor_protocol.invalid_subject_kind",
                                         "Interaction subject kind is unsupported.",

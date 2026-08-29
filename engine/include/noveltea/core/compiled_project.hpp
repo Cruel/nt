@@ -555,12 +555,8 @@ struct FeatureInteractionSubject {
     FeatureRef feature;
     bool operator==(const FeatureInteractionSubject&) const = default;
 };
-struct ItemStackInteractionSubject {
-    ItemStackId item_stack;
-    bool operator==(const ItemStackInteractionSubject&) const = default;
-};
 using InteractionSubject = std::variant<CharacterInteractionSubject, InteractableInteractionSubject,
-                                        FeatureInteractionSubject, ItemStackInteractionSubject>;
+                                        FeatureInteractionSubject>;
 
 struct RoomExitRef {
     RoomId room;
@@ -930,8 +926,7 @@ struct InteractionProgram {
 enum class SubjectFamily : std::uint8_t {
     Character,
     Interactable,
-    Feature,
-    ItemStack
+    Feature
 };
 struct AnySubjectSelector {};
 struct FamilySubjectSelector {
@@ -940,8 +935,12 @@ struct FamilySubjectSelector {
 struct TraitSubjectSelector {
     TraitId trait;
 };
-struct ItemDefinitionSubjectSelector {
-    ItemDefinitionId item_definition;
+struct InteractableDefinitionSubjectSelector {
+    InteractableDefinitionId interactable_definition;
+};
+struct InteractableFeatureSubjectSelector {
+    InteractableDefinitionId interactable_definition;
+    FeatureId feature_id;
 };
 struct QualifiedPatternSubjectSelector {
     SubjectFamily family;
@@ -950,9 +949,10 @@ struct QualifiedPatternSubjectSelector {
 struct ExactSubjectSelector {
     InteractionSubject subject;
 };
-using SubjectSelector = std::variant<AnySubjectSelector, FamilySubjectSelector,
-                                     TraitSubjectSelector, ItemDefinitionSubjectSelector,
-                                     QualifiedPatternSubjectSelector, ExactSubjectSelector>;
+using SubjectSelector =
+    std::variant<AnySubjectSelector, FamilySubjectSelector, TraitSubjectSelector,
+                 InteractableDefinitionSubjectSelector, InteractableFeatureSubjectSelector,
+                 QualifiedPatternSubjectSelector, ExactSubjectSelector>;
 struct InteractionSlotSelector {
     VerbSlotId slot_id;
     std::vector<SubjectSelector> selectors;

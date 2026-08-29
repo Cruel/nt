@@ -66,12 +66,6 @@ command_builder_lua_subject(const sol::object& value, core::Diagnostics& diagnos
             return std::nullopt;
         return core::compiled::InteractableInteractionSubject{std::move(*id)};
     }
-    if (kind == "item-stack") {
-        auto id = command_builder_lua_id<core::ItemStackId>(subject["id"], diagnostics, "id");
-        if (!id)
-            return std::nullopt;
-        return core::compiled::ItemStackInteractionSubject{std::move(*id)};
-    }
     if (kind == "feature") {
         const sol::object id_value = subject["id"];
         if (!id_value.is<std::string>()) {
@@ -130,7 +124,7 @@ command_builder_lua_subject(const sol::object& value, core::Diagnostics& diagnos
     }
     append_command_builder_lua_error(
         diagnostics, "runtime_ui.invalid_command_builder_subject",
-        "Command Builder subject kind must be character, interactable, feature, or item-stack");
+        "Command Builder subject kind must be character, interactable, or feature");
     return std::nullopt;
 }
 

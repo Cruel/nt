@@ -7,7 +7,6 @@ import {
   parseTestData,
   testCharacterSubject,
   testInteractableSubject,
-  testItemStackSubject,
   validateTestData,
 } from '../../shared/project-schema/authoring-tests';
 
@@ -50,6 +49,22 @@ describe('authoring tests schema', () => {
         ...data,
         steps: [
           {
+            ...defaultTestStep('primary-activate'),
+            subjectAction: {
+              subject: {
+                kind: 'item-stack',
+                itemStack: { $ref: { collection: 'itemStacks', id: 'coins' } },
+              },
+            },
+          },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      parseTestData({
+        ...data,
+        steps: [
+          {
             ...defaultTestStep('tick'),
             input: 'dialogue-option',
             dialogueOption: { optionIndex: 0 },
@@ -84,7 +99,6 @@ describe('authoring tests schema', () => {
           bindings: [
             { slotId: 'character', subject: testCharacterSubject('missing-character') },
             { slotId: 'interactable', subject: testInteractableSubject('missing-interactable') },
-            { slotId: 'item', subject: testItemStackSubject('missing-stack') },
           ],
         },
       },
@@ -105,10 +119,6 @@ describe('authoring tests schema', () => {
         }),
         expect.objectContaining({
           path: '/tests/smoke/data/steps/0/runInteraction/bindings/1/subject/interactable/$ref',
-          severity: 'error',
-        }),
-        expect.objectContaining({
-          path: '/tests/smoke/data/steps/0/runInteraction/bindings/2/subject/itemStack/$ref',
           severity: 'error',
         }),
       ]),

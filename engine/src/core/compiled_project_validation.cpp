@@ -448,8 +448,6 @@ private:
                 else if constexpr (std::is_same_v<T, InteractableInteractionSubject>)
                     require(m_interactable_instances, value.interactable, "interactable instance",
                             path + "/interactable");
-                else if constexpr (std::is_same_v<T, ItemStackInteractionSubject>)
-                    require(m_item_stacks, value.item_stack, "item stack", path + "/itemStack");
                 else
                     std::visit(
                         [&](const auto& reference) {
@@ -483,10 +481,23 @@ private:
                 using T = std::decay_t<decltype(value)>;
                 if constexpr (std::is_same_v<T, TraitSubjectSelector>)
                     require(m_traits, value.trait, "Trait", path + "/trait");
-                else if constexpr (std::is_same_v<T, ItemDefinitionSubjectSelector>)
-                    require(m_item_definitions, value.item_definition, "item definition",
-                            path + "/itemDefinition");
-                else if constexpr (std::is_same_v<T, ExactSubjectSelector>)
+                else if constexpr (std::is_same_v<T, InteractableDefinitionSubjectSelector>)
+                    require(m_interactables, value.interactable_definition,
+                            "interactable definition", path + "/interactableDefinition");
+                else if constexpr (std::is_same_v<T, InteractableFeatureSubjectSelector>) {
+                    require(m_interactables, value.interactable_definition,
+                            "interactable definition", path + "/interactableDefinition");
+                    const auto* definition = interactable_definition(value.interactable_definition);
+                    if (definition != nullptr &&
+                        std::ranges::find(definition->features, value.feature_id,
+                                          [](const FeatureDefinition& feature) {
+                                              return feature.identity.id;
+                                          }) == definition->features.end())
+                        error("compiled_project.unresolved_nested_reference",
+                              "Reusable Interactable Feature selector does not identify a Feature "
+                              "on its Interactable definition.",
+                              path + "/featureId");
+                } else if constexpr (std::is_same_v<T, ExactSubjectSelector>)
                     validate_interaction_subject(value.subject, path + "/subject");
             },
             selector);

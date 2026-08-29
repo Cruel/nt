@@ -3,7 +3,6 @@ import { entityIdSchema } from './authoring-common';
 import { featureRefSchema, type FeatureRefData } from './authoring-features';
 import { parseInteractableData } from './authoring-interactables';
 import { parseRoomData } from './authoring-rooms';
-import { itemStackRefSchema } from './authoring-items';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { parseVerbData } from './authoring-verbs';
 
@@ -31,20 +30,19 @@ export const testRefSchema = <Collection extends string>(collection: Collection)
     .strict();
 
 export const testCharacterRefSchema = testRefSchema('characters');
-export const testInteractableRefSchema = testRefSchema('interactables');
-export const testItemStackRefSchema = itemStackRefSchema;
+export const testInteractableRefSchema = z
+  .object({
+    $ref: z
+      .object({ registry: z.literal('interactableInstances'), id: z.string().min(1) })
+      .strict(),
+  })
+  .strict();
 export const testVerbRefSchema = testRefSchema('verbs');
-const testRecordRefSchema = z.union([
-  testCharacterRefSchema,
-  testInteractableRefSchema,
-  testItemStackRefSchema,
-  testVerbRefSchema,
-]);
+const testRecordRefSchema = z.union([testCharacterRefSchema, testVerbRefSchema]);
 
 export const testInteractionSubjectSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('character'), character: testCharacterRefSchema }).strict(),
   z.object({ kind: z.literal('interactable'), interactable: testInteractableRefSchema }).strict(),
-  z.object({ kind: z.literal('item-stack'), itemStack: testItemStackRefSchema }).strict(),
   z.object({ kind: z.literal('feature'), feature: featureRefSchema }).strict(),
 ]);
 
@@ -114,7 +112,6 @@ export const testDataSchema = z
 
 export type TestCharacterRef = z.infer<typeof testCharacterRefSchema>;
 export type TestInteractableRef = z.infer<typeof testInteractableRefSchema>;
-export type TestItemStackRef = z.infer<typeof testItemStackRefSchema>;
 export type TestVerbRef = z.infer<typeof testVerbRefSchema>;
 type TestRecordRef = z.infer<typeof testRecordRefSchema>;
 export type TestInteractionSubject = z.infer<typeof testInteractionSubjectSchema>;
@@ -152,7 +149,7 @@ export function testCharacterRef(id: string): TestCharacterRef {
   return { $ref: { collection: 'characters', id } };
 }
 export function testInteractableRef(id: string): TestInteractableRef {
-  return { $ref: { collection: 'interactables', id } };
+  return { $ref: { registry: 'interactableInstances', id } };
 }
 export function testVerbRef(id: string): TestVerbRef {
   return { $ref: { collection: 'verbs', id } };
@@ -162,9 +159,6 @@ export function testCharacterSubject(id: string): TestInteractionSubject {
 }
 export function testInteractableSubject(id: string): TestInteractionSubject {
   return { kind: 'interactable', interactable: testInteractableRef(id) };
-}
-export function testItemStackSubject(id: string): TestInteractionSubject {
-  return { kind: 'item-stack', itemStack: { $ref: { collection: 'itemStacks', id } } };
 }
 export function testFeatureSubject(feature: FeatureRefData): TestInteractionSubject {
   return { kind: 'feature', feature };
@@ -215,10 +209,6 @@ function validateRef(
 ) {
   if (!ref) return;
   const { collection, id } = ref.$ref;
-  if (collection === 'itemStacks') {
-    diagnostics.push(diagnostic(`${path}/$ref`, 'Item Stack test subjects are retired.'));
-    return;
-  }
   if (!project[collection][id])
     diagnostics.push(diagnostic(`${path}/$ref`, `Missing ${collection} record '${id}'.`));
 }
@@ -234,11 +224,11 @@ function validateInteractionSubject(
     return;
   }
   if (subject.kind === 'interactable') {
-    validateRef(project, subject.interactable, `${path}/interactable`, diagnostics);
-    return;
-  }
-  if (subject.kind === 'item-stack') {
-    validateRef(project, subject.itemStack, `${path}/itemStack`, diagnostics);
+    const id = subject.interactable.$ref.id;
+    if (!project.interactableInstances[id])
+      diagnostics.push(
+        diagnostic(`${path}/interactable/$ref`, `Missing Interactable Instance '${id}'.`),
+      );
     return;
   }
   if (subject.feature.ownerKind === 'room') {
