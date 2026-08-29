@@ -51,6 +51,7 @@
     },
     "exits": [],
     "placements": [],
+    "fallbackInteractablePlacementId": null,
     "features": [],
     "hotspots": []
   }

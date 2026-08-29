@@ -6,6 +6,7 @@
 #include "fake_script_source.hpp"
 #include "runtime_test_services.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -193,8 +194,10 @@ nlohmann::json minimal_dialogue_program(std::string_view log_mode, bool line_log
     program["blocks"][0]["segments"][0]["logged"] = line_logged;
     program["edges"][1]["logged"] = choice_logged;
     if (!line_effect_source.empty()) {
-        program["blocks"][0]["segments"][0]["effects"] = nlohmann::json::array(
-            {{{"kind", "run-lua-effect"}, {"source", std::string(line_effect_source)}}});
+        program["blocks"][0]["segments"][0]["effects"] =
+            nlohmann::json::array({{{"id", "line-effect"},
+                                    {"kind", "run-lua"},
+                                    {"source", std::string(line_effect_source)}}});
     }
     program["settings"] = {{"logMode", std::string(log_mode)}, {"showDisabledChoices", true}};
     return program;
@@ -298,6 +301,68 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
     REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(100, "en")));
     CHECK(active_dialogue(*kernel).dialogue == core::DialogueId::create("epilogue").value());
     CHECK(kernel->state().presented_text()->text == "Epilogue.");
+}
+
+TEST_CASE("Dialogue nested If resumes a yielding command without re-evaluating the branch")
+{
+    RuntimeFixture fixture;
+    install_dialogue_functions(fixture.runtime);
+
+    auto document = load_document("dialogue-program.json");
+    auto& intro = definition_by_id(document["definitions"], "dialogues", "intro");
+    auto program = minimal_dialogue_program("everything", true, true);
+    program["blocks"][0]["segments"][0]["effects"] = nlohmann::json::array({
+        {{"id", "branch"},
+         {"kind", "if"},
+         {"condition", {{"kind", "always"}}},
+         {"then",
+          nlohmann::json::array({
+              {{"id", "yield"}, {"kind", "run-lua"}, {"source", "yielding_dialogue_effect()"}},
+              {{"id", "nested-after"},
+               {"kind", "notify"},
+               {"message",
+                {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "nested-after"}}}}}},
+          })},
+         {"else", nlohmann::json::array()}},
+        {{"id", "root-after"},
+         {"kind", "notify"},
+         {"message",
+          {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "root-after"}}}}}},
+    });
+    intro["program"] = std::move(program);
+    intro["settings"] = intro["program"]["settings"];
+    intro["program"].erase("settings");
+    intro["completion"] = {{"kind", "end"}};
+    document["entrypoint"] = {{"kind", "dialogue"},
+                              {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}};
+
+    auto project = decode_document(std::move(document), "nested-dialogue-command.json");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+
+    require_input_blocker(kernel->run_until_blocked(100, "en"));
+    complete_input(*kernel);
+    auto yielded = kernel->run_until_blocked(100, "en");
+    REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(yielded));
+    REQUIRE(core::flow_blocker_kind(active_blocker(*kernel)) == core::FlowBlockerKind::Script);
+    const auto& suspended = active_dialogue(*kernel).position;
+    REQUIRE(suspended.effect_command);
+    CHECK(suspended.effect_command->text() == "yield");
+    CHECK(suspended.awaiting_completion);
+
+    resume_active_script(*kernel);
+    auto next = kernel->run_until_blocked(100, "en");
+    require_input_blocker(next);
+
+    std::vector<std::string> notifications;
+    for (const auto& event : kernel->gateway().events())
+        if (const auto* notification = std::get_if<runtime::NotificationEvent>(&event))
+            notifications.push_back(notification->message);
+    CHECK(std::ranges::count(notifications, "segment-start") == 1);
+    CHECK(std::ranges::count(notifications, "segment-end") == 1);
+    CHECK(std::ranges::count(notifications, "nested-after") == 1);
+    CHECK(std::ranges::count(notifications, "root-after") == 1);
 }
 
 TEST_CASE("Dialogue child Scene UI policy preserves or conceals the exact caller Dialogue")

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -93,6 +94,21 @@ struct DialogueFramePosition {
     bool awaiting_completion = false;
     std::size_t next_cue = 0;
     std::uint64_t reveal_offset = 0;
+    std::optional<InteractionInstructionId> effect_command;
+
+    DialogueFramePosition(
+        DialogueBlockId block_value, std::optional<DialogueSegmentId> segment_value = std::nullopt,
+        std::optional<DialogueEdgeId> edge_value = std::nullopt,
+        Stage stage_value = Stage::EnterBlock, std::size_t next_effect_value = 0,
+        bool awaiting_completion_value = false, std::size_t next_cue_value = 0,
+        std::uint64_t reveal_offset_value = 0,
+        std::optional<InteractionInstructionId> effect_command_value = std::nullopt)
+        : block(std::move(block_value)), segment(std::move(segment_value)),
+          edge(std::move(edge_value)), stage(stage_value), next_effect(next_effect_value),
+          awaiting_completion(awaiting_completion_value), next_cue(next_cue_value),
+          reveal_offset(reveal_offset_value), effect_command(std::move(effect_command_value))
+    {
+    }
 
     auto operator<=>(const DialogueFramePosition&) const = default;
 };
@@ -232,6 +248,7 @@ struct DialogueFrame {
     std::vector<DialogueStageSlotRuntimeState> stage_slots;
     std::vector<DialogueMediaSlotRuntimeState> media_slots;
     ReturnDestination destination;
+    std::vector<CommandResultBinding> command_results;
 };
 struct InteractionFrame {
     FlowFrameId frame_id;
@@ -239,6 +256,7 @@ struct InteractionFrame {
     InteractionProgramRef program;
     InteractionFramePosition position;
     ReturnDestination destination;
+    std::vector<CommandResultBinding> command_results;
 };
 struct RoomTransitionFrame {
     FlowFrameId frame_id;

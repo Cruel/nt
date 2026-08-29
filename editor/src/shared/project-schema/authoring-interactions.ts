@@ -10,7 +10,6 @@ import { parseInteractableData } from './authoring-interactables';
 import { parseRoomData } from './authoring-rooms';
 import { parseVerbData, subjectSelectorSchema } from './authoring-verbs';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
-import { validateInventoryReference } from './authoring-inventory-validation';
 import { validateCondition } from './authoring-condition-validation';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { analyzeInteractionRules, selectorUnionOverlap } from '../interaction-resolver-analysis';
@@ -133,122 +132,74 @@ export function validateInteractionProgram(
 ): InteractionSchemaDiagnostic[] {
   const diagnostics: InteractionSchemaDiagnostic[] = [];
   const instructionIds = new Set<string>();
-  for (const [index, instruction] of program.instructions.entries()) {
-    const instructionPath = `${path}/instructions/${index}`;
-    if (instructionIds.has(instruction.id))
-      diagnostics.push(
-        diagnostic(
-          `${instructionPath}/id`,
-          `Duplicate interaction instruction ID '${instruction.id}'.`,
-        ),
-      );
-    instructionIds.add(instruction.id);
-    if (
-      (instruction.kind === 'move-interactable' || instruction.kind === 'set-interactable-state') &&
-      !project.interactables[instruction.interactable.$ref.id]
-    ) {
-      diagnostics.push(
-        diagnostic(
-          `${instructionPath}/interactable/$ref`,
-          `Missing interactable '${instruction.interactable.$ref.id}'.`,
-        ),
-      );
-    }
-    if (
-      instruction.kind === 'set-interactable-state' &&
-      instruction.enabled === undefined &&
-      instruction.visible === undefined
-    ) {
-      diagnostics.push(
-        diagnostic(instructionPath, 'SetInteractableState must set enabled and/or visible.'),
-      );
-    }
-    if (
-      instruction.kind === 'move-interactable' &&
-      instruction.target.kind === 'room' &&
-      !project.rooms[instruction.target.room.$ref.id]
-    )
-      diagnostics.push(
-        diagnostic(
-          `${instructionPath}/target/room/$ref`,
-          `Missing room '${instruction.target.room.$ref.id}'.`,
-        ),
-      );
-    if (instruction.kind === 'move-interactable' && instruction.target.kind === 'inventory')
-      diagnostics.push(
-        ...validateInventoryReference(
+  const validateCommands = (
+    commands: InteractionRule['program']['instructions'],
+    commandPath: string,
+  ) => {
+    for (const [index, instruction] of commands.entries()) {
+      const instructionPath = `${commandPath}/${index}`;
+      if (instructionIds.has(instruction.id))
+        diagnostics.push(
+          diagnostic(`${instructionPath}/id`, `Duplicate Gameplay Command ID '${instruction.id}'.`),
+        );
+      instructionIds.add(instruction.id);
+      if (instruction.kind === 'set-global-property') {
+        const result = validateVariableRuntimeValue(
           project,
-          instruction.target.inventory,
-          `${instructionPath}/target/inventory`,
-        ),
-      );
-    if (instruction.kind === 'call-scene' && !project.scenes[instruction.scene.$ref.id])
-      diagnostics.push(
-        diagnostic(
-          `${instructionPath}/scene/$ref`,
-          `Missing scene '${instruction.scene.$ref.id}'.`,
-        ),
-      );
-    if (instruction.kind === 'call-dialogue' && !project.dialogues[instruction.dialogue.$ref.id])
-      diagnostics.push(
-        diagnostic(
-          `${instructionPath}/dialogue/$ref`,
-          `Missing dialogue '${instruction.dialogue.$ref.id}'.`,
-        ),
-      );
-    if (instruction.kind === 'apply-effect' && instruction.effect.kind === 'set-variable') {
-      const result = validateVariableRuntimeValue(
-        project,
-        instruction.effect.variable.$ref.id,
-        instruction.effect.value,
-      );
-      if (!result.ok) {
+          instruction.variable.$ref.id,
+          instruction.value,
+        );
+        if (!result.ok)
+          diagnostics.push(
+            diagnostic(
+              result.kind === 'missing'
+                ? `${instructionPath}/variable/$ref`
+                : `${instructionPath}/value`,
+              result.message,
+            ),
+          );
+      }
+      if (
+        instruction.kind === 'unset-global-property' &&
+        !project.variables[instruction.variable.$ref.id]
+      )
         diagnostics.push(
           diagnostic(
-            result.kind === 'missing'
-              ? `${instructionPath}/effect/variable/$ref`
-              : `${instructionPath}/effect/value`,
-            result.message,
+            `${instructionPath}/variable/$ref`,
+            `Missing variable '${instruction.variable.$ref.id}'.`,
           ),
         );
+      if (instruction.kind === 'call-scene' && !project.scenes[instruction.scene.$ref.id])
+        diagnostics.push(
+          diagnostic(
+            `${instructionPath}/scene/$ref`,
+            `Missing scene '${instruction.scene.$ref.id}'.`,
+          ),
+        );
+      if (instruction.kind === 'call-dialogue' && !project.dialogues[instruction.dialogue.$ref.id])
+        diagnostics.push(
+          diagnostic(
+            `${instructionPath}/dialogue/$ref`,
+            `Missing dialogue '${instruction.dialogue.$ref.id}'.`,
+          ),
+        );
+      if (instruction.kind === 'if') {
+        diagnostics.push(
+          ...validateCondition(project, instruction.condition, `${instructionPath}/condition`),
+        );
+        validateCommands(instruction.then, `${instructionPath}/then`);
+        validateCommands(instruction.else, `${instructionPath}/else`);
       }
     }
-  }
+  };
+  validateCommands(program.instructions, `${path}/instructions`);
   validateFlowTarget(project, program.completion, `${path}/completion`, diagnostics);
-
-  const terminalKinds = new Set(['notify', 'call-scene', 'call-dialogue']);
-  const terminals = program.instructions
-    .map((instruction, index) => ({ instruction, index }))
-    .filter(
-      ({ instruction }) =>
-        terminalKinds.has(instruction.kind) ||
-        (instruction.kind === 'apply-effect' && instruction.effect.kind === 'run-lua-effect'),
-    );
   if (program.outcome === 'unhandled') {
     if (program.instructions.length !== 0)
       diagnostics.push(
         diagnostic(
           path,
-          'An unhandled compact Interaction behavior must be empty so fallback cannot follow committed work.',
-        ),
-      );
-  } else {
-    if (terminals.length > 1)
-      diagnostics.push(
-        diagnostic(path, 'Compact Interaction behavior permits at most one terminal action.'),
-      );
-    if (terminals.length === 1 && terminals[0]!.index !== program.instructions.length - 1)
-      diagnostics.push(
-        diagnostic(
-          `${path}/instructions/${terminals[0]!.index}`,
-          'The terminal Interaction action must be the final instruction.',
-        ),
-      );
-    if (terminals.length === 1 && program.completion.kind !== 'return')
-      diagnostics.push(
-        diagnostic(
-          `${path}/completion`,
-          'A compact Interaction behavior cannot combine a terminal instruction with a terminal Flow target.',
+          'An unhandled Interaction program must be empty so fallback cannot follow committed work.',
         ),
       );
   }

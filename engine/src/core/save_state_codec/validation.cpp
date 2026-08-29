@@ -287,7 +287,10 @@ bool target_exists(const CompiledProject& project, const SaveState& save,
 template<class T> const auto* instruction_by_id(const std::vector<T>& values, const auto& id)
 {
     const auto found = std::find_if(values.begin(), values.end(), [&id](const T& value) {
-        return std::visit([&id](const auto& item) { return item.id == id; }, value);
+        if constexpr (std::is_same_v<T, GameplayCommand>)
+            return value.id == id;
+        else
+            return std::visit([&id](const auto& item) { return item.id == id; }, value);
     });
     return found == values.end() ? nullptr : &*found;
 }
@@ -365,7 +368,18 @@ const compiled::InteractionProgram* interaction_program(const CompiledProject& p
 bool has_interaction_instruction(const compiled::InteractionProgram& program,
                                  const InteractionInstructionId& id)
 {
-    return instruction_by_id(program.instructions, id) != nullptr;
+    const auto contains = [&id](const auto& self,
+                                std::span<const GameplayCommand> commands) -> bool {
+        for (const auto& command : commands) {
+            if (command.id == id)
+                return true;
+            if (const auto* branch = std::get_if<IfGameplayCommand>(&command.value);
+                branch && (self(self, branch->then_commands) || self(self, branch->else_commands)))
+                return true;
+        }
+        return false;
+    };
+    return contains(contains, program.instructions);
 }
 
 bool inventory_exists(const CompiledProject& project, const SaveState& save,
@@ -576,6 +590,32 @@ bool valid_scene_inputs(const compiled::SceneDefinition& scene,
     return true;
 }
 
+bool contains_gameplay_command(std::span<const GameplayCommand> commands,
+                               const InteractionInstructionId& id)
+{
+    for (const auto& command : commands) {
+        if (command.id == id)
+            return true;
+        if (const auto* branch = std::get_if<IfGameplayCommand>(&command.value);
+            branch && (contains_gameplay_command(branch->then_commands, id) ||
+                       contains_gameplay_command(branch->else_commands, id)))
+            return true;
+    }
+    return false;
+}
+
+bool valid_nested_effect_cursor(const std::vector<GameplayCommand>& effects,
+                                const DialogueFramePosition& position)
+{
+    if (!position.effect_command)
+        return true;
+    if (position.next_effect >= effects.size())
+        return false;
+    const auto* branch = std::get_if<IfGameplayCommand>(&effects[position.next_effect].value);
+    return branch && (contains_gameplay_command(branch->then_commands, *position.effect_command) ||
+                      contains_gameplay_command(branch->else_commands, *position.effect_command));
+}
+
 bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
                              const DialogueFramePosition& position)
 {
@@ -595,17 +635,18 @@ bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
     case DialogueFramePosition::Stage::Complete:
         return !position.segment && !position.edge && position.next_effect == 0 &&
                !position.awaiting_completion && position.next_cue == 0 &&
-               position.reveal_offset == 0;
+               position.reveal_offset == 0 && !position.effect_command;
     case DialogueFramePosition::Stage::PresentSegment:
         return segment && !position.edge && position.next_effect == 0 &&
                (!position.awaiting_completion ||
                 std::holds_alternative<compiled::DialogueRunLuaSegment>(*segment)) &&
-               position.next_cue == 0 && position.reveal_offset == 0;
+               position.next_cue == 0 && position.reveal_offset == 0 && !position.effect_command;
     case DialogueFramePosition::Stage::ApplySegmentEffects: {
         const auto* line = segment ? std::get_if<compiled::DialogueLineSegment>(segment) : nullptr;
         if (!line || position.edge || position.next_effect > line->effects.size() ||
             (position.awaiting_completion && position.next_effect >= line->effects.size()) ||
-            position.next_cue > line->cues.size())
+            position.next_cue > line->cues.size() ||
+            !valid_nested_effect_cursor(line->effects, position))
             return false;
         const auto cue_offset = [](const compiled::DialogueSemanticCue& cue) {
             return std::visit([](const auto& value) { return value.position.offset; }, cue);
@@ -621,17 +662,18 @@ bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
     case DialogueFramePosition::Stage::PresentChoices:
         return std::holds_alternative<compiled::DialogueChoiceBlock>(*block) && !position.segment &&
                !position.edge && position.next_effect == 0 && position.next_cue == 0 &&
-               position.reveal_offset == 0;
+               position.reveal_offset == 0 && !position.effect_command;
     case DialogueFramePosition::Stage::ApplyChoiceEffects: {
         const auto* choice = edge ? std::get_if<compiled::DialogueChoiceEdge>(edge) : nullptr;
         return choice && !position.segment && position.next_effect <= choice->effects.size() &&
                (!position.awaiting_completion || position.next_effect < choice->effects.size()) &&
-               position.next_cue == 0 && position.reveal_offset == 0;
+               position.next_cue == 0 && position.reveal_offset == 0 &&
+               valid_nested_effect_cursor(choice->effects, position);
     }
     case DialogueFramePosition::Stage::FollowEdge:
         return edge && !position.segment && position.next_effect == 0 &&
                !position.awaiting_completion && position.next_cue == 0 &&
-               position.reveal_offset == 0;
+               position.reveal_offset == 0 && !position.effect_command;
     }
     return false;
 }

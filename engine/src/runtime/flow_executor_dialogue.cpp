@@ -411,6 +411,7 @@ Result<void, Diagnostics> FlowExecutor::choose_dialogue_option(const FlowFrameId
 
     m_state.m_blocker.reset();
     m_state.m_active_choice.reset();
+    frame->command_results.clear();
     frame->position = std::move(position);
     return Result<void, Diagnostics>::success();
 }

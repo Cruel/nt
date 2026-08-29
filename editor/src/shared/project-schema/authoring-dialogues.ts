@@ -4,16 +4,16 @@ import {
   assetRefSchema,
   characterRefSchema,
   conditionSchema,
-  effectSchema,
   flowTargetSchema,
+  gameplayCommandSchema,
   inlineTextContent,
   runtimeScalarSchema,
   sceneRefSchema,
   textContentSchema,
   type CharacterRef,
   type Condition,
-  type Effect,
   type FlowTarget,
+  type GameplayCommand,
   type TextContent,
 } from './authoring-flow';
 import { parseCharacterData } from './authoring-characters';
@@ -58,7 +58,7 @@ export type DialoguePreviewBackground = (typeof dialoguePreviewBackgroundValues)
 export const dialogueCharacterRefSchema = characterRefSchema;
 export const dialogueTextDataSchema = textContentSchema;
 export const dialogueConditionDataSchema = conditionSchema;
-export const dialogueEffectDataSchema = effectSchema;
+export const dialogueEffectDataSchema = gameplayCommandSchema;
 export const dialogueCompletionTargetSchema = flowTargetSchema;
 
 export const dialogueActorPositionValues = ['left', 'center', 'right'] as const;
@@ -377,7 +377,7 @@ export const dialogueDataSchema = strict({
 export type DialogueCharacterRef = CharacterRef;
 export type DialogueTextData = TextContent;
 export type DialogueConditionData = Condition;
-export type DialogueEffectData = Effect;
+export type DialogueEffectData = GameplayCommand;
 export type DialogueCompletionTarget = FlowTarget;
 export type DialogueSegmentData = z.infer<typeof dialogueSegmentDataSchema>;
 export type DialogueBlockData = z.infer<typeof dialogueBlockDataSchema>;
@@ -637,8 +637,13 @@ export function validateDialogueData(
   };
   const validateEffects = (effects: readonly DialogueEffectData[], path: string) => {
     effects.forEach((effect, index) => {
-      if (effect.kind === 'set-variable') {
+      if (effect.kind === 'set-global-property') {
         validateVariableValue(effect.variable.$ref.id, effect.value, `${path}/${index}/value`);
+      }
+      if (effect.kind === 'if') {
+        validateCondition(effect.condition, `${path}/${index}/condition`);
+        validateEffects(effect.then, `${path}/${index}/then`);
+        validateEffects(effect.else, `${path}/${index}/else`);
       }
     });
   };

@@ -92,8 +92,6 @@ bool valid_presentation_space(const compiled::WorldPresentationSpace& value) noe
                        });
 }
 
-bool valid_interactable_location(const compiled::InteractableLocation&) noexcept { return true; }
-
 bool valid_subject_selector(const compiled::SubjectSelector& selector) noexcept
 {
     return std::visit(
@@ -125,36 +123,32 @@ bool valid_interaction_program(const compiled::InteractionProgram& program) noex
         return false;
     if (program.outcome == compiled::InteractionOutcome::Unhandled)
         return program.instructions.empty();
-
-    std::size_t terminal_count = 0;
-    for (std::size_t index = 0; index < program.instructions.size(); ++index) {
-        const bool valid = std::visit(
+    const auto valid_command = [&](const auto& self, const GameplayCommand& command) -> bool {
+        return std::visit(
             [&](const auto& value) {
                 using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, compiled::SetInteractableStateInstruction>)
-                    return value.enabled.has_value() || value.visible.has_value();
-                else if constexpr (std::is_same_v<T, compiled::MoveInteractableInstruction>)
-                    return valid_interactable_location(value.target);
-                else if constexpr (std::is_same_v<T, compiled::NotifyInstruction> ||
-                                   std::is_same_v<T, compiled::CallSceneInteractionInstruction> ||
-                                   std::is_same_v<T,
-                                                  compiled::CallDialogueInteractionInstruction>) {
-                    ++terminal_count;
-                    return index + 1 == program.instructions.size();
-                } else if constexpr (std::is_same_v<T, compiled::ApplyEffectInstruction>) {
-                    if (std::holds_alternative<RunLuaEffect>(value.effect)) {
-                        ++terminal_count;
-                        return index + 1 == program.instructions.size();
-                    }
-                    return true;
-                } else
+                if constexpr (std::is_same_v<T, SplitQuantityCommand> ||
+                              std::is_same_v<T, AddQuantityCommand> ||
+                              std::is_same_v<T, TransferQuantityCommand> ||
+                              std::is_same_v<T, ConsumeQuantityCommand>)
+                    return value.quantity > 0;
+                else if constexpr (std::is_same_v<T, RunLuaCommand>)
+                    return !value.source.empty();
+                else if constexpr (std::is_same_v<T, IfGameplayCommand>)
+                    return std::ranges::all_of(
+                               value.then_commands,
+                               [&](const auto& child) { return self(self, child); }) &&
+                           std::ranges::all_of(value.else_commands, [&](const auto& child) {
+                               return self(self, child);
+                           });
+                else
                     return true;
             },
-            program.instructions[index]);
-        if (!valid || terminal_count > 1)
-            return false;
-    }
-    return terminal_count == 0 || std::holds_alternative<ReturnFlow>(program.completion);
+            command.value);
+    };
+    return std::ranges::all_of(program.instructions, [&](const auto& command) {
+        return valid_command(valid_command, command);
+    });
 }
 
 bool valid_scene_instruction(const compiled::SceneInstruction& instruction) noexcept

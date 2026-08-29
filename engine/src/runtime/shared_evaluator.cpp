@@ -644,6 +644,48 @@ SharedPrimitiveEvaluator::evaluate(const Condition& condition,
         condition.value);
 }
 
+Result<GameplayOperandValue, Diagnostics>
+SharedPrimitiveEvaluator::resolve_identity(const GameplayIdentityOperand& operand,
+                                           ConditionEvaluationContext context) const
+{
+    return resolve_identity_operand(operand, m_state, context);
+}
+
+Result<PropertyOwnerRef, Diagnostics>
+SharedPrimitiveEvaluator::resolve_property_owner_operand(const GameplayIdentityOperand& operand,
+                                                         ConditionEvaluationContext context) const
+{
+    return resolve_property_owner(operand, m_state, context);
+}
+
+Result<InteractableInstanceId, Diagnostics>
+SharedPrimitiveEvaluator::resolve_interactable(const InteractableOperand& operand,
+                                               ConditionEvaluationContext context) const
+{
+    return resolve_interactable_operand(operand, m_state, context);
+}
+
+Result<GameplayOperandValue, Diagnostics>
+SharedPrimitiveEvaluator::resolve_location_subject_value(const LocationSubjectOperand& operand,
+                                                         ConditionEvaluationContext context) const
+{
+    return resolve_location_subject(operand, m_state, context);
+}
+
+Result<compiled::InventoryRef, Diagnostics>
+SharedPrimitiveEvaluator::resolve_inventory(const InventoryOperand& operand,
+                                            ConditionEvaluationContext context) const
+{
+    return resolve_inventory_operand(operand, m_state, context);
+}
+
+Result<compiled::InteractableLocation, Diagnostics>
+SharedPrimitiveEvaluator::resolve_location(const LocationOperand& operand,
+                                           ConditionEvaluationContext context) const
+{
+    return resolve_location_operand(operand, m_state, context);
+}
+
 Result<void, Diagnostics> SharedPrimitiveEvaluator::apply(const Effect& effect)
 {
     return std::visit(

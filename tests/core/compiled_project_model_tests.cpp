@@ -125,7 +125,7 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::variant_size_v<compiled::LayoutSource> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::ScriptSource> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractableLocation> == 3);
-    STATIC_REQUIRE(std::variant_size_v<compiled::InteractionInstruction> == 6);
+    STATIC_REQUIRE(std::variant_size_v<GameplayCommand::Value> == 23);
     STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::guard), Condition>);
     STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::priority), std::int64_t>);
     STATIC_REQUIRE(std::variant_size_v<compiled::SubjectSelector> == 7);
@@ -201,18 +201,20 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
                                   compiled::DialogueCallSceneSegment>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<3, compiled::DialogueSegment>,
                                   compiled::DialogueHandoffSegment>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, compiled::InteractionInstruction>,
-                                  compiled::ApplyEffectInstruction>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, compiled::InteractionInstruction>,
-                                  compiled::MoveInteractableInstruction>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<2, compiled::InteractionInstruction>,
-                                  compiled::SetInteractableStateInstruction>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<3, compiled::InteractionInstruction>,
-                                  compiled::NotifyInstruction>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<4, compiled::InteractionInstruction>,
-                                  compiled::CallSceneInteractionInstruction>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<5, compiled::InteractionInstruction>,
-                                  compiled::CallDialogueInteractionInstruction>);
+    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, GameplayCommand::Value>,
+                                  SetGlobalPropertyCommand>);
+    STATIC_REQUIRE(
+        std::is_same_v<std::variant_alternative_t<8, GameplayCommand::Value>, MoveInstanceCommand>);
+    STATIC_REQUIRE(
+        std::is_same_v<std::variant_alternative_t<18, GameplayCommand::Value>, CallSceneCommand>);
+    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<19, GameplayCommand::Value>,
+                                  CallDialogueCommand>);
+    STATIC_REQUIRE(
+        std::is_same_v<std::variant_alternative_t<20, GameplayCommand::Value>, NotifyCommand>);
+    STATIC_REQUIRE(
+        std::is_same_v<std::variant_alternative_t<21, GameplayCommand::Value>, RunLuaCommand>);
+    STATIC_REQUIRE(
+        std::is_same_v<std::variant_alternative_t<22, GameplayCommand::Value>, IfGameplayCommand>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, compiled::DialogueBlock>,
                                   compiled::DialogueSequenceBlock>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, compiled::DialogueBlock>,

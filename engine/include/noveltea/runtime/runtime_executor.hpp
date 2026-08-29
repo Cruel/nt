@@ -11,6 +11,7 @@
 #include <iterator>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -296,6 +297,16 @@ private:
     [[nodiscard]] core::Result<void, RuntimeExecutionError>
     interact_in_context(core::VerbId verb, std::vector<core::InteractionSubjectBinding> bindings,
                         std::optional<core::SceneFramePosition> scene_next_position);
+    [[nodiscard]] bool gameplay_command_is_immediate(const core::GameplayCommand& command) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics> apply_immediate_gameplay_command(
+        const core::GameplayCommand& command, core::SessionState& state, RuntimeWorld& world,
+        core::FlowExecutor& flow, core::SharedPrimitiveEvaluator& primitives,
+        std::span<const core::InteractionSubjectBinding> interaction_bindings,
+        std::vector<core::CommandResultBinding>& command_results) const;
+    [[nodiscard]] core::Result<std::size_t, core::Diagnostics> apply_immediate_gameplay_batch(
+        std::span<const core::GameplayCommand> commands,
+        std::span<const core::InteractionSubjectBinding> interaction_bindings,
+        std::vector<core::CommandResultBinding>& command_results);
     [[nodiscard]] core::Result<std::optional<core::PresentationFlowCompletion>, core::Diagnostics>
     advance_scene_for_presentation(const core::SceneId& scene, const core::SceneStepId& step,
                                    std::optional<core::SceneStepId> next,

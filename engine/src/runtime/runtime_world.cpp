@@ -146,6 +146,62 @@ validate_property_requirements(const core::CompiledProject& project,
     return core::Result<void, core::Diagnostics>::success();
 }
 
+template<class Id>
+core::Result<void, core::Diagnostics>
+validate_trait_configuration(const core::CompiledProject& project,
+                             const core::compiled::PropertyBearingDefinition<Id>& identity,
+                             const std::vector<core::compiled::OwnerPropertyContract>& properties,
+                             core::PropertyOwnerKind owner_kind, std::string_view owner_label)
+{
+    std::unordered_map<core::PropertyId, const core::compiled::TraitProperty*> contributed;
+    std::unordered_map<core::PropertyId, core::RuntimeValue> configured;
+    for (const auto& trait_id : identity.traits) {
+        const auto* trait = project.find_trait(trait_id);
+        if (trait == nullptr)
+            return core::Result<void, core::Diagnostics>::failure(world_error(
+                "runtime.invalid_trait_attachment",
+                std::string(owner_label) + " references missing Trait '" + trait_id.text() + "'"));
+        if (std::find(trait->allowed_owners.begin(), trait->allowed_owners.end(), owner_kind) ==
+            trait->allowed_owners.end())
+            return core::Result<void, core::Diagnostics>::failure(world_error(
+                "runtime.invalid_trait_attachment",
+                "Trait '" + trait_id.text() + "' cannot be attached to this owner kind"));
+        for (const auto& member : trait->properties) {
+            const auto [previous, inserted] = contributed.emplace(member.property_id, &member);
+            if (!inserted) {
+                const auto* value = previous->second;
+                if (value->value_type.index() != member.value_type.index() ||
+                    value->nullable != member.nullable || value->enum_values != member.enum_values)
+                    return core::Result<void, core::Diagnostics>::failure(world_error(
+                        "runtime.invalid_trait_property",
+                        "Attached Traits contribute incompatible schemas for Property '" +
+                            member.property_id.text() + "'"));
+            }
+            const auto own =
+                std::find_if(properties.begin(), properties.end(), [&](const auto& value) {
+                    return value.property_id == member.property_id;
+                });
+            if (own != properties.end() &&
+                (own->value_type.index() != member.value_type.index() ||
+                 own->nullable != member.nullable || own->enum_values != member.enum_values))
+                return core::Result<void, core::Diagnostics>::failure(
+                    world_error("runtime.invalid_trait_property",
+                                "Trait Property '" + member.property_id.text() +
+                                    "' is incompatible with the owner's Property contract"));
+            if (member.configured_value) {
+                const auto [existing, value_inserted] =
+                    configured.emplace(member.property_id, *member.configured_value);
+                if (!value_inserted && existing->second != *member.configured_value)
+                    return core::Result<void, core::Diagnostics>::failure(
+                        world_error("runtime.conflicting_trait_configuration",
+                                    "Attached Traits configure Property '" +
+                                        member.property_id.text() + "' with conflicting values"));
+            }
+        }
+    }
+    return validate_property_requirements(project, identity, properties, owner_label);
+}
+
 core::Result<void, core::Diagnostics> validate_feature_property_requirements(
     const core::CompiledProject& project,
     const std::vector<core::compiled::FeatureDefinition>& features, std::string_view owner_label)
@@ -1315,6 +1371,149 @@ RuntimeWorld::clear_structural_configuration(const core::InteractableInstanceId&
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Result<void, core::Diagnostics> RuntimeWorld::set_trait(const core::PropertyOwnerRef& owner,
+                                                              core::TraitId trait, bool present)
+{
+    const auto mutate = [&](auto& identity) {
+        auto& traits = identity.traits;
+        const auto found = std::find(traits.begin(), traits.end(), trait);
+        if (present) {
+            if (found == traits.end())
+                traits.push_back(trait);
+        } else if (found != traits.end()) {
+            traits.erase(found);
+        }
+        std::ranges::sort(traits, {}, [](const auto& value) { return value.text(); });
+    };
+
+    return std::visit(
+        [&](const auto& target) -> core::Result<void, core::Diagnostics> {
+            using T = std::decay_t<decltype(target)>;
+            if constexpr (std::is_same_v<T, core::RoomId>) {
+                auto* record = find_record(m_state.m_runtime_rooms, target);
+                if (record == nullptr)
+                    return core::Result<void, core::Diagnostics>::failure(
+                        world_error("runtime.unknown_room", "Room Gameplay Instance is not live"));
+                auto configuration = record->effective_configuration();
+                mutate(configuration.identity);
+                auto valid = validate_trait_configuration(
+                    m_project, configuration.identity, configuration.properties,
+                    core::PropertyOwnerKind::Room, "Room configuration");
+                if (!valid)
+                    return valid;
+                valid = validate_room_property_requirements(m_project, configuration);
+                if (!valid)
+                    return valid;
+                valid = validate_room_configuration_change(target, configuration);
+                if (!valid)
+                    return valid;
+                record->structural_override_source.reset();
+                record->structural_override = std::move(configuration);
+                return core::Result<void, core::Diagnostics>::success();
+            } else if constexpr (std::is_same_v<T, core::CharacterId>) {
+                auto* record = find_record(m_state.m_runtime_characters, target);
+                if (record == nullptr)
+                    return core::Result<void, core::Diagnostics>::failure(world_error(
+                        "runtime.unknown_character", "Character Gameplay Instance is not live"));
+                auto configuration = record->effective_configuration();
+                mutate(configuration.identity);
+                auto valid = validate_trait_configuration(
+                    m_project, configuration.identity, configuration.properties,
+                    core::PropertyOwnerKind::Character, "Character configuration");
+                if (!valid)
+                    return valid;
+                valid = validate_character_property_requirements(m_project, configuration);
+                if (!valid)
+                    return valid;
+                valid = validate_character_configuration_change(target, configuration);
+                if (!valid)
+                    return valid;
+                record->structural_override_source.reset();
+                record->structural_override = std::move(configuration);
+                return core::Result<void, core::Diagnostics>::success();
+            } else if constexpr (std::is_same_v<T, core::InteractableInstanceId>) {
+                auto* record = find_record(m_state.m_runtime_interactables, target);
+                if (record == nullptr)
+                    return core::Result<void, core::Diagnostics>::failure(
+                        world_error("runtime.unknown_interactable",
+                                    "Interactable Gameplay Instance is not live"));
+                auto configuration = record->effective_configuration();
+                mutate(configuration.identity);
+                auto valid = validate_trait_configuration(
+                    m_project, configuration.identity, configuration.properties,
+                    core::PropertyOwnerKind::Interactable, "Interactable configuration");
+                if (!valid)
+                    return valid;
+                valid = validate_interactable_property_requirements(m_project, configuration);
+                if (!valid)
+                    return valid;
+                valid = validate_interactable_configuration_change(target, configuration);
+                if (!valid)
+                    return valid;
+                record->structural_override_source.reset();
+                record->structural_override = std::move(configuration);
+                return core::Result<void, core::Diagnostics>::success();
+            } else if constexpr (std::is_same_v<T, core::RoomFeatureRef>) {
+                auto* record = find_record(m_state.m_runtime_rooms, target.room);
+                if (record == nullptr)
+                    return core::Result<void, core::Diagnostics>::failure(
+                        world_error("runtime.unknown_room", "Room Gameplay Instance is not live"));
+                auto configuration = record->effective_configuration();
+                const auto feature = std::find_if(
+                    configuration.features.begin(), configuration.features.end(),
+                    [&](const auto& value) { return value.identity.id == target.feature_id; });
+                if (feature == configuration.features.end())
+                    return core::Result<void, core::Diagnostics>::failure(
+                        world_error("runtime.unknown_feature", "Room Feature is not live"));
+                mutate(feature->identity);
+                auto valid = validate_trait_configuration(
+                    m_project, feature->identity, feature->properties,
+                    core::PropertyOwnerKind::Feature, "Room Feature configuration");
+                if (!valid)
+                    return valid;
+                valid = validate_room_property_requirements(m_project, configuration);
+                if (!valid)
+                    return valid;
+                valid = validate_room_configuration_change(target.room, configuration);
+                if (!valid)
+                    return valid;
+                record->structural_override_source.reset();
+                record->structural_override = std::move(configuration);
+                return core::Result<void, core::Diagnostics>::success();
+            } else {
+                auto* record = find_record(m_state.m_runtime_interactables, target.interactable);
+                if (record == nullptr)
+                    return core::Result<void, core::Diagnostics>::failure(
+                        world_error("runtime.unknown_interactable",
+                                    "Interactable Gameplay Instance is not live"));
+                auto configuration = record->effective_configuration();
+                const auto feature = std::find_if(
+                    configuration.features.begin(), configuration.features.end(),
+                    [&](const auto& value) { return value.identity.id == target.feature_id; });
+                if (feature == configuration.features.end())
+                    return core::Result<void, core::Diagnostics>::failure(
+                        world_error("runtime.unknown_feature", "Interactable Feature is not live"));
+                mutate(feature->identity);
+                auto valid = validate_trait_configuration(
+                    m_project, feature->identity, feature->properties,
+                    core::PropertyOwnerKind::Feature, "Interactable Feature configuration");
+                if (!valid)
+                    return valid;
+                valid = validate_interactable_property_requirements(m_project, configuration);
+                if (!valid)
+                    return valid;
+                valid =
+                    validate_interactable_configuration_change(target.interactable, configuration);
+                if (!valid)
+                    return valid;
+                record->structural_override_source.reset();
+                record->structural_override = std::move(configuration);
+                return core::Result<void, core::Diagnostics>::success();
+            }
+        },
+        owner);
+}
+
 core::Result<void, core::Diagnostics> RuntimeWorld::retarget_room_exit(const core::RoomId& room,
                                                                        const core::RoomExitId& exit,
                                                                        const core::RoomId& target)
@@ -1996,10 +2195,10 @@ RuntimeWorld::clone_interactable_quantity_instance(const core::InteractableInsta
         const auto* owner = std::get_if<core::InteractableInstanceId>(&value.target());
         if (owner == nullptr || *owner != source)
             continue;
-        auto copied = core::make_dynamic_property_override(core::PropertyTargetRef{id},
-                                                           value.property_id(), value.value());
+        auto copied = core::make_dynamic_property_override(
+            core::PropertyTargetRef{id}, value.property_id(), value.override_value());
         if (copied)
-            m_state.m_property_overrides.push_back(std::move(copied).value());
+            m_state.m_property_overrides.push_back(std::move(*copied.value_if()));
     }
     return core::Result<core::InteractableInstanceId, core::Diagnostics>::success(id);
 }
@@ -2275,7 +2474,7 @@ RuntimeWorld::consume_interactable_quantity(const InteractableQuantityFilter& fi
             return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
                 mutation.error());
         }
-        const auto& applied = mutation.value();
+        const auto& applied = *mutation.value_if();
         result.surviving.insert(result.surviving.end(), applied.surviving.begin(),
                                 applied.surviving.end());
         result.changed.insert(result.changed.end(), applied.changed.begin(), applied.changed.end());
@@ -2346,7 +2545,7 @@ RuntimeWorld::transfer_interactable_quantity(const InteractableQuantityFilter& f
             return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
                 mutation.error());
         }
-        const auto& applied = mutation.value();
+        const auto& applied = *mutation.value_if();
         result.surviving.insert(result.surviving.end(), applied.surviving.begin(),
                                 applied.surviving.end());
         result.changed.insert(result.changed.end(), applied.changed.begin(), applied.changed.end());
@@ -2406,7 +2605,7 @@ RuntimeWorld::add_interactable_quantity(const core::InteractableDefinitionId& de
             return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
                 created.error());
         }
-        const auto& applied = created.value();
+        const auto& applied = *created.value_if();
         result.surviving.insert(result.surviving.end(), applied.surviving.begin(),
                                 applied.surviving.end());
         result.created.insert(result.created.end(), applied.created.begin(), applied.created.end());

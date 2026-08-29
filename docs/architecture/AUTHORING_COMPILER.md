@@ -58,11 +58,11 @@ The Scene lowering is one-to-one:
 | `comment` or a disabled step | omitted |
 
 Specialized program lowering completes the draft. Dialogue remains a graph: Sequence, Choice, and
-Redirect blocks; Line and RunLua segments; Next and Choice edges; stable IDs; conditions, effects,
+Redirect blocks; Line and RunLua segments; Next and Choice edges; stable IDs; conditions, shared Gameplay Command effects,
 logging, show-once, safe-point, speaker, text, redirect, entry, and completion data lower directly.
-Comment blocks and segments are omitted. Interaction rules retain stable IDs, named slot selector unions, pure Guards, explicit priorities, nullable Offers, and the closed compact-behavior instruction vocabulary; authored list order is not a runtime resolver tie-break. Verb definitions retain named slots, locale-neutral `bindingOrder`, localized slot label/prompt and completed-command text, availability, and default program, but carry no Property assignments or Trait attachments. Runtime evaluates the selected Verb's local availability and resolves matching Interaction Rules by structural selector containment, Guard result, and priority. An empty unhandled result falls through to that Verb's default program, then the optional Project undefined-Interaction behavior, then the localized engine response.
+Comment blocks and segments are omitted. Interaction rules retain stable IDs, named slot selector unions, pure Guards, explicit priorities, nullable Offers, and the same shared Gameplay Command vocabulary used by Dialogue effects; authored list order is not a runtime resolver tie-break. Verb definitions retain named slots, locale-neutral `bindingOrder`, localized slot label/prompt and completed-command text, availability, and default program, but carry no Property assignments or Trait attachments. Runtime evaluates the selected Verb's local availability and resolves matching Interaction Rules by structural selector containment, Guard result, and priority. An empty unhandled result falls through to that Verb's default program, then the optional Project undefined-Interaction behavior, then the localized engine response.
 
-Interaction instructions now have authoritative stable authoring IDs matching the compiled contract.
+Gameplay Commands have authoritative stable authoring IDs matching the compiled contract.
 The editor allocates collision-free IDs on creation and preserves them during editing and reordering;
 validation rejects duplicates within each program.
 

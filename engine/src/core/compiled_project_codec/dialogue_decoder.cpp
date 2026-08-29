@@ -674,8 +674,8 @@ decode_dialogue_segment(Decoder& decoder, const nlohmann::json& value, std::stri
         auto safe = safe_value
                         ? decoder.boolean(*safe_value, pointer_child(pointer, "autosaveSafePoint"))
                         : std::nullopt;
-        auto effects = effects_value ? decode_effects(decoder, *effects_value,
-                                                      pointer_child(pointer, "effects"))
+        auto effects = effects_value ? decode_gameplay_commands(decoder, *effects_value,
+                                                                pointer_child(pointer, "effects"))
                                      : std::nullopt;
         auto logged = logged_value
                           ? decoder.boolean(*logged_value, pointer_child(pointer, "logged"))
@@ -914,9 +914,10 @@ decode_dialogue_program(Decoder& decoder, const nlohmann::json& value, std::stri
                                                                                "autosaveSafePoint"))
                                   : std::nullopt;
                           auto effects =
-                              effects_value ? decode_effects(decoder, *effects_value,
+                              effects_value
+                                  ? decode_gameplay_commands(decoder, *effects_value,
                                                              pointer_child(edge_pointer, "effects"))
-                                            : std::nullopt;
+                                  : std::nullopt;
                           auto label = label_value
                                            ? decode_text(decoder, *label_value,
                                                          pointer_child(edge_pointer, "label"))

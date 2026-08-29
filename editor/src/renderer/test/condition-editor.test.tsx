@@ -39,7 +39,10 @@ describe('recursive Condition editor', () => {
           operator: 'greater',
           quantity: 0,
         }}
-        scope={{ interactionSlots: ['container', 'target'], commandResults: ['created'] }}
+        scope={{
+          interactionSlots: ['container', 'target'],
+          commandResults: [{ id: 'created', kind: 'interactable' }],
+        }}
         onChange={() => {}}
       />,
     );

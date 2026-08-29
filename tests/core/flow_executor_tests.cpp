@@ -119,7 +119,7 @@ CompiledProject make_project(compiled::Entrypoint entrypoint)
     compiled::InteractionProgram default_program{
         {}, EndFlow{}, compiled::InteractionOutcome::Handled};
     compiled::InteractionProgram rule_program{
-        {compiled::NotifyInstruction{id<InteractionInstructionId>("notify"), text("Done")}},
+        {GameplayCommand{id<InteractionInstructionId>("notify"), NotifyCommand{text("Done")}}},
         ReturnFlow{},
         compiled::InteractionOutcome::Handled};
     compiled::VerbDefinition verb{

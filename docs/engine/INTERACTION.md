@@ -50,13 +50,17 @@ The replaceable `command-builder` System Layout owns partial Command Draft prese
 
 Builder occurrences are transient and are not save/recording state. Stop, reset, load, Room/Flow ownership loss, Project replacement, an accepted direct control command, and the Builder lifecycle ending terminate the occurrence. Occurrence-bound capture/watch/submit/cancel requests carrying a stale token are rejected. Runtime accepts watched and submitted subjects only after semantic capture for that occurrence, so Layout-local Draft state cannot fabricate source authority. Final submission includes the complete named binding set and is passed through the same atomic Verb/slot/live-subject/selector/availability validation as any other complete Interaction command before Flow begins.
 
-## Resolution and compact behavior
+## Resolution and Gameplay Command behavior
 
 Complete-command resolution first validates the Verb and every named binding against the Verb slot selector unions. Candidate Interaction Rules then match only by Verb, named slot, and the closed structural Subject Selector vocabulary. Runtime orders matching rules by structural containment: a rule whose selector sets are strictly contained by another rule is narrower and is evaluated in an earlier tier. Declaration order is never a tie-break.
 
 Within the current narrowest tier, runtime evaluates each pure Guard. A false Guard removes that rule and resolution stays within the tier; if no rule in the tier passes, resolution falls through to the next broader tier. A Guard evaluation error faults the command before any behavior executes. Among passing rules in one tier, the greatest explicit `priority` wins. More than one passing rule at the greatest priority is an ambiguity fault and executes nothing.
 
-An `InteractionProgram` is the compact behavior representation. Its mutation prefix may contain ApplyEffect for typed non-Lua effects, MoveInteractable, and SetInteractableState. Runtime validates that mutation batch against a staged Session copy before committing any mutation, so a batch that would fail partway commits nothing. After the mutation prefix there may be at most one terminal action: Notify, Scene call, Dialogue call, or Lua handoff. A terminal `FlowTarget` such as Room navigation is also allowed when no terminal instruction is present. Terminal instructions must be final.
+An `InteractionProgram` is an ordered shared Gameplay Command program; see `GAMEPLAY_COMMAND.md`.
+Immediate mutation runs are validated against staged Session state before committing, so a run that
+would fail partway commits nothing. Observable/yielding commands establish transaction boundaries,
+and nested `If/Else` may resume through those boundaries using the stable nested command ID. Commands
+may bind typed program-local results that later commands and Conditions consume.
 
 `Unhandled` is only valid for an empty behavior and therefore can never follow committed work. Once a handled behavior commits mutations or begins its terminal handoff, fallback is impossible. A later terminal failure faults execution while retaining already committed gameplay state.
 
@@ -94,9 +98,25 @@ Save state persists named bindings and the exact fallback program stage when an 
 
 ## Current editor implementation
 
-The Interaction editor authors one selector union per named Verb slot, all seven Subject Selector variants, optional rule-derived Offers, a pure Guard, explicit priority, and compact program instructions. Exact Interactable pickers enumerate declared Interactable Instances; definition records appear only in definition/reusable-Feature selectors. Every instruction has a stable nested ID; creation preserves that identity through editing and reordering. Project Settings → Runtime exposes the optional Project undefined-Interaction behavior. Each rule also exposes resolver analysis for its match space, broader and narrower overlaps, structural dominance, priority, conflicts, and reachability. The analysis is derived from the same selector-containment ordering used by runtime resolution and is informational only; edits still flow through the normal command/save-unit path and remain undo-safe.
+The Interaction editor authors one selector union per named Verb slot, all seven Subject Selector
+variants, optional rule-derived Offers, a pure Guard, explicit priority, and the reusable Gameplay
+Command editor shared with Dialogue effects. Exact Interactable pickers enumerate declared
+Interactable Instances; definition records appear only in definition/reusable-Feature selectors.
+Every command has a stable nested ID; creation preserves that identity through editing and reordering.
+Project Settings → Runtime exposes the optional Project undefined-Interaction behavior. Each rule also
+exposes resolver analysis for its match space, broader and narrower overlaps, structural dominance,
+priority, conflicts, and reachability. The analysis is derived from the same selector-containment
+ordering used by runtime resolution and is informational only; edits still flow through the normal
+command/save-unit path and remain undo-safe.
 
-Project validation checks complete named slots, selector references and Feature owners, Guard references, compact terminal constraints, program references, stable IDs, and resolver facts that are provably invalid. A rule whose selector space cannot intersect the corresponding Verb slot is an error. An unconditional equal-tier/equal-priority conflict is an error, including across separate Interaction records. A rule with an equivalent match space that is permanently dominated by an unconditional higher-priority rule is unreachable and is an error. Runtime-dependent Trait relationships, guarded overlap, runtime-created identity facts, and Lua predicates are warnings/information or conditional analysis rather than guessed blockers.
+Project validation checks complete named slots, selector references and Feature owners, Guard
+references, Gameplay Command references/result scope, stable IDs, and resolver facts that are provably
+invalid. A rule whose selector space cannot intersect the corresponding Verb slot is an error. An
+unconditional equal-tier/equal-priority conflict is an error, including across separate Interaction
+records. A rule with an equivalent match space that is permanently dominated by an unconditional
+higher-priority rule is unreachable and is an error. Runtime-dependent Trait relationships, guarded
+overlap, runtime-created identity facts, and Lua predicates are warnings/information or conditional
+analysis rather than guessed blockers.
 
 The Play inspector provides subject-centric and complete-command resolver explanations against its current debug snapshot. Subject analysis lists explicit and rule-derived Offer candidates, specificity tier, rank, primary intent, structural winner, suppression/shadowing, and condition/availability certainty. The native snapshot's resolved `verbOffers` remains the authoritative result for the concrete running state. Complete-command analysis shows structural tiers, Guard status when it can be established from snapshot variables, priority, winner, ambiguity, shadowing, and fallback. Lua predicates and live facts not present in the tooling snapshot remain explicitly conditional even when the subject identity itself was runtime-created.
 

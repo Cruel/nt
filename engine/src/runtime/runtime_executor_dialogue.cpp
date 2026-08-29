@@ -77,6 +77,107 @@ find_next_edge(const core::compiled::DialogueDefinition& dialogue,
                : std::get_if<core::compiled::DialogueNextEdge>(&*found);
 }
 
+const core::GameplayCommand* find_gameplay_command(std::span<const core::GameplayCommand> commands,
+                                                   const core::InteractionInstructionId& id)
+{
+    for (const auto& command : commands) {
+        if (command.id == id)
+            return &command;
+        if (const auto* branch = std::get_if<core::IfGameplayCommand>(&command.value)) {
+            if (const auto* found = find_gameplay_command(branch->then_commands, id))
+                return found;
+            if (const auto* found = find_gameplay_command(branch->else_commands, id))
+                return found;
+        }
+    }
+    return nullptr;
+}
+
+std::optional<core::InteractionInstructionId>
+next_gameplay_command(std::span<const core::GameplayCommand> commands,
+                      const core::InteractionInstructionId& id,
+                      std::optional<core::InteractionInstructionId> after_commands)
+{
+    for (std::size_t index = 0; index < commands.size(); ++index) {
+        const auto successor =
+            index + 1 < commands.size()
+                ? std::optional<core::InteractionInstructionId>{commands[index + 1].id}
+                : after_commands;
+        if (commands[index].id == id)
+            return successor;
+        if (const auto* branch = std::get_if<core::IfGameplayCommand>(&commands[index].value)) {
+            if (find_gameplay_command(branch->then_commands, id))
+                return next_gameplay_command(branch->then_commands, id, successor);
+            if (find_gameplay_command(branch->else_commands, id))
+                return next_gameplay_command(branch->else_commands, id, successor);
+        }
+    }
+    return std::nullopt;
+}
+
+const core::GameplayCommand*
+current_dialogue_effect(const std::vector<core::GameplayCommand>& effects,
+                        const core::DialogueFramePosition& position)
+{
+    if (position.next_effect >= effects.size())
+        return nullptr;
+    if (!position.effect_command)
+        return &effects[position.next_effect];
+    const auto* branch = std::get_if<core::IfGameplayCommand>(&effects[position.next_effect].value);
+    if (!branch)
+        return nullptr;
+    if (const auto* found = find_gameplay_command(branch->then_commands, *position.effect_command))
+        return found;
+    return find_gameplay_command(branch->else_commands, *position.effect_command);
+}
+
+core::DialogueFramePosition
+dialogue_position_after_effect(const std::vector<core::GameplayCommand>& effects,
+                               core::DialogueFramePosition position)
+{
+    position.awaiting_completion = false;
+    if (!position.effect_command) {
+        ++position.next_effect;
+        return position;
+    }
+    if (position.next_effect >= effects.size()) {
+        position.effect_command.reset();
+        return position;
+    }
+    const auto* branch = std::get_if<core::IfGameplayCommand>(&effects[position.next_effect].value);
+    if (!branch) {
+        position.effect_command.reset();
+        ++position.next_effect;
+        return position;
+    }
+    const auto id = *position.effect_command;
+    std::optional<core::InteractionInstructionId> next;
+    if (find_gameplay_command(branch->then_commands, id))
+        next = next_gameplay_command(branch->then_commands, id, std::nullopt);
+    else if (find_gameplay_command(branch->else_commands, id))
+        next = next_gameplay_command(branch->else_commands, id, std::nullopt);
+    if (next) {
+        position.effect_command = *next;
+        return position;
+    }
+    position.effect_command.reset();
+    ++position.next_effect;
+    return position;
+}
+
+core::DialogueFramePosition
+dialogue_position_enter_branch(const std::vector<core::GameplayCommand>& effects,
+                               core::DialogueFramePosition position,
+                               const std::vector<core::GameplayCommand>& branch)
+{
+    if (!branch.empty()) {
+        position.effect_command = branch.front().id;
+        position.awaiting_completion = false;
+        return position;
+    }
+    return dialogue_position_after_effect(effects, std::move(position));
+}
+
 core::DialogueFramePosition
 sequence_position_after(const core::compiled::DialogueDefinition& dialogue,
                         const core::compiled::DialogueSequenceBlock& block,
@@ -152,6 +253,93 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
         auto marked =
             m_flow.mark_dialogue_wait(frame.dialogue, frame.position, std::move(position));
         return marked ? std::nullopt : fault(marked.error());
+    };
+    auto apply_immediate_effects = [this](const std::vector<core::GameplayCommand>& effects,
+                                          core::DialogueFramePosition position,
+                                          std::vector<core::CommandResultBinding>& command_results)
+        -> core::Result<core::DialogueFramePosition, core::Diagnostics> {
+        std::vector<const core::GameplayCommand*> batch;
+        auto cursor = position;
+        while (const auto* command = current_dialogue_effect(effects, cursor)) {
+            if (!gameplay_command_is_immediate(*command))
+                break;
+            batch.push_back(command);
+            cursor = dialogue_position_after_effect(effects, std::move(cursor));
+        }
+        if (batch.empty())
+            return core::Result<core::DialogueFramePosition, core::Diagnostics>::success(
+                std::move(position));
+
+        auto staged_state = m_state;
+        core::FlowExecutor staged_flow(m_project, staged_state);
+        core::SharedPrimitiveEvaluator staged_primitives(m_project, staged_state, staged_flow);
+        RuntimeWorld staged_world(m_project, staged_state);
+        auto staged_results = command_results;
+        for (const auto* command : batch) {
+            auto applied =
+                apply_immediate_gameplay_command(*command, staged_state, staged_world, staged_flow,
+                                                 staged_primitives, {}, staged_results);
+            if (!applied)
+                return core::Result<core::DialogueFramePosition, core::Diagnostics>::failure(
+                    applied.error());
+        }
+        for (const auto* command : batch) {
+            auto applied = apply_immediate_gameplay_command(*command, m_state, m_world, m_flow,
+                                                            m_primitives, {}, command_results);
+            if (!applied)
+                return core::Result<core::DialogueFramePosition, core::Diagnostics>::failure(
+                    applied.error());
+        }
+        return core::Result<core::DialogueFramePosition, core::Diagnostics>::success(
+            std::move(cursor));
+    };
+    auto execute_boundary =
+        [this, &frame, &fault, &mark_wait,
+         runtime_locale](const core::GameplayCommand& command,
+                         core::DialogueFramePosition next) -> std::optional<core::FlowRunOutcome> {
+        return std::visit(
+            [&](const auto& value) -> std::optional<core::FlowRunOutcome> {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::NotifyCommand>) {
+                    auto message = resolve(value.message.source, runtime_locale);
+                    if (!message)
+                        return fault(execution_diagnostics(message.error()));
+                    auto requested = m_gateway.request_notification(*message.value_if());
+                    if (!requested)
+                        return fault(requested.error());
+                    auto advanced = m_flow.advance_dialogue(frame.dialogue, frame.position, next);
+                    return advanced ? std::nullopt : fault(advanced.error());
+                } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
+                    auto called = m_flow.call_child(value.scene, core::FlowFramePosition{next});
+                    return called ? std::nullopt : fault(called.error());
+                } else if constexpr (std::is_same_v<T, core::CallDialogueCommand>) {
+                    auto called = m_flow.call_child(value.dialogue, std::nullopt,
+                                                    core::FlowFramePosition{next});
+                    return called ? std::nullopt : fault(called.error());
+                } else if constexpr (std::is_same_v<T, core::RunLuaCommand>) {
+                    auto invoked = invoke_script(value.source, "gameplay-command");
+                    if (!invoked)
+                        return fault(script_diagnostics(invoked.error()));
+                    const auto* outcome = invoked.value_if();
+                    const auto* suspended = outcome == nullptr
+                                                ? nullptr
+                                                : std::get_if<ScriptInvocationSuspended>(outcome);
+                    if (suspended == nullptr) {
+                        auto advanced =
+                            m_flow.advance_dialogue(frame.dialogue, frame.position, next);
+                        return advanced ? std::nullopt : fault(advanced.error());
+                    }
+                    auto waiting = frame.position;
+                    waiting.awaiting_completion = true;
+                    if (auto failed = mark_wait(std::move(waiting)))
+                        return failed;
+                    return core::FlowBlockedOutcome{*m_state.blocker()};
+                } else
+                    return fault(execution_error(
+                        "execution.invalid_dialogue_gameplay_command",
+                        "Immediate Gameplay Command reached an observable command boundary"));
+            },
+            command.value);
     };
 
     switch (frame.position.stage) {
@@ -251,6 +439,8 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                 core::DialogueFramePosition::Stage::ApplySegmentEffects,
                 0,
                 false};
+            if (auto* live = std::get_if<core::DialogueFrame>(&m_state.m_flow_stack.back()))
+                live->command_results.clear();
             if (auto failed = mark_wait(effects))
                 return failed;
             return core::FlowBlockedOutcome{blocked->blocker};
@@ -349,31 +539,42 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
             return fault(execution_error("execution.invalid_dialogue_segment",
                                          "Dialogue line effect position is invalid"));
         if (frame.position.awaiting_completion) {
-            auto position = frame.position;
-            ++position.next_effect;
-            position.awaiting_completion = false;
-            return commit(std::move(position));
+            return commit(dialogue_position_after_effect(line->effects, frame.position));
         }
         if (frame.position.next_effect >= line->effects.size()) {
+            if (auto* live = std::get_if<core::DialogueFrame>(&m_state.m_flow_stack.back()))
+                live->command_results.clear();
             if (line->autosave_safe_point)
                 m_gateway.request_autosave_safe_point();
             return commit(sequence_position_after(*dialogue, *sequence, line->id));
         }
-        auto applied = apply(line->effects[frame.position.next_effect], "dialogue-line-effect");
-        if (!applied)
-            return fault(execution_diagnostics(applied.error()));
-        const auto* effect = applied.value_if();
-        const auto* suspended =
-            effect == nullptr ? nullptr : std::get_if<ScriptInvocationSuspended>(effect);
-        auto position = frame.position;
-        if (suspended != nullptr) {
-            position.awaiting_completion = true;
-            if (auto failed = mark_wait(position))
-                return failed;
-            return core::FlowBlockedOutcome{*m_state.blocker()};
+        auto* live = std::get_if<core::DialogueFrame>(&m_state.m_flow_stack.back());
+        if (live == nullptr)
+            return fault(execution_error("execution.invalid_dialogue_frame",
+                                         "Dialogue frame disappeared during effect execution"));
+        const auto* command = current_dialogue_effect(line->effects, frame.position);
+        if (command == nullptr)
+            return fault(execution_error("execution.invalid_dialogue_gameplay_command",
+                                         "Dialogue effect command cursor is invalid"));
+        if (gameplay_command_is_immediate(*command)) {
+            auto applied =
+                apply_immediate_effects(line->effects, frame.position, live->command_results);
+            if (!applied)
+                return fault(applied.error());
+            return commit(std::move(*applied.value_if()));
         }
-        ++position.next_effect;
-        return commit(std::move(position));
+        if (const auto* branch = std::get_if<core::IfGameplayCommand>(&command->value)) {
+            const core::ConditionEvaluationContext context{
+                .interaction_bindings = {}, .command_results = live->command_results};
+            auto condition = m_primitives.evaluate(branch->condition, context);
+            if (!condition)
+                return fault(condition.error());
+            const auto& selected =
+                *condition.value_if() ? branch->then_commands : branch->else_commands;
+            return commit(dialogue_position_enter_branch(line->effects, frame.position, selected));
+        }
+        return execute_boundary(*command,
+                                dialogue_position_after_effect(line->effects, frame.position));
     }
     case core::DialogueFramePosition::Stage::PresentChoices: {
         if (frame.position.awaiting_completion)
@@ -436,32 +637,44 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
             return fault(execution_error("execution.invalid_dialogue_edge",
                                          "Dialogue choice effect position is invalid"));
         if (frame.position.awaiting_completion) {
-            auto position = frame.position;
-            ++position.next_effect;
-            position.awaiting_completion = false;
-            return commit(std::move(position));
+            return commit(dialogue_position_after_effect(choice->effects, frame.position));
         }
         if (frame.position.next_effect >= choice->effects.size()) {
+            if (auto* live = std::get_if<core::DialogueFrame>(&m_state.m_flow_stack.back()))
+                live->command_results.clear();
             if (choice->autosave_safe_point)
                 m_gateway.request_autosave_safe_point();
             return commit({frame.position.block, std::nullopt, choice->id,
                            core::DialogueFramePosition::Stage::FollowEdge, 0, false});
         }
-        auto applied = apply(choice->effects[frame.position.next_effect], "dialogue-choice-effect");
-        if (!applied)
-            return fault(execution_diagnostics(applied.error()));
-        const auto* effect = applied.value_if();
-        const auto* suspended =
-            effect == nullptr ? nullptr : std::get_if<ScriptInvocationSuspended>(effect);
-        auto position = frame.position;
-        if (suspended != nullptr) {
-            position.awaiting_completion = true;
-            if (auto failed = mark_wait(position))
-                return failed;
-            return core::FlowBlockedOutcome{*m_state.blocker()};
+        auto* live = std::get_if<core::DialogueFrame>(&m_state.m_flow_stack.back());
+        if (live == nullptr)
+            return fault(execution_error("execution.invalid_dialogue_frame",
+                                         "Dialogue frame disappeared during effect execution"));
+        const auto* command = current_dialogue_effect(choice->effects, frame.position);
+        if (command == nullptr)
+            return fault(execution_error("execution.invalid_dialogue_gameplay_command",
+                                         "Dialogue choice effect command cursor is invalid"));
+        if (gameplay_command_is_immediate(*command)) {
+            auto applied =
+                apply_immediate_effects(choice->effects, frame.position, live->command_results);
+            if (!applied)
+                return fault(applied.error());
+            return commit(std::move(*applied.value_if()));
         }
-        ++position.next_effect;
-        return commit(std::move(position));
+        if (const auto* branch = std::get_if<core::IfGameplayCommand>(&command->value)) {
+            const core::ConditionEvaluationContext context{
+                .interaction_bindings = {}, .command_results = live->command_results};
+            auto condition = m_primitives.evaluate(branch->condition, context);
+            if (!condition)
+                return fault(condition.error());
+            const auto& selected =
+                *condition.value_if() ? branch->then_commands : branch->else_commands;
+            return commit(
+                dialogue_position_enter_branch(choice->effects, frame.position, selected));
+        }
+        return execute_boundary(*command,
+                                dialogue_position_after_effect(choice->effects, frame.position));
     }
     case core::DialogueFramePosition::Stage::FollowEdge: {
         const auto* edge =

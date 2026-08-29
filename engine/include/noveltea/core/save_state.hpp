@@ -112,6 +112,7 @@ struct SavedDialogueFrame {
     std::vector<DialogueStageSlotRuntimeState> stage_slots;
     std::vector<DialogueMediaSlotRuntimeState> media_slots;
     ReturnDestination destination;
+    std::vector<CommandResultBinding> command_results;
 };
 struct SavedInteractionFrame {
     SavedFlowFrameId snapshot_id;
@@ -119,6 +120,7 @@ struct SavedInteractionFrame {
     InteractionProgramRef program;
     InteractionFramePosition position;
     ReturnDestination destination;
+    std::vector<CommandResultBinding> command_results;
 };
 struct SavedRoomTransitionFrame {
     SavedFlowFrameId snapshot_id;

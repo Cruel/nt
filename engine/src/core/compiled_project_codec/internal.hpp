@@ -247,6 +247,8 @@ std::optional<PersistableValue> decode_persistable_value(Decoder&, const nlohman
 std::optional<TextContent> decode_text(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<Condition> decode_condition_impl(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<Effect> decode_effect_impl(Decoder&, const nlohmann::json&, std::string_view);
+std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder&, const nlohmann::json&,
+                                                            std::string_view);
 std::optional<FlowTarget> decode_flow_target_impl(Decoder&, const nlohmann::json&,
                                                   std::string_view);
 std::optional<Vector2> decode_vector2(Decoder&, const nlohmann::json&, std::string_view);
@@ -468,6 +470,8 @@ std::optional<Condition> decode_optional_condition(Decoder&, const nlohmann::jso
                                                    std::string_view, bool& valid);
 std::optional<std::vector<Effect>> decode_effects(Decoder&, const nlohmann::json&,
                                                   std::string_view);
+std::optional<std::vector<GameplayCommand>>
+decode_gameplay_commands(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<InteractionProgram> decode_interaction_program(Decoder&, const nlohmann::json&,
                                                              std::string_view);
 std::optional<VerbDefinition> decode_verb(Decoder&, const nlohmann::json&, std::string_view);

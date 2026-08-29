@@ -1,19 +1,14 @@
 import type {
-  CompiledEffect,
   CompiledFlowTarget,
+  CompiledGameplayCommand,
   CompiledProjectWire,
   CompiledText,
   InteractionProgram,
 } from './project-schema/compiled-project';
-import type { Effect, FlowTarget, TextContent } from './project-schema/authoring-flow';
-import type {
-  InteractionInstruction,
-  InteractionMoveTarget,
-  InteractionProgram as AuthoringInteractionProgram,
-} from './project-schema/authoring-interaction-programs';
+import type { FlowTarget, GameplayCommand, TextContent } from './project-schema/authoring-flow';
+import type { InteractionProgram as AuthoringInteractionProgram } from './project-schema/authoring-interaction-programs';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import { compileSubjectSelector } from './authoring-compiler-shared-lowering';
-import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import type {
   DialogueLineCue,
@@ -28,7 +23,15 @@ import type {
   CompiledProjectSceneRoomDraft,
   ProgramLoweringDiagnostic,
 } from './authoring-compiler-scene-room-lowering';
-import { compileCondition } from './authoring-condition-lowering';
+import {
+  compileCondition,
+  compileIdentityOperand,
+  compileInteractableOperand,
+  compileInventoryOperand,
+  compileLocationOperand,
+  compileLocationSubjectOperand,
+  compileMatcher,
+} from './authoring-condition-lowering';
 
 export interface CompleteProgramLoweringResult {
   diagnostics: ProgramLoweringDiagnostic[];
@@ -45,15 +48,6 @@ function compileText(text: TextContent): CompiledText {
         : source.kind === 'localized'
           ? { kind: 'localized', key: source.key }
           : { kind: 'lua-expression', source: source.source },
-  };
-}
-
-function compileEffect(effect: Effect): CompiledEffect {
-  if (effect.kind === 'run-lua-effect') return { ...effect };
-  return {
-    kind: 'set-global-property',
-    property: { kind: 'property', id: effect.variable.$ref.id },
-    value: effect.value,
   };
 }
 
@@ -189,92 +183,196 @@ function compileDialogueSemanticCue(
   return { ...common, kind: cue.kind, emphasis: cue.emphasis };
 }
 
-function compileInventoryReference(inventory: InventoryReferenceData) {
-  const owner = inventory.owner;
-  const compiledOwner =
-    owner.kind === 'project'
-      ? { kind: 'project' as const }
-      : owner.kind === 'character'
-        ? {
-            kind: 'character' as const,
-            character: { kind: 'character' as const, id: owner.character.$ref.id },
-          }
-        : owner.kind === 'interactable'
+function compileGameplayCommand(command: GameplayCommand): CompiledGameplayCommand {
+  switch (command.kind) {
+    case 'set-global-property':
+      return {
+        id: command.id,
+        kind: command.kind,
+        property: { kind: 'property', id: command.variable.$ref.id },
+        value: command.value,
+      };
+    case 'unset-global-property':
+      return {
+        id: command.id,
+        kind: command.kind,
+        property: { kind: 'property', id: command.variable.$ref.id },
+      };
+    case 'set-property':
+      return {
+        id: command.id,
+        kind: command.kind,
+        owner: compileIdentityOperand(command.owner),
+        property: { kind: 'property', id: command.propertyId },
+        value: command.value,
+      };
+    case 'unset-property':
+      return {
+        id: command.id,
+        kind: command.kind,
+        owner: compileIdentityOperand(command.owner),
+        property: { kind: 'property', id: command.propertyId },
+      };
+    case 'add-trait':
+    case 'remove-trait':
+      return {
+        id: command.id,
+        kind: command.kind,
+        owner: compileIdentityOperand(command.owner),
+        trait: { kind: 'trait', id: command.trait.$ref.id },
+      };
+    case 'set-enabled':
+      return {
+        id: command.id,
+        kind: command.kind,
+        subject: compileLocationSubjectOperand(command.subject),
+        enabled: command.enabled,
+      };
+    case 'set-visible':
+      return {
+        id: command.id,
+        kind: command.kind,
+        subject: compileLocationSubjectOperand(command.subject),
+        visible: command.visible,
+      };
+    case 'move-instance':
+      return {
+        id: command.id,
+        kind: command.kind,
+        subject: compileLocationSubjectOperand(command.subject),
+        location: compileLocationOperand(command.location),
+      };
+    case 'create-room':
+    case 'create-character':
+    case 'create-interactable': {
+      const source =
+        command.source.kind === 'archetype'
           ? {
-              kind: 'interactable' as const,
-              interactable: { kind: 'interactable' as const, id: owner.interactable.$ref.id },
+              kind: 'archetype' as const,
+              archetype: { kind: 'archetype' as const, id: command.source.archetype.$ref.id },
             }
-          : owner.kind === 'room-feature'
-            ? {
-                kind: 'room-feature' as const,
-                room: { kind: 'room' as const, id: owner.room.$ref.id },
-                featureId: owner.featureId,
-              }
-            : {
-                kind: 'interactable-feature' as const,
-                interactable: {
-                  kind: 'interactable' as const,
-                  id: owner.interactable.$ref.id,
-                },
-                featureId: owner.featureId,
-              };
-  return { owner: compiledOwner, inventoryId: inventory.inventoryId };
-}
-
-function compileMoveTarget(
-  target: InteractionMoveTarget,
-): Extract<InteractionProgram['instructions'][number], { kind: 'move-interactable' }>['target'] {
-  if (target.kind === 'unplaced') return { kind: 'unplaced' };
-  if (target.kind === 'room')
-    return { kind: 'room', room: { kind: 'room', id: target.room.$ref.id } };
-  return { kind: 'inventory', inventory: compileInventoryReference(target.inventory) };
-}
-
-function compileInstruction(
-  instruction: InteractionInstruction,
-): InteractionProgram['instructions'][number] {
-  switch (instruction.kind) {
-    case 'apply-effect':
+          : {
+              kind: command.source.kind,
+              instance: compileIdentityOperand(command.source.instance),
+            };
+      if (command.kind === 'create-room')
+        return {
+          id: command.id,
+          kind: command.kind,
+          source,
+          ...(command.result ? { result: command.result } : {}),
+        };
       return {
-        id: instruction.id,
-        kind: 'apply-effect',
-        effect: compileEffect(instruction.effect),
-      };
-    case 'move-interactable':
+        id: command.id,
+        kind: command.kind,
+        source,
+        location: compileLocationOperand(command.location),
+        enabled: command.enabled,
+        visible: command.visible,
+        ...(command.result ? { result: command.result } : {}),
+      } as CompiledGameplayCommand;
+    }
+    case 'destroy-instance':
       return {
-        id: instruction.id,
-        kind: 'move-interactable',
-        interactable: { kind: 'interactable', id: instruction.interactable.$ref.id },
-        target: compileMoveTarget(instruction.target),
+        id: command.id,
+        kind: command.kind,
+        instance: compileIdentityOperand(command.instance),
       };
-    case 'set-interactable-state':
+    case 'split-quantity':
       return {
-        id: instruction.id,
-        kind: 'set-interactable-state',
-        interactable: { kind: 'interactable', id: instruction.interactable.$ref.id },
-        ...(instruction.enabled === undefined ? {} : { enabled: instruction.enabled }),
-        ...(instruction.visible === undefined ? {} : { visible: instruction.visible }),
+        id: command.id,
+        kind: command.kind,
+        source: compileInteractableOperand(command.source),
+        quantity: command.quantity,
+        ...(command.result ? { result: command.result } : {}),
       };
+    case 'merge-quantity':
+      return {
+        id: command.id,
+        kind: command.kind,
+        receiver: compileInteractableOperand(command.receiver),
+        donor: compileInteractableOperand(command.donor),
+      };
+    case 'transfer-quantity':
+      return command.mode === 'exact'
+        ? {
+            id: command.id,
+            kind: command.kind,
+            mode: 'exact',
+            source: compileInteractableOperand(command.source),
+            quantity: command.quantity,
+            location: compileLocationOperand(command.location),
+            ...(command.result ? { result: command.result } : {}),
+          }
+        : {
+            id: command.id,
+            kind: command.kind,
+            mode: 'aggregate',
+            matcher: compileMatcher(command.matcher),
+            ...(command.sourceInventory
+              ? { sourceInventory: compileInventoryOperand(command.sourceInventory) }
+              : {}),
+            quantity: command.quantity,
+            location: compileLocationOperand(command.location),
+          };
+    case 'add-quantity':
+      return {
+        id: command.id,
+        kind: command.kind,
+        definition: { kind: 'interactable-definition', id: command.definition.$ref.id },
+        quantity: command.quantity,
+        location: compileLocationOperand(command.location),
+      };
+    case 'consume-quantity':
+      return command.mode === 'exact'
+        ? {
+            id: command.id,
+            kind: command.kind,
+            mode: 'exact',
+            source: compileInteractableOperand(command.source),
+            quantity: command.quantity,
+          }
+        : {
+            id: command.id,
+            kind: command.kind,
+            mode: 'aggregate',
+            matcher: compileMatcher(command.matcher),
+            ...(command.sourceInventory
+              ? { sourceInventory: compileInventoryOperand(command.sourceInventory) }
+              : {}),
+            quantity: command.quantity,
+          };
     case 'notify':
-      return { id: instruction.id, kind: 'notify', message: compileText(instruction.message) };
+      return { id: command.id, kind: command.kind, message: compileText(command.message) };
     case 'call-scene':
       return {
-        id: instruction.id,
-        kind: 'call-scene',
-        scene: { kind: 'scene', id: instruction.scene.$ref.id },
+        id: command.id,
+        kind: command.kind,
+        scene: { kind: 'scene', id: command.scene.$ref.id },
       };
     case 'call-dialogue':
       return {
-        id: instruction.id,
-        kind: 'call-dialogue',
-        dialogue: { kind: 'dialogue', id: instruction.dialogue.$ref.id },
+        id: command.id,
+        kind: command.kind,
+        dialogue: { kind: 'dialogue', id: command.dialogue.$ref.id },
+      };
+    case 'run-lua':
+      return { id: command.id, kind: command.kind, source: command.source };
+    case 'if':
+      return {
+        id: command.id,
+        kind: command.kind,
+        condition: compileCondition(command.condition),
+        // oxlint-disable-next-line unicorn/no-thenable -- `then` is the canonical Gameplay Command wire field.
+        then: command.then.map(compileGameplayCommand),
+        else: command.else.map(compileGameplayCommand),
       };
   }
 }
 
 function compileInteractionProgram(program: AuthoringInteractionProgram): InteractionProgram {
   return {
-    instructions: program.instructions.map(compileInstruction),
+    instructions: program.instructions.map(compileGameplayCommand),
     completion: compileFlowTarget(program.completion),
     outcome: program.outcome,
   };
@@ -366,7 +464,7 @@ export function lowerDialogueAndInteractionPrograms(
             ...(segment.condition === undefined
               ? {}
               : { condition: compileCondition(segment.condition) }),
-            effects: segment.effects.map(compileEffect),
+            effects: segment.effects.map(compileGameplayCommand),
             showOnce: segment.showOnce,
             logged: segment.logged,
             autosaveSafePoint: segment.autosaveSafePoint,
@@ -414,7 +512,7 @@ export function lowerDialogueAndInteractionPrograms(
                 ...(edge.condition === undefined
                   ? {}
                   : { condition: compileCondition(edge.condition) }),
-                effects: edge.effects.map(compileEffect),
+                effects: edge.effects.map(compileGameplayCommand),
                 logged: edge.logged,
                 autosaveSafePoint: edge.autosaveSafePoint,
               },

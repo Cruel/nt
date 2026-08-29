@@ -34,6 +34,23 @@ public:
 
     [[nodiscard]] Result<bool, Diagnostics> evaluate(const Condition& condition,
                                                      ConditionEvaluationContext context = {}) const;
+    [[nodiscard]] Result<GameplayOperandValue, Diagnostics>
+    resolve_identity(const GameplayIdentityOperand& operand,
+                     ConditionEvaluationContext context = {}) const;
+    [[nodiscard]] Result<PropertyOwnerRef, Diagnostics>
+    resolve_property_owner_operand(const GameplayIdentityOperand& operand,
+                                   ConditionEvaluationContext context = {}) const;
+    [[nodiscard]] Result<InteractableInstanceId, Diagnostics>
+    resolve_interactable(const InteractableOperand& operand,
+                         ConditionEvaluationContext context = {}) const;
+    [[nodiscard]] Result<GameplayOperandValue, Diagnostics>
+    resolve_location_subject_value(const LocationSubjectOperand& operand,
+                                   ConditionEvaluationContext context = {}) const;
+    [[nodiscard]] Result<compiled::InventoryRef, Diagnostics>
+    resolve_inventory(const InventoryOperand& operand,
+                      ConditionEvaluationContext context = {}) const;
+    [[nodiscard]] Result<compiled::InteractableLocation, Diagnostics>
+    resolve_location(const LocationOperand& operand, ConditionEvaluationContext context = {}) const;
     [[nodiscard]] Result<void, Diagnostics> apply(const Effect& effect);
     [[nodiscard]] Result<std::string, Diagnostics> resolve(const TextSource& source,
                                                            std::string_view runtime_locale) const;

@@ -347,7 +347,7 @@ describe('authoring interactions', () => {
     );
   });
 
-  it('rejects more than one terminal action in a compact behavior', () => {
+  it('allows multiple observable commands in one ordered program', () => {
     const project = createAuthoringProject();
     project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
     const data = defaultInteractionData();
@@ -382,12 +382,7 @@ describe('authoring interactions', () => {
       label: 'Rules',
       data,
     });
-    expect(diagnostics).toContainEqual(
-      expect.objectContaining({
-        path: '/interactions/rules/data/rules/0/program',
-        severity: 'error',
-      }),
-    );
+    expect(diagnostics).toEqual([]);
   });
 
   it('indexes typed Verb and Interactable definition references', () => {

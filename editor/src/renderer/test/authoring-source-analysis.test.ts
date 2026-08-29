@@ -357,8 +357,8 @@ describe('typed source registry and graph evidence', () => {
           instructions: [
             {
               id: 'effect',
-              kind: 'apply-effect',
-              effect: { kind: 'run-lua-effect', source: `interaction_effect()` },
+              kind: 'run-lua',
+              source: `interaction_effect()`,
             },
           ],
           completion: { kind: 'return' },

@@ -140,6 +140,42 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'oonnsssssssssovssnoonoonnnnnnoyop';
 
 const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
+  // #122 replaces the Interaction-only instruction union and Dialogue-only effect union with the
+  // shared recursive Gameplay Command vocabulary. Legacy-equivalent leaves are path-mapped below;
+  // genuinely new typed operands, result bindings, quantity/configuration forms, and recursive
+  // branch structure contribute to the owning host. Lua command source remains source-analyzed.
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)(?:\/(?:then|else)\/\*)+\/source$/,
+    SOURCE,
+  ],
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/condition\/source$/,
+    SOURCE,
+  ],
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/condition(?:\/|$)/,
+    OWNER,
+  ],
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)(?=.*\/(?:then|else)\/\*)/,
+    OWNER,
+  ],
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/(?:owner|trait|subject|location|result|matcher|sourceInventory|definition|receiver|donor|instance)(?:\/|$)/,
+    OWNER,
+  ],
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/(?:propertyId|mode|quantity|result)$/,
+    OWNER,
+  ],
+  [
+    /^\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*\/(?:id|enabled|visible|message|scene|dialogue)(?:\/|$)/,
+    OWNER,
+  ],
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/source\//,
+    OWNER,
+  ],
   // #121 expands every existing Condition host into the same recursive typed Condition contract.
   // These are genuinely new leaves relative to the prior Always/Variable/Lua union. Keep the
   // previously reviewed legacy leaves aligned while classifying recursive structure and typed
@@ -429,6 +465,32 @@ function isItemContractLeaf(path: JsonPointer): boolean {
 }
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
+  // #122 preserves the reviewed Interaction instruction contribution for the legacy-compatible
+  // Global Property/Lua leaves after removing the `apply-effect` wrapper.
+  if (
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*)\/(?:variable\/\$ref\/(?:collection|id)|value|source)$/.test(
+      path,
+    )
+  )
+    return path.replace('/instructions/*/', '/instructions/*/effect/') as JsonPointer;
+  const interactionProgramHost =
+    /^(?:\/verbs\/\*\/data\/defaultProgram|\/interactions\/\*\/data\/rules\/\*\/program)\/instructions\/\*/;
+  if (interactionProgramHost.test(path) && path.endsWith('/subject/interactable/$ref/registry'))
+    return path.replace(
+      '/subject/interactable/$ref/registry',
+      '/interactable/$ref/collection',
+    ) as JsonPointer;
+  if (interactionProgramHost.test(path) && path.endsWith('/subject/interactable/$ref/id'))
+    return path.replace('/subject/interactable/$ref/id', '/interactable/$ref/id') as JsonPointer;
+  if (interactionProgramHost.test(path) && path.endsWith('/location/kind'))
+    return path.replace('/location/kind', '/target/kind') as JsonPointer;
+  if (interactionProgramHost.test(path) && path.endsWith('/location/room/room/$ref/collection'))
+    return path.replace(
+      '/location/room/room/$ref/collection',
+      '/target/room/$ref/collection',
+    ) as JsonPointer;
+  if (interactionProgramHost.test(path) && path.endsWith('/location/room/room/$ref/id'))
+    return path.replace('/location/room/room/$ref/id', '/target/room/$ref/id') as JsonPointer;
   const segments = parseJsonPointer(path);
   if (path === ('/variables/*/data/value' as JsonPointer))
     return '/variables/*/data/defaultValue' as JsonPointer;
@@ -634,6 +696,12 @@ const legacySchemaLeafPaths = [
   '/interactions/*/data/rules/*/context/room/$ref/id' as JsonPointer,
   '/interactions/*/data/rules/*/context/placement/room' as JsonPointer,
   '/interactions/*/data/rules/*/context/placement/placement' as JsonPointer,
+  // #122 removes the nested Apply Effect discriminator while preserving equivalent Global Property
+  // and Lua commands at the instruction level. The top-level command discriminator already occupies
+  // the old instruction-kind review slot, so retain only this removed nested discriminator for the
+  // two reviewed Interaction-program hosts.
+  '/interactions/*/data/rules/*/program/instructions/*/effect/kind' as JsonPointer,
+  '/verbs/*/data/defaultProgram/instructions/*/effect/kind' as JsonPointer,
   // #82 removes provisional Map position/shape and separately-authored Connection endpoint fields.
   // Retain those removed same-version leaves solely to preserve reviewed-effect alignment; every new
   // #82 Map leaf is classified explicitly above.
@@ -792,12 +860,12 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
     characters: '53873c0e',
-    dialogues: '3943b81e',
+    dialogues: 'ce13bade',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
     interactableInstances: '287ef173',
     interactables: '81498bf0',
-    interactions: '48a13402',
+    interactions: '5fccdb49',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
     localization: '3f6d0d11',
@@ -812,9 +880,9 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     shaders: '94d3aa6e',
     tests: '99f1bf10',
     traits: 'f6534a48',
-    undefinedInteractionProgram: 'a6b4336e',
+    undefinedInteractionProgram: '96fc1f59',
     variables: '9c9e4800',
-    verbs: '068a9725',
+    verbs: '4ad9edd8',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {

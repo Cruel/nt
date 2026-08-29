@@ -402,6 +402,64 @@ TEST_CASE("runtime world creates splits merges and transfers stackable Interacta
     CHECK(std::get<core::compiled::RoomLocation>(moved->location).room == hall);
 }
 
+TEST_CASE("aggregate Interactable transfer preserves whole identities and splits only its boundary")
+{
+    const auto project = load_stackable_interactable_fixture();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto dust_definition = id<core::InteractableDefinitionId>("dust");
+    const auto declared_dust = id<core::InteractableInstanceId>("dust");
+    const auto hall = id<core::RoomId>("hall");
+    REQUIRE(world.move_interactable(declared_dust, core::compiled::RoomLocation{hall}));
+    auto destination =
+        world.create_interactable_quantity(dust_definition, 1, core::compiled::RoomLocation{hall});
+    REQUIRE(destination);
+    REQUIRE(destination.value().created.size() == 1);
+    const auto destination_id = destination.value().created.front();
+
+    auto sources =
+        world.create_interactable_quantity(dust_definition, 7, core::compiled::UnplacedLocation{});
+    REQUIRE(sources);
+    REQUIRE(sources.value().created.size() == 3);
+    const auto whole_id = sources.value().created[0];
+    const auto boundary_source_id = sources.value().created[1];
+    CHECK(world.interactable_state(whole_id)->quantity == 3);
+    CHECK(world.interactable_state(boundary_source_id)->quantity == 3);
+
+    InteractableQuantityFilter filter{dust_definition, core::compiled::UnplacedLocation{}};
+    auto transferred =
+        world.transfer_interactable_quantity(filter, 5, core::compiled::RoomLocation{hall});
+    REQUIRE(transferred);
+    CHECK(transferred.value().quantity == 5);
+    REQUIRE(transferred.value().created.size() == 1);
+    const auto boundary_created_id = transferred.value().created.front();
+
+    const auto* whole = world.interactable_state(whole_id);
+    REQUIRE(whole != nullptr);
+    CHECK(whole->quantity == 3);
+    REQUIRE(std::holds_alternative<core::compiled::RoomLocation>(whole->location));
+    CHECK(std::get<core::compiled::RoomLocation>(whole->location).room == hall);
+
+    const auto* boundary_source = world.interactable_state(boundary_source_id);
+    REQUIRE(boundary_source != nullptr);
+    CHECK(boundary_source->quantity == 1);
+    CHECK(std::holds_alternative<core::compiled::UnplacedLocation>(boundary_source->location));
+    const auto* boundary_created = world.interactable_state(boundary_created_id);
+    REQUIRE(boundary_created != nullptr);
+    CHECK(boundary_created->quantity == 2);
+    REQUIRE(std::holds_alternative<core::compiled::RoomLocation>(boundary_created->location));
+    CHECK(std::get<core::compiled::RoomLocation>(boundary_created->location).room == hall);
+
+    const auto* preexisting_destination = world.interactable_state(destination_id);
+    REQUIRE(preexisting_destination != nullptr);
+    CHECK(preexisting_destination->quantity == 1);
+    CHECK(destination_id != whole_id);
+    CHECK(destination_id != boundary_created_id);
+}
+
 TEST_CASE(
     "runtime world Interactable Matcher covers broad definition Trait Property and exact Instance")
 {

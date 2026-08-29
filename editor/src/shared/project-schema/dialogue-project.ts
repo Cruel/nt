@@ -9,7 +9,7 @@ import {
   type DialogueSegmentData,
   type DialogueSequenceBlockData,
 } from './authoring-dialogues';
-import type { Condition, Effect } from './authoring-flow';
+import type { Condition, GameplayCommand } from './authoring-flow';
 import type { AuthoringProject } from './authoring-project';
 
 export const DIALOGUE_PREVIEW_SCHEMA = 'noveltea.dialogue-preview' as const;
@@ -79,13 +79,19 @@ function addConditionDependency(
 
 function addEffectDependencies(
   project: AuthoringProject,
-  effects: readonly Effect[],
+  effects: readonly GameplayCommand[],
   dependencies: Set<string>,
 ) {
   for (const effect of effects) {
-    if (effect.kind !== 'set-variable') continue;
-    const id = effect.variable.$ref.id;
-    dependencies.add(`variable:${id}:${JSON.stringify(project.variables[id]?.data ?? null)}`);
+    if (effect.kind === 'set-global-property' || effect.kind === 'unset-global-property') {
+      const id = effect.variable.$ref.id;
+      dependencies.add(`variable:${id}:${JSON.stringify(project.variables[id]?.data ?? null)}`);
+    }
+    if (effect.kind === 'if') {
+      addConditionDependency(project, effect.condition, dependencies);
+      addEffectDependencies(project, effect.then, dependencies);
+      addEffectDependencies(project, effect.else, dependencies);
+    }
   }
 }
 

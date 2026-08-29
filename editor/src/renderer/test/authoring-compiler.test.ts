@@ -818,7 +818,8 @@ describe('authoring compiler framework', () => {
             ],
             effects: [
               {
-                kind: 'set-variable',
+                id: 'dialogue-line-effect',
+                kind: 'set-global-property',
                 variable: { $ref: { collection: 'variables', id: 'flag' } },
                 value: true,
               },
@@ -860,7 +861,7 @@ describe('authoring compiler framework', () => {
         toBlockId: 'redirect',
         label: { source: { kind: 'inline', text: 'Again' }, markup: 'plain' },
         condition: { kind: 'always' },
-        effects: [{ kind: 'run-lua-effect', source: 'again()' }],
+        effects: [{ id: 'choice-effect', kind: 'run-lua', source: 'again()' }],
         logged: true,
         autosaveSafePoint: true,
       },
@@ -945,26 +946,32 @@ describe('authoring compiler framework', () => {
           instructions: [
             {
               id: 'effect',
-              kind: 'apply-effect',
-              effect: {
-                kind: 'set-variable',
-                variable: { $ref: { collection: 'variables', id: 'flag' } },
-                value: true,
-              },
+              kind: 'set-global-property',
+              variable: { $ref: { collection: 'variables', id: 'flag' } },
+              value: true,
             },
             {
               id: 'move',
-              kind: 'move-interactable',
-              interactable: { $ref: { collection: 'interactables', id: 'key' } },
-              target: {
+              kind: 'move-instance',
+              subject: {
+                kind: 'interactable',
+                interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+              },
+              location: {
                 kind: 'inventory',
-                inventory: { owner: { kind: 'project' }, inventoryId: 'bag' },
+                inventory: {
+                  kind: 'inventory',
+                  inventory: { owner: { kind: 'project' }, inventoryId: 'bag' },
+                },
               },
             },
             {
               id: 'state',
-              kind: 'set-interactable-state',
-              interactable: { $ref: { collection: 'interactables', id: 'key' } },
+              kind: 'set-visible',
+              subject: {
+                kind: 'interactable',
+                interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+              },
               visible: false,
             },
             {
@@ -1146,12 +1153,9 @@ describe('authoring compiler framework', () => {
           instructions: [
             {
               id: 'bad-effect',
-              kind: 'apply-effect',
-              effect: {
-                kind: 'set-variable',
-                variable: { $ref: { collection: 'variables', id: 'flag' } },
-                value: 'not-a-boolean',
-              },
+              kind: 'set-global-property',
+              variable: { $ref: { collection: 'variables', id: 'flag' } },
+              value: 'not-a-boolean',
             },
           ],
           completion: { kind: 'return' },
@@ -1167,7 +1171,7 @@ describe('authoring compiler framework', () => {
     for (const pointer of [
       '/dialogues/typed/data/blocks/0/segments/0/condition/value',
       '/interactions/typed/data/rules/0/guard/value',
-      '/interactions/typed/data/rules/0/program/instructions/0/effect/value',
+      '/interactions/typed/data/rules/0/program/instructions/0/value',
       '/verbs/use/data/availability/value',
     ]) {
       expect(result.diagnostics).toContainEqual(

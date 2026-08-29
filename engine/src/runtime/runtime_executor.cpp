@@ -1,4 +1,5 @@
 #include "noveltea/runtime/runtime_executor.hpp"
+#include "noveltea/core/property_resolver.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -325,7 +326,409 @@ apply_scene_world_operation(const core::compiled::SceneRuntimeWorldOperation& op
         operation);
 }
 
+core::Result<RuntimeInstanceConfigurationRequest, core::Diagnostics>
+runtime_configuration_request(const core::GameplayConfigurationSource& source,
+                              core::SharedPrimitiveEvaluator& primitives,
+                              core::ConditionEvaluationContext context)
+{
+    if (source.kind == core::GameplayConfigurationSourceKind::Archetype) {
+        const auto* archetype = std::get_if<core::ArchetypeId>(&source.source);
+        return archetype
+                   ? core::Result<RuntimeInstanceConfigurationRequest, core::Diagnostics>::success(
+                         ArchetypeInstanceConfiguration{*archetype})
+                   : core::Result<RuntimeInstanceConfigurationRequest, core::Diagnostics>::failure(
+                         execution_error("execution.invalid_gameplay_command_source",
+                                         "Archetype Gameplay Command source is malformed"));
+    }
+    const auto* operand = std::get_if<core::GameplayIdentityOperand>(&source.source);
+    if (operand == nullptr)
+        return core::Result<RuntimeInstanceConfigurationRequest, core::Diagnostics>::failure(
+            execution_error("execution.invalid_gameplay_command_source",
+                            "Instance Gameplay Command source is malformed"));
+    auto resolved = primitives.resolve_identity(*operand, context);
+    const auto* value = resolved.value_if();
+    if (value == nullptr)
+        return core::Result<RuntimeInstanceConfigurationRequest, core::Diagnostics>::failure(
+            resolved.error());
+    const auto instance = std::visit(
+        [](const auto& typed) -> std::optional<core::GameplayInstanceRef> {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, core::RoomId> || std::is_same_v<T, core::CharacterId> ||
+                          std::is_same_v<T, core::InteractableInstanceId>)
+                return core::GameplayInstanceRef{typed};
+            else
+                return std::nullopt;
+        },
+        *value);
+    if (!instance)
+        return core::Result<RuntimeInstanceConfigurationRequest, core::Diagnostics>::failure(
+            execution_error("execution.invalid_gameplay_command_source",
+                            "Gameplay Command configuration source must resolve to a top-level "
+                            "Gameplay Instance"));
+    return core::Result<RuntimeInstanceConfigurationRequest, core::Diagnostics>::success(
+        source.kind == core::GameplayConfigurationSourceKind::CompiledInstance
+            ? RuntimeInstanceConfigurationRequest{CompiledInstanceConfiguration{*instance}}
+            : RuntimeInstanceConfigurationRequest{EffectiveInstanceConfiguration{*instance}});
+}
+
+core::Result<InteractableMatcher, core::Diagnostics>
+runtime_matcher(const core::ConditionInteractableMatcher& matcher,
+                core::SharedPrimitiveEvaluator& primitives,
+                core::ConditionEvaluationContext context)
+{
+    InteractableMatcher result;
+    result.definition = matcher.definition;
+    result.traits = matcher.traits;
+    result.properties.reserve(matcher.properties.size());
+    for (const auto& property : matcher.properties)
+        result.properties.push_back({property.property_id, property.value});
+    if (matcher.exact) {
+        auto exact = primitives.resolve_interactable(*matcher.exact, context);
+        if (!exact)
+            return core::Result<InteractableMatcher, core::Diagnostics>::failure(exact.error());
+        result.instance = *exact.value_if();
+    }
+    return core::Result<InteractableMatcher, core::Diagnostics>::success(std::move(result));
+}
+
+core::Result<void, core::Diagnostics>
+bind_command_result(std::vector<core::CommandResultBinding>& bindings,
+                    const std::optional<core::CommandResultBindingId>& binding_id,
+                    core::GameplayOperandValue value)
+{
+    if (!binding_id)
+        return core::Result<void, core::Diagnostics>::success();
+    if (std::any_of(bindings.begin(), bindings.end(),
+                    [&](const auto& binding) { return binding.binding_id == *binding_id; }))
+        return core::Result<void, core::Diagnostics>::failure(execution_error(
+            "execution.duplicate_command_result",
+            "Gameplay Command result binding '" + binding_id->text() + "' is already bound"));
+    bindings.push_back(core::CommandResultBinding{*binding_id, std::move(value)});
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 } // namespace
+
+bool RuntimeExecutor::gameplay_command_is_immediate(const core::GameplayCommand& command) const
+{
+    return std::visit(
+        [this](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::CallSceneCommand> ||
+                          std::is_same_v<T, core::CallDialogueCommand> ||
+                          std::is_same_v<T, core::NotifyCommand> ||
+                          std::is_same_v<T, core::RunLuaCommand>)
+                return false;
+            else if constexpr (std::is_same_v<T, core::IfGameplayCommand>)
+                return std::ranges::all_of(value.then_commands,
+                                           [this](const auto& child) {
+                                               return gameplay_command_is_immediate(child);
+                                           }) &&
+                       std::ranges::all_of(value.else_commands, [this](const auto& child) {
+                           return gameplay_command_is_immediate(child);
+                       });
+            else
+                return true;
+        },
+        command.value);
+}
+
+core::Result<void, core::Diagnostics> RuntimeExecutor::apply_immediate_gameplay_command(
+    const core::GameplayCommand& command, core::SessionState& state, RuntimeWorld& world,
+    core::FlowExecutor& flow, core::SharedPrimitiveEvaluator& primitives,
+    std::span<const core::InteractionSubjectBinding> interaction_bindings,
+    std::vector<core::CommandResultBinding>& command_results) const
+{
+    const core::ConditionEvaluationContext context{.interaction_bindings = interaction_bindings,
+                                                   .command_results = command_results};
+    core::PropertyResolver properties(m_project, state);
+    return std::visit(
+        [&](const auto& value) -> core::Result<void, core::Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::SetGlobalPropertyCommand>)
+                return properties.set_global(value.property, value.value);
+            else if constexpr (std::is_same_v<T, core::UnsetGlobalPropertyCommand>)
+                return properties.unset_global(value.property);
+            else if constexpr (std::is_same_v<T, core::SetPropertyCommand> ||
+                               std::is_same_v<T, core::UnsetPropertyCommand>) {
+                auto owner = primitives.resolve_property_owner_operand(value.owner, context);
+                if (!owner)
+                    return core::Result<void, core::Diagnostics>::failure(owner.error());
+                if constexpr (std::is_same_v<T, core::SetPropertyCommand>)
+                    return properties.set(*owner.value_if(), value.property, value.value);
+                else
+                    return properties.unset(*owner.value_if(), value.property);
+            } else if constexpr (std::is_same_v<T, core::AddTraitCommand> ||
+                                 std::is_same_v<T, core::RemoveTraitCommand>) {
+                auto owner = primitives.resolve_property_owner_operand(value.owner, context);
+                return owner ? world.set_trait(*owner.value_if(), value.trait,
+                                               std::is_same_v<T, core::AddTraitCommand>)
+                             : core::Result<void, core::Diagnostics>::failure(owner.error());
+            } else if constexpr (std::is_same_v<T, core::SetEnabledCommand> ||
+                                 std::is_same_v<T, core::SetVisibleCommand> ||
+                                 std::is_same_v<T, core::MoveInstanceCommand>) {
+                auto subject = primitives.resolve_location_subject_value(value.subject, context);
+                if (!subject)
+                    return core::Result<void, core::Diagnostics>::failure(subject.error());
+                if constexpr (std::is_same_v<T, core::MoveInstanceCommand>) {
+                    auto location = primitives.resolve_location(value.location, context);
+                    if (!location)
+                        return core::Result<void, core::Diagnostics>::failure(location.error());
+                    if (const auto* character =
+                            std::get_if<core::CharacterId>(subject.value_if())) {
+                        if (std::holds_alternative<core::compiled::InventoryLocation>(
+                                *location.value_if()))
+                            return core::Result<void, core::Diagnostics>::failure(execution_error(
+                                "execution.invalid_character_location",
+                                "Character Gameplay Commands cannot move a Character into an "
+                                "Inventory"));
+                        const core::CharacterWorldLocation character_location =
+                            std::holds_alternative<core::compiled::UnplacedLocation>(
+                                *location.value_if())
+                                ? core::CharacterWorldLocation{core::compiled::UnplacedLocation{}}
+                                : core::CharacterWorldLocation{
+                                      std::get<core::compiled::RoomLocation>(*location.value_if())};
+                        return world.move_character(*character, character_location);
+                    }
+                    if (const auto* interactable =
+                            std::get_if<core::InteractableInstanceId>(subject.value_if()))
+                        return world.move_interactable(*interactable, *location.value_if());
+                } else if constexpr (std::is_same_v<T, core::SetEnabledCommand>) {
+                    if (const auto* character = std::get_if<core::CharacterId>(subject.value_if()))
+                        return world.set_character_enabled(*character, value.enabled);
+                    if (const auto* interactable =
+                            std::get_if<core::InteractableInstanceId>(subject.value_if()))
+                        return world.set_interactable_enabled(*interactable, value.enabled);
+                } else {
+                    if (const auto* character = std::get_if<core::CharacterId>(subject.value_if()))
+                        return world.set_character_visible(*character, value.visible);
+                    if (const auto* interactable =
+                            std::get_if<core::InteractableInstanceId>(subject.value_if()))
+                        return world.set_interactable_visible(*interactable, value.visible);
+                }
+                return core::Result<void, core::Diagnostics>::failure(execution_error(
+                    "execution.invalid_gameplay_command_subject",
+                    "Gameplay Command subject does not resolve to a movable Gameplay Instance"));
+            } else if constexpr (std::is_same_v<T, core::CreateRoomCommand> ||
+                                 std::is_same_v<T, core::CreateCharacterCommand> ||
+                                 std::is_same_v<T, core::CreateInteractableCommand>) {
+                auto source = runtime_configuration_request(value.source, primitives, context);
+                if (!source)
+                    return core::Result<void, core::Diagnostics>::failure(source.error());
+                if constexpr (std::is_same_v<T, core::CreateRoomCommand>) {
+                    auto created = world.create_room(*source.value_if());
+                    return created
+                               ? bind_command_result(command_results, value.result,
+                                                     *created.value_if())
+                               : core::Result<void, core::Diagnostics>::failure(created.error());
+                } else {
+                    auto location = primitives.resolve_location(value.location, context);
+                    if (!location)
+                        return core::Result<void, core::Diagnostics>::failure(location.error());
+                    if constexpr (std::is_same_v<T, core::CreateCharacterCommand>) {
+                        if (std::holds_alternative<core::compiled::InventoryLocation>(
+                                *location.value_if()))
+                            return core::Result<void, core::Diagnostics>::failure(execution_error(
+                                "execution.invalid_character_location",
+                                "Character Gameplay Commands cannot create a Character in an "
+                                "Inventory"));
+                        const core::CharacterWorldLocation character_location =
+                            std::holds_alternative<core::compiled::UnplacedLocation>(
+                                *location.value_if())
+                                ? core::CharacterWorldLocation{core::compiled::UnplacedLocation{}}
+                                : core::CharacterWorldLocation{
+                                      std::get<core::compiled::RoomLocation>(*location.value_if())};
+                        auto created = world.create_character(
+                            *source.value_if(), character_location, value.enabled, value.visible);
+                        return created ? bind_command_result(command_results, value.result,
+                                                             *created.value_if())
+                                       : core::Result<void, core::Diagnostics>::failure(
+                                             created.error());
+                    } else {
+                        auto created = world.create_interactable(
+                            *source.value_if(), *location.value_if(), value.enabled, value.visible);
+                        return created ? bind_command_result(command_results, value.result,
+                                                             *created.value_if())
+                                       : core::Result<void, core::Diagnostics>::failure(
+                                             created.error());
+                    }
+                }
+            } else if constexpr (std::is_same_v<T, core::DestroyInstanceCommand>) {
+                auto instance = primitives.resolve_identity(value.instance, context);
+                if (!instance)
+                    return core::Result<void, core::Diagnostics>::failure(instance.error());
+                return std::visit(
+                    [&](const auto& typed) -> core::Result<void, core::Diagnostics> {
+                        using I = std::decay_t<decltype(typed)>;
+                        if constexpr (std::is_same_v<I, core::RoomId> ||
+                                      std::is_same_v<I, core::CharacterId> ||
+                                      std::is_same_v<I, core::InteractableInstanceId>)
+                            return world.destroy(core::GameplayInstanceRef{typed});
+                        else
+                            return core::Result<void, core::Diagnostics>::failure(execution_error(
+                                "execution.invalid_destroy_subject",
+                                "Destroy Instance requires a top-level Gameplay Instance"));
+                    },
+                    *instance.value_if());
+            } else if constexpr (std::is_same_v<T, core::SplitQuantityCommand>) {
+                auto source = primitives.resolve_interactable(value.source, context);
+                if (!source)
+                    return core::Result<void, core::Diagnostics>::failure(source.error());
+                auto mutation =
+                    world.split_interactable_quantity(*source.value_if(), value.quantity);
+                if (!mutation)
+                    return core::Result<void, core::Diagnostics>::failure(mutation.error());
+                if (!value.result)
+                    return core::Result<void, core::Diagnostics>::success();
+                if (mutation.value_if()->created.size() != 1)
+                    return core::Result<void, core::Diagnostics>::failure(execution_error(
+                        "execution.invalid_quantity_result",
+                        "Split Quantity did not produce exactly one boundary Instance"));
+                return bind_command_result(command_results, value.result,
+                                           mutation.value_if()->created.front());
+            } else if constexpr (std::is_same_v<T, core::MergeQuantityCommand>) {
+                auto receiver = primitives.resolve_interactable(value.receiver, context);
+                auto donor = primitives.resolve_interactable(value.donor, context);
+                if (!receiver)
+                    return core::Result<void, core::Diagnostics>::failure(receiver.error());
+                if (!donor)
+                    return core::Result<void, core::Diagnostics>::failure(donor.error());
+                auto mutation =
+                    world.merge_interactable_quantities(*receiver.value_if(), *donor.value_if());
+                return mutation ? core::Result<void, core::Diagnostics>::success()
+                                : core::Result<void, core::Diagnostics>::failure(mutation.error());
+            } else if constexpr (std::is_same_v<T, core::TransferQuantityCommand> ||
+                                 std::is_same_v<T, core::ConsumeQuantityCommand>) {
+                const auto* exact = std::get_if<core::InteractableOperand>(&value.source);
+                if (exact != nullptr) {
+                    auto source = primitives.resolve_interactable(*exact, context);
+                    if (!source)
+                        return core::Result<void, core::Diagnostics>::failure(source.error());
+                    if constexpr (std::is_same_v<T, core::ConsumeQuantityCommand>) {
+                        auto mutation =
+                            world.consume_interactable_quantity(*source.value_if(), value.quantity);
+                        return mutation ? core::Result<void, core::Diagnostics>::success()
+                                        : core::Result<void, core::Diagnostics>::failure(
+                                              mutation.error());
+                    } else {
+                        auto location = primitives.resolve_location(value.location, context);
+                        if (!location)
+                            return core::Result<void, core::Diagnostics>::failure(location.error());
+                        auto mutation = world.transfer_interactable_quantity(
+                            *source.value_if(), value.quantity, *location.value_if());
+                        if (!mutation)
+                            return core::Result<void, core::Diagnostics>::failure(mutation.error());
+                        if (!value.result)
+                            return core::Result<void, core::Diagnostics>::success();
+                        const auto& changed = *mutation.value_if();
+                        const core::InteractableInstanceId result =
+                            changed.created.empty() ? *source.value_if() : changed.created.front();
+                        return bind_command_result(command_results, value.result, result);
+                    }
+                }
+                const auto* matcher =
+                    std::get_if<core::ConditionInteractableMatcher>(&value.source);
+                if (matcher == nullptr)
+                    return core::Result<void, core::Diagnostics>::failure(
+                        execution_error("execution.invalid_quantity_source",
+                                        "Quantity matcher source is malformed"));
+                auto compiled_matcher = runtime_matcher(*matcher, primitives, context);
+                if (!compiled_matcher)
+                    return core::Result<void, core::Diagnostics>::failure(compiled_matcher.error());
+                InteractableQuantityFilter filter;
+                filter.matcher = std::move(*compiled_matcher.value_if());
+                if (value.source_inventory) {
+                    auto inventory = primitives.resolve_inventory(*value.source_inventory, context);
+                    if (!inventory)
+                        return core::Result<void, core::Diagnostics>::failure(inventory.error());
+                    filter.location = core::compiled::InventoryLocation{*inventory.value_if()};
+                }
+                if constexpr (std::is_same_v<T, core::ConsumeQuantityCommand>) {
+                    auto mutation = world.consume_interactable_quantity(filter, value.quantity);
+                    return mutation
+                               ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(mutation.error());
+                } else {
+                    if (value.result)
+                        return core::Result<void, core::Diagnostics>::failure(execution_error(
+                            "execution.aggregate_result_binding",
+                            "Aggregate Transfer cannot bind a singular Gameplay Command result"));
+                    auto location = primitives.resolve_location(value.location, context);
+                    if (!location)
+                        return core::Result<void, core::Diagnostics>::failure(location.error());
+                    auto mutation = world.transfer_interactable_quantity(filter, value.quantity,
+                                                                         *location.value_if());
+                    return mutation
+                               ? core::Result<void, core::Diagnostics>::success()
+                               : core::Result<void, core::Diagnostics>::failure(mutation.error());
+                }
+            } else if constexpr (std::is_same_v<T, core::AddQuantityCommand>) {
+                auto location = primitives.resolve_location(value.location, context);
+                if (!location)
+                    return core::Result<void, core::Diagnostics>::failure(location.error());
+                auto mutation = world.add_interactable_quantity(value.definition, value.quantity,
+                                                                *location.value_if());
+                return mutation ? core::Result<void, core::Diagnostics>::success()
+                                : core::Result<void, core::Diagnostics>::failure(mutation.error());
+            } else if constexpr (std::is_same_v<T, core::IfGameplayCommand>) {
+                auto condition = primitives.evaluate(value.condition, context);
+                if (!condition)
+                    return core::Result<void, core::Diagnostics>::failure(condition.error());
+                const auto& branch =
+                    *condition.value_if() ? value.then_commands : value.else_commands;
+                for (const auto& child : branch) {
+                    if (!gameplay_command_is_immediate(child))
+                        return core::Result<void, core::Diagnostics>::failure(
+                            execution_error("execution.yielding_nested_gameplay_command",
+                                            "Yielding Gameplay Commands are not admissible inside "
+                                            "If/Else branches"));
+                    auto applied =
+                        apply_immediate_gameplay_command(child, state, world, flow, primitives,
+                                                         interaction_bindings, command_results);
+                    if (!applied)
+                        return applied;
+                }
+                return core::Result<void, core::Diagnostics>::success();
+            } else
+                return core::Result<void, core::Diagnostics>::failure(execution_error(
+                    "execution.non_immediate_gameplay_command",
+                    "Observable Gameplay Command entered an immediate mutation batch"));
+        },
+        command.value);
+}
+
+core::Result<std::size_t, core::Diagnostics> RuntimeExecutor::apply_immediate_gameplay_batch(
+    std::span<const core::GameplayCommand> commands,
+    std::span<const core::InteractionSubjectBinding> interaction_bindings,
+    std::vector<core::CommandResultBinding>& command_results)
+{
+    std::size_t count = 0;
+    while (count < commands.size() && gameplay_command_is_immediate(commands[count]))
+        ++count;
+    if (count == 0)
+        return core::Result<std::size_t, core::Diagnostics>::success(0);
+
+    auto staged_state = m_state;
+    core::FlowExecutor staged_flow(m_project, staged_state);
+    core::SharedPrimitiveEvaluator staged_primitives(m_project, staged_state, staged_flow);
+    RuntimeWorld staged_world(m_project, staged_state);
+    auto staged_results = command_results;
+    for (std::size_t index = 0; index < count; ++index) {
+        auto applied = apply_immediate_gameplay_command(commands[index], staged_state, staged_world,
+                                                        staged_flow, staged_primitives,
+                                                        interaction_bindings, staged_results);
+        if (!applied)
+            return core::Result<std::size_t, core::Diagnostics>::failure(applied.error());
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        auto applied =
+            apply_immediate_gameplay_command(commands[index], m_state, m_world, m_flow,
+                                             m_primitives, interaction_bindings, command_results);
+        if (!applied)
+            return core::Result<std::size_t, core::Diagnostics>::failure(applied.error());
+    }
+    return core::Result<std::size_t, core::Diagnostics>::success(count);
+}
 
 RuntimeExecutor::RuntimeExecutor(const core::CompiledProject& project,
                                  ScriptInvocationPort& scripts,

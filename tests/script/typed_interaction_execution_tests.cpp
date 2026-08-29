@@ -76,7 +76,8 @@ struct RuntimeFixture {
                                 "function tower_open() return true end\n"
                                 "function key_label() return 'Key' end\n"
                                 "function can_unlock() return true end\n"
-                                "function offer_false() return false end",
+                                "function offer_false() return false end\n"
+                                "function yielding_interaction() coroutine.yield() end",
                                 "typed-interaction-setup"));
     }
 };
@@ -132,6 +133,29 @@ nlohmann::json program(nlohmann::json instructions, std::string outcome = "handl
             {"outcome", std::move(outcome)}};
 }
 
+nlohmann::json interactable_operand(std::string id)
+{
+    return {{"kind", "interactable"},
+            {"interactable", {{"kind", "interactable"}, {"id", std::move(id)}}}};
+}
+
+nlohmann::json inventory_location(nlohmann::json owner, std::string inventory_id)
+{
+    return {
+        {"kind", "inventory"},
+        {"inventory",
+         {{"kind", "inventory"},
+          {"inventory", {{"owner", std::move(owner)}, {"inventoryId", std::move(inventory_id)}}}}}};
+}
+
+nlohmann::json move_instance(std::string id, std::string interactable, nlohmann::json location)
+{
+    return {{"id", std::move(id)},
+            {"kind", "move-instance"},
+            {"subject", interactable_operand(std::move(interactable))},
+            {"location", std::move(location)}};
+}
+
 } // namespace
 
 TEST_CASE(
@@ -140,17 +164,10 @@ TEST_CASE(
     auto document = load_document();
     definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
     auto& rules = definition(document, "interactions", "actions")["rules"];
-    rules[0]["program"] = program(
-        {{{"id", "exact-move"},
-          {"kind", "move-interactable"},
-          {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
-          {"target",
-           {{"kind", "inventory"},
-            {"inventory", {{"owner", {{"kind", "project"}}}, {"inventoryId", "player"}}}}}}});
-    rules[1]["program"] = program({{{"id", "wildcard-move"},
-                                    {"kind", "move-interactable"},
-                                    {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
-                                    {"target", {{"kind", "unplaced"}}}}});
+    rules[0]["program"] = program(nlohmann::json::array(
+        {move_instance("exact-move", "key", inventory_location({{"kind", "project"}}, "player"))}));
+    rules[1]["program"] = program(
+        nlohmann::json::array({move_instance("wildcard-move", "key", {{"kind", "unplaced"}})}));
 
     RuntimeFixture fixture;
     auto project = decode(std::move(document));
@@ -304,10 +321,8 @@ TEST_CASE("equal-priority passing Interaction rules fault as ambiguous before ex
     first["id"] = "ambiguous-a";
     first["guard"] = {{"kind", "always"}};
     first["priority"] = 10;
-    first["program"] = program({{{"id", "move"},
-                                 {"kind", "move-interactable"},
-                                 {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
-                                 {"target", {{"kind", "unplaced"}}}}});
+    first["program"] =
+        program(nlohmann::json::array({move_instance("move", "key", {{"kind", "unplaced"}})}));
     auto second = first;
     second["id"] = "ambiguous-b";
     definition(document, "interactions", "actions")["rules"] =
@@ -337,10 +352,8 @@ TEST_CASE("Interaction Guard errors fault before behavior execution")
     auto rule = definition(document, "interactions", "actions")["rules"][2];
     rule["id"] = "guard-error";
     rule["guard"] = {{"kind", "lua-predicate"}, {"source", "error('guard failed')"}};
-    rule["program"] = program({{{"id", "move"},
-                                {"kind", "move-interactable"},
-                                {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
-                                {"target", {{"kind", "unplaced"}}}}});
+    rule["program"] =
+        program(nlohmann::json::array({move_instance("move", "key", {{"kind", "unplaced"}})}));
     definition(document, "interactions", "actions")["rules"] =
         nlohmann::json::array({std::move(rule)});
 
@@ -366,30 +379,16 @@ TEST_CASE("compact Interaction mutation batches validate atomically before commi
     definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
     auto rule = definition(document, "interactions", "actions")["rules"][2];
     rule["id"] = "atomic-cycle";
-    const nlohmann::json key_into_coin = {
-        {"id", "key-into-coin"},
-        {"kind", "move-interactable"},
-        {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
-        {"target",
-         {{"kind", "inventory"},
-          {"inventory",
-           {{"owner",
-             {{"kind", "interactable"},
-              {"interactable", {{"kind", "interactable"}, {"id", "coin"}}}}},
-            {"inventoryId", "pouch"}}}}},
-    };
-    const nlohmann::json coin_into_key = {
-        {"id", "coin-into-key"},
-        {"kind", "move-interactable"},
-        {"interactable", {{"kind", "interactable"}, {"id", "coin"}}},
-        {"target",
-         {{"kind", "inventory"},
-          {"inventory",
-           {{"owner",
-             {{"kind", "interactable"},
-              {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}},
-            {"inventoryId", "hidden"}}}}},
-    };
+    const nlohmann::json key_into_coin = move_instance(
+        "key-into-coin", "key",
+        inventory_location({{"kind", "interactable"},
+                            {"interactable", {{"kind", "interactable"}, {"id", "coin"}}}},
+                           "pouch"));
+    const nlohmann::json coin_into_key = move_instance(
+        "coin-into-key", "coin",
+        inventory_location(
+            {{"kind", "interactable"}, {"interactable", {{"kind", "interactable"}, {"id", "key"}}}},
+            "hidden"));
     rule["program"] =
         program(nlohmann::json::array({std::move(key_into_coin), std::move(coin_into_key)}));
     definition(document, "interactions", "actions")["rules"] =
@@ -421,16 +420,19 @@ TEST_CASE("committed Interaction effects survive a later Lua handoff failure wit
     rule["id"] = "commit-then-fail";
     const nlohmann::json move = {
         {"id", "move"},
-        {"kind", "move-interactable"},
-        {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
-        {"target",
+        {"kind", "move-instance"},
+        {"subject",
+         {{"kind", "interactable"}, {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}},
+        {"location",
          {{"kind", "inventory"},
-          {"inventory", {{"owner", {{"kind", "project"}}}, {"inventoryId", "player"}}}}},
+          {"inventory",
+           {{"kind", "inventory"},
+            {"inventory", {{"owner", {{"kind", "project"}}}, {"inventoryId", "player"}}}}}}},
     };
     const nlohmann::json lua = {
         {"id", "lua"},
-        {"kind", "apply-effect"},
-        {"effect", {{"kind", "run-lua-effect"}, {"source", "error('terminal failed')"}}},
+        {"kind", "run-lua"},
+        {"source", "error('terminal failed')"},
     };
     rule["program"] = program(nlohmann::json::array({std::move(move), std::move(lua)}));
     definition(document, "interactions", "actions")["rules"] =
@@ -459,6 +461,76 @@ TEST_CASE("committed Interaction effects survive a later Lua handoff failure wit
             return notification != nullptr && notification->message == "Nothing happens.";
         });
     CHECK(fallback == kernel->gateway().events().end());
+}
+
+TEST_CASE("Interaction nested If resumes a yielding command after committing prior mutations")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto rule = definition(document, "interactions", "actions")["rules"][2];
+    rule["id"] = "nested-yield";
+    const auto move =
+        move_instance("move", "key", inventory_location({{"kind", "project"}}, "player"));
+    const nlohmann::json yield = {
+        {"id", "yield"}, {"kind", "run-lua"}, {"source", "yielding_interaction()"}};
+    const nlohmann::json nested_after = {
+        {"id", "nested-after"},
+        {"kind", "notify"},
+        {"message",
+         {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "nested-after"}}}}},
+    };
+    const nlohmann::json branch = {
+        {"id", "branch"},
+        {"kind", "if"},
+        {"condition", {{"kind", "always"}}},
+        {"then", nlohmann::json::array({move, yield, nested_after})},
+        {"else", nlohmann::json::array()},
+    };
+    const nlohmann::json root_after = {
+        {"id", "root-after"},
+        {"kind", "notify"},
+        {"message",
+         {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "root-after"}}}}},
+    };
+    rule["program"] = program(nlohmann::json::array({branch, root_after}));
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(rule)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
+    REQUIRE(
+        kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
+    auto yielded = kernel->run_until_blocked(100, "en");
+    const auto* blocked = std::get_if<core::FlowBlockedOutcome>(&yielded);
+    REQUIRE(blocked != nullptr);
+    const auto* script = std::get_if<core::ScriptFlowBlocker>(&blocked->blocker);
+    REQUIRE(script != nullptr);
+    const auto* key = kernel->state().interactable(id<core::InteractableInstanceId>("key"));
+    REQUIRE(key != nullptr);
+    CHECK(std::holds_alternative<core::compiled::InventoryLocation>(key->location));
+
+    auto resumed = kernel->resume_script(script->owner, script->handle);
+    REQUIRE(resumed);
+    REQUIRE(std::holds_alternative<ScriptInvocationCompleted>(resumed.value()));
+    drive_interaction(*kernel);
+
+    const auto nested = std::ranges::count_if(kernel->gateway().events(), [](const auto& event) {
+        const auto* notification = std::get_if<runtime::NotificationEvent>(&event);
+        return notification && notification->message == "nested-after";
+    });
+    const auto root = std::ranges::count_if(kernel->gateway().events(), [](const auto& event) {
+        const auto* notification = std::get_if<runtime::NotificationEvent>(&event);
+        return notification && notification->message == "root-after";
+    });
+    CHECK(nested == 1);
+    CHECK(root == 1);
 }
 
 TEST_CASE("named Verb slots allow the same live subject to bind more than once")

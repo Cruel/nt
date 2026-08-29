@@ -11,7 +11,7 @@ import type {
 } from './project-schema/authoring-flow';
 import type { CompiledCondition } from './project-schema/compiled-project';
 
-function compileIdentityOperand(owner: GameplayIdentityOperand) {
+export function compileIdentityOperand(owner: GameplayIdentityOperand) {
   switch (owner.kind) {
     case 'room':
       return { kind: 'room' as const, room: { kind: 'room' as const, id: owner.room.$ref.id } };
@@ -46,7 +46,7 @@ function compileIdentityOperand(owner: GameplayIdentityOperand) {
   }
 }
 
-function compileInteractableOperand(operand: InteractableOperand) {
+export function compileInteractableOperand(operand: InteractableOperand) {
   if (operand.kind === 'interactable') {
     return {
       kind: 'interactable' as const,
@@ -56,7 +56,7 @@ function compileInteractableOperand(operand: InteractableOperand) {
   return { ...operand };
 }
 
-function compileLocationSubjectOperand(operand: LocationSubjectOperand) {
+export function compileLocationSubjectOperand(operand: LocationSubjectOperand) {
   if (operand.kind === 'character') {
     return {
       kind: 'character' as const,
@@ -102,7 +102,7 @@ function compileInventoryOwnerOperand(owner: InventoryOwnerOperand) {
   };
 }
 
-function compileInventoryOperand(operand: InventoryOperand) {
+export function compileInventoryOperand(operand: InventoryOperand) {
   if (operand.kind === 'player-inventory' || operand.kind === 'command-result')
     return { ...operand };
   if (operand.kind === 'owner-inventory') {
@@ -151,7 +151,7 @@ function compileInventoryOperand(operand: InventoryOperand) {
   };
 }
 
-function compileLocationOperand(location: LocationOperand) {
+export function compileLocationOperand(location: LocationOperand) {
   if (location.kind === 'unplaced') return { kind: 'unplaced' as const };
   if (location.kind === 'room') {
     return { kind: 'room' as const, room: compileRoomOperand(location.room) };
@@ -159,7 +159,7 @@ function compileLocationOperand(location: LocationOperand) {
   return { kind: 'inventory' as const, inventory: compileInventoryOperand(location.inventory) };
 }
 
-function compileMatcher(matcher: InteractableMatcher) {
+export function compileMatcher(matcher: InteractableMatcher) {
   return {
     ...(matcher.definition
       ? {
