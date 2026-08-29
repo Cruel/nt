@@ -78,20 +78,20 @@ describe('AssetImageThumbnail', () => {
     );
 
     await waitFor(() => expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledTimes(1));
-    resolve(readyResult('noveltea-thumbnail://image-v2/aa/shared.webp'));
+    resolve(readyResult('noveltea-thumbnail://image/aa/shared.webp'));
     expect(await screen.findByAltText('Hero one')).toHaveAttribute(
       'src',
-      'noveltea-thumbnail://image-v2/aa/shared.webp',
+      'noveltea-thumbnail://image/aa/shared.webp',
     );
     expect(await screen.findByAltText('Hero two')).toHaveAttribute(
       'src',
-      'noveltea-thumbnail://image-v2/aa/shared.webp',
+      'noveltea-thumbnail://image/aa/shared.webp',
     );
   });
 
   it('requests an explicit wide presentation profile', async () => {
     vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue({
-      ...readyResult('noveltea-thumbnail://image-v2/aa/wide.webp'),
+      ...readyResult('noveltea-thumbnail://image/aa/wide.webp'),
       profile: 'wide',
     });
 
@@ -107,7 +107,7 @@ describe('AssetImageThumbnail', () => {
 
   it('omits malformed project hashes and does not re-request equivalent mounted props', async () => {
     vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue(
-      readyResult('noveltea-thumbnail://image-v2/aa/stable.webp'),
+      readyResult('noveltea-thumbnail://image/aa/stable.webp'),
     );
     const malformedSource = { ...source, contentHash: 'SHA256:not-canonical' };
     const { rerender } = render(
@@ -116,7 +116,7 @@ describe('AssetImageThumbnail', () => {
 
     expect(await screen.findByAltText('Hero')).toHaveAttribute(
       'src',
-      'noveltea-thumbnail://image-v2/aa/stable.webp',
+      'noveltea-thumbnail://image/aa/stable.webp',
     );
     expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
       source: {
@@ -156,24 +156,24 @@ describe('AssetImageThumbnail', () => {
       <AssetImageThumbnail label="Hero" source={changedSource} request={{ profile: 'list' }} />,
     );
     await waitFor(() => expect(resolvers).toHaveLength(2));
-    resolvers[0]!(readyResult('noveltea-thumbnail://image-v2/aa/stale.webp'));
+    resolvers[0]!(readyResult('noveltea-thumbnail://image/aa/stale.webp'));
     expect(screen.queryByAltText('Hero')).not.toBeInTheDocument();
-    resolvers[1]!(readyResult('noveltea-thumbnail://image-v2/aa/current.webp'));
+    resolvers[1]!(readyResult('noveltea-thumbnail://image/aa/current.webp'));
     expect(await screen.findByAltText('Hero')).toHaveAttribute(
       'src',
-      'noveltea-thumbnail://image-v2/aa/current.webp',
+      'noveltea-thumbnail://image/aa/current.webp',
     );
   });
 
   it('reissues mounted requests after a cache epoch event', async () => {
     vi.mocked(window.noveltea.requestImageThumbnail)
-      .mockResolvedValueOnce(readyResult('noveltea-thumbnail://image-v2/aa/old.webp'))
-      .mockResolvedValueOnce(readyResult('noveltea-thumbnail://image-v2/aa/new.webp', 1));
+      .mockResolvedValueOnce(readyResult('noveltea-thumbnail://image/aa/old.webp'))
+      .mockResolvedValueOnce(readyResult('noveltea-thumbnail://image/aa/new.webp', 1));
 
     render(<AssetImageThumbnail label="Hero" source={source} request={{ profile: 'list' }} />);
     expect(await screen.findByAltText('Hero')).toHaveAttribute(
       'src',
-      'noveltea-thumbnail://image-v2/aa/old.webp',
+      'noveltea-thumbnail://image/aa/old.webp',
     );
     act(() => {
       (
@@ -185,7 +185,7 @@ describe('AssetImageThumbnail', () => {
     await waitFor(() => expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledTimes(2));
     expect(await screen.findByAltText('Hero')).toHaveAttribute(
       'src',
-      'noveltea-thumbnail://image-v2/aa/new.webp',
+      'noveltea-thumbnail://image/aa/new.webp',
     );
   });
 
@@ -204,11 +204,11 @@ describe('AssetImageThumbnail', () => {
       ).__novelteaEditorCacheEpochListener?.({ cacheEpoch: 2 });
     });
     await waitFor(() => expect(resolvers).toHaveLength(2));
-    resolvers[0]!(readyResult('noveltea-thumbnail://image-v2/aa/stale-loading.webp'));
+    resolvers[0]!(readyResult('noveltea-thumbnail://image/aa/stale-loading.webp'));
     expect(screen.queryByAltText('Hero')).not.toBeInTheDocument();
-    resolvers[1]!(readyResult('noveltea-thumbnail://image-v2/aa/current-decoded.webp', 2));
+    resolvers[1]!(readyResult('noveltea-thumbnail://image/aa/current-decoded.webp', 2));
     const image = await screen.findByAltText('Hero');
-    expect(image).toHaveAttribute('src', 'noveltea-thumbnail://image-v2/aa/current-decoded.webp');
+    expect(image).toHaveAttribute('src', 'noveltea-thumbnail://image/aa/current-decoded.webp');
     await act(async () => image.dispatchEvent(new Event('load')));
     act(() => {
       (
@@ -218,10 +218,10 @@ describe('AssetImageThumbnail', () => {
       ).__novelteaEditorCacheEpochListener?.({ cacheEpoch: 3 });
     });
     await waitFor(() => expect(resolvers).toHaveLength(3));
-    resolvers[2]!(readyResult('noveltea-thumbnail://image-v2/aa/after-decoded-clear.webp', 3));
+    resolvers[2]!(readyResult('noveltea-thumbnail://image/aa/after-decoded-clear.webp', 3));
     expect(await screen.findByAltText('Hero')).toHaveAttribute(
       'src',
-      'noveltea-thumbnail://image-v2/aa/after-decoded-clear.webp',
+      'noveltea-thumbnail://image/aa/after-decoded-clear.webp',
     );
   });
 });

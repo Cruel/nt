@@ -15,11 +15,12 @@ thumbnail IPC boundary.
 ## Cache root and identity
 
 The central cache-path helper resolves the platform cache directory, appends `noveltea-editor`, and
-stores image derivatives under `thumbnails/image-v2`. On Linux this follows `XDG_CACHE_HOME` when
+stores image derivatives under `thumbnails/image`. On Linux this follows `XDG_CACHE_HOME` when
 set, otherwise `~/.cache`; corresponding platform cache conventions are used elsewhere. The cache is
 outside Electron `userData` and outside every project directory.
 
-Startup removes the retired `thumbnails/image-v1` subtree. V2 never probes or reuses V1 files.
+Startup removes the retired version-numbered `thumbnails/image-v1` and `thumbnails/image-v2`
+subtrees. The current cache never probes or reuses those files.
 
 Each derivative is addressed by a SHA-256 key derived from source content, audited intrinsic
 metadata, the selected presentation profile, image sampling mode, and generator policy/version
@@ -58,9 +59,9 @@ the cache root.
 
 ## Generation behavior
 
-PNG, JPEG, WebP, GIF, and SVG are supported V1 inputs. Animated GIF, animated PNG content under a
+PNG, JPEG, WebP, GIF, and SVG are supported inputs. Animated GIF, animated PNG content under a
 `.png` name, and animated WebP are decoded with animation disabled and produce a static first-frame
-thumbnail. BMP is deliberately unsupported in V1 and falls back symbolically.
+thumbnail. BMP is deliberately unsupported and falls back symbolically.
 
 Output is WebP converted to sRGB. Ordinary images use quality 85, alpha quality 100, smart
 subsampling, and effort 4. Alpha is preserved; thumbnail UI renders transparent images over its
@@ -115,7 +116,7 @@ or otherwise failed images use stable symbolic fallback UI and do not break the 
 Workspace Settings exposes **Clear Editor Cache** with confirmation, busy state, and completion or
 failure feedback. The operation removes only the recreatable central editor cache root, increments
 the cache epoch, cancels or invalidates work owned by the clearing main process, and notifies
-renderers. It is independent from Reset All Settings. V1 intentionally has no age/size eviction:
+renderers. It is independent from Reset All Settings. The cache intentionally has no age/size eviction:
 cache use is append-only across source revisions until this explicit clear action.
 
 ## Session-scoped original Asset streaming

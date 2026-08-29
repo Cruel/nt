@@ -7,7 +7,7 @@ import {
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 
-describe('authoring V2 infrastructure', () => {
+describe('authoring infrastructure', () => {
   it('accepts only gameplay entrypoints and requires a strict Bootstrap Module reference', () => {
     const project = createAuthoringProject();
     project.rooms.start = { id: 'start', label: 'Start', data: defaultRoomData('Start') };

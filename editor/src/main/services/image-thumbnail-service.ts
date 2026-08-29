@@ -184,10 +184,12 @@ export class ImageThumbnailService {
   }
 
   async removeObsoleteCacheVersions(): Promise<void> {
-    await fs.rm(path.join(path.dirname(this.imageCacheRoot), 'image-v1'), {
-      recursive: true,
-      force: true,
-    });
+    for (const directory of ['image-v1', 'image-v2']) {
+      await fs.rm(path.join(path.dirname(this.imageCacheRoot), directory), {
+        recursive: true,
+        force: true,
+      });
+    }
   }
 
   request(
@@ -739,7 +741,7 @@ export class ImageThumbnailService {
       );
       const imageCacheRootRealPath = await ensureCacheDirectory(
         thumbnailsRootRealPath,
-        'image-v2',
+        'image',
         editorCacheRootRealPath,
       );
       const cacheDirectoryRealPath = await ensureCacheDirectory(

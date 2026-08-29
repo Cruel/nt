@@ -477,7 +477,7 @@ describe('Archetype authoring semantics', () => {
     });
   });
 
-  it('fully flattens effective Archetype configuration into compiled V4 definitions', () => {
+  it('fully flattens effective Archetype configuration into compiled definitions', () => {
     const project = createAuthoringProject({ id: 'archetype-compile', name: 'Archetype Compile' });
     addArchetype(project, 'room-base', 'room', {
       overrides: {

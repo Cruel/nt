@@ -42,7 +42,7 @@ describe('editor project state defaults', () => {
     });
   });
 
-  it('accepts persisted image-generation tab resources in v3 metadata', () => {
+  it('accepts persisted image-generation tab resources in current metadata', () => {
     const parsed = parseEditorProjectState({
       ...emptyEditorProjectState(),
       workbench: {
@@ -217,7 +217,7 @@ describe('editor project state defaults', () => {
     });
   });
 
-  it('round-trips complete v2 recovery and export identity metadata', () => {
+  it('round-trips complete recovery and export identity metadata', () => {
     const state = {
       ...emptyEditorProjectState(),
       lastSuccessfulPlatformExportIdentity: {

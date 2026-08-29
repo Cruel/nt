@@ -107,7 +107,7 @@ function loadDialogue() {
 }
 
 describe('DialogueEditor', () => {
-  it('renders the strict Dialogue V2 graph and preview', () => {
+  it('renders the strict Dialogue graph and preview', () => {
     loadDialogue();
     render(<DialogueEditor tab={tab} />);
 

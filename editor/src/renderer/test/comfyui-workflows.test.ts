@@ -195,11 +195,11 @@ describe('comfyui workflow manifests', () => {
 
     const replacedShape = {
       schemaVersion: 1,
-      id: 'old-v2',
-      label: 'Old V2',
+      id: 'retired-shape',
+      label: 'Retired Shape',
       provider: 'comfyui',
       role: 'image.generate',
-      workflowFile: 'old-v2.workflow.json',
+      workflowFile: 'retired-shape.workflow.json',
       contract: {
         inputs: { prompt: { type: 'string', required: true } },
         outputs: { images: { type: 'image-list', required: true, primary: 'first' } },

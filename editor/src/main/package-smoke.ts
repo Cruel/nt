@@ -261,7 +261,7 @@ async function characterizeProductionThumbnailProtocol(
     if (
       !proof.first.ok ||
       !proof.second?.ok ||
-      !proof.first.url?.startsWith('noveltea-thumbnail://cache/image-v2/') ||
+      !proof.first.url?.startsWith('noveltea-thumbnail://cache/image/') ||
       proof.first.cacheStatus !== 'generated' ||
       proof.second.cacheStatus !== 'hit' ||
       proof.first.cacheKey !== proof.second.cacheKey ||

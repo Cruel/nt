@@ -1398,7 +1398,7 @@ describe('authoring compiler framework', () => {
     ).toEqual([{ propertyId: 'state', value: null }]);
   });
 
-  it('strictly rejects invalid V2 boundary data and produces deterministic diagnostics independent of map insertion order', () => {
+  it('strictly rejects invalid authoring boundary data and produces deterministic diagnostics independent of map insertion order', () => {
     const invalid = Object.assign(validProject(), { unknownWireInput: true });
     const invalidResult = compileAuthoringProject(invalid);
     expect(invalidResult.ok).toBe(false);

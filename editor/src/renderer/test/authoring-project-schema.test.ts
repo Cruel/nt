@@ -29,7 +29,7 @@ describe('authoring project schema', () => {
     expect('actions' in project).toBe(false);
   });
 
-  it('rejects V1, legacy collection names, and unknown root fields', () => {
+  it('rejects the retired schemaVersion field, legacy collection names, and unknown root fields', () => {
     const project = createAuthoringProject();
     expect(isAuthoringProject(project)).toBe(true);
     expect(isAuthoringProject({ ...project, schemaVersion: 1 })).toBe(false);

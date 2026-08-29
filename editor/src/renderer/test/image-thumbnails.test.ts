@@ -30,7 +30,7 @@ const source = {
 };
 const versions = { sharpVersion: '0.35.3', vipsVersion: '8.17.3' };
 
-describe('image thumbnail V2 contracts', () => {
+describe('image thumbnail contracts', () => {
   it('strictly validates profile-only interactive and prewarm IPC input', () => {
     expect(
       imageThumbnailRequestSchema.safeParse({
@@ -117,7 +117,7 @@ describe('image thumbnail V2 contracts', () => {
     );
   });
 
-  it('produces stable V2 keys independent of project and source paths', async () => {
+  it('produces stable keys independent of project and source paths', async () => {
     const serialized = serializeImageThumbnailDerivativeIdentity(source, 'card', versions);
     expect(JSON.parse(serialized)).toEqual([
       'noveltea.editor.image-thumbnail',
@@ -160,13 +160,13 @@ describe('image thumbnail V2 contracts', () => {
     expect(nearest).not.toBe(first);
   });
 
-  it('derives cache paths beneath the dedicated image-v2 root', async () => {
+  it('derives cache paths beneath the dedicated image root', async () => {
     const editorRoot = resolveEditorCacheRoot('/var/cache');
     const imageRoot = resolveImageThumbnailCacheRoot(editorRoot);
     const key = await createImageThumbnailDerivativeKey(source, 'list', versions);
     const target = resolveImageThumbnailCachePath(imageRoot, key);
     expect(editorRoot).toBe(path.resolve('/var/cache/noveltea-editor'));
-    expect(imageRoot).toBe(path.resolve('/var/cache/noveltea-editor/thumbnails/image-v2'));
+    expect(imageRoot).toBe(path.resolve('/var/cache/noveltea-editor/thumbnails/image'));
     expect(target).toBe(path.join(imageRoot, key.slice(0, 2), `${key}.webp`));
     expect(isStrictlyContainedPath(imageRoot, target)).toBe(true);
     expect(isStrictlyContainedPath(imageRoot, imageRoot)).toBe(false);

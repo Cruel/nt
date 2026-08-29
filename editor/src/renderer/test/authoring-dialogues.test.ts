@@ -195,7 +195,7 @@ describe('authoring dialogues schema', () => {
     );
   });
 
-  it('provides strict V2 dialogue defaults without editor state', () => {
+  it('provides strict dialogue defaults without editor state', () => {
     expect(defaultDialogueData('Intro')).toEqual({
       kind: 'dialogue',
       displayName: 'Intro',
@@ -449,7 +449,7 @@ describe('authoring dialogues schema', () => {
     );
   });
 
-  it('builds V2 preview documents from editor-owned selection', () => {
+  it('builds preview documents from editor-owned selection', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
     const data = defaultDialogueData('Intro');

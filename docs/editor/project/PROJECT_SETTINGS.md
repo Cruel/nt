@@ -162,7 +162,7 @@ Project layout/font records can override those fallbacks. The editor writes only
 
 ## Entrypoint and startup
 
-The V2 entrypoint is a strict Room, Scene, or Dialogue union. Project Settings exposes only those three collections for the entrypoint. Bootstrap is configured separately by selecting one Script Module through `bootstrapModule`; Project Settings does not embed startup Lua. The selected module executes synchronously in each fresh Project VM and may import other Script Modules by stable ID.
+The entrypoint is a strict Room, Scene, or Dialogue union. Project Settings exposes only those three collections for the entrypoint. Bootstrap is configured separately by selecting one Script Module through `bootstrapModule`; Project Settings does not embed startup Lua. The selected module executes synchronously in each fresh Project VM and may import other Script Modules by stable ID.
 
 Package Export remains strict: a missing or unresolved entrypoint blocks export.
 
@@ -223,7 +223,7 @@ Project Settings no longer manages workflow packages directly. It shows:
 
 The `ComfyUI Workflows` tab manages built-in, shared-user, and project-local workflow sources. Project-local workflow files still live under the authoring project's `workflows/` directory, but importing, copying, deleting, repairing, revealing, and verifying workflow packages belongs in the manager instead of Project Settings. Shared server URL, request timeout, and workflow defaults keyed by extensible dotted classifications live in the NovelTea user configuration root; ComfyUI enablement and periodic connection cadence remain editor preferences. Global Settings derives its default-workflow selectors from the effective generic catalog, preserves configured IDs that are temporarily unavailable, and does not write ComfyUI machine state into the Project document.
 
-Workflow import expects ComfyUI API workflow JSON exported with `File -> Export Workflow (API)`. Ordinary ComfyUI save files include visual editing data and are not the import format for this editor path. Installed manifests use the generic V2 public-ID contract documented in `../comfyui/WORKFLOW_IMPORT.md`; optional image classifications guide current editor inference but are not the manifest execution schema.
+Workflow import expects ComfyUI API workflow JSON exported with `File -> Export Workflow (API)`. Ordinary ComfyUI save files include visual editing data and are not the import format for this editor path. Installed manifests use the generic Workflow Manifest V1 public-ID contract documented in `../comfyui/WORKFLOW_IMPORT.md`; optional image classifications guide current editor inference but are not the manifest execution schema.
 
 Renaming important ComfyUI nodes before export is optional but improves automatic binding and later repair. Recommended title markers are:
 
