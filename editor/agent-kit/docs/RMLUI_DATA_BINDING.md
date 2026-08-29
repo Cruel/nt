@@ -315,4 +315,4 @@ Do not invent dotted callback names, call internal engine functions, or assume a
 </button>
 ```
 
-Map-connection navigation is not a `noveltea` model callback while `nt-map-view` remains provisional. See the custom-component guide for that boundary.
+Map navigation is not a `noveltea` model callback. `nt-map-view` publishes semantic Location/Connection targets and Layout Lua uses `Game.ui.navigate_map_connection(map_id, connection_id)` or `Game.ui.navigate_map_location(map_id, location_id)` against the current published Map view. See the custom-component guide for Map selection, mounted-Layout delivery, independent occurrences, and occurrence-local state persistence.

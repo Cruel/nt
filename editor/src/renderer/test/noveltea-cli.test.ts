@@ -1183,8 +1183,27 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('ui_choose(kind, id)');
     expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('data-alias-name');
     expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('The model is read-only');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain(
+      'Game.ui.navigate_map_connection(map_id, connection_id)',
+    );
     expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-active-text');
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-map-view   (provisional)');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-map-view\n');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).not.toContain(
+      'nt-map-view   (provisional)',
+    );
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+      'When the project contains exactly one authored Map, `map` may be omitted',
+    );
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+      'mounted gameplay Layout documents',
+    );
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+      'Multiple occurrences are independent',
+    );
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('Layout State Shape/Slot');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+      'Game.ui.navigate_map_location(map_id, location_id)',
+    );
     expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
       'There is no current `nt-text-log` element',
     );
@@ -1552,6 +1571,15 @@ describe('NovelTea headless CLI', () => {
     const componentGuide = payload.files['docs/RMLUI_CUSTOM_COMPONENTS.md']!;
     for (const tag of customTags) expect(componentGuide).toContain(`\`${tag}\``);
     expect(componentGuide).toContain('There is no current `nt-text-log` element');
+    expect(componentGuide).not.toContain('`nt-map-view` is provisional');
+    expect(componentGuide).not.toContain('updates only the first `nt-map-view`');
+    expect(componentGuide).toContain(
+      'The `map` attribute selects the authored Map by stable Map ID',
+    );
+    expect(componentGuide).toContain('RuntimeUI refreshes every matching `nt-map-view`');
+    expect(componentGuide).toContain('Each occurrence owns its own `open`, `mode`, `focus`');
+    expect(componentGuide).toContain('Game.mount_context():commit_state(...)');
+    expect(componentGuide).toContain('semantic Location and Connection targets');
   });
 
   it('certifies the Lua guide against the exact sandbox and authored binding surface', () => {

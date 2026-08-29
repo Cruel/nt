@@ -278,7 +278,7 @@
       ]
     },
     "docs/RMLUI_DATA_BINDING.md": {
-      "reviewed": "2026-08-16",
+      "reviewed": "2026-08-28",
       "strategy": "Expose the exact NovelTea `noveltea` model and callback contract, then reconcile only the RmlUi data-binding and expression semantics needed to author against it safely; exclude native projection/publication implementation details.",
       "sources": [
         {
@@ -312,7 +312,7 @@
       ]
     },
     "docs/RMLUI_CUSTOM_COMPONENTS.md": {
-      "reviewed": "2026-08-16",
+      "reviewed": "2026-08-28",
       "strategy": "Document only the supported NovelTea `nt-*` authoring contract and visible limitations of ActiveText/Map hosts; keep generated markup and C++ rendering/lifecycle machinery explicitly outside the public surface.",
       "sources": [
         {
