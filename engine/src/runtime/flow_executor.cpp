@@ -15,6 +15,16 @@ Diagnostics execution_error(std::string code, std::string message)
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
+bool room_child_flow_allowed(const FlowFrame& frame, const FlowFramePosition& position) noexcept
+{
+    if (!std::holds_alternative<RoomTransitionFrame>(frame))
+        return true;
+    const auto* room = std::get_if<RoomTransitionPosition>(&position);
+    return room != nullptr && (room->stage == RoomTransitionStage::AfterLeave ||
+                               room->stage == RoomTransitionStage::AfterEnter ||
+                               room->stage == RoomTransitionStage::RejectionProgram);
+}
+
 void remove_scene_presentation(SessionState& state, const FlowStack& stack) noexcept
 {
     for (const auto& frame : stack)
@@ -557,9 +567,19 @@ Result<void, Diagnostics> FlowExecutor::validate_position(const FlowFrame& frame
                 const auto* candidate = std::get_if<RoomTransitionPosition>(&position);
                 if (candidate == nullptr || candidate->stage > RoomTransitionStage::Complete)
                     return false;
-                return candidate->next_effect == 0 &&
-                       (!candidate->awaiting_completion ||
-                        candidate->stage == RoomTransitionStage::CommitRoomSwitch);
+                const bool program_stage =
+                    candidate->stage == RoomTransitionStage::BeforeLeave ||
+                    candidate->stage == RoomTransitionStage::BeforeEnter ||
+                    candidate->stage == RoomTransitionStage::AfterLeave ||
+                    candidate->stage == RoomTransitionStage::AfterEnter ||
+                    candidate->stage == RoomTransitionStage::RejectionProgram;
+                if (!program_stage && candidate->next_effect != 0)
+                    return false;
+                return !candidate->awaiting_completion ||
+                       candidate->stage == RoomTransitionStage::CommitRoomSwitch ||
+                       candidate->stage == RoomTransitionStage::AfterLeave ||
+                       candidate->stage == RoomTransitionStage::AfterEnter ||
+                       candidate->stage == RoomTransitionStage::RejectionProgram;
             }
         },
         frame);
@@ -842,10 +862,14 @@ Result<void, Diagnostics> FlowExecutor::call_child(const SceneId& scene,
             next->stage_initialized = caller->position.stage_initialized;
     const auto* definition = m_project.find_scene(scene);
     auto position = validate_position(m_state.m_flow_stack.back(), caller_next_position);
-    if (definition == nullptr || !position)
+    if (definition == nullptr || !position ||
+        !room_child_flow_allowed(m_state.m_flow_stack.back(), caller_next_position))
         return fail(definition == nullptr ? execution_error("execution.invalid_target",
                                                             "Child Scene target is missing")
-                                          : position.error());
+                    : !position           ? position.error()
+                                          : execution_error("execution.invalid_room_child_flow",
+                                                            "Room child Flow is allowed only after commit "
+                                                                      "or after rejection finalization"));
     auto resolved_inputs = resolve_scene_inputs(*definition, std::move(inputs));
     if (!resolved_inputs)
         return fail(std::move(resolved_inputs).error());
@@ -966,10 +990,14 @@ Result<void, Diagnostics> FlowExecutor::call_child(const DialogueId& dialogue,
             next->stage_initialized = caller->position.stage_initialized;
     const auto* definition = m_project.find_dialogue(dialogue);
     auto position = validate_position(m_state.m_flow_stack.back(), caller_next_position);
-    if (definition == nullptr || !position)
+    if (definition == nullptr || !position ||
+        !room_child_flow_allowed(m_state.m_flow_stack.back(), caller_next_position))
         return fail(definition == nullptr ? execution_error("execution.invalid_target",
                                                             "Child Dialogue target is missing")
-                                          : position.error());
+                    : !position           ? position.error()
+                                          : execution_error("execution.invalid_room_child_flow",
+                                                            "Room child Flow is allowed only after commit "
+                                                                      "or after rejection finalization"));
     const DialogueBlockId block = start_block ? *start_block : definition->program.entry_block_id;
     if (!has_dialogue_block(*definition, block))
         return fail(execution_error("execution.invalid_dialogue_position",
@@ -1248,7 +1276,9 @@ Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
                                                           RoomEntryCause::DirectedRoomChange,
                                                           source_context,
                                                           {first_stage, 0},
-                                                          NoReturnDestination{}});
+                                                          NoReturnDestination{},
+                                                          std::nullopt,
+                                                          {}});
     record_execution_provenance(id, ExecutionRelationship::Continue, old_id, old_parent);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
@@ -1352,10 +1382,11 @@ Result<void, Diagnostics> FlowExecutor::discard_fault()
     }
 
     if (const auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back())) {
+        const bool rejected = transition->position.stage == RoomTransitionStage::RejectionProgram;
         const bool committed =
-            transition->position.stage > RoomTransitionStage::CommitRoomSwitch ||
-            (transition->position.stage == RoomTransitionStage::CommitRoomSwitch &&
-             transition->position.awaiting_completion);
+            !rejected && (transition->position.stage > RoomTransitionStage::CommitRoomSwitch ||
+                          (transition->position.stage == RoomTransitionStage::CommitRoomSwitch &&
+                           transition->position.awaiting_completion));
         const std::optional<RoomId> destination =
             committed ? std::optional<RoomId>{transition->target_room} : transition->source_room;
         set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Cancelled);

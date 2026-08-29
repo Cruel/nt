@@ -115,6 +115,12 @@ describe('asset operations', () => {
         lifecycle: {
           canEnter: { kind: 'always' },
           canLeave: { kind: 'always' },
+          beforeEnter: [],
+          afterEnter: [],
+          beforeLeave: [],
+          afterLeave: [],
+          onEnterRejected: [],
+          onLeaveRejected: [],
         },
         exits: [],
         placements: [],

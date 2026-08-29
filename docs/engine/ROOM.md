@@ -26,15 +26,25 @@ tags, selections, graph coordinates, and preview state are editor-only metadata.
 
 ## Navigation and lifecycle
 
-The current Room-transition path is `FlowExecutor`. It validates the source/target and ordered
-before-leave, before-enter, after-leave, and after-enter declarative effect programs. Script Hook
-selection is a separate frozen-registry contract: each Room may map supported lifecycle kinds to a
-stable Script Module/named export, while Bootstrap may add exact, qualified-prefix, or catchall
-mappings. #79 owns invoking those registry handlers in the canonical navigation lifecycle; #74 only
-establishes and validates the deterministic registry boundary. The Room switch, visit increment, and
-view publication occur at the defined commit point. Failed pre-commit work resumes the source;
-post-commit fault handling preserves the target. Yielding effects retain their exact lifecycle stage
-and effect index.
+The current Room-transition path is `FlowExecutor`. It validates the source/target and executes the
+ordered `beforeLeave`, `beforeEnter`, `afterLeave`, and `afterEnter` Gameplay Command programs before
+the corresponding Script Hook Registry handler. Before-leave and before-enter are pre-commit and
+therefore admit only immediate non-yielding commands. After-leave and after-enter are post-commit and
+may suspend on the normal Flow-capable command vocabulary, including child Scene or Dialogue calls.
+The Room switch, visit increment, and view publication occur at the defined commit point. Failed
+pre-commit work resumes the source; post-commit fault handling preserves the target. A suspended
+post-commit program retains its exact lifecycle stage, flattened command cursor, and command-result
+bindings across save/restore.
+
+Expected navigation rejection is a finalized control-flow path, not a transition fault. Source
+`onLeaveRejected` handles a rejected source `canLeave`; an Exit `onRejected` program takes precedence
+for a rejected selected-exit condition, falling back to source `onLeaveRejected` when the Exit has no
+program; target `onEnterRejected` handles a rejected target `canEnter`. The source Room visit remains
+authoritative before any rejection command runs. Rejection programs are Flow-capable and may call a
+Scene or Dialogue; after the declarative program completes, the matching `reject-leave` or
+`reject-enter` Script Hook Registry handler runs as the deterministic extension point. Directed Room
+Change remains authoritative: false exploration guards are diagnosed and ignored rather than routed
+through rejection programs.
 
 Every exit has a stable ID, a typed target Room, and a direction that is unique within its owning
 Room, including `custom`. The built-in HUD presents one fixed control per direction; alternative

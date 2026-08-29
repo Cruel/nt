@@ -5,6 +5,7 @@ import {
   assetRefSchema,
   characterRefSchema,
   conditionSchema,
+  gameplayCommandSchema,
   inlineTextContent,
   layoutRefSchema,
   materialRefSchema,
@@ -186,6 +187,7 @@ export const roomExitDataSchema = strict({
   target: roomRoomRefSchema,
   condition: conditionSchema,
   transition: roomNavigationTransitionSchema.nullable().optional(),
+  onRejected: z.array(gameplayCommandSchema),
 });
 export const roomHotspotDataSchema = strict({
   ...hotspotCommonShape,
@@ -195,6 +197,12 @@ export const roomHotspotDataSchema = strict({
 export const roomLifecycleDataSchema = strict({
   canEnter: conditionSchema,
   canLeave: conditionSchema,
+  beforeEnter: z.array(gameplayCommandSchema),
+  afterEnter: z.array(gameplayCommandSchema),
+  beforeLeave: z.array(gameplayCommandSchema),
+  afterLeave: z.array(gameplayCommandSchema),
+  onEnterRejected: z.array(gameplayCommandSchema),
+  onLeaveRejected: z.array(gameplayCommandSchema),
 });
 export const roomDataSchema = strict({
   kind: z.literal('room'),
@@ -290,6 +298,12 @@ export function defaultRoomData(label = 'Room'): RoomData {
     lifecycle: {
       canEnter: { kind: 'always' },
       canLeave: { kind: 'always' },
+      beforeEnter: [],
+      afterEnter: [],
+      beforeLeave: [],
+      afterLeave: [],
+      onEnterRejected: [],
+      onLeaveRejected: [],
     },
   };
 }

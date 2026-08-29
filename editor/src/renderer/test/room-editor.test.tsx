@@ -430,6 +430,7 @@ describe('RoomEditor', () => {
         direction: 'east',
         target: { $ref: { collection: 'rooms', id: 'foyer' } },
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -476,6 +477,7 @@ describe('RoomEditor', () => {
         direction: 'custom',
         target: { $ref: { collection: 'rooms', id: 'foyer' } },
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -512,6 +514,7 @@ describe('RoomEditor', () => {
         direction: 'east',
         target: { $ref: { collection: 'rooms', id: 'foyer' } },
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -551,6 +554,7 @@ describe('RoomEditor', () => {
         direction: 'east',
         target: { $ref: { collection: 'rooms', id: 'hallway' } },
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -581,6 +585,7 @@ describe('RoomEditor', () => {
         direction: 'north',
         target: { $ref: { collection: 'rooms', id: 'hallway' } },
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -609,6 +614,7 @@ describe('RoomEditor', () => {
                   direction: 'south',
                   target: { $ref: { collection: 'rooms', id: 'foyer' } },
                   condition: { kind: 'always' },
+                  onRejected: [],
                   transition: null,
                 }),
               ],
@@ -645,6 +651,7 @@ describe('RoomEditor', () => {
         direction: 'north',
         target: { $ref: { collection: 'rooms', id: 'hallway' } },
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];
@@ -656,6 +663,7 @@ describe('RoomEditor', () => {
         direction: 'west',
         target: { $ref: { collection: 'rooms', id: 'foyer' } },
         condition: { kind: 'always' },
+        onRejected: [],
         transition: null,
       },
     ];

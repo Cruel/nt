@@ -626,7 +626,16 @@ TEST_CASE("direct Room navigation validates exits and rejected transitions resum
     CHECK(transition.position.stage == RoomTransitionStage::SourceCanLeave);
     REQUIRE(executor.advance_room_transition(RoomTransitionStage::ExitCondition));
     REQUIRE(executor.advance_room_transition(RoomTransitionStage::TargetCanEnter));
-    REQUIRE(executor.reject_room_transition());
+    REQUIRE(executor.finalize_room_rejection({RoomTransitionStage::TargetCanEnter, 0, false},
+                                             RoomRejectionStage::TargetCanEnter));
+    const auto& rejected = std::get<RoomTransitionFrame>(state.flow_stack().back());
+    CHECK(rejected.position.stage == RoomTransitionStage::RejectionProgram);
+    REQUIRE(rejected.rejection_stage);
+    CHECK(static_cast<int>(*rejected.rejection_stage) ==
+          static_cast<int>(RoomRejectionStage::TargetCanEnter));
+    REQUIRE(state.room_visit());
+    CHECK(state.room_visit()->room == id<RoomId>("hall"));
+    REQUIRE(executor.complete_room_rejection());
     CHECK(std::get<RoomMode>(state.mode()).room == id<RoomId>("hall"));
 }
 

@@ -685,6 +685,9 @@ Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project
                     .entry_cause = RoomEntryCause::Entrypoint,
                     .source_context = std::nullopt,
                     .position = {RoomTransitionStage::TargetCanEnter, 0},
+                    .destination = NoReturnDestination{},
+                    .rejection_stage = std::nullopt,
+                    .command_results = {},
                 });
                 return true;
             } else if constexpr (std::is_same_v<T, SceneId>) {

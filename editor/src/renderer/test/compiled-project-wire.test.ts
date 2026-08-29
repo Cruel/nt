@@ -195,6 +195,12 @@ function representativeWireFixture() {
           lifecycle: {
             canEnter: { kind: 'always' },
             canLeave: { kind: 'always' },
+            beforeEnter: [],
+            afterEnter: [],
+            beforeLeave: [],
+            afterLeave: [],
+            onEnterRejected: [],
+            onLeaveRejected: [],
           },
         },
       ],

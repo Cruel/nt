@@ -293,6 +293,7 @@ describe('authoring structural dependency graph and queries', () => {
       direction: 'north',
       target: { $ref: { collection: 'rooms', id: 'room' } },
       condition: { kind: 'always' },
+      onRejected: [],
     });
     project.rooms.room = { id: 'room', label: 'Room', data: room };
 
@@ -583,6 +584,7 @@ describe('authoring structural dependency graph and queries', () => {
       direction: 'north',
       target: { $ref: { collection: 'rooms', id: 'foyer' } },
       condition: { kind: 'always' },
+      onRejected: [],
     });
     project.rooms.foyer.data.background.asset = {
       $ref: { collection: 'assets', id: 'background' },

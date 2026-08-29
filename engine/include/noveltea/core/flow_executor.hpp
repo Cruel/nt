@@ -95,7 +95,13 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     mark_room_transition_wait(const RoomTransitionPosition& expected_position,
                               RoomTransitionPosition next_position);
-    [[nodiscard]] Result<void, Diagnostics> reject_room_transition();
+    [[nodiscard]] Result<void, Diagnostics>
+    advance_room_program(const RoomTransitionPosition& expected_position,
+                         RoomTransitionPosition next_position);
+    [[nodiscard]] Result<void, Diagnostics>
+    finalize_room_rejection(const RoomTransitionPosition& expected_position,
+                            RoomRejectionStage rejection_stage);
+    [[nodiscard]] Result<void, Diagnostics> complete_room_rejection();
     [[nodiscard]] Result<void, Diagnostics> complete_room_transition();
 
     [[nodiscard]] Result<FlowBlocker, Diagnostics> block_top(FlowBlockerKind kind);

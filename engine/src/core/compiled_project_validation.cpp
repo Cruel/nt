@@ -1850,6 +1850,39 @@ private:
 
     void validate_rooms()
     {
+        const auto command_is_immediate = [&](const auto& self,
+                                              const GameplayCommand& command) -> bool {
+            return std::visit(
+                [&](const auto& typed) {
+                    using T = std::decay_t<decltype(typed)>;
+                    if constexpr (std::is_same_v<T, CallSceneCommand> ||
+                                  std::is_same_v<T, CallDialogueCommand> ||
+                                  std::is_same_v<T, NotifyCommand> ||
+                                  std::is_same_v<T, RunLuaCommand>)
+                        return false;
+                    else if constexpr (std::is_same_v<T, IfGameplayCommand>)
+                        return std::ranges::all_of(
+                                   typed.then_commands,
+                                   [&](const auto& child) { return self(self, child); }) &&
+                               std::ranges::all_of(typed.else_commands, [&](const auto& child) {
+                                   return self(self, child);
+                               });
+                    else
+                        return true;
+                },
+                command.value);
+        };
+        const auto validate_precommit_program = [&](const std::vector<GameplayCommand>& commands,
+                                                    const std::string& path) {
+            validate_gameplay_commands(commands, path);
+            if (!std::ranges::all_of(commands, [&](const auto& command) {
+                    return command_is_immediate(command_is_immediate, command);
+                }))
+                error("compiled_project.yielding_room_precommit_command",
+                      "Before Leave and Before Enter Room programs admit only immediate Gameplay "
+                      "Commands.",
+                      path);
+        };
         for (std::size_t index = 0; index < m_input.rooms.size(); ++index) {
             const auto& value = m_input.rooms[index];
             const auto path = item("/definitions/rooms", index);
@@ -1859,6 +1892,16 @@ private:
             validate_background(value.background, path + "/background");
             validate_condition(value.lifecycle.can_enter, path + "/lifecycle/canEnter");
             validate_condition(value.lifecycle.can_leave, path + "/lifecycle/canLeave");
+            validate_precommit_program(value.lifecycle.before_leave,
+                                       path + "/lifecycle/beforeLeave");
+            validate_precommit_program(value.lifecycle.before_enter,
+                                       path + "/lifecycle/beforeEnter");
+            validate_gameplay_commands(value.lifecycle.after_leave, path + "/lifecycle/afterLeave");
+            validate_gameplay_commands(value.lifecycle.after_enter, path + "/lifecycle/afterEnter");
+            validate_gameplay_commands(value.lifecycle.on_leave_rejected,
+                                       path + "/lifecycle/onLeaveRejected");
+            validate_gameplay_commands(value.lifecycle.on_enter_rejected,
+                                       path + "/lifecycle/onEnterRejected");
             std::unordered_set<RoomOverlayId> overlay_ids;
             for (std::size_t overlay = 0; overlay < value.overlays.size(); ++overlay) {
                 if (!overlay_ids.insert(value.overlays[overlay].id).second)
@@ -2020,6 +2063,7 @@ private:
                 validate_text(linked_exit.label, exit_path + "/label");
                 if (linked_exit.transition)
                     validate_transition(*linked_exit.transition, exit_path + "/transition");
+                validate_gameplay_commands(linked_exit.on_rejected, exit_path + "/onRejected");
             }
             if (!value.hotspots.empty()) {
                 if (!value.background.asset)

@@ -422,7 +422,12 @@ const settingsPresentationLeafIndex = sortedSchemaLeafPaths.findIndex((path) =>
   path.startsWith('/settings/presentation/'),
 );
 const reviewedCountBefore = (leafIndex: number) =>
-  sortedSchemaLeafPaths.slice(0, leafIndex).filter((path) => !explicitFieldEffect(path)).length;
+  sortedSchemaLeafPaths
+    .slice(0, leafIndex)
+    .filter(
+      (path) =>
+        !explicitFieldEffect(path) && roomLifecycleGameplayCommandEffect(path) === undefined,
+    ).length;
 const exportInsertReviewedIndex = reviewedCountBefore(exportFirstLeafIndex);
 const legacyExportReviewedIndex =
   reviewedCountBefore(settingsPresentationLeafIndex) - legacyExportLeafCount;
@@ -478,6 +483,18 @@ function isItemContractLeaf(path: JsonPointer): boolean {
 
 function isSceneChoiceGameplayCommandLeaf(path: JsonPointer): boolean {
   return path.startsWith('/scenes/*/data/events/*/options/*/effects/*');
+}
+
+function roomLifecycleGameplayCommandEffect(
+  path: JsonPointer,
+): ReviewedFieldEffectCode | undefined {
+  if (
+    !/^\/rooms\/\*\/data\/(?:lifecycle\/(?:beforeEnter|afterEnter|beforeLeave|afterLeave|onEnterRejected|onLeaveRejected)\/\*|exits\/\*\/onRejected\/\*)/.test(
+      path,
+    )
+  )
+    return undefined;
+  return /(?:^|\/)source$/.test(path) ? 's' : 'o';
 }
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
@@ -639,7 +656,8 @@ const legacySchemaLeafPaths = [
         !path.startsWith('/traits/') &&
         !isArchetypeContractLeaf(path) &&
         !isItemContractLeaf(path) &&
-        !isSceneChoiceGameplayCommandLeaf(path),
+        !isSceneChoiceGameplayCommandLeaf(path) &&
+        roomLifecycleGameplayCommandEffect(path) === undefined,
     )
     .map(preservedReviewedPath),
   // The assembled AuthoringProject no longer owns a compatibility epoch. Preserve its retired
@@ -820,6 +838,8 @@ const legacyReviewedEffects = new Map(
 const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
   .filter((path) => !explicitFieldEffect(path))
   .map((path) => {
+    const roomLifecycleEffect = roomLifecycleGameplayCommandEffect(path);
+    if (roomLifecycleEffect) return roomLifecycleEffect;
     if (path.startsWith('/traits/') || isArchetypeContractLeaf(path) || isItemContractLeaf(path))
       return 'o';
     const segments = parseJsonPointer(path);
@@ -899,7 +919,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     maps: '9d711bea',
     materials: '546711ca',
     project: 'da3be83d',
-    rooms: 'a8da6718',
+    rooms: '568ad3a3',
     scenes: '775ab0fe',
     schema: '63fb9bb9',
     scripts: 'f3482815',

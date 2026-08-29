@@ -231,6 +231,7 @@ describe('graph-driven Room builder', () => {
         direction: 'east',
         target: { $ref: { collection: 'rooms', id: 'hall' } },
         condition: { kind: 'always' },
+        onRejected: [],
       },
     ];
     project.rooms.bedroom!.data = bedroom;

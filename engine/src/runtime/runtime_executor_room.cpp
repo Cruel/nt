@@ -36,6 +36,64 @@ const core::compiled::RoomExit* find_exit(const core::compiled::RoomDefinition& 
     return found == room.exits.end() ? nullptr : &*found;
 }
 
+std::size_t gameplay_program_node_count(std::span<const core::GameplayCommand> commands)
+{
+    std::size_t count = 0;
+    for (const auto& command : commands) {
+        ++count;
+        if (const auto* branch = std::get_if<core::IfGameplayCommand>(&command.value)) {
+            count += gameplay_program_node_count(branch->then_commands);
+            count += gameplay_program_node_count(branch->else_commands);
+        }
+    }
+    return count;
+}
+
+struct RoomProgramPlanEntry {
+    const core::GameplayCommand* command = nullptr;
+    std::size_t successor = 0;
+    std::size_t then_first = 0;
+    std::size_t else_first = 0;
+};
+
+void build_gameplay_program_plan(std::span<const core::GameplayCommand> commands,
+                                 std::size_t continuation, std::vector<RoomProgramPlanEntry>& plan,
+                                 std::size_t& cursor)
+{
+    for (std::size_t index = 0; index < commands.size(); ++index) {
+        const auto& command = commands[index];
+        const auto subtree_size = 1 + [&]() {
+            const auto* branch = std::get_if<core::IfGameplayCommand>(&command.value);
+            return branch == nullptr ? std::size_t{0}
+                                     : gameplay_program_node_count(branch->then_commands) +
+                                           gameplay_program_node_count(branch->else_commands);
+        }();
+        const auto current = cursor++;
+        const auto successor = index + 1 < commands.size() ? current + subtree_size : continuation;
+        plan[current].command = &command;
+        plan[current].successor = successor;
+        plan[current].then_first = successor;
+        plan[current].else_first = successor;
+        if (const auto* branch = std::get_if<core::IfGameplayCommand>(&command.value)) {
+            if (!branch->then_commands.empty())
+                plan[current].then_first = cursor;
+            build_gameplay_program_plan(branch->then_commands, successor, plan, cursor);
+            if (!branch->else_commands.empty())
+                plan[current].else_first = cursor;
+            build_gameplay_program_plan(branch->else_commands, successor, plan, cursor);
+        }
+    }
+}
+
+std::vector<RoomProgramPlanEntry>
+gameplay_program_plan(std::span<const core::GameplayCommand> commands)
+{
+    std::vector<RoomProgramPlanEntry> plan(gameplay_program_node_count(commands));
+    std::size_t cursor = 0;
+    build_gameplay_program_plan(commands, plan.size(), plan, cursor);
+    return plan;
+}
+
 core::RoomTransitionStage next_hook_stage(const core::RoomTransitionFrame& transition) noexcept
 {
     switch (transition.position.stage) {
@@ -157,14 +215,6 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         auto advanced = m_flow.advance_room_transition(transition.position, std::move(position));
         return advanced ? std::nullopt : fault(advanced.error());
     };
-    auto reject = [this, &transition]() -> std::optional<core::FlowRunOutcome> {
-        auto rejected = m_flow.reject_room_transition();
-        if (!rejected)
-            return core::FlowFaultOutcome{rejected.error()};
-        if (std::holds_alternative<core::CallerDestination>(transition.destination))
-            return std::nullopt;
-        return core::FlowModeChangedOutcome{m_state.mode()};
-    };
     const auto transition_value = transition_context(transition);
     auto invoke_hook =
         [this, &transition_value](
@@ -187,16 +237,6 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
                 script_diagnostics(invoked.error()));
         return core::Result<ProjectHookInvocationResult, core::Diagnostics>::success(
             std::move(*invoked.value_if()));
-    };
-    auto reject_navigation =
-        [this, &fault, &reject,
-         &invoke_hook](ProjectHookKind hook, const core::RoomId& target_id,
-                       core::RoomRejectionStage stage) -> std::optional<core::FlowRunOutcome> {
-        auto rejected_hook = invoke_hook(hook, target_id, m_room_lifecycle_capabilities,
-                                         ScriptInvocationResultKind::None, stage);
-        if (!rejected_hook)
-            return fault(rejected_hook.error());
-        return reject();
     };
     auto record_directed_guard = [this](std::string message) {
         m_room_lifecycle_diagnostics.push_back(core::Diagnostic{
@@ -230,6 +270,169 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
                                         "execution.invalid_room_hook_result",
                                         "Room guard hook did not return a boolean value"));
     };
+    auto source_configuration = [&]() -> const core::compiled::RoomDefinition* {
+        return transition.source_room ? m_world.resolved_configuration(*transition.source_room)
+                                      : nullptr;
+    };
+    auto lifecycle_program =
+        [&](core::RoomTransitionStage stage) -> std::span<const core::GameplayCommand> {
+        const auto* source = source_configuration();
+        switch (stage) {
+        case core::RoomTransitionStage::BeforeLeave:
+            return source ? std::span<const core::GameplayCommand>{source->lifecycle.before_leave}
+                          : std::span<const core::GameplayCommand>{};
+        case core::RoomTransitionStage::BeforeEnter:
+            return target->lifecycle.before_enter;
+        case core::RoomTransitionStage::AfterLeave:
+            return source ? std::span<const core::GameplayCommand>{source->lifecycle.after_leave}
+                          : std::span<const core::GameplayCommand>{};
+        case core::RoomTransitionStage::AfterEnter:
+            return target->lifecycle.after_enter;
+        default:
+            return {};
+        }
+    };
+    auto rejection_program =
+        [&](core::RoomRejectionStage stage) -> std::span<const core::GameplayCommand> {
+        const auto* source = source_configuration();
+        if (stage == core::RoomRejectionStage::TargetCanEnter)
+            return target->lifecycle.on_enter_rejected;
+        if (stage == core::RoomRejectionStage::ExitEligibility && source != nullptr &&
+            transition.selected_exit) {
+            const auto* exit = find_exit(*source, transition.selected_exit->exit_id);
+            if (exit != nullptr && !exit->on_rejected.empty())
+                return exit->on_rejected;
+        }
+        return source ? std::span<const core::GameplayCommand>{source->lifecycle.on_leave_rejected}
+                      : std::span<const core::GameplayCommand>{};
+    };
+    auto rejection_hook = [&](core::RoomRejectionStage stage) {
+        return stage == core::RoomRejectionStage::TargetCanEnter
+                   ? std::pair{ProjectHookKind::RoomRejectEnter, transition.target_room}
+                   : std::pair{ProjectHookKind::RoomRejectLeave,
+                               transition.source_room.value_or(transition.target_room)};
+    };
+    auto complete_rejection =
+        [&](core::RoomRejectionStage stage) -> std::optional<core::FlowRunOutcome> {
+        const auto [hook, hook_room] = rejection_hook(stage);
+        auto invoked = invoke_hook(hook, hook_room, m_room_lifecycle_capabilities,
+                                   ScriptInvocationResultKind::None, stage);
+        if (!invoked)
+            return fault(invoked.error());
+        auto completed = m_flow.complete_room_rejection();
+        if (!completed)
+            return fault(completed.error());
+        if (std::holds_alternative<core::CallerDestination>(transition.destination))
+            return std::nullopt;
+        return core::FlowModeChangedOutcome{m_state.mode()};
+    };
+    auto reject_navigation =
+        [&](core::RoomRejectionStage stage) -> std::optional<core::FlowRunOutcome> {
+        auto finalized = m_flow.finalize_room_rejection(transition.position, stage);
+        if (!finalized)
+            return fault(finalized.error());
+        if (rejection_program(stage).empty())
+            return complete_rejection(stage);
+        return std::nullopt;
+    };
+    auto run_program_command = [&](std::span<const core::GameplayCommand> program,
+                                   bool immediate_only) -> std::optional<core::FlowRunOutcome> {
+        const auto plan = gameplay_program_plan(program);
+        if (transition.position.next_effect >= plan.size())
+            return std::nullopt;
+        const auto& entry = plan[transition.position.next_effect];
+        if (entry.command == nullptr)
+            return fault(execution_error("execution.invalid_room_program",
+                                         "Room program cursor does not resolve to a command"));
+        if (transition.position.awaiting_completion) {
+            auto next = transition.position;
+            next.next_effect = entry.successor;
+            next.awaiting_completion = false;
+            auto advanced = m_flow.advance_room_program(transition.position, next);
+            return advanced ? std::nullopt : fault(advanced.error());
+        }
+        if (immediate_only && !gameplay_command_is_immediate(*entry.command))
+            return fault(execution_error(
+                "execution.yielding_room_precommit_command",
+                "Before Leave and Before Enter Room programs admit only immediate commands"));
+        auto* live = std::get_if<core::RoomTransitionFrame>(&m_state.m_flow_stack.back());
+        if (live == nullptr)
+            return fault(execution_error("execution.invalid_room_transition",
+                                         "Room program lost its transition frame"));
+        if (gameplay_command_is_immediate(*entry.command)) {
+            auto applied = apply_immediate_gameplay_batch(
+                std::span<const core::GameplayCommand>{entry.command, 1}, {},
+                live->command_results);
+            if (!applied)
+                return fault(applied.error());
+            auto next = transition.position;
+            next.next_effect = entry.successor;
+            auto advanced = m_flow.advance_room_program(transition.position, next);
+            return advanced ? std::nullopt : fault(advanced.error());
+        }
+        const auto sequential = entry.successor;
+        return std::visit(
+            [&](const auto& value) -> std::optional<core::FlowRunOutcome> {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::RunLuaCommand>) {
+                    auto applied = invoke_script(value.source, "room-gameplay-command");
+                    const auto* outcome = applied.value_if();
+                    if (outcome == nullptr)
+                        return fault(execution_error("execution.room_script_failed",
+                                                     applied.error().message));
+                    auto next = transition.position;
+                    if (std::holds_alternative<ScriptInvocationSuspended>(*outcome)) {
+                        next.awaiting_completion = true;
+                        auto marked = m_flow.mark_room_transition_wait(transition.position, next);
+                        return marked
+                                   ? std::optional<core::FlowRunOutcome>{core::FlowBlockedOutcome{
+                                         *m_state.blocker()}}
+                                   : fault(marked.error());
+                    }
+                    next.next_effect = sequential;
+                    auto advanced = m_flow.advance_room_program(transition.position, next);
+                    return advanced ? std::nullopt : fault(advanced.error());
+                } else if constexpr (std::is_same_v<T, core::NotifyCommand>) {
+                    auto message = resolve(value.message.source, runtime_locale);
+                    const auto* text = message.value_if();
+                    if (text == nullptr)
+                        return fault(execution_diagnostics(message.error()));
+                    auto requested = m_gateway.request_notification(*text);
+                    if (!requested)
+                        return fault(requested.error());
+                } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
+                    auto next = transition.position;
+                    next.next_effect = sequential;
+                    auto called = m_flow.call_child(value.scene, core::FlowFramePosition{next});
+                    return called ? std::nullopt : fault(called.error());
+                } else if constexpr (std::is_same_v<T, core::CallDialogueCommand>) {
+                    auto next = transition.position;
+                    next.next_effect = sequential;
+                    auto called = m_flow.call_child(value.dialogue, std::nullopt,
+                                                    core::FlowFramePosition{next});
+                    return called ? std::nullopt : fault(called.error());
+                } else if constexpr (std::is_same_v<T, core::IfGameplayCommand>) {
+                    const core::ConditionEvaluationContext context{
+                        .interaction_bindings = {}, .command_results = live->command_results};
+                    auto evaluated = m_primitives.evaluate(value.condition, context);
+                    if (!evaluated)
+                        return fault(evaluated.error());
+                    auto next = transition.position;
+                    next.next_effect = *evaluated.value_if() ? entry.then_first : entry.else_first;
+                    auto advanced = m_flow.advance_room_program(transition.position, next);
+                    return advanced ? std::nullopt : fault(advanced.error());
+                } else {
+                    return fault(execution_error(
+                        "execution.invalid_room_program",
+                        "Immediate Gameplay Command reached an observable Room program boundary"));
+                }
+                auto next = transition.position;
+                next.next_effect = sequential;
+                auto advanced = m_flow.advance_room_program(transition.position, next);
+                return advanced ? std::nullopt : fault(advanced.error());
+            },
+            entry.command->value);
+    };
 
     switch (transition.position.stage) {
     case core::RoomTransitionStage::SourceCanLeave: {
@@ -251,8 +454,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         }
         if (!allowed) {
             if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
-                return reject_navigation(ProjectHookKind::RoomRejectLeave, *transition.source_room,
-                                         core::RoomRejectionStage::SourceCanLeave);
+                return reject_navigation(core::RoomRejectionStage::SourceCanLeave);
             record_directed_guard(
                 "Directed Room Change ignored a false source can-leave guard for '" +
                 transition.source_room->text() + "'.");
@@ -276,8 +478,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
             return fault(eligible.error());
         if (!*eligible.value_if()) {
             if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
-                return reject_navigation(ProjectHookKind::RoomRejectLeave, *transition.source_room,
-                                         core::RoomRejectionStage::ExitEligibility);
+                return reject_navigation(core::RoomRejectionStage::ExitEligibility);
             record_directed_guard("Directed Room Change ignored a false selected-exit guard for '" +
                                   transition.source_room->text() + "." + exit->id.text() + "'.");
         }
@@ -296,8 +497,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         }
         if (!allowed) {
             if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
-                return reject_navigation(ProjectHookKind::RoomRejectEnter, transition.target_room,
-                                         core::RoomRejectionStage::TargetCanEnter);
+                return reject_navigation(core::RoomRejectionStage::TargetCanEnter);
             if (transition.entry_cause == core::RoomEntryCause::Entrypoint)
                 return fault(execution_error(
                     "execution.room_entry_rejected",
@@ -314,6 +514,12 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
     case core::RoomTransitionStage::BeforeEnter:
     case core::RoomTransitionStage::AfterLeave:
     case core::RoomTransitionStage::AfterEnter: {
+        const auto program = lifecycle_program(transition.position.stage);
+        const auto plan_size = gameplay_program_node_count(program);
+        if (transition.position.next_effect < plan_size)
+            return run_program_command(
+                program, transition.position.stage == core::RoomTransitionStage::BeforeLeave ||
+                             transition.position.stage == core::RoomTransitionStage::BeforeEnter);
         const auto hook = lifecycle_hook(transition.position.stage);
         const auto target_id = lifecycle_hook_target(transition);
         if (!hook || !target_id)
@@ -324,6 +530,15 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         if (!invoked)
             return fault(invoked.error());
         return advance({next_hook_stage(transition), 0, false});
+    }
+    case core::RoomTransitionStage::RejectionProgram: {
+        if (!transition.rejection_stage)
+            return fault(execution_error("execution.invalid_room_rejection",
+                                         "Finalized Room rejection is missing its failed stage"));
+        const auto program = rejection_program(*transition.rejection_stage);
+        if (transition.position.next_effect < gameplay_program_node_count(program))
+            return run_program_command(program, false);
+        return complete_rejection(*transition.rejection_stage);
     }
     case core::RoomTransitionStage::CommitRoomSwitch: {
         if (transition.position.awaiting_completion)

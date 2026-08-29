@@ -681,10 +681,17 @@ struct RoomExit {
     TextContent label;
     RoomId target;
     std::optional<RoomNavigationTransition> transition;
+    std::vector<GameplayCommand> on_rejected;
 };
 struct RoomLifecycle {
     Condition can_enter;
     Condition can_leave;
+    std::vector<GameplayCommand> before_enter;
+    std::vector<GameplayCommand> after_enter;
+    std::vector<GameplayCommand> before_leave;
+    std::vector<GameplayCommand> after_leave;
+    std::vector<GameplayCommand> on_enter_rejected;
+    std::vector<GameplayCommand> on_leave_rejected;
 };
 struct RoomOverlay {
     RoomOverlayId id;

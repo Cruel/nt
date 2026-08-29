@@ -96,6 +96,11 @@ commit boundary, however, and publications expose that committed Room immediatel
 base Room context. A nested Scene, Dialogue, or Interaction started by an after-enter effect may be
 published beside that Room context; it does not delay or replace current-Room identity. Room
 description continuation remains suppressed while the transition lifecycle is still Flow-owned.
+Navigation rejection finalizes the failed pre-commit attempt before its declarative rejection program
+runs: the authoritative Room visit is still the source, the transition is marked rejected rather than
+half-committed, and Flow-capable rejection commands may suspend or call child Scene/Dialogue work.
+The saved Flow cursor records that finalized rejection stage plus command position/result bindings so
+restore resumes the rejection program instead of re-evaluating the failed guard.
 
 ## Saves
 

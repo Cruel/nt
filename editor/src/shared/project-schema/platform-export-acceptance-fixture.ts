@@ -82,6 +82,7 @@ export function createPlatformExportAcceptanceFixture() {
       direction: 'east',
       target: roomRoomRef('gallery'),
       condition: { kind: 'always' },
+      onRejected: [],
     },
   ];
   foyer.overlays = [

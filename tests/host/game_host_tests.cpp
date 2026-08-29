@@ -262,6 +262,7 @@ std::string navigable_compiled_project_fixture()
           {"condition", {{"kind", "always"}}},
           {"direction", "south"},
           {"label", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "South"}}}}},
+          {"onRejected", nlohmann::json::array()},
           {"target", {{"kind", "room"}, {"id", "start"}}},
           {"transition", nullptr}}});
 
@@ -272,6 +273,7 @@ std::string navigable_compiled_project_fixture()
           {"condition", {{"kind", "always"}}},
           {"direction", "north"},
           {"label", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "North"}}}}},
+          {"onRejected", nlohmann::json::array()},
           {"target", {{"kind", "room"}, {"id", "hall"}}},
           {"transition", nullptr}}});
     rooms.push_back(std::move(hall));

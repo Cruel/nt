@@ -955,6 +955,7 @@ const roomExitSchema = strict({
   label: compiledTextSchema,
   target: roomReferenceSchema,
   transition: roomNavigationTransitionSchema.nullable(),
+  onRejected: z.array(compiledGameplayCommandSchema),
 });
 const roomScriptHookMappingSchema = strict({
   hook: z.enum([
@@ -990,6 +991,12 @@ const roomDefinitionSchema = strict({
   lifecycle: strict({
     canEnter: compiledConditionSchema,
     canLeave: compiledConditionSchema,
+    beforeEnter: z.array(compiledGameplayCommandSchema),
+    afterEnter: z.array(compiledGameplayCommandSchema),
+    beforeLeave: z.array(compiledGameplayCommandSchema),
+    afterLeave: z.array(compiledGameplayCommandSchema),
+    onEnterRejected: z.array(compiledGameplayCommandSchema),
+    onLeaveRejected: z.array(compiledGameplayCommandSchema),
   }),
   overlays: z.array(
     strict({

@@ -676,6 +676,7 @@ describe('typed source registry and graph evidence', () => {
         direction: 'east',
         target: { $ref: { collection: 'rooms', id: 'target' } },
         condition: { kind: 'always' },
+        onRejected: [],
       },
     ];
     project.rooms.room = {

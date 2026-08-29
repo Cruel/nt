@@ -213,6 +213,18 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                           base + "/lifecycle/canEnter");
         certify_condition(diagnostics, scripts, room.lifecycle.can_leave,
                           base + "/lifecycle/canLeave");
+        certify_gameplay_commands(diagnostics, scripts, room.lifecycle.before_enter,
+                                  base + "/lifecycle/beforeEnter");
+        certify_gameplay_commands(diagnostics, scripts, room.lifecycle.after_enter,
+                                  base + "/lifecycle/afterEnter");
+        certify_gameplay_commands(diagnostics, scripts, room.lifecycle.before_leave,
+                                  base + "/lifecycle/beforeLeave");
+        certify_gameplay_commands(diagnostics, scripts, room.lifecycle.after_leave,
+                                  base + "/lifecycle/afterLeave");
+        certify_gameplay_commands(diagnostics, scripts, room.lifecycle.on_enter_rejected,
+                                  base + "/lifecycle/onEnterRejected");
+        certify_gameplay_commands(diagnostics, scripts, room.lifecycle.on_leave_rejected,
+                                  base + "/lifecycle/onLeaveRejected");
         for (std::size_t placement_index = 0; placement_index < room.placements.size();
              ++placement_index) {
             const auto& placement = room.placements[placement_index];
@@ -226,6 +238,9 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                               base + "/exits/" + std::to_string(exit_index) + "/condition");
             certify_text(diagnostics, scripts, room.exits[exit_index].label,
                          base + "/exits/" + std::to_string(exit_index) + "/label");
+            certify_gameplay_commands(diagnostics, scripts, room.exits[exit_index].on_rejected,
+                                      base + "/exits/" + std::to_string(exit_index) +
+                                          "/onRejected");
         }
     }
 

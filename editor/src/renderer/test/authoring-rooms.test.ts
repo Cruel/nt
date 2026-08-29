@@ -53,6 +53,7 @@ describe('authoring rooms schema', () => {
         direction: 'north',
         target: roomRoomRef('missing-room'),
         condition: { kind: 'always' },
+        onRejected: [],
       },
       {
         id: 'exit',
@@ -60,6 +61,7 @@ describe('authoring rooms schema', () => {
         direction: 'north',
         target: roomRoomRef('missing-room'),
         condition: { kind: 'always' },
+        onRejected: [],
       },
     ];
     data.placements = [

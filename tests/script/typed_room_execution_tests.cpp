@@ -431,6 +431,26 @@ TEST_CASE("typed Room navigation preserves serialized atomic lifecycle order")
             hook["handler"] = {{"module", {{"kind", "script"}, {"id", "ordered-room-hooks"}}},
                                {"export", "before_leave"}};
     }
+    room_document(document, "start")["lifecycle"]["beforeLeave"] =
+        nlohmann::json::array({{{"id", "before-leave-command"},
+                                {"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "count"}}},
+                                {"value", 10}}});
+    room_document(document, "hall")["lifecycle"]["beforeEnter"] =
+        nlohmann::json::array({{{"id", "before-enter-command"},
+                                {"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "count"}}},
+                                {"value", 20}}});
+    room_document(document, "start")["lifecycle"]["afterLeave"] =
+        nlohmann::json::array({{{"id", "after-leave-command"},
+                                {"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "count"}}},
+                                {"value", 30}}});
+    room_document(document, "hall")["lifecycle"]["afterEnter"] =
+        nlohmann::json::array({{{"id", "after-enter-command"},
+                                {"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "count"}}},
+                                {"value", 40}}});
     auto project = decode_document(std::move(document), "room-navigation");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
@@ -451,6 +471,12 @@ TEST_CASE("typed Room navigation preserves serialized atomic lifecycle order")
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::BeforeLeave);
+    CHECK(active_transition(*kernel).position.next_effect == 1);
+    CHECK(kernel->gateway().global_property(id<core::PropertyId>("count")).value() ==
+          core::RuntimeValue{std::int64_t{10}});
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::BeforeEnter);
     CHECK(active_transition(*kernel).position.next_effect == 0);
     CHECK_FALSE(active_transition(*kernel).position.awaiting_completion);
@@ -459,11 +485,34 @@ TEST_CASE("typed Room navigation preserves serialized atomic lifecycle order")
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::BeforeEnter);
+    CHECK(active_transition(*kernel).position.next_effect == 1);
+    CHECK(kernel->gateway().global_property(id<core::PropertyId>("count")).value() ==
+          core::RuntimeValue{std::int64_t{20}});
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::CommitRoomSwitch);
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::AfterLeave);
     CHECK(kernel->state().room_visits(id<core::RoomId>("hall")) == 1);
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::AfterLeave);
+    CHECK(active_transition(*kernel).position.next_effect == 1);
+    CHECK(kernel->gateway().global_property(id<core::PropertyId>("count")).value() ==
+          core::RuntimeValue{std::int64_t{30}});
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::AfterEnter);
+    CHECK(kernel->gateway().global_property(id<core::PropertyId>("count")).value() ==
+          core::RuntimeValue{std::int64_t{3}});
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
+    CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::AfterEnter);
+    CHECK(active_transition(*kernel).position.next_effect == 1);
+    CHECK(kernel->gateway().global_property(id<core::PropertyId>("count")).value() ==
+          core::RuntimeValue{std::int64_t{40}});
     REQUIRE(kernel->refresh_room_presentation("en"));
     REQUIRE(kernel->room_presentation());
     auto hall_presentation = core::PresentationProjector::project(
@@ -474,7 +523,7 @@ TEST_CASE("typed Room navigation preserves serialized atomic lifecycle order")
 
     drive_to_room(*kernel, id<core::RoomId>("hall"));
     CHECK(kernel->gateway().global_property(id<core::PropertyId>("count")).value() ==
-          core::RuntimeValue{std::int64_t{3}});
+          core::RuntimeValue{std::int64_t{40}});
     auto view = kernel->room_view("en");
     REQUIRE(view);
     CHECK(view.value().description == "Hall description.");
@@ -497,6 +546,43 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("start"));
         CHECK(kernel->state().room_visits(id<core::RoomId>("hall")) == 0);
         CHECK(notifications(*kernel).empty());
+    }
+
+    SECTION("rejection finalizes before a declarative child Scene starts")
+    {
+        RuntimeFixture fixture;
+        install_room_scripts(fixture, false);
+        auto document = load_document("comprehensive.json");
+        room_document(document, "start")["lifecycle"]["onLeaveRejected"] =
+            nlohmann::json::array({{{"id", "rejected-scene"},
+                                    {"kind", "call-scene"},
+                                    {"scene", {{"kind", "scene"}, {"id", "opening"}}}}});
+        auto project = decode_document(std::move(document), "room-reject-child-scene");
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
+        REQUIRE(created);
+        auto kernel = std::move(created).value();
+        drive_to_room(*kernel, id<core::RoomId>("start"));
+        const auto source_context = *kernel->state().room_visit();
+
+        REQUIRE(kernel->navigate(id<core::RoomExitId>("north-exit")));
+        REQUIRE(std::holds_alternative<core::FlowBudgetYieldOutcome>(
+            kernel->run_until_blocked(1, "en")));
+        const auto& rejected = active_transition(*kernel);
+        CHECK(rejected.position.stage == core::RoomTransitionStage::RejectionProgram);
+        CHECK(rejected.rejection_stage == core::RoomRejectionStage::SourceCanLeave);
+        REQUIRE(kernel->state().room_visit());
+        CHECK(*kernel->state().room_visit() == source_context);
+
+        REQUIRE(std::holds_alternative<core::FlowBudgetYieldOutcome>(
+            kernel->run_until_blocked(1, "en")));
+        REQUIRE(kernel->state().flow_stack().size() >= 2);
+        const auto& parent = std::get<core::RoomTransitionFrame>(
+            kernel->state().flow_stack()[kernel->state().flow_stack().size() - 2]);
+        CHECK(parent.position.stage == core::RoomTransitionStage::RejectionProgram);
+        CHECK(parent.rejection_stage == core::RoomRejectionStage::SourceCanLeave);
+        CHECK(std::holds_alternative<core::SceneFrame>(kernel->state().flow_stack().back()));
+        REQUIRE(kernel->state().room_visit());
+        CHECK(*kernel->state().room_visit() == source_context);
     }
 
     SECTION("selected exit rejection resumes the source")
@@ -617,6 +703,7 @@ TEST_CASE("Room self-loop navigation creates a distinct Active Room Context")
          {"direction", "custom"},
          {"label", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Stay"}}}}},
          {"target", {{"kind", "room"}, {"id", "start"}}},
+         {"onRejected", nlohmann::json::array()},
          {"transition", nullptr}});
     auto project = decode_document(std::move(document), "room-self-loop");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);

@@ -713,11 +713,18 @@ export function comprehensiveGoldenProject(): AuthoringProject {
         variable: variableReference('flag'),
         operator: 'truthy',
       },
+      onRejected: [],
     },
   ];
   start.lifecycle = {
     canEnter: { kind: 'always' },
     canLeave: { kind: 'lua-predicate', source: 'can_leave_start()' },
+    beforeEnter: [],
+    afterEnter: [],
+    beforeLeave: [],
+    afterLeave: [],
+    onEnterRejected: [],
+    onLeaveRejected: [],
   };
   start.scriptHooks = [
     {
@@ -804,6 +811,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       direction: 'south',
       target: roomRoomRef('start'),
       condition: { kind: 'always' },
+      onRejected: [],
     },
     {
       id: 'east-exit',
@@ -811,6 +819,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       direction: 'east',
       target: roomRoomRef('tower'),
       condition: { kind: 'lua-predicate', source: 'tower_open()' },
+      onRejected: [],
     },
   ];
   project.rooms.hall = {
@@ -832,6 +841,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       direction: 'west',
       target: roomRoomRef('hall'),
       condition: { kind: 'always' },
+      onRejected: [],
     },
   ];
   project.rooms.tower = { id: 'tower', label: 'Tower', data: tower };

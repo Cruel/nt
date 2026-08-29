@@ -33,6 +33,7 @@ describe('runtime-content authoring contracts', () => {
       direction: 'east',
       target: { $ref: { collection: 'rooms', id: 'garden' } },
       condition: { kind: 'always' },
+      onRejected: [],
     });
     const key = defaultInteractableData('Key');
     key.presentation.hotspots = { kind: 'custom', hotspots: [] };

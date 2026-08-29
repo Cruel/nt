@@ -47,6 +47,7 @@ describe('authoring maps', () => {
       direction: 'east',
       target: { $ref: { collection: 'rooms', id: 'b' } },
       condition: { kind: 'always' },
+      onRejected: [],
     });
     const map = defaultMapData();
     addLocation(map, 'a-location', 'a');
@@ -91,6 +92,7 @@ describe('authoring maps', () => {
       direction: 'east',
       target: { $ref: { collection: 'rooms', id: 'b' } },
       condition: { kind: 'always' },
+      onRejected: [],
     });
     project.rooms.c.data.exits.push({
       id: 'to-b',
@@ -98,6 +100,7 @@ describe('authoring maps', () => {
       direction: 'west',
       target: { $ref: { collection: 'rooms', id: 'b' } },
       condition: { kind: 'always' },
+      onRejected: [],
     });
     const map = defaultMapData();
     addLocation(map, 'a-location', 'a');

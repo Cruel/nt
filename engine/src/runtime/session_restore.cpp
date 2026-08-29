@@ -480,7 +480,9 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
                                                frame.entry_cause,
                                                frame.source_context,
                                                frame.position,
-                                               frame.destination};
+                                               frame.destination,
+                                               frame.rejection_stage,
+                                               frame.command_results};
             },
             saved_frame);
     };
