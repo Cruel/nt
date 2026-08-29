@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
@@ -39,6 +39,32 @@ beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
 });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+function loadTimelineScene() {
+  const project = createAuthoringProject();
+  const data = defaultSceneData('Opening');
+  const opening = defaultSceneStep('show-text', 'Opening text');
+  opening.id = 'opening-text';
+  opening.timeline = { trackId: 'dialogue', startMs: 100, durationMs: 500 };
+  const overlap = defaultSceneStep('comment', 'Overlapping note');
+  overlap.id = 'overlapping-note';
+  overlap.timeline = { trackId: 'dialogue', startMs: 300, durationMs: 400 };
+  const hold = defaultSceneStep('wait', 'Effect hold');
+  hold.id = 'effect-hold';
+  hold.timeline = { trackId: 'effects', startMs: 750, durationMs: 150 };
+  data.events = [opening, overlap, hold];
+  project.scenes.opening = { id: 'opening', label: 'Opening', data };
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock',
+    projectFilePath: '/mock/project.json',
+  });
+  return project;
+}
 
 describe('SceneEditor', () => {
   it('renders strict scene data and keeps selection out of project data', async () => {
@@ -98,5 +124,99 @@ describe('SceneEditor', () => {
     expect(screen.getByText('Identity Property references')).toBeInTheDocument();
     expect(screen.getByText('Foyer')).toBeInTheDocument();
     expect(screen.getByText('Locked')).toBeInTheDocument();
+  });
+
+  it('renders authored timeline tracks and overlapping clips and selects clips directly', () => {
+    loadTimelineScene();
+
+    render(<SceneEditor tab={tab} />);
+
+    expect(screen.getByTitle('dialogue')).toBeInTheDocument();
+    expect(screen.getByTitle('effects')).toBeInTheDocument();
+    const opening = screen.getByTitle('Opening text · 100–600 ms');
+    const overlap = screen.getByTitle('Overlapping note · 300–700 ms');
+    const hold = screen.getByTitle('Effect hold · 750–900 ms');
+    expect(opening).toHaveStyle({ left: '10%', width: '50%' });
+    expect(overlap).toHaveStyle({ left: '30%', width: '40%' });
+    expect(hold).toHaveStyle({ left: '75%', width: '15%' });
+    expect(
+      Number.parseFloat(opening.style.left) + Number.parseFloat(opening.style.width),
+    ).toBeGreaterThan(Number.parseFloat(overlap.style.left));
+
+    fireEvent.click(overlap);
+
+    expect(screen.getByTestId('scene-derived-preview')).toHaveAttribute(
+      'data-selected',
+      'overlapping-note',
+    );
+    expect(overlap).toHaveClass('bg-accent');
+    expect(screen.getByRole('slider')).toHaveValue('300');
+    expect(screen.getByText('0.30s / 1.00s')).toBeInTheDocument();
+  });
+
+  it('scrubs deterministically, updates active preview selection, and keeps playback state transient', () => {
+    const project = loadTimelineScene();
+    const authoredSceneBeforePlayback = structuredClone(project.scenes.opening!.data);
+
+    render(<SceneEditor tab={tab} />);
+
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '150' } });
+    expect(slider).toHaveValue('150');
+    expect(screen.getByText('0.15s / 1.00s')).toBeInTheDocument();
+    expect(screen.getByTestId('scene-derived-preview')).toHaveAttribute(
+      'data-selected',
+      'opening-text',
+    );
+
+    fireEvent.change(slider, { target: { value: '500' } });
+    expect(slider).toHaveValue('500');
+    expect(screen.getByText('0.50s / 1.00s')).toBeInTheDocument();
+    expect(screen.getByTestId('scene-derived-preview')).toHaveAttribute(
+      'data-selected',
+      'overlapping-note',
+    );
+
+    expect((useProjectStore.getState().document as typeof project).scenes.opening!.data).toEqual(
+      authoredSceneBeforePlayback,
+    );
+  });
+
+  it('plays, pauses, and resets the timeline using controlled time without authoring mutations', () => {
+    vi.useFakeTimers();
+    const project = loadTimelineScene();
+    const authoredSceneBeforePlayback = structuredClone(project.scenes.opening!.data);
+
+    render(<SceneEditor tab={tab} />);
+
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '150' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+    expect(slider).toHaveValue('300');
+    expect(screen.getByText('0.30s / 1.00s')).toBeInTheDocument();
+    expect(screen.getByTestId('scene-derived-preview')).toHaveAttribute(
+      'data-selected',
+      'overlapping-note',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(slider).toHaveValue('300');
+    expect(screen.getByText('0.30s / 1.00s')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
+    expect(slider).toHaveValue('0');
+    expect(screen.getByText('0.00s / 1.00s')).toBeInTheDocument();
+    expect((useProjectStore.getState().document as typeof project).scenes.opening!.data).toEqual(
+      authoredSceneBeforePlayback,
+    );
   });
 });
