@@ -61,6 +61,9 @@ const dialogueReference = (id: string) => ({ $ref: { collection: 'dialogues' as 
 const interactableReference = (id: string) => ({
   $ref: { collection: 'interactables' as const, id },
 });
+const interactableInstanceReference = (id: string) => ({
+  $ref: { registry: 'interactableInstances' as const, id },
+});
 const roomReference = (id: string) => ({ $ref: { collection: 'rooms' as const, id } });
 const variableReference = (id: string) => ({ $ref: { collection: 'variables' as const, id } });
 const verbReference = (id: string) => ({ $ref: { collection: 'verbs' as const, id } });
@@ -1741,7 +1744,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           selectors: [
             {
               kind: 'exact',
-              subject: { kind: 'interactable', interactable: interactableReference('key') },
+              subject: { kind: 'interactable', interactable: interactableInstanceReference('key') },
             },
           ],
         },
@@ -1809,7 +1812,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           selectors: [
             {
               kind: 'exact',
-              subject: { kind: 'interactable', interactable: interactableReference('key') },
+              subject: { kind: 'interactable', interactable: interactableInstanceReference('key') },
             },
           ],
         },
@@ -1844,7 +1847,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           selectors: [
             {
               kind: 'exact',
-              subject: { kind: 'interactable', interactable: interactableReference('key') },
+              subject: { kind: 'interactable', interactable: interactableInstanceReference('key') },
             },
           ],
         },
@@ -1853,7 +1856,10 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           selectors: [
             {
               kind: 'exact',
-              subject: { kind: 'interactable', interactable: interactableReference('coin') },
+              subject: {
+                kind: 'interactable',
+                interactable: interactableInstanceReference('coin'),
+              },
             },
           ],
         },
@@ -1968,7 +1974,7 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
         { kind: 'qualified-pattern', family: 'interactable', pattern: 'key*' },
         {
           kind: 'exact',
-          subject: { kind: 'interactable', interactable: interactableReference('key') },
+          subject: { kind: 'interactable', interactable: interactableInstanceReference('key') },
         },
       ],
     },

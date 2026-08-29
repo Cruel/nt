@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
-import { characterRefSchema, interactableRefSchema, roomRefSchema } from './authoring-flow';
+import { characterRefSchema, roomRefSchema } from './authoring-flow';
 import { ownerDefaultPropertiesSchema, ownerLocalPropertiesSchema } from './authoring-properties';
 import { inventoryDefinitionSchema } from './authoring-inventories';
 
@@ -33,14 +33,8 @@ export const featureRefSchema = z.discriminatedUnion('ownerKind', [
 
 export const interactionSubjectSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableRefSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
   strict({ kind: z.literal('feature'), feature: featureRefSchema }),
-  strict({
-    kind: z.literal('item-stack'),
-    itemStack: strict({
-      $ref: strict({ collection: z.literal('itemStacks'), id: entityIdSchema }),
-    }),
-  }),
 ]);
 
 export const roomHotspotTargetSchema = z.discriminatedUnion('kind', [

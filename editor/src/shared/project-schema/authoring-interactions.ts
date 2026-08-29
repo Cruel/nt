@@ -267,29 +267,45 @@ function validateSubjectSelector(
       );
     return;
   }
-  if (selector.kind === 'item-definition') {
-    diagnostics.push(
-      diagnostic(
-        `${path}/itemDefinition/$ref`,
-        'Item Definition selectors are retired; use Interactable Instance/definition matching.',
-      ),
-    );
+  if (selector.kind === 'interactable-definition') {
+    if (!project.interactables[selector.interactableDefinition.$ref.id])
+      diagnostics.push(
+        diagnostic(
+          `${path}/interactableDefinition/$ref`,
+          `Missing Interactable definition '${selector.interactableDefinition.$ref.id}'.`,
+        ),
+      );
+    return;
+  }
+  if (selector.kind === 'interactable-feature') {
+    const definitionId = selector.interactableDefinition.$ref.id;
+    const definition = parseInteractableData(project.interactables[definitionId]?.data);
+    if (!definition)
+      diagnostics.push(
+        diagnostic(
+          `${path}/interactableDefinition/$ref`,
+          `Missing or invalid Interactable definition '${definitionId}'.`,
+        ),
+      );
+    else if (!definition.features.some((feature) => feature.id === selector.featureId))
+      diagnostics.push(
+        diagnostic(
+          `${path}/featureId`,
+          `Missing Feature '${selector.featureId}' on Interactable definition '${definitionId}'.`,
+        ),
+      );
     return;
   }
   if (selector.kind !== 'exact') return;
   const subject = selector.subject;
-  if (subject.kind === 'interactable' && !project.interactables[subject.interactable.$ref.id])
+  if (
+    subject.kind === 'interactable' &&
+    !project.interactableInstances[subject.interactable.$ref.id]
+  )
     diagnostics.push(
       diagnostic(
         `${path}/subject/interactable/$ref`,
-        `Missing interactable '${subject.interactable.$ref.id}'.`,
-      ),
-    );
-  else if (subject.kind === 'item-stack')
-    diagnostics.push(
-      diagnostic(
-        `${path}/subject/itemStack/$ref`,
-        'Item Stack subjects are retired; use Interactable Instances.',
+        `Missing Interactable Instance '${subject.interactable.$ref.id}'.`,
       ),
     );
   else if (subject.kind === 'character' && !project.characters[subject.character.$ref.id])

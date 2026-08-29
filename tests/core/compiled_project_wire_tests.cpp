@@ -436,8 +436,11 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
             {{{"kind", "any-subject"}},
              {{"kind", "family"}, {"family", "interactable"}},
              {{"kind", "trait"}, {"trait", {{"kind", "trait"}, {"id", "feature-enabled"}}}},
-             {{"kind", "item-definition"},
-              {"itemDefinition", {{"kind", "item-definition"}, {"id", "credits"}}}},
+             {{"kind", "interactable-definition"},
+              {"interactableDefinition", {{"kind", "interactable-definition"}, {"id", "key"}}}},
+             {{"kind", "interactable-feature"},
+              {"interactableDefinition", {{"kind", "interactable-definition"}, {"id", "key"}}},
+              {"featureId", "surface"}},
              {{"kind", "qualified-pattern"}, {"family", "interactable"}, {"pattern", "key*"}},
              {{"kind", "exact"},
               {"subject",
@@ -446,13 +449,14 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         auto result = decode_shared_project(document, "selector-vocabulary.json");
         REQUIRE(result);
         const auto& decoded = result.value().verbs[4].slots.front().selectors;
-        REQUIRE(decoded.size() == 6);
+        REQUIRE(decoded.size() == 7);
         CHECK(std::holds_alternative<AnySubjectSelector>(decoded[0]));
         CHECK(std::holds_alternative<FamilySubjectSelector>(decoded[1]));
         CHECK(std::holds_alternative<TraitSubjectSelector>(decoded[2]));
-        CHECK(std::holds_alternative<ItemDefinitionSubjectSelector>(decoded[3]));
-        CHECK(std::holds_alternative<QualifiedPatternSubjectSelector>(decoded[4]));
-        CHECK(std::holds_alternative<ExactSubjectSelector>(decoded[5]));
+        CHECK(std::holds_alternative<InteractableDefinitionSubjectSelector>(decoded[3]));
+        CHECK(std::holds_alternative<InteractableFeatureSubjectSelector>(decoded[4]));
+        CHECK(std::holds_alternative<QualifiedPatternSubjectSelector>(decoded[5]));
+        CHECK(std::holds_alternative<ExactSubjectSelector>(decoded[6]));
     }
 }
 

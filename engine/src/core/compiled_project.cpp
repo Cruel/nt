@@ -101,7 +101,7 @@ bool valid_subject_selector(const compiled::SubjectSelector& selector) noexcept
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, compiled::FamilySubjectSelector> ||
                           std::is_same_v<T, compiled::QualifiedPatternSubjectSelector>) {
-                if (!enum_at_most(value.family, compiled::SubjectFamily::ItemStack))
+                if (!enum_at_most(value.family, compiled::SubjectFamily::Feature))
                     return false;
                 if constexpr (std::is_same_v<T, compiled::QualifiedPatternSubjectSelector>)
                     return value.pattern.size() >= 2 && value.pattern.back() == '*' &&

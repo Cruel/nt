@@ -17,7 +17,7 @@ const ref = (id: string) => ({
   kind: 'exact' as const,
   subject: {
     kind: 'interactable' as const,
-    interactable: { $ref: { collection: 'interactables' as const, id } },
+    interactable: { $ref: { registry: 'interactableInstances' as const, id } },
   },
 });
 

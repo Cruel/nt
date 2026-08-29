@@ -38,7 +38,6 @@ describe('recorded test draft conversion', () => {
               subjects: [
                 { kind: 'character', id: 'guard' },
                 { kind: 'interactable', id: 'lamp' },
-                { kind: 'item-stack', id: 'coins' },
                 {
                   kind: 'feature',
                   ownerKind: 'room',
@@ -115,11 +114,7 @@ describe('recorded test draft conversion', () => {
               { kind: 'character', character: { $ref: { collection: 'characters', id: 'guard' } } },
               {
                 kind: 'interactable',
-                interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
-              },
-              {
-                kind: 'item-stack',
-                itemStack: { $ref: { collection: 'itemStacks', id: 'coins' } },
+                interactable: { $ref: { registry: 'interactableInstances', id: 'lamp' } },
               },
               {
                 kind: 'feature',
@@ -138,7 +133,7 @@ describe('recorded test draft conversion', () => {
           subjectAction: {
             subject: {
               kind: 'interactable',
-              interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
+              interactable: { $ref: { registry: 'interactableInstances', id: 'lamp' } },
             },
           },
         },
@@ -174,7 +169,7 @@ describe('recorded test draft conversion', () => {
                 slotId: 'object',
                 subject: {
                   kind: 'interactable',
-                  interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
+                  interactable: { $ref: { registry: 'interactableInstances', id: 'lamp' } },
                 },
               },
             ],

@@ -179,16 +179,9 @@ interaction_subject(const sol::table& subject)
                             std::move(*parsed.value_if())})
                       : Result::failure(parsed.error());
     }
-    if (kind == "item-stack") {
-        auto parsed = parse_id<core::ItemStackId>(id);
-        return parsed ? Result::success(core::compiled::ItemStackInteractionSubject{
-                            std::move(*parsed.value_if())})
-                      : Result::failure(parsed.error());
-    }
     return Result::failure(core::Diagnostics{core::Diagnostic{
         .code = "runtime.invalid_interaction_operand",
-        .message =
-            "Interaction subject kind must be character, interactable, feature, or item-stack",
+        .message = "Interaction subject kind must be character, interactable, or feature",
     }});
 }
 

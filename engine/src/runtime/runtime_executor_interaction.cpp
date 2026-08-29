@@ -117,9 +117,7 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
             return core::compiled::SubjectFamily::Character;
         if (std::holds_alternative<core::compiled::InteractableInteractionSubject>(value))
             return core::compiled::SubjectFamily::Interactable;
-        if (std::holds_alternative<core::compiled::FeatureInteractionSubject>(value))
-            return core::compiled::SubjectFamily::Feature;
-        return core::compiled::SubjectFamily::ItemStack;
+        return core::compiled::SubjectFamily::Feature;
     };
     const auto subject_identity = [](const core::compiled::InteractionSubject& value) {
         return std::visit(
@@ -130,8 +128,6 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                 else if constexpr (std::is_same_v<T,
                                                   core::compiled::InteractableInteractionSubject>)
                     return std::string("interactable:") + typed.interactable.text();
-                else if constexpr (std::is_same_v<T, core::compiled::ItemStackInteractionSubject>)
-                    return std::string("item-stack:") + typed.item_stack.text();
                 else
                     return std::visit(
                         [](const auto& feature) {
@@ -159,10 +155,6 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                                          T, core::compiled::InteractableInteractionSubject>) {
                     const auto* config = m_world.resolved_configuration(typed.interactable);
                     return config ? &config->identity.traits : nullptr;
-                } else if constexpr (std::is_same_v<T,
-                                                    core::compiled::ItemStackInteractionSubject>) {
-                    const auto* stack = m_world.item_stack(typed.item_stack);
-                    return stack ? &stack->traits : nullptr;
                 } else {
                     return std::visit(
                         [this](const auto& feature) -> const std::vector<core::TraitId>* {
@@ -199,12 +191,24 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                     return value.family == subject_family(subject);
                 else if constexpr (std::is_same_v<T, core::compiled::TraitSubjectSelector>)
                     return has_trait(subject, value.trait);
-                else if constexpr (std::is_same_v<T,
-                                                  core::compiled::ItemDefinitionSubjectSelector>) {
-                    const auto* stack =
-                        std::get_if<core::compiled::ItemStackInteractionSubject>(&subject);
-                    const auto* state = stack ? m_world.item_stack(stack->item_stack) : nullptr;
-                    return state && state->definition == value.item_definition;
+                else if constexpr (std::is_same_v<
+                                       T, core::compiled::InteractableDefinitionSubjectSelector>) {
+                    const auto* interactable =
+                        std::get_if<core::compiled::InteractableInteractionSubject>(&subject);
+                    return interactable && m_world.matches_interactable(
+                                               interactable->interactable,
+                                               InteractableMatcher{value.interactable_definition});
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::InteractableFeatureSubjectSelector>) {
+                    const auto* feature =
+                        std::get_if<core::compiled::FeatureInteractionSubject>(&subject);
+                    const auto* interactable =
+                        feature ? std::get_if<core::InteractableFeatureRef>(&feature->feature)
+                                : nullptr;
+                    return interactable && interactable->feature_id == value.feature_id &&
+                           m_world.matches_interactable(
+                               interactable->interactable,
+                               InteractableMatcher{value.interactable_definition});
                 } else if constexpr (std::is_same_v<
                                          T, core::compiled::QualifiedPatternSubjectSelector>) {
                     if (value.family != subject_family(subject))
@@ -232,7 +236,10 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                                                   core::compiled::QualifiedPatternSubjectSelector>)
                     return {4, value.pattern.size()};
                 else if constexpr (std::is_same_v<T, core::compiled::TraitSubjectSelector> ||
-                                   std::is_same_v<T, core::compiled::ItemDefinitionSubjectSelector>)
+                                   std::is_same_v<
+                                       T, core::compiled::InteractableDefinitionSubjectSelector> ||
+                                   std::is_same_v<
+                                       T, core::compiled::InteractableFeatureSubjectSelector>)
                     return {3, 0};
                 else if constexpr (std::is_same_v<T, core::compiled::FamilySubjectSelector>)
                     return {2, 0};
@@ -384,15 +391,6 @@ RuntimeExecutor::command_builder_reference(const core::compiled::InteractionSubj
                     view.visible = state->visible;
                     view.effective_room = m_world.effective_room(typed.interactable);
                 }
-            } else if constexpr (std::is_same_v<T, core::compiled::ItemStackInteractionSubject>) {
-                const auto* stack = m_world.item_stack(typed.item_stack);
-                view.live = stack != nullptr;
-                view.enabled = view.live;
-                view.visible = view.live;
-                if (stack) {
-                    view.traits = stack->traits;
-                    view.effective_room = m_world.effective_room(typed.item_stack);
-                }
             } else {
                 std::visit(
                     [&](const auto& feature) {
@@ -485,9 +483,7 @@ RuntimeExecutor::interact_in_context(core::VerbId verb_id,
             return core::compiled::SubjectFamily::Character;
         if (std::holds_alternative<core::compiled::InteractableInteractionSubject>(subject))
             return core::compiled::SubjectFamily::Interactable;
-        if (std::holds_alternative<core::compiled::FeatureInteractionSubject>(subject))
-            return core::compiled::SubjectFamily::Feature;
-        return core::compiled::SubjectFamily::ItemStack;
+        return core::compiled::SubjectFamily::Feature;
     };
     auto subject_identity = [](const core::compiled::InteractionSubject& subject) {
         return std::visit(
@@ -498,8 +494,6 @@ RuntimeExecutor::interact_in_context(core::VerbId verb_id,
                 else if constexpr (std::is_same_v<T,
                                                   core::compiled::InteractableInteractionSubject>)
                     return std::string("interactable:") + value.interactable.text();
-                else if constexpr (std::is_same_v<T, core::compiled::ItemStackInteractionSubject>)
-                    return std::string("item-stack:") + value.item_stack.text();
                 else
                     return std::visit(
                         [](const auto& feature) {
@@ -527,10 +521,6 @@ RuntimeExecutor::interact_in_context(core::VerbId verb_id,
                                          T, core::compiled::InteractableInteractionSubject>) {
                     const auto* config = m_world.resolved_configuration(value.interactable);
                     return config ? &config->identity.traits : nullptr;
-                } else if constexpr (std::is_same_v<T,
-                                                    core::compiled::ItemStackInteractionSubject>) {
-                    const auto* stack = m_world.item_stack(value.item_stack);
-                    return stack ? &stack->traits : nullptr;
                 } else {
                     return std::visit(
                         [this](const auto& feature) -> const std::vector<core::TraitId>* {
@@ -568,12 +558,24 @@ RuntimeExecutor::interact_in_context(core::VerbId verb_id,
                     return value.family == subject_family(subject);
                 else if constexpr (std::is_same_v<T, core::compiled::TraitSubjectSelector>)
                     return has_trait(subject, value.trait);
-                else if constexpr (std::is_same_v<T,
-                                                  core::compiled::ItemDefinitionSubjectSelector>) {
-                    const auto* stack =
-                        std::get_if<core::compiled::ItemStackInteractionSubject>(&subject);
-                    const auto* state = stack ? m_world.item_stack(stack->item_stack) : nullptr;
-                    return state && state->definition == value.item_definition;
+                else if constexpr (std::is_same_v<
+                                       T, core::compiled::InteractableDefinitionSubjectSelector>) {
+                    const auto* interactable =
+                        std::get_if<core::compiled::InteractableInteractionSubject>(&subject);
+                    return interactable && m_world.matches_interactable(
+                                               interactable->interactable,
+                                               InteractableMatcher{value.interactable_definition});
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::InteractableFeatureSubjectSelector>) {
+                    const auto* feature =
+                        std::get_if<core::compiled::FeatureInteractionSubject>(&subject);
+                    const auto* interactable =
+                        feature ? std::get_if<core::InteractableFeatureRef>(&feature->feature)
+                                : nullptr;
+                    return interactable && interactable->feature_id == value.feature_id &&
+                           m_world.matches_interactable(
+                               interactable->interactable,
+                               InteractableMatcher{value.interactable_definition});
                 } else if constexpr (std::is_same_v<
                                          T, core::compiled::QualifiedPatternSubjectSelector>) {
                     if (value.family != subject_family(subject))
@@ -638,10 +640,17 @@ RuntimeExecutor::interact_in_context(core::VerbId verb_id,
             if (const auto* left = std::get_if<core::compiled::TraitSubjectSelector>(&narrow))
                 return left->trait == std::get<core::compiled::TraitSubjectSelector>(broad).trait;
             if (const auto* left =
-                    std::get_if<core::compiled::ItemDefinitionSubjectSelector>(&narrow))
-                return left->item_definition ==
-                       std::get<core::compiled::ItemDefinitionSubjectSelector>(broad)
-                           .item_definition;
+                    std::get_if<core::compiled::InteractableDefinitionSubjectSelector>(&narrow))
+                return left->interactable_definition ==
+                       std::get<core::compiled::InteractableDefinitionSubjectSelector>(broad)
+                           .interactable_definition;
+            if (const auto* left =
+                    std::get_if<core::compiled::InteractableFeatureSubjectSelector>(&narrow)) {
+                const auto& right =
+                    std::get<core::compiled::InteractableFeatureSubjectSelector>(broad);
+                return left->interactable_definition == right.interactable_definition &&
+                       left->feature_id == right.feature_id;
+            }
             if (const auto* left =
                     std::get_if<core::compiled::QualifiedPatternSubjectSelector>(&narrow)) {
                 const auto& right =
@@ -659,20 +668,39 @@ RuntimeExecutor::interact_in_context(core::VerbId verb_id,
             if (const auto* pattern =
                     std::get_if<core::compiled::QualifiedPatternSubjectSelector>(&narrow))
                 return pattern->family == family->family;
-            if (std::holds_alternative<core::compiled::ItemDefinitionSubjectSelector>(narrow))
-                return family->family == core::compiled::SubjectFamily::ItemStack;
+            if (std::holds_alternative<core::compiled::InteractableDefinitionSubjectSelector>(
+                    narrow))
+                return family->family == core::compiled::SubjectFamily::Interactable;
+            if (std::holds_alternative<core::compiled::InteractableFeatureSubjectSelector>(narrow))
+                return family->family == core::compiled::SubjectFamily::Feature;
         }
         if (const auto* trait = std::get_if<core::compiled::TraitSubjectSelector>(&broad)) {
             if (const auto* exact = std::get_if<core::compiled::ExactSubjectSelector>(&narrow))
                 return has_trait(exact->subject, trait->trait);
         }
         if (const auto* definition =
-                std::get_if<core::compiled::ItemDefinitionSubjectSelector>(&broad)) {
+                std::get_if<core::compiled::InteractableDefinitionSubjectSelector>(&broad)) {
             if (const auto* exact = std::get_if<core::compiled::ExactSubjectSelector>(&narrow)) {
-                const auto* stack =
-                    std::get_if<core::compiled::ItemStackInteractionSubject>(&exact->subject);
-                const auto* state = stack ? m_world.item_stack(stack->item_stack) : nullptr;
-                return state && state->definition == definition->item_definition;
+                const auto* interactable =
+                    std::get_if<core::compiled::InteractableInteractionSubject>(&exact->subject);
+                return interactable &&
+                       m_world.matches_interactable(
+                           interactable->interactable,
+                           InteractableMatcher{definition->interactable_definition});
+            }
+        }
+        if (const auto* definition =
+                std::get_if<core::compiled::InteractableFeatureSubjectSelector>(&broad)) {
+            if (const auto* exact = std::get_if<core::compiled::ExactSubjectSelector>(&narrow)) {
+                const auto* feature =
+                    std::get_if<core::compiled::FeatureInteractionSubject>(&exact->subject);
+                const auto* interactable =
+                    feature ? std::get_if<core::InteractableFeatureRef>(&feature->feature)
+                            : nullptr;
+                return interactable && interactable->feature_id == definition->feature_id &&
+                       m_world.matches_interactable(
+                           interactable->interactable,
+                           InteractableMatcher{definition->interactable_definition});
             }
         }
         if (const auto* pattern =

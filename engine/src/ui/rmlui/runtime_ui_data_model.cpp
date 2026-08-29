@@ -316,8 +316,6 @@ subject_identity(const core::compiled::InteractionSubject& value)
             else if constexpr (std::is_same_v<Subject,
                                               core::compiled::InteractableInteractionSubject>)
                 return {"interactable", subject.interactable.text()};
-            else if constexpr (std::is_same_v<Subject, core::compiled::ItemStackInteractionSubject>)
-                return {"item-stack", subject.item_stack.text()};
             else
                 return {"feature",
                         std::visit(

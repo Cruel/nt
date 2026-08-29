@@ -153,16 +153,18 @@ export function HotspotAuthoringPanel(props: Props) {
         }),
       });
     }
-    for (const [id, record] of Object.entries(props.project.interactables)) {
-      if (!(props.ownerKind === 'interactable' && id === props.ownerId))
-        options.push({
-          value: `interactable:${id}`,
-          label: t('hotspots.targets.interactable', { label: record.label }),
-          target: subjectTarget({
-            kind: 'interactable',
-            interactable: { $ref: { collection: 'interactables', id } },
-          }),
-        });
+    for (const [id, instance] of Object.entries(props.project.interactableInstances)) {
+      const definition = props.project.interactables[instance.definition.$ref.id];
+      options.push({
+        value: `interactable:${id}`,
+        label: t('hotspots.targets.interactable', {
+          label: instance.editorLabel ?? definition?.label ?? id,
+        }),
+        target: subjectTarget({
+          kind: 'interactable',
+          interactable: { $ref: { registry: 'interactableInstances', id } },
+        }),
+      });
     }
     for (const [instanceId, instance] of Object.entries(props.project.interactableInstances)) {
       const record = props.project.interactables[instance.definition.$ref.id];

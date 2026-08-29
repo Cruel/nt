@@ -40,7 +40,7 @@ nlohmann::json encode_interaction_subject(const core::compiled::InteractionSubje
                 return {{"kind", "character"}, {"id", value.character.text()}};
             else if constexpr (std::is_same_v<T, core::compiled::InteractableInteractionSubject>)
                 return {{"kind", "interactable"}, {"id", value.interactable.text()}};
-            else if constexpr (std::is_same_v<T, core::compiled::FeatureInteractionSubject>)
+            else
                 return std::visit(
                     [](const auto& reference) -> nlohmann::json {
                         using R = std::decay_t<decltype(reference)>;
@@ -56,8 +56,6 @@ nlohmann::json encode_interaction_subject(const core::compiled::InteractionSubje
                                     {"featureId", reference.feature_id.text()}};
                     },
                     value.feature);
-            else
-                return nlohmann::json{{"kind", "item-stack"}, {"id", value.item_stack.text()}};
         },
         subject);
 }

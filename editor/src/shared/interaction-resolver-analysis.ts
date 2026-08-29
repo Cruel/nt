@@ -12,7 +12,8 @@ export interface ResolverSubjectSnapshot {
   identity: string;
   authoringSubject?: InteractionSubjectData;
   traits?: readonly string[] | null;
-  itemDefinition?: string | null;
+  interactableDefinition?: string | null;
+  featureId?: string | null;
 }
 
 export interface ResolverVariableSnapshot {
@@ -34,8 +35,6 @@ export function exactIdentity(subject: InteractionSubjectData): string {
       return subject.character.$ref.id;
     case 'interactable':
       return subject.interactable.$ref.id;
-    case 'item-stack':
-      return subject.itemStack.$ref.id;
     case 'feature':
       return subject.feature.ownerKind === 'room'
         ? `room:${subject.feature.room.$ref.id}#${subject.feature.featureId}`
@@ -52,10 +51,13 @@ function exactTraits(
     return traits ? new Set(traits) : null;
   }
   if (subject.kind === 'interactable') {
-    const traits = project.interactables[subject.interactable.$ref.id]?.traits;
-    return traits ? new Set(traits) : null;
+    const instance = project.interactableInstances[subject.interactable.$ref.id];
+    if (!instance) return null;
+    const traits = new Set(project.interactables[instance.definition.$ref.id]?.traits ?? []);
+    for (const trait of instance.traits.remove) traits.delete(trait);
+    for (const trait of instance.traits.add) traits.add(trait);
+    return traits;
   }
-  if (subject.kind === 'item-stack') return null;
   if (subject.feature.ownerKind === 'room') {
     const data = parseRoomData(project.rooms[subject.feature.room.$ref.id]?.data);
     const feature = data?.features.find((item) => item.id === subject.feature.featureId);
@@ -76,7 +78,17 @@ function exactTraits(
   return traits;
 }
 
-function exactItemDefinition(_project: AuthoringProject, _subject: InteractionSubjectData): null {
+function exactInteractableDefinition(
+  project: AuthoringProject,
+  subject: InteractionSubjectData,
+): string | null {
+  if (subject.kind === 'interactable')
+    return project.interactableInstances[subject.interactable.$ref.id]?.definition.$ref.id ?? null;
+  if (subject.kind === 'feature' && subject.feature.ownerKind === 'interactable')
+    return (
+      project.interactableInstances[subject.feature.interactable.$ref.id]?.definition.$ref.id ??
+      null
+    );
   return null;
 }
 
@@ -117,19 +129,44 @@ export function selectorMatchesSubject(
             : null;
       return traits ? (traits.includes(selector.trait.$ref.id) ? 'yes' : 'no') : 'unknown';
     }
-    case 'item-definition': {
-      if (subject.kind !== 'item-stack') return 'no';
+    case 'interactable-definition': {
+      if (subject.kind !== 'interactable') return 'no';
       const definition =
-        subject.itemDefinition !== undefined
-          ? subject.itemDefinition
+        subject.interactableDefinition !== undefined
+          ? subject.interactableDefinition
           : subject.authoringSubject
-            ? exactItemDefinition(project, subject.authoringSubject)
+            ? exactInteractableDefinition(project, subject.authoringSubject)
             : null;
       return definition === null || definition === undefined
         ? 'unknown'
-        : definition === selector.itemDefinition.$ref.id
+        : definition === selector.interactableDefinition.$ref.id
           ? 'yes'
           : 'no';
+    }
+    case 'interactable-feature': {
+      if (subject.kind !== 'feature') return 'no';
+      const featureId =
+        subject.featureId !== undefined
+          ? subject.featureId
+          : subject.authoringSubject?.kind === 'feature'
+            ? subject.authoringSubject.feature.featureId
+            : null;
+      const definition =
+        subject.interactableDefinition !== undefined
+          ? subject.interactableDefinition
+          : subject.authoringSubject
+            ? exactInteractableDefinition(project, subject.authoringSubject)
+            : null;
+      if (featureId !== null && featureId !== undefined && featureId !== selector.featureId)
+        return 'no';
+      if (
+        definition === null ||
+        definition === undefined ||
+        featureId === null ||
+        featureId === undefined
+      )
+        return 'unknown';
+      return definition === selector.interactableDefinition.$ref.id ? 'yes' : 'no';
     }
   }
 }
@@ -165,10 +202,21 @@ export function selectorContainedBy(
         : 'no';
     return 'no';
   }
-  if (narrow.kind === 'item-definition') {
-    if (broad.kind === 'family') return broad.family === 'item-stack' ? 'yes' : 'no';
-    if (broad.kind === 'item-definition')
-      return narrow.itemDefinition.$ref.id === broad.itemDefinition.$ref.id ? 'yes' : 'no';
+  if (narrow.kind === 'interactable-definition') {
+    if (broad.kind === 'family') return broad.family === 'interactable' ? 'yes' : 'no';
+    if (broad.kind === 'interactable-definition')
+      return narrow.interactableDefinition.$ref.id === broad.interactableDefinition.$ref.id
+        ? 'yes'
+        : 'no';
+    return 'no';
+  }
+  if (narrow.kind === 'interactable-feature') {
+    if (broad.kind === 'family') return broad.family === 'feature' ? 'yes' : 'no';
+    if (broad.kind === 'interactable-feature')
+      return narrow.interactableDefinition.$ref.id === broad.interactableDefinition.$ref.id &&
+        narrow.featureId === broad.featureId
+        ? 'yes'
+        : 'no';
     return 'no';
   }
   if (narrow.kind === 'trait') {
@@ -219,8 +267,15 @@ export function selectorOverlap(
   }
   if (left.kind === 'trait' && right.kind === 'trait') return 'unknown';
   if (left.kind === 'trait' || right.kind === 'trait') return 'unknown';
-  if (left.kind === 'item-definition' && right.kind === 'item-definition')
-    return left.itemDefinition.$ref.id === right.itemDefinition.$ref.id ? 'yes' : 'no';
+  if (left.kind === 'interactable-definition' && right.kind === 'interactable-definition')
+    return left.interactableDefinition.$ref.id === right.interactableDefinition.$ref.id
+      ? 'yes'
+      : 'no';
+  if (left.kind === 'interactable-feature' && right.kind === 'interactable-feature')
+    return left.interactableDefinition.$ref.id === right.interactableDefinition.$ref.id &&
+      left.featureId === right.featureId
+      ? 'yes'
+      : 'no';
   return 'no';
 }
 
@@ -331,7 +386,8 @@ function specificity(selector: SubjectSelector) {
     case 'qualified-pattern':
       return { tier: 4, detail: selector.pattern.length };
     case 'trait':
-    case 'item-definition':
+    case 'interactable-definition':
+    case 'interactable-feature':
       return { tier: 3, detail: 0 };
     case 'family':
       return { tier: 2, detail: 0 };

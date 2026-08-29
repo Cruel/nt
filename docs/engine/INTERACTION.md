@@ -5,13 +5,12 @@
 Interaction is immutable gameplay behavior keyed by one `VerbId` plus named slot selector constraints. Interaction subjects are a closed semantic union:
 
 - Character;
-- Interactable;
-- Item Stack, by exact live `ItemStackId`;
+- Interactable, by exact live `InteractableInstanceId`;
 - Feature, always qualified by its owning Room or Interactable.
 
 A bare Feature ID is never a runtime subject. Final commands carry exact live subject references bound to stable Verb slot IDs. The same live subject may bind multiple slots; #83 deliberately does not impose subject-distinctness.
 
-Each Interaction Rule binds every slot declared by its Verb exactly once. A rule slot contains a finite union of the same `SubjectSelector` vocabulary used by Verb slots: any-subject, subject family, Trait, Item Definition, qualified-pattern identity, and exact identity. Rule slot ordering is not semantic; matching is by `slotId`.
+Each Interaction Rule binds every slot declared by its Verb exactly once. A rule slot contains a finite union of the same `SubjectSelector` vocabulary used by Verb slots: any-subject, subject family, Trait, Interactable definition, reusable Interactable Feature declaration, qualified-pattern identity, and exact identity. Rule slot ordering is not semantic; matching is by `slotId`.
 
 Hotspots are not Interaction contexts. They are presentation/input geometry that resolve to one semantic subject or Room Exit before runtime dispatch. Interaction matching therefore sees the same subject identity whether selection came from a pointer Hotspot, Layout UI, Lua, preview/debugger, or an authored test.
 
@@ -24,13 +23,16 @@ Guards and priority are complete-command execution concerns and never participat
 Selector evaluation is based on the exact live subject and its current effective runtime configuration:
 
 - `any-subject` admits every supported subject family;
-- `family` admits exactly one of Character, Interactable, Feature, or Item Stack;
-- `trait` checks effective Traits on the live Character, Interactable, Feature owner configuration, or Item Stack;
-- `item-definition` checks the live Item Stack definition;
+- `family` admits exactly one of Character, Interactable, or Feature;
+- `trait` checks effective Traits on the live Character, Interactable, or Feature owner configuration;
+- `interactable-definition` matches every live Interactable Instance whose immutable origin definition is the selected Interactable definition;
+- `interactable-feature` matches the selected local Feature declaration on every live Instance of the selected Interactable definition;
 - `qualified-pattern` checks a stable qualified identity prefix with one trailing `*`;
 - `exact` compares the exact semantic subject identity.
 
-Declared Archetype provenance is not part of matching or specificity. A runtime-created subject therefore matches when its live family, effective Traits, Item Definition, qualified identity, or exact identity satisfies the selector. Copying or instantiating from an Archetype does not grant hidden selector preference.
+Runtime-created Interactable Instances participate in the same matching and specificity rules as declared Instances. Definition-created and cloned Instances preserve the immutable origin definition used by `interactable-definition`; effective Traits and Properties are resolved from the live Instance configuration. Archetype provenance is not itself a selector or specificity dimension.
+
+Inventory and quantity-oriented APIs reuse a deliberately narrower `InteractableMatcher` rather than the multi-family `SubjectSelector`. It supports broad Interactable matching plus conjunctive definition, Trait, Property-value, and exact-Instance narrowing. Boolean composition belongs to the surrounding Condition language; the matcher is not recursively composable.
 
 ## Discovery versus command execution
 
@@ -64,7 +66,7 @@ Features are owner-local semantic parts declared by Rooms or Interactables. An e
 
 ```text
 RoomFeatureRef(RoomId, FeatureId)
-InteractableFeatureRef(InteractableId, FeatureId)
+InteractableFeatureRef(InteractableInstanceId, FeatureId)
 ```
 
 Validation requires both the owner and the nested Feature to exist. Runtime eligibility is derived from the owning semantic context: a Room Feature is eligible in its active Room context; an Interactable Feature follows the owning Interactable's current eligibility. Feature Traits and Properties do not change subject identity.
@@ -84,11 +86,11 @@ Runtime selection and invocation messages, semantic Primary Activate/Open Verb M
 
 Pointer Hotspots never call an Interaction directly. A pointer release resolves a Hotspot target to an exact semantic subject and follows the default input policy: semantic Primary Activate for the main action, or Open Verb Menu when explicitly requested. Room Exit targets still dispatch ordinary navigation. Custom UI and tooling may independently select subjects or submit complete commands.
 
-Save state persists named bindings and the exact fallback program stage when an Interaction frame exists, including the Project undefined-Interaction stage. Ended Stack identities are rejected rather than redirected. Feature and Stack Property overrides use the normal Property-state path.
+Save state persists named bindings and the exact fallback program stage when an Interaction frame exists, including the Project undefined-Interaction stage. Interaction frame subjects use only Character, Interactable Instance, and owner-qualified Feature identities.
 
 ## Current editor implementation
 
-The Interaction editor authors one selector union per named Verb slot, all six Subject Selector variants, optional rule-derived Offers, a pure Guard, explicit priority, and compact program instructions. Every instruction has a stable nested ID; creation preserves that identity through editing and reordering. Project Settings → Runtime exposes the optional Project undefined-Interaction behavior. Each rule also exposes resolver analysis for its match space, broader and narrower overlaps, structural dominance, priority, conflicts, and reachability. The analysis is derived from the same selector-containment ordering used by runtime resolution and is informational only; edits still flow through the normal command/save-unit path and remain undo-safe.
+The Interaction editor authors one selector union per named Verb slot, all seven Subject Selector variants, optional rule-derived Offers, a pure Guard, explicit priority, and compact program instructions. Exact Interactable pickers enumerate declared Interactable Instances; definition records appear only in definition/reusable-Feature selectors. Every instruction has a stable nested ID; creation preserves that identity through editing and reordering. Project Settings → Runtime exposes the optional Project undefined-Interaction behavior. Each rule also exposes resolver analysis for its match space, broader and narrower overlaps, structural dominance, priority, conflicts, and reachability. The analysis is derived from the same selector-containment ordering used by runtime resolution and is informational only; edits still flow through the normal command/save-unit path and remain undo-safe.
 
 Project validation checks complete named slots, selector references and Feature owners, Guard references, compact terminal constraints, program references, stable IDs, and resolver facts that are provably invalid. A rule whose selector space cannot intersect the corresponding Verb slot is an error. An unconditional equal-tier/equal-priority conflict is an error, including across separate Interaction records. A rule with an equivalent match space that is permanently dominated by an unconditional higher-priority rule is unreachable and is an error. Runtime-dependent Trait relationships, guarded overlap, runtime-created identity facts, and Lua predicates are warnings/information or conditional analysis rather than guessed blockers.
 

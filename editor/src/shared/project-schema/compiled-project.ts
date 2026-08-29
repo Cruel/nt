@@ -110,7 +110,6 @@ export const compiledInteractionSubjectSchema = z.discriminatedUnion('kind', [
   strict({ character: characterReferenceSchema, kind: z.literal('character') }),
   strict({ interactable: interactableReferenceSchema, kind: z.literal('interactable') }),
   strict({ feature: featureReferenceSchema, kind: z.literal('feature') }),
-  strict({ itemStack: itemStackReferenceSchema, kind: z.literal('item-stack') }),
 ]);
 
 export const compiledTextSourceSchema = z.discriminatedUnion('kind', [
@@ -721,12 +720,20 @@ export const interactionProgramSchema = strict({
   instructions: z.array(interactionInstructionSchema),
   outcome: z.enum(['handled', 'unhandled']),
 });
-const subjectFamilySchema = z.enum(['character', 'interactable', 'feature', 'item-stack']);
+const subjectFamilySchema = z.enum(['character', 'interactable', 'feature']);
 export const compiledSubjectSelectorSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('any-subject') }),
   strict({ kind: z.literal('family'), family: subjectFamilySchema }),
   strict({ kind: z.literal('trait'), trait: traitReferenceSchema }),
-  strict({ kind: z.literal('item-definition'), itemDefinition: itemDefinitionReferenceSchema }),
+  strict({
+    kind: z.literal('interactable-definition'),
+    interactableDefinition: interactableDefinitionReferenceSchema,
+  }),
+  strict({
+    kind: z.literal('interactable-feature'),
+    interactableDefinition: interactableDefinitionReferenceSchema,
+    featureId: id,
+  }),
   strict({
     kind: z.literal('qualified-pattern'),
     family: subjectFamilySchema,

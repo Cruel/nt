@@ -18,20 +18,21 @@ Verb is immutable interaction vocabulary, not a stateful Property or Trait owner
 
 Supported selectors are:
 
-- `any-subject` — any admitted Character, Interactable, Feature, or Item Stack;
+- `any-subject` — any admitted Character, Interactable Instance, or Feature;
 - `family` — one exact subject family;
 - `trait` — any live subject whose effective runtime configuration provides the referenced Trait;
-- `item-definition` — an Item Stack whose live definition is the referenced Item Definition;
+- `interactable-definition` — any live Interactable Instance whose immutable origin definition is the referenced Interactable definition;
+- `interactable-feature` — the selected local Feature declaration on any live Instance of the referenced Interactable definition;
 - `qualified-pattern` — a family plus a stable qualified-identity prefix pattern with exactly one trailing `*`;
 - `exact` — one exact semantic subject identity.
 
-Qualified identity matching uses a family-qualified stable identity: `character:<id>`, `interactable:<id>`, `item-stack:<id>`, `room:<room-id>#<feature-id>`, or `interactable:<owner-id>#<feature-id>`. It is based on live semantic identity, not Archetype provenance. Runtime-created subjects therefore match the same family, Trait, Item Definition, qualified-pattern, and exact-identity selectors as declared subjects when their live effective configuration and identity satisfy the selector.
+Qualified identity matching uses a family-qualified stable identity: `character:<id>`, `interactable:<instance-id>`, `room:<room-id>#<feature-id>`, or `interactable:<owner-instance-id>#<feature-id>`. It is based on live semantic identity, not Archetype provenance. Runtime-created Interactable Instances therefore match the same family, definition, Trait, reusable-Feature, qualified-pattern, and exact-identity rules as declared Instances when their live identity and configuration satisfy the selector.
 
 ## Verb Offers and subject-first discovery
 
 A `VerbOffer` says that a Verb is discoverable from one semantic subject. An explicit Offer owns a stable Offer ID, one starting `slotId`, one or more Subject Selectors for that starting subject, an optional pure Offer Condition, an authored integer rank, and a `primary` flag. An Interaction Rule may also opt in to a rule-derived Offer; its starting-slot selectors come from the named rule slot while its Offer declaration supplies the optional condition, rank, and primary intent. Rules with `offer: null` do not participate in discovery.
 
-Discovery is resolved independently for each Verb. For the selected subject, runtime gathers matching explicit and rule-derived Offers and gives control to the most-specific matching declaration: exact identity, then qualified identity pattern, then Trait or Item Definition, then subject family, then `any-subject`. Longer qualified prefixes are more specific than shorter prefixes. Within equal specificity, authored rank is deterministic and stable declaration identity breaks the remaining per-Verb tie.
+Discovery is resolved independently for each Verb. For the selected subject, runtime gathers matching explicit and rule-derived Offers and gives control to the most-specific matching declaration: exact identity, then qualified identity pattern, then Trait/Interactable-definition/reusable-Feature selectors, then subject family, then `any-subject`. Longer qualified prefixes are more specific than shorter prefixes. Within equal specificity, authored rank is deterministic and stable declaration identity breaks the remaining per-Verb tie.
 
 Only the winning declaration's Offer Condition is evaluated. If that most-specific condition is false, the Verb is suppressed; runtime does not fall back to a broader Offer. Interaction Rule context and Interaction Guards are execution concerns and are never reused as discovery conditions.
 
@@ -68,6 +69,6 @@ Runtime controls expose the stable `bindingOrder`, resolved action text, and loc
 
 The editor authors slots, slot selector unions, stable binding order, action text, completed-command text, explicit Offers, availability, and the closed default Interaction Program. Validation rejects duplicate slot or Offer IDs, Offers that name missing slots, incomplete or duplicate binding-order entries, malformed selector contracts, invalid selector references, invalid named placeholders, duplicate instruction IDs, and invalid program references.
 
-The Play inspector adds subject-centric Offer analysis for the selected live subject. It exposes every structurally matching explicit and rule-derived candidate, the same specificity tier used by runtime, authored rank, primary intent, availability/Offer-condition certainty, structural winner, and shadowing. The runtime snapshot's resolved Offer list is shown alongside that explanation so actual Lua/live-state evaluation remains authoritative. Runtime-created subjects are analyzed by their live family and identity; Trait, Item Definition, or Lua facts absent from the tooling snapshot remain explicitly unknown rather than being inferred from declaration provenance.
+The Play inspector adds subject-centric Offer analysis for the selected live subject. It exposes every structurally matching explicit and rule-derived candidate, the same specificity tier used by runtime, authored rank, primary intent, availability/Offer-condition certainty, structural winner, and shadowing. The runtime snapshot's resolved Offer list is shown alongside that explanation so actual Lua/live-state evaluation remains authoritative. Runtime-created subjects are analyzed by their live family and identity; Trait, Interactable-definition, reusable-Feature, or Lua facts absent from the tooling snapshot remain explicitly unknown rather than being inferred from declaration provenance.
 
 The compiler lowers each slot, selector, and Offer without collapsing them to positional roles. Native decoding is strict about the current fields and selector variants. Runtime invocation, preview, Lua direct interaction submission, authored tests, and recorded-test playback submit exact named bindings, while preview/default UI also expose semantic Primary Activate and Open Verb Menu requests.

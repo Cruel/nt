@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { entityIdPattern, entityIdSchema } from './authoring-common';
-import { conditionSchema, textContentSchema } from './authoring-flow';
+import { conditionSchema, interactableRefSchema, textContentSchema } from './authoring-flow';
 import { interactionSubjectSchema } from './authoring-features';
-import { itemDefinitionRefSchema } from './authoring-items';
 import {
   defaultInteractionProgram,
   interactionProgramSchema,
@@ -10,7 +9,7 @@ import {
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-export const subjectFamilyValues = ['character', 'interactable', 'feature', 'item-stack'] as const;
+export const subjectFamilyValues = ['character', 'interactable', 'feature'] as const;
 export const subjectFamilySchema = z.enum(subjectFamilyValues);
 
 const traitRefSchema = strict({
@@ -28,7 +27,15 @@ export const subjectSelectorSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('any-subject') }),
   strict({ kind: z.literal('family'), family: subjectFamilySchema }),
   strict({ kind: z.literal('trait'), trait: traitRefSchema }),
-  strict({ kind: z.literal('item-definition'), itemDefinition: itemDefinitionRefSchema }),
+  strict({
+    kind: z.literal('interactable-definition'),
+    interactableDefinition: interactableRefSchema,
+  }),
+  strict({
+    kind: z.literal('interactable-feature'),
+    interactableDefinition: interactableRefSchema,
+    featureId: entityIdSchema,
+  }),
   strict({
     kind: z.literal('qualified-pattern'),
     family: subjectFamilySchema,

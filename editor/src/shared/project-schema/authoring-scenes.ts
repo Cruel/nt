@@ -1623,8 +1623,6 @@ export function validateSceneData(
             subject.interactable.$ref.id,
             `${subjectPath}/interactable`,
           );
-        else if (subject.kind === 'item-stack')
-          requireRecord('itemStacks', subject.itemStack.$ref.id, `${subjectPath}/itemStack`);
         else if (subject.feature.ownerKind === 'room')
           requireRecord('rooms', subject.feature.room.$ref.id, `${subjectPath}/feature/room`);
         else

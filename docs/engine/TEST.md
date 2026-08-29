@@ -117,13 +117,11 @@ testInteractableRef(id)
 testVerbRef(id)
 testCharacterSubject(id)
 testInteractableSubject(id)
-testItemStackSubject(id)
 testFeatureSubject(feature)
 ```
 
-Test steps reference Characters, Interactables, exact Item Stacks, owner-qualified Features, and
-Verbs. They do not carry generic entity references, map-specific actions, or Test-local assertion
-references.
+Test steps reference Characters, exact Interactable Instances, owner-qualified Features, and Verbs.
+They do not carry generic entity references, map-specific actions, or Test-local assertion references.
 
 ## Step Model
 
@@ -131,9 +129,9 @@ Each test step has a stable ID, label, enabled flag, one semantic input discrimi
 payload objects for the supported input families. Only the payload selected by `step.input` is active
 during validation and playback lowering.
 
-`TestInteractionSubject` admits Character, Interactable, exact authored Item Stack, and
-owner-qualified Feature identities. Recorder lowering and playback preserve Item Stack IDs without
-grouping or definition-only substitution.
+`TestInteractionSubject` admits Character, exact Interactable Instance, and owner-qualified Feature
+identities. Recorder lowering and playback preserve Interactable Instance IDs rather than substituting
+definition identity.
 
 All input-specific payload objects exist on every step. This makes UI editing and
 JSON patches simpler: changing a step from one input type to another does not
@@ -338,7 +336,7 @@ getAuthoringTestRunReadiness(project, testId)
 It serializes:
 
 - enabled steps only;
-- typed Character, Interactable, Item Stack, and owner-qualified Feature subjects;
+- typed Character, exact Interactable Instance, and owner-qualified Feature subjects;
 - exact Dialogue Edge IDs, Scene Choice Option IDs, Room Exit IDs, and Verb IDs;
 - named Interaction bindings;
 - typed autosave/manual save slots.
@@ -425,8 +423,8 @@ shape.
 Because test references are normal `$ref` objects, they are compatible with the
 generic authoring reference index. This is important for editor quirks:
 
-- renaming a referenced Character, Interactable, Item Stack, or Verb should update Test references
-  through the existing reference-update path; Room and Interactable owner references used by
+- renaming a referenced Character, Interactable Instance, or Verb should update Test references
+  through the existing reference-update path; Room and Interactable Instance owner references used by
   owner-qualified Features follow the same path;
 - deleting a referenced record should show usages in tests;
 - tests should appear in find-usages/reference panels without bespoke scanner
