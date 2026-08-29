@@ -1,10 +1,10 @@
 # Gameplay Commands
 
 Gameplay Commands are the shared typed vocabulary for ordinary gameplay mutation, flow handoff,
-feedback, and the explicit Lua escape hatch. Interactions and Dialogue effect programs use the same
-authoring definitions, compiled command records, editor component, validation rules, and runtime
-execution semantics. Hosts provide only their available reference context; they do not define private
-copies of the command language.
+feedback, and the explicit Lua escape hatch. Interactions, Dialogue effect programs, and Scene
+gameplay-mutation surfaces use the same authoring definitions, compiled command records, editor
+component, validation rules, and runtime execution semantics. Hosts provide only their available
+reference context and admissibility policy; they do not define private copies of the command language.
 
 ## Vocabulary
 
@@ -42,6 +42,13 @@ command cursor so execution resumes after the observable child rather than resta
 Dialogue persists that nested effect cursor in the existing current save shape so a valid checkpoint
 can resume deterministically.
 
+Scene `gameplay-effect-batch` Events admit immediate Gameplay Commands only and therefore remain one
+atomic mutation boundary. The legacy `set-variable` Scene authoring Event lowers to a one-command
+batch instead of producing a private compiled mutation instruction. Scene Choice effects also store
+Gameplay Commands; their admitted set preserves the former immediate-mutation plus Run Lua behavior.
+Audiovisual/timeline Events, waits, transitions, Scene terminals, and advanced structural Runtime
+World transactions remain Scene-owned orchestration rather than being generalized into commands.
+
 Aggregate Transfer is atomic across compatible exact Interactable Instances. It preserves whole
 source identities where possible, splits only the boundary quantity, and never implicitly merges
 with destination stacks. Because several identities may participate, aggregate Transfer cannot bind a
@@ -49,9 +56,10 @@ singular result.
 
 ## Editor and implementation
 
-`GameplayCommandListEditor` is the reusable editor for Interaction programs and Dialogue effects.
-Host policy supplies available Interaction slots, command results, Current Room/Player Inventory, and
-an optional admitted-command set; nested `If/Else` uses the same component recursively.
+`GameplayCommandListEditor` is the reusable editor for Interaction programs, Dialogue effects, and
+Scene gameplay-mutation surfaces. Host policy supplies available Interaction slots, command results,
+Current Room/Player Inventory, and an optional admitted-command set; nested `If/Else` uses the same
+component recursively.
 
 The primary implementation surfaces are:
 

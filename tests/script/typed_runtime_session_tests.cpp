@@ -78,6 +78,18 @@ nlohmann::json scene_events(nlohmann::json instructions)
     return events;
 }
 
+nlohmann::json set_global_property_instruction(std::string_view id, std::string_view property,
+                                               nlohmann::json value)
+{
+    return {{"id", id},
+            {"kind", "gameplay-effect-batch"},
+            {"operations",
+             nlohmann::json::array({{{"id", id},
+                                     {"kind", "set-global-property"},
+                                     {"property", {{"kind", "property"}, {"id", property}}},
+                                     {"value", std::move(value)}}})}};
+}
+
 core::CompiledProject make_immediate_audio_project(std::string source_name)
 {
     auto document = load_document("scene-program.json");
@@ -142,10 +154,7 @@ core::CompiledProject make_audio_semantic_wait_project(std::string source_name)
           {"instanceId", nullptr},
           {"replacementGroup", nullptr}},
          {{"id", "wait-audio"}, {"kind", "wait-audio"}, {"eventId", "audio"}, {"skippable", false}},
-         {{"id", "after-audio"},
-          {"kind", "set-global-property"},
-          {"property", {{"kind", "property"}, {"id", "count"}}},
-          {"value", 9}}}));
+         set_global_property_instruction("after-audio", "count", 9)}));
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -169,10 +178,7 @@ core::CompiledProject make_transition_group_project(std::string source_name,
                                 {"color", "#000000"},
                                 {"skippable", true},
                                 {"waitForCompletion", wait_for_completion}},
-                               {{"id", "after-transition"},
-                                {"kind", "set-global-property"},
-                                {"property", {{"kind", "property"}, {"id", "count"}}},
-                                {"value", 9}}}));
+                               set_global_property_instruction("after-transition", "count", 9)}));
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -195,14 +201,8 @@ core::CompiledProject make_transition_dependency_project(std::string source_name
                                 {"color", "#000000"},
                                 {"skippable", true},
                                 {"waitForCompletion", false}},
-                               {{"id", "overlap"},
-                                {"kind", "set-global-property"},
-                                {"property", {{"kind", "property"}, {"id", "count"}}},
-                                {"value", 5}},
-                               {{"id", "dependent"},
-                                {"kind", "set-global-property"},
-                                {"property", {{"kind", "property"}, {"id", "count"}}},
-                                {"value", 9}}}));
+                               set_global_property_instruction("overlap", "count", 5),
+                               set_global_property_instruction("dependent", "count", 9)}));
     opening["program"]["events"][2]["completionDependencies"] =
         nlohmann::json::array({"transition"});
     return decode_document(std::move(document), std::move(source_name));
@@ -231,10 +231,7 @@ core::CompiledProject make_transition_operation_wait_project(std::string source_
                                 {"kind", "wait-operation"},
                                 {"eventId", "transition"},
                                 {"skippable", false}},
-                               {{"id", "after-transition"},
-                                {"kind", "set-global-property"},
-                                {"property", {{"kind", "property"}, {"id", "count"}}},
-                                {"value", 9}}}));
+                               set_global_property_instruction("after-transition", "count", 9)}));
     return decode_document(std::move(document), std::move(source_name));
 }
 
@@ -294,10 +291,7 @@ void configure_detached_duration_flow(nlohmann::json& document, std::string_view
     REQUIRE(opening["id"] == "opening");
     closing["program"]["events"] = scene_events(nlohmann::json::array(
         {{{"id", "delay"}, {"kind", "wait-duration"}, {"durationMs", 1000}, {"skippable", true}},
-         {{"id", "detached-effect"},
-          {"kind", "set-global-property"},
-          {"property", {{"kind", "property"}, {"id", "count"}}},
-          {"value", 9}}}));
+         set_global_property_instruction("detached-effect", "count", 9)}));
     closing["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
     opening["program"]["events"] = scene_events(nlohmann::json::array(
         {{{"id", "start-detached"},
@@ -306,10 +300,7 @@ void configure_detached_duration_flow(nlohmann::json& document, std::string_view
           {"scene", {{"kind", "scene"}, {"id", "closing"}}},
           {"inputs", nlohmann::json::array()},
           {"owner", owner}},
-         {{"id", "foreground-effect"},
-          {"kind", "set-global-property"},
-          {"property", {{"kind", "property"}, {"id", "count"}}},
-          {"value", 7}},
+         set_global_property_instruction("foreground-effect", "count", 7),
          {{"id", "foreground-input"}, {"kind", "wait-input"}, {"skippable", false}}}));
     opening["terminal"] = {{"kind", "complete-game"}};
 }
@@ -343,19 +334,13 @@ void configure_scene_fast_forward_flow(nlohmann::json& document)
           {"skipBehavior", "stop"},
           {"instanceId", nullptr},
           {"replacementGroup", nullptr}},
-         {{"id", "semantic-effect"},
-          {"kind", "set-global-property"},
-          {"property", {{"kind", "property"}, {"id", "count"}}},
-          {"value", 7}},
+         set_global_property_instruction("semantic-effect", "count", 7),
          {{"id", "skippable-delay"},
           {"kind", "wait-duration"},
           {"durationMs", 1500},
           {"skippable", true}},
          {{"id", "real-barrier"}, {"kind", "wait-input"}, {"skippable", false}},
-         {{"id", "after-barrier"},
-          {"kind", "set-global-property"},
-          {"property", {{"kind", "property"}, {"id", "count"}}},
-          {"value", 9}}}));
+         set_global_property_instruction("after-barrier", "count", 9)}));
     opening["terminal"] = {{"kind", "complete-game"}};
 }
 
@@ -3281,10 +3266,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
           {"autosaveSafePoint", false},
           {"mayYield", false},
           {"source", "local ok, err = Game.pause(); assert(ok and err == nil)"}},
-         {{"id", "after-pause"},
-          {"kind", "set-global-property"},
-          {"property", {{"kind", "property"}, {"id", "count"}}},
-          {"value", 77}}}));
+         set_global_property_instruction("after-pause", "count", 77)}));
     auto project = decode_document(std::move(document), "typed-pause-in-flow.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;

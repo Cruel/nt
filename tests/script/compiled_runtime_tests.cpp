@@ -40,6 +40,10 @@ nlohmann::json fixture(std::string_view name)
 runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
 {
     auto decoded = core::decode_compiled_project(gameplay, "gameplay.json");
+    if (!decoded)
+        for (const auto& diagnostic : decoded.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
+                                          << diagnostic.json_pointer);
     REQUIRE(decoded.has_value());
     nlohmann::json entries = nlohmann::json::array({{{"path", "game"}, {"size", 10}}});
     std::vector<core::RuntimePackageFile> files{{"game", 10, std::nullopt}};

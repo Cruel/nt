@@ -13,7 +13,7 @@ import {
   characterRefSchema,
   conditionSchema,
   dialogueRefSchema,
-  effectSchema,
+  gameplayCommandSchema,
   inlineTextContent,
   layoutRefSchema,
   materialRefSchema,
@@ -26,27 +26,14 @@ import {
   variableRefSchema,
   verbRefSchema,
 } from './authoring-flow';
+import type { GameplayCommand } from './authoring-flow';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import {
-  archetypeRefSchema,
-  resolveArchetypeConfiguration,
-  resolveGameplayInstanceRecord,
-} from './authoring-archetypes';
+import { archetypeRefSchema } from './authoring-archetypes';
 import { characterInitialWorldLocationSchema } from './authoring-characters';
 import { interactionSubjectSchema } from './authoring-features';
-import {
-  interactableInstanceRefSchema,
-  interactableLocationSchema,
-} from './authoring-interactables';
-import { effectiveInteractableInstanceProperties } from './authoring-interactable-properties';
-import {
-  itemDefinitionRefSchema,
-  itemStackRefSchema,
-  MAX_ITEM_STACK_QUANTITY,
-} from './authoring-items';
+import { interactableLocationSchema } from './authoring-interactables';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
-import { isPropertyValueCompatible } from './authoring-properties';
 import { resolveMaterialData } from './authoring-materials';
 import {
   isUniformValueCompatible,
@@ -124,87 +111,7 @@ export const sceneScriptRefSchema = scriptRefSchema;
 export const sceneTextSourceSchema = textSourceSchema;
 export const sceneTextContentSchema = textContentSchema;
 export const sceneConditionSchema = conditionSchema;
-export const sceneEffectSchema = effectSchema;
 
-const scenePropertyRefSchema = strict({ key: entityIdSchema });
-const scenePropertyOwnerSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('room'), room: roomRefSchema }),
-  strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
-]);
-const sceneGameplayEffectOperationSchema = z.discriminatedUnion('kind', [
-  strict({
-    kind: z.literal('set-variable'),
-    variable: variableRefSchema,
-    value: runtimeScalarSchema,
-  }),
-  strict({
-    kind: z.literal('set-property'),
-    owner: scenePropertyOwnerSchema,
-    property: scenePropertyRefSchema,
-    value: runtimeScalarSchema,
-  }),
-  strict({
-    kind: z.literal('unset-property'),
-    owner: scenePropertyOwnerSchema,
-    property: scenePropertyRefSchema,
-  }),
-  strict({
-    kind: z.literal('move-character'),
-    character: characterRefSchema,
-    location: characterInitialWorldLocationSchema,
-  }),
-  strict({
-    kind: z.literal('set-character-state'),
-    character: characterRefSchema,
-    enabled: z.boolean().optional(),
-    visible: z.boolean().optional(),
-  }),
-  strict({
-    kind: z.literal('move-interactable'),
-    interactable: strict({
-      $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
-    }),
-    location: interactableLocationSchema,
-  }),
-  strict({
-    kind: z.literal('set-interactable-state'),
-    interactable: strict({
-      $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
-    }),
-    enabled: z.boolean().optional(),
-    visible: z.boolean().optional(),
-  }),
-  strict({
-    kind: z.literal('split-item-stack'),
-    stack: itemStackRefSchema,
-    quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
-  }),
-  strict({
-    kind: z.literal('merge-item-stacks'),
-    receiver: itemStackRefSchema,
-    donor: itemStackRefSchema,
-  }),
-  strict({
-    kind: z.literal('transfer-item-quantity'),
-    stack: itemStackRefSchema,
-    quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
-    location: interactableLocationSchema,
-    placement: z.enum(['coalesce', 'keep-separate']),
-  }),
-  strict({
-    kind: z.literal('grant-item-quantity'),
-    definition: itemDefinitionRefSchema,
-    quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
-    location: interactableLocationSchema,
-    placement: z.enum(['coalesce', 'keep-separate']),
-  }),
-  strict({
-    kind: z.literal('consume-item-quantity'),
-    stack: itemStackRefSchema,
-    quantity: z.number().int().positive().max(MAX_ITEM_STACK_QUANTITY),
-  }),
-]);
 const sceneGameplayInstanceRefSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room'), room: roomRefSchema }),
   strict({ kind: z.literal('character'), character: characterRefSchema }),
@@ -396,7 +303,7 @@ const setVariableStepSchema = strict({
 const gameplayEffectBatchStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('gameplay-effect-batch'),
-  operations: z.array(sceneGameplayEffectOperationSchema).min(1),
+  operations: z.array(gameplayCommandSchema).min(1),
 });
 const runtimeWorldTransactionStepSchema = strict({
   ...commonRuntimeStep,
@@ -487,7 +394,7 @@ const choiceOptionSchema = strict({
   id: entityIdSchema,
   label: sceneTextContentSchema,
   condition: sceneConditionSchema.optional(),
-  effects: z.array(sceneEffectSchema),
+  effects: z.array(gameplayCommandSchema),
   targetStepId: entityIdSchema,
 });
 const choiceStepSchema = strict({
@@ -676,7 +583,6 @@ export type SceneOutcomeDefinition = z.infer<typeof sceneOutcomeDefinitionSchema
 export type SceneInputBinding = z.infer<typeof sceneInputBindingSchema>;
 export type SceneTerminal = z.infer<typeof sceneTerminalSchema>;
 export type SceneConditionData = z.infer<typeof sceneConditionSchema>;
-export type SceneEffectData = z.infer<typeof sceneEffectSchema>;
 export type SceneTransitionGroupChildData = z.infer<typeof transitionGroupChildSchema>;
 export type SceneStepData = z.infer<typeof sceneStepDataSchema>;
 export type SceneStageData = z.infer<typeof sceneStageSchema>;
@@ -808,7 +714,12 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         ...common,
         type,
         operations: [
-          { kind: 'set-variable', variable: sceneVariableRef('variable'), value: false },
+          {
+            id: 'set-global-property',
+            kind: 'set-global-property',
+            variable: sceneVariableRef('variable'),
+            value: false,
+          },
         ],
       };
     case 'runtime-world-transaction':
@@ -1001,49 +912,79 @@ export function validateSceneData(
     const result = validateVariableRuntimeValue(project, variableId, value);
     if (!result.ok) diagnostics.push(diagnostic(path, result.message));
   };
-  const propertyContract = (
-    owner: z.infer<typeof scenePropertyOwnerSchema>,
-    propertyId: string,
-  ) => {
-    if (owner.kind === 'interactable') {
-      const instance = project.interactableInstances[owner.interactable.$ref.id];
-      return instance
-        ? effectiveInteractableInstanceProperties(project, instance).find(
-            (property) => property.id === propertyId,
-          )?.contract
-        : undefined;
-    }
-    const collection = owner.kind === 'room' ? 'rooms' : 'characters';
-    const id = owner.kind === 'room' ? owner.room.$ref.id : owner.character.$ref.id;
-    const record = project[collection][id];
-    if (!record) return undefined;
-    const local = record.localProperties?.find((property) => property.id === propertyId);
-    if (local) return local;
-    if (record.archetype) {
-      const inherited = resolveArchetypeConfiguration(
-        project,
-        record.archetype.$ref.id,
-      )?.defaultProperties.find((property) => property.id === propertyId);
-      if (inherited) return inherited;
-    }
-    const effective = resolveGameplayInstanceRecord(project, owner.kind, record);
-    for (const traitId of effective?.traits ?? record.traits ?? []) {
-      const member = project.traits[traitId]?.properties.find(
-        (property) => property.id === propertyId,
-      );
-      if (member) return member;
-    }
-    return undefined;
-  };
   const validateCondition = (condition: SceneConditionData | undefined, path: string) => {
     if (condition) diagnostics.push(...validateSharedCondition(project, condition, path));
   };
-  const validateEffects = (effects: readonly SceneEffectData[], path: string) => {
-    effects.forEach((effect, index) => {
-      if (effect.kind === 'set-variable') {
-        validateVariableValue(effect.variable.$ref.id, effect.value, `${path}/${index}/value`);
-      }
-    });
+  const validateSceneGameplayCommands = (
+    commands: readonly GameplayCommand[],
+    commandsPath: string,
+    context: 'batch' | 'choice',
+  ) => {
+    const commandIds = new Set<string>();
+    const validateCommands = (
+      nested: readonly GameplayCommand[],
+      nestedPath: string,
+      topLevel: boolean,
+    ) => {
+      nested.forEach((command, commandIndex) => {
+        const commandPath = `${nestedPath}/${commandIndex}`;
+        if (commandIds.has(command.id))
+          diagnostics.push(
+            diagnostic(`${commandPath}/id`, `Duplicate Gameplay Command ID '${command.id}'.`),
+          );
+        commandIds.add(command.id);
+        if (
+          command.kind === 'call-scene' ||
+          command.kind === 'call-dialogue' ||
+          command.kind === 'notify' ||
+          (command.kind === 'run-lua' && (context !== 'choice' || !topLevel))
+        )
+          diagnostics.push(
+            diagnostic(
+              `${commandPath}/kind`,
+              `Gameplay Command '${command.kind}' is not admitted in this Scene mutation context.`,
+            ),
+          );
+        if (
+          context === 'choice' &&
+          ((command.kind === 'create-room' && command.result !== undefined) ||
+            (command.kind === 'create-character' && command.result !== undefined) ||
+            (command.kind === 'create-interactable' && command.result !== undefined) ||
+            (command.kind === 'split-quantity' && command.result !== undefined) ||
+            (command.kind === 'transfer-quantity' &&
+              command.mode === 'exact' &&
+              command.result !== undefined))
+        )
+          diagnostics.push(
+            diagnostic(
+              `${commandPath}/result`,
+              'Scene Choice Gameplay Commands cannot bind command results across a yielding choice effect program.',
+            ),
+          );
+        if (command.kind === 'set-global-property')
+          validateVariableValue(command.variable.$ref.id, command.value, `${commandPath}/value`);
+        if (
+          command.kind === 'unset-global-property' &&
+          !project.variables[command.variable.$ref.id]
+        )
+          diagnostics.push(
+            diagnostic(
+              `${commandPath}/variable/$ref`,
+              `Missing variable '${command.variable.$ref.id}'.`,
+            ),
+          );
+        if (command.kind === 'if') {
+          diagnostics.push(
+            ...validateSharedCondition(project, command.condition, `${commandPath}/condition`).map(
+              (item) => ({ ...item, category: 'Scenes' as const }),
+            ),
+          );
+          validateCommands(command.then, `${commandPath}/then`, false);
+          validateCommands(command.else, `${commandPath}/else`, false);
+        }
+      });
+    };
+    validateCommands(commands, commandsPath, true);
   };
   const sceneInputAccepts = (input: SceneInputDefinition, value: unknown) => {
     if (value === null) return input.nullable;
@@ -1487,78 +1428,8 @@ export function validateSceneData(
     }
     if (step.type === 'set-variable')
       validateVariableValue(step.variable.$ref.id, step.value, `${path}/value`);
-    if (step.type === 'gameplay-effect-batch') {
-      step.operations.forEach((operation, operationIndex) => {
-        const operationPath = `${path}/operations/${operationIndex}`;
-        if (operation.kind === 'set-variable')
-          validateVariableValue(
-            operation.variable.$ref.id,
-            operation.value,
-            `${operationPath}/value`,
-          );
-        if (operation.kind === 'set-property' || operation.kind === 'unset-property') {
-          const owner = operation.owner;
-          const propertyId = operation.property.key;
-          if (owner.kind === 'room') {
-            requireRecord('rooms', owner.room.$ref.id, `${operationPath}/owner/room`);
-          } else if (owner.kind === 'character') {
-            requireRecord(
-              'characters',
-              owner.character.$ref.id,
-              `${operationPath}/owner/character`,
-            );
-          } else {
-            requireRecord(
-              'interactableInstances',
-              owner.interactable.$ref.id,
-              `${operationPath}/owner/interactable`,
-            );
-          }
-          const contract = propertyContract(owner, propertyId);
-          if (!contract)
-            diagnostics.push(
-              diagnostic(
-                `${operationPath}/property/key`,
-                `Property '${propertyId}' is not statically authored on the exact ${owner.kind} owner.`,
-              ),
-            );
-          else if (
-            operation.kind === 'set-property' &&
-            !isPropertyValueCompatible(contract, operation.value)
-          )
-            diagnostics.push(
-              diagnostic(
-                `${operationPath}/value`,
-                `Value does not match Property '${propertyId}' on the exact ${owner.kind} owner.`,
-              ),
-            );
-        }
-        if (operation.kind === 'move-character' || operation.kind === 'set-character-state')
-          requireRecord('characters', operation.character.$ref.id, `${operationPath}/character`);
-        if (operation.kind === 'move-interactable' || operation.kind === 'set-interactable-state')
-          requireRecord(
-            'interactables',
-            operation.interactable.$ref.id,
-            `${operationPath}/interactable`,
-          );
-        if (
-          operation.kind === 'split-item-stack' ||
-          operation.kind === 'transfer-item-quantity' ||
-          operation.kind === 'consume-item-quantity'
-        )
-          requireRecord('itemStacks', operation.stack.$ref.id, `${operationPath}/stack`);
-        if (operation.kind === 'merge-item-stacks') {
-          requireRecord('itemStacks', operation.receiver.$ref.id, `${operationPath}/receiver`);
-          requireRecord('itemStacks', operation.donor.$ref.id, `${operationPath}/donor`);
-        }
-        if (operation.kind === 'grant-item-quantity')
-          requireRecord(
-            'itemDefinitions',
-            operation.definition.$ref.id,
-            `${operationPath}/definition`,
-          );
-      });
-    }
+    if (step.type === 'gameplay-effect-batch')
+      validateSceneGameplayCommands(step.operations, `${path}/operations`, 'batch');
     if (step.type === 'runtime-world-transaction') {
       step.operations.forEach((operation, operationIndex) => {
         const operationPath = `${path}/operations/${operationIndex}`;
@@ -1915,7 +1786,11 @@ export function validateSceneData(
           );
         optionIds.add(option.id);
         validateCondition(option.condition, `${path}/options/${optionIndex}/condition`);
-        validateEffects(option.effects, `${path}/options/${optionIndex}/effects`);
+        validateSceneGameplayCommands(
+          option.effects,
+          `${path}/options/${optionIndex}/effects`,
+          'choice',
+        );
         if (!data.events.some((candidate) => candidate.id === option.targetStepId))
           diagnostics.push(
             diagnostic(

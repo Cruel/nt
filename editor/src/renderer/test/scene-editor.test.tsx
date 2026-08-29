@@ -91,7 +91,7 @@ describe('SceneEditor', () => {
     ).not.toHaveProperty('preview');
   });
 
-  it('renders exact-owner Property selectors for migrated gameplay operations', () => {
+  it('uses the shared Gameplay Command editor for Scene mutation batches', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = {
       id: 'foyer',
@@ -105,9 +105,10 @@ describe('SceneEditor', () => {
     const step = defaultSceneStep('gameplay-effect-batch');
     step.operations = [
       {
+        id: 'set-locked',
         kind: 'set-property',
         owner: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
-        property: { key: 'locked' },
+        propertyId: 'locked',
         value: false,
       },
     ];
@@ -121,9 +122,9 @@ describe('SceneEditor', () => {
 
     render(<SceneEditor tab={tab} />);
 
-    expect(screen.getByText('Identity Property references')).toBeInTheDocument();
-    expect(screen.getByText('Foyer')).toBeInTheDocument();
-    expect(screen.getByText('Locked')).toBeInTheDocument();
+    expect(screen.getByText('Atomic Gameplay Commands')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('set-locked')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('locked')).toBeInTheDocument();
   });
 
   it('renders authored timeline tracks and overlapping clips and selects clips directly', () => {

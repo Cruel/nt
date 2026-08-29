@@ -69,12 +69,18 @@ compiled::RoomDefinition make_room(RoomId room_id, std::vector<compiled::RoomExi
 compiled::SceneDefinition make_scene(SceneId scene_id, std::string first, std::string second)
 {
     std::vector<compiled::SceneInstruction> instructions;
-    instructions.emplace_back(
-        compiled::SetGlobalPropertySceneInstruction{id<SceneStepId>(std::move(first)), std::nullopt,
-                                                    id<PropertyId>("flag"), RuntimeValue{false}});
-    instructions.emplace_back(compiled::SetGlobalPropertySceneInstruction{
-        id<SceneStepId>(std::move(second)), std::nullopt, id<PropertyId>("flag"),
-        RuntimeValue{true}});
+    const auto first_step = id<SceneStepId>(std::move(first));
+    const auto second_step = id<SceneStepId>(std::move(second));
+    instructions.emplace_back(compiled::GameplayEffectBatchSceneInstruction{
+        first_step,
+        std::nullopt,
+        {GameplayCommand{id<InteractionInstructionId>(first_step.text()),
+                         SetGlobalPropertyCommand{id<PropertyId>("flag"), RuntimeValue{false}}}}});
+    instructions.emplace_back(compiled::GameplayEffectBatchSceneInstruction{
+        second_step,
+        std::nullopt,
+        {GameplayCommand{id<InteractionInstructionId>(second_step.text()),
+                         SetGlobalPropertyCommand{id<PropertyId>("flag"), RuntimeValue{true}}}}});
     std::vector<compiled::SceneEventMetadata> events;
     for (const auto& instruction : instructions) {
         const auto event_id = std::visit([](const auto& value) { return value.id; }, instruction);

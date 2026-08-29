@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
+import {
+  GameplayCommandListEditor,
+  type GameplayCommandKind,
+} from '@/components/gameplay-commands/GameplayCommandEditor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -28,7 +32,6 @@ import {
   validateSceneData,
   type SceneConditionData,
   type SceneData,
-  type SceneEffectData,
   type SceneInputBinding,
   type SceneInputDefinition,
   type SceneStepData,
@@ -44,11 +47,6 @@ import {
   type ShaderUniformValue,
 } from '../../../shared/project-schema/authoring-shaders';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import {
-  resolveArchetypeConfiguration,
-  resolveGameplayInstanceRecord,
-} from '../../../shared/project-schema/authoring-archetypes';
-import { effectiveInteractableInstanceProperties } from '../../../shared/project-schema/authoring-interactable-properties';
 import {
   buildScenePreviewDocumentData,
   scenePreviewRevision,
@@ -69,6 +67,46 @@ function title(value: string) {
     .map((part) => `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}`)
     .join(' ');
 }
+
+const sceneGameplayCommandKinds: readonly GameplayCommandKind[] = [
+  'set-global-property',
+  'unset-global-property',
+  'set-property',
+  'unset-property',
+  'add-trait',
+  'remove-trait',
+  'set-enabled',
+  'set-visible',
+  'move-instance',
+  'create-room',
+  'create-character',
+  'create-interactable',
+  'destroy-instance',
+  'split-quantity',
+  'merge-quantity',
+  'transfer-quantity',
+  'add-quantity',
+  'consume-quantity',
+  'if',
+];
+
+const sceneChoiceGameplayCommandKinds: readonly GameplayCommandKind[] = [
+  'set-global-property',
+  'unset-global-property',
+  'set-property',
+  'unset-property',
+  'add-trait',
+  'remove-trait',
+  'set-enabled',
+  'set-visible',
+  'move-instance',
+  'destroy-instance',
+  'merge-quantity',
+  'add-quantity',
+  'consume-quantity',
+  'if',
+  'run-lua',
+];
 
 function JsonOperationsEditor({
   value,
@@ -105,169 +143,6 @@ function JsonOperationsEditor({
   );
 }
 
-type SceneIdentityPropertyOwner =
-  | { kind: 'room'; room: { $ref: { collection: 'rooms'; id: string } } }
-  | { kind: 'character'; character: { $ref: { collection: 'characters'; id: string } } }
-  | {
-      kind: 'interactable';
-      interactable: { $ref: { registry: 'interactableInstances'; id: string } };
-    };
-
-type SceneIdentityPropertyOperation = {
-  kind: 'set-property' | 'unset-property';
-  owner: SceneIdentityPropertyOwner;
-  property: { key: string };
-};
-
-function identityPropertyOperation(value: unknown): SceneIdentityPropertyOperation | null {
-  if (!value || typeof value !== 'object') return null;
-  const operation = value as Partial<SceneIdentityPropertyOperation>;
-  if (operation.kind !== 'set-property' && operation.kind !== 'unset-property') return null;
-  if (
-    operation.owner?.kind !== 'room' &&
-    operation.owner?.kind !== 'character' &&
-    operation.owner?.kind !== 'interactable'
-  )
-    return null;
-  if (!operation.property || typeof operation.property.key !== 'string') return null;
-  return operation as SceneIdentityPropertyOperation;
-}
-
-function identityPropertyOwnerId(owner: SceneIdentityPropertyOwner): string {
-  if (owner.kind === 'room') return owner.room.$ref.id;
-  if (owner.kind === 'character') return owner.character.$ref.id;
-  return owner.interactable.$ref.id;
-}
-
-function staticallyKnownIdentityProperties(
-  project: Parameters<typeof effectiveInteractableInstanceProperties>[0],
-  owner: SceneIdentityPropertyOwner,
-) {
-  if (owner.kind === 'interactable') {
-    const instance = project.interactableInstances[owner.interactable.$ref.id];
-    if (!instance) return [];
-    return effectiveInteractableInstanceProperties(project, instance).map((property) => ({
-      id: property.id,
-      label: property.contract.label ?? property.id,
-    }));
-  }
-  const collection = owner.kind === 'room' ? 'rooms' : 'characters';
-  const ownerId = identityPropertyOwnerId(owner);
-  const record = project[collection][ownerId];
-  if (!record) return [];
-  const byId = new Map<string, { id: string; label: string }>();
-  if (record.archetype) {
-    for (const property of resolveArchetypeConfiguration(project, record.archetype.$ref.id)
-      ?.defaultProperties ?? [])
-      byId.set(property.id, { id: property.id, label: property.label ?? property.id });
-  }
-  for (const property of record.localProperties ?? [])
-    byId.set(property.id, { id: property.id, label: property.label ?? property.id });
-  const effective = resolveGameplayInstanceRecord(project, owner.kind, record);
-  for (const traitId of effective?.traits ?? record.traits ?? []) {
-    for (const property of project.traits[traitId]?.properties ?? [])
-      if (!byId.has(property.id))
-        byId.set(property.id, { id: property.id, label: property.label ?? property.id });
-  }
-  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
-}
-
-function IdentityPropertyOperationSelectors({
-  project,
-  operations,
-  onCommit,
-}: {
-  project: NonNullable<ReturnType<typeof useProjectStore.getState>['document']>;
-  operations: readonly unknown[];
-  onCommit: (operations: unknown[]) => void;
-}) {
-  if (!isAuthoringProject(project)) return null;
-  const identityOperations = operations
-    .map((operation, index) => ({ operation: identityPropertyOperation(operation), index }))
-    .filter(
-      (item): item is { operation: SceneIdentityPropertyOperation; index: number } =>
-        item.operation !== null,
-    );
-  if (identityOperations.length === 0) return null;
-
-  const replaceOperation = (index: number, operation: SceneIdentityPropertyOperation) => {
-    const next = [...operations];
-    next[index] = operation;
-    onCommit(next);
-  };
-
-  return (
-    <div className="space-y-3 rounded-md border p-3">
-      <div className="text-xs font-medium">Identity Property references</div>
-      {identityOperations.map(({ operation, index }) => {
-        const ownerId = identityPropertyOwnerId(operation.owner);
-        const ownerRecords =
-          operation.owner.kind === 'room'
-            ? project.rooms
-            : operation.owner.kind === 'character'
-              ? project.characters
-              : project.interactableInstances;
-        const knownProperties = staticallyKnownIdentityProperties(project, operation.owner);
-        const propertyKey = operation.property.key;
-        return (
-          <div key={index} className="grid gap-2 md:grid-cols-2">
-            <Label>
-              {title(operation.owner.kind)} owner
-              <Select
-                value={ownerId}
-                onValueChange={(id) => {
-                  if (!id) return;
-                  const nextOwner: SceneIdentityPropertyOwner =
-                    operation.owner.kind === 'room'
-                      ? { kind: 'room', room: sceneRoomRef(id) }
-                      : operation.owner.kind === 'character'
-                        ? { kind: 'character', character: sceneCharacterRef(id) }
-                        : {
-                            kind: 'interactable',
-                            interactable: {
-                              $ref: { registry: 'interactableInstances', id },
-                            },
-                          };
-                  const nextKey = staticallyKnownIdentityProperties(project, nextOwner)[0]?.id;
-                  replaceOperation(index, {
-                    ...operation,
-                    owner: nextOwner,
-                    property: nextKey ? { key: nextKey } : operation.property,
-                  });
-                }}
-              >
-                {Object.entries(ownerRecords).map(([id, record]) => (
-                  <SelectItem key={id} value={id}>
-                    {'label' in record
-                      ? record.label || id
-                      : record.editorLabel ||
-                        project.interactables[record.definition.$ref.id]?.label ||
-                        id}
-                  </SelectItem>
-                ))}
-              </Select>
-            </Label>
-            <Label>
-              Property
-              <Select
-                value={propertyKey}
-                onValueChange={(key) =>
-                  key && replaceOperation(index, { ...operation, property: { key } })
-                }
-              >
-                {knownProperties.map((property) => (
-                  <SelectItem key={property.id} value={property.id}>
-                    {property.label || property.id}
-                  </SelectItem>
-                ))}
-              </Select>
-            </Label>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 function isPresentationOwnedStep(step: SceneStepData): step is Extract<
   SceneStepData,
   {
@@ -505,7 +380,14 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
           typeof value === 'string')
         ? {
             ...step,
-            operations: [{ kind: 'set-variable', variable: sceneVariableRef(id), value }],
+            operations: [
+              {
+                id: 'set-global-property',
+                kind: 'set-global-property',
+                variable: sceneVariableRef(id),
+                value,
+              },
+            ],
           }
         : step;
     }
@@ -665,66 +547,6 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
       </div>
     );
   };
-  const effectEditor = (effect: SceneEffectData, onChange: (effect: SceneEffectData) => void) => (
-    <div className="space-y-2 rounded border p-2">
-      <Label>
-        Effect
-        <Select
-          value={effect.kind}
-          onValueChange={(kind) => {
-            const variableId = Object.keys(project.variables)[0];
-            if (kind === 'run-lua-effect') onChange({ kind, source: '-- Lua effect' });
-            else if (variableId)
-              onChange({
-                kind: 'set-variable',
-                variable: sceneVariableRef(variableId),
-                value: project.variables[variableId]!.data.value as
-                  | string
-                  | number
-                  | boolean
-                  | null,
-              });
-          }}
-        >
-          <SelectItem value="set-variable" disabled={Object.keys(project.variables).length === 0}>
-            Set variable
-          </SelectItem>
-          <SelectItem value="run-lua-effect">Run Lua effect</SelectItem>
-        </Select>
-      </Label>
-      {effect.kind === 'run-lua-effect' ? (
-        <textarea
-          className="min-h-20 w-full rounded border bg-background p-2 font-mono text-sm"
-          value={effect.source}
-          onChange={(event) => onChange({ ...effect, source: event.target.value })}
-        />
-      ) : (
-        <>
-          <Select
-            value={effect.variable.$ref.id}
-            onValueChange={(id) => {
-              if (id)
-                onChange({
-                  ...effect,
-                  variable: sceneVariableRef(id),
-                  value: project.variables[id]!.data.value as string | number | boolean | null,
-                });
-            }}
-          >
-            {Object.entries(project.variables).map(([id, item]) => (
-              <SelectItem key={id} value={id}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </Select>
-          <Input
-            value={String(effect.value)}
-            onChange={(event) => onChange({ ...effect, value: scalar(event.target.value) })}
-          />
-        </>
-      )}
-    </div>
-  );
   const revision = scenePreviewRevision(project, sceneId);
   const previewDocument = {
     kind: 'scene-preview' as const,
@@ -2226,28 +2048,16 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
               </>
             )}
             {selected.type === 'gameplay-effect-batch' && (
-              <div className="space-y-3">
-                <Label>
-                  Atomic gameplay operations
-                  <JsonOperationsEditor
-                    value={selected.operations}
-                    onCommit={(operations) =>
-                      replaceStep({
-                        ...selected,
-                        operations: operations as typeof selected.operations,
-                      })
-                    }
-                  />
-                </Label>
-                <IdentityPropertyOperationSelectors
+              <div className="space-y-2">
+                <Label>Atomic Gameplay Commands</Label>
+                <GameplayCommandListEditor
+                  value={selected.operations}
                   project={project}
-                  operations={selected.operations}
-                  onCommit={(operations) =>
-                    replaceStep({
-                      ...selected,
-                      operations: operations as typeof selected.operations,
-                    })
-                  }
+                  policy={{
+                    admittedKinds: sceneGameplayCommandKinds,
+                    currentRoom: true,
+                  }}
+                  onChange={(operations) => replaceStep({ ...selected, operations })}
                 />
               </div>
             )}
@@ -2668,46 +2478,22 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                         </SelectItem>
                       ))}
                     </Select>
-                    <Button
-                      variant="outline"
-                      onClick={() =>
+                    <GameplayCommandListEditor
+                      value={option.effects}
+                      project={project}
+                      policy={{
+                        admittedKinds: sceneChoiceGameplayCommandKinds,
+                        currentRoom: true,
+                      }}
+                      onChange={(effects) =>
                         replaceStep({
                           ...selected,
                           options: selected.options.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? {
-                                  ...item,
-                                  effects: [
-                                    ...item.effects,
-                                    { kind: 'run-lua-effect', source: '-- Lua effect' },
-                                  ],
-                                }
-                              : item,
+                            itemIndex === index ? { ...item, effects } : item,
                           ),
                         })
                       }
-                    >
-                      Add effect
-                    </Button>
-                    {option.effects.map((effect, effectIndex) => (
-                      <div key={effectIndex}>
-                        {effectEditor(effect, (next) =>
-                          replaceStep({
-                            ...selected,
-                            options: selected.options.map((item, itemIndex) =>
-                              itemIndex === index
-                                ? {
-                                    ...item,
-                                    effects: item.effects.map((current, currentIndex) =>
-                                      currentIndex === effectIndex ? next : current,
-                                    ),
-                                  }
-                                : item,
-                            ),
-                          }),
-                        )}
-                      </div>
-                    ))}
+                    />
                   </div>
                 ))}
               </>

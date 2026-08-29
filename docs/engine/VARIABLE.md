@@ -165,7 +165,11 @@ The authoring collection and UI continue to use the term Variables. Create, rena
 
 Owner Property lists expose best-effort Uses counts and rename repair where the owning semantic adapter has straightforward structured-reference evidence. This is intentionally shallow: explicit owner/key references are repaired, but general Lua/static analysis is outside this slice. Deleting a used Property warns and leaves unresolved references for validation to report.
 
-Scene gameplay Property operations address identity Properties as exact owner plus `{ key }`. Typed owner/Property selectors enumerate the selected owner's statically known effective authored schema; validation rejects missing keys and incompatible set Values. The retired project-wide identity Property-definition `$ref` form is not a second supported namespace.
+Scene gameplay Property mutation uses the shared Gameplay Command owner operand plus `propertyId`, the
+same representation used by Interaction and Dialogue command programs. Typed owner/Property selectors
+enumerate the selected owner's statically known effective authored schema; validation rejects missing
+keys and incompatible set Values. The retired Scene-only `{ key }` operation shape and project-wide
+identity Property-definition `$ref` form are not second supported namespaces.
 
 Preview/debug "set variable" operations are editor-facing commands only. They parse the Variable ID as a `PropertyId` and mutate the Global Property through the runtime Property gateway. Reset removes the runtime override rather than writing the default value.
 

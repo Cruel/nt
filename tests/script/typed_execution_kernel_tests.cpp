@@ -36,6 +36,10 @@ nlohmann::json load_fixture_document(std::string_view filename)
 core::CompiledProject decode_fixture_document(nlohmann::json document, std::string_view filename)
 {
     auto decoded = core::decode_compiled_project(document, std::string(filename));
+    if (!decoded)
+        for (const auto& diagnostic : decoded.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
+                                          << diagnostic.json_pointer);
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -151,22 +155,34 @@ TEST_CASE("Scene gameplay effect batches commit atomically and preserve earlier 
            {{"id", "first-commit"},
             {"kind", "gameplay-effect-batch"},
             {"operations",
-             nlohmann::json::array({{{"kind", "set-global-property"},
-                                     {"property", {{"id", "count"}, {"kind", "property"}}},
-                                     {"value", 4}}})}}},
+             nlohmann::json::array(
+                 {{{"id", "branch"},
+                   {"kind", "if"},
+                   {"condition", {{"kind", "always"}}},
+                   {"then",
+                    nlohmann::json::array({{{"id", "set-count"},
+                                            {"kind", "set-global-property"},
+                                            {"property", {{"id", "count"}, {"kind", "property"}}},
+                                            {"value", 4}}})},
+                   {"else", nlohmann::json::array()}}})}}},
           {"timeline", {{"durationMs", 0}, {"startMs", 0}, {"trackId", "main"}}}},
          {{"completionDependencies", nlohmann::json::array()},
           {"id", "atomic-failure"},
           {"instruction",
            {{"id", "atomic-failure"},
             {"kind", "gameplay-effect-batch"},
-            {"operations",
-             nlohmann::json::array({{{"kind", "set-global-property"},
-                                     {"property", {{"id", "count"}, {"kind", "property"}}},
-                                     {"value", 9}},
-                                    {{"kind", "set-global-property"},
-                                     {"property", {{"id", "flag"}, {"kind", "property"}}},
-                                     {"value", 7}}})}}},
+            {"operations", nlohmann::json::array(
+                               {{{"id", "set-count"},
+                                 {"kind", "set-global-property"},
+                                 {"property", {{"id", "count"}, {"kind", "property"}}},
+                                 {"value", 9}},
+                                {{"id", "consume-key"},
+                                 {"kind", "consume-quantity"},
+                                 {"mode", "exact"},
+                                 {"source",
+                                  {{"kind", "interactable"},
+                                   {"interactable", {{"id", "key"}, {"kind", "interactable"}}}}},
+                                 {"quantity", 2}}})}}},
           {"timeline", {{"durationMs", 0}, {"startMs", 0}, {"trackId", "main"}}}}});
     (*opening)["terminal"] = {{"kind", "complete-game"}};
 

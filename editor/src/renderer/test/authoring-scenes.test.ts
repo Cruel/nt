@@ -277,7 +277,14 @@ describe('authoring scenes', () => {
           {
             id: 'same',
             label: { source: { kind: 'inline', text: 'Two' }, markup: 'plain' },
-            effects: [{ kind: 'set-variable', variable: sceneVariableRef('flag'), value: 1 }],
+            effects: [
+              {
+                id: 'set-flag',
+                kind: 'set-global-property',
+                variable: sceneVariableRef('flag'),
+                value: 1,
+              },
+            ],
             targetStepId: 'set',
           },
         ],
@@ -295,6 +302,49 @@ describe('authoring scenes', () => {
         }),
       ]),
     );
+  });
+
+  it('keeps yielding Scene Choice effects at top level and result-free', () => {
+    const project = createAuthoringProject();
+    const data = defaultSceneData();
+    const choice = defaultSceneStep('choice');
+    choice.id = 'choice';
+    choice.options = [
+      {
+        id: 'option',
+        label: { source: { kind: 'inline', text: 'Continue' }, markup: 'plain' },
+        effects: [
+          {
+            id: 'create-room',
+            kind: 'create-room',
+            source: {
+              kind: 'archetype',
+              archetype: { $ref: { collection: 'archetypes', id: 'missing-room-archetype' } },
+            },
+            result: 'created-room',
+          },
+          { id: 'top-level-lua', kind: 'run-lua', source: 'return true' },
+        ],
+        targetStepId: 'choice',
+      },
+    ];
+    data.events = [choice];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
+
+    const diagnostics = validateSceneData(project, 'opening', project.scenes.opening);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/scenes/opening/data/events/0/options/0/effects/0/result',
+        }),
+      ]),
+    );
+    expect(
+      diagnostics.some(
+        (diagnostic) =>
+          diagnostic.path === '/scenes/opening/data/events/0/options/0/effects/1/kind',
+      ),
+    ).toBe(false);
   });
 
   it('builds preview data from editor-owned selection', () => {

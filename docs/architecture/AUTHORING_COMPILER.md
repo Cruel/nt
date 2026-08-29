@@ -31,14 +31,17 @@ then converts the resulting effective declared-instance configuration, identity,
 localization, Property and Trait declarations, resources, Trait attachments, authored property assignments, and every non-program definition into `CompiledProjectSharedDraft`. Archetype records themselves are never emitted into the compiled-project wire.
 
 Scene lowering extends that deterministic, non-publishable draft with every Scene instruction and
-terminal continuation. Room lowering keeps declarative `canEnter`/`canLeave` guards and emits the
+terminal continuation. Ordinary Scene gameplay mutation lowers through the shared Gameplay Command
+compiler; Scene audiovisual/timeline orchestration and advanced gated Runtime World transactions
+remain specialized Scene instructions. Room lowering keeps declarative `canEnter`/`canLeave` guards and emits the
 canonical `scriptHooks` mappings used to seed the frozen Hook Registry; Room lifecycle handlers and
 Compose are named Script Module exports rather than embedded effect programs or a standalone Compose
 Script field. Scene comments and disabled steps are omitted; branches and choices may target only
 retained executable instructions. Instruction-local Character pose/expression and Dialogue
 start-block references are checked against their owning records.
 
-The Scene lowering is one-to-one:
+Most Scene lowering remains one-to-one; the author-facing `set-variable` convenience Event is lowered
+to the same compiled Gameplay Command batch used by explicit Scene mutation batches:
 
 | Authoring step | Compiled instruction |
 | --- | --- |
@@ -47,12 +50,13 @@ The Scene lowering is one-to-one:
 | `call-dialogue` | `call-dialogue` |
 | `show-text` | `show-text` |
 | `audio-cue` | `audio-cue` |
-| `set-variable` | `set-variable` |
+| `set-variable` | `gameplay-effect-batch` with one `set-global-property` command |
+| `gameplay-effect-batch` | `gameplay-effect-batch` with shared Gameplay Commands |
 | `run-lua` | `run-lua` |
 | duration `wait` | `wait-duration` |
 | input `wait` | `wait-input` |
 | `conditional-branch` | `conditional-branch` |
-| `choice` | `choice` |
+| `choice` | `choice` with shared Gameplay Command effects |
 | `set-layout` | `set-layout` |
 | `transition` | `transition` |
 | `comment` or a disabled step | omitted |
@@ -60,7 +64,7 @@ The Scene lowering is one-to-one:
 Specialized program lowering completes the draft. Dialogue remains a graph: Sequence, Choice, and
 Redirect blocks; Line and RunLua segments; Next and Choice edges; stable IDs; conditions, shared Gameplay Command effects,
 logging, show-once, safe-point, speaker, text, redirect, entry, and completion data lower directly.
-Comment blocks and segments are omitted. Interaction rules retain stable IDs, named slot selector unions, pure Guards, explicit priorities, nullable Offers, and the same shared Gameplay Command vocabulary used by Dialogue effects; authored list order is not a runtime resolver tie-break. Verb definitions retain named slots, locale-neutral `bindingOrder`, localized slot label/prompt and completed-command text, availability, and default program, but carry no Property assignments or Trait attachments. Runtime evaluates the selected Verb's local availability and resolves matching Interaction Rules by structural selector containment, Guard result, and priority. An empty unhandled result falls through to that Verb's default program, then the optional Project undefined-Interaction behavior, then the localized engine response.
+Comment blocks and segments are omitted. Interaction rules retain stable IDs, named slot selector unions, pure Guards, explicit priorities, nullable Offers, and the same shared Gameplay Command vocabulary used by Dialogue and Scene mutation surfaces; authored list order is not a runtime resolver tie-break. Verb definitions retain named slots, locale-neutral `bindingOrder`, localized slot label/prompt and completed-command text, availability, and default program, but carry no Property assignments or Trait attachments. Runtime evaluates the selected Verb's local availability and resolves matching Interaction Rules by structural selector containment, Guard result, and priority. An empty unhandled result falls through to that Verb's default program, then the optional Project undefined-Interaction behavior, then the localized engine response.
 
 Gameplay Commands have authoritative stable authoring IDs matching the compiled contract.
 The editor allocates collision-free IDs on creation and preserves them during editing and reordering;

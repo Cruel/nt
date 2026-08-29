@@ -64,13 +64,6 @@ void certify_condition(core::Diagnostics& diagnostics, ScriptCertificationPort& 
     }
 }
 
-void certify_effect(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
-                    const core::Effect& effect, const std::string& path)
-{
-    if (const auto* lua = std::get_if<core::RunLuaEffect>(&effect))
-        certify_chunk(diagnostics, scripts, lua->source, path);
-}
-
 void certify_text(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                   const core::TextContent& text, const std::string& path)
 {
@@ -306,10 +299,9 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                                                       "/condition");
                             certify_text(diagnostics, scripts, option.label,
                                          path + "/options/" + std::to_string(i) + "/label");
-                            for (std::size_t e = 0; e < option.effects.size(); ++e)
-                                certify_effect(diagnostics, scripts, option.effects[e],
-                                               path + "/options/" + std::to_string(i) +
-                                                   "/effects/" + std::to_string(e));
+                            certify_gameplay_commands(diagnostics, scripts, option.effects,
+                                                      path + "/options/" + std::to_string(i) +
+                                                          "/effects");
                         }
                     }
                 },
