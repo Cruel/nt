@@ -34,6 +34,11 @@ bool changes_item_stacks(const ItemStackMutation& mutation) noexcept
     return !mutation.changed.empty() || !mutation.created.empty() || !mutation.ended.empty();
 }
 
+bool changes_interactable_quantities(const InteractableQuantityMutation& mutation) noexcept
+{
+    return !mutation.changed.empty() || !mutation.created.empty() || !mutation.ended.empty();
+}
+
 template<class Definition>
 core::ProjectDefinitionSummary summary(core::ProjectDefinitionKind kind,
                                        const Definition& definition)
@@ -339,6 +344,105 @@ RuntimeCommandGateway::create_interactable(RuntimeInstanceConfigurationRequest s
     return created;
 }
 
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeCommandGateway::create_interactable_quantity(core::InteractableDefinitionId definition,
+                                                    std::uint64_t quantity,
+                                                    core::compiled::InteractableLocation location)
+{
+    auto result = m_world.create_interactable_quantity(definition, quantity, std::move(location));
+    if (const auto* mutation = result.value_if();
+        mutation != nullptr && changes_interactable_quantities(*mutation))
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeCommandGateway::split_interactable_quantity(core::InteractableInstanceId source,
+                                                   std::uint64_t quantity)
+{
+    auto result = m_world.split_interactable_quantity(source, quantity);
+    if (const auto* mutation = result.value_if();
+        mutation != nullptr && changes_interactable_quantities(*mutation))
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeCommandGateway::merge_interactable_quantities(core::InteractableInstanceId receiver,
+                                                     core::InteractableInstanceId donor)
+{
+    auto result = m_world.merge_interactable_quantities(receiver, donor);
+    if (const auto* mutation = result.value_if();
+        mutation != nullptr && changes_interactable_quantities(*mutation))
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeCommandGateway::transfer_interactable_quantity(core::InteractableInstanceId source,
+                                                      std::uint64_t quantity,
+                                                      core::compiled::InteractableLocation location)
+{
+    auto result = m_world.transfer_interactable_quantity(source, quantity, std::move(location));
+    if (const auto* mutation = result.value_if();
+        mutation != nullptr && changes_interactable_quantities(*mutation))
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeCommandGateway::transfer_interactable_quantity(InteractableQuantityFilter filter,
+                                                      std::uint64_t quantity,
+                                                      core::compiled::InteractableLocation location)
+{
+    auto result = m_world.transfer_interactable_quantity(filter, quantity, std::move(location));
+    if (const auto* mutation = result.value_if();
+        mutation != nullptr && changes_interactable_quantities(*mutation))
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeCommandGateway::add_interactable_quantity(core::InteractableDefinitionId definition,
+                                                 std::uint64_t quantity,
+                                                 core::compiled::InteractableLocation location)
+{
+    auto result = m_world.add_interactable_quantity(definition, quantity, std::move(location));
+    if (const auto* mutation = result.value_if();
+        mutation != nullptr && changes_interactable_quantities(*mutation))
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeCommandGateway::consume_interactable_quantity(core::InteractableInstanceId instance,
+                                                     std::uint64_t quantity)
+{
+    auto result = m_world.consume_interactable_quantity(instance, quantity);
+    if (const auto* mutation = result.value_if();
+        mutation != nullptr && changes_interactable_quantities(*mutation))
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeCommandGateway::consume_interactable_quantity(InteractableQuantityFilter filter,
+                                                     std::uint64_t quantity)
+{
+    auto result = m_world.consume_interactable_quantity(filter, quantity);
+    if (const auto* mutation = result.value_if();
+        mutation != nullptr && changes_interactable_quantities(*mutation))
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<std::uint64_t, core::Diagnostics>
+RuntimeCommandGateway::aggregate_interactable_quantity(
+    const InteractableQuantityFilter& filter) const
+{
+    return m_world.aggregate_interactable_quantity(filter);
+}
+
 core::Result<core::ItemStackState, core::Diagnostics>
 RuntimeCommandGateway::item_stack(const core::ItemStackId& id) const
 {
@@ -492,6 +596,17 @@ RuntimeCommandGateway::interactable_state(const core::InteractableInstanceId& in
     return state != nullptr
                ? core::Result<core::InteractableState, core::Diagnostics>::success(*state)
                : core::Result<core::InteractableState, core::Diagnostics>::failure(
+                     gateway_error("runtime.unknown_interactable",
+                                   "Interactable definition or live state is missing"));
+}
+
+core::Result<std::uint64_t, core::Diagnostics>
+RuntimeCommandGateway::interactable_quantity(const core::InteractableInstanceId& interactable) const
+{
+    const auto* state = m_world.interactable_state(interactable);
+    return state != nullptr
+               ? core::Result<std::uint64_t, core::Diagnostics>::success(state->quantity)
+               : core::Result<std::uint64_t, core::Diagnostics>::failure(
                      gateway_error("runtime.unknown_interactable",
                                    "Interactable definition or live state is missing"));
 }

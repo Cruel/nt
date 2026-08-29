@@ -240,6 +240,91 @@ RuntimeScriptApi::create_interactable(runtime::RuntimeInstanceConfigurationReque
         gateway->create_interactable(std::move(source), std::move(location), enabled, visible));
 }
 
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::create_interactable_quantity(core::InteractableDefinitionId definition,
+                                               std::uint64_t quantity,
+                                               core::compiled::InteractableLocation location)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Interactable,
+                          "Interactable quantity creation",
+                          gateway->create_interactable_quantity(std::move(definition), quantity,
+                                                                std::move(location)));
+}
+
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::split_interactable_quantity(core::InteractableInstanceId source,
+                                              std::uint64_t quantity)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Interactable,
+                          "Interactable quantity split",
+                          gateway->split_interactable_quantity(std::move(source), quantity));
+}
+
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::merge_interactable_quantities(core::InteractableInstanceId receiver,
+                                                core::InteractableInstanceId donor)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Interactable, "Interactable quantity merge",
+        gateway->merge_interactable_quantities(std::move(receiver), std::move(donor)));
+}
+
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::transfer_interactable_quantity(core::InteractableInstanceId source,
+                                                 std::uint64_t quantity,
+                                                 core::compiled::InteractableLocation location)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Interactable, "Interactable quantity transfer",
+        gateway->transfer_interactable_quantity(std::move(source), quantity, std::move(location)));
+}
+
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::transfer_interactable_quantity(runtime::InteractableQuantityFilter filter,
+                                                 std::uint64_t quantity,
+                                                 core::compiled::InteractableLocation location)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Interactable, "Interactable aggregate quantity transfer",
+        gateway->transfer_interactable_quantity(std::move(filter), quantity, std::move(location)));
+}
+
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::add_interactable_quantity(core::InteractableDefinitionId definition,
+                                            std::uint64_t quantity,
+                                            core::compiled::InteractableLocation location)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Interactable, "Interactable quantity add",
+        gateway->add_interactable_quantity(std::move(definition), quantity, std::move(location)));
+}
+
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::consume_interactable_quantity(core::InteractableInstanceId instance,
+                                                std::uint64_t quantity)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Interactable,
+                          "Interactable quantity consume",
+                          gateway->consume_interactable_quantity(std::move(instance), quantity));
+}
+
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::consume_interactable_quantity(runtime::InteractableQuantityFilter filter,
+                                                std::uint64_t quantity)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Interactable,
+                          "Interactable aggregate quantity consume",
+                          gateway->consume_interactable_quantity(std::move(filter), quantity));
+}
+
+core::Result<std::uint64_t, core::Diagnostics> RuntimeScriptApi::aggregate_interactable_quantity(
+    const runtime::InteractableQuantityFilter& filter) const
+{
+    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Interactable,
+                        "Interactable aggregate quantity",
+                        gateway->aggregate_interactable_quantity(filter));
+}
+
 core::Result<core::ItemStackState, core::Diagnostics>
 RuntimeScriptApi::item_stack(const core::ItemStackId& id) const
 {
@@ -378,6 +463,14 @@ RuntimeScriptApi::interactable_location(const core::InteractableInstanceId& inte
     NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Interactable,
                            "Interactable location query",
                            provider->interactable_location(interactable));
+}
+
+core::Result<std::uint64_t, core::Diagnostics>
+RuntimeScriptApi::interactable_quantity(const core::InteractableInstanceId& interactable) const
+{
+    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Interactable,
+                        "Interactable quantity query",
+                        gateway->interactable_quantity(interactable));
 }
 core::Result<core::CharacterWorldLocation, core::Diagnostics>
 RuntimeScriptApi::character_location(const core::CharacterId& character) const

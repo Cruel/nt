@@ -86,6 +86,29 @@ public:
         RuntimeInstanceConfigurationRequest source,
         core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
         bool enabled = true, bool visible = true);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    create_interactable_quantity(core::InteractableDefinitionId definition, std::uint64_t quantity,
+                                 core::compiled::InteractableLocation location);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    split_interactable_quantity(core::InteractableInstanceId source, std::uint64_t quantity);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    merge_interactable_quantities(core::InteractableInstanceId receiver,
+                                  core::InteractableInstanceId donor);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    transfer_interactable_quantity(core::InteractableInstanceId source, std::uint64_t quantity,
+                                   core::compiled::InteractableLocation location);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    transfer_interactable_quantity(InteractableQuantityFilter filter, std::uint64_t quantity,
+                                   core::compiled::InteractableLocation location);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    add_interactable_quantity(core::InteractableDefinitionId definition, std::uint64_t quantity,
+                              core::compiled::InteractableLocation location);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    consume_interactable_quantity(core::InteractableInstanceId instance, std::uint64_t quantity);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    consume_interactable_quantity(InteractableQuantityFilter filter, std::uint64_t quantity);
+    [[nodiscard]] core::Result<std::uint64_t, core::Diagnostics>
+    aggregate_interactable_quantity(const InteractableQuantityFilter& filter) const;
     [[nodiscard]] core::Result<core::ItemStackState, core::Diagnostics>
     item_stack(const core::ItemStackId& id) const;
     [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
@@ -122,6 +145,8 @@ public:
     interactable_location(const core::InteractableInstanceId& interactable) const override;
     [[nodiscard]] core::Result<core::InteractableState, core::Diagnostics>
     interactable_state(const core::InteractableInstanceId& interactable) const;
+    [[nodiscard]] core::Result<std::uint64_t, core::Diagnostics>
+    interactable_quantity(const core::InteractableInstanceId& interactable) const;
     [[nodiscard]] core::Result<core::CharacterWorldLocation, core::Diagnostics>
     character_location(const core::CharacterId& character) const override;
     [[nodiscard]] core::Result<core::CharacterWorldState, core::Diagnostics>

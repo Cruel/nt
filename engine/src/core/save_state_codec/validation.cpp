@@ -1432,10 +1432,12 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         }
         if (provenance.kind == RuntimeInstanceProvenanceKind::CompiledDefinition ||
             provenance.kind == RuntimeInstanceProvenanceKind::Clone) {
-            if (!provenance.source_instance)
+            const bool source_required = provenance.kind == RuntimeInstanceProvenanceKind::Clone ||
+                                         kind != compiled::GameplayInstanceKind::Interactable;
+            if (source_required && !provenance.source_instance)
                 error("save_codec.invalid_runtime_provenance",
                       "Definition/clone provenance requires a typed source identity.");
-            else {
+            else if (provenance.source_instance) {
                 const bool same_kind = std::visit(
                     [kind](const auto& source) {
                         using T = std::decay_t<decltype(source)>;
@@ -1569,12 +1571,9 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         validate_provenance(record.provenance, declared,
                             compiled::GameplayInstanceKind::Interactable);
     }
-    for (const auto& interactable : project.interactable_instances()) {
-        const auto* record = saved_interactable(save, interactable.id);
-        if (record == nullptr || !record->declared)
-            error("save_codec.incomplete_runtime_world",
-                  "Save must retain every declared Interactable Gameplay Instance.");
-    }
+    // Declared Interactable identities may end through explicit destruction or a quantity mutation
+    // that reduces them to zero. Their authored declaration remains the structural reference
+    // universe, while omission from the saved live Runtime World is the tombstone/non-live state.
 
     std::unordered_set<std::string> overrides;
     for (const auto& item : save.property_overrides) {
@@ -1601,10 +1600,15 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     for (const auto& item : save.interactables) {
         if (!interactables.insert(item.interactable.text()).second)
             error("save_codec.duplicate_record", "Interactable state appears more than once.");
-        if (!resolved_interactable(project, save, item.interactable) ||
-            !valid_location(project, save, item.location))
+        const auto configuration = resolved_interactable(project, save, item.interactable);
+        if (!configuration || !valid_location(project, save, item.location))
             error("save_codec.invalid_interactable",
                   "Interactable state has an invalid reference or location.");
+        else if (item.quantity == 0 || item.quantity > compiled::max_interactable_quantity ||
+                 (!configuration->stackable && item.quantity != 1) ||
+                 (configuration->stack_limit && item.quantity > *configuration->stack_limit))
+            error("save_codec.invalid_interactable_quantity",
+                  "Interactable state has an invalid quantity for its effective definition.");
     }
     if (save.interactables.size() != save.runtime_interactables.size())
         error("save_codec.incomplete_interactables",

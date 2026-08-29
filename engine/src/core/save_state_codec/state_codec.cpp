@@ -454,7 +454,8 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
         interactables.push_back({{"id", value.interactable.text()},
                                  {"location", encode_location(value.location)},
                                  {"enabled", value.enabled},
-                                 {"visible", value.visible}});
+                                 {"visible", value.visible},
+                                 {"quantity", value.quantity}});
     nlohmann::json characters = nlohmann::json::array();
     for (const auto& value : save.characters)
         characters.push_back({{"id", value.character.text()},
@@ -883,12 +884,13 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
         d, interactables, "/interactables",
         [&d](const nlohmann::json& value,
              const std::string& pointer) -> std::optional<InteractableState> {
-            if (!d.object(value, pointer, {"id", "location", "enabled", "visible"}))
+            if (!d.object(value, pointer, {"id", "location", "enabled", "quantity", "visible"}))
                 return std::nullopt;
             const auto* id = d.member(value, "id", pointer);
             const auto* location = d.member(value, "location", pointer);
             const auto* enabled = d.member(value, "enabled", pointer);
             const auto* visible = d.member(value, "visible", pointer);
+            const auto* quantity = d.member(value, "quantity", pointer);
             auto interactable =
                 id ? d.id<InteractableInstanceId>(*id, child(pointer, "id")) : std::nullopt;
             auto saved_location =
@@ -897,10 +899,20 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                 enabled ? d.boolean(*enabled, child(pointer, "enabled")) : std::nullopt;
             auto saved_visible =
                 visible ? d.boolean(*visible, child(pointer, "visible")) : std::nullopt;
-            return interactable && saved_location && saved_enabled && saved_visible
+            auto saved_quantity =
+                quantity
+                    ? d.unsigned_integer<std::uint64_t>(*quantity, child(pointer, "quantity"), true)
+                    : std::nullopt;
+            if (saved_quantity && *saved_quantity > compiled::max_interactable_quantity) {
+                d.error("save.invalid_number", "Interactable quantity exceeds the portable range.",
+                        child(pointer, "quantity"));
+                saved_quantity = std::nullopt;
+            }
+            return interactable && saved_location && saved_enabled && saved_visible &&
+                           saved_quantity
                        ? std::optional<InteractableState>(
                              InteractableState{std::move(*interactable), std::move(*saved_location),
-                                               *saved_enabled, *saved_visible})
+                                               *saved_enabled, *saved_visible, *saved_quantity})
                        : std::nullopt;
         });
     auto saved_characters = decode_array<CharacterWorldState>(

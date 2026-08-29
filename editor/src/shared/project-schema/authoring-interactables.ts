@@ -47,6 +47,7 @@ export const interactableInstanceDataSchema = strict({
   location: interactableLocationSchema,
   enabled: z.boolean(),
   visible: z.boolean(),
+  quantity: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   traits: strict({
     add: z.array(entityIdSchema),
     remove: z.array(entityIdSchema),
@@ -57,6 +58,8 @@ export const interactableInstanceDataSchema = strict({
 export const interactableDataSchema = strict({
   kind: z.literal('interactable'),
   displayName: z.string(),
+  stackable: z.boolean(),
+  stackLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
   presentation: strict({
     sprite: interactableAssetRefSchema.nullable(),
     material: interactableMaterialRefSchema.nullable(),
@@ -97,6 +100,8 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
   return {
     kind: 'interactable',
     displayName: label,
+    stackable: false,
+    stackLimit: null,
     presentation: {
       sprite: null,
       material: null,
@@ -117,6 +122,7 @@ export function defaultInteractableInstanceData(
     location,
     enabled: true,
     visible: true,
+    quantity: 1,
     traits: { add: [], remove: [] },
     localProperties: [],
   };

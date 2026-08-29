@@ -2247,7 +2247,7 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
 {
     if (!decoder.object(value, pointer,
                         {"displayName", "features", "id", "inventories", "presentation",
-                         "properties", "propertyAssignments", "traits"}))
+                         "properties", "propertyAssignments", "stackLimit", "stackable", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<InteractableDefinitionId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -2255,9 +2255,25 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
     const auto* features_value = decoder.member(value, "features", pointer);
     const auto* inventories_value = decoder.member(value, "inventories", pointer);
     const auto* presentation_value = decoder.member(value, "presentation", pointer);
+    const auto* stackable_value = decoder.member(value, "stackable", pointer);
+    const auto* stack_limit_value = decoder.member(value, "stackLimit", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
+    auto stackable = stackable_value
+                         ? decoder.boolean(*stackable_value, pointer_child(pointer, "stackable"))
+                         : std::nullopt;
+    std::optional<std::uint64_t> stack_limit;
+    bool stack_limit_ok = stack_limit_value != nullptr;
+    if (stack_limit_value && !stack_limit_value->is_null()) {
+        stack_limit = decoder.unsigned_integer<std::uint64_t>(
+            *stack_limit_value, pointer_child(pointer, "stackLimit"), true);
+        stack_limit_ok = stack_limit.has_value() && *stack_limit <= max_interactable_quantity;
+        if (stack_limit && *stack_limit > max_interactable_quantity)
+            decoder.error(k_code_number,
+                          "Interactable quantity exceeds the portable numeric range.",
+                          pointer_child(pointer, "stackLimit"));
+    }
     auto properties =
         properties_value
             ? decoder.array<TraitProperty>(
@@ -2408,11 +2424,16 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                               [](const TraitProperty& property) -> const PropertyId& {
                                   return property.property_id;
                               });
-    if (!identity || !display || !properties || !features || !inventories || !presentation)
+    if (!identity || !display || !stackable || !stack_limit_ok || !properties || !features ||
+        !inventories || !presentation)
         return std::nullopt;
-    return InteractableDefinition{std::move(*identity),    std::move(*display),
-                                  std::move(*properties),  std::move(*features),
-                                  std::move(*inventories), std::move(*presentation)};
+    if (!*stackable && stack_limit)
+        decoder.error(k_code_variant, "Non-stackable Interactable cannot declare a Stack limit.",
+                      pointer_child(pointer, "stackLimit"));
+    return InteractableDefinition{
+        std::move(*identity),    std::move(*display),     *stackable,
+        std::move(stack_limit),  std::move(*properties),  std::move(*features),
+        std::move(*inventories), std::move(*presentation)};
 }
 
 std::optional<ItemDefinition> decode_item_definition(Decoder& decoder, const nlohmann::json& value,

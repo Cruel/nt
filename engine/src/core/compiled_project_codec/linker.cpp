@@ -424,7 +424,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         if (!identity)
             continue;
         interactables.push_back(compiled::InteractableDefinition{
-            std::move(*identity), std::move(value.display_name), std::move(*property_contracts),
+            std::move(*identity), std::move(value.display_name), value.stackable,
+            std::move(value.stack_limit), std::move(*property_contracts),
             link_features(std::move(value.features), path + "/features"),
             std::move(value.inventories), std::move(value.presentation)});
     }
@@ -502,7 +503,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             continue;
         interactable_instances.push_back(compiled::InteractableInstanceDeclaration{
             std::move(value.id), std::move(value.definition), std::move(value.location),
-            value.enabled, value.visible, std::move(value.trait_adds),
+            value.enabled, value.visible, value.quantity, std::move(value.trait_adds),
             std::move(value.trait_removes), std::move(property_overrides),
             std::move(local_properties)});
     }
@@ -583,6 +584,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                 configuration = compiled::InteractableDefinition{
                     std::move(*identity),
                     std::move(interactable->display_name),
+                    interactable->stackable,
+                    std::move(interactable->stack_limit),
                     std::move(*property_contracts),
                     link_features(std::move(interactable->features), path + "/features"),
                     std::move(interactable->inventories),

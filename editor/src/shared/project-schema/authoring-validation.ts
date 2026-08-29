@@ -621,8 +621,34 @@ function validateInteractableProperties(
 ) {
   for (const [definitionId, record] of Object.entries(project.interactables)) {
     const base = `/interactables/${escapePathSegment(definitionId)}`;
-    const effectiveTraits =
-      resolveGameplayInstanceRecord(project, 'interactable', record)?.traits ?? record.traits ?? [];
+    const effectiveRecord = resolveGameplayInstanceRecord(project, 'interactable', record);
+    const interactableData = parseInteractableData(effectiveRecord?.data ?? record.data);
+    if (interactableData) {
+      if (!interactableData.stackable && interactableData.stackLimit !== null)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/data/stackLimit`,
+            'Non-stackable Interactables cannot declare a Stack limit.',
+            'Project validation',
+            'authoring.interactable.invalid_stack_limit',
+          ),
+        );
+      if (
+        interactableData.stackable &&
+        (interactableData.features.length > 0 || interactableData.inventories.length > 0)
+      )
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/data`,
+            'Stackable Interactables cannot own identity-bearing Features or Inventories.',
+            'Project validation',
+            'authoring.interactable.stackable_identity_children',
+          ),
+        );
+    }
+    const effectiveTraits = effectiveRecord?.traits ?? record.traits ?? [];
     const local = new Map(
       (record.defaultProperties ?? []).map((property) => [property.id, property]),
     );
@@ -770,6 +796,32 @@ function validateInteractableProperties(
 
     const effectiveDefinition = resolveGameplayInstanceRecord(project, 'interactable', definition);
     const definitionData = parseInteractableData(effectiveDefinition?.data ?? definition.data);
+    if (definitionData) {
+      if (!definitionData.stackable && instance.quantity !== 1)
+        diagnostics.push(
+          instanceDiagnostic(
+            'error',
+            `${base}/quantity`,
+            'Non-stackable Interactable Instances must have quantity 1.',
+            'Project validation',
+            'authoring.interactable.invalid_quantity',
+          ),
+        );
+      if (
+        definitionData.stackable &&
+        definitionData.stackLimit !== null &&
+        instance.quantity > definitionData.stackLimit
+      )
+        diagnostics.push(
+          instanceDiagnostic(
+            'error',
+            `${base}/quantity`,
+            `Quantity ${instance.quantity} exceeds Stack limit ${definitionData.stackLimit}.`,
+            'Project validation',
+            'authoring.interactable.stack_limit_exceeded',
+          ),
+        );
+    }
     for (const [featureIndex, feature] of (definitionData?.features ?? []).entries()) {
       const featurePath = `${base}/definitionFeatures/${featureIndex}`;
       const defaultsById = new Map(

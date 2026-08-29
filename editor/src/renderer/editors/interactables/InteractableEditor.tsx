@@ -18,6 +18,7 @@ import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPan
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { renameOwnerLocalPropertyReferencePatches } from '@/project/owner-local-property-references';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
@@ -315,6 +316,44 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
             }
           />
         </div>
+        <div className="space-y-2" data-workbench-anchor="interactable.stackable">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label htmlFor={`interactable-stackable-${interactableId}`}>Stackable</Label>
+              <p className="text-xs text-muted-foreground">
+                Stackable instances carry a positive quantity on one identity.
+              </p>
+            </div>
+            <Switch
+              id={`interactable-stackable-${interactableId}`}
+              checked={data.stackable}
+              onCheckedChange={(stackable) =>
+                commit({ ...data, stackable }, 'Update interactable stackability')
+              }
+            />
+          </div>
+        </div>
+        <div data-workbench-anchor="interactable.stack-limit">
+          <Label htmlFor={`interactable-stack-limit-${interactableId}`}>Stack limit</Label>
+          <Input
+            id={`interactable-stack-limit-${interactableId}`}
+            type="number"
+            min={1}
+            step={1}
+            placeholder="Unlimited"
+            value={data.stackLimit ?? ''}
+            onChange={(event) => {
+              const raw = event.currentTarget.value;
+              const parsed = raw === '' ? null : Number(raw);
+              if (parsed !== null && (!Number.isSafeInteger(parsed) || parsed <= 0)) return;
+              commit({ ...data, stackLimit: parsed }, 'Update interactable stack limit');
+            }}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Optional for stackable Interactables. Incompatible authored stacks are preserved and
+            reported as validation errors.
+          </p>
+        </div>
         <div data-workbench-anchor="interactable.sprite">
           <Label>Sprite</Label>
           <div className="flex overflow-hidden rounded-md border bg-background">
@@ -393,9 +432,11 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       >
         <div className="flex items-center justify-between gap-3">
           <div>
-            <Label>Declared Instances</Label>
+            <Label>{data.stackable ? 'Initial Stacks' : 'Declared Instances'}</Label>
             <p className="text-xs text-muted-foreground">
-              Exact live identities using this immutable definition.
+              {data.stackable
+                ? 'Exact initial identities and their authored quantities.'
+                : 'Exact live identities using this immutable definition.'}
             </p>
           </div>
           <Badge variant="secondary">{declaredInstances.length}</Badge>
@@ -418,6 +459,32 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                         ? `Inventory: ${instance.location.inventory.inventoryId}`
                         : 'Unplaced'}
                   </div>
+                </div>
+                <div className="max-w-40">
+                  <Label htmlFor={`interactable-quantity-${instanceId}`}>Quantity</Label>
+                  <Input
+                    id={`interactable-quantity-${instanceId}`}
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={instance.quantity}
+                    onChange={(event) => {
+                      const quantity = Number(event.currentTarget.value);
+                      if (!Number.isSafeInteger(quantity) || quantity <= 0) return;
+                      applyProjectPatches('Update Interactable Instance Quantity', [
+                        {
+                          op: 'replace',
+                          path: `/interactableInstances/${escapePointerSegment(instanceId)}/quantity`,
+                          value: quantity,
+                        },
+                      ]);
+                    }}
+                  />
+                  {!data.stackable && instance.quantity !== 1 ? (
+                    <p className="mt-1 text-xs text-destructive">
+                      Non-stackable Interactable Instances must use quantity 1.
+                    </p>
+                  ) : null}
                 </div>
                 <InteractableInstancePropertiesEditor
                   compact

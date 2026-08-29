@@ -333,6 +333,7 @@ struct InteractableState {
     compiled::InteractableLocation location;
     bool enabled = true;
     bool visible = true;
+    std::uint64_t quantity = 1;
 };
 
 struct ItemStackState {

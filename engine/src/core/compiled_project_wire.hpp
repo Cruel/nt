@@ -112,6 +112,8 @@ struct RoomDefinition {
 struct InteractableDefinition {
     PropertyBearingDefinition<InteractableDefinitionId> identity;
     std::string display_name;
+    bool stackable = false;
+    std::optional<std::uint64_t> stack_limit;
     std::vector<OwnerPropertyContract> properties;
     std::vector<FeatureDefinition> features;
     std::vector<InventoryDefinition> inventories;
@@ -124,6 +126,7 @@ struct InteractableInstanceDeclaration {
     InteractableLocation location;
     bool enabled;
     bool visible;
+    std::uint64_t quantity = 1;
     std::vector<TraitId> trait_adds;
     std::vector<TraitId> trait_removes;
     std::vector<PropertyAssignment> property_overrides;

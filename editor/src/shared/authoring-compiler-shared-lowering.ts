@@ -864,6 +864,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       traits: [...(effectiveRecord.traits ?? [])].sort(),
       propertyAssignments: [],
       displayName: data.displayName,
+      stackable: data.stackable,
+      stackLimit: data.stackLimit,
       properties: definitionProperties
         .filter((property) => property.source !== 'trait')
         .map((property) => ({
@@ -903,6 +905,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       location: compileInteractableLocation(instance.location),
       enabled: instance.enabled,
       visible: instance.visible,
+      quantity: instance.quantity,
       traitAdds: [...instance.traits.add].sort(),
       traitRemoves: [...instance.traits.remove].sort(),
       propertyOverrides: [...overrides.entries()]
@@ -1356,6 +1359,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
             compileOwnerContract(property, true),
           ),
           displayName: data.displayName,
+          stackable: data.stackable,
+          stackLimit: data.stackLimit,
           features: data.features.map((feature) => compileFeature(feature, 'default')),
           inventories: compileInventories(data.inventories),
           presentation: {

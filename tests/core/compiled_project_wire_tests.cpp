@@ -98,7 +98,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:a1be1184551166a6179760f46ce63a72");
+    CHECK(project.save_contract == "sc1:f0ee980eefcfd8c09ed2357e9314f3bc");
     CHECK(project.properties.size() == 14);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);

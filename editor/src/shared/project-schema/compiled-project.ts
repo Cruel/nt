@@ -630,6 +630,8 @@ const interactableLocationSchema = z.discriminatedUnion('kind', [
 const interactableDefinitionSchema = strict({
   ...propertyBearingDefinition,
   displayName: z.string(),
+  stackable: z.boolean(),
+  stackLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
   properties: z.array(ownerPropertyContractSchema),
   features: z.array(featureDefinitionSchema),
   inventories: z.array(inventoryDefinitionSchema),
@@ -661,6 +663,7 @@ const interactableInstanceDeclarationSchema = strict({
   location: interactableLocationSchema,
   enabled: z.boolean(),
   visible: z.boolean(),
+  quantity: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   traitAdds: z.array(id),
   traitRemoves: z.array(id),
   propertyOverrides: z.array(propertyAssignmentSchema),

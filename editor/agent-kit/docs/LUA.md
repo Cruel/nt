@@ -207,6 +207,16 @@ Interactables use the same Room/Unplaced forms and may additionally be contained
 ```text
 noveltea.interactables.location(interactable_id) -> location, error
 noveltea.interactables.set_location(interactable_id, location) -> ok, error
+noveltea.interactables.quantity(interactable_id) -> quantity, error
+noveltea.interactables.create_quantity(definition_id, quantity, location) -> mutation, error
+noveltea.interactables.split(interactable_id, quantity) -> mutation, error
+noveltea.interactables.merge(receiver_id, donor_id) -> mutation, error
+noveltea.interactables.transfer(interactable_id, quantity, target_location) -> mutation, error
+noveltea.interactables.add_quantity(definition_id, quantity, location) -> mutation, error
+noveltea.interactables.consume(interactable_id, quantity) -> mutation, error
+noveltea.interactables.aggregate_definition(definition_id, source_location?) -> quantity, error
+noveltea.interactables.transfer_definition(definition_id, quantity, source_location, target_location) -> mutation, error
+noveltea.interactables.consume_definition(definition_id, quantity, source_location?) -> mutation, error
 noveltea.navigation.via_exit(room_id, exit_id) -> ok, error
 ```
 
@@ -235,6 +245,18 @@ Inventory IDs are local to their owner. The complete owner vocabulary is:
 ```
 
 Moving an Interactable into an Inventory derives membership from Location; there is no separate pickup/drop membership state. Room Location does not select a Room placement. Characters render through explicit Room cast entries and Interactables through explicit Room occurrences, so presentation placement can vary or repeat without changing semantic identity Location.
+
+Every live Interactable has a positive integer quantity. Non-stackable definitions always use
+quantity `1`; stackable definitions may impose a Stack limit. Quantity mutations return a table with
+`quantity`, `surviving`, `changed`, `created`, and `ended` fields. `create_quantity` always creates new
+exact identities and never coalesces. `split` preserves the source identity and creates one new exact
+identity. `merge` preserves the receiver and ends the donor only when their immutable origin and
+effective semantic state are compatible. Exact `transfer` never coalesces; a partial transfer creates
+one new identity at the target Location. `add_quantity` is the fungible convenience: it may fill only
+compatible default-state identities at the requested Location before creating the minimum new stacks.
+`consume` reduces one exact identity and ends it at zero. The `*_definition` aggregate helpers use
+deterministic exact-ID ordering; when `source_location` is supplied they consider only quantities at
+that exact semantic Location, which is the intended form for Inventory-scoped aggregate operations.
 
 ## Flow control
 

@@ -147,6 +147,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // registry field contributes directly to the runtime world projection; definition records remain
   // reusable immutable configuration and no longer own initial state.
   [/^\/interactableInstances\//, OWNER],
+  // #117 adds intrinsic stackability and an optional quantity ceiling to reusable Interactable
+  // definitions. Both alter the owning definition's compiled/runtime quantity contract.
+  [/^\/interactables\/\*\/data\/(?:stackable|stackLimit)$/, OWNER],
   [/^\/interactables\/\*\/data\/features\//, OWNER],
   // #139 makes Feature Property declarations owner-local. Interactable-definition Features
   // contribute reusable schemas/Defaults; Room Features contribute concrete local Values.
@@ -780,8 +783,8 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     dialogues: 'c3f27078',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
-    interactableInstances: 'e0b49db3',
-    interactables: 'e4769e11',
+    interactableInstances: '62c1efcd',
+    interactables: '1cfc4b2c',
     interactions: 'dfffc1a2',
     inventories: 'a8c38dae',
     layouts: '35da7f67',

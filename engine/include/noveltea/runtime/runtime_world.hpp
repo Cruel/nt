@@ -37,6 +37,19 @@ struct ItemStackMutation {
     std::vector<core::ItemStackId> ended;
 };
 
+struct InteractableQuantityFilter {
+    std::optional<core::InteractableDefinitionId> definition;
+    std::optional<core::compiled::InteractableLocation> location;
+};
+
+struct InteractableQuantityMutation {
+    std::uint64_t quantity = 0;
+    std::vector<core::InteractableInstanceId> surviving;
+    std::vector<core::InteractableInstanceId> changed;
+    std::vector<core::InteractableInstanceId> created;
+    std::vector<core::InteractableInstanceId> ended;
+};
+
 // Session-scoped semantic lookup and mutation seam for live Gameplay Instances. The world borrows
 // immutable Project definitions and the authoritative SessionState; it owns neither.
 class RuntimeWorld final {
@@ -68,6 +81,10 @@ public:
         RuntimeInstanceConfigurationRequest source,
         core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
         bool enabled = true, bool visible = true);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    create_interactable_quantity(
+        const core::InteractableDefinitionId& definition, std::uint64_t quantity,
+        core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{});
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     replace_structural_configuration(const core::RoomId& id,
@@ -117,6 +134,30 @@ public:
     [[nodiscard]] std::optional<core::RoomId>
     effective_room(const core::ItemStackId& id) const noexcept;
 
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    split_interactable_quantity(const core::InteractableInstanceId& source, std::uint64_t quantity);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    merge_interactable_quantities(const core::InteractableInstanceId& receiver,
+                                  const core::InteractableInstanceId& donor);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    transfer_interactable_quantity(const core::InteractableInstanceId& source,
+                                   std::uint64_t quantity,
+                                   core::compiled::InteractableLocation location);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    transfer_interactable_quantity(const InteractableQuantityFilter& filter, std::uint64_t quantity,
+                                   core::compiled::InteractableLocation location);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    add_interactable_quantity(const core::InteractableDefinitionId& definition,
+                              std::uint64_t quantity,
+                              core::compiled::InteractableLocation location);
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    consume_interactable_quantity(const core::InteractableInstanceId& instance,
+                                  std::uint64_t quantity);
+    [[nodiscard]] core::Result<std::uint64_t, core::Diagnostics>
+    aggregate_interactable_quantity(const InteractableQuantityFilter& filter) const;
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    consume_interactable_quantity(const InteractableQuantityFilter& filter, std::uint64_t quantity);
+
     [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
     split_item_stack(const core::ItemStackId& source, std::uint64_t quantity);
     [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
@@ -164,6 +205,24 @@ private:
         const core::InteractableInstanceId& id,
         const core::compiled::InteractableDefinition& configuration) const;
     [[nodiscard]] core::Result<core::ItemStackId, core::Diagnostics> allocate_item_stack_id();
+    [[nodiscard]] core::Result<core::InteractableInstanceId, core::Diagnostics>
+    allocate_interactable_instance_id();
+    [[nodiscard]] bool valid_interactable_location(
+        const core::compiled::InteractableLocation& location) const noexcept;
+    [[nodiscard]] bool
+    interactable_quantity_matches(const core::InteractableState& state,
+                                  const InteractableQuantityFilter& filter) const;
+    [[nodiscard]] bool
+    interactable_quantity_compatible(const core::InteractableInstanceId& left,
+                                     const core::InteractableInstanceId& right) const;
+    [[nodiscard]] bool default_interactable_quantity_state(
+        const core::InteractableInstanceId& id,
+        const core::compiled::InteractableDefinition& definition) const;
+    [[nodiscard]] core::Result<core::InteractableInstanceId, core::Diagnostics>
+    clone_interactable_quantity_instance(const core::InteractableInstanceId& source,
+                                         std::uint64_t quantity,
+                                         core::compiled::InteractableLocation location);
+    void erase_interactable_quantity_instance(const core::InteractableInstanceId& id);
     [[nodiscard]] bool item_stack_compatible(const core::ItemStackState& left,
                                              const core::ItemStackState& right) const;
     [[nodiscard]] bool item_stack_matches(const core::ItemStackState& stack,
