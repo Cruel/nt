@@ -6,7 +6,7 @@ The current public custom-element surface is exactly:
 
 ```text
 nt-active-text
-nt-map-view   (provisional)
+nt-map-view
 ```
 
 There is no current `nt-text-log` element. Text Log is ordinary data-bound RML over `gameplay.text_log.entries`; use `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` for that model.
@@ -32,22 +32,25 @@ Author-visible contract:
 
 Style the host itself for placement, sizing, color, surrounding panel behavior, and other ordinary RmlUi layout concerns. Keep the text content/state source in NovelTea gameplay data rather than trying to populate the element from `data-rml` or Layout Lua.
 
-## `nt-map-view` is provisional
+## `nt-map-view`
 
-`nt-map-view` exists as a temporary specialized Map presentation path. It is intentionally not a stable general-purpose Map component API yet.
+`nt-map-view` is NovelTea's specialized authored Map presentation and input host. A Map remains presentation over authoritative Room/Exit topology; the component does not create a second navigation graph.
 
 ```xml
-<nt-map-view></nt-map-view>
+<nt-map-view map="world-map"></nt-map-view>
 ```
 
-Current author-visible limits:
+Author-visible contract:
 
-- NovelTea updates only the first `nt-map-view` in the active `game-hud` and active `text-log` system documents while gameplay state exists. Arbitrary mounted Layouts do not automatically receive Map state by adding the tag.
-- There are no documented authored configuration attributes or child slots. Do not invent them.
-- The runtime currently replaces the element's inner RML with generated Map markup. The generated child tags, classes, `data-*` attributes, ordering, and event strings are provisional implementation output, not a stable styling or scripting contract.
+- The `map` attribute selects the authored Map by stable Map ID. When the project contains exactly one authored Map, `map` may be omitted and that sole Map is selected. With multiple authored Maps, select one explicitly; do not rely on collection order or an implicit default.
+- RuntimeUI refreshes every matching `nt-map-view` in the active `game-hud` and `text-log` system Layout documents and in mounted gameplay Layout documents. Multiple occurrences are independent, including multiple occurrences that display the same authored Map.
+- Each occurrence owns its own `open`, `mode`, `focus`, `pan-x`, `pan-y`, and `zoom` presentation state. User changes emit `mapstatechange`. These values are not gameplay/session state and are not saved automatically.
+- If a mounted Layout needs Map view state to survive save/restore, declare the appropriate Layout State Shape/Slot and explicitly copy the desired occurrence-local value through `Game.mount_context():commit_state(...)`. Save data contains only validated Layout State Slots, never arbitrary component/DOM state.
+- The component exposes semantic Location and Connection targets carrying the current Map/Room/Location/Connection/Exit identities and actionability. Keyboard/controller/assistive activation uses these semantic targets independently of polygon geometry. Pointer picking uses authored normalized Location/Connection hit geometry and then activates the same semantic target.
+- Layout Lua may activate published semantic Map navigation with `Game.ui.navigate_map_connection(map_id, connection_id)` or `Game.ui.navigate_map_location(map_id, location_id)`. The Location convenience action succeeds only when runtime projection finds exactly one actionable Exit-backed Connection from the active Room to that Location's Room. General gameplay Lua may use `noveltea.map.activate(map_id, connection_id)` for the authored Connection path; all of these route through normal Navigation Attempt authority rather than directly changing Rooms.
+- The runtime owns the element's generated inner Map markup. Generated child tags, classes, `data-*` attributes, ordering, and event strings are implementation details, not an authored styling or scripting contract.
 - Do not write selectors, Layout Lua, tests, or gameplay logic that depends on the generated inner structure. Style/position the outer `nt-map-view` host only unless a future contract explicitly documents more.
-- Current connection activation uses the existing NovelTea Map/Lua path rather than a `noveltea` data-model callback. Do not infer a new `ui_*` callback or duplicate the generated activation scheme.
-- Because the component is provisional, prefer ordinary data-bound RML for UI that can be expressed from documented model fields. Use `nt-map-view` only when the requested Layout specifically needs the current Map presentation behavior.
+- Map navigation is not a `noveltea` data-model callback. Do not invent a model callback or duplicate generated event strings; use the semantic Map actions documented above.
 
 ## Text Log is not a custom component
 
@@ -69,6 +72,6 @@ Text Log uses the normal `noveltea` model:
 
 Use ordinary RML/data binding for lists, labels, buttons, menus, choices, exits, inventory, interaction actions, save/load slots, settings controls, Text Log, and other state-driven UI covered by the `noveltea` model.
 
-Use a documented custom element only when NovelTea owns specialized rendering/input behavior that ordinary RML cannot express—currently mature ActiveText, plus the provisional Map exception above.
+Use a documented custom element only when NovelTea owns specialized rendering/input behavior that ordinary RML cannot express—currently ActiveText and Map presentation/input.
 
 If a requested `nt-*` tag is not listed in this document, it is not part of the current game-authoring contract. Do not derive tag names from engine types, old NovelTea code, screenshots, CSS class names, or generated runtime markup.
