@@ -327,6 +327,56 @@ describe('shared contracts characterization', () => {
     ]);
   });
 
+  it('accepts the shared recursive typed Condition vocabulary', () => {
+    expect(
+      conditionSchema.parse({
+        kind: 'all',
+        conditions: [
+          {
+            kind: 'property-comparison',
+            owner: { kind: 'interaction-slot', slotId: 'target' },
+            propertyId: 'enabled',
+            operator: 'truthy',
+          },
+          {
+            kind: 'not',
+            condition: {
+              kind: 'trait-presence',
+              owner: {
+                kind: 'interactable',
+                interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+              },
+              trait: { $ref: { collection: 'traits', id: 'locked' } },
+              present: true,
+            },
+          },
+          {
+            kind: 'location-comparison',
+            subject: { kind: 'command-result', bindingId: 'created' },
+            operator: 'equal',
+            location: { kind: 'room', room: { kind: 'current-room' } },
+          },
+          {
+            kind: 'inventory-quantity-comparison',
+            inventory: {
+              kind: 'owner-inventory',
+              owner: { kind: 'interaction-slot', slotId: 'container' },
+              inventoryId: 'contents',
+            },
+            matcher: {
+              definition: { $ref: { collection: 'interactables', id: 'coin' } },
+              traits: [{ $ref: { collection: 'traits', id: 'currency' } }],
+              properties: [{ propertyId: 'quality', value: 'mint' }],
+              exact: { kind: 'command-result', bindingId: 'created' },
+            },
+            operator: 'greater-equal',
+            quantity: 2,
+          },
+        ],
+      }),
+    ).toMatchObject({ kind: 'all', conditions: expect.any(Array) });
+  });
+
   it('keeps focused preview contracts free of compiled publication imports', () => {
     for (const relative of [
       'src/shared/focused-preview-contracts.ts',

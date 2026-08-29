@@ -4,16 +4,13 @@ import {
   resolveGameplayInstanceRecord,
 } from './project-schema/authoring-archetypes';
 import { parseCharacterData } from './project-schema/authoring-characters';
-import type {
-  CompiledCondition,
-  CompiledProjectWire,
-  CompiledText,
-} from './project-schema/compiled-project';
+import type { CompiledProjectWire, CompiledText } from './project-schema/compiled-project';
 import {
   COMPILED_PROJECT_SCHEMA,
   COMPILED_PROJECT_FORMAT_VERSION,
 } from './project-schema/compiled-project';
-import type { Condition, TextContent } from './project-schema/authoring-flow';
+import type { TextContent } from './project-schema/authoring-flow';
+import { compileCondition } from './authoring-condition-lowering';
 import type {
   FeatureData,
   InteractionSubjectData,
@@ -258,19 +255,6 @@ function compileText(text: TextContent): CompiledText {
         : source.kind === 'localized'
           ? { kind: 'localized', key: source.key }
           : { kind: 'lua-expression', source: source.source },
-  };
-}
-
-function compileCondition(condition: Condition): CompiledCondition {
-  if (condition.kind === 'always') return { kind: 'always' };
-  if (condition.kind === 'lua-predicate') {
-    return { kind: 'lua-predicate', source: condition.source };
-  }
-  return {
-    kind: 'global-property-comparison',
-    operator: condition.operator,
-    property: { kind: 'property', id: condition.variable.$ref.id },
-    ...(condition.value === undefined ? {} : { value: condition.value }),
   };
 }
 

@@ -16,6 +16,10 @@ Hotspots are not Interaction contexts. They are presentation/input geometry that
 
 Rules carry one pure `Guard` plus an explicit signed integer `priority`. Runtime context such as the active Room or a placement is not a hidden matching dimension; authors express dynamic eligibility through ordinary pure Conditions. Rules also carry an explicit nullable Offer declaration. `offer: null` opts the rule out of subject-first discovery; an Offer names its starting slot and owns an optional pure Offer Condition, authored rank, and primary intent. The starting subject selectors are the selectors already authored on that rule slot.
 
+Conditions use the shared recursive typed Condition contract documented in `CONDITION.md`. A Guard
+may inspect any bound slot on the rule. An Offer Condition may inspect its offered starting slot but
+does not gain the other command bindings merely because they exist on the rule.
+
 Guards and priority are complete-command execution concerns and never participate in Offer discovery. Offer Conditions remain independent discovery predicates.
 
 ## Subject Selector matching

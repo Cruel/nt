@@ -372,7 +372,30 @@ export function evaluateConditionForAnalysis(
   variables: readonly ResolverVariableSnapshot[] = [],
 ): AnalysisTruth {
   if (!condition || condition.kind === 'always') return 'yes';
+  if (condition.kind === 'all') {
+    let unknown = false;
+    for (const child of condition.conditions) {
+      const result = evaluateConditionForAnalysis(child, variables);
+      if (result === 'no') return 'no';
+      if (result === 'unknown') unknown = true;
+    }
+    return unknown ? 'unknown' : 'yes';
+  }
+  if (condition.kind === 'any') {
+    let unknown = false;
+    for (const child of condition.conditions) {
+      const result = evaluateConditionForAnalysis(child, variables);
+      if (result === 'yes') return 'yes';
+      if (result === 'unknown') unknown = true;
+    }
+    return unknown ? 'unknown' : 'no';
+  }
+  if (condition.kind === 'not') {
+    const result = evaluateConditionForAnalysis(condition.condition, variables);
+    return result === 'unknown' ? 'unknown' : result === 'yes' ? 'no' : 'yes';
+  }
   if (condition.kind === 'lua-predicate') return 'unknown';
+  if (condition.kind !== 'variable-comparison') return 'unknown';
   const current = variables.find((item) => item.id === condition.variable.$ref.id);
   if (!current) return 'unknown';
   const result = compareScalar(current.value, condition.value, condition.operator);

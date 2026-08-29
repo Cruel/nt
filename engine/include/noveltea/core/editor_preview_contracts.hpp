@@ -177,14 +177,20 @@ struct TypedFocusedRoomQueryState {
 struct TypedFocusedCondition {
     enum class Kind : std::uint8_t {
         Always,
+        All,
+        Any,
+        Not,
         VariableComparison,
         LuaPredicate,
+        RuntimeOnly,
     };
     Kind kind = Kind::Always;
+    std::vector<TypedFocusedCondition> conditions;
     std::string variable_id;
     std::string comparison_operator;
     std::optional<TypedFocusedScalar> value;
     std::string lua_source;
+    std::string runtime_condition_kind;
 };
 
 struct TypedFocusedText {

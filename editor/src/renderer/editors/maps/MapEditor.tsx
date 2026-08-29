@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -37,83 +38,7 @@ function ConditionEditor({
   project: AuthoringEditorProject;
   onChange: (next: Condition) => void;
 }) {
-  const variables = Object.entries(project.variables);
-  return (
-    <div className="grid gap-2 md:grid-cols-4">
-      <Select
-        value={value.kind}
-        onValueChange={(kind) => {
-          if (kind === 'variable-comparison' && variables[0])
-            onChange({
-              kind,
-              variable: typedRef('variables', variables[0][0]),
-              operator: 'truthy',
-            });
-          else if (kind === 'lua-predicate') onChange({ kind, source: 'return true' });
-          else onChange({ kind: 'always' });
-        }}
-      >
-        <SelectItem value="always">Always</SelectItem>
-        <SelectItem value="variable-comparison" disabled={!variables.length}>
-          Variable comparison
-        </SelectItem>
-        <SelectItem value="lua-predicate">Lua predicate</SelectItem>
-      </Select>
-      {value.kind === 'lua-predicate' && (
-        <Input
-          aria-label="Lua visibility predicate"
-          value={value.source}
-          onChange={(event) =>
-            onChange({ kind: 'lua-predicate', source: event.currentTarget.value || ' ' })
-          }
-        />
-      )}
-      {value.kind === 'variable-comparison' && (
-        <>
-          <Select
-            value={value.variable.$ref.id}
-            onValueChange={(id) =>
-              onChange({ ...value, variable: typedRef('variables', String(id)) })
-            }
-          >
-            {variables.map(([id, record]) => (
-              <SelectItem value={id} key={id}>
-                {record.label}
-              </SelectItem>
-            ))}
-          </Select>
-          <Select
-            value={value.operator}
-            onValueChange={(operator) =>
-              onChange({ ...value, operator: operator as typeof value.operator })
-            }
-          >
-            {[
-              'equal',
-              'not-equal',
-              'less',
-              'less-equal',
-              'greater',
-              'greater-equal',
-              'truthy',
-              'falsy',
-            ].map((operator) => (
-              <SelectItem value={operator} key={operator}>
-                {operator}
-              </SelectItem>
-            ))}
-          </Select>
-          {!['truthy', 'falsy'].includes(value.operator) && (
-            <Input
-              aria-label="Visibility comparison value"
-              value={String(value.value ?? '')}
-              onChange={(event) => onChange({ ...value, value: event.currentTarget.value })}
-            />
-          )}
-        </>
-      )}
-    </div>
-  );
+  return <RecursiveConditionEditor value={value} project={project} onChange={onChange} />;
 }
 
 export function MapEditor({ tab }: WorkbenchEditorProps) {

@@ -122,25 +122,53 @@ export const focusedRoomQueryStateSchema = strict({
   ),
 });
 
-export const focusedConditionSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('always') }),
-  strict({
-    kind: z.literal('variable-comparison'),
-    variableId: z.string().min(1),
-    operator: z.enum([
-      'equal',
-      'not-equal',
-      'less',
-      'less-equal',
-      'greater',
-      'greater-equal',
-      'truthy',
-      'falsy',
-    ]),
-    value: scalar.optional(),
-  }),
-  strict({ kind: z.literal('lua-predicate'), source: z.string() }),
-]);
+type FocusedConditionValue =
+  | { kind: 'always' }
+  | { kind: 'all'; conditions: FocusedConditionValue[] }
+  | { kind: 'any'; conditions: FocusedConditionValue[] }
+  | { kind: 'not'; condition: FocusedConditionValue }
+  | {
+      kind: 'variable-comparison';
+      variableId: string;
+      operator:
+        | 'equal'
+        | 'not-equal'
+        | 'less'
+        | 'less-equal'
+        | 'greater'
+        | 'greater-equal'
+        | 'truthy'
+        | 'falsy';
+      value?: z.infer<typeof scalar>;
+    }
+  | { kind: 'lua-predicate'; source: string }
+  | { kind: 'runtime-only'; conditionKind: string };
+
+export const focusedConditionSchema: z.ZodType<FocusedConditionValue> = z.lazy(() =>
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('always') }),
+    strict({ kind: z.literal('all'), conditions: z.array(focusedConditionSchema) }),
+    strict({ kind: z.literal('any'), conditions: z.array(focusedConditionSchema) }),
+    strict({ kind: z.literal('not'), condition: focusedConditionSchema }),
+    strict({
+      kind: z.literal('variable-comparison'),
+      variableId: z.string().min(1),
+      operator: z.enum([
+        'equal',
+        'not-equal',
+        'less',
+        'less-equal',
+        'greater',
+        'greater-equal',
+        'truthy',
+        'falsy',
+      ]),
+      value: scalar.optional(),
+    }),
+    strict({ kind: z.literal('lua-predicate'), source: z.string() }),
+    strict({ kind: z.literal('runtime-only'), conditionKind: z.string().min(1) }),
+  ]),
+);
 
 export const focusedTextSchema = strict({
   markup: z.enum(['plain', 'active-text']),
@@ -450,6 +478,9 @@ export const roomPreviewDocumentSchema = strict({
   const collectCondition = (condition: z.infer<typeof focusedConditionSchema>) => {
     if (condition.kind === 'variable-comparison')
       structuredConditionVariableIds.add(condition.variableId);
+    else if (condition.kind === 'all' || condition.kind === 'any')
+      condition.conditions.forEach(collectCondition);
+    else if (condition.kind === 'not') collectCondition(condition.condition);
   };
   document.world.overlays.forEach((value) => collectCondition(value.condition));
   document.world.cast.forEach((value) => collectCondition(value.condition));

@@ -14,7 +14,7 @@ import {
 } from './authoring-flow';
 import { parseLayoutData } from './authoring-layouts';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import { validateVariableRuntimeValue } from './authoring-variable-usage';
+import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, roomHotspotTargetSchema } from './authoring-features';
 import { parseCharacterData } from './authoring-characters';
@@ -332,21 +332,9 @@ function validateCondition(
   path: string,
   diagnostics: RoomSchemaDiagnostic[],
 ) {
-  if (condition.kind !== 'variable-comparison') return;
-  const variableId = condition.variable.$ref.id;
-  if (condition.value === undefined) {
-    if (!project.variables[variableId])
-      diagnostics.push(diagnostic(`${path}/variable/$ref`, `Missing variable '${variableId}'.`));
-    return;
-  }
-  const result = validateVariableRuntimeValue(project, variableId, condition.value);
-  if (!result.ok)
-    diagnostics.push(
-      diagnostic(
-        result.kind === 'missing' ? `${path}/variable/$ref` : `${path}/value`,
-        result.message,
-      ),
-    );
+  diagnostics.push(
+    ...validateSharedCondition(project, condition, path, { allowCurrentRoom: true }),
+  );
 }
 export function validateRoomNavigationTransition(
   value: z.infer<typeof roomNavigationTransitionSchema>,

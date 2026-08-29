@@ -25,6 +25,7 @@ import {
 } from './authoring-audio';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
+import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -632,11 +633,7 @@ export function validateDialogueData(
     if (!result.ok) diagnostics.push(diagnostic(path, result.message));
   };
   const validateCondition = (condition: DialogueConditionData | undefined, path: string) => {
-    if (condition?.kind === 'variable-comparison') {
-      const variableId = condition.variable.$ref.id;
-      if (condition.value === undefined) requireRecord('variables', variableId, `${path}/variable`);
-      else validateVariableValue(variableId, condition.value, `${path}/value`);
-    }
+    if (condition) diagnostics.push(...validateSharedCondition(project, condition, path));
   };
   const validateEffects = (effects: readonly DialogueEffectData[], path: string) => {
     effects.forEach((effect, index) => {

@@ -295,46 +295,272 @@ private:
                   path + "/source/key");
     }
 
-    void validate_condition(const Condition& condition, const std::string& path)
+    void validate_condition(const Condition& condition, const std::string& path,
+                            const std::unordered_set<VerbSlotId>* interaction_slots = nullptr)
     {
-        const auto* comparison = std::get_if<GlobalPropertyComparison>(&condition);
-        if (!comparison)
-            return;
+        const auto validate_slot = [&](const InteractionSlotOperand& slot,
+                                       const std::string& operand_path) {
+            if (interaction_slots == nullptr || !interaction_slots->contains(slot.slot_id))
+                error("compiled_project.condition_slot_out_of_scope",
+                      "Condition references Interaction slot '" + slot.slot_id.text() +
+                          "' outside its host scope.",
+                      operand_path + "/slotId");
+        };
+        const auto validate_result = [&](const CommandResultOperand& result,
+                                         const std::string& operand_path) {
+            error("compiled_project.condition_result_out_of_scope",
+                  "Condition references command result binding '" + result.binding_id.text() +
+                      "' outside a command-program result scope.",
+                  operand_path + "/bindingId");
+        };
+        const auto validate_identity = [&](const GameplayIdentityOperand& operand,
+                                           const std::string& operand_path) {
+            std::visit(
+                [&](const auto& exact) {
+                    using T = std::decay_t<decltype(exact)>;
+                    if constexpr (std::is_same_v<T, RoomId>)
+                        require(m_rooms, exact, "room", operand_path + "/room");
+                    else if constexpr (std::is_same_v<T, CharacterId>)
+                        require(m_characters, exact, "character", operand_path + "/character");
+                    else if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                        require(m_interactable_instances, exact, "interactable instance",
+                                operand_path + "/interactable");
+                    else if constexpr (std::is_same_v<T, RoomFeatureRef>) {
+                        require(m_rooms, exact.room, "room", operand_path + "/room");
+                        if (room(exact.room) && !feature(exact))
+                            error("compiled_project.unresolved_feature",
+                                  "Condition references an unknown Room Feature.", operand_path);
+                    } else if constexpr (std::is_same_v<T, InteractableFeatureRef>) {
+                        require(m_interactable_instances, exact.interactable,
+                                "interactable instance", operand_path + "/interactable");
+                        if (interactable(exact.interactable) && !feature(exact))
+                            error("compiled_project.unresolved_feature",
+                                  "Condition references an unknown Interactable Feature.",
+                                  operand_path);
+                    } else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
+                        validate_slot(exact, operand_path);
+                    else if constexpr (std::is_same_v<T, CommandResultOperand>)
+                        validate_result(exact, operand_path);
+                },
+                operand);
+        };
+        const auto validate_interactable_operand = [&](const InteractableOperand& operand,
+                                                       const std::string& operand_path) {
+            std::visit(
+                [&](const auto& exact) {
+                    using T = std::decay_t<decltype(exact)>;
+                    if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                        require(m_interactable_instances, exact, "interactable instance",
+                                operand_path + "/interactable");
+                    else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
+                        validate_slot(exact, operand_path);
+                    else
+                        validate_result(exact, operand_path);
+                },
+                operand);
+        };
+        const auto validate_inventory_owner_operand = [&](const InventoryOwnerOperand& operand,
+                                                          const std::string& operand_path) {
+            std::visit(
+                [&](const auto& exact) {
+                    using T = std::decay_t<decltype(exact)>;
+                    if constexpr (std::is_same_v<T, CharacterId>)
+                        require(m_characters, exact, "character", operand_path + "/character");
+                    else if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                        require(m_interactable_instances, exact, "interactable instance",
+                                operand_path + "/interactable");
+                    else if constexpr (std::is_same_v<T, RoomFeatureRef>) {
+                        if (!feature(exact))
+                            error("compiled_project.unresolved_feature",
+                                  "Condition Inventory owner references an unknown Room Feature.",
+                                  operand_path);
+                    } else if constexpr (std::is_same_v<T, InteractableFeatureRef>) {
+                        if (!feature(exact))
+                            error("compiled_project.unresolved_feature",
+                                  "Condition Inventory owner references an unknown Interactable "
+                                  "Feature.",
+                                  operand_path);
+                    } else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
+                        validate_slot(exact, operand_path);
+                    else if constexpr (std::is_same_v<T, CommandResultOperand>)
+                        validate_result(exact, operand_path);
+                },
+                operand);
+        };
+        const auto validate_inventory_operand = [&](const InventoryOperand& operand,
+                                                    const std::string& operand_path) {
+            std::visit(
+                [&](const auto& exact) {
+                    using T = std::decay_t<decltype(exact)>;
+                    if constexpr (std::is_same_v<T, ExactInventoryOperand>)
+                        validate_inventory_ref(exact.inventory, operand_path + "/inventory");
+                    else if constexpr (std::is_same_v<T, PlayerInventoryOperand>) {
+                        // #125 supplies the Project setting. The shared operand is valid now even
+                        // when no Player Inventory has yet been configured.
+                    } else if constexpr (std::is_same_v<T, OwnerInventoryOperand>)
+                        validate_inventory_owner_operand(exact.owner, operand_path + "/owner");
+                    else
+                        validate_result(exact, operand_path);
+                },
+                operand);
+        };
+        const auto validate_location_operand = [&](const LocationOperand& operand,
+                                                   const std::string& operand_path) {
+            std::visit(
+                [&](const auto& location) {
+                    using T = std::decay_t<decltype(location)>;
+                    if constexpr (std::is_same_v<T, RoomLocationOperand>) {
+                        std::visit(
+                            [&](const auto& room_operand) {
+                                using R = std::decay_t<decltype(room_operand)>;
+                                if constexpr (std::is_same_v<R, RoomId>)
+                                    require(m_rooms, room_operand, "room",
+                                            operand_path + "/room/room");
+                                else if constexpr (std::is_same_v<R, CommandResultOperand>)
+                                    validate_result(room_operand, operand_path + "/room");
+                            },
+                            location.room);
+                    } else if constexpr (std::is_same_v<T, InventoryLocationOperand>)
+                        validate_inventory_operand(location.inventory, operand_path + "/inventory");
+                },
+                operand);
+        };
+        const auto validate_property_comparison =
+            [&](const PropertyDefinition* declaration, ValueComparisonOperator operation,
+                const RuntimeValue& value, const std::string& value_path) {
+                if (declaration && !property_value_matches(*declaration, value))
+                    error("compiled_project.property_type_mismatch",
+                          "Comparison value does not match the Property declaration.", value_path);
+                if (!declaration)
+                    return;
+                const bool ordered = operation != ValueComparisonOperator::Equal &&
+                                     operation != ValueComparisonOperator::NotEqual;
+                const bool orderable =
+                    std::holds_alternative<IntegerPropertyType>(declaration->value_type()) ||
+                    std::holds_alternative<NumberPropertyType>(declaration->value_type()) ||
+                    std::holds_alternative<StringPropertyType>(declaration->value_type());
+                if (ordered && (!orderable || std::holds_alternative<std::monostate>(value)))
+                    error("compiled_project.invalid_property_operator",
+                          "Ordered comparison is incompatible with the Property declaration.",
+                          path + "/operator");
+            };
+
         std::visit(
-            [&](const auto& typed) {
-                const auto* declaration = property(typed.property_id);
-                if (!declaration) {
-                    require(m_properties, typed.property_id, "property", path + "/property");
-                    return;
-                }
-                if (!declaration->is_global()) {
-                    error("compiled_project.property_scope_mismatch",
-                          "Condition requires Global Property '" + typed.property_id.text() + "'.",
-                          path + "/property");
-                    return;
-                }
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, GlobalPropertyValueComparison>) {
-                    if (!property_value_matches(*declaration, typed.value))
-                        error("compiled_project.property_type_mismatch",
-                              "Comparison value does not match Global Property '" +
-                                  typed.property_id.text() + "'.",
-                              path + "/value");
-                    const bool ordered = typed.operation != ValueComparisonOperator::Equal &&
-                                         typed.operation != ValueComparisonOperator::NotEqual;
-                    const bool orderable =
-                        std::holds_alternative<IntegerPropertyType>(declaration->value_type()) ||
-                        std::holds_alternative<NumberPropertyType>(declaration->value_type()) ||
-                        std::holds_alternative<StringPropertyType>(declaration->value_type());
-                    if (ordered &&
-                        (!orderable || std::holds_alternative<std::monostate>(typed.value)))
-                        error("compiled_project.invalid_property_operator",
-                              "Ordered comparison is incompatible with Global Property '" +
-                                  typed.property_id.text() + "'.",
-                              path + "/operator");
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, AllCondition> || std::is_same_v<T, AnyCondition>) {
+                    for (std::size_t index = 0; index < value.conditions.size(); ++index)
+                        validate_condition(value.conditions[index],
+                                           path + "/conditions/" + std::to_string(index),
+                                           interaction_slots);
+                } else if constexpr (std::is_same_v<T, NotCondition>) {
+                    if (value.condition.size() != 1)
+                        error("compiled_project.invalid_condition_shape",
+                              "Not Condition must contain exactly one nested Condition.", path);
+                    else
+                        validate_condition(value.condition.front(), path + "/condition",
+                                           interaction_slots);
+                } else if constexpr (std::is_same_v<T, GlobalPropertyComparison>) {
+                    std::visit(
+                        [&](const auto& comparison) {
+                            const auto* declaration = property(comparison.property_id);
+                            if (!declaration) {
+                                require(m_properties, comparison.property_id, "property",
+                                        path + "/property");
+                                return;
+                            }
+                            if (!declaration->is_global()) {
+                                error("compiled_project.property_scope_mismatch",
+                                      "Condition requires a Global Property.", path + "/property");
+                                return;
+                            }
+                            using C = std::decay_t<decltype(comparison)>;
+                            if constexpr (std::is_same_v<C, GlobalPropertyValueComparison>)
+                                validate_property_comparison(declaration, comparison.operation,
+                                                             comparison.value, path + "/value");
+                            else if (!std::holds_alternative<BooleanPropertyType>(
+                                         declaration->value_type()))
+                                error("compiled_project.invalid_property_operator",
+                                      "Truthy/Falsy requires a Boolean Property.",
+                                      path + "/operator");
+                        },
+                        value);
+                } else if constexpr (std::is_same_v<T, IdentityPropertyComparison>) {
+                    std::visit(
+                        [&](const auto& comparison) {
+                            validate_identity(comparison.owner, path + "/owner");
+                            const PropertyDefinition* declaration = nullptr;
+                            std::visit(
+                                [&](const auto& owner) {
+                                    using O = std::decay_t<decltype(owner)>;
+                                    if constexpr (std::is_same_v<O, RoomId> ||
+                                                  std::is_same_v<O, CharacterId> ||
+                                                  std::is_same_v<O, InteractableInstanceId> ||
+                                                  std::is_same_v<O, RoomFeatureRef> ||
+                                                  std::is_same_v<O, InteractableFeatureRef>)
+                                        declaration = property(PropertyOwnerRef{owner},
+                                                               comparison.property_id);
+                                },
+                                comparison.owner);
+                            if (!declaration &&
+                                std::holds_alternative<InteractionSlotOperand>(comparison.owner))
+                                declaration = property(comparison.property_id);
+                            using C = std::decay_t<decltype(comparison)>;
+                            if constexpr (std::is_same_v<C, IdentityPropertyValueComparison>)
+                                validate_property_comparison(declaration, comparison.operation,
+                                                             comparison.value, path + "/value");
+                            else if (declaration && !std::holds_alternative<BooleanPropertyType>(
+                                                        declaration->value_type()))
+                                error("compiled_project.invalid_property_operator",
+                                      "Truthy/Falsy requires a Boolean Property.",
+                                      path + "/operator");
+                        },
+                        value);
+                } else if constexpr (std::is_same_v<T, TraitPresenceCondition>) {
+                    validate_identity(value.owner, path + "/owner");
+                    require(m_traits, value.trait, "trait", path + "/trait");
+                } else if constexpr (std::is_same_v<T, LocationComparisonCondition>) {
+                    std::visit(
+                        [&](const auto& subject) {
+                            using S = std::decay_t<decltype(subject)>;
+                            if constexpr (std::is_same_v<S, CharacterId>)
+                                require(m_characters, subject, "character",
+                                        path + "/subject/character");
+                            else if constexpr (std::is_same_v<S, InteractableInstanceId>)
+                                require(m_interactable_instances, subject, "interactable instance",
+                                        path + "/subject/interactable");
+                            else if constexpr (std::is_same_v<S, InteractionSlotOperand>)
+                                validate_slot(subject, path + "/subject");
+                            else
+                                validate_result(subject, path + "/subject");
+                        },
+                        value.subject);
+                    validate_location_operand(value.location, path + "/location");
+                    if (std::holds_alternative<CharacterId>(value.subject) &&
+                        std::holds_alternative<InventoryLocationOperand>(value.location))
+                        error("compiled_project.condition_operand_type_mismatch",
+                              "Character Location cannot be compared with an Inventory Location.",
+                              path + "/location");
+                } else if constexpr (std::is_same_v<T, InventoryQuantityComparisonCondition>) {
+                    validate_inventory_operand(value.inventory, path + "/inventory");
+                    if (value.matcher.definition)
+                        require(m_interactables, *value.matcher.definition,
+                                "interactable definition", path + "/matcher/definition");
+                    for (std::size_t index = 0; index < value.matcher.traits.size(); ++index)
+                        require(m_traits, value.matcher.traits[index], "trait",
+                                path + "/matcher/traits/" + std::to_string(index));
+                    for (std::size_t index = 0; index < value.matcher.properties.size(); ++index)
+                        if (!property(value.matcher.properties[index].property_id))
+                            require(m_properties, value.matcher.properties[index].property_id,
+                                    "property",
+                                    path + "/matcher/properties/" + std::to_string(index) +
+                                        "/propertyId");
+                    if (value.matcher.exact)
+                        validate_interactable_operand(*value.matcher.exact,
+                                                      path + "/matcher/exact");
                 }
             },
-            *comparison);
+            condition.value);
     }
 
     void validate_effect(const Effect& effect, const std::string& path)
@@ -2116,8 +2342,10 @@ private:
                     validate_subject_selector(offer.selectors[selector_index],
                                               offer_path + "/selectors/" +
                                                   std::to_string(selector_index));
-                if (offer.condition)
-                    validate_condition(*offer.condition, offer_path + "/condition");
+                if (offer.condition) {
+                    const std::unordered_set<VerbSlotId> offer_slots{offer.slot_id};
+                    validate_condition(*offer.condition, offer_path + "/condition", &offer_slots);
+                }
             }
             validate_condition(value.availability, path + "/availability");
             validate_program(value.default_program, path + "/defaultProgram");
@@ -2163,9 +2391,12 @@ private:
                               "Rule-derived Offer starting slot must name a rule slot.",
                               rule_path + "/offer/slotId");
                 }
-                if (rule.offer && rule.offer->condition)
-                    validate_condition(*rule.offer->condition, rule_path + "/offer/condition");
-                validate_condition(rule.guard, rule_path + "/guard");
+                if (rule.offer && rule.offer->condition) {
+                    const std::unordered_set<VerbSlotId> offer_slots{rule.offer->slot_id};
+                    validate_condition(*rule.offer->condition, rule_path + "/offer/condition",
+                                       &offer_slots);
+                }
+                validate_condition(rule.guard, rule_path + "/guard", &rule_slots);
                 validate_program(rule.program, rule_path + "/program");
             }
         }

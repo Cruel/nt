@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/execution_primitives.hpp"
+#include "noveltea/core/gameplay_references.hpp"
 #include "noveltea/core/layout_contracts.hpp"
 #include "noveltea/core/layout_scale_policy.hpp"
 #include "noveltea/core/property.hpp"
@@ -97,37 +98,6 @@ struct InventoryDefinition {
     std::string label;
     bool operator==(const InventoryDefinition&) const = default;
 };
-struct ProjectInventoryOwner {
-    bool operator==(const ProjectInventoryOwner&) const = default;
-};
-struct CharacterInventoryOwner {
-    CharacterId character;
-    bool operator==(const CharacterInventoryOwner&) const = default;
-};
-struct InteractableInventoryOwner {
-    InteractableInstanceId interactable;
-    bool operator==(const InteractableInventoryOwner&) const = default;
-};
-using InventoryOwnerRef =
-    std::variant<ProjectInventoryOwner, CharacterInventoryOwner, InteractableInventoryOwner,
-                 RoomFeatureRef, InteractableFeatureRef>;
-struct InventoryRef {
-    InventoryOwnerRef owner;
-    InventoryId inventory_id;
-    bool operator==(const InventoryRef&) const = default;
-};
-struct UnplacedLocation {
-    bool operator==(const UnplacedLocation&) const = default;
-};
-struct RoomLocation {
-    RoomId room;
-    bool operator==(const RoomLocation&) const = default;
-};
-struct InventoryLocation {
-    InventoryRef inventory;
-    bool operator==(const InventoryLocation&) const = default;
-};
-
 enum class AssetKind : std::uint8_t {
     Image,
     Font,

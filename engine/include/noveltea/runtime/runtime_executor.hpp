@@ -139,7 +139,7 @@ public:
         return m_gateway;
     }
     [[nodiscard]] core::Result<bool, RuntimeExecutionError>
-    evaluate(const core::Condition& condition);
+    evaluate(const core::Condition& condition, core::ConditionEvaluationContext context = {});
     [[nodiscard]] core::Result<RuntimeEffectOutcome, RuntimeExecutionError>
     apply(const core::Effect& effect, std::string_view chunk_name = "typed-effect");
     [[nodiscard]] core::Result<std::string, RuntimeExecutionError>

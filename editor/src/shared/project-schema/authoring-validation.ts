@@ -57,7 +57,7 @@ import {
   validateCompletedCommandTemplate,
   validateVerbNamedTemplate,
 } from './authoring-verbs';
-import { validateVariableRuntimeValue } from './authoring-variable-usage';
+import { validateCondition } from './authoring-condition-validation';
 import {
   authoringProjectSchema,
   isValidEntityId,
@@ -1344,33 +1344,13 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
             );
         }
       }
-      if (data.availability.kind === 'variable-comparison') {
-        const variableId = data.availability.variable.$ref.id;
-        if (data.availability.value === undefined) {
-          if (!project.variables[variableId])
-            diagnostics.push(
-              diagnostic(
-                'error',
-                `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref`,
-                `Missing variable '${variableId}'.`,
-                'Verbs',
-              ),
-            );
-        } else {
-          const result = validateVariableRuntimeValue(project, variableId, data.availability.value);
-          if (!result.ok)
-            diagnostics.push(
-              diagnostic(
-                'error',
-                result.kind === 'missing'
-                  ? `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref`
-                  : `/verbs/${escapePathSegment(id)}/data/availability/value`,
-                result.message,
-                'Verbs',
-              ),
-            );
-        }
-      }
+      diagnostics.push(
+        ...validateCondition(
+          project,
+          data.availability,
+          `/verbs/${escapePathSegment(id)}/data/availability`,
+        ),
+      );
       diagnostics.push(
         ...validateInteractionProgram(
           project,

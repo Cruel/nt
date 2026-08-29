@@ -1,11 +1,11 @@
 import type {
-  CompiledCondition,
   CompiledEffect,
   CompiledProjectWire,
   CompiledText,
   SceneProgram,
 } from './project-schema/compiled-project';
-import type { Condition, Effect, TextContent } from './project-schema/authoring-flow';
+import type { Effect, TextContent } from './project-schema/authoring-flow';
+import { compileCondition } from './authoring-condition-lowering';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import { resolveMaterialData } from './project-schema/authoring-materials';
@@ -72,19 +72,6 @@ function compileText(text: TextContent): CompiledText {
         : source.kind === 'localized'
           ? { kind: 'localized', key: source.key }
           : { kind: 'lua-expression', source: source.source },
-  };
-}
-
-function compileCondition(condition: Condition): CompiledCondition {
-  if (condition.kind === 'always') return { kind: 'always' };
-  if (condition.kind === 'lua-predicate') {
-    return { kind: 'lua-predicate', source: condition.source };
-  }
-  return {
-    kind: 'global-property-comparison',
-    operator: condition.operator,
-    property: { kind: 'property', id: condition.variable.$ref.id },
-    ...(condition.value === undefined ? {} : { value: condition.value }),
   };
 }
 

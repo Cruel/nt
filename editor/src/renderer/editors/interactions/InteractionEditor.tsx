@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -38,45 +39,22 @@ function defaultSlots(project: AuthoringEditorProject, verbId: string): Interact
 
 function GuardEditor({
   rule,
+  project,
   onChange,
 }: {
   rule: InteractionRule;
+  project: AuthoringEditorProject;
   onChange: (next: InteractionRule) => void;
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-2">
-      <div>
-        <Label>Guard</Label>
-        <Select
-          value={rule.guard.kind === 'always' ? 'always' : 'lua-predicate'}
-          onValueChange={(kind) =>
-            onChange({
-              ...rule,
-              guard:
-                kind === 'always'
-                  ? { kind: 'always' }
-                  : { kind: 'lua-predicate', source: 'return true' },
-            })
-          }
-        >
-          <SelectItem value="always">Always</SelectItem>
-          <SelectItem value="lua-predicate">Lua predicate</SelectItem>
-        </Select>
-      </div>
-      {rule.guard.kind === 'lua-predicate' && (
-        <div>
-          <Label>Guard expression</Label>
-          <Input
-            value={rule.guard.source}
-            onChange={(event) =>
-              onChange({
-                ...rule,
-                guard: { kind: 'lua-predicate', source: event.currentTarget.value || ' ' },
-              })
-            }
-          />
-        </div>
-      )}
+    <div className="space-y-2">
+      <Label>Guard</Label>
+      <RecursiveConditionEditor
+        value={rule.guard}
+        project={project}
+        scope={{ interactionSlots: rule.slots.map((slot) => slot.slotId), currentRoom: true }}
+        onChange={(guard) => onChange({ ...rule, guard })}
+      />
     </div>
   );
 }
@@ -366,28 +344,44 @@ function RuleEditor({
             </label>
             <div>
               <Label>Offer condition</Label>
-              <Input
-                placeholder="Lua predicate (blank = none)"
-                value={
-                  rule.offer.condition?.kind === 'lua-predicate' ? rule.offer.condition.source : ''
-                }
-                onChange={(event) =>
-                  onChange({
-                    ...rule,
-                    offer: {
-                      ...rule.offer!,
-                      condition: event.currentTarget.value
-                        ? { kind: 'lua-predicate', source: event.currentTarget.value }
-                        : undefined,
-                    },
-                  })
-                }
-              />
+              {rule.offer.condition ? (
+                <div className="space-y-2">
+                  <RecursiveConditionEditor
+                    value={rule.offer.condition}
+                    project={project}
+                    scope={{ interactionSlots: [rule.offer.slotId], currentRoom: true }}
+                    onChange={(condition) =>
+                      onChange({ ...rule, offer: { ...rule.offer!, condition } })
+                    }
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      onChange({ ...rule, offer: { ...rule.offer!, condition: undefined } })
+                    }
+                  >
+                    Remove condition
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    onChange({ ...rule, offer: { ...rule.offer!, condition: { kind: 'always' } } })
+                  }
+                >
+                  Add condition
+                </Button>
+              )}
             </div>
           </div>
         )}
       </div>
-      <GuardEditor rule={rule} onChange={onChange} />
+      <GuardEditor rule={rule} project={project} onChange={onChange} />
       <InteractionProgramEditor
         value={rule.program}
         project={project}

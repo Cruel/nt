@@ -558,15 +558,49 @@ RuntimeExecutor::invoke_script(std::string_view source, std::string_view chunk_n
 }
 
 core::Result<bool, RuntimeExecutionError>
-RuntimeExecutor::evaluate(const core::Condition& condition)
+RuntimeExecutor::evaluate(const core::Condition& condition,
+                          core::ConditionEvaluationContext context)
 {
-    if (const auto* lua = std::get_if<core::LuaPredicate>(&condition)) {
+    if (const auto* lua = std::get_if<core::LuaPredicate>(&condition.value)) {
         auto result = evaluate_script(*lua);
         const auto* value = result.value_if();
         return value ? core::Result<bool, RuntimeExecutionError>::success(*value)
                      : core::Result<bool, RuntimeExecutionError>::failure(result.error());
     }
-    auto result = m_primitives.evaluate(condition);
+    if (const auto* all = std::get_if<core::AllCondition>(&condition.value)) {
+        for (const auto& child : all->conditions) {
+            auto result = evaluate(child, context);
+            const auto* value = result.value_if();
+            if (value == nullptr)
+                return core::Result<bool, RuntimeExecutionError>::failure(result.error());
+            if (!*value)
+                return core::Result<bool, RuntimeExecutionError>::success(false);
+        }
+        return core::Result<bool, RuntimeExecutionError>::success(true);
+    }
+    if (const auto* any = std::get_if<core::AnyCondition>(&condition.value)) {
+        for (const auto& child : any->conditions) {
+            auto result = evaluate(child, context);
+            const auto* value = result.value_if();
+            if (value == nullptr)
+                return core::Result<bool, RuntimeExecutionError>::failure(result.error());
+            if (*value)
+                return core::Result<bool, RuntimeExecutionError>::success(true);
+        }
+        return core::Result<bool, RuntimeExecutionError>::success(false);
+    }
+    if (const auto* not_condition = std::get_if<core::NotCondition>(&condition.value)) {
+        if (not_condition->condition.size() != 1)
+            return core::Result<bool, RuntimeExecutionError>::failure(
+                core::Diagnostics{core::Diagnostic{
+                    .code = "execution.invalid_condition_shape",
+                    .message = "Not Condition must contain exactly one nested Condition"}});
+        auto result = evaluate(not_condition->condition.front(), context);
+        const auto* value = result.value_if();
+        return value ? core::Result<bool, RuntimeExecutionError>::success(!*value)
+                     : core::Result<bool, RuntimeExecutionError>::failure(result.error());
+    }
+    auto result = m_primitives.evaluate(condition, context);
     const auto* value = result.value_if();
     return value ? core::Result<bool, RuntimeExecutionError>::success(*value)
                  : core::Result<bool, RuntimeExecutionError>::failure(result.error());

@@ -2,6 +2,7 @@
 #include "noveltea/core/property_resolver.hpp"
 #include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/core/session_state.hpp"
+#include "noveltea/core/shared_evaluator.hpp"
 #include "noveltea/runtime/runtime_world.hpp"
 #include "../runtime_test_services.hpp"
 
@@ -125,6 +126,107 @@ TEST_CASE("runtime world resolves declared gameplay instances without owning def
     REQUIRE(world.interactable_state(key) != nullptr);
     CHECK(world.character_state(hero) == state.character_world(hero));
     CHECK(world.interactable_state(key) == state.interactable(key));
+}
+
+TEST_CASE("shared recursive Conditions inspect identity Trait Location slots and direct Inventory "
+          "quantity")
+{
+    const auto project = load_fixture("comprehensive.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor flow(project, state);
+    core::SharedPrimitiveEvaluator evaluator(project, state, flow);
+    RuntimeWorld world(project, state);
+
+    const auto key = id<core::InteractableInstanceId>("key");
+    const auto wallet = id<core::InteractableInstanceId>("wallet");
+    const auto start = id<core::RoomId>("start");
+    const auto player_inventory = core::compiled::InventoryRef{
+        core::compiled::ProjectInventoryOwner{}, id<core::InventoryId>("player")};
+
+    core::Condition recursive = core::AllCondition{{
+        core::Condition{core::IdentityPropertyTruthiness{core::GameplayIdentityOperand{key},
+                                                         id<core::PropertyId>("enabled"),
+                                                         core::TruthinessOperator::Truthy}},
+        core::Condition{core::TraitPresenceCondition{core::GameplayIdentityOperand{wallet},
+                                                     id<core::TraitId>("currency"), true}},
+        core::Condition{core::LocationComparisonCondition{
+            core::LocationSubjectOperand{key}, core::EqualityComparisonOperator::Equal,
+            core::LocationOperand{core::RoomLocationOperand{core::RoomOperand{start}}}}},
+        core::Condition{core::NotCondition{{core::Condition{core::TraitPresenceCondition{
+            core::GameplayIdentityOperand{key}, id<core::TraitId>("currency"), true}}}}},
+    }};
+    auto recursive_result = evaluator.evaluate(recursive);
+    REQUIRE(recursive_result);
+    CHECK(recursive_result.value());
+
+    const std::vector<core::InteractionSubjectBinding> bindings{{
+        id<core::VerbSlotId>("target"),
+        core::compiled::InteractableInteractionSubject{key},
+    }};
+    core::Condition slot_property = core::IdentityPropertyTruthiness{
+        core::GameplayIdentityOperand{core::InteractionSlotOperand{id<core::VerbSlotId>("target")}},
+        id<core::PropertyId>("enabled"), core::TruthinessOperator::Truthy};
+    auto slot_result = evaluator.evaluate(
+        slot_property,
+        core::ConditionEvaluationContext{.interaction_bindings = bindings, .command_results = {}});
+    REQUIRE(slot_result);
+    CHECK(slot_result.value());
+
+    const std::vector<core::CommandResultBinding> results{
+        {id<core::CommandResultBindingId>("created"), core::GameplayOperandValue{key}}};
+    core::Condition result_property = core::IdentityPropertyTruthiness{
+        core::GameplayIdentityOperand{
+            core::CommandResultOperand{id<core::CommandResultBindingId>("created")}},
+        id<core::PropertyId>("enabled"), core::TruthinessOperator::Truthy};
+    auto result_binding = evaluator.evaluate(
+        result_property,
+        core::ConditionEvaluationContext{.interaction_bindings = {}, .command_results = results});
+    REQUIRE(result_binding);
+    CHECK(result_binding.value());
+
+    auto missing_result = evaluator.evaluate(
+        result_property,
+        core::ConditionEvaluationContext{.interaction_bindings = {}, .command_results = {}});
+    REQUIRE_FALSE(missing_result);
+    CHECK(missing_result.error().front().code == "execution.condition_result_unavailable");
+
+    core::Condition quantity = core::InventoryQuantityComparisonCondition{
+        .inventory = core::ExactInventoryOperand{player_inventory},
+        .matcher =
+            core::ConditionInteractableMatcher{
+                .definition = id<core::InteractableDefinitionId>("credits"),
+                .traits = {id<core::TraitId>("currency")},
+                .properties = {},
+                .exact = std::nullopt,
+            },
+        .operation = core::ValueComparisonOperator::Equal,
+        .quantity = 1,
+    };
+    auto quantity_result = evaluator.evaluate(quantity);
+    REQUIRE(quantity_result);
+    CHECK(quantity_result.value());
+
+    auto created = world.create_interactable_quantity(
+        id<core::InteractableDefinitionId>("credits"), 1,
+        core::compiled::InteractableLocation{core::compiled::InventoryLocation{player_inventory}});
+    REQUIRE(created);
+    quantity = core::InventoryQuantityComparisonCondition{
+        .inventory = core::ExactInventoryOperand{player_inventory},
+        .matcher =
+            core::ConditionInteractableMatcher{
+                .definition = id<core::InteractableDefinitionId>("credits"),
+                .traits = {id<core::TraitId>("currency")},
+                .properties = {},
+                .exact = std::nullopt,
+            },
+        .operation = core::ValueComparisonOperator::Equal,
+        .quantity = 2,
+    };
+    quantity_result = evaluator.evaluate(quantity);
+    REQUIRE(quantity_result);
+    CHECK(quantity_result.value());
 }
 
 TEST_CASE("declared Interactable Instances realize independent exact Features and Inventories")

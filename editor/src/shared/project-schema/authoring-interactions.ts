@@ -11,6 +11,7 @@ import { parseRoomData } from './authoring-rooms';
 import { parseVerbData, subjectSelectorSchema } from './authoring-verbs';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateInventoryReference } from './authoring-inventory-validation';
+import { validateCondition } from './authoring-condition-validation';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { analyzeInteractionRules, selectorUnionOverlap } from '../interaction-resolver-analysis';
 
@@ -393,24 +394,19 @@ export function validateInteractionData(
           `${path}/slots/${slotIndex}/selectors/${selectorIndex}`,
           diagnostics,
         );
-    if (rule.guard.kind === 'variable-comparison') {
-      const variableId = rule.guard.variable.$ref.id;
-      if (rule.guard.value === undefined) {
-        if (!project.variables[variableId])
-          diagnostics.push(
-            diagnostic(`${path}/guard/variable/$ref`, `Missing variable '${variableId}'.`),
-          );
-      } else {
-        const result = validateVariableRuntimeValue(project, variableId, rule.guard.value);
-        if (!result.ok)
-          diagnostics.push(
-            diagnostic(
-              result.kind === 'missing' ? `${path}/guard/variable/$ref` : `${path}/guard/value`,
-              result.message,
-            ),
-          );
-      }
-    }
+    diagnostics.push(
+      ...validateCondition(project, rule.guard, `${path}/guard`, {
+        interactionSlots: rule.slots.map((slot) => slot.slotId),
+        allowCurrentRoom: true,
+      }),
+    );
+    if (rule.offer?.condition)
+      diagnostics.push(
+        ...validateCondition(project, rule.offer.condition, `${path}/offer/condition`, {
+          interactionSlots: [rule.offer.slotId],
+          allowCurrentRoom: true,
+        }),
+      );
     diagnostics.push(...validateInteractionProgram(project, rule.program, `${path}/program`));
   }
   const analyses = analyzeInteractionRules(project, parsed.data.rules);

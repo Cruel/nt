@@ -45,6 +45,7 @@ import {
   MAX_ITEM_STACK_QUANTITY,
 } from './authoring-items';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
+import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
 import { isPropertyValueCompatible } from './authoring-properties';
 import { resolveMaterialData } from './authoring-materials';
 import {
@@ -1035,11 +1036,7 @@ export function validateSceneData(
     return undefined;
   };
   const validateCondition = (condition: SceneConditionData | undefined, path: string) => {
-    if (condition?.kind === 'variable-comparison') {
-      const variableId = condition.variable.$ref.id;
-      if (condition.value === undefined) requireRecord('variables', variableId, `${path}/variable`);
-      else validateVariableValue(variableId, condition.value, `${path}/value`);
-    }
+    if (condition) diagnostics.push(...validateSharedCondition(project, condition, path));
   };
   const validateEffects = (effects: readonly SceneEffectData[], path: string) => {
     effects.forEach((effect, index) => {

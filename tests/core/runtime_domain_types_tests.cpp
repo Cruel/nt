@@ -59,7 +59,7 @@ TEST_CASE("shared execution concepts are closed variants")
 {
     STATIC_REQUIRE(std::variant_size_v<TextSource> == 3);
     STATIC_REQUIRE(std::variant_size_v<GlobalPropertyComparison> == 2);
-    STATIC_REQUIRE(std::variant_size_v<Condition> == 3);
+    STATIC_REQUIRE(std::variant_size_v<Condition::Value> == 10);
     STATIC_REQUIRE(std::variant_size_v<Effect> == 2);
     STATIC_REQUIRE(std::variant_size_v<FlowTarget> == 5);
     STATIC_REQUIRE(std::variant_size_v<WaitSpec> == 7);

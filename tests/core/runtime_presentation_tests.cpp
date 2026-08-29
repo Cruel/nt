@@ -602,7 +602,8 @@ TEST_CASE(
     auto resolution = resolver.resolve(
         project, world, state, *state.room_visit(),
         [](const Condition& condition) {
-            return Result<bool, Diagnostics>::success(std::holds_alternative<Always>(condition));
+            return Result<bool, Diagnostics>::success(
+                std::holds_alternative<Always>(condition.value));
         },
         [](const TextSource& source) {
             return Result<std::string, Diagnostics>::success(std::visit(

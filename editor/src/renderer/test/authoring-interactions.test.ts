@@ -160,6 +160,72 @@ describe('authoring interactions', () => {
     );
   });
 
+  it('admits bound Interaction slots recursively in Guards and restricts Offer Conditions to the offered slot', () => {
+    const project = createAuthoringProject();
+    project.verbs.use = { id: 'use', label: 'Use', data: twoSlotVerb('Use') };
+    const data = defaultInteractionData();
+    data.rules.push({
+      id: 'slot-aware',
+      verb: { $ref: { collection: 'verbs', id: 'use' } },
+      slots: [
+        { slotId: 'first', selectors: [{ kind: 'any-subject' }] },
+        { slotId: 'second', selectors: [{ kind: 'any-subject' }] },
+      ],
+      offer: {
+        slotId: 'first',
+        condition: {
+          kind: 'property-comparison',
+          owner: { kind: 'interaction-slot', slotId: 'second' },
+          propertyId: 'enabled',
+          operator: 'truthy',
+        },
+        rank: 0,
+        primary: true,
+      },
+      guard: {
+        kind: 'all',
+        conditions: [
+          {
+            kind: 'property-comparison',
+            owner: { kind: 'interaction-slot', slotId: 'first' },
+            propertyId: 'enabled',
+            operator: 'truthy',
+          },
+          {
+            kind: 'not',
+            condition: {
+              kind: 'property-comparison',
+              owner: { kind: 'interaction-slot', slotId: 'second' },
+              propertyId: 'blocked',
+              operator: 'truthy',
+            },
+          },
+        ],
+      },
+      priority: 0,
+      program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
+    });
+
+    const diagnostics = validateInteractionData(project, 'rules', {
+      id: 'rules',
+      label: 'Rules',
+      data,
+    });
+
+    expect(diagnostics).not.toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.condition.slot-out-of-scope',
+        path: expect.stringContaining('/guard'),
+      }),
+    );
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.condition.slot-out-of-scope',
+        path: '/interactions/rules/data/rules/0/offer/condition/owner/slotId',
+      }),
+    );
+  });
+
   it('detects unconditional equal-tier conflicts across Interaction records', () => {
     const project = createAuthoringProject();
     project.verbs.use = { id: 'use', label: 'Use', data: oneSlotVerb('Use') };

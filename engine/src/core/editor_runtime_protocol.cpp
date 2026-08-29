@@ -2319,6 +2319,33 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         const auto kind = json_access::member_as<std::string>(value, "kind");
         if (kind == "always") {
             exact_fields(value, {"kind"}, diagnostics, path);
+        } else if (kind == "all" || kind == "any") {
+            exact_fields(value, {"conditions", "kind"}, diagnostics, path);
+            result_value.kind =
+                kind == "all" ? TypedFocusedCondition::Kind::All : TypedFocusedCondition::Kind::Any;
+            const auto found = value.find("conditions");
+            if (found == value.end() || !found->is_array()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "Boolean Condition children must be an array.",
+                                            std::string(path) + "/conditions"));
+            } else {
+                for (std::size_t index = 0; index < found->size(); ++index)
+                    result_value.conditions.push_back(
+                        condition((*found)[index],
+                                  std::string(path) + "/conditions/" + std::to_string(index)));
+            }
+        } else if (kind == "not") {
+            exact_fields(value, {"condition", "kind"}, diagnostics, path);
+            result_value.kind = TypedFocusedCondition::Kind::Not;
+            const auto found = value.find("condition");
+            if (found == value.end()) {
+                diagnostics.push_back(error("editor_preview.missing_field",
+                                            "Not Condition requires one child Condition.",
+                                            std::string(path) + "/condition"));
+            } else {
+                result_value.conditions.push_back(
+                    condition(*found, std::string(path) + "/condition"));
+            }
         } else if (kind == "variable-comparison") {
             exact_fields(value, {"kind", "variableId", "operator", "value"}, diagnostics, path);
             result_value.kind = TypedFocusedCondition::Kind::VariableComparison;
@@ -2338,6 +2365,10 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             exact_fields(value, {"kind", "source"}, diagnostics, path);
             result_value.kind = TypedFocusedCondition::Kind::LuaPredicate;
             result_value.lua_source = required_string(value, "source", path);
+        } else if (kind == "runtime-only") {
+            exact_fields(value, {"conditionKind", "kind"}, diagnostics, path);
+            result_value.kind = TypedFocusedCondition::Kind::RuntimeOnly;
+            result_value.runtime_condition_kind = required_string(value, "conditionKind", path);
         } else {
             diagnostics.push_back(error("editor_preview.invalid_enum",
                                         "Condition kind is unsupported.",

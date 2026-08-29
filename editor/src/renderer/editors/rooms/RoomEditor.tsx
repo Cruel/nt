@@ -52,6 +52,7 @@ import {
 } from '@/components/properties/OwnerLocalPropertiesEditor';
 import { InteractableInstancePropertiesEditor } from '@/components/properties/InteractablePropertyEditors';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
+import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 import {
   CategorizedEditorLayout,
@@ -99,11 +100,7 @@ import {
 } from '../../../shared/project-schema/authoring-rooms';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
-import {
-  inlineTextContent,
-  type Condition,
-  type TextContent,
-} from '../../../shared/project-schema/authoring-flow';
+import { inlineTextContent, type TextContent } from '../../../shared/project-schema/authoring-flow';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   captureScrollViewState,
@@ -298,241 +295,6 @@ const oppositeExitDirection: Record<RoomExitData['direction'], RoomExitData['dir
   south: 'north',
   southeast: 'northwest',
 };
-
-function ConditionEditor({
-  condition,
-  variables,
-  onChange,
-}: {
-  condition: Condition;
-  variables: string[];
-  onChange: (next: Condition) => void;
-}) {
-  if (condition.kind === 'lua-predicate')
-    return (
-      <div className="space-y-2">
-        <div className="flex gap-2">
-          <Select value="lua-predicate" onValueChange={() => {}}>
-            <SelectItem value="lua-predicate">Lua predicate</SelectItem>
-            <SelectItem value="always">Always</SelectItem>
-          </Select>
-          <Input
-            value={condition.source}
-            onChange={(event) => onChange({ ...condition, source: event.currentTarget.value })}
-          />
-        </div>
-        <LuaExplicitFallbackEditor
-          value={condition.additionalDependencies}
-          onChange={(additionalDependencies) => onChange({ ...condition, additionalDependencies })}
-        />
-      </div>
-    );
-  if (condition.kind === 'variable-comparison')
-    return (
-      <div className="grid gap-2 md:grid-cols-4">
-        <Select
-          value="variable-comparison"
-          onValueChange={(value) => value === 'always' && onChange({ kind: 'always' })}
-        >
-          <SelectItem value="variable-comparison">Variable comparison</SelectItem>
-          <SelectItem value="always">Always</SelectItem>
-        </Select>
-        <Select
-          value={condition.variable.$ref.id}
-          onValueChange={(value) =>
-            onChange({
-              ...condition,
-              variable: { $ref: { collection: 'variables', id: String(value) } },
-            })
-          }
-        >
-          {variables.map((id) => (
-            <SelectItem key={id} value={id}>
-              {id}
-            </SelectItem>
-          ))}
-        </Select>
-        <Select
-          value={condition.operator}
-          onValueChange={(value) =>
-            onChange({ ...condition, operator: value as typeof condition.operator })
-          }
-        >
-          {[
-            'equal',
-            'not-equal',
-            'less',
-            'less-equal',
-            'greater',
-            'greater-equal',
-            'truthy',
-            'falsy',
-          ].map((operator) => (
-            <SelectItem key={operator} value={operator}>
-              {operator}
-            </SelectItem>
-          ))}
-        </Select>
-        <Input
-          value={condition.value === undefined ? '' : String(condition.value)}
-          onChange={(event) => onChange({ ...condition, value: event.currentTarget.value })}
-        />
-      </div>
-    );
-  return (
-    <Select
-      value="always"
-      onValueChange={(value) => {
-        if (value === 'lua-predicate')
-          onChange({
-            kind: 'lua-predicate',
-            source: 'return true',
-            additionalDependencies: { targets: [] },
-          });
-        else if (value === 'variable-comparison' && variables[0])
-          onChange({
-            kind: 'variable-comparison',
-            variable: { $ref: { collection: 'variables', id: variables[0] } },
-            operator: 'truthy',
-          });
-      }}
-    >
-      <SelectItem value="always">Always</SelectItem>
-      <SelectItem value="lua-predicate">Lua predicate</SelectItem>
-      <SelectItem value="variable-comparison">Variable comparison</SelectItem>
-    </Select>
-  );
-}
-
-function CompactExitConditionEditor({
-  condition,
-  variables,
-  onChange,
-}: {
-  condition: Condition;
-  variables: string[];
-  onChange: (next: Condition) => void;
-}) {
-  return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-      <Select
-        value={condition.kind}
-        onValueChange={(kind) => {
-          if (kind === condition.kind) return;
-          if (kind === 'lua-predicate')
-            onChange({
-              kind: 'lua-predicate',
-              source: 'return true',
-              additionalDependencies: { targets: [] },
-            });
-          else if (kind === 'variable-comparison' && variables[0])
-            onChange({
-              kind: 'variable-comparison',
-              variable: { $ref: { collection: 'variables', id: variables[0] } },
-              operator: 'truthy',
-            });
-          else if (kind === 'always') onChange({ kind: 'always' });
-        }}
-      >
-        <SelectTrigger size="sm" aria-label="Available when">
-          <SelectValue>
-            {condition.kind === 'always'
-              ? 'Always'
-              : condition.kind === 'lua-predicate'
-                ? 'Lua predicate'
-                : 'Variable comparison'}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="always">Always</SelectItem>
-          <SelectItem value="lua-predicate">Lua predicate</SelectItem>
-          <SelectItem value="variable-comparison" disabled={!variables[0]}>
-            Variable comparison
-          </SelectItem>
-        </SelectContent>
-      </Select>
-      {condition.kind === 'lua-predicate' ? (
-        <>
-          <Input
-            className="min-w-48 flex-1 font-mono"
-            aria-label="Lua predicate"
-            value={condition.source}
-            onChange={(event) => onChange({ ...condition, source: event.currentTarget.value })}
-          />
-          <details className="basis-full rounded border bg-background/60">
-            <summary className="cursor-pointer px-2 py-1 text-[11px] text-muted-foreground">
-              Additional dependencies
-            </summary>
-            <div className="border-t p-2">
-              <LuaExplicitFallbackEditor
-                value={condition.additionalDependencies}
-                onChange={(additionalDependencies) =>
-                  onChange({ ...condition, additionalDependencies })
-                }
-              />
-            </div>
-          </details>
-        </>
-      ) : null}
-      {condition.kind === 'variable-comparison' ? (
-        <>
-          <Select
-            value={condition.variable.$ref.id}
-            onValueChange={(value) =>
-              onChange({
-                ...condition,
-                variable: { $ref: { collection: 'variables', id: String(value) } },
-              })
-            }
-          >
-            <SelectTrigger size="sm" aria-label="Variable">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {variables.map((id) => (
-                <SelectItem key={id} value={id}>
-                  {id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={condition.operator}
-            onValueChange={(value) =>
-              onChange({ ...condition, operator: value as typeof condition.operator })
-            }
-          >
-            <SelectTrigger size="sm" aria-label="Comparison operator">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {[
-                'equal',
-                'not-equal',
-                'less',
-                'less-equal',
-                'greater',
-                'greater-equal',
-                'truthy',
-                'falsy',
-              ].map((operator) => (
-                <SelectItem key={operator} value={operator}>
-                  {operator}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            className="min-w-32 flex-1"
-            aria-label="Comparison value"
-            value={condition.value === undefined ? '' : String(condition.value)}
-            onChange={(event) => onChange({ ...condition, value: event.currentTarget.value })}
-          />
-        </>
-      ) : null}
-    </div>
-  );
-}
 
 function TextContentEditor({
   value,
@@ -914,7 +676,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     id,
     label: value.label,
   }));
-  const variables = Object.keys(project.variables);
   const replaceExit = (id: string, patch: Partial<RoomExitData>) =>
     commit(
       { ...data, exits: data.exits.map((exit) => (exit.id === id ? { ...exit, ...patch } : exit)) },
@@ -1618,9 +1379,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         ) : null}
                         <div className="flex min-w-0 flex-wrap items-center gap-2 rounded bg-muted/10 p-1.5">
                           <Label className="shrink-0 text-[11px]">Available when</Label>
-                          <CompactExitConditionEditor
-                            condition={exit.condition}
-                            variables={variables}
+                          <RecursiveConditionEditor
+                            value={exit.condition}
+                            project={project}
+                            scope={{ currentRoom: true }}
+                            compact
                             onChange={(condition) => replaceExit(exit.id, { condition })}
                           />
                         </div>
@@ -2331,9 +2094,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             {(['canEnter', 'canLeave'] as const).map((hook) => (
               <div key={hook} className="space-y-1.5">
                 <Label>{hook === 'canEnter' ? 'Can enter' : 'Can leave'}</Label>
-                <ConditionEditor
-                  condition={data.lifecycle[hook]}
-                  variables={variables}
+                <RecursiveConditionEditor
+                  value={data.lifecycle[hook]}
+                  project={project}
+                  scope={{ currentRoom: true }}
                   onChange={(next) =>
                     commit(
                       { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
@@ -2962,9 +2726,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     }
                   />
                   <div className="md:col-span-3">
-                    <ConditionEditor
-                      condition={entry.condition}
-                      variables={variables}
+                    <RecursiveConditionEditor
+                      value={entry.condition}
+                      project={project}
+                      scope={{ currentRoom: true }}
                       onChange={(condition) => replaceCast(entry.id, { condition })}
                     />
                   </div>
@@ -3078,9 +2843,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     ))}
                   </Select>
                   <div className="md:col-span-3">
-                    <ConditionEditor
-                      condition={entry.condition}
-                      variables={variables}
+                    <RecursiveConditionEditor
+                      value={entry.condition}
+                      project={project}
+                      scope={{ currentRoom: true }}
                       onChange={(condition) => replaceProp(entry.id, { condition })}
                     />
                   </div>
@@ -3309,9 +3075,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     />
                   </div>
                   <div className="md:col-span-3">
-                    <ConditionEditor
-                      condition={entry.condition}
-                      variables={variables}
+                    <RecursiveConditionEditor
+                      value={entry.condition}
+                      project={project}
+                      scope={{ currentRoom: true }}
                       onChange={(condition) => replaceEnvironment(entry.id, { condition })}
                     />
                   </div>
