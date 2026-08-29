@@ -57,15 +57,27 @@ override reveals the lower layer instead of copying that lower Value into the In
 
 Room geometry belongs to nested `RoomPlacement`, not the Definition. A mutable `InteractableState`
 stores exactly one authoritative Location—owner-qualified Inventory, Room, or Unplaced—plus enabled,
-visible, and quantity state. Room Location names only the `RoomId`; visual placement is supplied separately by
-Room Interactable occurrences, which reference the exact Instance. Moving an Interactable updates
-Instance state; it does not rewrite its Definition.
+visible, and quantity state. Room Location names only the `RoomId`; visual placement is supplied
+separately by Room Interactable occurrences, which reference the exact Instance. A Room may author
+zero, one, or multiple exact occurrences for the same Instance without changing its semantic identity.
+Runtime state may additionally hold at most one dynamic Room occurrence for an Instance. A Room may
+declare one optional fallback Interactable placement for semantically present Instances that do not
+have an exact occurrence.
+
+Presentation placement resolves in this order: the Instance's current dynamic occurrence, authored
+exact occurrence, Room fallback placement, then no presentation. An ordinary move to a Room resolves
+the required presentation before committing either Location or dynamic occurrence, so failure leaves
+both unchanged. The explicit advanced `None` presentation policy permits semantic Room presence with
+no occurrence. Moving out of a Room clears the dynamic occurrence. Moving an Interactable never
+rewrites its Definition or authored Room occurrences.
 
 Quantity mutations preserve exact identity semantics. Create-with-quantity always creates the minimum
 number of new limit-respecting identities and never coalesces an existing identity. Split keeps the
 source identity and creates one new identity with copied semantic state. Merge requires the same
 immutable origin Definition, Location, enabled/visible state, effective Traits, and effective Property
-Values; the receiver survives and the donor ends. Exact transfer preserves identity for a whole-stack
+Values and dynamic Room occurrence; the receiver survives and the donor ends. A split in a Room
+inherits the source's resolved presentation placement as the new Instance's dynamic occurrence; a
+split in an Inventory remains in that same Inventory. Exact transfer preserves identity for a whole-stack
 move and performs one split for a partial move. `Add Quantity` fills only compatible Instances that
 remain in the Definition's default semantic state, then creates the minimum number of new default
 Instances. Consume decrements quantity or ends the identity at zero. Aggregate mutations use stable
@@ -96,7 +108,8 @@ parallel Item identities.
 - **Compiled:** immutable `InteractableDefinition` records plus separate
   `InteractableInstanceDeclaration` records. Room occurrences refer to exact Instance IDs.
 - **Mutable:** exact-Instance `InteractableState` and Property overrides in `SessionState`; Save-policy
-  values and logical state enter `SaveState` under the same Instance identity.
+  values, logical state, and any dynamic Room occurrence enter `SaveState` under the same Instance
+  identity.
 - **Tooling only:** categories, tags, colors, sort keys, notes, selection, and preview state.
 
 Interactions use a closed Character/Interactable/Feature subject union. Operands are an exact typed

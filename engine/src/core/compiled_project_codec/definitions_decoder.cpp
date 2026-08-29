@@ -1390,13 +1390,28 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
 std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json& value,
                                           std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"anchors",     "background",    "cast",
-                                         "description", "displayName",   "environments",
-                                         "exits",       "features",      "hotspots",
-                                         "id",          "interactables", "lifecycle",
-                                         "overlays",    "placements",    "presentationSpace",
-                                         "props",       "properties",    "propertyAssignments",
-                                         "scriptHooks", "traits"}))
+    if (!decoder.object(value, pointer,
+                        {"anchors",
+                         "background",
+                         "cast",
+                         "description",
+                         "displayName",
+                         "environments",
+                         "exits",
+                         "fallbackInteractablePlacementId",
+                         "features",
+                         "hotspots",
+                         "id",
+                         "interactables",
+                         "lifecycle",
+                         "overlays",
+                         "placements",
+                         "presentationSpace",
+                         "props",
+                         "properties",
+                         "propertyAssignments",
+                         "scriptHooks",
+                         "traits"}))
         return std::nullopt;
     auto identity = decode_identity<RoomId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -1413,6 +1428,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     const auto* hotspots_value = decoder.member(value, "hotspots", pointer);
     const auto* cast_value = decoder.member(value, "cast", pointer);
     const auto* interactables_value = decoder.member(value, "interactables", pointer);
+    const auto* fallback_interactable_placement_value =
+        decoder.member(value, "fallbackInteractablePlacementId", pointer);
     const auto* props_value = decoder.member(value, "props", pointer);
     const auto* environments_value = json_access::member(value, "environments");
     const auto* script_hooks_value = decoder.member(value, "scriptHooks", pointer);
@@ -1429,6 +1446,15 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     auto background = background_value ? decode_background(decoder, *background_value,
                                                            pointer_child(pointer, "background"))
                                        : std::nullopt;
+    std::optional<RoomPlacementId> fallback_interactable_placement;
+    bool fallback_interactable_placement_ok = fallback_interactable_placement_value != nullptr;
+    if (fallback_interactable_placement_value &&
+        !fallback_interactable_placement_value->is_null()) {
+        fallback_interactable_placement =
+            decoder.id<RoomPlacementId>(*fallback_interactable_placement_value,
+                                        pointer_child(pointer, "fallbackInteractablePlacementId"));
+        fallback_interactable_placement_ok = fallback_interactable_placement.has_value();
+    }
     const auto decode_camera_view =
         [&decoder](const nlohmann::json& camera,
                    const std::string& camera_pointer) -> std::optional<CameraView> {
@@ -2231,15 +2257,18 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     if (!identity || !display || !properties || !description || !background ||
         !presentation_space || !anchors || !lifecycle || !overlays || !placements || !exits ||
         !features || !hotspots || !cast || !interactables || !props || !environments ||
-        !script_hooks)
+        !script_hooks || !fallback_interactable_placement_ok)
         return std::nullopt;
-    return RoomDefinition{
-        std::move(*identity),     std::move(*display),       std::move(*properties),
-        std::move(*description),  std::move(*background),    std::move(*presentation_space),
-        std::move(*anchors),      std::move(*lifecycle),     std::move(*overlays),
-        std::move(*cast),         std::move(*interactables), std::move(*props),
-        std::move(*environments), std::move(*script_hooks),  std::move(*placements),
-        std::move(*exits),        std::move(*features),      std::move(*hotspots)};
+    return RoomDefinition{std::move(*identity),      std::move(*display),
+                          std::move(*properties),    std::move(*description),
+                          std::move(*background),    std::move(*presentation_space),
+                          std::move(*anchors),       std::move(*lifecycle),
+                          std::move(*overlays),      std::move(*cast),
+                          std::move(*interactables), std::move(fallback_interactable_placement),
+                          std::move(*props),         std::move(*environments),
+                          std::move(*script_hooks),  std::move(*placements),
+                          std::move(*exits),         std::move(*features),
+                          std::move(*hotspots)};
 }
 
 std::optional<InteractableDefinition>

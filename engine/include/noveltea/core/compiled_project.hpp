@@ -798,6 +798,7 @@ struct RoomDefinition {
     std::vector<RoomOverlay> overlays;
     std::vector<RoomCastEntry> cast;
     std::vector<RoomInteractableEntry> interactables;
+    std::optional<RoomPlacementId> fallback_interactable_placement;
     std::vector<RoomProp> props;
     std::vector<RoomEnvironment> environments;
     std::vector<RoomScriptHookMapping> script_hooks;

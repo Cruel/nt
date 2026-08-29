@@ -1,5 +1,6 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/property_resolver.hpp"
+#include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/runtime/runtime_world.hpp"
 #include "../runtime_test_services.hpp"
@@ -77,6 +78,9 @@ core::CompiledProject load_fixture_with_runtime_archetypes()
 core::CompiledProject load_stackable_interactable_fixture()
 {
     auto document = load_fixture_document("comprehensive.json");
+    for (auto& room : document["definitions"]["rooms"])
+        if (room["id"] == "hall")
+            room["fallbackInteractablePlacementId"] = "coin-placement";
     for (auto& definition : document["definitions"]["interactables"]) {
         if (definition["id"] == "dust") {
             definition["stackable"] = true;
@@ -232,7 +236,8 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
 
     REQUIRE(world.set_character_visible(hero, false));
     REQUIRE(world.set_interactable_visible(key, false));
-    REQUIRE(world.move_interactable(key, core::compiled::RoomLocation{hall}));
+    REQUIRE(world.move_interactable(key, core::compiled::RoomLocation{hall},
+                                    InteractableRoomPresentationPolicy::None));
 
     REQUIRE(world.character_state(hero) != nullptr);
     REQUIRE(world.interactable_state(key) != nullptr);
@@ -336,6 +341,102 @@ TEST_CASE(
     exact_matcher.instance = runtime_created;
     CHECK_FALSE(world.matches_interactable(declared, exact_matcher));
     CHECK(world.matches_interactable(runtime_created, exact_matcher));
+}
+
+TEST_CASE(
+    "runtime world resolves Room presentation atomically with authored fallback and none policies")
+{
+    auto document = load_fixture_document("comprehensive.json");
+    for (auto& room : document["definitions"]["rooms"])
+        if (room["id"] == "hall")
+            room["fallbackInteractablePlacementId"] = "coin-placement";
+    const auto project = decode_fixture(std::move(document), "room-interactable-fallback.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto key = id<core::InteractableInstanceId>("key");
+    const auto start = id<core::RoomId>("start");
+    const auto hall = id<core::RoomId>("hall");
+    const auto tower = id<core::RoomId>("tower");
+
+    auto authored = world.resolve_interactable_room_placement(key, start);
+    REQUIRE(authored);
+    CHECK(authored->source == InteractableRoomPlacementSource::Authored);
+    CHECK(authored->placement == id<core::RoomPlacementId>("key-placement"));
+
+    REQUIRE(world.move_interactable(key, core::compiled::RoomLocation{hall}));
+    const auto* in_hall = world.interactable_state(key);
+    REQUIRE(in_hall != nullptr);
+    REQUIRE(in_hall->dynamic_room_occurrence);
+    CHECK(in_hall->dynamic_room_occurrence->room == hall);
+    CHECK(in_hall->dynamic_room_occurrence->placement ==
+          id<core::RoomPlacementId>("coin-placement"));
+
+    auto saved = core::make_save_state(project, state);
+    REQUIRE(saved);
+    auto encoded = core::encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    auto decoded = core::decode_save_state(project, encoded.value(), "room-occurrence-save.json");
+    REQUIRE(decoded);
+    const auto restored = std::ranges::find_if(
+        decoded.value().interactables, [&](const auto& item) { return item.interactable == key; });
+    REQUIRE(restored != decoded.value().interactables.end());
+    REQUIRE(restored->dynamic_room_occurrence);
+    CHECK(restored->dynamic_room_occurrence == in_hall->dynamic_room_occurrence);
+
+    auto rejected = world.move_interactable(key, core::compiled::RoomLocation{tower});
+    REQUIRE_FALSE(rejected);
+    const auto* still_in_hall = world.interactable_state(key);
+    REQUIRE(still_in_hall != nullptr);
+    CHECK(std::get<core::compiled::RoomLocation>(still_in_hall->location).room == hall);
+    REQUIRE(still_in_hall->dynamic_room_occurrence);
+    CHECK(still_in_hall->dynamic_room_occurrence->room == hall);
+
+    REQUIRE(world.move_interactable(key, core::compiled::RoomLocation{tower},
+                                    InteractableRoomPresentationPolicy::None));
+    const auto* semantic_only = world.interactable_state(key);
+    REQUIRE(semantic_only != nullptr);
+    CHECK(std::get<core::compiled::RoomLocation>(semantic_only->location).room == tower);
+    CHECK_FALSE(semantic_only->dynamic_room_occurrence);
+}
+
+TEST_CASE("splitting stackable Interactable in a Room inherits resolved presentation placement")
+{
+    auto document = load_fixture_document("comprehensive.json");
+    for (auto& room : document["definitions"]["rooms"])
+        if (room["id"] == "hall")
+            room["fallbackInteractablePlacementId"] = "coin-placement";
+    for (auto& definition : document["definitions"]["interactables"])
+        if (definition["id"] == "dust") {
+            definition["stackable"] = true;
+            definition["stackLimit"] = 3;
+        }
+    const auto project = decode_fixture(std::move(document), "room-interactable-split.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto hall = id<core::RoomId>("hall");
+    auto created = world.create_interactable_quantity(id<core::InteractableDefinitionId>("dust"), 2,
+                                                      core::compiled::RoomLocation{hall});
+    REQUIRE(created);
+    REQUIRE(created.value().created.size() == 1);
+    const auto source = created.value().created.front();
+    auto split = world.split_interactable_quantity(source, 1);
+    REQUIRE(split);
+    REQUIRE(split.value().created.size() == 1);
+    const auto clone = split.value().created.front();
+    const auto* source_state = world.interactable_state(source);
+    const auto* clone_state = world.interactable_state(clone);
+    REQUIRE(source_state != nullptr);
+    REQUIRE(clone_state != nullptr);
+    REQUIRE(source_state->dynamic_room_occurrence);
+    REQUIRE(clone_state->dynamic_room_occurrence);
+    CHECK(clone_state->dynamic_room_occurrence == source_state->dynamic_room_occurrence);
+    CHECK(std::get<core::compiled::RoomLocation>(clone_state->location).room == hall);
 }
 
 TEST_CASE(
@@ -506,7 +607,8 @@ TEST_CASE("declared Interactable Instances sharing one definition save and resto
     CHECK(std::get<core::RuntimeValue>(wallet_serial.value()) ==
           core::RuntimeValue{std::string{"wallet-001"}});
     REQUIRE(world.set_interactable_visible(wallet, false));
-    REQUIRE(world.move_interactable(wallet, core::compiled::RoomLocation{hall}));
+    REQUIRE(world.move_interactable(wallet, core::compiled::RoomLocation{hall},
+                                    InteractableRoomPresentationPolicy::None));
     core::PropertyResolver properties(project, state);
     REQUIRE(properties.set(core::PropertyOwnerRef{wallet}, id<core::PropertyId>("note"),
                            core::RuntimeValue{std::string{"wallet"}}));
@@ -927,7 +1029,8 @@ TEST_CASE(
     REQUIRE(character);
     auto interactable = world.create_interactable(
         ArchetypeInstanceConfiguration{id<core::ArchetypeId>("runtime-interactable")},
-        core::compiled::RoomLocation{room.value()}, true, false);
+        core::compiled::RoomLocation{room.value()}, true, false,
+        InteractableRoomPresentationPolicy::None);
     REQUIRE(interactable);
 
     auto saved = core::make_save_state(project, state);

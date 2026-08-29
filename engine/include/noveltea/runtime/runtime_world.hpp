@@ -81,6 +81,23 @@ struct InteractableQuantityMutation {
     std::vector<core::InteractableInstanceId> ended;
 };
 
+enum class InteractableRoomPresentationPolicy : std::uint8_t {
+    Resolve,
+    None
+};
+
+enum class InteractableRoomPlacementSource : std::uint8_t {
+    Dynamic,
+    Authored,
+    Fallback
+};
+
+struct ResolvedInteractableRoomPlacement {
+    core::RoomPlacementId placement;
+    InteractableRoomPlacementSource source = InteractableRoomPlacementSource::Fallback;
+    std::optional<core::RoomInteractableEntryId> authored_occurrence;
+};
+
 // Session-scoped semantic lookup and mutation seam for live Gameplay Instances. The world borrows
 // immutable Project definitions and the authoritative SessionState; it owns neither.
 class RuntimeWorld final {
@@ -111,7 +128,9 @@ public:
     [[nodiscard]] core::Result<core::InteractableInstanceId, core::Diagnostics> create_interactable(
         RuntimeInstanceConfigurationRequest source,
         core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
-        bool enabled = true, bool visible = true);
+        bool enabled = true, bool visible = true,
+        InteractableRoomPresentationPolicy presentation =
+            InteractableRoomPresentationPolicy::Resolve);
     [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
     create_interactable_quantity(
         const core::InteractableDefinitionId& definition, std::uint64_t quantity,
@@ -160,6 +179,9 @@ public:
     inventory_members(const core::compiled::InventoryRef& inventory) const;
     [[nodiscard]] bool matches_interactable(const core::InteractableInstanceId& instance,
                                             const InteractableMatcher& matcher) const;
+    [[nodiscard]] std::optional<ResolvedInteractableRoomPlacement>
+    resolve_interactable_room_placement(const core::InteractableInstanceId& instance,
+                                        const core::RoomId& room) const;
     [[nodiscard]] const core::ItemStackState*
     item_stack(const core::ItemStackId& id) const noexcept;
     [[nodiscard]] std::vector<core::ItemStackId>
@@ -218,7 +240,9 @@ public:
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     move_interactable(const core::InteractableInstanceId& id,
-                      core::compiled::InteractableLocation location);
+                      core::compiled::InteractableLocation location,
+                      InteractableRoomPresentationPolicy presentation =
+                          InteractableRoomPresentationPolicy::Resolve);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_interactable_enabled(const core::InteractableInstanceId& id, bool enabled);
     [[nodiscard]] core::Result<void, core::Diagnostics>

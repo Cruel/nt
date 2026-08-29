@@ -154,6 +154,69 @@ describe('Room placement commands', () => {
     expect(undoCommand(placed.state).document).toEqual(state.document);
   });
 
+  it('authors multiple exact occurrences and a fallback placement independently from Instance identity', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'left',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        order: 0,
+        presentation: { label: null, layout: null },
+      },
+      {
+        id: 'right',
+        bounds: { x: 0.7, y: 0.1, width: 0.2, height: 0.2 },
+        order: 1,
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
+    let state = createInitialCommandBusState(toJsonValue(project));
+
+    for (const [occurrenceId, placementId] of [
+      ['key-left', 'left'],
+      ['key-right', 'right'],
+    ] as const) {
+      const added = executeCommand(state, {
+        type: 'room.addInteractableOccurrence',
+        payload: { roomId: 'foyer', instanceId: 'key', occurrenceId, placementId },
+      });
+      expect(added.ok).toBe(true);
+      state = added.state;
+    }
+    const fallback = executeCommand(state, {
+      type: 'room.setFallbackInteractablePlacement',
+      payload: { roomId: 'foyer', placementId: 'left' },
+    });
+    expect(fallback.ok).toBe(true);
+    state = fallback.state;
+    expect((state.document as typeof project).rooms.foyer?.data).toMatchObject({
+      fallbackInteractablePlacementId: 'left',
+      interactables: [
+        { id: 'key-left', interactable: { $ref: { id: 'key' } }, placementId: 'left' },
+        { id: 'key-right', interactable: { $ref: { id: 'key' } }, placementId: 'right' },
+      ],
+    });
+    expect((state.document as typeof project).interactableInstances.key?.location).toEqual({
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
+
+    const removed = executeCommand(state, {
+      type: 'room.removeInteractableOccurrence',
+      payload: { roomId: 'foyer', occurrenceId: 'key-left' },
+    });
+    expect(removed.ok).toBe(true);
+    expect((removed.document as typeof project).rooms.foyer?.data.interactables).toHaveLength(1);
+    expect((removed.document as typeof project).interactableInstances.key).toBeDefined();
+  });
+
   it('moves, resizes, and explicitly detaches a shared placement', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
@@ -192,13 +255,13 @@ describe('Room placement commands', () => {
 
     const moved = executeCommand(state, {
       type: 'room.moveInteractableToPlacement',
-      payload: { roomId: 'foyer', interactableId: 'key', placementId: 'shelf' },
+      payload: { roomId: 'foyer', occurrenceId: 'key', placementId: 'shelf' },
     });
     expect(moved.ok).toBe(true);
     state = moved.state;
     const returned = executeCommand(state, {
       type: 'room.moveInteractableToPlacement',
-      payload: { roomId: 'foyer', interactableId: 'key', placementId: 'shared' },
+      payload: { roomId: 'foyer', occurrenceId: 'key', placementId: 'shared' },
     });
     expect(returned.ok).toBe(true);
     state = returned.state;
@@ -206,7 +269,7 @@ describe('Room placement commands', () => {
       type: 'room.detachInteractablePlacement',
       payload: {
         roomId: 'foyer',
-        interactableId: 'key',
+        occurrenceId: 'key',
         sourcePlacementId: 'shared',
         placementId: 'key-placement',
       },

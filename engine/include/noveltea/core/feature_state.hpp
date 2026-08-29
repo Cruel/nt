@@ -329,11 +329,18 @@ struct DesiredAudioInstance {
 };
 
 struct InteractableState {
+    struct DynamicRoomOccurrence {
+        RoomId room;
+        RoomPlacementId placement;
+        bool operator==(const DynamicRoomOccurrence&) const = default;
+    };
+
     InteractableInstanceId interactable;
     compiled::InteractableLocation location;
     bool enabled = true;
     bool visible = true;
     std::uint64_t quantity = 1;
+    std::optional<DynamicRoomOccurrence> dynamic_room_occurrence;
 };
 
 struct ItemStackState {

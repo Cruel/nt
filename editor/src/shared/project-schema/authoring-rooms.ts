@@ -212,6 +212,7 @@ export const roomDataSchema = strict({
   lifecycle: roomLifecycleDataSchema,
   exits: z.array(roomExitDataSchema),
   placements: z.array(roomPlacementDataSchema),
+  fallbackInteractablePlacementId: entityIdSchema.nullable().default(null),
   features: z.array(featureDataSchema),
   hotspots: z.array(roomHotspotDataSchema),
 });
@@ -277,6 +278,7 @@ export function defaultRoomData(label = 'Room'): RoomData {
     anchors: [],
     overlays: [],
     placements: [],
+    fallbackInteractablePlacementId: null,
     cast: [],
     props: [],
     interactables: [],
@@ -470,6 +472,13 @@ export function validateRoomData(
     validateView(entry.view, `${base}/presentationSpace/views/${index}/view`),
   );
   const placements = new Set(data.placements.map((placement) => placement.id));
+  if (data.fallbackInteractablePlacementId && !placements.has(data.fallbackInteractablePlacementId))
+    diagnostics.push(
+      diagnostic(
+        `${base}/fallbackInteractablePlacementId`,
+        `Missing fallback Interactable placement '${data.fallbackInteractablePlacementId}'.`,
+      ),
+    );
   data.overlays.forEach((overlay, index) => {
     const layout = project.layouts[overlay.layout.$ref.id];
     if (!layout)

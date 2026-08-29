@@ -111,6 +111,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
         .overlays = {},
         .cast = {},
         .interactables = {},
+        .fallback_interactable_placement = room->fallback_interactable_placement,
         .props = {},
         .environments = {},
         .placements = {},
@@ -190,9 +191,17 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     for (const auto& interactable : state.interactables()) {
         const auto* location = std::get_if<compiled::RoomLocation>(&interactable.location);
         if (mode == RoomPresentationResolveMode::StagedScene ||
-            (location != nullptr && location->room == visit.room))
-            state_view.interactables.push_back(
-                {interactable.interactable, interactable.enabled, interactable.visible});
+            (location != nullptr && location->room == visit.room)) {
+            std::optional<RoomPlacementId> dynamic_placement;
+            if (location != nullptr && location->room == visit.room &&
+                interactable.dynamic_room_occurrence &&
+                interactable.dynamic_room_occurrence->room == visit.room)
+                dynamic_placement = interactable.dynamic_room_occurrence->placement;
+            state_view.interactables.push_back({interactable.interactable, interactable.enabled,
+                                                interactable.visible,
+                                                location != nullptr && location->room == visit.room,
+                                                std::move(dynamic_placement)});
+        }
     }
     if (mode == RoomPresentationResolveMode::ActiveVisit)
         for (const auto& overlay : room->overlays) {
@@ -537,6 +546,41 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
         draft.interactables.push_back({occurrence.id, occurrence.interactable, occurrence.placement,
                                        state_interactable->enabled,
                                        state_interactable->visible && occurrence.visible});
+    }
+    for (const auto& state_interactable : state.interactables) {
+        if (!state_interactable.room_location_matches)
+            continue;
+        if (state_interactable.dynamic_placement) {
+            if (std::none_of(room.placements.begin(), room.placements.end(),
+                             [&](const RoomPresentationDefinitionView::Placement& placement) {
+                                 return placement.id == *state_interactable.dynamic_placement;
+                             }))
+                return Result<RoomPresentationResolution, Diagnostics>::failure(
+                    error("room_resolution.invalid_dynamic_interactable_occurrence",
+                          "Dynamic Interactable occurrence references a missing Room placement"));
+            draft.interactables.push_back(
+                {DynamicRoomInteractableOccurrenceId{state_interactable.interactable},
+                 state_interactable.interactable, *state_interactable.dynamic_placement,
+                 state_interactable.enabled, state_interactable.visible});
+            continue;
+        }
+        const bool has_authored_occurrence =
+            std::ranges::any_of(room.interactables, [&](const auto& occurrence) {
+                return occurrence.interactable == state_interactable.interactable;
+            });
+        if (has_authored_occurrence || !room.fallback_interactable_placement)
+            continue;
+        if (std::none_of(room.placements.begin(), room.placements.end(),
+                         [&](const RoomPresentationDefinitionView::Placement& placement) {
+                             return placement.id == *room.fallback_interactable_placement;
+                         }))
+            return Result<RoomPresentationResolution, Diagnostics>::failure(
+                error("room_resolution.invalid_fallback_interactable_placement",
+                      "Room fallback Interactable placement is missing"));
+        draft.interactables.push_back(
+            {FallbackRoomInteractableOccurrenceId{state_interactable.interactable},
+             state_interactable.interactable, *room.fallback_interactable_placement,
+             state_interactable.enabled, state_interactable.visible});
     }
     for (const auto& prop : room.props) {
         auto enabled = evaluate(prop.condition);
