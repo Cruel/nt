@@ -18,12 +18,45 @@ set(approved_header_paths
     "engine/include/noveltea/core/rich_text_codec.hpp"
     "engine/include/noveltea/core/runtime_user_settings_codec.hpp"
     "engine/include/noveltea/core/save_state_codec.hpp"
-    "engine/include/noveltea/render/material_codec.hpp"
-    "engine/include/noveltea/boundary/running_game_loader.hpp")
+    "engine/include/noveltea/render/material_codec.hpp")
 list(APPEND approved_header_paths
     "engine/src/core/compiled_project_codec/internal.hpp"
     "engine/src/core/compiled_project_wire.hpp"
-    "engine/src/core/save_state_codec/codec_internal.hpp")
+    "engine/src/core/json_decoder.hpp"
+    "engine/src/core/save_state_codec/internal.hpp")
+set(approved_source_paths
+    "apps/editor_preview/editor_preview_app.cpp"
+    "engine/src/assets/resource_aliases.cpp"
+    "engine/src/core/compiled_package_codec.cpp"
+    "engine/src/core/compiled_project_codec/definitions_decoder.cpp"
+    "engine/src/core/compiled_project_codec/dialogue_decoder.cpp"
+    "engine/src/core/compiled_project_codec/interaction_decoder.cpp"
+    "engine/src/core/compiled_project_codec/linker.cpp"
+    "engine/src/core/compiled_project_codec/project_decoder.cpp"
+    "engine/src/core/compiled_project_codec/project_fields.cpp"
+    "engine/src/core/compiled_project_codec/scene_decoder.cpp"
+    "engine/src/core/compiled_project_codec/shared_values.cpp"
+    "engine/src/core/editor_asset_profiler_json.cpp"
+    "engine/src/core/editor_protocol.cpp"
+    "engine/src/core/editor_runtime_protocol.cpp"
+    "engine/src/core/package_export.cpp"
+    "engine/src/core/player_bootstrap.cpp"
+    "engine/src/core/rich_text_codec.cpp"
+    "engine/src/core/runtime_user_settings_codec.cpp"
+    "engine/src/core/save_state_codec.cpp"
+    "engine/src/core/save_state_codec/flow_codec.cpp"
+    "engine/src/core/save_state_codec/presentation_codec.cpp"
+    "engine/src/core/save_state_codec/shared_values.cpp"
+    "engine/src/core/save_state_codec/state_codec.cpp"
+    "engine/src/engine.cpp"
+    "engine/src/host/preview_host.cpp"
+    "engine/src/render/material_codec.cpp"
+    "engine/src/runtime_preview_controller.cpp"
+    "tools/benchmark/main.cpp"
+    "tools/editor_tool/shader_compiler.cpp"
+    "tools/editor_tool/tooling_archive.cpp"
+    "tools/editor_tool/tooling_image.cpp"
+    "tools/editor_tool/tooling_native.cpp")
 set(json_markers
     "#include <nlohmann/"
     "#include \"nlohmann/"
@@ -146,6 +179,27 @@ endforeach()
 foreach(source IN LISTS cpp_sources)
     file(RELATIVE_PATH relative "${SOURCE_ROOT}" "${source}")
     file(READ "${source}" content)
+    if(relative MATCHES "\\.cpp$")
+        list(FIND approved_source_paths "${relative}" approved_source_index)
+        foreach(marker IN LISTS json_markers)
+            string(FIND "${content}" "${marker}" marker_position)
+            if(NOT marker_position EQUAL -1 AND approved_source_index EQUAL -1)
+                set(allowed FALSE)
+                foreach(entry IN LISTS allowlist_entries)
+                    string(REPLACE "|" ";" entry_fields "${entry}")
+                    list(GET entry_fields 0 allowed_path)
+                    list(GET entry_fields 1 allowed_construct)
+                    if(allowed_path STREQUAL relative AND marker STREQUAL allowed_construct)
+                        set(allowed TRUE)
+                    endif()
+                endforeach()
+                if(NOT allowed)
+                    string(APPEND failures
+                        "\n  ${relative}: JSON marker '${marker}' is outside an approved codec/adapter source")
+                endif()
+            endif()
+        endforeach()
+    endif()
     if(content MATCHES "(^|[^A-Za-z0-9_])(to_json|from_json)[ \t\r\n]*\\(")
         string(APPEND failures "\n  ${relative}: ADL to_json/from_json codecs are forbidden")
     endif()

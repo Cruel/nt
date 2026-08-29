@@ -1,6 +1,8 @@
 #include "noveltea/core/compiled_package.hpp"
 #include "noveltea/core/compiled_package_codec.hpp"
 
+#include "json_decoder.hpp"
+
 #include "noveltea/core/json_access.hpp"
 #include "noveltea/core/package_export.hpp"
 #include "noveltea/core/player_bootstrap.hpp"
@@ -27,65 +29,23 @@ namespace {
 constexpr std::string_view package_format = "noveltea.runtime-package";
 constexpr std::string_view shader_schema = "noveltea.shader-materials";
 
-class Decoder {
+class Decoder final : public JsonDecoder {
 public:
     Decoder(std::string source, std::string prefix)
-        : m_source(std::move(source)), m_prefix(std::move(prefix))
+        : JsonDecoder(source, JsonDecoderCodes{.missing_field = prefix + ".missing_field",
+                                               .type = prefix + ".type",
+                                               .unknown_field = prefix + ".unknown_field",
+                                               .invalid_number = prefix + ".type",
+                                               .invalid_id = prefix + ".invalid_id",
+                                               .unknown_value = prefix + ".unknown_value"}),
+          m_prefix(std::move(prefix))
     {
     }
 
     void error(std::string_view suffix, std::string message, std::string pointer)
     {
-        m_diagnostics.push_back(Diagnostic{.code = m_prefix + "." + std::string(suffix),
-                                           .message = std::move(message),
-                                           .severity = ErrorSeverity::Error,
-                                           .source_path = m_source,
-                                           .json_pointer = std::move(pointer)});
-    }
-
-    bool object(const nlohmann::json& value, std::string_view pointer,
-                std::initializer_list<std::string_view> fields)
-    {
-        if (!value.is_object()) {
-            error("type", "Expected an object.", std::string(pointer));
-            return false;
-        }
-        for (auto it = value.begin(); it != value.end(); ++it) {
-            if (std::find(fields.begin(), fields.end(), std::string_view(it.key())) == fields.end())
-                error("unknown_field", "Unknown field '" + it.key() + "'.",
-                      child(pointer, it.key()));
-        }
-        return true;
-    }
-
-    const nlohmann::json* required(const nlohmann::json& object, std::string_view field,
-                                   std::string_view pointer)
-    {
-        const auto* value = json_access::member(object, field);
-        if (!value)
-            error("missing_field", "Missing required field '" + std::string(field) + "'.",
-                  child(pointer, field));
-        return value;
-    }
-
-    std::optional<std::string> string(const nlohmann::json& value, std::string_view pointer,
-                                      bool nonempty = false)
-    {
-        auto result = json_access::get<std::string>(value);
-        if (!result || (nonempty && result->empty())) {
-            error("type", nonempty ? "Expected a non-empty string." : "Expected a string.",
-                  std::string(pointer));
-            return std::nullopt;
-        }
-        return result;
-    }
-
-    std::optional<bool> boolean(const nlohmann::json& value, std::string_view pointer)
-    {
-        auto result = json_access::get<bool>(value);
-        if (!result)
-            error("type", "Expected a boolean.", std::string(pointer));
-        return result;
+        JsonDecoder::error(m_prefix + "." + std::string(suffix), std::move(message),
+                           std::move(pointer));
     }
 
     std::optional<double> finite_number(const nlohmann::json& value, std::string_view pointer)
@@ -111,28 +71,8 @@ public:
         return result;
     }
 
-    static std::string child(std::string_view parent, std::string_view field)
-    {
-        std::string result(parent);
-        result.push_back('/');
-        for (const char c : field) {
-            if (c == '~')
-                result += "~0";
-            else if (c == '/')
-                result += "~1";
-            else
-                result.push_back(c);
-        }
-        return result;
-    }
-
-    [[nodiscard]] bool failed() const noexcept { return !m_diagnostics.empty(); }
-    [[nodiscard]] Diagnostics take() { return std::move(m_diagnostics); }
-
 private:
-    std::string m_source;
     std::string m_prefix;
-    Diagnostics m_diagnostics;
 };
 
 bool is_lower_hex(std::string_view value)
@@ -618,6 +558,13 @@ decode_runtime_package_manifest(const nlohmann::json& value, std::string source_
     return Result<RuntimePackageManifest, Diagnostics>::success(std::move(output));
 }
 
+Result<RuntimePackageManifest, Diagnostics>
+decode_runtime_package_manifest_json(std::string_view text, std::string source_path)
+{
+    auto document = nlohmann::json::parse(text, nullptr, false);
+    return decode_runtime_package_manifest(document, std::move(source_path));
+}
+
 Result<ShaderMaterialProject, Diagnostics>
 decode_shader_material_manifest(const nlohmann::json& value, std::string source_path)
 {
@@ -632,6 +579,13 @@ decode_shader_material_manifest(const nlohmann::json& value, std::string source_
         return Result<ShaderMaterialProject, Diagnostics>::failure(std::move(diagnostics));
     }
     return Result<ShaderMaterialProject, Diagnostics>::success(std::move(*parsed.project));
+}
+
+Result<ShaderMaterialProject, Diagnostics>
+decode_shader_material_manifest_json(std::string_view text, std::string source_path)
+{
+    auto document = nlohmann::json::parse(text, nullptr, false);
+    return decode_shader_material_manifest(document, std::move(source_path));
 }
 
 } // namespace noveltea::core

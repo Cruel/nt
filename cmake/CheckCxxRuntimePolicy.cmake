@@ -18,8 +18,7 @@ set(rule_names
     filesystem-operation
     regex-construction
     locale-construction
-    unsafe-json-get
-    unsafe-json-value)
+    unsafe-json-get)
 set(rule_patterns
     "(^|[^A-Za-z0-9_])(throw|try|catch)([^A-Za-z0-9_]|$)"
     "(^|[^A-Za-z0-9_])(dynamic_cast|typeid|std::type_info|std::type_index)([^A-Za-z0-9_]|$)"
@@ -28,8 +27,10 @@ set(rule_patterns
     "std::filesystem::(canonical|copy|copy_file|create_directories|create_directory|current_path|directory_iterator|equivalent|exists|file_size|is_directory|is_regular_file|last_write_time|permissions|read_symlink|recursive_directory_iterator|relative|remove|remove_all|rename|space|status|symlink_status|temp_directory_path|weakly_canonical)[ \\t]*\\("
     "(^|[^A-Za-z0-9_])std::(basic_)?regex([^A-Za-z0-9_]|$)"
     "(^|[^A-Za-z0-9_])std::locale([^A-Za-z0-9_]|$)"
-    "\\.get[ \\t]*<"
-    "\\.value[ \\t]*\\(")
+    "\\.get[ \\t]*<")
+
+list(LENGTH rule_names rule_count)
+math(EXPR last_rule_index "${rule_count} - 1")
 
 set(failures "")
 foreach(source IN LISTS sources)
@@ -44,7 +45,7 @@ foreach(source IN LISTS sources)
     set(line_number 0)
     foreach(line IN LISTS lines)
         math(EXPR line_number "${line_number} + 1")
-        foreach(rule_index RANGE 0 8)
+        foreach(rule_index RANGE 0 ${last_rule_index})
             list(GET rule_names ${rule_index} rule_name)
             list(GET rule_patterns ${rule_index} rule_pattern)
             set(matches_rule FALSE)

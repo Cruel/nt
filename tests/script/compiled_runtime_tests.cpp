@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <noveltea/core/compiled_package_codec.hpp>
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/assets/asset_manager.hpp>
@@ -92,13 +93,18 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
         "shader":"sprite-shader","uniforms":{},"textures":{},
         "blend":"premultiplied-alpha"}}
     })json");
+    auto decoded_manifest = core::decode_runtime_package_manifest(manifest, "manifest.json");
+    REQUIRE(decoded_manifest.has_value());
+    auto decoded_shader_materials =
+        core::decode_shader_material_manifest(shader_materials, "shader-materials.json");
+    REQUIRE(decoded_shader_materials.has_value());
+    auto package = core::assemble_compiled_package(
+        std::move(*decoded.value_if()), std::move(*decoded_manifest.value_if()),
+        std::move(*decoded_shader_materials.value_if()), std::move(files));
+    REQUIRE(package.has_value());
     return runtime::RunningGameLoadInput{
-        .gameplay = std::move(gameplay),
-        .manifest = std::move(manifest),
-        .shader_materials = std::move(shader_materials),
-        .files = std::move(files),
+        .package = std::move(*package.value_if()),
         .runtime_locale = "en",
-        .decoded_package = std::nullopt,
     };
 }
 
@@ -708,21 +714,6 @@ TEST_CASE("compiled running game preserves declared Gameplay Instance lookup and
     CHECK_FALSE(session.gateway().interactable_state(key).value().visible);
     CHECK(hero_definition->initial_world_state.visible);
     CHECK(key_instance->visible);
-}
-
-TEST_CASE("compiled runtime rejects malformed package data before session construction")
-{
-    RuntimeFixture runtime;
-    auto input = load_input(fixture("minimal"));
-    input.manifest["entries"][0]["path"] = "../game";
-    auto loaded = runtime::load_running_game(std::move(input), runtime.scripts,
-                                             runtime.presentation, runtime.saves);
-    REQUIRE_FALSE(loaded.has_value());
-    CHECK(has_code(loaded.error(), "runtime_package.invalid_path"));
-    CHECK(runtime.presentation.reconcile_calls == 0);
-    CHECK(runtime.presentation.presentation_accept_calls == 0);
-    CHECK(runtime.presentation.audio_accept_calls == 0);
-    CHECK(runtime.presentation.terminations.empty());
 }
 
 TEST_CASE("running-game creation failure leaves presentation integration untouched")

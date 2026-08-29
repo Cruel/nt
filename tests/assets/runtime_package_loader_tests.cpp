@@ -243,10 +243,8 @@ TEST_CASE("runtime package startup mounts a path-backed ZIP without eager extrac
     REQUIRE(resolved.value_if()->project_mounts.size() == 1);
     CHECK(resolved.value_if()->project_mounts.front()->kind() == std::string_view("ZIP"));
     CHECK(resolved.value_if()->project_mounts.front()->describe().find("ZIP read-only:path:") == 0);
-    REQUIRE(resolved.value_if()->input.decoded_package.has_value());
-    CHECK(resolved.value_if()->input.gameplay.is_null());
-    CHECK(resolved.value_if()->input.manifest.is_null());
-    CHECK_FALSE(resolved.value_if()->input.shader_materials.has_value());
+    CHECK(resolved.value_if()->input.package.project().identity().name == "Golden Minimal");
+    CHECK(resolved.value_if()->input.package.manifest().project.name == "Golden Minimal");
 
     (void)manager.replace_namespace("project", std::move(resolved.value_if()->project_mounts));
     {
@@ -295,9 +293,8 @@ TEST_CASE("Web runtime package startup consumes one immutable memory-backed ZIP"
     REQUIRE(resolved.value_if()->project_mounts.size() == 1);
     CHECK(resolved.value_if()->project_mounts.front()->describe().find("ZIP read-only:memory:") ==
           0);
-    REQUIRE(resolved.value_if()->input.decoded_package.has_value());
-    CHECK(resolved.value_if()->input.gameplay.is_null());
-    CHECK(resolved.value_if()->input.manifest.is_null());
+    CHECK(resolved.value_if()->input.package.project().identity().name == "Golden Minimal");
+    CHECK(resolved.value_if()->input.package.manifest().project.name == "Golden Minimal");
 
     (void)manager.replace_namespace("project", std::move(resolved.value_if()->project_mounts));
     auto loaded = manager.read_text("project:/assets/web-sentinel.bin");

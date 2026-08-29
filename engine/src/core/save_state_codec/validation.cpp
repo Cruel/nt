@@ -1,4 +1,4 @@
-#include "codec_internal.hpp"
+#include "internal.hpp"
 
 #include <unordered_map>
 

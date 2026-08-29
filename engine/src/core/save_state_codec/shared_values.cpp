@@ -1,4 +1,4 @@
-#include "codec_internal.hpp"
+#include "internal.hpp"
 
 namespace noveltea::core::save_state_codec {
 nlohmann::json encode_value(const RuntimeValue& value)

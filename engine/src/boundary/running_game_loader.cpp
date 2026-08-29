@@ -111,31 +111,23 @@ open_runtime_package_source(assets::AssetManager& assets, std::string_view logic
         std::make_shared<assets::ZipAssetSource>(std::move(immutable_archive)));
 }
 
-core::Result<nlohmann::json, core::Diagnostics>
-read_package_json(const assets::ZipAssetSource& source, std::string_view entry_path,
+core::Result<assets::AssetBlob, core::Diagnostics>
+read_package_blob(const assets::ZipAssetSource& source, std::string_view entry_path,
                   std::string_view package_path)
 {
     const auto parsed = assets::AssetPath::parse(entry_path);
     if (!parsed) {
-        return core::Result<nlohmann::json, core::Diagnostics>::failure(load_failure(
+        return core::Result<assets::AssetBlob, core::Diagnostics>::failure(load_failure(
             "content.runtime_package_unsafe_path",
             "Runtime package metadata entry has an unsafe path: " + std::string(entry_path),
             std::string(package_path)));
     }
     auto blob = source.read_binary(*parsed);
     if (!blob) {
-        return core::Result<nlohmann::json, core::Diagnostics>::failure(
+        return core::Result<assets::AssetBlob, core::Diagnostics>::failure(
             package_source_failure(blob.error, package_path));
     }
-    auto document =
-        nlohmann::json::parse(blob.value->bytes.begin(), blob.value->bytes.end(), nullptr, false);
-    if (document.is_discarded()) {
-        return core::Result<nlohmann::json, core::Diagnostics>::failure(
-            load_failure("content.runtime_package_json_invalid",
-                         "Runtime package JSON entry is malformed: " + std::string(entry_path),
-                         package_entry_source(package_path, entry_path)));
-    }
-    return core::Result<nlohmann::json, core::Diagnostics>::success(std::move(document));
+    return core::Result<assets::AssetBlob, core::Diagnostics>::success(std::move(*blob.value));
 }
 
 std::vector<core::RuntimePackageFile>
@@ -160,42 +152,48 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
             package_source_failure(indexed_entries.error, logical_path));
     }
 
-    auto manifest_document = read_package_json(source, "manifest.json", logical_path);
-    if (!manifest_document)
+    auto manifest_blob = read_package_blob(source, "manifest.json", logical_path);
+    if (!manifest_blob)
         return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
-            std::move(manifest_document).error());
-    auto manifest = core::decode_runtime_package_manifest(
-        *manifest_document.value_if(), package_entry_source(logical_path, "manifest.json"));
+            std::move(manifest_blob).error());
+    const auto& manifest_bytes = manifest_blob.value_if()->bytes;
+    const std::string_view manifest_text(reinterpret_cast<const char*>(manifest_bytes.data()),
+                                         manifest_bytes.size());
+    auto manifest = core::decode_runtime_package_manifest_json(
+        manifest_text, package_entry_source(logical_path, "manifest.json"));
     if (!manifest)
         return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
             std::move(manifest).error());
-    *manifest_document.value_if() = nlohmann::json{};
 
-    auto gameplay_document = read_package_json(source, "game", logical_path);
-    if (!gameplay_document)
+    auto gameplay_blob = read_package_blob(source, "game", logical_path);
+    if (!gameplay_blob)
         return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
-            std::move(gameplay_document).error());
-    auto project = core::decode_compiled_project(*gameplay_document.value_if(),
-                                                 package_entry_source(logical_path, "game"));
+            std::move(gameplay_blob).error());
+    const auto& gameplay_bytes = gameplay_blob.value_if()->bytes;
+    const std::string_view gameplay_text(reinterpret_cast<const char*>(gameplay_bytes.data()),
+                                         gameplay_bytes.size());
+    auto project = core::decode_compiled_project_json(gameplay_text,
+                                                      package_entry_source(logical_path, "game"));
     if (!project)
         return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
             std::move(project).error());
-    *gameplay_document.value_if() = nlohmann::json{};
 
     std::optional<ShaderMaterialProject> shader_materials;
     if (manifest.value_if()->shader_materials) {
         const auto& entry_path = manifest.value_if()->shader_materials->entry;
-        auto shader_document = read_package_json(source, entry_path, logical_path);
-        if (!shader_document)
+        auto shader_blob = read_package_blob(source, entry_path, logical_path);
+        if (!shader_blob)
             return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
-                std::move(shader_document).error());
-        auto decoded = core::decode_shader_material_manifest(
-            *shader_document.value_if(), package_entry_source(logical_path, entry_path));
+                std::move(shader_blob).error());
+        const auto& shader_bytes = shader_blob.value_if()->bytes;
+        const std::string_view shader_text(reinterpret_cast<const char*>(shader_bytes.data()),
+                                           shader_bytes.size());
+        auto decoded = core::decode_shader_material_manifest_json(
+            shader_text, package_entry_source(logical_path, entry_path));
         if (!decoded)
             return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
                 std::move(decoded).error());
         shader_materials = std::move(*decoded.value_if());
-        *shader_document.value_if() = nlohmann::json{};
     }
 
     return core::assemble_compiled_package(
@@ -220,11 +218,8 @@ resolve_indexed_runtime_package(std::shared_ptr<assets::ZipAssetSource> package_
 
     assets::AssetManager::NamespaceMounts project_mounts;
     project_mounts.push_back(std::move(package_source));
-    RunningGameLoadInput input;
-    input.gameplay_source_path = package_entry_source(logical_path, "game");
-    input.manifest_source_path = package_entry_source(logical_path, "manifest.json");
-    input.runtime_locale = std::move(runtime_locale);
-    input.decoded_package.emplace(std::move(*decoded_package.value_if()));
+    RunningGameLoadInput input{.package = std::move(*decoded_package.value_if()),
+                               .runtime_locale = std::move(runtime_locale)};
     return core::Result<ResolvedRunningGameSource, core::Diagnostics>::success(
         ResolvedRunningGameSource{.input = std::move(input),
                                   .project_mounts = std::move(project_mounts),
@@ -232,107 +227,64 @@ resolve_indexed_runtime_package(std::shared_ptr<assets::ZipAssetSource> package_
 }
 
 core::Result<RunningGameLoadInput, core::Diagnostics>
-make_loose_project_load_input(nlohmann::json gameplay,
-                              std::optional<nlohmann::json> shader_materials,
+make_loose_project_load_input(core::CompiledProject project,
+                              std::optional<ShaderMaterialProject> shader_materials,
                               std::string runtime_locale)
 {
-    auto decoded_project = core::decode_compiled_project(gameplay, "game");
-    if (!decoded_project) {
-        return core::Result<RunningGameLoadInput, core::Diagnostics>::failure(
-            std::move(decoded_project).error());
-    }
-
-    nlohmann::json entries = nlohmann::json::array({{{"path", "game"}, {"size", 0}}});
     std::vector<core::RuntimePackageFile> files{{"game", 0, std::nullopt}};
-    for (const auto& asset : decoded_project.value_if()->assets()) {
-        entries.push_back({{"path", asset.path}, {"size", 0}});
+    core::RuntimePackageManifest manifest{
+        .kind = core::RuntimePackageKind::Runtime,
+        .created_by = "noveltea-loose-project",
+        .project = {.name = project.identity().name, .version = project.identity().version},
+        .display =
+            core::RuntimePackageDisplay{
+                .reference_resolution = project.settings().display.reference_resolution,
+                .world_raster_policy = project.settings().display.world_raster_policy,
+                .bar_color = project.settings().display.bar_color},
+        .accessibility =
+            core::RuntimePackageAccessibility{.ui_scale = project.settings().accessibility.ui_scale,
+                                              .text_scale =
+                                                  project.settings().accessibility.text_scale},
+        .platform = std::nullopt,
+        .shader_variants = {},
+        .shader_materials = std::nullopt,
+        .entries = {{"game", 0, std::nullopt}},
+    };
+    for (const auto& asset : project.assets()) {
+        manifest.entries.push_back({asset.path, 0, std::nullopt});
         files.push_back({asset.path, 0, std::nullopt});
     }
-
-    nlohmann::json manifest = {
-        {"format", "noveltea.runtime-package"},
-        {"runtime_api_version", core::player_runtime_api_version},
-        {"kind", "runtime"},
-        {"created_by", "noveltea-loose-project"},
-        {"project",
-         {{"name", decoded_project.value_if()->identity().name},
-          {"version", decoded_project.value_if()->identity().version}}},
-        {"display",
-         {{"reference_resolution",
-           {{"width", decoded_project.value_if()->settings().display.reference_resolution.width},
-            {"height",
-             decoded_project.value_if()->settings().display.reference_resolution.height}}},
-          {"world_raster_policy",
-           decoded_project.value_if()->settings().display.world_raster_policy ==
-                   core::compiled::WorldRasterPolicy::Native
-               ? "native"
-               : "capped"},
-          {"bar_color", decoded_project.value_if()->settings().display.bar_color}}},
-        {"accessibility",
-         {{"ui_scale",
-           {{"enabled", decoded_project.value_if()->settings().accessibility.ui_scale.enabled},
-            {"minimum", decoded_project.value_if()->settings().accessibility.ui_scale.minimum},
-            {"maximum", decoded_project.value_if()->settings().accessibility.ui_scale.maximum}}},
-          {"text_scale",
-           {{"enabled", decoded_project.value_if()->settings().accessibility.text_scale.enabled},
-            {"minimum", decoded_project.value_if()->settings().accessibility.text_scale.minimum},
-            {"maximum",
-             decoded_project.value_if()->settings().accessibility.text_scale.maximum}}}}},
-        {"shader_variants", nlohmann::json::array()},
-        {"entries", entries},
-    };
-
-    std::optional<ShaderMaterialProject> typed_shader_materials;
     if (shader_materials) {
-        auto decoded_materials =
-            core::decode_shader_material_manifest(*shader_materials, "shader-materials.json");
-        if (!decoded_materials) {
-            return core::Result<RunningGameLoadInput, core::Diagnostics>::failure(
-                std::move(decoded_materials).error());
-        }
         std::vector<std::string> variants;
-        for (const auto& shader : decoded_materials.value_if()->shaders) {
+        for (const auto& shader : shader_materials->shaders) {
             for (const auto& stage : shader.stages) {
                 for (const auto& binary : stage.compiled) {
                     if (std::find(variants.begin(), variants.end(), binary.variant) ==
                         variants.end()) {
                         variants.push_back(binary.variant);
                     }
-                    entries.push_back({{"path", binary.path}, {"size", 0}});
+                    manifest.entries.push_back({binary.path, 0, std::nullopt});
                     files.push_back({binary.path, 0, std::nullopt});
                 }
             }
         }
-        entries.push_back({{"path", "shader-materials.json"}, {"size", 0}});
+        manifest.entries.push_back({"shader-materials.json", 0, std::nullopt});
         files.push_back({"shader-materials.json", 0, std::nullopt});
-        manifest["entries"] = std::move(entries);
-        manifest["shader_variants"] = std::move(variants);
-        manifest["shader_materials"] = {{"entry", "shader-materials.json"},
-                                        {"schema", "noveltea.shader-materials"},
-                                        {"sources_stripped", true}};
-        typed_shader_materials = std::move(*decoded_materials.value_if());
+        manifest.shader_variants = std::move(variants);
+        manifest.shader_materials =
+            core::RuntimePackageShaderMaterials{.entry = "shader-materials.json",
+                                                .schema = "noveltea.shader-materials",
+                                                .sources_stripped = true};
     }
 
-    auto typed_manifest = core::decode_runtime_package_manifest(manifest, "manifest.json");
-    if (!typed_manifest) {
-        return core::Result<RunningGameLoadInput, core::Diagnostics>::failure(
-            std::move(typed_manifest).error());
-    }
-    gameplay = {};
-    manifest = {};
-    shader_materials.reset();
-
-    auto package = core::assemble_compiled_package(
-        std::move(*decoded_project.value_if()), std::move(*typed_manifest.value_if()),
-        std::move(typed_shader_materials), std::move(files));
+    auto package = core::assemble_compiled_package(std::move(project), std::move(manifest),
+                                                   std::move(shader_materials), std::move(files));
     if (!package) {
         return core::Result<RunningGameLoadInput, core::Diagnostics>::failure(
             std::move(package).error());
     }
-    RunningGameLoadInput input;
-    input.runtime_locale = std::move(runtime_locale);
-    input.decoded_package.emplace(std::move(*package.value_if()));
-    return core::Result<RunningGameLoadInput, core::Diagnostics>::success(std::move(input));
+    return core::Result<RunningGameLoadInput, core::Diagnostics>::success(RunningGameLoadInput{
+        .package = std::move(*package.value_if()), .runtime_locale = std::move(runtime_locale)});
 }
 
 } // namespace
@@ -358,26 +310,25 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
     }
 
     const auto& bytes = blob.value->bytes;
-    auto gameplay = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
-    if (gameplay.is_discarded()) {
+    const std::string_view gameplay_text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    auto project = core::decode_compiled_project_json(gameplay_text, std::string(logical_path));
+    if (!project) {
         return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
-            load_failure("content.compiled_project_json_invalid",
-                         "Compiled project JSON is malformed", std::string(logical_path)));
+            std::move(project).error());
     }
 
-    std::optional<nlohmann::json> shader_materials;
+    std::optional<ShaderMaterialProject> shader_materials;
     auto shader_text = assets.read_text("project:/shader-materials.json");
     if (shader_text) {
-        auto parsed = nlohmann::json::parse(*shader_text.value, nullptr, false);
-        if (parsed.is_discarded()) {
-            return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(load_failure(
-                "content.shader_materials_json_invalid",
-                "project:/shader-materials.json is malformed", "project:/shader-materials.json"));
-        }
-        shader_materials = std::move(parsed);
+        auto parsed = core::decode_shader_material_manifest_json(*shader_text.value,
+                                                                 "project:/shader-materials.json");
+        if (!parsed)
+            return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
+                std::move(parsed).error());
+        shader_materials = std::move(*parsed.value_if());
     }
-    auto input = make_loose_project_load_input(std::move(gameplay), std::move(shader_materials),
-                                               std::move(runtime_locale));
+    auto input = make_loose_project_load_input(
+        std::move(*project.value_if()), std::move(shader_materials), std::move(runtime_locale));
     if (!input)
         return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
             std::move(input).error());
@@ -405,57 +356,9 @@ load_running_game(RunningGameLoadInput input, ScriptCertificationPort& script_ce
                   ScriptInvocationPort& scripts, PresentationRuntimePort& presentation,
                   core::TypedSaveSlotStore& saves)
 {
-    if (input.decoded_package) {
-        auto package = std::move(*input.decoded_package);
-        input.decoded_package.reset();
-        input.gameplay = {};
-        input.manifest = {};
-        input.shader_materials.reset();
-        input.files.clear();
-        static presentation::RuntimePresentationModel presentation_model;
-        static const core::JsonSaveStateCodec save_codec;
-        return RunningGame::create(std::move(package), script_certifier, scripts,
-                                   presentation_model, presentation, saves, save_codec,
-                                   std::move(input.runtime_locale));
-    }
-
-    auto project = core::decode_compiled_project(input.gameplay, input.gameplay_source_path);
-    if (!project) {
-        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
-            std::move(project).error());
-    }
-    auto manifest =
-        core::decode_runtime_package_manifest(input.manifest, input.manifest_source_path);
-    if (!manifest) {
-        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
-            std::move(manifest).error());
-    }
-
-    std::optional<ShaderMaterialProject> shader_materials;
-    if (input.shader_materials) {
-        auto decoded = core::decode_shader_material_manifest(*input.shader_materials,
-                                                             input.shader_materials_source_path);
-        if (!decoded) {
-            return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
-                std::move(decoded).error());
-        }
-        shader_materials = std::move(*decoded.value_if());
-    }
-
-    input.gameplay = {};
-    input.manifest = {};
-    input.shader_materials.reset();
-
-    auto package = core::assemble_compiled_package(
-        std::move(*project.value_if()), std::move(*manifest.value_if()),
-        std::move(shader_materials), std::move(input.files));
-    if (!package) {
-        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
-            std::move(package).error());
-    }
     static presentation::RuntimePresentationModel presentation_model;
     static const core::JsonSaveStateCodec save_codec;
-    return RunningGame::create(std::move(*package.value_if()), script_certifier, scripts,
+    return RunningGame::create(std::move(input.package), script_certifier, scripts,
                                presentation_model, presentation, saves, save_codec,
                                std::move(input.runtime_locale));
 }

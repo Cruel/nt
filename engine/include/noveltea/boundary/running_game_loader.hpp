@@ -1,27 +1,17 @@
 #pragma once
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/core/compiled_package.hpp"
 #include "noveltea/runtime/running_game.hpp"
 
-#include <nlohmann/json.hpp>
-
-#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace noveltea::runtime {
 
 struct RunningGameLoadInput {
-    nlohmann::json gameplay;
-    nlohmann::json manifest;
-    std::optional<nlohmann::json> shader_materials;
-    std::vector<core::RuntimePackageFile> files;
-    std::string gameplay_source_path = "gameplay.json";
-    std::string manifest_source_path = "manifest.json";
-    std::string shader_materials_source_path = "shader-materials.json";
+    core::LoadedCompiledPackage package;
     std::string runtime_locale;
-    std::optional<core::LoadedCompiledPackage> decoded_package;
 };
 
 struct ResolvedRunningGameSource {

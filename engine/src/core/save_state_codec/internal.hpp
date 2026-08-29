@@ -1,13 +1,11 @@
 #pragma once
 
-#include "noveltea/core/save_state_codec.hpp"
+#include "../json_decoder.hpp"
 
-#include "noveltea/core/json_access.hpp"
+#include "noveltea/core/save_state_codec.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cmath>
-#include <limits>
 #include <optional>
 #include <string_view>
 #include <type_traits>
@@ -27,131 +25,26 @@ constexpr std::string_view k_variant = "save_codec.invalid_variant";
 
 inline std::string child(std::string_view parent, std::string_view name)
 {
-    std::string result(parent);
-    result.push_back('/');
-    for (const auto character : name) {
-        if (character == '~')
-            result += "~0";
-        else if (character == '/')
-            result += "~1";
-        else
-            result.push_back(character);
-    }
-    return result;
+    return JsonDecoder::child(parent, name);
 }
 
 inline std::string index(std::string_view parent, std::size_t value)
 {
-    return child(parent, std::to_string(value));
+    return JsonDecoder::index(parent, value);
 }
 
-class Decoder {
+class Decoder final : public JsonDecoder {
 public:
-    explicit Decoder(std::string source_path) : m_source_path(std::move(source_path)) {}
-
-    void error(std::string_view code, std::string message, std::string pointer)
+    explicit Decoder(std::string source_path)
+        : JsonDecoder(std::move(source_path),
+                      JsonDecoderCodes{.missing_field = std::string(k_missing),
+                                       .type = std::string(k_type),
+                                       .unknown_field = std::string(k_unknown),
+                                       .invalid_number = std::string(k_type),
+                                       .invalid_id = std::string(k_id),
+                                       .unknown_value = std::string(k_value)})
     {
-        m_diagnostics.push_back(Diagnostic{.code = std::string(code),
-                                           .message = std::move(message),
-                                           .source_path = m_source_path,
-                                           .json_pointer = std::move(pointer)});
     }
-
-    bool object(const nlohmann::json& value, std::string_view pointer,
-                std::initializer_list<std::string_view> fields)
-    {
-        if (!value.is_object()) {
-            error(k_type, "Expected an object.", std::string(pointer));
-            return false;
-        }
-        for (auto it = value.begin(); it != value.end(); ++it) {
-            const auto known = std::find(fields.begin(), fields.end(), it.key()) != fields.end();
-            if (!known)
-                error(k_unknown, "Unknown field '" + it.key() + "'.", child(pointer, it.key()));
-        }
-        return true;
-    }
-
-    const nlohmann::json* member(const nlohmann::json& value, std::string_view name,
-                                 std::string_view pointer)
-    {
-        const auto* result = json_access::member(value, name);
-        if (!result)
-            error(k_missing, "Missing required field '" + std::string(name) + "'.",
-                  child(pointer, name));
-        return result;
-    }
-
-    std::optional<std::string> string(const nlohmann::json& value, std::string_view pointer,
-                                      bool nonempty = false)
-    {
-        auto result = json_access::get<std::string>(value);
-        if (!result || (nonempty && result->empty())) {
-            error(k_type, nonempty ? "Expected a non-empty string." : "Expected a string.",
-                  std::string(pointer));
-            return std::nullopt;
-        }
-        return result;
-    }
-
-    std::optional<bool> boolean(const nlohmann::json& value, std::string_view pointer)
-    {
-        auto result = json_access::get<bool>(value);
-        if (!result)
-            error(k_type, "Expected a boolean.", std::string(pointer));
-        return result;
-    }
-
-    template<class T>
-    std::optional<T> unsigned_integer(const nlohmann::json& value, std::string_view pointer,
-                                      bool positive = false)
-    {
-        auto result = json_access::get<T>(value);
-        if (!result || (positive && *result == 0)) {
-            error(k_type,
-                  positive ? "Expected a positive integer."
-                           : "Expected a nonnegative integer in range.",
-                  std::string(pointer));
-            return std::nullopt;
-        }
-        return result;
-    }
-
-    template<class Id> std::optional<Id> id(const nlohmann::json& value, std::string_view pointer)
-    {
-        auto text = string(value, pointer, true);
-        if (!text)
-            return std::nullopt;
-        auto result = Id::create(std::move(*text));
-        if (!result) {
-            error(k_id, result.error().front().message, std::string(pointer));
-            return std::nullopt;
-        }
-        return std::move(*result.value_if());
-    }
-
-    template<class Id> struct OptionalId {
-        bool valid = false;
-        std::optional<Id> value;
-        [[nodiscard]] explicit operator bool() const noexcept { return valid; }
-    };
-
-    template<class Id>
-    OptionalId<Id> optional_id(const nlohmann::json& value, std::string_view pointer)
-    {
-        if (value.is_null())
-            return OptionalId<Id>{true, std::nullopt};
-        auto result = id<Id>(value, pointer);
-        return result ? OptionalId<Id>{true, std::move(result)}
-                      : OptionalId<Id>{false, std::nullopt};
-    }
-
-    [[nodiscard]] bool failed() const noexcept { return !m_diagnostics.empty(); }
-    [[nodiscard]] Diagnostics take() { return std::move(m_diagnostics); }
-
-private:
-    std::string m_source_path;
-    Diagnostics m_diagnostics;
 };
 
 nlohmann::json encode_value(const RuntimeValue& value);
