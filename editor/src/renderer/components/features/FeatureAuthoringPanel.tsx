@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
@@ -12,6 +14,8 @@ interface Props {
   project: AuthoringProject;
   features: readonly FeatureData[];
   anchorPrefix: 'room' | 'interactable';
+  ownerId?: string;
+  dependentReferenceCountFor?: (featureId: string) => number;
   propertyMode: 'value' | 'default';
   onChange: (features: FeatureData[], label: string) => void;
 }
@@ -29,15 +33,41 @@ export function FeatureAuthoringPanel({
   project,
   features,
   anchorPrefix,
+  ownerId,
+  dependentReferenceCountFor,
   propertyMode,
   onChange,
 }: Props) {
   const { t } = useTranslation('workspace');
+  const [pendingDelete, setPendingDelete] = useState<{
+    featureId: string;
+    dependentOverrideCount: number;
+    dependentReferenceCount: number;
+  } | null>(null);
   const replace = (featureId: string, next: FeatureData, label: string) =>
     onChange(
       features.map((feature) => (feature.id === featureId ? next : feature)),
       label,
     );
+  const deleteFeature = (featureId: string) => {
+    const dependentOverrideCount =
+      anchorPrefix === 'interactable' && ownerId
+        ? Object.values(project.interactableInstances).filter(
+            (instance) =>
+              instance.definition.$ref.id === ownerId &&
+              instance.featureOverrides.some((override) => override.featureId === featureId),
+          ).length
+        : 0;
+    const dependentReferenceCount = dependentReferenceCountFor?.(featureId) ?? 0;
+    if (dependentOverrideCount > 0 || dependentReferenceCount > 0) {
+      setPendingDelete({ featureId, dependentOverrideCount, dependentReferenceCount });
+      return;
+    }
+    onChange(
+      features.filter((candidate) => candidate.id !== featureId),
+      'Delete Feature',
+    );
+  };
 
   return (
     <section
@@ -102,16 +132,7 @@ export function FeatureAuthoringPanel({
                   }
                 />
               </div>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() =>
-                  onChange(
-                    features.filter((candidate) => candidate.id !== feature.id),
-                    'Delete Feature',
-                  )
-                }
-              >
+              <Button type="button" variant="destructive" onClick={() => deleteFeature(feature.id)}>
                 {t('features.delete')}
               </Button>
             </div>
@@ -171,6 +192,52 @@ export function FeatureAuthoringPanel({
           </div>
         ))}
       </div>
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <DialogPopup>
+          <DialogTitle>
+            {pendingDelete?.dependentReferenceCount
+              ? t('features.deleteBlockedTitle')
+              : t('features.deleteDependentTitle')}
+          </DialogTitle>
+          <DialogDescription>
+            {pendingDelete?.dependentReferenceCount
+              ? t('features.deleteBlockedDescription', {
+                  count: pendingDelete.dependentReferenceCount,
+                })
+              : t('features.deleteDependentDescription', {
+                  count: pendingDelete?.dependentOverrideCount ?? 0,
+                })}
+          </DialogDescription>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setPendingDelete(null)}>
+              {pendingDelete?.dependentReferenceCount
+                ? t('features.deleteBlockedClose')
+                : t('features.deleteDependentCancel')}
+            </Button>
+            {!pendingDelete?.dependentReferenceCount ? (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  if (!pendingDelete) return;
+                  onChange(
+                    features.filter((candidate) => candidate.id !== pendingDelete.featureId),
+                    'Delete Feature',
+                  );
+                  setPendingDelete(null);
+                }}
+              >
+                {t('features.deleteDependentConfirm')}
+              </Button>
+            ) : null}
+          </div>
+        </DialogPopup>
+      </Dialog>
     </section>
   );
 }

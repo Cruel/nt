@@ -1,10 +1,15 @@
 import { useMemo } from 'react';
 import { resolveArchetypeConfiguration } from '../../../shared/project-schema/authoring-archetypes';
 import {
+  effectiveInteractableFeatureProperties,
+  effectiveInteractableFeatureTraits,
   effectiveInteractableInstanceProperties,
   effectiveInteractableInstanceTraits,
 } from '../../../shared/project-schema/authoring-interactable-properties';
-import type { InteractableInstanceData } from '../../../shared/project-schema/authoring-interactables';
+import {
+  parseInteractableData,
+  type InteractableInstanceData,
+} from '../../../shared/project-schema/authoring-interactables';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   arePropertySchemasCompatible,
@@ -305,6 +310,163 @@ export function InteractableInstancePropertiesEditor({
       anchor={`instance.properties.${instanceId}`}
       rowAnchor={(row) => `instance.property.${instanceId}.${row.id}`}
       modeMarker="instance"
+    />
+  );
+}
+
+export function InteractableInstanceFeatureOverridesEditor({
+  project,
+  instanceId,
+  instance,
+  featureId,
+  featureLabel,
+  onChange,
+}: {
+  project: AuthoringProject;
+  instanceId: string;
+  instance: InteractableInstanceData;
+  featureId: string;
+  featureLabel: string;
+  onChange: (instance: InteractableInstanceData) => void;
+}) {
+  const effectiveRows = useMemo(
+    () => effectiveInteractableFeatureProperties(project, instance, featureId),
+    [featureId, instance, project],
+  );
+  const effectiveTraits = useMemo(
+    () => effectiveInteractableFeatureTraits(project, instance, featureId),
+    [featureId, instance, project],
+  );
+  const definition = project.interactables[instance.definition.$ref.id];
+  const feature = parseInteractableData(definition?.data)?.features.find(
+    (candidate) => candidate.id === featureId,
+  );
+  const inheritedTraits = useMemo(() => new Set(feature?.traits ?? []), [feature?.traits]);
+  const availableTraits = useMemo(
+    () =>
+      Object.entries(project.traits)
+        .filter(
+          ([id, trait]) => !effectiveTraits.includes(id) && trait.ownerKinds.includes('feature'),
+        )
+        .sort(([, left], [, right]) => left.label.localeCompare(right.label)),
+    [effectiveTraits, project.traits],
+  );
+  const override = instance.featureOverrides.find((candidate) => candidate.featureId === featureId);
+  const rows = useMemo<PropertyManagerRow[]>(
+    () =>
+      effectiveRows.map((row) => ({
+        id: row.id,
+        label: row.contract.label,
+        description: row.contract.description,
+        type: row.contract.type,
+        nullable: row.contract.nullable,
+        enumValues: row.contract.enumValues,
+        ...(row.value === undefined ? {} : { value: row.value }),
+        valueState: row.hasValue ? 'normal' : 'missing',
+        sourceLabel: row.overridden ? 'override' : row.hasValue ? row.source : 'required',
+        traitSources: row.traitIds.map((traitId) => ({
+          id: traitId,
+          label: project.traits[traitId]?.label ?? traitId,
+          color: project.editor.recordMetadata.traits?.[traitId]?.color ?? null,
+        })),
+        appearance: 'normal',
+        editMode: 'value',
+        actionLabel: 'Set Value',
+        resettable: row.overridden,
+        deletable: false,
+      })),
+    [effectiveRows, project.editor.recordMetadata.traits, project.traits],
+  );
+
+  const commitOverride = (
+    nextTraits: InteractableInstanceData['featureOverrides'][number]['traits'],
+    nextProperties: InteractableInstanceData['featureOverrides'][number]['properties'],
+  ) => {
+    const remaining = instance.featureOverrides.filter(
+      (candidate) => candidate.featureId !== featureId,
+    );
+    const nextOverride = {
+      featureId,
+      traits: nextTraits,
+      properties: nextProperties,
+    };
+    onChange({
+      ...instance,
+      featureOverrides:
+        nextTraits.add.length || nextTraits.remove.length || nextProperties.length
+          ? [...remaining, nextOverride]
+          : remaining,
+    });
+  };
+  const withTraitSet = (traitIds: readonly string[]) => ({
+    add: traitIds.filter((id) => !inheritedTraits.has(id)),
+    remove: [...inheritedTraits].filter((id) => !traitIds.includes(id)),
+  });
+
+  return (
+    <PropertyManager
+      title={featureLabel}
+      description={`Exact Feature state for '${instanceId}#${featureId}'.`}
+      valueLabel="Value"
+      rows={rows}
+      emptyLabel="No Feature Properties."
+      valueEditTitle={() => 'Set Feature Value'}
+      editDescription={() => 'Overrides the inherited effective Value for this exact Feature.'}
+      onSetValue={(row, draft) => {
+        const effective = effectiveRows.find((candidate) => candidate.id === row.id);
+        if (!effective) return 'Feature Property no longer exists.';
+        const parsed = typedPropertyValueFromDraft(draft);
+        if (!parsed.ok) return parsed.message;
+        const properties = [
+          ...(override?.properties ?? []).filter((property) => property.propertyId !== row.id),
+          { propertyId: row.id, value: parsed.value },
+        ];
+        commitOverride(override?.traits ?? { add: [], remove: [] }, properties);
+        return null;
+      }}
+      onReset={(row) => {
+        commitOverride(
+          override?.traits ?? { add: [], remove: [] },
+          (override?.properties ?? []).filter((property) => property.propertyId !== row.id),
+        );
+        return null;
+      }}
+      traits={{
+        attached: effectiveTraits.map((id) => ({
+          id,
+          label: project.traits[id]?.label ?? id,
+          color: project.editor.recordMetadata.traits?.[id]?.color ?? null,
+          inherited: inheritedTraits.has(id),
+          removable: true,
+        })),
+        available: availableTraits.map(([id, trait]) => ({
+          id,
+          label: trait.label,
+          color: project.editor.recordMetadata.traits?.[id]?.color ?? null,
+        })),
+        onAttach: (traitId) => {
+          const trait = project.traits[traitId];
+          if (!trait) return 'Trait no longer exists.';
+          for (const member of trait.properties) {
+            const existing = effectiveRows.find((row) => row.id === member.id);
+            if (existing && !arePropertySchemasCompatible(existing.contract, member))
+              return `Cannot attach '${trait.label}': Property '${member.id}' has an incompatible effective schema.`;
+          }
+          commitOverride(withTraitSet([...effectiveTraits, traitId]), override?.properties ?? []);
+          return null;
+        },
+        onDetach: (traitId) => {
+          commitOverride(
+            withTraitSet(effectiveTraits.filter((candidate) => candidate !== traitId)),
+            override?.properties ?? [],
+          );
+          return null;
+        },
+      }}
+      compact
+      anchor={`instance.feature.${instanceId}.${featureId}`}
+      rowAnchor={(row) => `instance.feature.property.${instanceId}.${featureId}.${row.id}`}
+      modeMarker="instance-feature"
     />
   );
 }

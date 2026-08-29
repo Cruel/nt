@@ -62,7 +62,9 @@ function testSubject(subject: RecordedInteractionSubject) {
         }
       : {
           ownerKind: 'interactable',
-          interactable: { $ref: { collection: 'interactables', id: subject.ownerId } },
+          interactable: {
+            $ref: { registry: 'interactableInstances', id: subject.ownerId },
+          },
           featureId: subject.featureId,
         },
   );

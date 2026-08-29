@@ -639,6 +639,13 @@
     "empty": "Nenhuma Feature declarada.",
     "defaultLabel": "Feature",
     "delete": "Excluir Feature",
+    "deleteDependentTitle": "Excluir a Feature e os overrides dependentes?",
+    "deleteDependentDescription": "{{count}} override(s) de Interactable Instance declarado(s) dependem desta Feature. Excluí-la também removerá explicitamente esses overrides dependentes.",
+    "deleteDependentCancel": "Cancelar",
+    "deleteDependentConfirm": "Excluir Feature e Overrides",
+    "deleteBlockedTitle": "Remova primeiro as referências à Feature",
+    "deleteBlockedDescription": "{{count}} referência(s) de autoria ainda apontam para esta Feature. Remova ou substitua essas referências antes de excluir a Feature.",
+    "deleteBlockedClose": "Fechar",
     "fields": {
       "id": "ID",
       "label": "Rótulo",

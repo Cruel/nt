@@ -1061,20 +1061,20 @@ function scanStructuralReferences(
   if (
     value.ownerKind === 'interactable' &&
     isRecord(value.interactable) &&
-    isReferenceTarget(value.interactable.$ref) &&
+    isRecord(value.interactable.$ref) &&
+    value.interactable.$ref.registry === 'interactableInstances' &&
+    typeof value.interactable.$ref.id === 'string' &&
     typeof value.featureId === 'string'
   ) {
+    const instanceId = value.interactable.$ref.id;
+    const definitionId = project.interactableInstances[instanceId]?.definition.$ref.id;
+    if (!definitionId) return;
     edges.push(
       structuralEdge(
         source,
-        nestedNodeKey(
-          'interactables',
-          value.interactable.$ref.id,
-          'interactable-feature',
-          value.featureId,
-        ),
+        nestedNodeKey('interactables', definitionId, 'interactable-feature', value.featureId),
         path,
-        `/interactables/${escapeJsonPointerSegment(value.interactable.$ref.id)}/data/features`,
+        `/interactables/${escapeJsonPointerSegment(definitionId)}/data/features`,
         {
           role: 'feature-ref',
           facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
@@ -1082,6 +1082,7 @@ function scanStructuralReferences(
             kind: 'blocked',
             reason: 'Feature references require a valid owner-local Feature.',
           },
+          detail: { instanceId, featureId: value.featureId },
         },
       ),
     );
@@ -1836,6 +1837,11 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
       value: project.settings.ui.systemLayouts[role] ?? null,
       label: `System layout: ${role}`,
     })),
+    ...Object.entries(project.interactableInstances).map(([id, instance]) => ({
+      path: `/interactableInstances/${escapeJsonPointerSegment(id)}` as JsonPointer,
+      value: instance,
+      label: `Interactable Instance: ${instance.editorLabel ?? id}`,
+    })),
   ]);
 }
 
@@ -1934,6 +1940,38 @@ function deriveStructuralContributionByKey(
       );
     } else if (field.path.startsWith('/settings/')) {
       scanStructuralReferences(field.value, field.path, key, edges, project);
+    } else if (field.path.startsWith('/interactableInstances/')) {
+      scanStructuralReferences(field.value, field.path, key, edges, project);
+      const escapedId = field.path.slice('/interactableInstances/'.length);
+      const id = escapedId.replaceAll('~1', '/').replaceAll('~0', '~');
+      const instance = project.interactableInstances[id];
+      const definitionId = instance?.definition.$ref.id;
+      if (instance && definitionId) {
+        instance.featureOverrides.forEach((override, index) => {
+          edges.push(
+            structuralEdge(
+              key,
+              nestedNodeKey(
+                'interactables',
+                definitionId,
+                'interactable-feature',
+                override.featureId,
+              ),
+              `${field.path}/featureOverrides/${index}/featureId`,
+              `/interactables/${escapeJsonPointerSegment(definitionId)}/data/features`,
+              {
+                role: 'feature-ref',
+                facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
+                repair: {
+                  kind: 'remove-array-item',
+                  itemPath: `${field.path}/featureOverrides/${index}` as JsonPointer,
+                },
+                detail: { instanceId: id, featureId: override.featureId },
+              },
+            ),
+          );
+        });
+      }
     }
     return {
       key: contributionKey,

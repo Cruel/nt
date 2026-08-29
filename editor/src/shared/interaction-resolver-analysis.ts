@@ -61,11 +61,19 @@ function exactTraits(
     const feature = data?.features.find((item) => item.id === subject.feature.featureId);
     return feature ? new Set(feature.traits) : null;
   }
-  const data = parseInteractableData(
-    project.interactables[subject.feature.interactable.$ref.id]?.data,
-  );
+  const instance = project.interactableInstances[subject.feature.interactable.$ref.id];
+  const data = instance
+    ? parseInteractableData(project.interactables[instance.definition.$ref.id]?.data)
+    : null;
   const feature = data?.features.find((item) => item.id === subject.feature.featureId);
-  return feature ? new Set(feature.traits) : null;
+  if (!feature) return null;
+  const traits = new Set(feature.traits);
+  const override = instance?.featureOverrides.find(
+    (candidate) => candidate.featureId === subject.feature.featureId,
+  );
+  for (const trait of override?.traits.remove ?? []) traits.delete(trait);
+  for (const trait of override?.traits.add ?? []) traits.add(trait);
+  return traits;
 }
 
 function exactItemDefinition(_project: AuthoringProject, _subject: InteractionSubjectData): null {

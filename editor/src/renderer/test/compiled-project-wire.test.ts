@@ -365,6 +365,7 @@ function representativeWireFixture() {
         traitRemoves: [],
         propertyOverrides: [],
         localProperties: [],
+        featureOverrides: [],
       },
     ],
   };

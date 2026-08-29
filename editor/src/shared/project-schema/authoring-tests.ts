@@ -256,16 +256,22 @@ function validateInteractionSubject(
     return;
   }
   const interactableId = subject.feature.interactable.$ref.id;
-  const interactable = parseInteractableData(project.interactables[interactableId]?.data);
+  const instance = project.interactableInstances[interactableId];
+  const interactable = instance
+    ? parseInteractableData(project.interactables[instance.definition.$ref.id]?.data)
+    : null;
   if (!interactable)
     diagnostics.push(
-      diagnostic(`${path}/feature/interactable/$ref`, `Missing Interactable '${interactableId}'.`),
+      diagnostic(
+        `${path}/feature/interactable/$ref`,
+        `Missing Interactable Instance '${interactableId}'.`,
+      ),
     );
   else if (!interactable.features.some((feature) => feature.id === subject.feature.featureId))
     diagnostics.push(
       diagnostic(
         `${path}/feature/featureId`,
-        `Missing Feature '${subject.feature.featureId}' on Interactable '${interactableId}'.`,
+        `Missing Feature '${subject.feature.featureId}' on Interactable Instance '${interactableId}'.`,
       ),
     );
 }

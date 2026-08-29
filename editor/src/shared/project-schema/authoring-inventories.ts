@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
-import { characterRefSchema, interactableRefSchema, roomRefSchema } from './authoring-flow';
+import { characterRefSchema, roomRefSchema } from './authoring-flow';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+const interactableInstanceRefSchema = strict({
+  $ref: strict({ registry: z.literal('interactableInstances'), id: entityIdSchema }),
+});
 
 export const inventoryDefinitionSchema = strict({
   id: entityIdSchema,
@@ -12,11 +15,11 @@ export const inventoryDefinitionSchema = strict({
 export const inventoryOwnerSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('project') }),
   strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableRefSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
   strict({ kind: z.literal('room-feature'), room: roomRefSchema, featureId: entityIdSchema }),
   strict({
     kind: z.literal('interactable-feature'),
-    interactable: interactableRefSchema,
+    interactable: interactableInstanceRefSchema,
     featureId: entityIdSchema,
   }),
 ]);
@@ -54,7 +57,7 @@ export function interactableInventoryRef(
   return {
     owner: {
       kind: 'interactable',
-      interactable: { $ref: { collection: 'interactables', id: interactableId } },
+      interactable: { $ref: { registry: 'interactableInstances', id: interactableId } },
     },
     inventoryId,
   };

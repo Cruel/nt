@@ -145,6 +145,37 @@ using RuntimeInteractableConfiguration =
     }
     std::ranges::sort(assignments, {},
                       [](const auto& value) { return value.property_id().text(); });
+
+    for (const auto& override : declaration.feature_overrides) {
+        const auto feature = std::ranges::find_if(
+            effective.features, [&](const compiled::FeatureDefinition& candidate) {
+                return candidate.identity.id == override.feature_id;
+            });
+        if (feature == effective.features.end())
+            continue;
+        auto& feature_traits = feature->identity.traits;
+        for (const auto& removed : override.trait_removes)
+            std::erase(feature_traits, removed);
+        for (const auto& added : override.trait_adds)
+            if (std::find(feature_traits.begin(), feature_traits.end(), added) ==
+                feature_traits.end())
+                feature_traits.push_back(added);
+        std::ranges::sort(feature_traits, {}, [](const auto& id) { return id.text(); });
+
+        auto& feature_assignments = feature->identity.property_assignments;
+        for (const auto& property_override : override.property_overrides) {
+            const auto found = std::find_if(
+                feature_assignments.begin(), feature_assignments.end(), [&](const auto& value) {
+                    return value.property_id() == property_override.property_id();
+                });
+            if (found == feature_assignments.end())
+                feature_assignments.push_back(property_override);
+            else
+                *found = property_override;
+        }
+        std::ranges::sort(feature_assignments, {},
+                          [](const auto& value) { return value.property_id().text(); });
+    }
     return effective;
 }
 

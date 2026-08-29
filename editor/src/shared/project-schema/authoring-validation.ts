@@ -18,6 +18,8 @@ import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
 import { parseInteractableData, validateInteractableData } from './authoring-interactables';
 import {
+  effectiveInteractableFeatureProperties,
+  effectiveInteractableFeatureTraits,
   effectiveInteractableInstanceProperties,
   effectiveInteractableInstanceTraits,
 } from './authoring-interactable-properties';
@@ -32,6 +34,7 @@ import { validateMapData } from './authoring-maps';
 import {
   arePropertySchemasCompatible,
   authoredRuntimeValuesEqual,
+  isPropertyValueCompatible,
   type AuthoredRuntimeValue,
   type PropertyOwnerKind,
   type TraitDefinition,
@@ -822,39 +825,177 @@ function validateInteractableProperties(
           ),
         );
     }
-    for (const [featureIndex, feature] of (definitionData?.features ?? []).entries()) {
-      const featurePath = `${base}/definitionFeatures/${featureIndex}`;
-      const defaultsById = new Map(
-        feature.defaultProperties.map((property) => [property.id, property]),
-      );
-      const required = new Map<
-        string,
-        TraitProperty | (typeof feature.defaultProperties)[number]
-      >();
-      for (const property of feature.defaultProperties) required.set(property.id, property);
-      for (const traitId of feature.traits) {
-        const trait = project.traits[traitId];
-        if (!trait || !trait.ownerKinds.includes('feature')) continue;
-        for (const member of trait.properties)
-          if (!required.has(member.id)) required.set(member.id, member);
-      }
-      for (const [propertyId] of required) {
-        const ownDefault = defaultsById.get(propertyId)?.defaultValue;
-        const traitDefault = feature.traits.some((traitId) =>
-          project.traits[traitId]?.properties.some(
-            (member) => member.id === propertyId && member.defaultValue !== undefined,
+    const seenFeatureOverrides = new Set<string>();
+    for (const [overrideIndex, override] of instance.featureOverrides.entries()) {
+      const overridePath = `${base}/featureOverrides/${overrideIndex}`;
+      if (seenFeatureOverrides.has(override.featureId))
+        diagnostics.push(
+          instanceDiagnostic(
+            'error',
+            `${overridePath}/featureId`,
+            `Feature '${override.featureId}' is overridden more than once.`,
+            'Project validation',
+            'authoring.interactable.feature.duplicate_override',
           ),
         );
-        if (ownDefault === undefined && !traitDefault)
+      seenFeatureOverrides.add(override.featureId);
+      if (definitionData?.stackable)
+        diagnostics.push(
+          instanceDiagnostic(
+            'error',
+            overridePath,
+            'Stackable Interactable Instances cannot carry Feature overrides.',
+            'Project validation',
+            'authoring.interactable.feature.stackable_override',
+          ),
+        );
+      const feature = definitionData?.features.find(
+        (candidate) => candidate.id === override.featureId,
+      );
+      if (!feature) {
+        diagnostics.push(
+          instanceDiagnostic(
+            'error',
+            `${overridePath}/featureId`,
+            `Feature '${override.featureId}' is not declared by this Interactable definition.`,
+            'Project validation',
+            'authoring.interactable.feature.missing',
+          ),
+        );
+        continue;
+      }
+      const inheritedTraits = new Set(feature.traits);
+      const adds = new Set<string>();
+      for (const [traitIndex, traitId] of override.traits.add.entries()) {
+        const traitPath = `${overridePath}/traits/add/${traitIndex}`;
+        if (adds.has(traitId))
+          diagnostics.push(
+            instanceDiagnostic('error', traitPath, `Trait '${traitId}' is added more than once.`),
+          );
+        adds.add(traitId);
+        const trait = project.traits[traitId];
+        if (!trait)
+          diagnostics.push(
+            instanceDiagnostic('error', traitPath, `Trait '${traitId}' is not declared.`),
+          );
+        else if (!trait.ownerKinds.includes('feature'))
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              traitPath,
+              `Trait '${traitId}' cannot be attached to Feature.`,
+            ),
+          );
+        if (inheritedTraits.has(traitId))
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              traitPath,
+              `Trait '${traitId}' is already inherited by the Feature.`,
+            ),
+          );
+      }
+      const removes = new Set<string>();
+      for (const [traitIndex, traitId] of override.traits.remove.entries()) {
+        const traitPath = `${overridePath}/traits/remove/${traitIndex}`;
+        if (removes.has(traitId))
+          diagnostics.push(
+            instanceDiagnostic('error', traitPath, `Trait '${traitId}' is removed more than once.`),
+          );
+        removes.add(traitId);
+        if (!inheritedTraits.has(traitId))
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              traitPath,
+              `Trait '${traitId}' is not inherited by the Feature.`,
+            ),
+          );
+        if (adds.has(traitId))
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              traitPath,
+              `Trait '${traitId}' cannot be both added and removed.`,
+            ),
+          );
+      }
+      const effectiveProperties = new Map(
+        effectiveInteractableFeatureProperties(project, instance, override.featureId).map(
+          (property) => [property.id, property],
+        ),
+      );
+      const propertyIds = new Set<string>();
+      for (const [propertyIndex, property] of override.properties.entries()) {
+        const propertyPath = `${overridePath}/properties/${propertyIndex}`;
+        if (propertyIds.has(property.propertyId))
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              `${propertyPath}/propertyId`,
+              `Feature Property '${property.propertyId}' is overridden more than once.`,
+            ),
+          );
+        propertyIds.add(property.propertyId);
+        const effective = effectiveProperties.get(property.propertyId);
+        if (!effective)
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              `${propertyPath}/propertyId`,
+              `Feature Property '${property.propertyId}' is not in the effective Feature contract.`,
+            ),
+          );
+        else if (!isPropertyValueCompatible(effective.contract, property.value))
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              `${propertyPath}/value`,
+              `Feature Property '${property.propertyId}' Value does not match its contract.`,
+            ),
+          );
+      }
+    }
+
+    for (const [featureIndex, feature] of (definitionData?.features ?? []).entries()) {
+      const featurePath = `${base}/definitionFeatures/${featureIndex}`;
+      for (const property of effectiveInteractableFeatureProperties(
+        project,
+        instance,
+        feature.id,
+      )) {
+        if (!property.hasValue)
           diagnostics.push(
             instanceDiagnostic(
               'error',
               featurePath,
-              `Interactable Instance '${instanceId}' requires Feature '${feature.id}' Property '${propertyId}' to have a Value.`,
+              `Interactable Instance '${instanceId}' requires Feature '${feature.id}' Property '${property.id}' to have a Value.`,
               'Project validation',
               'authoring.interactable.feature.missing_property_value',
             ),
           );
+      }
+      const effectiveFeatureTraits = effectiveInteractableFeatureTraits(
+        project,
+        instance,
+        feature.id,
+      );
+      const seenFeatureProperties = new Map<string, TraitProperty>();
+      for (const traitId of effectiveFeatureTraits) {
+        const trait = project.traits[traitId];
+        if (!trait || !trait.ownerKinds.includes('feature')) continue;
+        for (const property of trait.properties) {
+          const previous = seenFeatureProperties.get(property.id);
+          if (previous && !arePropertySchemasCompatible(previous, property))
+            diagnostics.push(
+              instanceDiagnostic(
+                'error',
+                `${base}/featureOverrides`,
+                `Effective Feature Traits contribute incompatible schemas for Property '${property.id}'.`,
+              ),
+            );
+          else if (!previous) seenFeatureProperties.set(property.id, property);
+        }
       }
     }
 

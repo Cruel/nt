@@ -668,6 +668,14 @@ const interactableInstanceDeclarationSchema = strict({
   traitRemoves: z.array(id),
   propertyOverrides: z.array(propertyAssignmentSchema),
   localProperties: z.array(instanceLocalPropertySchema),
+  featureOverrides: z.array(
+    strict({
+      featureId: id,
+      traitAdds: z.array(id),
+      traitRemoves: z.array(id),
+      propertyOverrides: z.array(propertyAssignmentSchema),
+    }),
+  ),
 });
 
 const archetypeDefinitionSchema = z.discriminatedUnion('instanceKind', [

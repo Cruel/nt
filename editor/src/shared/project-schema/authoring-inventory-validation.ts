@@ -55,11 +55,15 @@ function targetInventoryIds(
 
   if (owner.kind === 'interactable') {
     const id = owner.interactable.$ref.id;
-    const record = effectiveRecord(project, 'interactable', project.interactables[id]);
+    const instance = project.interactableInstances[id];
+    const definitionId = instance?.definition.$ref.id;
+    const record = definitionId
+      ? effectiveRecord(project, 'interactable', project.interactables[definitionId])
+      : null;
     const data = record ? parseInteractableData(record.data) : null;
     return data
       ? { ids: inventoryIds(data.inventories) }
-      : { ids: null, ownerError: `Interactable inventory owner '${id}' does not exist.` };
+      : { ids: null, ownerError: `Interactable Instance inventory owner '${id}' does not exist.` };
   }
 
   if (owner.kind === 'room-feature') {
@@ -76,14 +80,18 @@ function targetInventoryIds(
   }
 
   const interactableId = owner.interactable.$ref.id;
-  const record = effectiveRecord(project, 'interactable', project.interactables[interactableId]);
+  const instance = project.interactableInstances[interactableId];
+  const definitionId = instance?.definition.$ref.id;
+  const record = definitionId
+    ? effectiveRecord(project, 'interactable', project.interactables[definitionId])
+    : null;
   const interactable = record ? parseInteractableData(record.data) : null;
   const feature = interactable?.features.find((candidate) => candidate.id === owner.featureId);
   return feature
     ? { ids: inventoryIds(feature.inventories) }
     : {
         ids: null,
-        ownerError: `Interactable Feature inventory owner '${interactableId}.${owner.featureId}' does not exist.`,
+        ownerError: `Interactable Instance Feature inventory owner '${interactableId}.${owner.featureId}' does not exist.`,
       };
 }
 

@@ -5,6 +5,9 @@ import { ownerDefaultPropertiesSchema, ownerLocalPropertiesSchema } from './auth
 import { inventoryDefinitionSchema } from './authoring-inventories';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+const interactableInstanceRefSchema = strict({
+  $ref: strict({ registry: z.literal('interactableInstances'), id: entityIdSchema }),
+});
 
 export const featureDataSchema = strict({
   id: entityIdSchema,
@@ -23,7 +26,7 @@ export const featureRefSchema = z.discriminatedUnion('ownerKind', [
   }),
   strict({
     ownerKind: z.literal('interactable'),
-    interactable: interactableRefSchema,
+    interactable: interactableInstanceRefSchema,
     featureId: entityIdSchema,
   }),
 ]);
@@ -69,7 +72,7 @@ export function roomFeatureRef(roomId: string, featureId: string): FeatureRefDat
 export function interactableFeatureRef(interactableId: string, featureId: string): FeatureRefData {
   return {
     ownerKind: 'interactable',
-    interactable: { $ref: { collection: 'interactables', id: interactableId } },
+    interactable: { $ref: { registry: 'interactableInstances', id: interactableId } },
     featureId,
   };
 }
