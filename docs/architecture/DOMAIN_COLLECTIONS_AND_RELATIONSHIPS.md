@@ -4,7 +4,7 @@
 
 This table is the authoritative current ownership map. Authoring records are editor-owned source; wire values are strict `noveltea.compiled.project` Format V1 data; mutable values belong to `SessionState` unless marked tooling-only.
 
-| V2 collection/section | Authoring owner | Compiled representation | Runtime disposition |
+| Authoring collection/section | Authoring owner | Compiled representation | Runtime disposition |
 | --- | --- | --- | --- |
 | Project root/settings | Editor project/compiler | Compiled root, settings, Bootstrap Module reference, entrypoint, indexes | Immutable project-owned configuration; root is not an entity |
 | Property state (not a collection) | Variables plus owner-local record/Feature/Instance declarations and reusable Trait/Archetype/definition contracts | Global and exact-owner `PropertyDefinition`s plus embedded owner contracts/assignments | One sparse override store for authored overrides and schema-less dynamic keys; every stored value is checkpoint/save state |

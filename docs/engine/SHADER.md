@@ -251,7 +251,7 @@ The editor keeps shader authoring metadata separate from material instance value
 
 ## Editor Preview
 
-Shader preview uses `buildShaderPreviewDocumentData()` and the `noveltea.shader-preview.v1` preview schema. The preview payload includes:
+Shader preview uses `buildShaderPreviewDocumentData()` and the stable `noveltea.shader-preview` preview schema. The preview payload includes:
 
 - the generated shader/material metadata project;
 - shader/material diagnostics;

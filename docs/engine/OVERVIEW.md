@@ -14,8 +14,8 @@ Read the specific component doc before changing its schema, commands, editor UI,
 - `docs/engine/ASSET.md` — authoring assets, import metadata, asset editor/library behavior, runtime/export status.
 - `docs/engine/ROOM.md` — typed Room definitions, owner-local Features, Hotspot target geometry, placements/exits, lifecycle pipeline, and mutable room state.
 - `docs/engine/CHARACTER.md` — immutable Character definitions, actor state, poses/expressions, and current scaffolding.
-- `docs/engine/DIALOGUE.md` — the V2 specialized dialogue graph/program, call-return and state semantics, and current scaffolding.
-- `docs/engine/SCENE.md` — the V2 Scene program and frame contract, call-return and safe-point semantics, and current scaffolding.
+- `docs/engine/DIALOGUE.md` — the specialized dialogue graph/program, call-return and state semantics, and current scaffolding.
+- `docs/engine/SCENE.md` — the Scene program and frame contract, call-return and safe-point semantics, and current scaffolding.
 - `docs/engine/INTERACTABLE.md` — unique Interactable definitions, owner-local Features, semantic Hotspot targets, and placement/location/state separation.
 - `docs/engine/ITEM.md` — retirement boundary for the former Item Definition/Item Stack project model; current inventory objects use exact Interactable Instances.
 - `docs/engine/VERB.md` — named Verb slots, Subject Selectors, binding order, localized command templates, availability, and definition-local fallback.

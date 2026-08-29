@@ -9,7 +9,7 @@ import {
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 
 describe('dialogue commands', () => {
-  it('creates strict Dialogue V2 data through entity.createRecord', () => {
+  it('creates strict Dialogue data through entity.createRecord', () => {
     const project = createAuthoringProject();
     const result = executeCommand(createInitialCommandBusState(toJsonValue(project)), {
       type: 'entity.createRecord',
@@ -31,7 +31,7 @@ describe('dialogue commands', () => {
     });
   });
 
-  it('patches valid Dialogue V2 data and rejects invalid block/edge combinations', () => {
+  it('patches valid Dialogue data and rejects invalid block/edge combinations', () => {
     const project = createAuthoringProject();
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     let state = createInitialCommandBusState(toJsonValue(project));

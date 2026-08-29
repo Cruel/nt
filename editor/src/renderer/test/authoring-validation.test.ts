@@ -16,7 +16,7 @@ import {
   validateAuthoringProject,
 } from '../../shared/project-schema/authoring-validation';
 
-describe('authoring V2 validation', () => {
+describe('authoring validation', () => {
   it('allows incomplete reusable Interactable Property contracts but requires concrete Instance Values', () => {
     const project = createAuthoringProject();
     project.interactables.key = {

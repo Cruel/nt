@@ -273,7 +273,7 @@ Object.defineProperty(window, 'noveltea', {
     }),
     requestImageThumbnail: vi.fn().mockResolvedValue({
       ok: true,
-      url: 'noveltea-thumbnail://image-v2/aa/'.concat('a'.repeat(64), '.webp'),
+      url: 'noveltea-thumbnail://image/aa/'.concat('a'.repeat(64), '.webp'),
       cacheKey: 'a'.repeat(64),
       sourceRevision: `sha256:${'b'.repeat(64)}`,
       profile: 'list',

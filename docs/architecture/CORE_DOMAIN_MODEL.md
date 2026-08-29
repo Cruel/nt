@@ -9,7 +9,7 @@ package compatibility is part of this contract.
 
 ## Ownership and lifetime
 
-The editor owns `AuthoringProject` V2 and the pure TypeScript authoring compiler. Authoring data is
+The editor owns the current assembled `AuthoringProject` and the pure TypeScript authoring compiler. Authoring data is
 optimized for editing and may contain source organization and tooling metadata. The C++ runtime never
 parses an authoring project.
 

@@ -12,6 +12,10 @@ Materials are implemented as a typed authoring collection in the editor. The Mat
 
 The engine has runtime material metadata parsing under `noveltea.shader-materials`, fallback material definitions, bgfx material binding, and typed material asset loading. Export builds shader/material metadata from authoring shader and material records.
 
+Occurrence-local runtime Material Parameters support typed mutation and query, Property or standard
+engine-facet binding, Scene assignment/tweening, and Lua presentation APIs without mutating compiled
+Material definitions.
+
 ## Collection
 
 Material records live at:
@@ -353,14 +357,16 @@ refs/NovelTea/res/wave.vert
 
 - Blend policy is currently limited to premultiplied alpha.
 - Material inheritance exists, but advanced inheritance UI and conflict visualization can improve.
-- Runtime mutation of material uniforms/textures from scripts is not yet a documented contract.
+- Runtime Material Parameter mutation/query/binding covers typed uniform parameters; runtime texture
+  reassignment is not part of that parameter contract.
 - Preview coverage is strongest for simple material swatches and should expand for role-specific use cases.
 
 ## Future Work
 
 - Add more blend/render-state policies when the renderer needs them.
 - Add richer material thumbnails and role-specific preview fixtures.
-- Add optional script/runtime APIs for material parameter changes if gameplay needs them.
+- Expand Material Parameter realization to additional backend-specific roles when those providers
+  expose typed parameters.
 - Expand package validation around missing compiled shaders, missing textures, and alias resolution.
 
 ## Verification

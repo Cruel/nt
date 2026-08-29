@@ -123,7 +123,7 @@ use distinct client and prompt identities. `--json` still emits exactly one comp
 3. Export with `File -> Export Workflow (API)`.
 4. In NovelTea, open the `ComfyUI Workflows` tab from the command palette, global Settings, or Project Settings summary.
 5. For the current image classifications, review inferred bindings, select image output nodes, set defaults, and save.
-   For arbitrary generic contracts, switch the Review step to `Edit generic manifest JSON` and author the strict V2
+   For arbitrary generic contracts, switch the Review step to `Edit generic manifest JSON` and author the strict Workflow Manifest V1
    public input/output IDs, classification, types, cardinalities, and binding arrays directly.
 
 The importer does not convert ordinary ComfyUI save-format files. If a file is rejected as a save-format workflow,

@@ -113,7 +113,7 @@ async function fixtureWithRoomMaterial() {
   return project;
 }
 
-describe('graph-driven Room v2 builder', () => {
+describe('graph-driven Room builder', () => {
   it('uses the bounded Asset protocol for Room original-image resources', async () => {
     const project = fixture();
     project.assets.background = {

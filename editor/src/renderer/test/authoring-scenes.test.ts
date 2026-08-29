@@ -15,7 +15,7 @@ import { defaultVariableData } from '../../shared/project-schema/authoring-varia
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { buildScenePreviewDocumentData } from '../../shared/project-schema/scene-project';
 
-describe('authoring scenes v2', () => {
+describe('authoring scenes', () => {
   it('creates a strict scene with editor state excluded', () => {
     const data = defaultSceneData('Opening');
     expect(data).toEqual(

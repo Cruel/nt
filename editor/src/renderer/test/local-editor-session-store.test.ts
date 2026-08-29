@@ -15,7 +15,7 @@ describe('local editor session persistence', () => {
     useLocalEditorSessionStore.setState({ shellSession: null });
   });
 
-  it('rehydrates the current V2 shell session', async () => {
+  it('rehydrates the current shell session', async () => {
     const shellWorkbench = createInitialWorkbenchState();
     shellWorkbench.tabsById['tool:settings'] = {
       id: 'tool:settings',
@@ -52,13 +52,13 @@ describe('local editor session persistence', () => {
     consoleError.mockRestore();
   });
 
-  it('does not promote the retired root shellWorkbench shape in V2 storage', async () => {
+  it('does not promote the retired root shellWorkbench shape in current storage', async () => {
     await rehydrateFrom({ shellWorkbench: createInitialWorkbenchState() }, 2);
 
     expect(useLocalEditorSessionStore.getState().shellSession).toBeNull();
   });
 
-  it('discards malformed current V2 shell state', async () => {
+  it('discards malformed current shell state', async () => {
     await rehydrateFrom(
       {
         shellSession: {

@@ -157,7 +157,7 @@ describe('SearchSelectorDialog', () => {
     expect(window.noveltea.resolveProjectOriginalAssetUrl).not.toHaveBeenCalled();
     expect(await screen.findByAltText('Logo')).toHaveAttribute(
       'src',
-      `noveltea-thumbnail://image-v2/aa/${'a'.repeat(64)}.webp`,
+      `noveltea-thumbnail://image/aa/${'a'.repeat(64)}.webp`,
     );
   });
 });

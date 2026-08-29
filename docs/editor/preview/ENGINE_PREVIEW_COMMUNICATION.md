@@ -467,7 +467,7 @@ manifest. `web/widget.html` validates and stages the manifest, projects only nat
 and calls the typed `noveltea_preview_apply_editor_document` boundary. The older
 `load-preview-document` / `update-preview-document` bridge remains only for preview kinds that have
 not migrated; Room, Layout, and Shader code must not add dependencies on it. Room preview has no
-generated-RML fallback, Room-v1 builder, recursive
+generated-RML fallback, retired Room builder, recursive
 project-object asset scan, compiled-project load, or iframe reload path.
 
 Authoring hosts are visual-only engine instances. Their iframe URL includes `audio=0`, which

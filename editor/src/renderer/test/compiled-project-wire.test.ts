@@ -367,7 +367,7 @@ function representativeWireFixture() {
   };
 }
 
-describe('CompiledProject Wire V4', () => {
+describe('compiled project wire', () => {
   it('round-trips a representative wire document for every runtime-content family', () => {
     const parsed = parseCompiledProjectWire(representativeWireFixture());
     const serialized = serializeCompiledProjectWire(parsed);
@@ -472,7 +472,7 @@ describe('CompiledProject Wire V4', () => {
     expect(compiledProjectWireSchema.safeParse(propertyWithProgramOwner).success).toBe(false);
   });
 
-  it('rejects the provisional V1 display shape and version', () => {
+  it('rejects the retired display shape within Compiled Project Format V1', () => {
     const fixture = representativeWireFixture();
     const provisional = {
       ...fixture,

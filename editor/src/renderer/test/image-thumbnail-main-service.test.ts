@@ -220,20 +220,24 @@ describe('main-process image thumbnail service', () => {
     expect(output).toEqual(pixels);
   });
 
-  it('removes only the retired image-v1 cache subtree', async () => {
+  it('removes retired version-numbered image cache subtrees', async () => {
     const fixture = await fixtureProject();
     const service = thumbnailService(fixture);
     const v1 = path.join(fixture.cacheRoot, 'thumbnails', 'image-v1');
-    const v2 = service.imageCacheRoot;
+    const v2 = path.join(fixture.cacheRoot, 'thumbnails', 'image-v2');
+    const current = service.imageCacheRoot;
     await fs.mkdir(v1, { recursive: true });
     await fs.mkdir(v2, { recursive: true });
+    await fs.mkdir(current, { recursive: true });
     await fs.writeFile(path.join(v1, 'retired.webp'), 'old');
-    await fs.writeFile(path.join(v2, 'current.webp'), 'current');
+    await fs.writeFile(path.join(v2, 'retired.webp'), 'old');
+    await fs.writeFile(path.join(current, 'current.webp'), 'current');
 
     await service.removeObsoleteCacheVersions();
 
     await expect(fs.stat(v1)).rejects.toThrow();
-    await expect(fs.readFile(path.join(v2, 'current.webp'), 'utf8')).resolves.toBe('current');
+    await expect(fs.stat(v2)).rejects.toThrow();
+    await expect(fs.readFile(path.join(current, 'current.webp'), 'utf8')).resolves.toBe('current');
   });
 
   it('deduplicates hashless requests and rejects revision or metadata mismatch without publication', async () => {
@@ -959,7 +963,7 @@ describe('main-process image thumbnail service', () => {
 describe('thumbnail protocol', () => {
   it('serves only valid content-keyed WebP paths and rejects traversal', async () => {
     const fixture = await fixtureProject();
-    const imageRoot = path.join(fixture.cacheRoot, 'thumbnails', 'image-v2');
+    const imageRoot = path.join(fixture.cacheRoot, 'thumbnails', 'image');
     const key = 'ab'.padEnd(64, '1');
     const target = path.join(imageRoot, 'ab', `${key}.webp`);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -981,7 +985,7 @@ describe('thumbnail protocol', () => {
     expect(
       (
         await handler(
-          new Request('noveltea-thumbnail://cache/image-v2/ab/%2e%2e%2fsecret.webp?epoch=0'),
+          new Request('noveltea-thumbnail://cache/image/ab/%2e%2e%2fsecret.webp?epoch=0'),
         )
       ).status,
     ).toBe(400);
