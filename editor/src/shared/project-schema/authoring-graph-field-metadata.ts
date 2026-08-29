@@ -176,6 +176,18 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/source\//,
     OWNER,
   ],
+  // #123 adopts the same Gameplay Command vocabulary for Scene mutation batches and choice
+  // effects. Scene command operands/results remain part of the owning Scene contribution, while
+  // Lua command/predicate source stays source-analyzed just like the other Gameplay Command hosts.
+  [
+    /^\/scenes\/\*\/data\/events\/\*\/(?:operations\/\*|options\/\*\/effects\/\*)(?:\/(?:then|else)\/\*)*\/source$/,
+    SOURCE,
+  ],
+  [
+    /^\/scenes\/\*\/data\/events\/\*\/(?:operations\/\*|options\/\*\/effects\/\*)(?:\/(?:then|else)\/\*)*\/condition\/source$/,
+    SOURCE,
+  ],
+  [/^\/scenes\/\*\/data\/events\/\*\/options\/\*\/effects\/\*/, OWNER],
   // #121 expands every existing Condition host into the same recursive typed Condition contract.
   // These are genuinely new leaves relative to the prior Always/Variable/Lua union. Keep the
   // previously reviewed legacy leaves aligned while classifying recursive structure and typed
@@ -464,6 +476,10 @@ function isItemContractLeaf(path: JsonPointer): boolean {
   );
 }
 
+function isSceneChoiceGameplayCommandLeaf(path: JsonPointer): boolean {
+  return path.startsWith('/scenes/*/data/events/*/options/*/effects/*');
+}
+
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
   // #122 preserves the reviewed Interaction instruction contribution for the legacy-compatible
   // Global Property/Lua leaves after removing the `apply-effect` wrapper.
@@ -620,7 +636,10 @@ const legacySchemaLeafPaths = [
   ...sortedSchemaLeafPaths
     .filter(
       (path) =>
-        !path.startsWith('/traits/') && !isArchetypeContractLeaf(path) && !isItemContractLeaf(path),
+        !path.startsWith('/traits/') &&
+        !isArchetypeContractLeaf(path) &&
+        !isItemContractLeaf(path) &&
+        !isSceneChoiceGameplayCommandLeaf(path),
     )
     .map(preservedReviewedPath),
   // The assembled AuthoringProject no longer owns a compatibility epoch. Preserve its retired
@@ -740,6 +759,14 @@ const legacySchemaLeafPaths = [
   // field-effect sequence; all replacement terminal/input/outcome leaves are classified above.
   '/scenes/*/data/continuation/kind' as JsonPointer,
   '/scenes/*/data/continuation/id' as JsonPointer,
+  // #123 replaces the legacy two-variant Scene choice Effect payload with the canonical Gameplay
+  // Command union. Preserve the five removed Effect leaves only for pre-#123 reviewed-effect
+  // alignment; every replacement command leaf is classified explicitly above.
+  '/scenes/*/data/steps/*/options/*/effects/*/kind' as JsonPointer,
+  '/scenes/*/data/steps/*/options/*/effects/*/source' as JsonPointer,
+  '/scenes/*/data/steps/*/options/*/effects/*/value' as JsonPointer,
+  '/scenes/*/data/steps/*/options/*/effects/*/variable/$ref/collection' as JsonPointer,
+  '/scenes/*/data/steps/*/options/*/effects/*/variable/$ref/id' as JsonPointer,
   // #102 removes provisional Test-local setup/assertion/UI-gesture forms and replaces the executable
   // step vocabulary with semantic runtime identities. Retain the removed same-version leaves only
   // for alignment with the reviewed pre-#102 graph-effect sequence; the four replacement semantic
@@ -873,7 +900,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     rooms: 'a8da6718',
-    scenes: '4ee3f5b1',
+    scenes: '775ab0fe',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: 'e2c61a79',

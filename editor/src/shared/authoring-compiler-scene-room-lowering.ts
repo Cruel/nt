@@ -1,11 +1,11 @@
 import type {
-  CompiledEffect,
   CompiledProjectWire,
   CompiledText,
   SceneProgram,
 } from './project-schema/compiled-project';
-import type { Effect, TextContent } from './project-schema/authoring-flow';
+import type { TextContent } from './project-schema/authoring-flow';
 import { compileCondition } from './authoring-condition-lowering';
+import { compileGameplayCommand } from './authoring-compiler-dialogue-interaction-lowering';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import { resolveMaterialData } from './project-schema/authoring-materials';
@@ -72,15 +72,6 @@ function compileText(text: TextContent): CompiledText {
         : source.kind === 'localized'
           ? { kind: 'localized', key: source.key }
           : { kind: 'lua-expression', source: source.source },
-  };
-}
-
-function compileEffect(effect: Effect): CompiledEffect {
-  if (effect.kind === 'run-lua-effect') return { ...effect };
-  return {
-    kind: 'set-global-property',
-    property: { kind: 'property', id: effect.variable.$ref.id },
-    value: effect.value,
   };
 }
 
@@ -257,32 +248,6 @@ function compileCharacterLocation(
   return location.kind === 'unplaced'
     ? { kind: 'unplaced' as const }
     : { kind: 'room' as const, room: { kind: 'room' as const, id: location.room.$ref.id } };
-}
-
-function compilePropertyOwner(
-  owner: Extract<
-    SceneStepData,
-    { type: 'gameplay-effect-batch' }
-  >['operations'][number] extends infer _
-    ?
-        | { kind: 'room'; room: { $ref: { id: string } } }
-        | { kind: 'character'; character: { $ref: { id: string } } }
-        | { kind: 'interactable'; interactable: { $ref: { id: string } } }
-    : never,
-) {
-  if (owner.kind === 'room')
-    return { kind: 'room' as const, room: { kind: 'room' as const, id: owner.room.$ref.id } };
-  if (owner.kind === 'character')
-    return {
-      kind: 'character' as const,
-      character: { kind: 'character' as const, id: owner.character.$ref.id },
-    };
-  if (owner.kind === 'interactable')
-    return {
-      kind: 'interactable' as const,
-      interactable: { kind: 'interactable' as const, id: owner.interactable.$ref.id },
-    };
-  return owner satisfies never;
 }
 
 function compileGameplayInstanceRef(
@@ -469,106 +434,21 @@ function compileSceneStep(
     case 'set-variable':
       return {
         ...base,
-        kind: 'set-global-property',
-        property: { kind: 'property', id: step.variable.$ref.id },
-        value: step.value,
+        kind: 'gameplay-effect-batch',
+        operations: [
+          {
+            id: step.id,
+            kind: 'set-global-property',
+            property: { kind: 'property', id: step.variable.$ref.id },
+            value: step.value,
+          },
+        ],
       };
     case 'gameplay-effect-batch':
       return {
         ...base,
         kind: 'gameplay-effect-batch',
-        operations: step.operations.map((operation) => {
-          switch (operation.kind) {
-            case 'set-variable':
-              return {
-                kind: 'set-global-property' as const,
-                property: { kind: 'property' as const, id: operation.variable.$ref.id },
-                value: operation.value,
-              };
-            case 'set-property':
-              return {
-                kind: 'set-property' as const,
-                owner: compilePropertyOwner(operation.owner),
-                property: { kind: 'property' as const, id: operation.property.key },
-                value: operation.value,
-              };
-            case 'unset-property':
-              return {
-                kind: 'unset-property' as const,
-                owner: compilePropertyOwner(operation.owner),
-                property: { kind: 'property' as const, id: operation.property.key },
-              };
-            case 'move-character':
-              return {
-                kind: 'move-character' as const,
-                character: { kind: 'character' as const, id: operation.character.$ref.id },
-                location: compileCharacterLocation(operation.location),
-              };
-            case 'set-character-state':
-              return {
-                kind: 'set-character-state' as const,
-                character: { kind: 'character' as const, id: operation.character.$ref.id },
-                ...(operation.enabled === undefined ? {} : { enabled: operation.enabled }),
-                ...(operation.visible === undefined ? {} : { visible: operation.visible }),
-              };
-            case 'move-interactable':
-              return {
-                kind: 'move-interactable' as const,
-                interactable: {
-                  kind: 'interactable' as const,
-                  id: operation.interactable.$ref.id,
-                },
-                location: compileInteractableLocation(operation.location),
-              };
-            case 'set-interactable-state':
-              return {
-                kind: 'set-interactable-state' as const,
-                interactable: {
-                  kind: 'interactable' as const,
-                  id: operation.interactable.$ref.id,
-                },
-                ...(operation.enabled === undefined ? {} : { enabled: operation.enabled }),
-                ...(operation.visible === undefined ? {} : { visible: operation.visible }),
-              };
-            case 'split-item-stack':
-              return {
-                kind: 'split-item-stack' as const,
-                stack: { kind: 'item-stack' as const, id: operation.stack.$ref.id },
-                quantity: operation.quantity,
-              };
-            case 'merge-item-stacks':
-              return {
-                kind: 'merge-item-stacks' as const,
-                receiver: { kind: 'item-stack' as const, id: operation.receiver.$ref.id },
-                donor: { kind: 'item-stack' as const, id: operation.donor.$ref.id },
-              };
-            case 'transfer-item-quantity':
-              return {
-                kind: 'transfer-item-quantity' as const,
-                stack: { kind: 'item-stack' as const, id: operation.stack.$ref.id },
-                quantity: operation.quantity,
-                location: compileInteractableLocation(operation.location),
-                placement: operation.placement,
-              };
-            case 'grant-item-quantity':
-              return {
-                kind: 'grant-item-quantity' as const,
-                definition: {
-                  kind: 'item-definition' as const,
-                  id: operation.definition.$ref.id,
-                },
-                quantity: operation.quantity,
-                location: compileInteractableLocation(operation.location),
-                placement: operation.placement,
-              };
-            case 'consume-item-quantity':
-              return {
-                kind: 'consume-item-quantity' as const,
-                stack: { kind: 'item-stack' as const, id: operation.stack.$ref.id },
-                quantity: operation.quantity,
-              };
-          }
-        }),
+        operations: step.operations.map(compileGameplayCommand),
       };
     case 'runtime-world-transaction':
       return {
@@ -713,7 +593,7 @@ function compileSceneStep(
           ...(option.condition === undefined
             ? {}
             : { condition: compileCondition(option.condition) }),
-          effects: option.effects.map(compileEffect),
+          effects: option.effects.map(compileGameplayCommand),
           targetInstructionId: option.targetStepId,
         })),
         autosaveSafePoint: step.autosaveSafePoint,

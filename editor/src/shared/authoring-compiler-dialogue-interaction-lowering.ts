@@ -183,7 +183,7 @@ function compileDialogueSemanticCue(
   return { ...common, kind: cue.kind, emphasis: cue.emphasis };
 }
 
-function compileGameplayCommand(command: GameplayCommand): CompiledGameplayCommand {
+export function compileGameplayCommand(command: GameplayCommand): CompiledGameplayCommand {
   switch (command.kind) {
     case 'set-global-property':
       return {

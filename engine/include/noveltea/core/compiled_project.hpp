@@ -1098,78 +1098,10 @@ struct AudioCueInstruction {
     std::optional<std::string> instance_id;
     std::optional<std::string> replacement_group;
 };
-struct SetGlobalPropertySceneInstruction {
-    SceneStepId id;
-    std::optional<Condition> condition;
-    PropertyId property;
-    RuntimeValue value;
-};
-struct SetIdentityPropertySceneOperation {
-    PropertyOwnerRef owner;
-    PropertyId property;
-    RuntimeValue value;
-};
-struct UnsetIdentityPropertySceneOperation {
-    PropertyOwnerRef owner;
-    PropertyId property;
-};
-struct MoveCharacterSceneOperation {
-    CharacterId character;
-    CharacterInitialWorldLocation location;
-};
-struct SetCharacterStateSceneOperation {
-    CharacterId character;
-    std::optional<bool> enabled;
-    std::optional<bool> visible;
-};
-struct MoveInteractableSceneOperation {
-    InteractableInstanceId interactable;
-    InteractableLocation location;
-};
-struct SetInteractableStateSceneOperation {
-    InteractableInstanceId interactable;
-    std::optional<bool> enabled;
-    std::optional<bool> visible;
-};
-struct SplitItemStackSceneOperation {
-    ItemStackId stack;
-    std::uint64_t quantity = 0;
-};
-struct MergeItemStacksSceneOperation {
-    ItemStackId receiver;
-    ItemStackId donor;
-};
-enum class ItemStackPlacementPolicy : std::uint8_t {
-    Coalesce,
-    KeepSeparate,
-};
-struct TransferItemQuantitySceneOperation {
-    ItemStackId stack;
-    std::uint64_t quantity = 0;
-    InteractableLocation location;
-    ItemStackPlacementPolicy placement = ItemStackPlacementPolicy::Coalesce;
-};
-struct GrantItemQuantitySceneOperation {
-    ItemDefinitionId definition;
-    std::uint64_t quantity = 0;
-    InteractableLocation location;
-    ItemStackPlacementPolicy placement = ItemStackPlacementPolicy::Coalesce;
-};
-struct ConsumeItemQuantitySceneOperation {
-    ItemStackId stack;
-    std::uint64_t quantity = 0;
-};
-using SceneGameplayEffectOperation =
-    std::variant<SetGlobalProperty, SetIdentityPropertySceneOperation,
-                 UnsetIdentityPropertySceneOperation, MoveCharacterSceneOperation,
-                 SetCharacterStateSceneOperation, MoveInteractableSceneOperation,
-                 SetInteractableStateSceneOperation, SplitItemStackSceneOperation,
-                 MergeItemStacksSceneOperation, TransferItemQuantitySceneOperation,
-                 GrantItemQuantitySceneOperation, ConsumeItemQuantitySceneOperation>;
 struct GameplayEffectBatchSceneInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
-    std::vector<SceneGameplayEffectOperation> operations;
+    std::vector<GameplayCommand> operations;
 };
 using SceneGameplayInstanceRef = std::variant<RoomId, CharacterId, InteractableInstanceId>;
 struct SceneArchetypeConfigurationSource {
@@ -1304,7 +1236,7 @@ struct ConditionalBranchInstruction {
 struct SceneChoiceOption {
     SceneChoiceOptionId id;
     std::optional<Condition> condition;
-    std::vector<Effect> effects;
+    std::vector<GameplayCommand> effects;
     TextContent label;
     SceneStepId target_instruction_id;
 };
@@ -1457,14 +1389,13 @@ using SceneInstruction =
     std::variant<SetBackgroundInstruction, ActorCueInstruction, CallSceneSceneInstruction,
                  StartDetachedSceneInstruction, CallDialogueSceneInstruction,
                  ResumeDialogueSceneInstruction, ShowTextInstruction, AudioCueInstruction,
-                 SetGlobalPropertySceneInstruction, GameplayEffectBatchSceneInstruction,
-                 RuntimeWorldTransactionSceneInstruction, DirectedRoomChangeSceneInstruction,
-                 NavigationAttemptSceneInstruction, CallInteractionSceneInstruction,
-                 RunLuaSceneInstruction, WaitDurationInstruction, WaitInputInstruction,
-                 WaitConditionInstruction, WaitOperationInstruction, WaitAudioInstruction,
-                 WaitLayoutSignalInstruction, ConditionalBranchInstruction, ChoiceSceneInstruction,
-                 SetLayoutInstruction, MaterialParameterInstruction, PostprocessEffectInstruction,
-                 TransitionGroupInstruction>;
+                 GameplayEffectBatchSceneInstruction, RuntimeWorldTransactionSceneInstruction,
+                 DirectedRoomChangeSceneInstruction, NavigationAttemptSceneInstruction,
+                 CallInteractionSceneInstruction, RunLuaSceneInstruction, WaitDurationInstruction,
+                 WaitInputInstruction, WaitConditionInstruction, WaitOperationInstruction,
+                 WaitAudioInstruction, WaitLayoutSignalInstruction, ConditionalBranchInstruction,
+                 ChoiceSceneInstruction, SetLayoutInstruction, MaterialParameterInstruction,
+                 PostprocessEffectInstruction, TransitionGroupInstruction>;
 struct SceneEventTimeline {
     std::string track_id;
     std::uint64_t start_ms = 0;

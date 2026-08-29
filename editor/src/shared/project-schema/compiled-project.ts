@@ -29,8 +29,6 @@ const characterReferenceSchema = typedReference('character');
 const dialogueReferenceSchema = typedReference('dialogue');
 const interactableDefinitionReferenceSchema = typedReference('interactable-definition');
 const interactableReferenceSchema = typedReference('interactable');
-const itemDefinitionReferenceSchema = typedReference('item-definition');
-const itemStackReferenceSchema = typedReference('item-stack');
 const layoutReferenceSchema = typedReference('layout');
 const materialReferenceSchema = typedReference('material');
 const compiledMaterialRoleSchema = z.enum([
@@ -1262,84 +1260,9 @@ const transitionGroupChildSchema = z.discriminatedUnion('kind', [
     slot: z.enum(['overlay', 'custom']),
   }),
 ]);
-const scenePropertyOwnerSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
-  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
-  strict({ kind: z.literal('item-stack'), itemStack: itemStackReferenceSchema }),
-]);
 const sceneCharacterLocationSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('unplaced') }),
   strict({ kind: z.literal('room'), room: roomReferenceSchema }),
-]);
-const sceneGameplayEffectOperationSchema = z.discriminatedUnion('kind', [
-  strict({
-    kind: z.literal('set-global-property'),
-    property: propertyReferenceSchema,
-    value: runtimeValueSchema,
-  }),
-  strict({
-    kind: z.literal('set-property'),
-    owner: scenePropertyOwnerSchema,
-    property: propertyReferenceSchema,
-    value: runtimeValueSchema,
-  }),
-  strict({
-    kind: z.literal('unset-property'),
-    owner: scenePropertyOwnerSchema,
-    property: propertyReferenceSchema,
-  }),
-  strict({
-    kind: z.literal('move-character'),
-    character: characterReferenceSchema,
-    location: sceneCharacterLocationSchema,
-  }),
-  strict({
-    kind: z.literal('set-character-state'),
-    character: characterReferenceSchema,
-    enabled: z.boolean().optional(),
-    visible: z.boolean().optional(),
-  }),
-  strict({
-    kind: z.literal('move-interactable'),
-    interactable: interactableReferenceSchema,
-    location: interactableLocationSchema,
-  }),
-  strict({
-    kind: z.literal('set-interactable-state'),
-    interactable: interactableReferenceSchema,
-    enabled: z.boolean().optional(),
-    visible: z.boolean().optional(),
-  }),
-  strict({
-    kind: z.literal('split-item-stack'),
-    stack: itemStackReferenceSchema,
-    quantity: z.number().int().positive(),
-  }),
-  strict({
-    kind: z.literal('merge-item-stacks'),
-    receiver: itemStackReferenceSchema,
-    donor: itemStackReferenceSchema,
-  }),
-  strict({
-    kind: z.literal('transfer-item-quantity'),
-    stack: itemStackReferenceSchema,
-    quantity: z.number().int().positive(),
-    location: interactableLocationSchema,
-    placement: z.enum(['coalesce', 'keep-separate']),
-  }),
-  strict({
-    kind: z.literal('grant-item-quantity'),
-    definition: itemDefinitionReferenceSchema,
-    quantity: z.number().int().positive(),
-    location: interactableLocationSchema,
-    placement: z.enum(['coalesce', 'keep-separate']),
-  }),
-  strict({
-    kind: z.literal('consume-item-quantity'),
-    stack: itemStackReferenceSchema,
-    quantity: z.number().int().positive(),
-  }),
 ]);
 const sceneGameplayInstanceRefSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room'), room: roomReferenceSchema }),
@@ -1480,14 +1403,8 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
   }),
   strict({
     ...sceneInstructionCommon,
-    kind: z.literal('set-global-property'),
-    property: propertyReferenceSchema,
-    value: runtimeValueSchema,
-  }),
-  strict({
-    ...sceneInstructionCommon,
     kind: z.literal('gameplay-effect-batch'),
-    operations: z.array(sceneGameplayEffectOperationSchema).min(1),
+    operations: z.array(compiledGameplayCommandSchema).min(1),
   }),
   strict({
     ...sceneInstructionCommon,
@@ -1565,7 +1482,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
       .array(
         strict({
           condition: compiledConditionSchema.optional(),
-          effects: z.array(compiledEffectSchema),
+          effects: z.array(compiledGameplayCommandSchema),
           id,
           label: compiledTextSchema,
           targetInstructionId: id,

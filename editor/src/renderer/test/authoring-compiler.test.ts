@@ -558,7 +558,8 @@ describe('authoring compiler framework', () => {
             label: { source: { kind: 'inline', text: 'Continue' }, markup: 'plain' },
             effects: [
               {
-                kind: 'set-variable',
+                id: 'set-flag',
+                kind: 'set-global-property',
                 variable: { $ref: { collection: 'variables', id: 'flag' } },
                 value: true,
               },
@@ -610,7 +611,7 @@ describe('authoring compiler framework', () => {
       'resume-dialogue',
       'show-text',
       'audio-cue',
-      'set-global-property',
+      'gameplay-effect-batch',
       'run-lua',
       'wait-duration',
       'wait-input',
@@ -619,6 +620,18 @@ describe('authoring compiler framework', () => {
       'set-layout',
       'transition-group',
     ]);
+    expect(lowered.definitions.scenes[0]!.program.events[6]!.instruction).toEqual({
+      id: 'variable',
+      kind: 'gameplay-effect-batch',
+      operations: [
+        {
+          id: 'variable',
+          kind: 'set-global-property',
+          property: { kind: 'property', id: 'flag' },
+          value: true,
+        },
+      ],
+    });
     expect(lowered.definitions.scenes[0]!.terminal).toEqual({ kind: 'release-to-exploration' });
     expect(
       lowered.definitions.rooms.find((candidate) => candidate.id === 'foyer')!.scriptHooks,

@@ -309,8 +309,10 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
             std::get<ShowTextInstruction>(opening.program.instructions[4]).wait));
         CHECK(std::holds_alternative<AudioCompletionWait>(
             std::get<AudioCueInstruction>(opening.program.instructions[6]).wait));
-        CHECK(std::holds_alternative<SetGlobalPropertySceneInstruction>(
-            opening.program.instructions[7]));
+        const auto& mutation =
+            std::get<GameplayEffectBatchSceneInstruction>(opening.program.instructions[7]);
+        REQUIRE(mutation.operations.size() == 1);
+        CHECK(std::holds_alternative<SetGlobalPropertyCommand>(mutation.operations[0].value));
         CHECK(std::holds_alternative<RunLuaSceneInstruction>(opening.program.instructions[8]));
         CHECK(std::get<WaitDurationInstruction>(opening.program.instructions[9]).wait.duration() ==
               std::chrono::milliseconds(1500));
@@ -1433,7 +1435,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         auto* instruction = path_member(
             document, {"definitions", "scenes", "1", "program", "events", "7", "instruction"});
         REQUIRE(instruction != nullptr);
-        (*instruction)["value"] = "wrong-type";
+        (*instruction)["operations"][0]["value"] = "wrong-type";
         auto result = noveltea::core::decode_compiled_project(document, "scene.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.property_type_mismatch"));

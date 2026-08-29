@@ -1121,9 +1121,35 @@ private:
                         } else if constexpr (std::is_same_v<T, SetPropertyCommand> ||
                                              std::is_same_v<T, UnsetPropertyCommand>) {
                             validate_identity(value.owner, command_path + "/owner");
-                            if (!property(value.property))
-                                require(m_properties, value.property, "property",
-                                        command_path + "/property");
+                            const PropertyDefinition* declaration = nullptr;
+                            std::visit(
+                                [&](const auto& owner) {
+                                    using Owner = std::decay_t<decltype(owner)>;
+                                    if constexpr (std::is_same_v<Owner, RoomId> ||
+                                                  std::is_same_v<Owner, CharacterId> ||
+                                                  std::is_same_v<Owner, InteractableInstanceId> ||
+                                                  std::is_same_v<Owner, RoomFeatureRef> ||
+                                                  std::is_same_v<Owner, InteractableFeatureRef>)
+                                        declaration =
+                                            property(PropertyOwnerRef{owner}, value.property);
+                                },
+                                value.owner);
+                            if (declaration == nullptr &&
+                                !std::holds_alternative<CurrentRoomOperand>(value.owner) &&
+                                !std::holds_alternative<InteractionSlotOperand>(value.owner) &&
+                                !std::holds_alternative<CommandResultOperand>(value.owner))
+                                error("compiled_project.unresolved_reference",
+                                      "Unresolved property reference '" + value.property.text() +
+                                          "'.",
+                                      command_path + "/property");
+                            else if constexpr (std::is_same_v<T, SetPropertyCommand>) {
+                                if (declaration != nullptr &&
+                                    !property_value_matches(*declaration, value.value))
+                                    error("compiled_project.property_type_mismatch",
+                                          "Gameplay Command assignment does not match the owner's "
+                                          "Property.",
+                                          command_path + "/value");
+                            }
                         } else if constexpr (std::is_same_v<T, AddTraitCommand> ||
                                              std::is_same_v<T, RemoveTraitCommand>) {
                             validate_identity(value.owner, command_path + "/owner");
@@ -3196,19 +3222,45 @@ private:
                                     },
                                     *instruction.pan_source);
                             }
-                        } else if constexpr (std::is_same_v<T, SetGlobalPropertySceneInstruction>) {
-                            const auto* declaration = property(instruction.property);
-                            if (!declaration)
-                                require(m_properties, instruction.property, "property",
-                                        instruction_path + "/property");
-                            else if (!declaration->is_global())
-                                error("compiled_project.property_scope_mismatch",
-                                      "Scene assignment requires a Global Property.",
-                                      instruction_path + "/property");
-                            else if (!property_value_matches(*declaration, instruction.value))
-                                error("compiled_project.property_type_mismatch",
-                                      "Scene assignment does not match its Global Property.",
-                                      instruction_path + "/value");
+                        } else if constexpr (std::is_same_v<T,
+                                                            GameplayEffectBatchSceneInstruction>) {
+                            validate_gameplay_commands(instruction.operations,
+                                                       instruction_path + "/operations");
+                            const auto immediate = [&](const auto& self,
+                                                       const GameplayCommand& command) -> bool {
+                                return std::visit(
+                                    [&](const auto& typed) {
+                                        using Command = std::decay_t<decltype(typed)>;
+                                        if constexpr (std::is_same_v<Command, CallSceneCommand> ||
+                                                      std::is_same_v<Command,
+                                                                     CallDialogueCommand> ||
+                                                      std::is_same_v<Command, NotifyCommand> ||
+                                                      std::is_same_v<Command, RunLuaCommand>)
+                                            return false;
+                                        else if constexpr (std::is_same_v<Command,
+                                                                          IfGameplayCommand>)
+                                            return std::ranges::all_of(typed.then_commands,
+                                                                       [&](const auto& child) {
+                                                                           return self(self, child);
+                                                                       }) &&
+                                                   std::ranges::all_of(typed.else_commands,
+                                                                       [&](const auto& child) {
+                                                                           return self(self, child);
+                                                                       });
+                                        else
+                                            return true;
+                                    },
+                                    command.value);
+                            };
+                            for (std::size_t command = 0; command < instruction.operations.size();
+                                 ++command)
+                                if (!immediate(immediate, instruction.operations[command]))
+                                    error("compiled_project.scene_gameplay_command_not_immediate",
+                                          "Scene Gameplay Effect Batch admits only immediate "
+                                          "Gameplay "
+                                          "Commands.",
+                                          instruction_path + "/operations/" +
+                                              std::to_string(command));
                         } else if constexpr (std::is_same_v<T, WaitConditionInstruction>) {
                             validate_condition(instruction.wait_condition,
                                                instruction_path + "/waitCondition");
@@ -3286,11 +3338,59 @@ private:
                                 if (instruction.options[option].condition)
                                     validate_condition(*instruction.options[option].condition,
                                                        option_path + "/condition");
+                                validate_gameplay_commands(instruction.options[option].effects,
+                                                           option_path + "/effects");
+                                const auto choice_command_admitted =
+                                    [&](const auto& self, const GameplayCommand& command,
+                                        bool top_level) -> bool {
+                                    return std::visit(
+                                        [&](const auto& typed) {
+                                            using Command = std::decay_t<decltype(typed)>;
+                                            if constexpr (std::is_same_v<Command,
+                                                                         CallSceneCommand> ||
+                                                          std::is_same_v<Command,
+                                                                         CallDialogueCommand> ||
+                                                          std::is_same_v<Command, NotifyCommand>)
+                                                return false;
+                                            else if constexpr (std::is_same_v<Command,
+                                                                              RunLuaCommand>)
+                                                return top_level;
+                                            else if constexpr (
+                                                std::is_same_v<Command, CreateRoomCommand> ||
+                                                std::is_same_v<Command, CreateCharacterCommand> ||
+                                                std::is_same_v<Command,
+                                                               CreateInteractableCommand> ||
+                                                std::is_same_v<Command, SplitQuantityCommand> ||
+                                                std::is_same_v<Command, TransferQuantityCommand>)
+                                                return !typed.result.has_value();
+                                            else if constexpr (std::is_same_v<Command,
+                                                                              IfGameplayCommand>)
+                                                return std::ranges::all_of(
+                                                           typed.then_commands,
+                                                           [&](const auto& child) {
+                                                               return self(self, child, false);
+                                                           }) &&
+                                                       std::ranges::all_of(
+                                                           typed.else_commands,
+                                                           [&](const auto& child) {
+                                                               return self(self, child, false);
+                                                           });
+                                            else
+                                                return true;
+                                        },
+                                        command.value);
+                                };
                                 for (std::size_t effect = 0;
                                      effect < instruction.options[option].effects.size(); ++effect)
-                                    validate_effect(instruction.options[option].effects[effect],
-                                                    option_path + "/effects/" +
-                                                        std::to_string(effect));
+                                    if (!choice_command_admitted(
+                                            choice_command_admitted,
+                                            instruction.options[option].effects[effect], true))
+                                        error("compiled_project.scene_choice_gameplay_command_not_"
+                                              "admitted",
+                                              "Scene choice admits only immediate Gameplay "
+                                              "Commands and "
+                                              "top-level Run Lua.",
+                                              option_path + "/effects/" + std::to_string(effect));
                                 validate_text(instruction.options[option].label,
                                               option_path + "/label");
                                 if (!steps.contains(
