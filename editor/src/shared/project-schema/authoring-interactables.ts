@@ -6,7 +6,7 @@ import type { AuthoringProject, AuthoringRecordBase } from './authoring-project'
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
-import { ownerLocalPropertiesSchema } from './authoring-properties';
+import { authoredRuntimeValueSchema, ownerLocalPropertiesSchema } from './authoring-properties';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -40,6 +40,19 @@ export const interactableDefinitionRefSchema = strict({
 export const interactableInstanceRefSchema = strict({
   $ref: strict({ registry: z.literal('interactableInstances'), id: entityIdSchema }),
 });
+export const interactableFeatureOverrideSchema = strict({
+  featureId: entityIdSchema,
+  traits: strict({
+    add: z.array(entityIdSchema),
+    remove: z.array(entityIdSchema),
+  }),
+  properties: z.array(
+    strict({
+      propertyId: entityIdSchema,
+      value: authoredRuntimeValueSchema,
+    }),
+  ),
+});
 export const interactableInstanceDataSchema = strict({
   id: entityIdSchema,
   definition: interactableDefinitionRefSchema,
@@ -53,6 +66,7 @@ export const interactableInstanceDataSchema = strict({
     remove: z.array(entityIdSchema),
   }),
   localProperties: ownerLocalPropertiesSchema,
+  featureOverrides: z.array(interactableFeatureOverrideSchema),
 });
 
 export const interactableDataSchema = strict({
@@ -125,6 +139,7 @@ export function defaultInteractableInstanceData(
     quantity: 1,
     traits: { add: [], remove: [] },
     localProperties: [],
+    featureOverrides: [],
   };
 }
 export const interactableAssetRef = (id: string) => ({

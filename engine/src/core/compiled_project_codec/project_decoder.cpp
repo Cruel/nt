@@ -156,9 +156,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                   [&](const nlohmann::json& item, const std::string& pointer)
                       -> std::optional<InteractableInstanceDeclaration> {
                       if (!decoder.object(item, pointer,
-                                          {"definition", "enabled", "id", "location",
-                                           "localProperties", "propertyOverrides", "quantity",
-                                           "traitAdds", "traitRemoves", "visible"}))
+                                          {"definition", "enabled", "featureOverrides", "id",
+                                           "location", "localProperties", "propertyOverrides",
+                                           "quantity", "traitAdds", "traitRemoves", "visible"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", pointer);
                       const auto* definition_value = decoder.member(item, "definition", pointer);
@@ -172,6 +172,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                           decoder.member(item, "propertyOverrides", pointer);
                       const auto* local_properties_value =
                           decoder.member(item, "localProperties", pointer);
+                      const auto* feature_overrides_value =
+                          decoder.member(item, "featureOverrides", pointer);
                       auto id = id_value ? decoder.id<InteractableInstanceId>(
                                                *id_value, pointer_child(pointer, "id"))
                                          : std::nullopt;
@@ -279,8 +281,108 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                    : std::nullopt;
                                     })
                               : std::nullopt;
+                      auto feature_overrides =
+                          feature_overrides_value
+                              ? decoder.array<InteractableFeatureOverride>(
+                                    *feature_overrides_value,
+                                    pointer_child(pointer, "featureOverrides"),
+                                    [&](const nlohmann::json& override_value,
+                                        const std::string& override_pointer)
+                                        -> std::optional<InteractableFeatureOverride> {
+                                        if (!decoder.object(override_value, override_pointer,
+                                                            {"featureId", "propertyOverrides",
+                                                             "traitAdds", "traitRemoves"}))
+                                            return std::nullopt;
+                                        const auto* feature_value = decoder.member(
+                                            override_value, "featureId", override_pointer);
+                                        const auto* override_adds = decoder.member(
+                                            override_value, "traitAdds", override_pointer);
+                                        const auto* override_removes = decoder.member(
+                                            override_value, "traitRemoves", override_pointer);
+                                        const auto* override_properties = decoder.member(
+                                            override_value, "propertyOverrides", override_pointer);
+                                        auto feature =
+                                            feature_value
+                                                ? decoder.id<FeatureId>(
+                                                      *feature_value,
+                                                      pointer_child(override_pointer, "featureId"))
+                                                : std::nullopt;
+                                        const auto decode_override_traits =
+                                            [&](const nlohmann::json* values,
+                                                std::string_view member)
+                                            -> std::optional<std::vector<TraitId>> {
+                                            if (!values)
+                                                return std::nullopt;
+                                            return decoder.array<TraitId>(
+                                                *values, pointer_child(override_pointer, member),
+                                                [&](const nlohmann::json& trait,
+                                                    const std::string& trait_pointer)
+                                                    -> std::optional<TraitId> {
+                                                    return decoder.id<TraitId>(trait,
+                                                                               trait_pointer);
+                                                });
+                                        };
+                                        auto adds =
+                                            decode_override_traits(override_adds, "traitAdds");
+                                        auto removes = decode_override_traits(override_removes,
+                                                                              "traitRemoves");
+                                        auto properties =
+                                            override_properties
+                                                ? decoder.array<PropertyAssignment>(
+                                                      *override_properties,
+                                                      pointer_child(override_pointer,
+                                                                    "propertyOverrides"),
+                                                      [&](const nlohmann::json& assignment,
+                                                          const std::string& assignment_pointer)
+                                                          -> std::optional<PropertyAssignment> {
+                                                          if (!decoder.object(
+                                                                  assignment, assignment_pointer,
+                                                                  {"propertyId", "value"}))
+                                                              return std::nullopt;
+                                                          const auto* property_value =
+                                                              decoder.member(assignment,
+                                                                             "propertyId",
+                                                                             assignment_pointer);
+                                                          const auto* runtime_value =
+                                                              decoder.member(assignment, "value",
+                                                                             assignment_pointer);
+                                                          auto property =
+                                                              property_value
+                                                                  ? decoder.id<PropertyId>(
+                                                                        *property_value,
+                                                                        pointer_child(
+                                                                            assignment_pointer,
+                                                                            "propertyId"))
+                                                                  : std::nullopt;
+                                                          auto value =
+                                                              runtime_value
+                                                                  ? decode_runtime_value(
+                                                                        decoder, *runtime_value,
+                                                                        pointer_child(
+                                                                            assignment_pointer,
+                                                                            "value"))
+                                                                  : std::nullopt;
+                                                          return property && value
+                                                                     ? std::optional<
+                                                                           PropertyAssignment>(
+                                                                           PropertyAssignment{
+                                                                               std::move(*property),
+                                                                               std::move(*value)})
+                                                                     : std::nullopt;
+                                                      })
+                                                : std::nullopt;
+                                        return feature && adds && removes && properties
+                                                   ? std::optional<InteractableFeatureOverride>(
+                                                         InteractableFeatureOverride{
+                                                             std::move(*feature), std::move(*adds),
+                                                             std::move(*removes),
+                                                             std::move(*properties)})
+                                                   : std::nullopt;
+                                    })
+                              : std::nullopt;
                       if (!id || !definition || !location || !enabled || !visible || !quantity ||
-                          !trait_adds || !trait_removes || !property_overrides || !local_properties)
+                          !trait_adds || !trait_removes || !property_overrides ||
+                          !local_properties || !feature_overrides)
                           return std::nullopt;
                       return InteractableInstanceDeclaration{std::move(*id),
                                                              std::move(*definition),
@@ -291,7 +393,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                              std::move(*trait_adds),
                                                              std::move(*trait_removes),
                                                              std::move(*property_overrides),
-                                                             std::move(*local_properties)};
+                                                             std::move(*local_properties),
+                                                             std::move(*feature_overrides)};
                   })
             : std::nullopt;
     auto traits = traits_value ? decoder.array<TraitDeclaration>(

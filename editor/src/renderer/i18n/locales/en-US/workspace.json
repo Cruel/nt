@@ -599,6 +599,13 @@
     "empty": "No Features are declared.",
     "defaultLabel": "Feature",
     "delete": "Delete Feature",
+    "deleteDependentTitle": "Delete Feature and dependent overrides?",
+    "deleteDependentDescription": "{{count}} declared Interactable Instance override(s) depend on this Feature. Deleting it will explicitly remove those dependent overrides too.",
+    "deleteDependentCancel": "Cancel",
+    "deleteDependentConfirm": "Delete Feature and Overrides",
+    "deleteBlockedTitle": "Remove Feature references first",
+    "deleteBlockedDescription": "{{count}} authored reference(s) still target this Feature. Remove or replace those references before deleting the Feature.",
+    "deleteBlockedClose": "Close",
     "fields": {
       "id": "ID",
       "label": "Label",

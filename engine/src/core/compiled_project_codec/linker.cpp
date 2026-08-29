@@ -501,11 +501,122 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         }
         if (local_properties.size() != value.local_properties.size())
             continue;
+        std::vector<compiled::InteractableFeatureOverride> feature_overrides;
+        feature_overrides.reserve(value.feature_overrides.size());
+        const auto interactable_definition =
+            std::find_if(interactables.begin(), interactables.end(), [&](const auto& candidate) {
+                return candidate.identity.id == value.definition;
+            });
+        for (std::size_t override_index = 0; override_index < value.feature_overrides.size();
+             ++override_index) {
+            auto& override_value = value.feature_overrides[override_index];
+            const auto override_path = "/interactableInstances/" + std::to_string(index) +
+                                       "/featureOverrides/" + std::to_string(override_index);
+            const compiled::FeatureDefinition* feature = nullptr;
+            if (interactable_definition != interactables.end()) {
+                const auto found = std::find_if(
+                    interactable_definition->features.begin(),
+                    interactable_definition->features.end(), [&](const auto& candidate) {
+                        return candidate.identity.id == override_value.feature_id;
+                    });
+                if (found != interactable_definition->features.end())
+                    feature = &*found;
+            }
+            std::vector<PropertyAssignment> feature_properties;
+            feature_properties.reserve(override_value.property_overrides.size());
+            for (std::size_t assignment_index = 0;
+                 assignment_index < override_value.property_overrides.size(); ++assignment_index) {
+                auto& assignment = override_value.property_overrides[assignment_index];
+                std::optional<PropertyDefinition> declaration;
+                if (feature != nullptr) {
+                    const auto own =
+                        std::find_if(feature->properties.begin(), feature->properties.end(),
+                                     [&](const auto& contract) {
+                                         return contract.property_id == assignment.property_id;
+                                     });
+                    if (own != feature->properties.end()) {
+                        auto made = make_property_definition(PropertyDefinitionInput{
+                            .id = own->property_id,
+                            .value_type = own->value_type,
+                            .nullable = own->nullable,
+                            .default_value = own->configured_value,
+                            .scope = PropertyScope::Identity,
+                            .allowed_owners = {PropertyOwnerKind::Feature},
+                            .label = own->label,
+                            .description = own->description,
+                        });
+                        if (made)
+                            declaration = *made.value_if();
+                    }
+                    if (!declaration) {
+                        auto active_traits = feature->identity.traits;
+                        for (const auto& removed : override_value.trait_removes)
+                            std::erase(active_traits, removed);
+                        for (const auto& added : override_value.trait_adds)
+                            if (std::find(active_traits.begin(), active_traits.end(), added) ==
+                                active_traits.end())
+                                active_traits.push_back(added);
+                        for (const auto& trait_id : active_traits) {
+                            const auto attached = trait_index.find(trait_id);
+                            if (attached == trait_index.end())
+                                continue;
+                            const auto member = std::find_if(
+                                attached->second->properties.begin(),
+                                attached->second->properties.end(), [&](const auto& candidate) {
+                                    return candidate.property_id == assignment.property_id;
+                                });
+                            if (member == attached->second->properties.end())
+                                continue;
+                            auto made = make_property_definition(PropertyDefinitionInput{
+                                .id = member->property_id,
+                                .value_type = member->value_type,
+                                .nullable = member->nullable,
+                                .default_value = member->configured_value,
+                                .scope = PropertyScope::Identity,
+                                .allowed_owners = {PropertyOwnerKind::Feature},
+                                .label = member->label,
+                                .description = member->description,
+                            });
+                            if (made)
+                                declaration = *made.value_if();
+                            break;
+                        }
+                    }
+                }
+                if (!declaration) {
+                    diagnostics.push_back(Diagnostic{
+                        .code = "compiled_project.unresolved_reference",
+                        .message = "Unresolved Feature Property reference '" +
+                                   assignment.property_id.text() + "'.",
+                        .severity = ErrorSeverity::Error,
+                        .source_path = std::string(source_path),
+                        .json_pointer = override_path + "/propertyOverrides/" +
+                                        std::to_string(assignment_index) + "/propertyId"});
+                    continue;
+                }
+                auto linked = make_property_assignment(PropertyOwnerKind::Feature, *declaration,
+                                                       std::move(assignment.value));
+                if (!linked) {
+                    append(diagnostics, linked.error(), source_path,
+                           override_path + "/propertyOverrides/" +
+                               std::to_string(assignment_index));
+                    continue;
+                }
+                feature_properties.push_back(*linked.value_if());
+            }
+            if (feature_properties.size() != override_value.property_overrides.size())
+                continue;
+            feature_overrides.push_back(compiled::InteractableFeatureOverride{
+                std::move(override_value.feature_id), std::move(override_value.trait_adds),
+                std::move(override_value.trait_removes), std::move(feature_properties)});
+        }
+        if (feature_overrides.size() != value.feature_overrides.size())
+            continue;
         interactable_instances.push_back(compiled::InteractableInstanceDeclaration{
             std::move(value.id), std::move(value.definition), std::move(value.location),
             value.enabled, value.visible, value.quantity, std::move(value.trait_adds),
             std::move(value.trait_removes), std::move(property_overrides),
-            std::move(local_properties)});
+            std::move(local_properties), std::move(feature_overrides)});
     }
 
     std::vector<compiled::ArchetypeDefinition> archetypes;

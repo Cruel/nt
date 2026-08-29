@@ -81,21 +81,25 @@ export function enumerateAuthoringInventories(
     }
   }
 
-  for (const [id, record] of Object.entries(project.interactables)) {
+  for (const [instanceId, instance] of Object.entries(project.interactableInstances)) {
+    const definitionId = instance.definition.$ref.id;
+    const record = project.interactables[definitionId];
+    if (!record) continue;
     const effective = resolveGameplayInstanceRecord(project, 'interactable', record);
     const data = parseInteractableData(effective?.data);
     if (!data) continue;
+    const instanceLabel = instance.editorLabel ?? instanceId;
     for (const inventory of data.inventories) {
       const reference: InventoryReferenceData = {
         owner: {
           kind: 'interactable',
-          interactable: { $ref: { collection: 'interactables', id } },
+          interactable: { $ref: { registry: 'interactableInstances', id: instanceId } },
         },
         inventoryId: inventory.id,
       };
       values.push({
         key: inventoryKey(reference),
-        label: `${record.label} / ${inventory.label}`,
+        label: `${instanceLabel} (${record.label}) / ${inventory.label}`,
         reference,
       });
     }
@@ -104,14 +108,14 @@ export function enumerateAuthoringInventories(
         const reference: InventoryReferenceData = {
           owner: {
             kind: 'interactable-feature',
-            interactable: { $ref: { collection: 'interactables', id } },
+            interactable: { $ref: { registry: 'interactableInstances', id: instanceId } },
             featureId: feature.id,
           },
           inventoryId: inventory.id,
         };
         values.push({
           key: inventoryKey(reference),
-          label: `${record.label} / ${feature.label} / ${inventory.label}`,
+          label: `${instanceLabel} (${record.label}) / ${feature.label} / ${inventory.label}`,
           reference,
         });
       }

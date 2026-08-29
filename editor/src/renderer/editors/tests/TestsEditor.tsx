@@ -279,17 +279,18 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
         }),
       })),
     ),
-    ...Object.entries(activeProject.interactables).flatMap(([interactableId, item]) =>
-      (parseInteractableData(item.data)?.features ?? []).map((feature) => ({
-        value: `interactable:${interactableId}:${feature.id}`,
-        label: `Interactable: ${item.label} / ${feature.label}`,
+    ...Object.entries(activeProject.interactableInstances).flatMap(([instanceId, instance]) => {
+      const item = activeProject.interactables[instance.definition.$ref.id];
+      return (parseInteractableData(item?.data)?.features ?? []).map((feature) => ({
+        value: `interactable:${instanceId}:${feature.id}`,
+        label: `Interactable Instance: ${instance.editorLabel ?? instanceId} / ${feature.label}`,
         subject: testFeatureSubject({
           ownerKind: 'interactable',
-          interactable: { $ref: { collection: 'interactables', id: interactableId } },
+          interactable: { $ref: { registry: 'interactableInstances', id: instanceId } },
           featureId: feature.id,
         }),
-      })),
-    ),
+      }));
+    }),
   ];
 
   function commit(next: TestData, label = 'Update test') {

@@ -1719,7 +1719,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
                 kind: 'feature',
                 feature: {
                   ownerKind: 'interactable',
-                  interactable: interactableReference('key'),
+                  interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
                   featureId: 'surface',
                 },
               },

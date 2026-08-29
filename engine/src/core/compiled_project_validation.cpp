@@ -1774,6 +1774,204 @@ private:
                     validate_trait_requirements(trait(trait_id));
             }
 
+            std::unordered_set<FeatureId> overridden_features;
+            for (std::size_t override_index = 0; override_index < value.feature_overrides.size();
+                 ++override_index) {
+                const auto& feature_override = value.feature_overrides[override_index];
+                const auto override_path =
+                    path + "/featureOverrides/" + std::to_string(override_index);
+                if (!overridden_features.insert(feature_override.feature_id).second)
+                    error("compiled_project.duplicate_feature_override",
+                          "Interactable Instance Feature override is duplicated.",
+                          override_path + "/featureId");
+                if (definition == nullptr)
+                    continue;
+                if (definition->stackable) {
+                    error("compiled_project.invalid_feature_override",
+                          "Stackable Interactable Instances cannot carry Feature overrides.",
+                          override_path);
+                    continue;
+                }
+                const auto feature = std::ranges::find_if(
+                    definition->features, [&](const FeatureDefinition& candidate) {
+                        return candidate.identity.id == feature_override.feature_id;
+                    });
+                if (feature == definition->features.end()) {
+                    error("compiled_project.unresolved_nested_reference",
+                          "Interactable Instance Feature override references a Feature outside its "
+                          "definition.",
+                          override_path + "/featureId");
+                    continue;
+                }
+
+                std::unordered_set<TraitId> feature_adds;
+                std::unordered_set<TraitId> feature_removes;
+                for (std::size_t trait_index = 0; trait_index < feature_override.trait_adds.size();
+                     ++trait_index) {
+                    const auto& trait_id = feature_override.trait_adds[trait_index];
+                    const auto trait_path =
+                        override_path + "/traitAdds/" + std::to_string(trait_index);
+                    if (!feature_adds.insert(trait_id).second)
+                        error("compiled_project.duplicate_trait_attachment",
+                              "Feature Trait add is duplicated.", trait_path);
+                    const auto* attached = trait(trait_id);
+                    if (!attached)
+                        require(m_traits, trait_id, "Trait", trait_path);
+                    else if (std::find(
+                                 attached->allowed_owners.begin(), attached->allowed_owners.end(),
+                                 PropertyOwnerKind::Feature) == attached->allowed_owners.end())
+                        error("compiled_project.invalid_trait_attachment",
+                              "Trait cannot be attached to a Feature.", trait_path);
+                    if (std::ranges::find(feature->identity.traits, trait_id) !=
+                        feature->identity.traits.end())
+                        error("compiled_project.conflicting_trait_delta",
+                              "Feature Trait add is already inherited from the definition.",
+                              trait_path);
+                }
+                for (std::size_t trait_index = 0;
+                     trait_index < feature_override.trait_removes.size(); ++trait_index) {
+                    const auto& trait_id = feature_override.trait_removes[trait_index];
+                    const auto trait_path =
+                        override_path + "/traitRemoves/" + std::to_string(trait_index);
+                    if (!feature_removes.insert(trait_id).second)
+                        error("compiled_project.duplicate_trait_attachment",
+                              "Feature Trait removal is duplicated.", trait_path);
+                    if (feature_adds.contains(trait_id))
+                        error("compiled_project.conflicting_trait_delta",
+                              "A Feature cannot both add and remove the same Trait.", trait_path);
+                    if (std::ranges::find(feature->identity.traits, trait_id) ==
+                        feature->identity.traits.end())
+                        error("compiled_project.conflicting_trait_delta",
+                              "Feature Trait removal is not inherited from the definition.",
+                              trait_path);
+                    if (!trait(trait_id))
+                        require(m_traits, trait_id, "Trait", trait_path);
+                }
+
+                std::vector<TraitId> active_feature_traits;
+                for (const auto& trait_id : feature->identity.traits)
+                    if (!feature_removes.contains(trait_id))
+                        active_feature_traits.push_back(trait_id);
+                for (const auto& trait_id : feature_override.trait_adds)
+                    if (std::ranges::find(active_feature_traits, trait_id) ==
+                        active_feature_traits.end())
+                        active_feature_traits.push_back(trait_id);
+
+                const auto feature_contract =
+                    [&](const PropertyId& property_id) -> std::optional<PropertyDefinition> {
+                    const auto own =
+                        std::ranges::find_if(feature->properties, [&](const auto& candidate) {
+                            return candidate.property_id == property_id;
+                        });
+                    if (own != feature->properties.end()) {
+                        auto made = make_property_definition(PropertyDefinitionInput{
+                            .id = own->property_id,
+                            .value_type = own->value_type,
+                            .nullable = own->nullable,
+                            .default_value = own->configured_value,
+                            .scope = PropertyScope::Identity,
+                            .allowed_owners = {PropertyOwnerKind::Feature},
+                            .exact_owner = std::nullopt,
+                            .label = own->label,
+                            .description = own->description,
+                        });
+                        if (made)
+                            return *made.value_if();
+                    }
+                    for (const auto& trait_id : active_feature_traits) {
+                        const auto* attached = trait(trait_id);
+                        if (!attached)
+                            continue;
+                        const auto member =
+                            std::ranges::find_if(attached->properties, [&](const auto& candidate) {
+                                return candidate.property_id == property_id;
+                            });
+                        if (member == attached->properties.end())
+                            continue;
+                        auto made = make_property_definition(PropertyDefinitionInput{
+                            .id = member->property_id,
+                            .value_type = member->value_type,
+                            .nullable = member->nullable,
+                            .default_value = member->configured_value,
+                            .scope = PropertyScope::Identity,
+                            .allowed_owners = {PropertyOwnerKind::Feature},
+                            .exact_owner = std::nullopt,
+                            .label = member->label,
+                            .description = member->description,
+                        });
+                        if (made)
+                            return *made.value_if();
+                    }
+                    return std::nullopt;
+                };
+
+                std::unordered_set<PropertyId> feature_properties;
+                for (std::size_t property_index = 0;
+                     property_index < feature_override.property_overrides.size();
+                     ++property_index) {
+                    const auto& assignment = feature_override.property_overrides[property_index];
+                    const auto assignment_path =
+                        override_path + "/propertyOverrides/" + std::to_string(property_index);
+                    if (!feature_properties.insert(assignment.property_id()).second)
+                        error("compiled_project.duplicate_property_assignment",
+                              "Feature Property override is duplicated.",
+                              assignment_path + "/propertyId");
+                    const auto declaration = feature_contract(assignment.property_id());
+                    if (!declaration)
+                        error("compiled_project.unresolved_reference",
+                              "Feature Property override does not resolve against the effective "
+                              "Feature contract.",
+                              assignment_path + "/propertyId");
+                    else if (!property_value_matches(*declaration, assignment.assigned_value()))
+                        error("compiled_project.invalid_property_assignment",
+                              "Feature Property override is incompatible with its declaration.",
+                              assignment_path);
+                }
+
+                const auto feature_has_value = [&](const PropertyId& property_id) {
+                    if (feature_properties.contains(property_id))
+                        return true;
+                    if (std::ranges::any_of(feature->identity.property_assignments,
+                                            [&](const auto& assignment) {
+                                                return assignment.property_id() == property_id;
+                                            }))
+                        return true;
+                    const auto own =
+                        std::ranges::find_if(feature->properties, [&](const auto& candidate) {
+                            return candidate.property_id == property_id;
+                        });
+                    if (own != feature->properties.end() && own->configured_value)
+                        return true;
+                    for (const auto& trait_id : active_feature_traits) {
+                        const auto* attached = trait(trait_id);
+                        if (attached != nullptr &&
+                            std::ranges::any_of(attached->properties, [&](const auto& member) {
+                                return member.property_id == property_id &&
+                                       member.configured_value.has_value();
+                            }))
+                            return true;
+                    }
+                    return false;
+                };
+                for (const auto& contract : feature->properties)
+                    if (!feature_has_value(contract.property_id))
+                        error("compiled_project.missing_property_value",
+                              "Concrete Feature requires Property '" + contract.property_id.text() +
+                                  "' to have a Value.",
+                              override_path + "/propertyOverrides");
+                for (const auto& trait_id : active_feature_traits) {
+                    const auto* attached = trait(trait_id);
+                    if (!attached)
+                        continue;
+                    for (const auto& member : attached->properties)
+                        if (!feature_has_value(member.property_id))
+                            error("compiled_project.missing_property_value",
+                                  "Concrete Feature requires Trait Property '" +
+                                      member.property_id.text() + "' to have a Value.",
+                                  override_path + "/propertyOverrides");
+                }
+            }
+
             const PropertyOwnerRef exact_owner{value.id};
             for (const auto& declaration : m_input.properties) {
                 if (!declaration.exact_owner() || *declaration.exact_owner() != exact_owner)

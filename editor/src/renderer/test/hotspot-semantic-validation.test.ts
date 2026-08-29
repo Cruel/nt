@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -170,7 +173,7 @@ describe('hotspot semantic validation', () => {
           kind: 'feature',
           feature: {
             ownerKind: 'interactable',
-            interactable: { $ref: { collection: 'interactables', id: 'box' } },
+            interactable: { $ref: { registry: 'interactableInstances', id: 'box-instance' } },
             featureId: 'lid',
           },
         },
@@ -189,6 +192,10 @@ describe('hotspot semantic validation', () => {
       inventories: [],
     });
     project.interactables.box = { id: 'box', label: 'Box', data: box };
+    project.interactableInstances['box-instance'] = defaultInteractableInstanceData(
+      'box-instance',
+      'box',
+    );
     expect(codes(project)).not.toContain('hotspot.authoring.target.feature-owner-missing');
     expect(codes(project)).not.toContain('hotspot.authoring.target.feature-missing');
   });

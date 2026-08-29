@@ -40,7 +40,10 @@ import { defaultMaterialData } from '../../shared/project-schema/authoring-mater
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { assertAuthoringGraphFieldMetadataComplete } from '../../shared/project-schema/authoring-graph-field-metadata';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
@@ -333,6 +336,13 @@ describe('authoring structural dependency graph and queries', () => {
     });
     item.presentation.hotspots.hotspot.target = { kind: 'owner-feature', featureId: 'handle' };
     project.interactables.item = { id: 'item', label: 'Item', data: item };
+    project.interactableInstances.itemInstance = defaultInteractableInstanceData(
+      'itemInstance',
+      'item',
+    );
+    project.interactableInstances.itemInstance.featureOverrides = [
+      { featureId: 'handle', traits: { add: [], remove: [] }, properties: [] },
+    ];
 
     const verb = defaultVerbData('Use');
     const slotText = {
@@ -363,7 +373,9 @@ describe('authoring structural dependency graph and queries', () => {
                 kind: 'feature',
                 feature: {
                   ownerKind: 'interactable',
-                  interactable: { $ref: { collection: 'interactables', id: 'item' } },
+                  interactable: {
+                    $ref: { registry: 'interactableInstances', id: 'itemInstance' },
+                  },
                   featureId: 'handle',
                 },
               },
@@ -392,6 +404,13 @@ describe('authoring structural dependency graph and queries', () => {
     expect(findAuthoringDependencyUsages(graph, feature).map((edge) => edge.role)).toEqual(
       expect.arrayContaining(['hotspot-target', 'feature-ref']),
     );
+    expect(
+      findAuthoringDependencyUsages(graph, feature).some(
+        (edge) =>
+          edge.sourcePath === '/interactableInstances/itemInstance/featureOverrides/0/featureId' &&
+          edge.repair.kind === 'remove-array-item',
+      ),
+    ).toBe(true);
 
     // Geometry IDs are internal authoring identities now; changing one does not invalidate the
     // semantic Feature selected by the geometry.
@@ -410,13 +429,14 @@ describe('authoring structural dependency graph and queries', () => {
 
     item.features[0]!.id = 'grip';
     graph = buildAuthoringStructuralDependencyGraph(project);
-    expect(findMissingAuthoringDependencyTargets(graph)).toHaveLength(2);
+    expect(findMissingAuthoringDependencyTargets(graph)).toHaveLength(3);
 
     item.presentation.hotspots.hotspot.target = { kind: 'owner-feature', featureId: 'grip' };
     const selector = interaction.rules[0]!.slots[0]?.selectors[0];
     if (selector?.kind !== 'exact' || selector.subject.kind !== 'feature')
       throw new Error('Expected exact Feature subject');
     selector.subject.feature.featureId = 'grip';
+    project.interactableInstances.itemInstance.featureOverrides[0]!.featureId = 'grip';
     graph = buildAuthoringStructuralDependencyGraph(project);
     expect(findMissingAuthoringDependencyTargets(graph)).toEqual([]);
   });

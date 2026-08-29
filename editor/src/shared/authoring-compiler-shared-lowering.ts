@@ -922,6 +922,14 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           enumValues: [...(property.enumValues ?? [])],
           value: property.value,
         })),
+      featureOverrides: instance.featureOverrides.map((override) => ({
+        featureId: override.featureId,
+        traitAdds: [...override.traits.add].sort(),
+        traitRemoves: [...override.traits.remove].sort(),
+        propertyOverrides: override.properties
+          .map((property) => ({ propertyId: property.propertyId, value: property.value }))
+          .sort((left, right) => left.propertyId.localeCompare(right.propertyId)),
+      })),
     };
   });
 

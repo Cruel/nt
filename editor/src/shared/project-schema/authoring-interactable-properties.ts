@@ -30,6 +30,16 @@ export interface EffectiveInteractableInstanceProperty extends EffectiveInteract
   localProperty?: OwnerLocalProperty;
 }
 
+export interface EffectiveInteractableFeatureProperty {
+  id: string;
+  contract: InteractablePropertyContract;
+  value?: AuthoredRuntimeValue;
+  hasValue: boolean;
+  overridden: boolean;
+  source: 'feature' | 'trait';
+  traitIds: string[];
+}
+
 function cloneContract<T extends InteractablePropertyContract>(contract: T): T {
   return structuredClone(contract);
 }
@@ -37,11 +47,12 @@ function cloneContract<T extends InteractablePropertyContract>(contract: T): T {
 function traitProperties(
   project: AuthoringProject,
   traitIds: readonly string[],
+  ownerKind: 'interactable' | 'feature' = 'interactable',
 ): Map<string, EffectiveInteractableProperty> {
   const result = new Map<string, EffectiveInteractableProperty>();
   for (const traitId of traitIds) {
     const trait = project.traits[traitId];
-    if (!trait || !trait.ownerKinds.includes('interactable')) continue;
+    if (!trait || !trait.ownerKinds.includes(ownerKind)) continue;
     for (const property of trait.properties) {
       const existing = result.get(property.id);
       if (!existing) {
@@ -170,4 +181,90 @@ export function effectiveInteractableInstanceProperties(
       traitIds: [],
     }));
   return [...inherited, ...localOnly];
+}
+
+export function effectiveInteractableFeatureTraits(
+  project: AuthoringProject,
+  instance: InteractableInstanceData,
+  featureId: string,
+): string[] {
+  const definition = project.interactables[instance.definition.$ref.id];
+  const effective = definition
+    ? resolveGameplayInstanceRecord(project, 'interactable', definition)
+    : null;
+  const data = effective?.data as { features?: unknown } | undefined;
+  const parsed = Array.isArray(data?.features)
+    ? data.features.find(
+        (feature): feature is { id: string; traits: string[] } =>
+          typeof feature === 'object' &&
+          feature !== null &&
+          'id' in feature &&
+          (feature as { id?: unknown }).id === featureId &&
+          'traits' in feature &&
+          Array.isArray((feature as { traits?: unknown }).traits),
+      )
+    : undefined;
+  const ids = new Set(parsed?.traits ?? []);
+  const override = instance.featureOverrides.find((candidate) => candidate.featureId === featureId);
+  for (const id of override?.traits.remove ?? []) ids.delete(id);
+  for (const id of override?.traits.add ?? []) ids.add(id);
+  return [...ids];
+}
+
+export function effectiveInteractableFeatureProperties(
+  project: AuthoringProject,
+  instance: InteractableInstanceData,
+  featureId: string,
+): EffectiveInteractableFeatureProperty[] {
+  const definition = project.interactables[instance.definition.$ref.id];
+  const effective = definition
+    ? resolveGameplayInstanceRecord(project, 'interactable', definition)
+    : null;
+  const feature =
+    effective && typeof effective.data === 'object' && effective.data !== null
+      ? (
+          (effective.data as { features?: unknown }).features as
+            | Array<{
+                id: string;
+                defaultProperties: OwnerDefaultProperty[];
+                traits: string[];
+              }>
+            | undefined
+        )?.find((candidate) => candidate.id === featureId)
+      : undefined;
+  if (!feature) return [];
+  const effectiveTraits = effectiveInteractableFeatureTraits(project, instance, featureId);
+  const byId = new Map<string, EffectiveInteractableProperty>();
+  for (const traitProperty of traitProperties(project, effectiveTraits, 'feature').values()) {
+    byId.set(traitProperty.id, traitProperty);
+  }
+  for (const property of feature.defaultProperties) {
+    const existing = byId.get(property.id);
+    byId.set(property.id, {
+      id: property.id,
+      contract: cloneContract(property),
+      ...(property.defaultValue === undefined && existing?.defaultValue === undefined
+        ? {}
+        : { defaultValue: property.defaultValue ?? existing?.defaultValue }),
+      source: 'definition',
+      traitIds: existing?.traitIds ?? [],
+    });
+  }
+  const override = instance.featureOverrides.find((candidate) => candidate.featureId === featureId);
+  const overrides = new Map(
+    (override?.properties ?? []).map((property) => [property.propertyId, property.value]),
+  );
+  return [...byId.values()].map((property) => {
+    const overridden = overrides.has(property.id);
+    const value = overridden ? overrides.get(property.id) : property.defaultValue;
+    return {
+      id: property.id,
+      contract: property.contract,
+      ...(value === undefined ? {} : { value }),
+      hasValue: value !== undefined,
+      overridden,
+      source: property.source === 'trait' ? 'trait' : 'feature',
+      traitIds: property.traitIds,
+    };
+  });
 }

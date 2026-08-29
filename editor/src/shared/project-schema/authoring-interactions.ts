@@ -91,19 +91,22 @@ function validateFeatureRef(
     return;
   }
   const interactableId = feature.interactable.$ref.id;
-  const interactable = parseInteractableData(project.interactables[interactableId]?.data);
+  const instance = project.interactableInstances[interactableId];
+  const interactable = instance
+    ? parseInteractableData(project.interactables[instance.definition.$ref.id]?.data)
+    : null;
   if (!interactable)
     diagnostics.push(
       diagnostic(
         `${path}/interactable/$ref`,
-        `Missing or invalid Interactable '${interactableId}'.`,
+        `Missing or invalid Interactable Instance '${interactableId}'.`,
       ),
     );
   else if (!interactable.features.some((candidate) => candidate.id === feature.featureId))
     diagnostics.push(
       diagnostic(
         `${path}/featureId`,
-        `Missing Feature '${feature.featureId}' on Interactable '${interactableId}'.`,
+        `Missing Feature '${feature.featureId}' on Interactable Instance '${interactableId}'.`,
       ),
     );
 }

@@ -797,4 +797,49 @@ describe('authoring validation', () => {
       expect.objectContaining({ code: 'authoring.interactable.feature.missing_property_value' }),
     );
   });
+
+  it('validates sparse exact Feature Trait and Property overrides on Interactable Instances', () => {
+    const project = createAuthoringProject();
+    project.traits['inspectable-feature'] = {
+      id: 'inspectable-feature',
+      label: 'Inspectable Feature',
+      ownerKinds: ['feature'],
+      properties: [{ id: 'clue', type: 'string', nullable: false }],
+    };
+    const data = defaultInteractableData('Cabinet');
+    data.features.push({
+      id: 'drawer',
+      label: 'Drawer',
+      traits: [],
+      localProperties: [],
+      defaultProperties: [],
+      inventories: [],
+    });
+    project.interactables.cabinet = { id: 'cabinet', label: 'Cabinet', data };
+    const instance = defaultInteractableInstanceData('cabinet-instance', 'cabinet');
+    instance.featureOverrides = [
+      {
+        featureId: 'drawer',
+        traits: { add: ['inspectable-feature'], remove: [] },
+        properties: [{ propertyId: 'clue', value: 'scratch marks' }],
+      },
+    ];
+    project.interactableInstances['cabinet-instance'] = instance;
+
+    expect(validateAuthoringProject(project)).not.toContainEqual(
+      expect.objectContaining({ code: 'authoring.interactable.feature.missing_property_value' }),
+    );
+
+    instance.featureOverrides[0]!.properties[0]!.value = 3;
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        path: '/interactableInstances/cabinet-instance/featureOverrides/0/properties/0/value',
+      }),
+    );
+
+    instance.featureOverrides[0]!.featureId = 'missing';
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({ code: 'authoring.interactable.feature.missing' }),
+    );
+  });
 });

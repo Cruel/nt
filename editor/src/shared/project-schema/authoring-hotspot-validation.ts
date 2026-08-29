@@ -85,15 +85,16 @@ function validateSubject(
           ),
         ];
   }
-  const interactable = parseInteractableData(
-    project.interactables[feature.interactable.$ref.id]?.data,
-  );
+  const instance = project.interactableInstances[feature.interactable.$ref.id];
+  const interactable = instance
+    ? parseInteractableData(project.interactables[instance.definition.$ref.id]?.data)
+    : null;
   if (!interactable)
     return [
       diagnostic(
         category,
         `${path}/feature/interactable/$ref`,
-        `Missing Interactable '${feature.interactable.$ref.id}' for Feature target.`,
+        `Missing Interactable Instance '${feature.interactable.$ref.id}' for Feature target.`,
         'hotspot.authoring.target.feature-owner-missing',
       ),
     ];
@@ -103,7 +104,7 @@ function validateSubject(
         diagnostic(
           category,
           `${path}/feature/featureId`,
-          `Missing Feature '${feature.featureId}' on Interactable '${feature.interactable.$ref.id}'.`,
+          `Missing Feature '${feature.featureId}' on Interactable Instance '${feature.interactable.$ref.id}'.`,
           'hotspot.authoring.target.feature-missing',
         ),
       ];

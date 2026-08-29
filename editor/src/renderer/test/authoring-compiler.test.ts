@@ -1322,6 +1322,7 @@ describe('authoring compiler framework', () => {
         traitRemoves: [],
         propertyOverrides: [{ propertyId: 'polished', value: true }],
         localProperties: [],
+        featureOverrides: [],
       },
       {
         id: 'key-spare',
@@ -1334,6 +1335,7 @@ describe('authoring compiler framework', () => {
         traitRemoves: [],
         propertyOverrides: [{ propertyId: 'polished', value: true }],
         localProperties: [],
+        featureOverrides: [],
       },
     ]);
   });

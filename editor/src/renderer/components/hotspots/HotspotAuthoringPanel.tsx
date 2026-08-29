@@ -163,20 +163,25 @@ export function HotspotAuthoringPanel(props: Props) {
             interactable: { $ref: { collection: 'interactables', id } },
           }),
         });
-      const data = parseInteractableData(record.data);
-      if (!data || (props.ownerKind === 'interactable' && id === props.ownerId)) continue;
+    }
+    for (const [instanceId, instance] of Object.entries(props.project.interactableInstances)) {
+      const record = props.project.interactables[instance.definition.$ref.id];
+      const data = record ? parseInteractableData(record.data) : null;
+      if (!data) continue;
       for (const feature of data.features)
         options.push({
-          value: `interactable-feature:${id}:${feature.id}`,
+          value: `interactable-feature:${instanceId}:${feature.id}`,
           label: t('hotspots.targets.feature', {
-            owner: record.label,
+            owner: instance.editorLabel ?? instanceId,
             label: feature.label,
           }),
           target: subjectTarget({
             kind: 'feature',
             feature: {
               ownerKind: 'interactable',
-              interactable: { $ref: { collection: 'interactables', id } },
+              interactable: {
+                $ref: { registry: 'interactableInstances', id: instanceId },
+              },
               featureId: feature.id,
             },
           }),

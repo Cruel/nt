@@ -47,7 +47,7 @@ export function SubjectSelectorEditor({
 }) {
   const firstTrait = Object.keys(project.traits)[0];
   const firstRoom = Object.keys(project.rooms)[0];
-  const firstInteractable = Object.keys(project.interactables)[0];
+  const firstInteractableInstance = Object.keys(project.interactableInstances)[0];
   const exactFeature =
     value.kind === 'exact' && value.subject.kind === 'feature' ? value.subject.feature : null;
 
@@ -146,12 +146,12 @@ export function SubjectSelectorEditor({
                     kind: 'exact',
                     subject: { kind: 'feature', feature: roomFeatureRef(firstRoom, '') },
                   });
-                } else if (firstInteractable) {
+                } else if (firstInteractableInstance) {
                   onChange({
                     kind: 'exact',
                     subject: {
                       kind: 'feature',
-                      feature: interactableFeatureRef(firstInteractable, ''),
+                      feature: interactableFeatureRef(firstInteractableInstance, ''),
                     },
                   });
                 }
@@ -166,7 +166,7 @@ export function SubjectSelectorEditor({
               >
                 Interactable
               </SelectItem>
-              <SelectItem value="feature" disabled={!firstRoom && !firstInteractable}>
+              <SelectItem value="feature" disabled={!firstRoom && !firstInteractableInstance}>
                 Feature
               </SelectItem>
             </Select>
@@ -226,13 +226,13 @@ export function SubjectSelectorEditor({
                           feature: roomFeatureRef(firstRoom, exactFeature.featureId),
                         },
                       });
-                    else if (firstInteractable)
+                    else if (firstInteractableInstance)
                       onChange({
                         kind: 'exact',
                         subject: {
                           kind: 'feature',
                           feature: interactableFeatureRef(
-                            firstInteractable,
+                            firstInteractableInstance,
                             exactFeature.featureId,
                           ),
                         },
@@ -242,7 +242,7 @@ export function SubjectSelectorEditor({
                   <SelectItem value="room" disabled={!firstRoom}>
                     Room feature
                   </SelectItem>
-                  <SelectItem value="interactable" disabled={!firstInteractable}>
+                  <SelectItem value="interactable" disabled={!firstInteractableInstance}>
                     Interactable feature
                   </SelectItem>
                 </Select>
@@ -278,9 +278,12 @@ export function SubjectSelectorEditor({
                       })
                     }
                   >
-                    {Object.entries(project.interactables).map(([id, record]) => (
+                    {Object.entries(project.interactableInstances).map(([id, instance]) => (
                       <SelectItem value={id} key={id}>
-                        {record.label}
+                        {instance.editorLabel ?? id} (
+                        {project.interactables[instance.definition.$ref.id]?.label ??
+                          instance.definition.$ref.id}
+                        )
                       </SelectItem>
                     ))}
                   </Select>

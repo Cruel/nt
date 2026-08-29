@@ -827,6 +827,12 @@ struct InteractableDefinition {
     std::vector<InventoryDefinition> inventories;
     InteractablePresentation presentation;
 };
+struct InteractableFeatureOverride {
+    FeatureId feature_id;
+    std::vector<TraitId> trait_adds;
+    std::vector<TraitId> trait_removes;
+    std::vector<PropertyAssignment> property_overrides;
+};
 struct InteractableInstanceDeclaration {
     InteractableInstanceId id;
     InteractableDefinitionId definition;
@@ -838,6 +844,7 @@ struct InteractableInstanceDeclaration {
     std::vector<TraitId> trait_removes;
     std::vector<PropertyAssignment> property_overrides;
     std::vector<InstanceLocalProperty> local_properties;
+    std::vector<InteractableFeatureOverride> feature_overrides;
 };
 
 inline constexpr std::uint64_t max_interactable_quantity = 9'007'199'254'740'991ULL;

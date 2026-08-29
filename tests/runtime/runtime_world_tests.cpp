@@ -33,6 +33,9 @@ nlohmann::json load_fixture_document(std::string_view filename)
                              std::istreambuf_iterator<char>());
     auto document = nlohmann::json::parse(source, nullptr, false);
     REQUIRE_FALSE(document.is_discarded());
+    for (auto& instance : document["interactableInstances"])
+        if (!instance.contains("featureOverrides"))
+            instance["featureOverrides"] = nlohmann::json::array();
     return document;
 }
 
@@ -118,6 +121,93 @@ TEST_CASE("runtime world resolves declared gameplay instances without owning def
     REQUIRE(world.interactable_state(key) != nullptr);
     CHECK(world.character_state(hero) == state.character_world(hero));
     CHECK(world.interactable_state(key) == state.interactable(key));
+}
+
+TEST_CASE("declared Interactable Instances realize independent exact Features and Inventories")
+{
+    auto document = load_fixture_document("interaction-program.json");
+    auto key_declaration = *std::find_if(
+        document["interactableInstances"].begin(), document["interactableInstances"].end(),
+        [](const auto& declaration) { return declaration["id"] == "key"; });
+    key_declaration["id"] = "key-spare";
+    key_declaration["location"] = {{"kind", "unplaced"}};
+    key_declaration["featureOverrides"] = nlohmann::json::array();
+    document["interactableInstances"].push_back(key_declaration);
+    for (auto& declaration : document["interactableInstances"]) {
+        if (declaration["id"] == "key") {
+            declaration["featureOverrides"] = nlohmann::json::array(
+                {{{"featureId", "surface"},
+                  {"traitAdds", nlohmann::json::array()},
+                  {"traitRemoves", nlohmann::json::array()},
+                  {"propertyOverrides",
+                   nlohmann::json::array({{{"propertyId", "enabled"}, {"value", false}}})}}});
+        }
+    }
+
+    const auto project = decode_fixture(std::move(document), "instance-feature-overrides.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+    core::PropertyResolver properties(project, state);
+
+    const auto key = id<core::InteractableInstanceId>("key");
+    const auto spare = id<core::InteractableInstanceId>("key-spare");
+    const auto surface = id<core::FeatureId>("surface");
+    const auto enabled = id<core::PropertyId>("enabled");
+    const core::PropertyOwnerRef key_surface{core::InteractableFeatureRef{key, surface}};
+    const core::PropertyOwnerRef spare_surface{core::InteractableFeatureRef{spare, surface}};
+
+    const auto key_value = properties.get(key_surface, enabled);
+    REQUIRE(key_value);
+    REQUIRE(std::holds_alternative<core::RuntimeValue>(key_value.value()));
+    CHECK(std::get<core::RuntimeValue>(key_value.value()) == core::RuntimeValue{false});
+    const auto spare_value = properties.get(spare_surface, enabled);
+    REQUIRE(spare_value);
+    REQUIRE(std::holds_alternative<core::RuntimeValue>(spare_value.value()));
+    CHECK(std::get<core::RuntimeValue>(spare_value.value()) == core::RuntimeValue{true});
+
+    const auto hidden = id<core::InventoryId>("hidden");
+    const auto groove = id<core::InventoryId>("groove");
+    const auto dust = id<core::InteractableInstanceId>("dust");
+    const core::compiled::InventoryRef key_groove{core::InteractableFeatureRef{key, surface},
+                                                  groove};
+    CHECK(world.has_inventory(
+        core::compiled::InventoryRef{core::compiled::InteractableInventoryOwner{key}, hidden}));
+    CHECK(world.has_inventory(
+        core::compiled::InventoryRef{core::compiled::InteractableInventoryOwner{spare}, hidden}));
+    CHECK(world.has_inventory(
+        core::compiled::InventoryRef{core::InteractableFeatureRef{key, surface}, groove}));
+    CHECK(world.has_inventory(
+        core::compiled::InventoryRef{core::InteractableFeatureRef{spare, surface}, groove}));
+
+    REQUIRE(world.move_interactable(dust, core::compiled::InventoryLocation{key_groove}));
+    auto saved = core::make_save_state(project, state);
+    REQUIRE(saved);
+    auto encoded = core::encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    auto decoded = core::decode_save_state(project, encoded.value(), "instance-feature-overrides");
+    REQUIRE(decoded);
+    auto restored_result = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored_result);
+    auto restored = std::move(restored_result).value();
+    RuntimeWorld restored_world(project, restored);
+    core::PropertyResolver restored_properties(project, restored);
+
+    const auto restored_key_value = restored_properties.get(key_surface, enabled);
+    const auto restored_spare_value = restored_properties.get(spare_surface, enabled);
+    REQUIRE(restored_key_value);
+    REQUIRE(restored_spare_value);
+    CHECK(std::get<core::RuntimeValue>(restored_key_value.value()) == core::RuntimeValue{false});
+    CHECK(std::get<core::RuntimeValue>(restored_spare_value.value()) == core::RuntimeValue{true});
+    REQUIRE(restored_world.interactable_state(dust) != nullptr);
+    const auto* restored_location = std::get_if<core::compiled::InventoryLocation>(
+        &restored_world.interactable_state(dust)->location);
+    REQUIRE(restored_location != nullptr);
+    CHECK(restored_location->inventory == key_groove);
+    CHECK(restored_world.has_inventory(key_groove));
+    CHECK(restored_world.has_inventory(
+        core::compiled::InventoryRef{core::InteractableFeatureRef{spare, surface}, groove}));
 }
 
 TEST_CASE("runtime world mutates declared gameplay instance state without mutating definitions")
@@ -695,6 +785,49 @@ TEST_CASE("runtime structural replacement rejects dependent inventory invalidati
     CHECK(replaced.error().front().code == "runtime.invalid_structural_edit");
     REQUIRE(world.resolved_configuration(owner.value()) != nullptr);
     CHECK(world.resolved_configuration(owner.value())->display_name == before);
+}
+
+TEST_CASE("runtime structural replacement accepts a staged transaction that resolves nested "
+          "Inventory occupants")
+{
+    const auto project = load_fixture("interaction-program.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto key = id<core::InteractableInstanceId>("key");
+    const auto dust = id<core::InteractableInstanceId>("dust");
+    const auto surface = id<core::FeatureId>("surface");
+    const core::compiled::InventoryRef groove{core::InteractableFeatureRef{key, surface},
+                                              id<core::InventoryId>("groove")};
+    auto member =
+        world.create_interactable(CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}});
+    REQUIRE(member);
+    REQUIRE(world.move_interactable(member.value(), core::compiled::InventoryLocation{groove}));
+
+    auto blocked = world.replace_structural_configuration(
+        key, CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}});
+    REQUIRE_FALSE(blocked);
+    CHECK(blocked.error().front().code == "runtime.invalid_structural_edit");
+    CHECK(world.has_inventory(groove));
+    REQUIRE(world.interactable_state(member.value()) != nullptr);
+
+    auto staged_state = state;
+    RuntimeWorld staged_world(project, staged_state);
+    REQUIRE(staged_world.destroy(core::GameplayInstanceRef{member.value()}));
+    REQUIRE(staged_world.replace_structural_configuration(
+        key, CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}}));
+
+    state = std::move(staged_state);
+    RuntimeWorld committed_world(project, state);
+    CHECK(committed_world.interactable_state(member.value()) == nullptr);
+    CHECK_FALSE(committed_world.has_inventory(groove));
+    REQUIRE(committed_world.resolved_configuration(key) != nullptr);
+    const auto* dust_declaration = project.find_interactable_instance(dust);
+    REQUIRE(dust_declaration != nullptr);
+    CHECK(committed_world.resolved_configuration(key)->display_name ==
+          project.find_interactable_definition(dust_declaration->definition)->display_name);
 }
 
 TEST_CASE("runtime structural clear rejects dependent invalidation atomically")

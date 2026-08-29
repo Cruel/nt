@@ -9,6 +9,7 @@ import {
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import {
   InteractableDefinitionPropertiesEditor,
+  InteractableInstanceFeatureOverridesEditor,
   InteractableInstancePropertiesEditor,
 } from '@/components/properties/InteractablePropertyEditors';
 import { Badge } from '@/components/ui/badge';
@@ -20,9 +21,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { renameOwnerLocalPropertyReferencePatches } from '@/project/owner-local-property-references';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
+import {
+  findAuthoringDependencyUsages,
+  nestedNodeKey,
+} from '../../../shared/authoring-dependency-graph';
 import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import {
   defaultInteractableData,
@@ -93,6 +99,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const project = isAuthoringProject(document) ? document : null;
   const interactableId = tab.resource?.entityId;
   const record = interactableId && project ? project.interactables[interactableId] : null;
@@ -509,6 +516,36 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                     ])
                   }
                 />
+                {!data.stackable && data.features.length ? (
+                  <div className="space-y-2 border-t pt-3">
+                    <div>
+                      <Label>Feature Overrides</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Sparse Trait and Property state for Features realized on this exact
+                        Instance.
+                      </p>
+                    </div>
+                    {data.features.map((feature) => (
+                      <InteractableInstanceFeatureOverridesEditor
+                        key={feature.id}
+                        project={project}
+                        instanceId={instanceId}
+                        instance={instance}
+                        featureId={feature.id}
+                        featureLabel={`${feature.label} (${feature.id})`}
+                        onChange={(next) =>
+                          applyProjectPatches('Update Interactable Instance Feature Override', [
+                            {
+                              op: 'replace',
+                              path: `/interactableInstances/${escapePointerSegment(instanceId)}`,
+                              value: next,
+                            },
+                          ])
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -528,8 +565,51 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           project={project}
           features={data.features}
           anchorPrefix="interactable"
+          ownerId={interactableId}
+          dependentReferenceCountFor={(featureId) => {
+            if (!graphSnapshot) return 0;
+            return findAuthoringDependencyUsages(
+              graphSnapshot.graph,
+              nestedNodeKey('interactables', interactableId, 'interactable-feature', featureId),
+            ).filter(
+              (edge) =>
+                !edge.sourcePath.includes('/featureOverrides/') &&
+                !(edge.role === 'explicit-ref' && edge.sourcePath.includes('/data/features/')),
+            ).length;
+          }}
           propertyMode="default"
-          onChange={(features, label) => commit({ ...data, features }, label)}
+          onChange={(features, label) => {
+            if (label !== 'Delete Feature') {
+              commit({ ...data, features }, label);
+              return;
+            }
+            const remainingIds = new Set(features.map((feature) => feature.id));
+            const deletedFeature = data.features.find((feature) => !remainingIds.has(feature.id));
+            if (!deletedFeature) {
+              commit({ ...data, features }, label);
+              return;
+            }
+            const patches: Array<Record<string, unknown>> = [
+              {
+                op: 'replace',
+                path: `/interactables/${escapePointerSegment(interactableId)}/data/features`,
+                value: features,
+              },
+            ];
+            for (const [instanceId, instance] of Object.entries(project.interactableInstances)) {
+              if (instance.definition.$ref.id !== interactableId) continue;
+              const nextOverrides = instance.featureOverrides.filter(
+                (override) => override.featureId !== deletedFeature.id,
+              );
+              if (nextOverrides.length === instance.featureOverrides.length) continue;
+              patches.push({
+                op: 'replace',
+                path: `/interactableInstances/${escapePointerSegment(instanceId)}/featureOverrides`,
+                value: nextOverrides,
+              });
+            }
+            applyProjectPatches('Delete Interactable Feature', patches);
+          }}
         />
         <div
           data-workbench-anchor="interactable.hotspot-mode"

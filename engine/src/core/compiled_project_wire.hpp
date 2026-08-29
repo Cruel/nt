@@ -120,6 +120,13 @@ struct InteractableDefinition {
     InteractablePresentation presentation;
 };
 
+struct InteractableFeatureOverride {
+    FeatureId feature_id;
+    std::vector<TraitId> trait_adds;
+    std::vector<TraitId> trait_removes;
+    std::vector<PropertyAssignment> property_overrides;
+};
+
 struct InteractableInstanceDeclaration {
     InteractableInstanceId id;
     InteractableDefinitionId definition;
@@ -131,6 +138,7 @@ struct InteractableInstanceDeclaration {
     std::vector<TraitId> trait_removes;
     std::vector<PropertyAssignment> property_overrides;
     std::vector<InstanceLocalProperty> local_properties;
+    std::vector<InteractableFeatureOverride> feature_overrides;
 };
 
 struct ItemDefinition {

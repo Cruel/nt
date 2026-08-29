@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { FeatureData } from '../../shared/project-schema/authoring-features';
+import { defaultInteractableInstanceData } from '../../shared/project-schema/authoring-interactables';
 
 function feature(): FeatureData {
   return {
@@ -80,5 +81,57 @@ describe('Feature Property authoring', () => {
       ],
       'Update Feature Traits and Properties',
     );
+  });
+
+  it('requires explicit confirmation before deleting a Feature with Instance overrides', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const project = createAuthoringProject();
+    const instance = defaultInteractableInstanceData('box-instance', 'box');
+    instance.featureOverrides.push({
+      featureId: 'surface',
+      traits: { add: [], remove: [] },
+      properties: [],
+    });
+    project.interactableInstances['box-instance'] = instance;
+    render(
+      <FeatureAuthoringPanel
+        project={project}
+        features={[feature()]}
+        anchorPrefix="interactable"
+        ownerId="box"
+        propertyMode="default"
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Delete Feature' }));
+    expect(screen.getByText('Delete Feature and dependent overrides?')).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Delete Feature and Overrides' }));
+    expect(onChange).toHaveBeenCalledWith([], 'Delete Feature');
+  });
+
+  it('blocks Feature deletion until authored references are explicitly cleaned up', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const project = createAuthoringProject();
+    render(
+      <FeatureAuthoringPanel
+        project={project}
+        features={[feature()]}
+        anchorPrefix="interactable"
+        ownerId="box"
+        dependentReferenceCountFor={() => 2}
+        propertyMode="default"
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Delete Feature' }));
+    expect(screen.getByText('Remove Feature references first')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Feature and Overrides' })).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
