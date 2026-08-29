@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -641,107 +642,25 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
     condition: SceneConditionData | undefined,
     onChange: (condition: SceneConditionData | undefined) => void,
   ) => {
-    const variableId = Object.keys(project.variables)[0];
     return (
       <div className="space-y-2 rounded border p-2">
-        <Label>
-          Condition
-          <Select
-            value={condition?.kind ?? 'none'}
-            onValueChange={(kind) => {
-              if (kind === 'none') onChange(undefined);
-              else if (kind === 'always') onChange({ kind: 'always' });
-              else if (kind === 'lua-predicate')
-                onChange({ kind: 'lua-predicate', source: '-- return true' });
-              else if (variableId)
-                onChange({
-                  kind: 'variable-comparison',
-                  variable: sceneVariableRef(variableId),
-                  operator: 'equal',
-                  value: project.variables[variableId]!.data.value as
-                    | string
-                    | number
-                    | boolean
-                    | null,
-                });
-            }}
-          >
-            <SelectItem value="none">None</SelectItem>
-            <SelectItem value="always">Always</SelectItem>
-            <SelectItem value="variable-comparison" disabled={!variableId}>
-              Variable comparison
-            </SelectItem>
-            <SelectItem value="lua-predicate">Lua predicate</SelectItem>
-          </Select>
-        </Label>
-        {condition?.kind === 'lua-predicate' && (
-          <Label>
-            Lua predicate
-            <textarea
-              className="min-h-24 w-full rounded border bg-background p-2 font-mono text-sm"
-              value={condition.source}
-              onChange={(event) => onChange({ ...condition, source: event.target.value })}
-            />
-          </Label>
-        )}
-        {condition?.kind === 'variable-comparison' && (
+        <Label>Condition</Label>
+        {condition ? (
           <>
-            <Label>
-              Variable
-              <Select
-                value={condition.variable.$ref.id}
-                onValueChange={(id) => {
-                  if (id)
-                    onChange({
-                      ...condition,
-                      variable: sceneVariableRef(id),
-                      value: project.variables[id]!.data.value as string | number | boolean | null,
-                    });
-                }}
-              >
-                {Object.entries(project.variables).map(([id, item]) => (
-                  <SelectItem key={id} value={id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </Select>
-            </Label>
-            <Label>
-              Operator
-              <Select
-                value={condition.operator}
-                onValueChange={(operator) =>
-                  onChange({ ...condition, operator: operator as typeof condition.operator })
-                }
-              >
-                {[
-                  'equal',
-                  'not-equal',
-                  'less',
-                  'less-equal',
-                  'greater',
-                  'greater-equal',
-                  'truthy',
-                  'falsy',
-                ].map((operator) => (
-                  <SelectItem key={operator} value={operator}>
-                    {title(operator)}
-                  </SelectItem>
-                ))}
-              </Select>
-            </Label>
-            {!['truthy', 'falsy'].includes(condition.operator) && (
-              <Label>
-                Value
-                <Input
-                  value={String(condition.value ?? '')}
-                  onChange={(event) =>
-                    onChange({ ...condition, value: scalar(event.target.value) })
-                  }
-                />
-              </Label>
-            )}
+            <RecursiveConditionEditor value={condition} project={project} onChange={onChange} />
+            <Button type="button" size="sm" variant="ghost" onClick={() => onChange(undefined)}>
+              Remove condition
+            </Button>
           </>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onChange({ kind: 'always' })}
+          >
+            Add condition
+          </Button>
         )}
       </div>
     );

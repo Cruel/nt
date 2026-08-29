@@ -469,6 +469,43 @@ compare_scalar(const core::editor::TypedFocusedRoomQueryState& state,
 {
     if (condition.kind == core::editor::TypedFocusedCondition::Kind::Always)
         return core::Result<bool, core::Diagnostics>::success(true);
+    if (condition.kind == core::editor::TypedFocusedCondition::Kind::All) {
+        for (const auto& child : condition.conditions) {
+            auto result = compare_scalar(state, child, scripts, environment, provider, generation);
+            const auto* value = result.value_if();
+            if (value == nullptr)
+                return result;
+            if (!*value)
+                return core::Result<bool, core::Diagnostics>::success(false);
+        }
+        return core::Result<bool, core::Diagnostics>::success(true);
+    }
+    if (condition.kind == core::editor::TypedFocusedCondition::Kind::Any) {
+        for (const auto& child : condition.conditions) {
+            auto result = compare_scalar(state, child, scripts, environment, provider, generation);
+            const auto* value = result.value_if();
+            if (value == nullptr)
+                return result;
+            if (*value)
+                return core::Result<bool, core::Diagnostics>::success(true);
+        }
+        return core::Result<bool, core::Diagnostics>::success(false);
+    }
+    if (condition.kind == core::editor::TypedFocusedCondition::Kind::Not) {
+        if (condition.conditions.size() != 1)
+            return core::Result<bool, core::Diagnostics>::failure(
+                {error("editor_preview.focused_condition_invalid",
+                       "Focused Not Condition must contain exactly one child")});
+        auto result = compare_scalar(state, condition.conditions.front(), scripts, environment,
+                                     provider, generation);
+        const auto* value = result.value_if();
+        return value ? core::Result<bool, core::Diagnostics>::success(!*value) : result;
+    }
+    if (condition.kind == core::editor::TypedFocusedCondition::Kind::RuntimeOnly)
+        return core::Result<bool, core::Diagnostics>::failure({error(
+            "editor_preview.runtime_condition_requires_full_preview",
+            "Focused Room preview cannot evaluate runtime-only Condition kind '" +
+                condition.runtime_condition_kind + "'; use full Play preview for this state")});
     if (condition.kind == core::editor::TypedFocusedCondition::Kind::LuaPredicate) {
         runtime::RuntimeCapabilityIssuer issuer(provider, generation);
         const auto capabilities =

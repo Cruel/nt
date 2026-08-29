@@ -850,7 +850,9 @@ function semanticEdgeOptions(
     if (
       target.kind === 'record' &&
       target.collection === 'variables' &&
-      /\/(?:condition|availability|canEnter|canLeave)\/variable\/\$ref$/.test(path)
+      /\/(?:condition|guard|availability|visibility|canEnter|canLeave|waitCondition)(?:\/(?:conditions\/\d+|condition))*\/variable\/\$ref$/.test(
+        path,
+      )
     ) {
       return {
         role: 'condition-variable',

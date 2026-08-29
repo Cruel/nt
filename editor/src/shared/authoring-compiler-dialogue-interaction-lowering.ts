@@ -1,12 +1,11 @@
 import type {
-  CompiledCondition,
   CompiledEffect,
   CompiledFlowTarget,
   CompiledProjectWire,
   CompiledText,
   InteractionProgram,
 } from './project-schema/compiled-project';
-import type { Condition, Effect, FlowTarget, TextContent } from './project-schema/authoring-flow';
+import type { Effect, FlowTarget, TextContent } from './project-schema/authoring-flow';
 import type {
   InteractionInstruction,
   InteractionMoveTarget,
@@ -29,6 +28,7 @@ import type {
   CompiledProjectSceneRoomDraft,
   ProgramLoweringDiagnostic,
 } from './authoring-compiler-scene-room-lowering';
+import { compileCondition } from './authoring-condition-lowering';
 
 export interface CompleteProgramLoweringResult {
   diagnostics: ProgramLoweringDiagnostic[];
@@ -45,19 +45,6 @@ function compileText(text: TextContent): CompiledText {
         : source.kind === 'localized'
           ? { kind: 'localized', key: source.key }
           : { kind: 'lua-expression', source: source.source },
-  };
-}
-
-function compileCondition(condition: Condition): CompiledCondition {
-  if (condition.kind === 'always') return { kind: 'always' };
-  if (condition.kind === 'lua-predicate') {
-    return { kind: 'lua-predicate', source: condition.source };
-  }
-  return {
-    kind: 'global-property-comparison',
-    operator: condition.operator,
-    property: { kind: 'property', id: condition.variable.$ref.id },
-    ...(condition.value === undefined ? {} : { value: condition.value }),
   };
 }
 

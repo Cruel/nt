@@ -391,9 +391,9 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(project.verbs[3].default_program.instructions.size() == 1);
         REQUIRE(project.interactions.front().rules.size() == 6);
         const auto& rules = project.interactions.front().rules;
-        CHECK(std::holds_alternative<Always>(rules[0].guard));
+        CHECK(std::holds_alternative<Always>(rules[0].guard.value));
         CHECK(rules[0].priority == 10);
-        CHECK(std::holds_alternative<Always>(rules[1].guard));
+        CHECK(std::holds_alternative<Always>(rules[1].guard.value));
         CHECK(rules[1].priority == 10);
         REQUIRE(
             std::holds_alternative<ExactSubjectSelector>(rules[0].slots.front().selectors.front()));
@@ -403,7 +403,7 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
             std::holds_alternative<ExactSubjectSelector>(rules[1].slots.front().selectors.front()));
         CHECK(std::holds_alternative<FeatureInteractionSubject>(
             std::get<ExactSubjectSelector>(rules[1].slots.front().selectors.front()).subject));
-        CHECK(std::holds_alternative<Always>(rules[2].guard));
+        CHECK(std::holds_alternative<Always>(rules[2].guard.value));
         CHECK(rules[2].priority == 20);
         REQUIRE(rules[2].program.instructions.size() == 4);
         CHECK(std::holds_alternative<ApplyEffectInstruction>(rules[2].program.instructions[0]));
@@ -412,11 +412,11 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(std::holds_alternative<SetInteractableStateInstruction>(
             rules[2].program.instructions[2]));
         CHECK(std::holds_alternative<NotifyInstruction>(rules[2].program.instructions[3]));
-        CHECK(std::holds_alternative<LuaPredicate>(rules[3].guard));
+        CHECK(std::holds_alternative<LuaPredicate>(rules[3].guard.value));
         CHECK(rules[3].priority == 0);
-        CHECK(std::holds_alternative<Always>(rules[4].guard));
+        CHECK(std::holds_alternative<Always>(rules[4].guard.value));
         CHECK(rules[4].priority == 5);
-        CHECK(std::holds_alternative<GlobalPropertyComparison>(rules[5].guard));
+        CHECK(std::holds_alternative<GlobalPropertyComparison>(rules[5].guard.value));
         CHECK(rules[5].priority == 0);
         REQUIRE(std::holds_alternative<FamilySubjectSelector>(
             rules[3].slots.front().selectors.front()));
@@ -663,7 +663,21 @@ TEST_CASE("compiled project shared primitives decode closed variants strictly")
             nullptr, false),
         "primitive.json", "/condition");
     REQUIRE(condition);
-    CHECK(std::holds_alternative<GlobalPropertyComparison>(condition.value()));
+    CHECK(std::holds_alternative<GlobalPropertyComparison>(condition.value().value));
+
+    auto recursive = decode_condition(
+        nlohmann::json::parse(
+            R"({"kind":"all","conditions":[{"kind":"property-comparison","owner":{"kind":"interaction-slot","slotId":"target"},"propertyId":"enabled","operator":"truthy"},{"kind":"not","condition":{"kind":"trait-presence","owner":{"kind":"interactable","interactable":{"id":"key","kind":"interactable"}},"trait":{"id":"portable","kind":"trait"},"present":false}},{"kind":"location-comparison","subject":{"kind":"command-result","bindingId":"created"},"operator":"equal","location":{"kind":"room","room":{"kind":"current-room"}}},{"kind":"inventory-quantity-comparison","inventory":{"kind":"owner-inventory","owner":{"kind":"interaction-slot","slotId":"container"},"inventoryId":"contents"},"matcher":{"definition":{"id":"coin","kind":"interactable-definition"},"traits":[{"id":"currency","kind":"trait"}],"properties":[{"propertyId":"quality","value":"mint"}],"exact":{"kind":"command-result","bindingId":"created"}},"operator":"greater-equal","quantity":2}]})",
+            nullptr, false),
+        "primitive.json", "/condition");
+    REQUIRE(recursive);
+    const auto* all = std::get_if<AllCondition>(&recursive.value().value);
+    REQUIRE(all != nullptr);
+    REQUIRE(all->conditions.size() == 4);
+    CHECK(std::holds_alternative<IdentityPropertyComparison>(all->conditions[0].value));
+    CHECK(std::holds_alternative<NotCondition>(all->conditions[1].value));
+    CHECK(std::holds_alternative<LocationComparisonCondition>(all->conditions[2].value));
+    CHECK(std::holds_alternative<InventoryQuantityComparisonCondition>(all->conditions[3].value));
 
     auto effect = decode_effect(
         nlohmann::json::parse(
@@ -686,6 +700,22 @@ TEST_CASE("compiled project shared primitives decode closed variants strictly")
     REQUIRE_FALSE(malformed);
     CHECK(has_code(malformed.error(), "compiled_project.unknown_variant"));
     CHECK(has_code(malformed.error(), "compiled_project.unknown_field"));
+}
+
+TEST_CASE("compiled project rejects Condition references outside their host scope")
+{
+    auto document = fixture("interaction-program");
+    auto& rule = document["definitions"]["interactions"][0]["rules"][0];
+    rule["guard"] = {
+        {"kind", "property-comparison"},
+        {"owner", {{"kind", "interaction-slot"}, {"slotId", "not-a-slot"}}},
+        {"propertyId", "enabled"},
+        {"operator", "truthy"},
+    };
+
+    auto result = decode_compiled_project(document, "interaction-program.json");
+    REQUIRE_FALSE(result);
+    CHECK(has_code(result.error(), "compiled_project.condition_slot_out_of_scope"));
 }
 
 TEST_CASE("compiled project shared decoder rejects strict structural failures with context")

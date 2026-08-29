@@ -502,7 +502,7 @@ describe('RoomEditor', () => {
       }),
     );
   });
-  it('uses a compact dropdown for exit availability', () => {
+  it('uses the shared recursive Condition editor for exit availability', () => {
     const project = createAuthoringProject();
     const foyer = defaultRoomData('Foyer');
     foyer.exits = [
@@ -533,12 +533,13 @@ describe('RoomEditor', () => {
     expect(
       directionSelector.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
+    expect(within(exitCard as HTMLElement).getByRole('option', { name: 'Always' })).toBeTruthy();
+    expect(within(exitCard as HTMLElement).getByRole('option', { name: 'All' })).toBeTruthy();
+    expect(within(exitCard as HTMLElement).getByRole('option', { name: 'Any' })).toBeTruthy();
+    expect(within(exitCard as HTMLElement).getByRole('option', { name: 'Not' })).toBeTruthy();
     expect(
-      within(exitCard as HTMLElement).getByRole('combobox', { name: 'Available when' }),
-    ).toHaveTextContent('Always');
-    expect(
-      within(exitCard as HTMLElement).queryByRole('option', { name: 'Lua predicate' }),
-    ).toBeNull();
+      within(exitCard as HTMLElement).getByRole('option', { name: 'Lua predicate' }),
+    ).toBeTruthy();
   });
   it('opens destination Rooms from the Exits heading', () => {
     const project = createAuthoringProject();

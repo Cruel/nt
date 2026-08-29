@@ -64,9 +64,17 @@ function addConditionDependency(
   condition: Condition | undefined,
   dependencies: Set<string>,
 ) {
-  if (condition?.kind !== 'variable-comparison') return;
-  const id = condition.variable.$ref.id;
-  dependencies.add(`variable:${id}:${JSON.stringify(project.variables[id]?.data ?? null)}`);
+  if (!condition) return;
+  if (condition.kind === 'variable-comparison') {
+    const id = condition.variable.$ref.id;
+    dependencies.add(`variable:${id}:${JSON.stringify(project.variables[id]?.data ?? null)}`);
+    return;
+  }
+  if (condition.kind === 'all' || condition.kind === 'any') {
+    condition.conditions.forEach((child) => addConditionDependency(project, child, dependencies));
+    return;
+  }
+  if (condition.kind === 'not') addConditionDependency(project, condition.condition, dependencies);
 }
 
 function addEffectDependencies(

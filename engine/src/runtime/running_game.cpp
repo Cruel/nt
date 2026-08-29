@@ -47,8 +47,21 @@ void certify_asset(core::Diagnostics& diagnostics, ScriptCertificationPort& scri
 void certify_condition(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                        const core::Condition& condition, const std::string& path)
 {
-    if (const auto* lua = std::get_if<core::LuaPredicate>(&condition))
+    if (const auto* lua = std::get_if<core::LuaPredicate>(&condition.value))
         certify_chunk(diagnostics, scripts, lua->source, path, true);
+    else if (const auto* all = std::get_if<core::AllCondition>(&condition.value)) {
+        for (std::size_t index = 0; index < all->conditions.size(); ++index)
+            certify_condition(diagnostics, scripts, all->conditions[index],
+                              path + "/conditions/" + std::to_string(index));
+    } else if (const auto* any = std::get_if<core::AnyCondition>(&condition.value)) {
+        for (std::size_t index = 0; index < any->conditions.size(); ++index)
+            certify_condition(diagnostics, scripts, any->conditions[index],
+                              path + "/conditions/" + std::to_string(index));
+    } else if (const auto* not_condition = std::get_if<core::NotCondition>(&condition.value)) {
+        if (!not_condition->condition.empty())
+            certify_condition(diagnostics, scripts, not_condition->condition.front(),
+                              path + "/condition");
+    }
 }
 
 void certify_effect(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,

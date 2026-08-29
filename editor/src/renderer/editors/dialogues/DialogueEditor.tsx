@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
+import type { AuthoringEditorProject } from '@/editors/interactions/InteractionProgramEditor';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
@@ -342,102 +344,35 @@ function targetValue(target: FlowTarget): string {
     : `${target.kind}:${target.id}`;
 }
 
-function conditionFromKind(
-  kind: string,
-  variableId: string | undefined,
-): DialogueConditionData | undefined {
-  if (kind === 'none') return undefined;
-  if (kind === 'always') return { kind: 'always' };
-  if (kind === 'lua-predicate') return { kind: 'lua-predicate', source: 'return true' };
-  return {
-    kind: 'variable-comparison',
-    variable: { $ref: { collection: 'variables', id: variableId ?? 'variable' } },
-    operator: 'equal',
-    value: false,
-  };
-}
-
 function ConditionEditor({
   condition,
-  variableOptions,
+  project,
   onChange,
 }: {
   condition: DialogueConditionData | undefined;
-  variableOptions: Array<{ id: string; label: string }>;
+  project: AuthoringEditorProject;
   onChange: (condition: DialogueConditionData | undefined) => void;
 }) {
   return (
     <div className="space-y-2 rounded border p-2">
       <Label>Condition</Label>
-      <Select
-        value={condition?.kind ?? 'none'}
-        onValueChange={(value) =>
-          onChange(conditionFromKind(String(value), variableOptions[0]?.id))
-        }
-      >
-        <SelectItem value="none">None</SelectItem>
-        <SelectItem value="always">Always</SelectItem>
-        <SelectItem value="variable-comparison">Variable comparison</SelectItem>
-        <SelectItem value="lua-predicate">Lua predicate</SelectItem>
-      </Select>
-      {condition?.kind === 'lua-predicate' ? (
-        <textarea
-          className="min-h-24 w-full rounded border bg-background p-2 font-mono text-xs"
-          value={condition.source}
-          onChange={(event) => onChange({ ...condition, source: event.currentTarget.value })}
-        />
-      ) : null}
-      {condition?.kind === 'variable-comparison' ? (
+      {condition ? (
         <>
-          <Select
-            value={condition.variable.$ref.id}
-            onValueChange={(value) =>
-              onChange({
-                ...condition,
-                variable: { $ref: { collection: 'variables', id: String(value) } },
-              })
-            }
-          >
-            {variableOptions.length === 0 ? (
-              <SelectItem value="variable">Missing variable</SelectItem>
-            ) : null}
-            {variableOptions.map((variable) => (
-              <SelectItem key={variable.id} value={variable.id}>
-                {variable.label} ({variable.id})
-              </SelectItem>
-            ))}
-          </Select>
-          <Select
-            value={condition.operator}
-            onValueChange={(value) =>
-              onChange({ ...condition, operator: value as typeof condition.operator })
-            }
-          >
-            {[
-              'equal',
-              'not-equal',
-              'less',
-              'less-equal',
-              'greater',
-              'greater-equal',
-              'truthy',
-              'falsy',
-            ].map((operator) => (
-              <SelectItem key={operator} value={operator}>
-                {operator}
-              </SelectItem>
-            ))}
-          </Select>
-          {!['truthy', 'falsy'].includes(condition.operator) ? (
-            <Input
-              value={String(condition.value ?? '')}
-              onChange={(event) =>
-                onChange({ ...condition, value: scalar(event.currentTarget.value) })
-              }
-            />
-          ) : null}
+          <RecursiveConditionEditor value={condition} project={project} onChange={onChange} />
+          <Button type="button" size="sm" variant="ghost" onClick={() => onChange(undefined)}>
+            Remove condition
+          </Button>
         </>
-      ) : null}
+      ) : (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => onChange({ kind: 'always' })}
+        >
+          Add condition
+        </Button>
+      )}
     </div>
   );
 }
@@ -3464,7 +3399,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                   <ConditionEditor
                     condition={activeSegment.condition}
-                    variableOptions={variables}
+                    project={project}
                     onChange={(condition) =>
                       replaceSegment(activeBlock, { ...activeSegment, condition })
                     }
@@ -3534,7 +3469,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                   </label>
                   <ConditionEditor
                     condition={activeSegment.condition}
-                    variableOptions={variables}
+                    project={project}
                     onChange={(condition) =>
                       replaceSegment(activeBlock, { ...activeSegment, condition })
                     }
@@ -3607,7 +3542,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                   <ConditionEditor
                     condition={activeSegment.condition}
-                    variableOptions={variables}
+                    project={project}
                     onChange={(condition) =>
                       replaceSegment(activeBlock, { ...activeSegment, condition })
                     }
@@ -3648,7 +3583,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                   </p>
                   <ConditionEditor
                     condition={activeSegment.condition}
-                    variableOptions={variables}
+                    project={project}
                     onChange={(condition) =>
                       replaceSegment(activeBlock, { ...activeSegment, condition })
                     }
@@ -3805,7 +3740,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                     </Label>
                     <ConditionEditor
                       condition={edge.condition}
-                      variableOptions={variables}
+                      project={project}
                       onChange={(condition) => replaceEdge({ ...edge, condition })}
                     />
                     <EffectsEditor

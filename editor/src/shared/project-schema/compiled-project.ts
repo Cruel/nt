@@ -112,6 +112,86 @@ export const compiledInteractionSubjectSchema = z.discriminatedUnion('kind', [
   strict({ feature: featureReferenceSchema, kind: z.literal('feature') }),
 ]);
 
+const inventoryOwnerSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('project') }),
+  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
+  strict({ kind: z.literal('room-feature'), room: roomReferenceSchema, featureId: id }),
+  strict({
+    kind: z.literal('interactable-feature'),
+    interactable: interactableReferenceSchema,
+    featureId: id,
+  }),
+]);
+const inventoryReferenceSchema = strict({ owner: inventoryOwnerSchema, inventoryId: id });
+
+const interactionSlotOperandSchema = strict({ kind: z.literal('interaction-slot'), slotId: id });
+const commandResultOperandSchema = strict({ kind: z.literal('command-result'), bindingId: id });
+export const compiledGameplayIdentityOperandSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
+  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
+  strict({ kind: z.literal('room-feature'), room: roomReferenceSchema, featureId: id }),
+  strict({
+    kind: z.literal('interactable-feature'),
+    interactable: interactableReferenceSchema,
+    featureId: id,
+  }),
+  strict({ kind: z.literal('current-room') }),
+  interactionSlotOperandSchema,
+  commandResultOperandSchema,
+]);
+export const compiledInteractableOperandSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
+  interactionSlotOperandSchema,
+  commandResultOperandSchema,
+]);
+export const compiledLocationSubjectOperandSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
+  interactionSlotOperandSchema,
+  commandResultOperandSchema,
+]);
+export const compiledRoomOperandSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
+  strict({ kind: z.literal('current-room') }),
+  commandResultOperandSchema,
+]);
+export const compiledInventoryOwnerOperandSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('project') }),
+  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
+  strict({ kind: z.literal('room-feature'), room: roomReferenceSchema, featureId: id }),
+  strict({
+    kind: z.literal('interactable-feature'),
+    interactable: interactableReferenceSchema,
+    featureId: id,
+  }),
+  interactionSlotOperandSchema,
+  commandResultOperandSchema,
+]);
+export const compiledInventoryOperandSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('inventory'), inventory: inventoryReferenceSchema }),
+  strict({ kind: z.literal('player-inventory') }),
+  strict({
+    kind: z.literal('owner-inventory'),
+    owner: compiledInventoryOwnerOperandSchema,
+    inventoryId: id,
+  }),
+  commandResultOperandSchema,
+]);
+export const compiledLocationOperandSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('unplaced') }),
+  strict({ kind: z.literal('room'), room: compiledRoomOperandSchema }),
+  strict({ kind: z.literal('inventory'), inventory: compiledInventoryOperandSchema }),
+]);
+export const compiledInteractableMatcherSchema = strict({
+  definition: interactableDefinitionReferenceSchema.optional(),
+  traits: z.array(traitReferenceSchema),
+  properties: z.array(strict({ propertyId: id, value: runtimeValueSchema })),
+  exact: compiledInteractableOperandSchema.optional(),
+});
+
 export const compiledTextSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
   strict({ kind: z.literal('localized'), key: z.string().min(1) }),
@@ -123,25 +203,99 @@ export const compiledTextSchema = strict({
   source: compiledTextSourceSchema,
 });
 
-export const compiledConditionSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('always') }),
-  strict({
-    kind: z.literal('global-property-comparison'),
-    operator: z.enum([
-      'equal',
-      'not-equal',
-      'less',
-      'less-equal',
-      'greater',
-      'greater-equal',
-      'truthy',
-      'falsy',
-    ]),
-    value: runtimeValueSchema.optional(),
-    property: propertyReferenceSchema,
-  }),
-  strict({ kind: z.literal('lua-predicate'), source: z.string().min(1) }),
+const compiledValueComparisonOperatorSchema = z.enum([
+  'equal',
+  'not-equal',
+  'less',
+  'less-equal',
+  'greater',
+  'greater-equal',
 ]);
+const compiledPropertyComparisonOperatorSchema = z.enum([
+  ...compiledValueComparisonOperatorSchema.options,
+  'truthy',
+  'falsy',
+]);
+export type CompiledCondition =
+  | { kind: 'always' }
+  | { kind: 'all'; conditions: CompiledCondition[] }
+  | { kind: 'any'; conditions: CompiledCondition[] }
+  | { kind: 'not'; condition: CompiledCondition }
+  | {
+      kind: 'global-property-comparison';
+      operator: z.infer<typeof compiledPropertyComparisonOperatorSchema>;
+      value?: z.infer<typeof runtimeValueSchema>;
+      property: z.infer<typeof propertyReferenceSchema>;
+    }
+  | {
+      kind: 'property-comparison';
+      owner: z.infer<typeof compiledGameplayIdentityOperandSchema>;
+      propertyId: string;
+      operator: z.infer<typeof compiledPropertyComparisonOperatorSchema>;
+      value?: z.infer<typeof runtimeValueSchema>;
+    }
+  | {
+      kind: 'trait-presence';
+      owner: z.infer<typeof compiledGameplayIdentityOperandSchema>;
+      trait: z.infer<typeof traitReferenceSchema>;
+      present: boolean;
+    }
+  | {
+      kind: 'location-comparison';
+      subject: z.infer<typeof compiledLocationSubjectOperandSchema>;
+      operator: 'equal' | 'not-equal';
+      location: z.infer<typeof compiledLocationOperandSchema>;
+    }
+  | {
+      kind: 'inventory-quantity-comparison';
+      inventory: z.infer<typeof compiledInventoryOperandSchema>;
+      matcher: z.infer<typeof compiledInteractableMatcherSchema>;
+      operator: z.infer<typeof compiledValueComparisonOperatorSchema>;
+      quantity: number;
+    }
+  | { kind: 'lua-predicate'; source: string };
+
+export const compiledConditionSchema: z.ZodType<CompiledCondition> = z.lazy(() =>
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('always') }),
+    strict({ kind: z.literal('all'), conditions: z.array(compiledConditionSchema) }),
+    strict({ kind: z.literal('any'), conditions: z.array(compiledConditionSchema) }),
+    strict({ kind: z.literal('not'), condition: compiledConditionSchema }),
+    strict({
+      kind: z.literal('global-property-comparison'),
+      operator: compiledPropertyComparisonOperatorSchema,
+      value: runtimeValueSchema.optional(),
+      property: propertyReferenceSchema,
+    }),
+    strict({
+      kind: z.literal('property-comparison'),
+      owner: compiledGameplayIdentityOperandSchema,
+      propertyId: id,
+      operator: compiledPropertyComparisonOperatorSchema,
+      value: runtimeValueSchema.optional(),
+    }),
+    strict({
+      kind: z.literal('trait-presence'),
+      owner: compiledGameplayIdentityOperandSchema,
+      trait: traitReferenceSchema,
+      present: z.boolean(),
+    }),
+    strict({
+      kind: z.literal('location-comparison'),
+      subject: compiledLocationSubjectOperandSchema,
+      operator: z.enum(['equal', 'not-equal']),
+      location: compiledLocationOperandSchema,
+    }),
+    strict({
+      kind: z.literal('inventory-quantity-comparison'),
+      inventory: compiledInventoryOperandSchema,
+      matcher: compiledInteractableMatcherSchema,
+      operator: compiledValueComparisonOperatorSchema,
+      quantity: z.number().int().nonnegative().safe(),
+    }),
+    strict({ kind: z.literal('lua-predicate'), source: z.string().min(1) }),
+  ]),
+);
 
 export const compiledEffectSchema = z.discriminatedUnion('kind', [
   strict({
@@ -194,18 +348,6 @@ const exactPropertyOwnerSchema = z.discriminatedUnion('kind', [
 ]);
 
 const inventoryDefinitionSchema = strict({ id, label: z.string().min(1) });
-const inventoryOwnerSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('project') }),
-  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
-  strict({ kind: z.literal('room-feature'), room: roomReferenceSchema, featureId: id }),
-  strict({
-    kind: z.literal('interactable-feature'),
-    interactable: interactableReferenceSchema,
-    featureId: id,
-  }),
-]);
-const inventoryReferenceSchema = strict({ owner: inventoryOwnerSchema, inventoryId: id });
 
 const featureDefinitionSchema = strict({
   ...propertyBearingDefinition,
@@ -1839,7 +1981,6 @@ export const compiledProjectWireSchema = strict({
 
 export type CompiledRuntimeValue = z.infer<typeof runtimeValueSchema>;
 export type CompiledText = z.infer<typeof compiledTextSchema>;
-export type CompiledCondition = z.infer<typeof compiledConditionSchema>;
 export type CompiledEffect = z.infer<typeof compiledEffectSchema>;
 export type CompiledFlowTarget = z.infer<typeof compiledFlowTargetSchema>;
 export type CompiledAssetReference = z.infer<typeof assetReferenceSchema>;

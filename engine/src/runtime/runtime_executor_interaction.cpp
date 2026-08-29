@@ -318,7 +318,13 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
         if (!winner)
             continue;
         if (winner->condition) {
-            auto condition = evaluate(*winner->condition);
+            const std::array<core::InteractionSubjectBinding, 1> offer_bindings{{
+                core::InteractionSubjectBinding{winner->slot, subject},
+            }};
+            auto condition =
+                evaluate(*winner->condition,
+                         core::ConditionEvaluationContext{.interaction_bindings = offer_bindings,
+                                                          .command_results = {}});
             const auto* condition_value = condition.value_if();
             if (condition_value == nullptr)
                 return core::Result<std::vector<core::VerbOfferView>,
@@ -782,7 +788,9 @@ RuntimeExecutor::interact_in_context(core::VerbId verb_id,
         std::optional<std::int64_t> winning_priority;
         std::vector<std::size_t> passing;
         for (const auto index : tier) {
-            auto guard = evaluate(remaining[index].rule->guard);
+            auto guard = evaluate(remaining[index].rule->guard,
+                                  core::ConditionEvaluationContext{.interaction_bindings = bindings,
+                                                                   .command_results = {}});
             const auto* guard_value = guard.value_if();
             if (guard_value == nullptr)
                 return core::Result<void, RuntimeExecutionError>::failure(guard.error());

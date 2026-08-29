@@ -145,6 +145,22 @@ std::optional<TextContent> decode_text(Decoder& decoder, const nlohmann::json& v
     return TextContent{std::move(*source), *markup};
 }
 
+namespace {
+std::optional<GameplayIdentityOperand> decode_gameplay_identity_operand(Decoder& decoder,
+                                                                        const nlohmann::json& value,
+                                                                        std::string_view pointer);
+std::optional<LocationSubjectOperand> decode_location_subject_operand(Decoder& decoder,
+                                                                      const nlohmann::json& value,
+                                                                      std::string_view pointer);
+std::optional<LocationOperand>
+decode_location_operand(Decoder& decoder, const nlohmann::json& value, std::string_view pointer);
+std::optional<InventoryOperand>
+decode_inventory_operand(Decoder& decoder, const nlohmann::json& value, std::string_view pointer);
+std::optional<ConditionInteractableMatcher>
+decode_condition_interactable_matcher(Decoder& decoder, const nlohmann::json& value,
+                                      std::string_view pointer);
+} // namespace
+
 std::optional<Condition> decode_condition_impl(Decoder& decoder, const nlohmann::json& value,
                                                std::string_view pointer)
 {
@@ -160,6 +176,36 @@ std::optional<Condition> decode_condition_impl(Decoder& decoder, const nlohmann:
     if (*kind == "always") {
         decoder.object(value, pointer, {"kind"});
         return Condition{Always{}};
+    }
+    if (*kind == "all" || *kind == "any") {
+        decoder.object(value, pointer, {"conditions", "kind"});
+        const auto* conditions_value = decoder.member(value, "conditions", pointer);
+        auto conditions =
+            conditions_value
+                ? decoder.array<Condition>(
+                      *conditions_value, pointer_child(pointer, "conditions"),
+                      [&](const nlohmann::json& item,
+                          const std::string& item_pointer) -> std::optional<Condition> {
+                          return decode_condition_impl(decoder, item, item_pointer);
+                      })
+                : std::nullopt;
+        if (!conditions)
+            return std::nullopt;
+        return *kind == "all" ? std::optional<Condition>(AllCondition{std::move(*conditions)})
+                              : std::optional<Condition>(AnyCondition{std::move(*conditions)});
+    }
+    if (*kind == "not") {
+        decoder.object(value, pointer, {"condition", "kind"});
+        const auto* condition_value = decoder.member(value, "condition", pointer);
+        auto condition = condition_value
+                             ? decode_condition_impl(decoder, *condition_value,
+                                                     pointer_child(pointer, "condition"))
+                             : std::nullopt;
+        if (!condition)
+            return std::nullopt;
+        std::vector<Condition> nested;
+        nested.push_back(std::move(*condition));
+        return Condition{NotCondition{std::move(nested)}};
     }
     if (*kind == "lua-predicate") {
         decoder.object(value, pointer, {"kind", "source"});
@@ -207,6 +253,123 @@ std::optional<Condition> decode_condition_impl(Decoder& decoder, const nlohmann:
             return std::nullopt;
         return Condition{GlobalPropertyComparison{GlobalPropertyValueComparison{
             std::move(*property), *comparison_operator, std::move(*comparison)}}};
+    }
+    if (*kind == "property-comparison") {
+        decoder.object(value, pointer, {"kind", "operator", "owner", "propertyId", "value"});
+        const auto* owner_value = decoder.member(value, "owner", pointer);
+        const auto* property_value = decoder.member(value, "propertyId", pointer);
+        const auto* operation_value = decoder.member(value, "operator", pointer);
+        auto owner = owner_value ? decode_gameplay_identity_operand(decoder, *owner_value,
+                                                                    pointer_child(pointer, "owner"))
+                                 : std::nullopt;
+        auto property =
+            property_value
+                ? decoder.id<PropertyId>(*property_value, pointer_child(pointer, "propertyId"))
+                : std::nullopt;
+        auto operation = operation_value
+                             ? decoder.string(*operation_value, pointer_child(pointer, "operator"))
+                             : std::nullopt;
+        if (!owner || !property || !operation)
+            return std::nullopt;
+        if (*operation == "truthy" || *operation == "falsy") {
+            if (json_access::member(value, "value"))
+                decoder.error(k_code_unknown, "Truthiness comparisons do not accept 'value'.",
+                              pointer_child(pointer, "value"));
+            return Condition{IdentityPropertyComparison{IdentityPropertyTruthiness{
+                std::move(*owner), std::move(*property),
+                *operation == "truthy" ? TruthinessOperator::Truthy : TruthinessOperator::Falsy}}};
+        }
+        const auto* comparison_value = decoder.member(value, "value", pointer);
+        auto comparison = comparison_value ? decode_runtime_value(decoder, *comparison_value,
+                                                                  pointer_child(pointer, "value"))
+                                           : std::nullopt;
+        auto comparison_operator = decoder.enumeration<ValueComparisonOperator>(
+            *operation_value, pointer_child(pointer, "operator"),
+            {{"equal", ValueComparisonOperator::Equal},
+             {"not-equal", ValueComparisonOperator::NotEqual},
+             {"less", ValueComparisonOperator::Less},
+             {"less-equal", ValueComparisonOperator::LessEqual},
+             {"greater", ValueComparisonOperator::Greater},
+             {"greater-equal", ValueComparisonOperator::GreaterEqual}});
+        if (!comparison || !comparison_operator)
+            return std::nullopt;
+        return Condition{IdentityPropertyComparison{
+            IdentityPropertyValueComparison{std::move(*owner), std::move(*property),
+                                            *comparison_operator, std::move(*comparison)}}};
+    }
+    if (*kind == "trait-presence") {
+        decoder.object(value, pointer, {"kind", "owner", "present", "trait"});
+        const auto* owner_value = decoder.member(value, "owner", pointer);
+        const auto* trait_value = decoder.member(value, "trait", pointer);
+        const auto* present_value = decoder.member(value, "present", pointer);
+        auto owner = owner_value ? decode_gameplay_identity_operand(decoder, *owner_value,
+                                                                    pointer_child(pointer, "owner"))
+                                 : std::nullopt;
+        auto trait = trait_value
+                         ? decode_reference<TraitId>(decoder, *trait_value,
+                                                     pointer_child(pointer, "trait"), "trait")
+                         : std::nullopt;
+        auto present = present_value
+                           ? decoder.boolean(*present_value, pointer_child(pointer, "present"))
+                           : std::nullopt;
+        return owner && trait && present ? std::optional<Condition>(TraitPresenceCondition{
+                                               std::move(*owner), std::move(*trait), *present})
+                                         : std::nullopt;
+    }
+    if (*kind == "location-comparison") {
+        decoder.object(value, pointer, {"kind", "location", "operator", "subject"});
+        const auto* subject_value = decoder.member(value, "subject", pointer);
+        const auto* operation_value = decoder.member(value, "operator", pointer);
+        const auto* location_value = decoder.member(value, "location", pointer);
+        auto subject = subject_value
+                           ? decode_location_subject_operand(decoder, *subject_value,
+                                                             pointer_child(pointer, "subject"))
+                           : std::nullopt;
+        auto operation = operation_value
+                             ? decoder.enumeration<EqualityComparisonOperator>(
+                                   *operation_value, pointer_child(pointer, "operator"),
+                                   {{"equal", EqualityComparisonOperator::Equal},
+                                    {"not-equal", EqualityComparisonOperator::NotEqual}})
+                             : std::nullopt;
+        auto location = location_value ? decode_location_operand(decoder, *location_value,
+                                                                 pointer_child(pointer, "location"))
+                                       : std::nullopt;
+        return subject && operation && location
+                   ? std::optional<Condition>(LocationComparisonCondition{
+                         std::move(*subject), *operation, std::move(*location)})
+                   : std::nullopt;
+    }
+    if (*kind == "inventory-quantity-comparison") {
+        decoder.object(value, pointer, {"inventory", "kind", "matcher", "operator", "quantity"});
+        const auto* inventory_value = decoder.member(value, "inventory", pointer);
+        const auto* matcher_value = decoder.member(value, "matcher", pointer);
+        const auto* operation_value = decoder.member(value, "operator", pointer);
+        const auto* quantity_value = decoder.member(value, "quantity", pointer);
+        auto inventory = inventory_value
+                             ? decode_inventory_operand(decoder, *inventory_value,
+                                                        pointer_child(pointer, "inventory"))
+                             : std::nullopt;
+        auto matcher =
+            matcher_value ? decode_condition_interactable_matcher(decoder, *matcher_value,
+                                                                  pointer_child(pointer, "matcher"))
+                          : std::nullopt;
+        auto operation = operation_value
+                             ? decoder.enumeration<ValueComparisonOperator>(
+                                   *operation_value, pointer_child(pointer, "operator"),
+                                   {{"equal", ValueComparisonOperator::Equal},
+                                    {"not-equal", ValueComparisonOperator::NotEqual},
+                                    {"less", ValueComparisonOperator::Less},
+                                    {"less-equal", ValueComparisonOperator::LessEqual},
+                                    {"greater", ValueComparisonOperator::Greater},
+                                    {"greater-equal", ValueComparisonOperator::GreaterEqual}})
+                             : std::nullopt;
+        auto quantity = quantity_value ? decoder.unsigned_integer<std::uint64_t>(
+                                             *quantity_value, pointer_child(pointer, "quantity"))
+                                       : std::nullopt;
+        return inventory && matcher && operation && quantity
+                   ? std::optional<Condition>(InventoryQuantityComparisonCondition{
+                         std::move(*inventory), std::move(*matcher), *operation, *quantity})
+                   : std::nullopt;
     }
     decoder.object(value, pointer, {"kind"});
     decoder.error(k_code_variant, "Unknown condition variant '" + *kind + "'.",
@@ -521,6 +684,352 @@ std::optional<InventoryRef> decode_inventory_ref(Decoder& decoder, const nlohman
             : std::nullopt;
     return owner && inventory
                ? std::optional<InventoryRef>(InventoryRef{std::move(*owner), *inventory})
+               : std::nullopt;
+}
+
+std::optional<GameplayIdentityOperand> decode_gameplay_identity_operand(Decoder& decoder,
+                                                                        const nlohmann::json& value,
+                                                                        std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected a gameplay identity operand object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "room") {
+        decoder.object(value, pointer, {"kind", "room"});
+        const auto* member = decoder.member(value, "room", pointer);
+        auto room = member ? decode_reference<RoomId>(decoder, *member,
+                                                      pointer_child(pointer, "room"), "room")
+                           : std::nullopt;
+        return room ? std::optional<GameplayIdentityOperand>(*room) : std::nullopt;
+    }
+    if (*kind == "character") {
+        decoder.object(value, pointer, {"character", "kind"});
+        const auto* member = decoder.member(value, "character", pointer);
+        auto character =
+            member ? decode_reference<CharacterId>(decoder, *member,
+                                                   pointer_child(pointer, "character"), "character")
+                   : std::nullopt;
+        return character ? std::optional<GameplayIdentityOperand>(*character) : std::nullopt;
+    }
+    if (*kind == "interactable") {
+        decoder.object(value, pointer, {"interactable", "kind"});
+        const auto* member = decoder.member(value, "interactable", pointer);
+        auto interactable =
+            member ? decode_reference<InteractableInstanceId>(
+                         decoder, *member, pointer_child(pointer, "interactable"), "interactable")
+                   : std::nullopt;
+        return interactable ? std::optional<GameplayIdentityOperand>(*interactable) : std::nullopt;
+    }
+    if (*kind == "room-feature") {
+        decoder.object(value, pointer, {"featureId", "kind", "room"});
+        const auto* room_value = decoder.member(value, "room", pointer);
+        const auto* feature_value = decoder.member(value, "featureId", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        auto feature = feature_value ? decoder.id<FeatureId>(*feature_value,
+                                                             pointer_child(pointer, "featureId"))
+                                     : std::nullopt;
+        return room && feature
+                   ? std::optional<GameplayIdentityOperand>(RoomFeatureRef{*room, *feature})
+                   : std::nullopt;
+    }
+    if (*kind == "interactable-feature") {
+        decoder.object(value, pointer, {"featureId", "interactable", "kind"});
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        const auto* feature_value = decoder.member(value, "featureId", pointer);
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableInstanceId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        auto feature = feature_value ? decoder.id<FeatureId>(*feature_value,
+                                                             pointer_child(pointer, "featureId"))
+                                     : std::nullopt;
+        return interactable && feature ? std::optional<GameplayIdentityOperand>(
+                                             InteractableFeatureRef{*interactable, *feature})
+                                       : std::nullopt;
+    }
+    if (*kind == "current-room") {
+        decoder.object(value, pointer, {"kind"});
+        return GameplayIdentityOperand{CurrentRoomOperand{}};
+    }
+    if (*kind == "interaction-slot") {
+        decoder.object(value, pointer, {"kind", "slotId"});
+        const auto* slot_value = decoder.member(value, "slotId", pointer);
+        auto slot = slot_value
+                        ? decoder.id<VerbSlotId>(*slot_value, pointer_child(pointer, "slotId"))
+                        : std::nullopt;
+        return slot ? std::optional<GameplayIdentityOperand>(InteractionSlotOperand{*slot})
+                    : std::nullopt;
+    }
+    if (*kind == "command-result") {
+        decoder.object(value, pointer, {"bindingId", "kind"});
+        const auto* binding_value = decoder.member(value, "bindingId", pointer);
+        auto binding = binding_value ? decoder.id<CommandResultBindingId>(
+                                           *binding_value, pointer_child(pointer, "bindingId"))
+                                     : std::nullopt;
+        return binding ? std::optional<GameplayIdentityOperand>(CommandResultOperand{*binding})
+                       : std::nullopt;
+    }
+    decoder.object(value, pointer, {"kind"});
+    decoder.error(k_code_variant, "Unknown gameplay identity operand variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<InteractableOperand>
+decode_interactable_operand(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    auto decoded = decode_gameplay_identity_operand(decoder, value, pointer);
+    if (!decoded)
+        return std::nullopt;
+    if (const auto* interactable = std::get_if<InteractableInstanceId>(&*decoded))
+        return InteractableOperand{*interactable};
+    if (const auto* slot = std::get_if<InteractionSlotOperand>(&*decoded))
+        return InteractableOperand{*slot};
+    if (const auto* result = std::get_if<CommandResultOperand>(&*decoded))
+        return InteractableOperand{*result};
+    decoder.error(k_code_variant, "Operand cannot resolve an Interactable.", std::string(pointer));
+    return std::nullopt;
+}
+
+std::optional<LocationSubjectOperand> decode_location_subject_operand(Decoder& decoder,
+                                                                      const nlohmann::json& value,
+                                                                      std::string_view pointer)
+{
+    auto decoded = decode_gameplay_identity_operand(decoder, value, pointer);
+    if (!decoded)
+        return std::nullopt;
+    if (const auto* character = std::get_if<CharacterId>(&*decoded))
+        return LocationSubjectOperand{*character};
+    if (const auto* interactable = std::get_if<InteractableInstanceId>(&*decoded))
+        return LocationSubjectOperand{*interactable};
+    if (const auto* slot = std::get_if<InteractionSlotOperand>(&*decoded))
+        return LocationSubjectOperand{*slot};
+    if (const auto* result = std::get_if<CommandResultOperand>(&*decoded))
+        return LocationSubjectOperand{*result};
+    decoder.error(k_code_variant, "Operand cannot expose a Location.", std::string(pointer));
+    return std::nullopt;
+}
+
+std::optional<RoomOperand> decode_room_operand(Decoder& decoder, const nlohmann::json& value,
+                                               std::string_view pointer)
+{
+    auto decoded = decode_gameplay_identity_operand(decoder, value, pointer);
+    if (!decoded)
+        return std::nullopt;
+    if (const auto* room = std::get_if<RoomId>(&*decoded))
+        return RoomOperand{*room};
+    if (std::holds_alternative<CurrentRoomOperand>(*decoded))
+        return RoomOperand{CurrentRoomOperand{}};
+    if (const auto* result = std::get_if<CommandResultOperand>(&*decoded))
+        return RoomOperand{*result};
+    decoder.error(k_code_variant, "Operand cannot resolve a Room.", std::string(pointer));
+    return std::nullopt;
+}
+
+std::optional<InventoryOwnerOperand> decode_inventory_owner_operand(Decoder& decoder,
+                                                                    const nlohmann::json& value,
+                                                                    std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected an Inventory owner operand object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "project") {
+        decoder.object(value, pointer, {"kind"});
+        return InventoryOwnerOperand{ProjectInventoryOwnerOperand{}};
+    }
+    auto identity = decode_gameplay_identity_operand(decoder, value, pointer);
+    if (!identity)
+        return std::nullopt;
+    if (const auto* character = std::get_if<CharacterId>(&*identity))
+        return InventoryOwnerOperand{*character};
+    if (const auto* interactable = std::get_if<InteractableInstanceId>(&*identity))
+        return InventoryOwnerOperand{*interactable};
+    if (const auto* room_feature = std::get_if<RoomFeatureRef>(&*identity))
+        return InventoryOwnerOperand{*room_feature};
+    if (const auto* interactable_feature = std::get_if<InteractableFeatureRef>(&*identity))
+        return InventoryOwnerOperand{*interactable_feature};
+    if (const auto* slot = std::get_if<InteractionSlotOperand>(&*identity))
+        return InventoryOwnerOperand{*slot};
+    if (const auto* result = std::get_if<CommandResultOperand>(&*identity))
+        return InventoryOwnerOperand{*result};
+    decoder.error(k_code_variant, "Operand cannot own an Inventory.", std::string(pointer));
+    return std::nullopt;
+}
+
+std::optional<InventoryOperand>
+decode_inventory_operand(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected an Inventory operand object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "inventory") {
+        decoder.object(value, pointer, {"inventory", "kind"});
+        const auto* inventory_value = decoder.member(value, "inventory", pointer);
+        auto inventory = inventory_value ? decode_inventory_ref(decoder, *inventory_value,
+                                                                pointer_child(pointer, "inventory"))
+                                         : std::nullopt;
+        return inventory ? std::optional<InventoryOperand>(ExactInventoryOperand{*inventory})
+                         : std::nullopt;
+    }
+    if (*kind == "player-inventory") {
+        decoder.object(value, pointer, {"kind"});
+        return InventoryOperand{PlayerInventoryOperand{}};
+    }
+    if (*kind == "owner-inventory") {
+        decoder.object(value, pointer, {"inventoryId", "kind", "owner"});
+        const auto* owner_value = decoder.member(value, "owner", pointer);
+        const auto* inventory_value = decoder.member(value, "inventoryId", pointer);
+        auto owner = owner_value ? decode_inventory_owner_operand(decoder, *owner_value,
+                                                                  pointer_child(pointer, "owner"))
+                                 : std::nullopt;
+        auto inventory =
+            inventory_value
+                ? decoder.id<InventoryId>(*inventory_value, pointer_child(pointer, "inventoryId"))
+                : std::nullopt;
+        return owner && inventory ? std::optional<InventoryOperand>(
+                                        OwnerInventoryOperand{std::move(*owner), *inventory})
+                                  : std::nullopt;
+    }
+    if (*kind == "command-result") {
+        decoder.object(value, pointer, {"bindingId", "kind"});
+        const auto* binding_value = decoder.member(value, "bindingId", pointer);
+        auto binding = binding_value ? decoder.id<CommandResultBindingId>(
+                                           *binding_value, pointer_child(pointer, "bindingId"))
+                                     : std::nullopt;
+        return binding ? std::optional<InventoryOperand>(CommandResultOperand{*binding})
+                       : std::nullopt;
+    }
+    decoder.object(value, pointer, {"kind"});
+    decoder.error(k_code_variant, "Unknown Inventory operand variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<LocationOperand>
+decode_location_operand(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected a Location operand object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "unplaced") {
+        decoder.object(value, pointer, {"kind"});
+        return LocationOperand{UnplacedLocation{}};
+    }
+    if (*kind == "room") {
+        decoder.object(value, pointer, {"kind", "room"});
+        const auto* room_value = decoder.member(value, "room", pointer);
+        auto room = room_value
+                        ? decode_room_operand(decoder, *room_value, pointer_child(pointer, "room"))
+                        : std::nullopt;
+        return room ? std::optional<LocationOperand>(RoomLocationOperand{std::move(*room)})
+                    : std::nullopt;
+    }
+    if (*kind == "inventory") {
+        decoder.object(value, pointer, {"inventory", "kind"});
+        const auto* inventory_value = decoder.member(value, "inventory", pointer);
+        auto inventory = inventory_value
+                             ? decode_inventory_operand(decoder, *inventory_value,
+                                                        pointer_child(pointer, "inventory"))
+                             : std::nullopt;
+        return inventory
+                   ? std::optional<LocationOperand>(InventoryLocationOperand{std::move(*inventory)})
+                   : std::nullopt;
+    }
+    decoder.object(value, pointer, {"kind"});
+    decoder.error(k_code_variant, "Unknown Location operand variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<ConditionInteractableMatcher>
+decode_condition_interactable_matcher(Decoder& decoder, const nlohmann::json& value,
+                                      std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"definition", "exact", "properties", "traits"}))
+        return std::nullopt;
+    std::optional<InteractableDefinitionId> definition;
+    if (const auto* definition_value = json_access::member(value, "definition")) {
+        definition = decode_reference<InteractableDefinitionId>(
+            decoder, *definition_value, pointer_child(pointer, "definition"),
+            "interactable-definition");
+        if (!definition)
+            return std::nullopt;
+    }
+    const auto* traits_value = decoder.member(value, "traits", pointer);
+    const auto* properties_value = decoder.member(value, "properties", pointer);
+    auto traits =
+        traits_value
+            ? decoder.array<TraitId>(
+                  *traits_value, pointer_child(pointer, "traits"),
+                  [&](const nlohmann::json& trait,
+                      const std::string& item_pointer) -> std::optional<TraitId> {
+                      return decode_reference<TraitId>(decoder, trait, item_pointer, "trait");
+                  })
+            : std::nullopt;
+    auto properties =
+        properties_value
+            ? decoder.array<InteractablePropertyMatch>(
+                  *properties_value, pointer_child(pointer, "properties"),
+                  [&](const nlohmann::json& item,
+                      const std::string& item_pointer) -> std::optional<InteractablePropertyMatch> {
+                      if (!decoder.object(item, item_pointer, {"propertyId", "value"}))
+                          return std::nullopt;
+                      const auto* property_value = decoder.member(item, "propertyId", item_pointer);
+                      const auto* runtime_value = decoder.member(item, "value", item_pointer);
+                      auto property =
+                          property_value
+                              ? decoder.id<PropertyId>(*property_value,
+                                                       pointer_child(item_pointer, "propertyId"))
+                              : std::nullopt;
+                      auto decoded_value =
+                          runtime_value ? decode_runtime_value(decoder, *runtime_value,
+                                                               pointer_child(item_pointer, "value"))
+                                        : std::nullopt;
+                      return property && decoded_value
+                                 ? std::optional<InteractablePropertyMatch>(
+                                       InteractablePropertyMatch{*property, *decoded_value})
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
+    std::optional<InteractableOperand> exact;
+    if (const auto* exact_value = json_access::member(value, "exact")) {
+        exact = decode_interactable_operand(decoder, *exact_value, pointer_child(pointer, "exact"));
+        if (!exact)
+            return std::nullopt;
+    }
+    return traits && properties
+               ? std::optional<ConditionInteractableMatcher>(
+                     ConditionInteractableMatcher{std::move(definition), std::move(*traits),
+                                                  std::move(*properties), std::move(exact)})
                : std::nullopt;
 }
 } // namespace

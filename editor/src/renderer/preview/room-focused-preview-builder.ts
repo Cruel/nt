@@ -176,14 +176,30 @@ function closureAnalysisOwnerKeys(
 }
 
 function focusedCondition(value: RoomData['overlays'][number]['condition']): FocusedCondition {
-  if (value.kind === 'always') return { kind: 'always' };
-  if (value.kind === 'lua-predicate') return { kind: 'lua-predicate', source: value.source };
-  return {
-    kind: 'variable-comparison',
-    variableId: value.variable.$ref.id,
-    operator: value.operator,
-    ...(value.value !== undefined ? { value: value.value } : {}),
-  };
+  switch (value.kind) {
+    case 'always':
+      return { kind: 'always' };
+    case 'all':
+      return { kind: 'all', conditions: value.conditions.map(focusedCondition) };
+    case 'any':
+      return { kind: 'any', conditions: value.conditions.map(focusedCondition) };
+    case 'not':
+      return { kind: 'not', condition: focusedCondition(value.condition) };
+    case 'lua-predicate':
+      return { kind: 'lua-predicate', source: value.source };
+    case 'variable-comparison':
+      return {
+        kind: 'variable-comparison',
+        variableId: value.variable.$ref.id,
+        operator: value.operator,
+        ...(value.value !== undefined ? { value: value.value } : {}),
+      };
+    case 'property-comparison':
+    case 'trait-presence':
+    case 'location-comparison':
+    case 'inventory-quantity-comparison':
+      return { kind: 'runtime-only', conditionKind: value.kind };
+  }
 }
 
 function localizedText(project: AuthoringProject, key: string): string {
@@ -621,13 +637,15 @@ function structuredConditionVariableIds(room: RoomData): string[] {
     ...room.environments.map((item) => item.condition),
     ...room.exits.map((item) => item.condition),
   ];
-  return [
-    ...new Set(
-      values.flatMap((condition) =>
-        condition.kind === 'variable-comparison' ? [condition.variable.$ref.id] : [],
-      ),
-    ),
-  ].sort();
+  const ids = new Set<string>();
+  const collect = (condition: (typeof values)[number]) => {
+    if (condition.kind === 'variable-comparison') ids.add(condition.variable.$ref.id);
+    else if (condition.kind === 'all' || condition.kind === 'any')
+      condition.conditions.forEach(collect);
+    else if (condition.kind === 'not') collect(condition.condition);
+  };
+  values.forEach(collect);
+  return [...ids].sort();
 }
 
 function collectVisualIds(data: RoomPreviewDocument) {

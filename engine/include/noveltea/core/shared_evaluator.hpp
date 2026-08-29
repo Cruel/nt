@@ -3,6 +3,7 @@
 #include "noveltea/core/flow_executor.hpp"
 
 #include <chrono>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -15,6 +16,11 @@ struct WaitBlocked {
 };
 using WaitEvaluation = std::variant<WaitCompleted, WaitBlocked>;
 
+struct ConditionEvaluationContext {
+    std::span<const InteractionSubjectBinding> interaction_bindings;
+    std::span<const CommandResultBinding> command_results;
+};
+
 // SharedPrimitiveEvaluator is the JSON-free execution boundary for primitives shared by feature
 // programs. Lua-backed variants are handled by RuntimeExecutor through ScriptInvocationPort; this
 // core evaluator rejects them rather than interpreting or silently skipping them.
@@ -26,7 +32,8 @@ public:
     {
     }
 
-    [[nodiscard]] Result<bool, Diagnostics> evaluate(const Condition& condition) const;
+    [[nodiscard]] Result<bool, Diagnostics> evaluate(const Condition& condition,
+                                                     ConditionEvaluationContext context = {}) const;
     [[nodiscard]] Result<void, Diagnostics> apply(const Effect& effect);
     [[nodiscard]] Result<std::string, Diagnostics> resolve(const TextSource& source,
                                                            std::string_view runtime_locale) const;

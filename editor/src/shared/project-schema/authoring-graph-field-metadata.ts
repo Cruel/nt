@@ -140,6 +140,15 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'oonnsssssssssovssnoonoonnnnnnoyop';
 
 const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
+  // #121 expands every existing Condition host into the same recursive typed Condition contract.
+  // These are genuinely new leaves relative to the prior Always/Variable/Lua union. Keep the
+  // previously reviewed legacy leaves aligned while classifying recursive structure and typed
+  // operand/matcher leaves as owner contributions. Lua `source` leaves retain their existing
+  // source-analysis classifications below/through preserved review slots.
+  [
+    /^(?!.*\/additionalDependencies\/).*\/(?:condition|guard|availability|visibility|canEnter|canLeave|waitCondition)(?=\/|$)(?=.*(?:\/conditions\/\*|\/condition$|\/owner\/|\/propertyId$|\/trait\/|\/present$|\/subject\/|\/location\/|\/inventory\/|\/matcher\/|\/quantity$|\/bindingId$|\/slotId$))/,
+    OWNER,
+  ],
   [/^\/bootstrapModule\//, OWNER],
   [/^\/assets\/\*\/data\/imageMetadata\//, OWNER],
   [/\/inventor(?:y|ies)\//, OWNER],
@@ -783,20 +792,20 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
     characters: '53873c0e',
-    dialogues: 'c3f27078',
+    dialogues: '3943b81e',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
     interactableInstances: '287ef173',
-    interactables: 'c5c96a76',
-    interactions: '0de9f668',
+    interactables: '81498bf0',
+    interactions: '48a13402',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
     localization: '3f6d0d11',
-    maps: 'af4e0eba',
+    maps: '9d711bea',
     materials: '546711ca',
     project: 'da3be83d',
-    rooms: '8dff66ee',
-    scenes: '1e4988b5',
+    rooms: 'a8da6718',
+    scenes: '4ee3f5b1',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: 'e2c61a79',
@@ -805,7 +814,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     traits: 'f6534a48',
     undefinedInteractionProgram: 'a6b4336e',
     variables: '9c9e4800',
-    verbs: '7e04e099',
+    verbs: '068a9725',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {
