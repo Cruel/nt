@@ -203,11 +203,14 @@ describe('room commands', () => {
     program.instructions = [
       {
         id: 'move',
-        kind: 'move-interactable',
-        interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
-        target: {
+        kind: 'move-instance',
+        subject: {
+          kind: 'interactable',
+          interactable: { $ref: { registry: 'interactableInstances', id: 'lamp' } },
+        },
+        location: {
           kind: 'room',
-          room: { $ref: { collection: 'rooms', id: 'foyer' } },
+          room: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
         },
       },
     ];
@@ -253,9 +256,12 @@ describe('room commands', () => {
                 program: {
                   instructions: [
                     {
-                      target: {
+                      location: {
                         kind: 'room',
-                        room: { $ref: { collection: 'rooms', id: 'foyer' } },
+                        room: {
+                          kind: 'room',
+                          room: { $ref: { collection: 'rooms', id: 'foyer' } },
+                        },
                       },
                     },
                   ],

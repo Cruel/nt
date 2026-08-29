@@ -406,12 +406,11 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(std::holds_alternative<Always>(rules[2].guard.value));
         CHECK(rules[2].priority == 20);
         REQUIRE(rules[2].program.instructions.size() == 4);
-        CHECK(std::holds_alternative<ApplyEffectInstruction>(rules[2].program.instructions[0]));
-        CHECK(
-            std::holds_alternative<MoveInteractableInstruction>(rules[2].program.instructions[1]));
-        CHECK(std::holds_alternative<SetInteractableStateInstruction>(
-            rules[2].program.instructions[2]));
-        CHECK(std::holds_alternative<NotifyInstruction>(rules[2].program.instructions[3]));
+        CHECK(std::holds_alternative<SetGlobalPropertyCommand>(
+            rules[2].program.instructions[0].value));
+        CHECK(std::holds_alternative<MoveInstanceCommand>(rules[2].program.instructions[1].value));
+        CHECK(std::holds_alternative<SetVisibleCommand>(rules[2].program.instructions[2].value));
+        CHECK(std::holds_alternative<NotifyCommand>(rules[2].program.instructions[3].value));
         CHECK(std::holds_alternative<LuaPredicate>(rules[3].guard.value));
         CHECK(rules[3].priority == 0);
         CHECK(std::holds_alternative<Always>(rules[4].guard.value));
@@ -422,8 +421,9 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
             rules[3].slots.front().selectors.front()));
         CHECK(std::get<FamilySubjectSelector>(rules[3].slots.front().selectors.front()).family ==
               SubjectFamily::Interactable);
-        CHECK(std::get<MoveInteractableInstruction>(rules[4].program.instructions.front())
-                  .id.text() == "room");
+        CHECK(rules[4].program.instructions.front().id.text() == "room");
+        CHECK(std::holds_alternative<MoveInstanceCommand>(
+            rules[4].program.instructions.front().value));
     }
 
     SECTION("all Subject Selector variants share the compiled decoder vocabulary")
@@ -1087,6 +1087,30 @@ TEST_CASE("compiled image sampling is required and decodes explicitly")
 
 TEST_CASE("compiled project public decoder rejects semantic linking failures")
 {
+    SECTION("Gameplay Command result bindings retain their semantic type")
+    {
+        auto document = fixture("interaction-program");
+        auto* instructions = path_member(document, {"definitions", "interactions", "0", "rules",
+                                                    "2", "program", "instructions"});
+        REQUIRE(instructions != nullptr);
+        *instructions = nlohmann::json::array(
+            {{{"id", "create-room"},
+              {"kind", "create-room"},
+              {"source",
+               {{"kind", "compiled-instance"},
+                {"instance", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", "start"}}}}}}},
+              {"result", "created"}},
+             {{"id", "move-result"},
+              {"kind", "move-instance"},
+              {"subject", {{"kind", "command-result"}, {"bindingId", "created"}}},
+              {"location", {{"kind", "unplaced"}}}}});
+
+        auto result =
+            noveltea::core::decode_compiled_project(document, "typed-command-result.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.command_result_type_mismatch"));
+    }
+
     SECTION("System Layout Roles reject project-defined Layout contracts")
     {
         auto document = fixture("comprehensive");

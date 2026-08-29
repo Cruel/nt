@@ -3,6 +3,7 @@ import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
+import { GameplayCommandListEditor } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -47,7 +48,6 @@ import {
   type DialogueConditionData,
   type DialogueData,
   type DialogueEdgeData,
-  type DialogueEffectData,
   type DialogueLineCue,
   type DialoguePreviewBackground,
   type DialogueMediaContent,
@@ -68,6 +68,7 @@ import { parseSceneData } from '../../../shared/project-schema/authoring-scenes'
 import {
   inlineTextContent,
   type FlowTarget,
+  type GameplayCommand,
   type TextContent,
 } from '../../../shared/project-schema/authoring-flow';
 import { isValidEntityId } from '../../../shared/project-schema/authoring-common';
@@ -379,110 +380,22 @@ function ConditionEditor({
 
 function EffectsEditor({
   effects,
-  variableOptions,
+  project,
   onChange,
 }: {
-  effects: readonly DialogueEffectData[];
-  variableOptions: Array<{ id: string; label: string }>;
-  onChange: (effects: DialogueEffectData[]) => void;
+  effects: readonly GameplayCommand[];
+  project: AuthoringEditorProject;
+  onChange: (effects: GameplayCommand[]) => void;
 }) {
   return (
-    <div className="space-y-2 rounded border p-2">
-      <div className="flex items-center justify-between gap-2">
-        <Label>Effects</Label>
-        <div className="flex gap-1">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() =>
-              onChange([
-                ...effects,
-                {
-                  kind: 'set-variable',
-                  variable: {
-                    $ref: { collection: 'variables', id: variableOptions[0]?.id ?? 'variable' },
-                  },
-                  value: false,
-                },
-              ])
-            }
-          >
-            Set variable
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onChange([...effects, { kind: 'run-lua-effect', source: '-- Lua' }])}
-          >
-            Run Lua
-          </Button>
-        </div>
-      </div>
-      {effects.map((effect, index) => (
-        <div key={`${effect.kind}:${index}`} className="space-y-2 rounded border p-2">
-          {effect.kind === 'set-variable' ? (
-            <>
-              <Select
-                value={effect.variable.$ref.id}
-                onValueChange={(value) =>
-                  onChange(
-                    effects.map((item, itemIndex) =>
-                      itemIndex === index && item.kind === 'set-variable'
-                        ? {
-                            ...item,
-                            variable: { $ref: { collection: 'variables', id: String(value) } },
-                          }
-                        : item,
-                    ),
-                  )
-                }
-              >
-                {variableOptions.length === 0 ? (
-                  <SelectItem value="variable">Missing variable</SelectItem>
-                ) : null}
-                {variableOptions.map((variable) => (
-                  <SelectItem key={variable.id} value={variable.id}>
-                    {variable.label} ({variable.id})
-                  </SelectItem>
-                ))}
-              </Select>
-              <Input
-                value={String(effect.value ?? '')}
-                onChange={(event) =>
-                  onChange(
-                    effects.map((item, itemIndex) =>
-                      itemIndex === index && item.kind === 'set-variable'
-                        ? { ...item, value: scalar(event.currentTarget.value) }
-                        : item,
-                    ),
-                  )
-                }
-              />
-            </>
-          ) : (
-            <textarea
-              className="min-h-24 w-full rounded border bg-background p-2 font-mono text-xs"
-              value={effect.source}
-              onChange={(event) =>
-                onChange(
-                  effects.map((item, itemIndex) =>
-                    itemIndex === index && item.kind === 'run-lua-effect'
-                      ? { ...item, source: event.currentTarget.value }
-                      : item,
-                  ),
-                )
-              }
-            />
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onChange(effects.filter((_, itemIndex) => itemIndex !== index))}
-          >
-            Delete effect
-          </Button>
-        </div>
-      ))}
+    <div className="space-y-2">
+      <Label>Effects</Label>
+      <GameplayCommandListEditor
+        value={effects}
+        project={project}
+        policy={{ currentRoom: true, playerInventory: true }}
+        onChange={onChange}
+      />
     </div>
   );
 }
@@ -688,10 +601,6 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
       ),
     )
     .map(([id, asset]) => ({ id, label: asset.label }));
-  const variables = Object.entries(project.variables).map(([id, variable]) => ({
-    id,
-    label: variable.label,
-  }));
   const runtimeBlocks = data.blocks.filter((block) => block.type !== 'comment');
   const outgoingEdges = activeBlock
     ? data.edges.filter((edge) => edge.fromBlockId === activeBlock.id)
@@ -3406,7 +3315,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                   />
                   <EffectsEditor
                     effects={activeSegment.effects}
-                    variableOptions={variables}
+                    project={project}
                     onChange={(effects) =>
                       replaceSegment(activeBlock, { ...activeSegment, effects })
                     }
@@ -3745,7 +3654,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                     />
                     <EffectsEditor
                       effects={edge.effects}
-                      variableOptions={variables}
+                      project={project}
                       onChange={(effects) => replaceEdge({ ...edge, effects })}
                     />
                     <label className="flex items-center gap-2">

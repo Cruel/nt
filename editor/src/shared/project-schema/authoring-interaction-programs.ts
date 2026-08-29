@@ -1,45 +1,9 @@
 import { z } from 'zod';
-import {
-  dialogueRefSchema,
-  effectSchema,
-  flowTargetSchema,
-  interactableRefSchema,
-  sceneRefSchema,
-  textContentSchema,
-} from './authoring-flow';
-import { entityIdSchema } from './authoring-common';
-import { interactableLocationSchema } from './authoring-interactables';
+import { flowTargetSchema, gameplayCommandSchema, type GameplayCommand } from './authoring-flow';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-export const interactionRoomPlacementRefSchema = strict({
-  room: entityIdSchema,
-  placement: entityIdSchema,
-});
-
-export const interactionMoveTargetSchema = interactableLocationSchema;
-
-const instructionBase = { id: entityIdSchema };
-
-export const interactionInstructionSchema = z.discriminatedUnion('kind', [
-  strict({ ...instructionBase, kind: z.literal('apply-effect'), effect: effectSchema }),
-  strict({
-    ...instructionBase,
-    kind: z.literal('move-interactable'),
-    interactable: interactableRefSchema,
-    target: interactionMoveTargetSchema,
-  }),
-  strict({
-    ...instructionBase,
-    kind: z.literal('set-interactable-state'),
-    interactable: interactableRefSchema,
-    enabled: z.boolean().optional(),
-    visible: z.boolean().optional(),
-  }),
-  strict({ ...instructionBase, kind: z.literal('notify'), message: textContentSchema }),
-  strict({ ...instructionBase, kind: z.literal('call-scene'), scene: sceneRefSchema }),
-  strict({ ...instructionBase, kind: z.literal('call-dialogue'), dialogue: dialogueRefSchema }),
-]);
+export const interactionInstructionSchema = gameplayCommandSchema;
 
 export const interactionProgramSchema = strict({
   instructions: z.array(interactionInstructionSchema),
@@ -47,9 +11,7 @@ export const interactionProgramSchema = strict({
   outcome: z.enum(['handled', 'unhandled']),
 });
 
-export type InteractionRoomPlacementRef = z.infer<typeof interactionRoomPlacementRefSchema>;
-export type InteractionMoveTarget = z.infer<typeof interactionMoveTargetSchema>;
-export type InteractionInstruction = z.infer<typeof interactionInstructionSchema>;
+export type InteractionInstruction = GameplayCommand;
 export type InteractionProgram = z.infer<typeof interactionProgramSchema>;
 
 export function defaultInteractionProgram(): InteractionProgram {

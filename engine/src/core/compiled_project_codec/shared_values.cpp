@@ -152,6 +152,9 @@ std::optional<GameplayIdentityOperand> decode_gameplay_identity_operand(Decoder&
 std::optional<LocationSubjectOperand> decode_location_subject_operand(Decoder& decoder,
                                                                       const nlohmann::json& value,
                                                                       std::string_view pointer);
+std::optional<InteractableOperand> decode_interactable_operand(Decoder& decoder,
+                                                               const nlohmann::json& value,
+                                                               std::string_view pointer);
 std::optional<LocationOperand>
 decode_location_operand(Decoder& decoder, const nlohmann::json& value, std::string_view pointer);
 std::optional<InventoryOperand>
@@ -415,6 +418,407 @@ std::optional<Effect> decode_effect_impl(Decoder& decoder, const nlohmann::json&
     }
     decoder.object(value, pointer, {"kind"});
     decoder.error(k_code_variant, "Unknown effect variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder& decoder,
+                                                            const nlohmann::json& value,
+                                                            std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected a Gameplay Command object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* id_value = decoder.member(value, "id", pointer);
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto id = id_value
+                  ? decoder.id<InteractionInstructionId>(*id_value, pointer_child(pointer, "id"))
+                  : std::nullopt;
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!id || !kind)
+        return std::nullopt;
+
+    const auto binding = [&](std::string_view name) -> std::optional<CommandResultBindingId> {
+        const auto* member = json_access::member(value, name);
+        return member ? decoder.id<CommandResultBindingId>(*member, pointer_child(pointer, name))
+                      : std::nullopt;
+    };
+    const auto property = [&](std::string_view name) -> std::optional<PropertyId> {
+        const auto* member = decoder.member(value, name, pointer);
+        return member ? decode_reference<PropertyId>(decoder, *member, pointer_child(pointer, name),
+                                                     "property")
+                      : std::nullopt;
+    };
+    const auto runtime_value = [&](std::string_view name) -> std::optional<RuntimeValue> {
+        const auto* member = decoder.member(value, name, pointer);
+        return member ? decode_runtime_value(decoder, *member, pointer_child(pointer, name))
+                      : std::nullopt;
+    };
+    const auto identity = [&](std::string_view name) -> std::optional<GameplayIdentityOperand> {
+        const auto* member = decoder.member(value, name, pointer);
+        return member ? decode_gameplay_identity_operand(decoder, *member,
+                                                         pointer_child(pointer, name))
+                      : std::nullopt;
+    };
+    const auto location_subject =
+        [&](std::string_view name) -> std::optional<LocationSubjectOperand> {
+        const auto* member = decoder.member(value, name, pointer);
+        return member
+                   ? decode_location_subject_operand(decoder, *member, pointer_child(pointer, name))
+                   : std::nullopt;
+    };
+    const auto location = [&](std::string_view name) -> std::optional<LocationOperand> {
+        const auto* member = decoder.member(value, name, pointer);
+        return member ? decode_location_operand(decoder, *member, pointer_child(pointer, name))
+                      : std::nullopt;
+    };
+    const auto interactable = [&](std::string_view name) -> std::optional<InteractableOperand> {
+        const auto* member = decoder.member(value, name, pointer);
+        return member ? decode_interactable_operand(decoder, *member, pointer_child(pointer, name))
+                      : std::nullopt;
+    };
+    const auto quantity = [&](std::string_view name) -> std::optional<std::uint64_t> {
+        const auto* member = decoder.member(value, name, pointer);
+        return member
+                   ? decoder.unsigned_integer<std::uint64_t>(*member, pointer_child(pointer, name))
+                   : std::nullopt;
+    };
+    const auto configuration_source = [&]() -> std::optional<GameplayConfigurationSource> {
+        const auto* source_value = decoder.member(value, "source", pointer);
+        if (!source_value || !source_value->is_object()) {
+            if (source_value)
+                decoder.error(k_code_type, "Expected a Gameplay configuration source object.",
+                              pointer_child(pointer, "source"));
+            return std::nullopt;
+        }
+        const auto source_pointer = pointer_child(pointer, "source");
+        const auto* source_kind_value = decoder.member(*source_value, "kind", source_pointer);
+        auto source_kind = source_kind_value ? decoder.string(*source_kind_value,
+                                                              pointer_child(source_pointer, "kind"))
+                                             : std::nullopt;
+        if (!source_kind)
+            return std::nullopt;
+        if (*source_kind == "archetype") {
+            decoder.object(*source_value, source_pointer, {"archetype", "kind"});
+            const auto* archetype_value =
+                decoder.member(*source_value, "archetype", source_pointer);
+            auto archetype = archetype_value
+                                 ? decode_reference<ArchetypeId>(
+                                       decoder, *archetype_value,
+                                       pointer_child(source_pointer, "archetype"), "archetype")
+                                 : std::nullopt;
+            return archetype
+                       ? std::optional<GameplayConfigurationSource>(GameplayConfigurationSource{
+                             GameplayConfigurationSourceKind::Archetype, std::move(*archetype)})
+                       : std::nullopt;
+        }
+        if (*source_kind == "compiled-instance" || *source_kind == "effective-instance") {
+            decoder.object(*source_value, source_pointer, {"instance", "kind"});
+            const auto* instance_value = decoder.member(*source_value, "instance", source_pointer);
+            auto instance =
+                instance_value
+                    ? decode_gameplay_identity_operand(decoder, *instance_value,
+                                                       pointer_child(source_pointer, "instance"))
+                    : std::nullopt;
+            if (!instance)
+                return std::nullopt;
+            return GameplayConfigurationSource{
+                *source_kind == "compiled-instance"
+                    ? GameplayConfigurationSourceKind::CompiledInstance
+                    : GameplayConfigurationSourceKind::EffectiveInstance,
+                std::move(*instance)};
+        }
+        decoder.object(*source_value, source_pointer, {"kind"});
+        decoder.error(k_code_variant,
+                      "Unknown Gameplay configuration source variant '" + *source_kind + "'.",
+                      pointer_child(source_pointer, "kind"));
+        return std::nullopt;
+    };
+
+    if (*kind == "set-global-property") {
+        decoder.object(value, pointer, {"id", "kind", "property", "value"});
+        auto p = property("property");
+        auto v = runtime_value("value");
+        return p && v ? std::optional<GameplayCommand>(GameplayCommand{
+                            std::move(*id), SetGlobalPropertyCommand{std::move(*p), std::move(*v)}})
+                      : std::nullopt;
+    }
+    if (*kind == "unset-global-property") {
+        decoder.object(value, pointer, {"id", "kind", "property"});
+        auto p = property("property");
+        return p ? std::optional<GameplayCommand>(
+                       GameplayCommand{std::move(*id), UnsetGlobalPropertyCommand{std::move(*p)}})
+                 : std::nullopt;
+    }
+    if (*kind == "set-property" || *kind == "unset-property") {
+        decoder.object(
+            value, pointer,
+            *kind == "set-property"
+                ? std::initializer_list<std::string_view>{"id", "kind", "owner", "property",
+                                                          "value"}
+                : std::initializer_list<std::string_view>{"id", "kind", "owner", "property"});
+        auto owner = identity("owner");
+        auto p = property("property");
+        if (!owner || !p)
+            return std::nullopt;
+        if (*kind == "unset-property")
+            return GameplayCommand{std::move(*id),
+                                   UnsetPropertyCommand{std::move(*owner), std::move(*p)}};
+        auto v = runtime_value("value");
+        return v ? std::optional<GameplayCommand>(GameplayCommand{
+                       std::move(*id),
+                       SetPropertyCommand{std::move(*owner), std::move(*p), std::move(*v)}})
+                 : std::nullopt;
+    }
+    if (*kind == "add-trait" || *kind == "remove-trait") {
+        decoder.object(value, pointer, {"id", "kind", "owner", "trait"});
+        auto owner = identity("owner");
+        const auto* trait_value = decoder.member(value, "trait", pointer);
+        auto trait = trait_value
+                         ? decode_reference<TraitId>(decoder, *trait_value,
+                                                     pointer_child(pointer, "trait"), "trait")
+                         : std::nullopt;
+        if (!owner || !trait)
+            return std::nullopt;
+        return GameplayCommand{
+            std::move(*id),
+            *kind == "add-trait"
+                ? GameplayCommand::Value(AddTraitCommand{std::move(*owner), std::move(*trait)})
+                : GameplayCommand::Value(RemoveTraitCommand{std::move(*owner), std::move(*trait)})};
+    }
+    if (*kind == "set-enabled" || *kind == "set-visible") {
+        decoder.object(
+            value, pointer,
+            *kind == "set-enabled"
+                ? std::initializer_list<std::string_view>{"enabled", "id", "kind", "subject"}
+                : std::initializer_list<std::string_view>{"id", "kind", "subject", "visible"});
+        auto subject = location_subject("subject");
+        const auto field = *kind == "set-enabled" ? "enabled" : "visible";
+        const auto* state_value = decoder.member(value, field, pointer);
+        auto state = state_value ? decoder.boolean(*state_value, pointer_child(pointer, field))
+                                 : std::nullopt;
+        if (!subject || !state)
+            return std::nullopt;
+        return GameplayCommand{
+            std::move(*id),
+            *kind == "set-enabled"
+                ? GameplayCommand::Value(SetEnabledCommand{std::move(*subject), *state})
+                : GameplayCommand::Value(SetVisibleCommand{std::move(*subject), *state})};
+    }
+    if (*kind == "move-instance") {
+        decoder.object(value, pointer, {"id", "kind", "location", "subject"});
+        auto subject = location_subject("subject");
+        auto target = location("location");
+        return subject && target ? std::optional<GameplayCommand>(GameplayCommand{
+                                       std::move(*id), MoveInstanceCommand{std::move(*subject),
+                                                                           std::move(*target)}})
+                                 : std::nullopt;
+    }
+    if (*kind == "create-room" || *kind == "create-character" || *kind == "create-interactable") {
+        if (*kind == "create-room")
+            decoder.object(value, pointer, {"id", "kind", "result", "source"});
+        else
+            decoder.object(value, pointer,
+                           {"enabled", "id", "kind", "location", "result", "source", "visible"});
+        auto source = configuration_source();
+        if (!source)
+            return std::nullopt;
+        auto result = binding("result");
+        if (*kind == "create-room")
+            return GameplayCommand{std::move(*id), CreateRoomCommand{std::move(*source), result}};
+        auto target = location("location");
+        const auto* enabled_value = decoder.member(value, "enabled", pointer);
+        const auto* visible_value = decoder.member(value, "visible", pointer);
+        auto enabled = enabled_value
+                           ? decoder.boolean(*enabled_value, pointer_child(pointer, "enabled"))
+                           : std::nullopt;
+        auto visible = visible_value
+                           ? decoder.boolean(*visible_value, pointer_child(pointer, "visible"))
+                           : std::nullopt;
+        if (!target || !enabled || !visible)
+            return std::nullopt;
+        return GameplayCommand{
+            std::move(*id),
+            *kind == "create-character"
+                ? GameplayCommand::Value(CreateCharacterCommand{
+                      std::move(*source), std::move(*target), *enabled, *visible, result})
+                : GameplayCommand::Value(CreateInteractableCommand{
+                      std::move(*source), std::move(*target), *enabled, *visible, result})};
+    }
+    if (*kind == "destroy-instance") {
+        decoder.object(value, pointer, {"id", "instance", "kind"});
+        auto instance = identity("instance");
+        return instance ? std::optional<GameplayCommand>(GameplayCommand{
+                              std::move(*id), DestroyInstanceCommand{std::move(*instance)}})
+                        : std::nullopt;
+    }
+    if (*kind == "split-quantity") {
+        decoder.object(value, pointer, {"id", "kind", "quantity", "result", "source"});
+        auto source = interactable("source");
+        auto count = quantity("quantity");
+        auto result = binding("result");
+        return source && count
+                   ? std::optional<GameplayCommand>(GameplayCommand{
+                         std::move(*id), SplitQuantityCommand{std::move(*source), *count, result}})
+                   : std::nullopt;
+    }
+    if (*kind == "merge-quantity") {
+        decoder.object(value, pointer, {"donor", "id", "kind", "receiver"});
+        auto receiver = interactable("receiver");
+        auto donor = interactable("donor");
+        return receiver && donor ? std::optional<GameplayCommand>(GameplayCommand{
+                                       std::move(*id), MergeQuantityCommand{std::move(*receiver),
+                                                                            std::move(*donor)}})
+                                 : std::nullopt;
+    }
+    if (*kind == "transfer-quantity" || *kind == "consume-quantity") {
+        const bool transfer = *kind == "transfer-quantity";
+        decoder.object(
+            value, pointer,
+            transfer
+                ? std::initializer_list<std::string_view>{"id", "kind", "location", "matcher",
+                                                          "mode", "quantity", "result", "source",
+                                                          "sourceInventory"}
+                : std::initializer_list<std::string_view>{"id", "kind", "matcher", "mode",
+                                                          "quantity", "source", "sourceInventory"});
+        const auto* mode_value = decoder.member(value, "mode", pointer);
+        auto mode =
+            mode_value ? decoder.string(*mode_value, pointer_child(pointer, "mode")) : std::nullopt;
+        auto count = quantity("quantity");
+        if (!mode || !count)
+            return std::nullopt;
+        std::optional<std::variant<InteractableOperand, ConditionInteractableMatcher>> source;
+        std::optional<InventoryOperand> source_inventory;
+        if (*mode == "exact") {
+            auto exact = interactable("source");
+            if (!exact)
+                return std::nullopt;
+            source = std::move(*exact);
+        } else if (*mode == "aggregate") {
+            const auto* matcher_value = decoder.member(value, "matcher", pointer);
+            auto matcher = matcher_value
+                               ? decode_condition_interactable_matcher(
+                                     decoder, *matcher_value, pointer_child(pointer, "matcher"))
+                               : std::nullopt;
+            if (!matcher)
+                return std::nullopt;
+            source = std::move(*matcher);
+            const auto* inventory_value = json_access::member(value, "sourceInventory");
+            if (inventory_value) {
+                auto inventory = decode_inventory_operand(
+                    decoder, *inventory_value, pointer_child(pointer, "sourceInventory"));
+                if (!inventory)
+                    return std::nullopt;
+                source_inventory = std::move(*inventory);
+            }
+        } else {
+            decoder.error(k_code_variant, "Quantity command mode must be 'exact' or 'aggregate'.",
+                          pointer_child(pointer, "mode"));
+            return std::nullopt;
+        }
+        if (transfer) {
+            auto target = location("location");
+            if (!target)
+                return std::nullopt;
+            auto result = binding("result");
+            if (*mode == "aggregate" && result) {
+                decoder.error(k_code_variant,
+                              "Aggregate Transfer cannot bind a singular command result.",
+                              pointer_child(pointer, "result"));
+                return std::nullopt;
+            }
+            return GameplayCommand{std::move(*id),
+                                   TransferQuantityCommand{std::move(*source),
+                                                           std::move(source_inventory), *count,
+                                                           std::move(*target), result}};
+        }
+        return GameplayCommand{
+            std::move(*id),
+            ConsumeQuantityCommand{std::move(*source), std::move(source_inventory), *count}};
+    }
+    if (*kind == "add-quantity") {
+        decoder.object(value, pointer, {"definition", "id", "kind", "location", "quantity"});
+        const auto* definition_value = decoder.member(value, "definition", pointer);
+        auto definition = definition_value
+                              ? decode_reference<InteractableDefinitionId>(
+                                    decoder, *definition_value,
+                                    pointer_child(pointer, "definition"), "interactable-definition")
+                              : std::nullopt;
+        auto count = quantity("quantity");
+        auto target = location("location");
+        return definition && count && target
+                   ? std::optional<GameplayCommand>(GameplayCommand{
+                         std::move(*id),
+                         AddQuantityCommand{std::move(*definition), *count, std::move(*target)}})
+                   : std::nullopt;
+    }
+    if (*kind == "call-scene" || *kind == "call-dialogue") {
+        const auto name = *kind == "call-scene" ? "scene" : "dialogue";
+        decoder.object(value, pointer, {"id", "kind", name});
+        const auto* reference = decoder.member(value, name, pointer);
+        if (*kind == "call-scene") {
+            auto scene = reference ? decode_reference<SceneId>(
+                                         decoder, *reference, pointer_child(pointer, name), "scene")
+                                   : std::nullopt;
+            return scene ? std::optional<GameplayCommand>(
+                               GameplayCommand{std::move(*id), CallSceneCommand{std::move(*scene)}})
+                         : std::nullopt;
+        }
+        auto dialogue = reference
+                            ? decode_reference<DialogueId>(decoder, *reference,
+                                                           pointer_child(pointer, name), "dialogue")
+                            : std::nullopt;
+        return dialogue ? std::optional<GameplayCommand>(GameplayCommand{
+                              std::move(*id), CallDialogueCommand{std::move(*dialogue)}})
+                        : std::nullopt;
+    }
+    if (*kind == "notify") {
+        decoder.object(value, pointer, {"id", "kind", "message"});
+        const auto* message_value = decoder.member(value, "message", pointer);
+        auto message = message_value
+                           ? decode_text(decoder, *message_value, pointer_child(pointer, "message"))
+                           : std::nullopt;
+        return message ? std::optional<GameplayCommand>(
+                             GameplayCommand{std::move(*id), NotifyCommand{std::move(*message)}})
+                       : std::nullopt;
+    }
+    if (*kind == "run-lua") {
+        decoder.object(value, pointer, {"id", "kind", "source"});
+        const auto* source_value = decoder.member(value, "source", pointer);
+        auto source = source_value
+                          ? decoder.string(*source_value, pointer_child(pointer, "source"), true)
+                          : std::nullopt;
+        return source ? std::optional<GameplayCommand>(
+                            GameplayCommand{std::move(*id), RunLuaCommand{std::move(*source)}})
+                      : std::nullopt;
+    }
+    if (*kind == "if") {
+        decoder.object(value, pointer, {"condition", "else", "id", "kind", "then"});
+        const auto* condition_value = decoder.member(value, "condition", pointer);
+        const auto* then_value = decoder.member(value, "then", pointer);
+        const auto* else_value = decoder.member(value, "else", pointer);
+        auto condition = condition_value
+                             ? decode_condition_impl(decoder, *condition_value,
+                                                     pointer_child(pointer, "condition"))
+                             : std::nullopt;
+        auto then_commands = then_value ? decode_gameplay_commands(decoder, *then_value,
+                                                                   pointer_child(pointer, "then"))
+                                        : std::nullopt;
+        auto else_commands = else_value ? decode_gameplay_commands(decoder, *else_value,
+                                                                   pointer_child(pointer, "else"))
+                                        : std::nullopt;
+        return condition && then_commands && else_commands
+                   ? std::optional<GameplayCommand>(GameplayCommand{
+                         std::move(*id),
+                         IfGameplayCommand{std::move(*condition), std::move(*then_commands),
+                                           std::move(*else_commands)}})
+                   : std::nullopt;
+    }
+
+    decoder.object(value, pointer, {"id", "kind"});
+    decoder.error(k_code_variant, "Unknown Gameplay Command variant '" + *kind + "'.",
                   pointer_child(pointer, "kind"));
     return std::nullopt;
 }

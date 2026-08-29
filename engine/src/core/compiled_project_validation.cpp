@@ -48,6 +48,26 @@ public:
     }
 
 private:
+    enum class CommandResultKind : std::uint8_t {
+        Room,
+        Character,
+        Interactable,
+    };
+    using CommandResultKinds = std::unordered_map<CommandResultBindingId, CommandResultKind>;
+
+    static std::string_view command_result_kind_name(CommandResultKind kind) noexcept
+    {
+        switch (kind) {
+        case CommandResultKind::Room:
+            return "Room";
+        case CommandResultKind::Character:
+            return "Character";
+        case CommandResultKind::Interactable:
+            return "Interactable";
+        }
+        return "Gameplay Instance";
+    }
+
     template<class Id>
     void require(const std::unordered_map<Id, std::size_t>& index, const Id& id,
                  std::string_view kind, std::string path)
@@ -296,7 +316,8 @@ private:
     }
 
     void validate_condition(const Condition& condition, const std::string& path,
-                            const std::unordered_set<VerbSlotId>* interaction_slots = nullptr)
+                            const std::unordered_set<VerbSlotId>* interaction_slots = nullptr,
+                            const CommandResultKinds* command_results = nullptr)
     {
         const auto validate_slot = [&](const InteractionSlotOperand& slot,
                                        const std::string& operand_path) {
@@ -307,11 +328,24 @@ private:
                       operand_path + "/slotId");
         };
         const auto validate_result = [&](const CommandResultOperand& result,
+                                         std::initializer_list<CommandResultKind> allowed,
                                          const std::string& operand_path) {
-            error("compiled_project.condition_result_out_of_scope",
-                  "Condition references command result binding '" + result.binding_id.text() +
-                      "' outside a command-program result scope.",
-                  operand_path + "/bindingId");
+            const auto found = command_results == nullptr
+                                   ? CommandResultKinds::const_iterator{}
+                                   : command_results->find(result.binding_id);
+            if (command_results == nullptr || found == command_results->end()) {
+                error("compiled_project.condition_result_out_of_scope",
+                      "Condition references command result binding '" + result.binding_id.text() +
+                          "' outside its command-program result scope.",
+                      operand_path + "/bindingId");
+                return;
+            }
+            if (std::find(allowed.begin(), allowed.end(), found->second) == allowed.end())
+                error("compiled_project.command_result_type_mismatch",
+                      "Condition uses " + std::string(command_result_kind_name(found->second)) +
+                          " result binding '" + result.binding_id.text() +
+                          "' in an incompatible operand.",
+                      operand_path + "/bindingId");
         };
         const auto validate_identity = [&](const GameplayIdentityOperand& operand,
                                            const std::string& operand_path) {
@@ -340,7 +374,10 @@ private:
                     } else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
                         validate_slot(exact, operand_path);
                     else if constexpr (std::is_same_v<T, CommandResultOperand>)
-                        validate_result(exact, operand_path);
+                        validate_result(exact,
+                                        {CommandResultKind::Room, CommandResultKind::Character,
+                                         CommandResultKind::Interactable},
+                                        operand_path);
                 },
                 operand);
         };
@@ -355,7 +392,7 @@ private:
                     else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
                         validate_slot(exact, operand_path);
                     else
-                        validate_result(exact, operand_path);
+                        validate_result(exact, {CommandResultKind::Interactable}, operand_path);
                 },
                 operand);
         };
@@ -383,7 +420,9 @@ private:
                     } else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
                         validate_slot(exact, operand_path);
                     else if constexpr (std::is_same_v<T, CommandResultOperand>)
-                        validate_result(exact, operand_path);
+                        validate_result(
+                            exact, {CommandResultKind::Character, CommandResultKind::Interactable},
+                            operand_path);
                 },
                 operand);
         };
@@ -400,7 +439,7 @@ private:
                     } else if constexpr (std::is_same_v<T, OwnerInventoryOperand>)
                         validate_inventory_owner_operand(exact.owner, operand_path + "/owner");
                     else
-                        validate_result(exact, operand_path);
+                        validate_result(exact, {}, operand_path);
                 },
                 operand);
         };
@@ -417,7 +456,8 @@ private:
                                     require(m_rooms, room_operand, "room",
                                             operand_path + "/room/room");
                                 else if constexpr (std::is_same_v<R, CommandResultOperand>)
-                                    validate_result(room_operand, operand_path + "/room");
+                                    validate_result(room_operand, {CommandResultKind::Room},
+                                                    operand_path + "/room");
                             },
                             location.room);
                     } else if constexpr (std::is_same_v<T, InventoryLocationOperand>)
@@ -452,14 +492,14 @@ private:
                     for (std::size_t index = 0; index < value.conditions.size(); ++index)
                         validate_condition(value.conditions[index],
                                            path + "/conditions/" + std::to_string(index),
-                                           interaction_slots);
+                                           interaction_slots, command_results);
                 } else if constexpr (std::is_same_v<T, NotCondition>) {
                     if (value.condition.size() != 1)
                         error("compiled_project.invalid_condition_shape",
                               "Not Condition must contain exactly one nested Condition.", path);
                     else
                         validate_condition(value.condition.front(), path + "/condition",
-                                           interaction_slots);
+                                           interaction_slots, command_results);
                 } else if constexpr (std::is_same_v<T, GlobalPropertyComparison>) {
                     std::visit(
                         [&](const auto& comparison) {
@@ -532,7 +572,10 @@ private:
                             else if constexpr (std::is_same_v<S, InteractionSlotOperand>)
                                 validate_slot(subject, path + "/subject");
                             else
-                                validate_result(subject, path + "/subject");
+                                validate_result(
+                                    subject,
+                                    {CommandResultKind::Character, CommandResultKind::Interactable},
+                                    path + "/subject");
                         },
                         value.subject);
                     validate_location_operand(value.location, path + "/location");
@@ -782,32 +825,421 @@ private:
                   "Only Fade transitions may specify a color.", path + "/color");
     }
 
-    void validate_program(const InteractionProgram& program, const std::string& path)
+    void
+    validate_gameplay_commands(const std::vector<GameplayCommand>& commands,
+                               const std::string& path,
+                               const std::unordered_set<VerbSlotId>* interaction_slots = nullptr)
     {
-        for (std::size_t index = 0; index < program.instructions.size(); ++index) {
-            const auto instruction_path = path + "/instructions/" + std::to_string(index);
-            std::visit(
-                [&](const auto& instruction) {
-                    using T = std::decay_t<decltype(instruction)>;
-                    if constexpr (std::is_same_v<T, ApplyEffectInstruction>)
-                        validate_effect(instruction.effect, instruction_path + "/effect");
-                    else if constexpr (std::is_same_v<T, MoveInteractableInstruction>) {
-                        require(m_interactable_instances, instruction.interactable,
-                                "interactable instance", instruction_path + "/interactable");
-                        validate_location(instruction.target, instruction_path + "/target");
-                    } else if constexpr (std::is_same_v<T, SetInteractableStateInstruction>)
-                        require(m_interactable_instances, instruction.interactable,
-                                "interactable instance", instruction_path + "/interactable");
-                    else if constexpr (std::is_same_v<T, NotifyInstruction>)
-                        validate_text(instruction.message, instruction_path + "/message");
-                    else if constexpr (std::is_same_v<T, CallSceneInteractionInstruction>)
-                        require(m_scenes, instruction.scene, "scene", instruction_path + "/scene");
-                    else if constexpr (std::is_same_v<T, CallDialogueInteractionInstruction>)
-                        require(m_dialogues, instruction.dialogue, "dialogue",
-                                instruction_path + "/dialogue");
-                },
-                program.instructions[index]);
-        }
+        std::unordered_set<InteractionInstructionId> command_ids;
+        CommandResultKinds initial_results;
+
+        const auto validate_sequence =
+            [&](const auto& self, const std::vector<GameplayCommand>& sequence,
+                const std::string& sequence_path, CommandResultKinds& results) -> void {
+            const auto validate_result = [&](const CommandResultOperand& result,
+                                             std::initializer_list<CommandResultKind> allowed,
+                                             const std::string& operand_path) {
+                const auto found = results.find(result.binding_id);
+                if (found == results.end()) {
+                    error("compiled_project.command_result_out_of_scope",
+                          "Gameplay Command references result binding '" +
+                              result.binding_id.text() + "' before it is definitely bound.",
+                          operand_path + "/bindingId");
+                    return;
+                }
+                if (std::find(allowed.begin(), allowed.end(), found->second) == allowed.end())
+                    error("compiled_project.command_result_type_mismatch",
+                          "Gameplay Command uses " +
+                              std::string(command_result_kind_name(found->second)) +
+                              " result binding '" + result.binding_id.text() +
+                              "' in an incompatible operand.",
+                          operand_path + "/bindingId");
+            };
+            const auto validate_slot = [&](const InteractionSlotOperand& slot,
+                                           const std::string& operand_path) {
+                if (interaction_slots == nullptr || !interaction_slots->contains(slot.slot_id))
+                    error("compiled_project.command_slot_out_of_scope",
+                          "Gameplay Command references Interaction slot '" + slot.slot_id.text() +
+                              "' outside its host scope.",
+                          operand_path + "/slotId");
+            };
+            const auto validate_identity = [&](const GameplayIdentityOperand& operand,
+                                               const std::string& operand_path) {
+                std::visit(
+                    [&](const auto& exact) {
+                        using T = std::decay_t<decltype(exact)>;
+                        if constexpr (std::is_same_v<T, RoomId>)
+                            require(m_rooms, exact, "room", operand_path + "/room");
+                        else if constexpr (std::is_same_v<T, CharacterId>)
+                            require(m_characters, exact, "character", operand_path + "/character");
+                        else if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                            require(m_interactable_instances, exact, "interactable instance",
+                                    operand_path + "/interactable");
+                        else if constexpr (std::is_same_v<T, RoomFeatureRef>) {
+                            require(m_rooms, exact.room, "room", operand_path + "/room");
+                            if (room(exact.room) && !feature(exact))
+                                error("compiled_project.unresolved_feature",
+                                      "Gameplay Command references an unknown Room Feature.",
+                                      operand_path);
+                        } else if constexpr (std::is_same_v<T, InteractableFeatureRef>) {
+                            require(m_interactable_instances, exact.interactable,
+                                    "interactable instance", operand_path + "/interactable");
+                            if (interactable(exact.interactable) && !feature(exact))
+                                error("compiled_project.unresolved_feature",
+                                      "Gameplay Command references an unknown Interactable "
+                                      "Feature.",
+                                      operand_path);
+                        } else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
+                            validate_slot(exact, operand_path);
+                        else if constexpr (std::is_same_v<T, CommandResultOperand>)
+                            validate_result(exact,
+                                            {CommandResultKind::Room, CommandResultKind::Character,
+                                             CommandResultKind::Interactable},
+                                            operand_path);
+                    },
+                    operand);
+            };
+            const auto validate_interactable_operand = [&](const InteractableOperand& operand,
+                                                           const std::string& operand_path) {
+                std::visit(
+                    [&](const auto& exact) {
+                        using T = std::decay_t<decltype(exact)>;
+                        if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                            require(m_interactable_instances, exact, "interactable instance",
+                                    operand_path + "/interactable");
+                        else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
+                            validate_slot(exact, operand_path);
+                        else
+                            validate_result(exact, {CommandResultKind::Interactable}, operand_path);
+                    },
+                    operand);
+            };
+            const auto validate_location_subject = [&](const LocationSubjectOperand& operand,
+                                                       const std::string& operand_path) {
+                std::visit(
+                    [&](const auto& exact) {
+                        using T = std::decay_t<decltype(exact)>;
+                        if constexpr (std::is_same_v<T, CharacterId>)
+                            require(m_characters, exact, "character", operand_path + "/character");
+                        else if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                            require(m_interactable_instances, exact, "interactable instance",
+                                    operand_path + "/interactable");
+                        else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
+                            validate_slot(exact, operand_path);
+                        else
+                            validate_result(
+                                exact,
+                                {CommandResultKind::Character, CommandResultKind::Interactable},
+                                operand_path);
+                    },
+                    operand);
+            };
+            const auto validate_inventory_owner = [&](const InventoryOwnerOperand& owner,
+                                                      const std::string& owner_path) {
+                std::visit(
+                    [&](const auto& exact) {
+                        using T = std::decay_t<decltype(exact)>;
+                        if constexpr (std::is_same_v<T, CharacterId>)
+                            require(m_characters, exact, "character", owner_path + "/character");
+                        else if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                            require(m_interactable_instances, exact, "interactable instance",
+                                    owner_path + "/interactable");
+                        else if constexpr (std::is_same_v<T, RoomFeatureRef>) {
+                            if (!feature(exact))
+                                error("compiled_project.unresolved_feature",
+                                      "Gameplay Command Inventory owner references an unknown Room "
+                                      "Feature.",
+                                      owner_path);
+                        } else if constexpr (std::is_same_v<T, InteractableFeatureRef>) {
+                            if (!feature(exact))
+                                error("compiled_project.unresolved_feature",
+                                      "Gameplay Command Inventory owner references an unknown "
+                                      "Interactable Feature.",
+                                      owner_path);
+                        } else if constexpr (std::is_same_v<T, InteractionSlotOperand>)
+                            validate_slot(exact, owner_path);
+                        else if constexpr (std::is_same_v<T, CommandResultOperand>)
+                            validate_result(
+                                exact,
+                                {CommandResultKind::Character, CommandResultKind::Interactable},
+                                owner_path);
+                    },
+                    owner);
+            };
+            const auto validate_inventory_operand = [&](const InventoryOperand& operand,
+                                                        const std::string& operand_path) {
+                std::visit(
+                    [&](const auto& exact) {
+                        using T = std::decay_t<decltype(exact)>;
+                        if constexpr (std::is_same_v<T, ExactInventoryOperand>)
+                            validate_inventory_ref(exact.inventory, operand_path + "/inventory");
+                        else if constexpr (std::is_same_v<T, OwnerInventoryOperand>)
+                            validate_inventory_owner(exact.owner, operand_path + "/owner");
+                        else if constexpr (std::is_same_v<T, CommandResultOperand>)
+                            validate_result(exact, {}, operand_path);
+                    },
+                    operand);
+            };
+            const auto validate_location_operand = [&](const LocationOperand& operand,
+                                                       const std::string& operand_path) {
+                std::visit(
+                    [&](const auto& location) {
+                        using T = std::decay_t<decltype(location)>;
+                        if constexpr (std::is_same_v<T, RoomLocationOperand>) {
+                            std::visit(
+                                [&](const auto& room_operand) {
+                                    using R = std::decay_t<decltype(room_operand)>;
+                                    if constexpr (std::is_same_v<R, RoomId>)
+                                        require(m_rooms, room_operand, "room",
+                                                operand_path + "/room/room");
+                                    else if constexpr (std::is_same_v<R, CommandResultOperand>)
+                                        validate_result(room_operand, {CommandResultKind::Room},
+                                                        operand_path + "/room");
+                                },
+                                location.room);
+                        } else if constexpr (std::is_same_v<T, InventoryLocationOperand>)
+                            validate_inventory_operand(location.inventory,
+                                                       operand_path + "/inventory");
+                    },
+                    operand);
+            };
+            const auto validate_matcher = [&](const ConditionInteractableMatcher& matcher,
+                                              const std::string& matcher_path) {
+                if (matcher.definition)
+                    require(m_interactables, *matcher.definition, "interactable definition",
+                            matcher_path + "/definition");
+                for (std::size_t index = 0; index < matcher.traits.size(); ++index)
+                    require(m_traits, matcher.traits[index], "trait",
+                            matcher_path + "/traits/" + std::to_string(index));
+                for (std::size_t index = 0; index < matcher.properties.size(); ++index)
+                    if (!property(matcher.properties[index].property_id))
+                        require(m_properties, matcher.properties[index].property_id, "property",
+                                matcher_path + "/properties/" + std::to_string(index) +
+                                    "/propertyId");
+                if (matcher.exact)
+                    validate_interactable_operand(*matcher.exact, matcher_path + "/exact");
+            };
+            const auto validate_configuration_source =
+                [&](const GameplayConfigurationSource& source, CommandResultKind expected_kind,
+                    const std::string& source_path) {
+                    if (source.kind == GameplayConfigurationSourceKind::Archetype) {
+                        const auto* id = std::get_if<ArchetypeId>(&source.source);
+                        const auto found =
+                            id == nullptr
+                                ? m_input.archetypes.end()
+                                : std::find_if(
+                                      m_input.archetypes.begin(), m_input.archetypes.end(),
+                                      [&](const auto& archetype) { return archetype.id == *id; });
+                        if (found == m_input.archetypes.end()) {
+                            error("compiled_project.unresolved_reference",
+                                  "Gameplay Command references an unknown Archetype.", source_path);
+                            return;
+                        }
+                        const auto actual_kind = found->kind == GameplayInstanceKind::Room
+                                                     ? CommandResultKind::Room
+                                                 : found->kind == GameplayInstanceKind::Character
+                                                     ? CommandResultKind::Character
+                                                     : CommandResultKind::Interactable;
+                        if (actual_kind != expected_kind)
+                            error("compiled_project.command_operand_type_mismatch",
+                                  "Gameplay Command requires a " +
+                                      std::string(command_result_kind_name(expected_kind)) +
+                                      " configuration source.",
+                                  source_path);
+                        return;
+                    }
+                    const auto* identity = std::get_if<GameplayIdentityOperand>(&source.source);
+                    if (identity == nullptr) {
+                        error("compiled_project.invalid_command_configuration_source",
+                              "Gameplay Command configuration source has the wrong operand type.",
+                              source_path);
+                        return;
+                    }
+                    validate_identity(*identity, source_path + "/instance");
+                    std::visit(
+                        [&](const auto& exact) {
+                            using T = std::decay_t<decltype(exact)>;
+                            if constexpr (std::is_same_v<T, CommandResultOperand>) {
+                                validate_result(exact, {expected_kind}, source_path + "/instance");
+                            } else if constexpr (std::is_same_v<T, InteractionSlotOperand>) {
+                                // A slot's live subject family is checked when the command
+                                // executes.
+                            } else {
+                                const auto actual_kind = [&]() -> std::optional<CommandResultKind> {
+                                    if constexpr (std::is_same_v<T, RoomId> ||
+                                                  std::is_same_v<T, CurrentRoomOperand>)
+                                        return CommandResultKind::Room;
+                                    if constexpr (std::is_same_v<T, CharacterId>)
+                                        return CommandResultKind::Character;
+                                    if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                                        return CommandResultKind::Interactable;
+                                    return std::nullopt;
+                                }();
+                                if (!actual_kind || *actual_kind != expected_kind)
+                                    error("compiled_project.command_operand_type_mismatch",
+                                          "Gameplay Command requires a " +
+                                              std::string(command_result_kind_name(expected_kind)) +
+                                              " configuration source.",
+                                          source_path + "/instance");
+                            }
+                        },
+                        *identity);
+                };
+            const auto bind_result = [&](const std::optional<CommandResultBindingId>& result,
+                                         CommandResultKind kind, const std::string& result_path) {
+                if (!result)
+                    return;
+                if (!results.emplace(*result, kind).second)
+                    error("compiled_project.duplicate_command_result",
+                          "Gameplay Command result binding '" + result->text() +
+                              "' is already bound on this execution path.",
+                          result_path);
+            };
+
+            for (std::size_t index = 0; index < sequence.size(); ++index) {
+                const auto& command = sequence[index];
+                const auto command_path = sequence_path + "/" + std::to_string(index);
+                if (!command_ids.insert(command.id).second)
+                    error("compiled_project.duplicate_nested_id",
+                          "Duplicate Gameplay Command ID '" + command.id.text() + "'.",
+                          command_path + "/id");
+                std::visit(
+                    [&](const auto& value) {
+                        using T = std::decay_t<decltype(value)>;
+                        if constexpr (std::is_same_v<T, SetGlobalPropertyCommand>)
+                            validate_effect(Effect{SetGlobalProperty{value.property, value.value}},
+                                            command_path);
+                        else if constexpr (std::is_same_v<T, UnsetGlobalPropertyCommand>) {
+                            const auto* declaration = property(value.property);
+                            if (!declaration)
+                                require(m_properties, value.property, "property",
+                                        command_path + "/property");
+                            else if (!declaration->is_global())
+                                error("compiled_project.property_scope_mismatch",
+                                      "Gameplay Command requires a Global Property.",
+                                      command_path + "/property");
+                        } else if constexpr (std::is_same_v<T, SetPropertyCommand> ||
+                                             std::is_same_v<T, UnsetPropertyCommand>) {
+                            validate_identity(value.owner, command_path + "/owner");
+                            if (!property(value.property))
+                                require(m_properties, value.property, "property",
+                                        command_path + "/property");
+                        } else if constexpr (std::is_same_v<T, AddTraitCommand> ||
+                                             std::is_same_v<T, RemoveTraitCommand>) {
+                            validate_identity(value.owner, command_path + "/owner");
+                            require(m_traits, value.trait, "trait", command_path + "/trait");
+                        } else if constexpr (std::is_same_v<T, SetEnabledCommand> ||
+                                             std::is_same_v<T, SetVisibleCommand>)
+                            validate_location_subject(value.subject, command_path + "/subject");
+                        else if constexpr (std::is_same_v<T, MoveInstanceCommand>) {
+                            validate_location_subject(value.subject, command_path + "/subject");
+                            validate_location_operand(value.location, command_path + "/location");
+                            if (std::holds_alternative<CharacterId>(value.subject) &&
+                                std::holds_alternative<InventoryLocationOperand>(value.location))
+                                error("compiled_project.command_operand_type_mismatch",
+                                      "Character Gameplay Command cannot move to an Inventory.",
+                                      command_path + "/location");
+                        } else if constexpr (std::is_same_v<T, CreateRoomCommand>) {
+                            validate_configuration_source(value.source, CommandResultKind::Room,
+                                                          command_path + "/source");
+                            bind_result(value.result, CommandResultKind::Room,
+                                        command_path + "/result");
+                        } else if constexpr (std::is_same_v<T, CreateCharacterCommand>) {
+                            validate_configuration_source(value.source,
+                                                          CommandResultKind::Character,
+                                                          command_path + "/source");
+                            validate_location_operand(value.location, command_path + "/location");
+                            if (std::holds_alternative<InventoryLocationOperand>(value.location))
+                                error("compiled_project.command_operand_type_mismatch",
+                                      "Character Gameplay Command cannot create into an Inventory.",
+                                      command_path + "/location");
+                            bind_result(value.result, CommandResultKind::Character,
+                                        command_path + "/result");
+                        } else if constexpr (std::is_same_v<T, CreateInteractableCommand>) {
+                            validate_configuration_source(value.source,
+                                                          CommandResultKind::Interactable,
+                                                          command_path + "/source");
+                            validate_location_operand(value.location, command_path + "/location");
+                            bind_result(value.result, CommandResultKind::Interactable,
+                                        command_path + "/result");
+                        } else if constexpr (std::is_same_v<T, DestroyInstanceCommand>)
+                            validate_identity(value.instance, command_path + "/instance");
+                        else if constexpr (std::is_same_v<T, SplitQuantityCommand>) {
+                            validate_interactable_operand(value.source, command_path + "/source");
+                            bind_result(value.result, CommandResultKind::Interactable,
+                                        command_path + "/result");
+                        } else if constexpr (std::is_same_v<T, MergeQuantityCommand>) {
+                            validate_interactable_operand(value.receiver,
+                                                          command_path + "/receiver");
+                            validate_interactable_operand(value.donor, command_path + "/donor");
+                        } else if constexpr (std::is_same_v<T, TransferQuantityCommand> ||
+                                             std::is_same_v<T, ConsumeQuantityCommand>) {
+                            if (const auto* exact = std::get_if<InteractableOperand>(&value.source))
+                                validate_interactable_operand(*exact, command_path + "/source");
+                            else
+                                validate_matcher(
+                                    std::get<ConditionInteractableMatcher>(value.source),
+                                    command_path + "/matcher");
+                            if (value.source_inventory)
+                                validate_inventory_operand(*value.source_inventory,
+                                                           command_path + "/sourceInventory");
+                            if constexpr (std::is_same_v<T, TransferQuantityCommand>) {
+                                validate_location_operand(value.location,
+                                                          command_path + "/location");
+                                if (std::holds_alternative<ConditionInteractableMatcher>(
+                                        value.source) &&
+                                    value.result)
+                                    error("compiled_project.aggregate_result_binding",
+                                          "Aggregate Transfer cannot bind a singular result.",
+                                          command_path + "/result");
+                                else
+                                    bind_result(value.result, CommandResultKind::Interactable,
+                                                command_path + "/result");
+                            }
+                        } else if constexpr (std::is_same_v<T, AddQuantityCommand>) {
+                            require(m_interactables, value.definition, "interactable definition",
+                                    command_path + "/definition");
+                            validate_location_operand(value.location, command_path + "/location");
+                        } else if constexpr (std::is_same_v<T, CallSceneCommand>)
+                            require(m_scenes, value.scene, "scene", command_path + "/scene");
+                        else if constexpr (std::is_same_v<T, CallDialogueCommand>)
+                            require(m_dialogues, value.dialogue, "dialogue",
+                                    command_path + "/dialogue");
+                        else if constexpr (std::is_same_v<T, NotifyCommand>)
+                            validate_text(value.message, command_path + "/message");
+                        else if constexpr (std::is_same_v<T, IfGameplayCommand>) {
+                            validate_condition(value.condition, command_path + "/condition",
+                                               interaction_slots, &results);
+                            auto then_results = results;
+                            auto else_results = results;
+                            self(self, value.then_commands, command_path + "/then", then_results);
+                            self(self, value.else_commands, command_path + "/else", else_results);
+                            for (const auto& [result, kind] : then_results) {
+                                const auto alternate = else_results.find(result);
+                                if (alternate == else_results.end())
+                                    continue;
+                                if (alternate->second != kind) {
+                                    error("compiled_project.command_result_type_mismatch",
+                                          "Gameplay Command result binding '" + result.text() +
+                                              "' has different types across If/Else branches.",
+                                          command_path);
+                                    continue;
+                                }
+                                results.emplace(result, kind);
+                            }
+                        }
+                    },
+                    command.value);
+            }
+        };
+
+        validate_sequence(validate_sequence, commands, path, initial_results);
+    }
+
+    void validate_program(const InteractionProgram& program, const std::string& path,
+                          const std::unordered_set<VerbSlotId>* interaction_slots = nullptr)
+    {
+        validate_gameplay_commands(program.instructions, path + "/instructions", interaction_slots);
         validate_flow_target(program.completion, path + "/completion");
     }
 
@@ -2348,7 +2780,7 @@ private:
                 }
             }
             validate_condition(value.availability, path + "/availability");
-            validate_program(value.default_program, path + "/defaultProgram");
+            validate_program(value.default_program, path + "/defaultProgram", &slot_ids);
         }
         if (m_input.undefined_interaction_program)
             validate_program(*m_input.undefined_interaction_program,
@@ -2397,7 +2829,7 @@ private:
                                        &offer_slots);
                 }
                 validate_condition(rule.guard, rule_path + "/guard", &rule_slots);
-                validate_program(rule.program, rule_path + "/program");
+                validate_program(rule.program, rule_path + "/program", &rule_slots);
             }
         }
     }
@@ -3514,11 +3946,8 @@ private:
                                                     },
                                                     typed.cues[cue_index]);
                                             }
-                                            for (std::size_t effect = 0;
-                                                 effect < typed.effects.size(); ++effect)
-                                                validate_effect(typed.effects[effect],
-                                                                segment_path + "/effects/" +
-                                                                    std::to_string(effect));
+                                            validate_gameplay_commands(typed.effects,
+                                                                       segment_path + "/effects");
                                         } else if constexpr (std::is_same_v<
                                                                  S, DialogueCallSceneSegment>) {
                                             validate_dialogue_scene_call(typed, segment_path);
@@ -3582,9 +4011,7 @@ private:
                                       "Choice edges must originate from Choice blocks.", edge_path);
                             if (edge.condition)
                                 validate_condition(*edge.condition, edge_path + "/condition");
-                            for (std::size_t effect = 0; effect < edge.effects.size(); ++effect)
-                                validate_effect(edge.effects[effect],
-                                                edge_path + "/effects/" + std::to_string(effect));
+                            validate_gameplay_commands(edge.effects, edge_path + "/effects");
                             validate_text(edge.label, edge_path + "/label");
                         }
                     },

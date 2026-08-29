@@ -21,6 +21,7 @@
 #include <vector>
 
 namespace noveltea::runtime {
+class RuntimeExecutor;
 class RuntimeSession;
 class RuntimeWorld;
 } // namespace noveltea::runtime
@@ -546,6 +547,7 @@ public:
 private:
     friend class FlowExecutor;
     friend class PropertyResolver;
+    friend class runtime::RuntimeExecutor;
     friend class runtime::RuntimeSession;
     friend class runtime::RuntimeWorld;
     friend Result<SaveState, Diagnostics> make_save_state(const CompiledProject&,

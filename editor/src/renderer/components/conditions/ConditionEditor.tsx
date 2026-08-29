@@ -15,9 +15,16 @@ import type {
   RuntimeScalar,
 } from '../../../shared/project-schema/authoring-flow';
 
+export type CommandResultEditorKind = 'room' | 'character' | 'interactable';
+
+export interface CommandResultEditorBinding {
+  id: string;
+  kind: CommandResultEditorKind;
+}
+
 export interface ConditionEditorScope {
   interactionSlots?: readonly string[];
-  commandResults?: readonly string[];
+  commandResults?: readonly CommandResultEditorBinding[];
   currentRoom?: boolean;
   playerInventory?: boolean;
 }
@@ -63,11 +70,18 @@ function traitRef(id: string) {
   return { $ref: { collection: 'traits' as const, id } };
 }
 
-function defaultIdentity(project: AuthoringEditorProject, scope: ConditionEditorScope) {
+function commandResults(
+  scope: ConditionEditorScope,
+  kinds: readonly CommandResultEditorKind[],
+): readonly CommandResultEditorBinding[] {
+  return scope.commandResults?.filter((result) => kinds.includes(result.kind)) ?? [];
+}
+
+export function defaultIdentity(project: AuthoringEditorProject, scope: ConditionEditorScope) {
   if (scope.interactionSlots?.[0])
     return { kind: 'interaction-slot' as const, slotId: scope.interactionSlots[0] };
-  if (scope.commandResults?.[0])
-    return { kind: 'command-result' as const, bindingId: scope.commandResults[0] };
+  const result = commandResults(scope, ['room', 'character', 'interactable'])[0];
+  if (result) return { kind: 'command-result' as const, bindingId: result.id };
   if (scope.currentRoom) return { kind: 'current-room' as const };
   const room = Object.keys(project.rooms)[0];
   if (room) return { kind: 'room' as const, room: roomRef(room) };
@@ -79,14 +93,14 @@ function defaultIdentity(project: AuthoringEditorProject, scope: ConditionEditor
   return { kind: 'current-room' as const };
 }
 
-function defaultLocationSubject(
+export function defaultLocationSubject(
   project: AuthoringEditorProject,
   scope: ConditionEditorScope,
 ): LocationSubjectOperand {
   if (scope.interactionSlots?.[0])
     return { kind: 'interaction-slot', slotId: scope.interactionSlots[0] };
-  if (scope.commandResults?.[0])
-    return { kind: 'command-result', bindingId: scope.commandResults[0] };
+  const result = commandResults(scope, ['character', 'interactable'])[0];
+  if (result) return { kind: 'command-result', bindingId: result.id };
   const interactable = Object.keys(project.interactableInstances)[0];
   if (interactable) return { kind: 'interactable', interactable: interactableRef(interactable) };
   const character = Object.keys(project.characters)[0];
@@ -124,8 +138,8 @@ function defaultInventoryOwner(
 ): InventoryOwnerOperand {
   if (scope.interactionSlots?.[0])
     return { kind: 'interaction-slot', slotId: scope.interactionSlots[0] };
-  if (scope.commandResults?.[0])
-    return { kind: 'command-result', bindingId: scope.commandResults[0] };
+  const result = commandResults(scope, ['character', 'interactable'])[0];
+  if (result) return { kind: 'command-result', bindingId: result.id };
   const character = Object.keys(project.characters)[0];
   if (character) return { kind: 'character', character: characterRef(character) };
   const interactable = Object.keys(project.interactableInstances)[0];
@@ -137,6 +151,8 @@ function defaultLocation(
   project: AuthoringEditorProject,
   scope: ConditionEditorScope,
 ): LocationOperand {
+  const result = commandResults(scope, ['room'])[0];
+  if (result) return { kind: 'room', room: { kind: 'command-result', bindingId: result.id } };
   const room = Object.keys(project.rooms)[0];
   if (room) return { kind: 'room', room: { kind: 'room', room: roomRef(room) } };
   if (scope.currentRoom) return { kind: 'room', room: { kind: 'current-room' } };
@@ -213,7 +229,7 @@ function ScalarInput({
   );
 }
 
-function IdentityOperandEditor({
+export function IdentityOperandEditor({
   value,
   project,
   scope,
@@ -224,6 +240,7 @@ function IdentityOperandEditor({
   scope: ConditionEditorScope;
   onChange: (value: GameplayIdentityOperand) => void;
 }) {
+  const resultBindings = commandResults(scope, ['room', 'character', 'interactable']);
   const kinds = [
     'room',
     'character',
@@ -232,7 +249,7 @@ function IdentityOperandEditor({
     'interactable-feature',
     ...(scope.currentRoom ? ['current-room'] : []),
     ...(scope.interactionSlots?.length ? ['interaction-slot'] : []),
-    ...(scope.commandResults?.length ? ['command-result'] : []),
+    ...(resultBindings.length ? ['command-result'] : []),
   ] as string[];
   return (
     <div className="flex flex-wrap gap-2">
@@ -271,7 +288,7 @@ function IdentityOperandEditor({
           else if (kind === 'interaction-slot')
             onChange({ kind, slotId: scope.interactionSlots?.[0] ?? 'target' });
           else if (kind === 'command-result')
-            onChange({ kind, bindingId: scope.commandResults?.[0] ?? 'result' });
+            onChange({ kind, bindingId: resultBindings[0]?.id ?? 'result' });
         }}
       >
         {kinds.map((kind) => (
@@ -379,9 +396,9 @@ function IdentityOperandEditor({
             onChange({ kind: 'command-result', bindingId: String(bindingId) })
           }
         >
-          {scope.commandResults?.map((id) => (
-            <SelectItem key={id} value={id}>
-              {id}
+          {resultBindings.map((result) => (
+            <SelectItem key={result.id} value={result.id}>
+              {result.id}
             </SelectItem>
           ))}
         </Select>
@@ -401,6 +418,7 @@ function InventoryOwnerOperandEditor({
   scope: ConditionEditorScope;
   onChange: (value: InventoryOwnerOperand) => void;
 }) {
+  const resultBindings = commandResults(scope, ['character', 'interactable']);
   const kinds = [
     'project',
     'character',
@@ -408,7 +426,7 @@ function InventoryOwnerOperandEditor({
     'room-feature',
     'interactable-feature',
     ...(scope.interactionSlots?.length ? ['interaction-slot'] : []),
-    ...(scope.commandResults?.length ? ['command-result'] : []),
+    ...(resultBindings.length ? ['command-result'] : []),
   ];
   return (
     <div className="flex flex-wrap gap-2">
@@ -445,7 +463,7 @@ function InventoryOwnerOperandEditor({
           else if (kind === 'interaction-slot')
             onChange({ kind, slotId: scope.interactionSlots?.[0] ?? 'target' });
           else if (kind === 'command-result')
-            onChange({ kind, bindingId: scope.commandResults?.[0] ?? 'result' });
+            onChange({ kind, bindingId: resultBindings[0]?.id ?? 'result' });
         }}
       >
         {kinds.map((kind) => (
@@ -541,9 +559,9 @@ function InventoryOwnerOperandEditor({
             onChange({ kind: 'command-result', bindingId: String(bindingId) })
           }
         >
-          {scope.commandResults?.map((id) => (
-            <SelectItem key={id} value={id}>
-              {id}
+          {resultBindings.map((result) => (
+            <SelectItem key={result.id} value={result.id}>
+              {result.id}
             </SelectItem>
           ))}
         </Select>
@@ -552,7 +570,7 @@ function InventoryOwnerOperandEditor({
   );
 }
 
-function InventoryOperandEditor({
+export function InventoryOperandEditor({
   value,
   project,
   scope,
@@ -577,8 +595,6 @@ function InventoryOperandEditor({
               owner: defaultInventoryOwner(project, scope),
               inventoryId: 'inventory',
             });
-          else if (kind === 'command-result')
-            onChange({ kind, bindingId: scope.commandResults?.[0] ?? 'result' });
         }}
       >
         <SelectItem value="inventory">Exact inventory</SelectItem>
@@ -586,9 +602,6 @@ function InventoryOperandEditor({
           <SelectItem value="player-inventory">Player inventory</SelectItem>
         ) : null}
         <SelectItem value="owner-inventory">Owner-local inventory</SelectItem>
-        {scope.commandResults?.length ? (
-          <SelectItem value="command-result">Command result</SelectItem>
-        ) : null}
       </Select>
       {value.kind === 'inventory' ? (
         <Select
@@ -622,25 +635,11 @@ function InventoryOperandEditor({
           />
         </>
       ) : null}
-      {value.kind === 'command-result' ? (
-        <Select
-          value={value.bindingId}
-          onValueChange={(bindingId) =>
-            onChange({ kind: 'command-result', bindingId: String(bindingId) })
-          }
-        >
-          {scope.commandResults?.map((id) => (
-            <SelectItem key={id} value={id}>
-              {id}
-            </SelectItem>
-          ))}
-        </Select>
-      ) : null}
     </div>
   );
 }
 
-function LocationSubjectOperandEditor({
+export function LocationSubjectOperandEditor({
   value,
   project,
   scope,
@@ -651,11 +650,12 @@ function LocationSubjectOperandEditor({
   scope: ConditionEditorScope;
   onChange: (value: LocationSubjectOperand) => void;
 }) {
+  const resultBindings = commandResults(scope, ['character', 'interactable']);
   const kinds = [
     'character',
     'interactable',
     ...(scope.interactionSlots?.length ? ['interaction-slot'] : []),
-    ...(scope.commandResults?.length ? ['command-result'] : []),
+    ...(resultBindings.length ? ['command-result'] : []),
   ];
   return (
     <div className="flex flex-wrap gap-2">
@@ -677,7 +677,7 @@ function LocationSubjectOperandEditor({
           else if (kind === 'interaction-slot')
             onChange({ kind, slotId: scope.interactionSlots?.[0] ?? 'target' });
           else if (kind === 'command-result')
-            onChange({ kind, bindingId: scope.commandResults?.[0] ?? 'result' });
+            onChange({ kind, bindingId: resultBindings[0]?.id ?? 'result' });
         }}
       >
         {kinds.map((kind) => (
@@ -733,9 +733,9 @@ function LocationSubjectOperandEditor({
             onChange({ kind: 'command-result', bindingId: String(bindingId) })
           }
         >
-          {scope.commandResults?.map((id) => (
-            <SelectItem key={id} value={id}>
-              {id}
+          {resultBindings.map((result) => (
+            <SelectItem key={result.id} value={result.id}>
+              {result.id}
             </SelectItem>
           ))}
         </Select>
@@ -744,7 +744,7 @@ function LocationSubjectOperandEditor({
   );
 }
 
-function MatcherEditor({
+export function MatcherEditor({
   value,
   project,
   scope,
@@ -755,6 +755,7 @@ function MatcherEditor({
   scope: ConditionEditorScope;
   onChange: (value: InteractableMatcher) => void;
 }) {
+  const resultBindings = commandResults(scope, ['interactable']);
   const definition = value.definition?.$ref.id ?? '';
   return (
     <div className="grid gap-2 rounded border p-2">
@@ -872,7 +873,7 @@ function MatcherEditor({
             else if (kind === 'command-result')
               onChange({
                 ...value,
-                exact: { kind, bindingId: scope.commandResults?.[0] ?? 'result' },
+                exact: { kind, bindingId: resultBindings[0]?.id ?? 'result' },
               });
           }}
         >
@@ -881,7 +882,7 @@ function MatcherEditor({
           {scope.interactionSlots?.length ? (
             <SelectItem value="interaction-slot">Interaction slot</SelectItem>
           ) : null}
-          {scope.commandResults?.length ? (
+          {resultBindings.length ? (
             <SelectItem value="command-result">Command result</SelectItem>
           ) : null}
         </Select>
@@ -926,9 +927,9 @@ function MatcherEditor({
               })
             }
           >
-            {scope.commandResults?.map((id) => (
-              <SelectItem key={id} value={id}>
-                {id}
+            {resultBindings.map((result) => (
+              <SelectItem key={result.id} value={result.id}>
+                {result.id}
               </SelectItem>
             ))}
           </Select>
@@ -946,6 +947,7 @@ export function RecursiveConditionEditor({
   compact = false,
 }: ConditionEditorProps) {
   const padding = compact ? 'p-1.5' : 'p-3';
+  const roomResultBindings = commandResults(scope, ['room']);
   return (
     <div className={`space-y-2 rounded border ${padding}`}>
       <Select
@@ -1167,7 +1169,9 @@ export function RecursiveConditionEditor({
               value={
                 value.location.room.kind === 'room'
                   ? value.location.room.room.$ref.id
-                  : '__current__'
+                  : value.location.room.kind === 'current-room'
+                    ? '__current__'
+                    : `__result__:${value.location.room.bindingId}`
               }
               onValueChange={(id) =>
                 onChange({
@@ -1177,12 +1181,22 @@ export function RecursiveConditionEditor({
                     room:
                       id === '__current__'
                         ? { kind: 'current-room' }
-                        : { kind: 'room', room: roomRef(String(id)) },
+                        : String(id).startsWith('__result__:')
+                          ? {
+                              kind: 'command-result',
+                              bindingId: String(id).slice('__result__:'.length),
+                            }
+                          : { kind: 'room', room: roomRef(String(id)) },
                   },
                 })
               }
             >
               {scope.currentRoom ? <SelectItem value="__current__">Current Room</SelectItem> : null}
+              {roomResultBindings.map((result) => (
+                <SelectItem key={result.id} value={`__result__:${result.id}`}>
+                  Result: {result.id}
+                </SelectItem>
+              ))}
               {Object.keys(project.rooms).map((id) => (
                 <SelectItem key={id} value={id}>
                   {id}

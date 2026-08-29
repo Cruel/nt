@@ -156,6 +156,8 @@ public:
                        const core::RoomId& target);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     destroy(const core::GameplayInstanceRef& instance);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_trait(const core::PropertyOwnerRef& owner, core::TraitId trait, bool present);
 
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
     resolve_property(const core::RoomId& id, const core::PropertyId& property) const;

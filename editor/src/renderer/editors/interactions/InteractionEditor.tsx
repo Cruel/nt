@@ -385,6 +385,7 @@ function RuleEditor({
       <InteractionProgramEditor
         value={rule.program}
         project={project}
+        interactionSlots={rule.slots.map((slot) => slot.slotId)}
         onChange={(program) => onChange({ ...rule, program })}
       />
     </section>

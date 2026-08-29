@@ -43,11 +43,13 @@ SavedFlowFrame save_frame(const SavedFrameMap& frame_ids, const FlowFrame& frame
                                        value.destination,  value.inputs, value.last_child_outcome,
                                        std::move(handoff), preserved};
             } else if constexpr (std::is_same_v<T, DialogueFrame>)
-                return SavedDialogueFrame{snapshot_id,       value.dialogue,    value.position,
-                                          value.stage_slots, value.media_slots, value.destination};
+                return SavedDialogueFrame{
+                    snapshot_id,       value.dialogue,    value.position,       value.stage_slots,
+                    value.media_slots, value.destination, value.command_results};
             else if constexpr (std::is_same_v<T, InteractionFrame>)
-                return SavedInteractionFrame{snapshot_id, value.invocation, value.program,
-                                             value.position, value.destination};
+                return SavedInteractionFrame{snapshot_id,       value.invocation,
+                                             value.program,     value.position,
+                                             value.destination, value.command_results};
             else
                 return SavedRoomTransitionFrame{
                     snapshot_id,          value.source_room, value.target_room,

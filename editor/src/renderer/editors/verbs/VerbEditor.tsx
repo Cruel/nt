@@ -534,6 +534,7 @@ function VerbForm({
         <InteractionProgramEditor
           value={data.defaultProgram}
           project={project}
+          interactionSlots={data.slots.map((slot) => slot.id)}
           onChange={(defaultProgram) => onChange({ ...data, defaultProgram })}
         />
       </section>

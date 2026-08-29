@@ -164,6 +164,40 @@ function addEffect(
   });
 }
 
+function addGameplayCommand(
+  output: RegisteredAuthoringLuaSource[],
+  value: unknown,
+  path: readonly string[],
+) {
+  if (!isObject(value)) return;
+  if (value.kind === 'run-lua') {
+    const source = sourceText(value.source);
+    if (source !== undefined)
+      output.push({
+        surface: 'shared-run-lua-effect',
+        sourcePath: [...path, 'source'],
+        sourceText: source,
+        supportsExplicitFallback: false,
+        focusedAdmission: false,
+      });
+    return;
+  }
+  if (value.kind === 'notify')
+    addTextContent(output, value.message, [...path, 'message'], {
+      supportsExplicitFallback: false,
+    });
+  if (value.kind !== 'if') return;
+  addCondition(output, value.condition, [...path, 'condition'], {
+    supportsExplicitFallback: false,
+  });
+  asArray(value.then).forEach((command, index) =>
+    addGameplayCommand(output, command, [...path, 'then', String(index)]),
+  );
+  asArray(value.else).forEach((command, index) =>
+    addGameplayCommand(output, command, [...path, 'else', String(index)]),
+  );
+}
+
 function addInteractionProgram(
   output: RegisteredAuthoringLuaSource[],
   value: unknown,
@@ -173,12 +207,7 @@ function addInteractionProgram(
   asArray(value.instructions).forEach((instruction, index) => {
     if (!isObject(instruction)) return;
     const instructionPath = [...path, 'instructions', String(index)];
-    if (instruction.kind === 'apply-effect')
-      addEffect(output, instruction.effect, [...instructionPath, 'effect']);
-    if (instruction.kind === 'notify')
-      addTextContent(output, instruction.message, [...instructionPath, 'message'], {
-        supportsExplicitFallback: false,
-      });
+    addGameplayCommand(output, instruction, instructionPath);
   });
 }
 
@@ -286,7 +315,7 @@ function collectDialogueSources(data: JsonObject): RegisteredAuthoringLuaSource[
           supportsExplicitFallback: false,
         });
         asArray(segment.effects).forEach((effect, effectIndex) =>
-          addEffect(output, effect, [...base, 'effects', String(effectIndex)]),
+          addGameplayCommand(output, effect, [...base, 'effects', String(effectIndex)]),
         );
       }
       if (segment.type === 'run-lua') {
@@ -310,7 +339,7 @@ function collectDialogueSources(data: JsonObject): RegisteredAuthoringLuaSource[
       supportsExplicitFallback: false,
     });
     asArray(edge.effects).forEach((effect, effectIndex) =>
-      addEffect(output, effect, [...base, 'effects', String(effectIndex)]),
+      addGameplayCommand(output, effect, [...base, 'effects', String(effectIndex)]),
     );
   });
   return output;

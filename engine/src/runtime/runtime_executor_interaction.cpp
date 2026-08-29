@@ -58,36 +58,58 @@ first_instruction(const core::compiled::InteractionProgram& program)
 {
     if (program.instructions.empty())
         return std::nullopt;
-    return std::visit([](const auto& value) { return value.id; }, program.instructions.front());
+    return program.instructions.front().id;
 }
 
-const core::compiled::InteractionInstruction*
-find_instruction(const core::compiled::InteractionProgram& program,
-                 const core::InteractionInstructionId& id)
+const core::GameplayCommand* find_instruction_in(std::span<const core::GameplayCommand> commands,
+                                                 const core::InteractionInstructionId& id)
 {
-    const auto found = std::find_if(
-        program.instructions.begin(), program.instructions.end(),
-        [&id](const core::compiled::InteractionInstruction& instruction) {
-            return std::visit([&id](const auto& value) { return value.id == id; }, instruction);
-        });
-    return found == program.instructions.end() ? nullptr : &*found;
+    for (const auto& command : commands) {
+        if (command.id == id)
+            return &command;
+        if (const auto* branch = std::get_if<core::IfGameplayCommand>(&command.value)) {
+            if (const auto* found = find_instruction_in(branch->then_commands, id))
+                return found;
+            if (const auto* found = find_instruction_in(branch->else_commands, id))
+                return found;
+        }
+    }
+    return nullptr;
+}
+
+const core::GameplayCommand* find_instruction(const core::compiled::InteractionProgram& program,
+                                              const core::InteractionInstructionId& id)
+{
+    return find_instruction_in(program.instructions, id);
+}
+
+std::optional<core::InteractionInstructionId>
+next_instruction_in(std::span<const core::GameplayCommand> commands,
+                    const core::InteractionInstructionId& id,
+                    std::optional<core::InteractionInstructionId> after_commands)
+{
+    for (std::size_t index = 0; index < commands.size(); ++index) {
+        const auto successor =
+            index + 1 < commands.size()
+                ? std::optional<core::InteractionInstructionId>{commands[index + 1].id}
+                : after_commands;
+        if (commands[index].id == id)
+            return successor;
+        if (const auto* branch = std::get_if<core::IfGameplayCommand>(&commands[index].value)) {
+            if (find_instruction_in(branch->then_commands, id))
+                return next_instruction_in(branch->then_commands, id, successor);
+            if (find_instruction_in(branch->else_commands, id))
+                return next_instruction_in(branch->else_commands, id, successor);
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<core::InteractionInstructionId>
 next_instruction(const core::compiled::InteractionProgram& program,
                  const core::InteractionInstructionId& id)
 {
-    for (std::size_t index = 0; index < program.instructions.size(); ++index) {
-        const bool found = std::visit([&id](const auto& value) { return value.id == id; },
-                                      program.instructions[index]);
-        if (!found)
-            continue;
-        if (index + 1 == program.instructions.size())
-            return std::nullopt;
-        return std::visit([](const auto& value) { return value.id; },
-                          program.instructions[index + 1]);
-    }
-    return std::nullopt;
+    return next_instruction_in(program.instructions, id, std::nullopt);
 }
 
 } // namespace
@@ -844,7 +866,7 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
         (void)m_flow.fault(std::move(diagnostics));
         return core::FlowFaultOutcome{copy};
     };
-    const auto* frame = std::get_if<core::InteractionFrame>(&m_state.flow_stack().back());
+    auto* frame = std::get_if<core::InteractionFrame>(&m_state.m_flow_stack.back());
     if (frame == nullptr)
         return fault(
             interaction_error("execution.invalid_interaction", "Interaction frame is missing"));
@@ -887,6 +909,7 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
             auto next = core::InteractionFramePosition{
                 first_instruction(*next_definition), core::InteractionFallbackStage::VerbDefault,
                 core::InteractionExecutionOutcome::Pending, false};
+            frame->command_results.clear();
             auto advanced = m_flow.advance_interaction(expected, std::move(next_program), next);
             if (!advanced)
                 return fault(advanced.error());
@@ -900,6 +923,7 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
                 core::InteractionFramePosition{first_instruction(*next_definition),
                                                core::InteractionFallbackStage::UndefinedInteraction,
                                                core::InteractionExecutionOutcome::Pending, false};
+            frame->command_results.clear();
             auto advanced = m_flow.advance_interaction(expected, std::move(next_program), next);
             if (!advanced)
                 return fault(advanced.error());
@@ -922,93 +946,37 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
         return fault(interaction_error("execution.invalid_interaction_instruction",
                                        "Interaction instruction is missing"));
 
-    const auto is_mutation = [](const core::compiled::InteractionInstruction& candidate) {
-        return std::visit(
-            [](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::compiled::ApplyEffectInstruction>)
-                    return !std::holds_alternative<core::RunLuaEffect>(value.effect);
-                return std::is_same_v<T, core::compiled::MoveInteractableInstruction> ||
-                       std::is_same_v<T, core::compiled::SetInteractableStateInstruction>;
-            },
-            candidate);
-    };
-    if (is_mutation(*instruction)) {
+    if (gameplay_command_is_immediate(*instruction)) {
         auto staged_state = m_state;
         core::FlowExecutor staged_flow(m_project, staged_state);
         core::SharedPrimitiveEvaluator staged_primitives(m_project, staged_state, staged_flow);
         RuntimeWorld staged_world(m_project, staged_state);
-        const auto current = std::find_if(
-            program->instructions.begin(), program->instructions.end(), [&](const auto& candidate) {
-                return std::visit([&](const auto& value) { return value.id == instruction_id; },
-                                  candidate);
-            });
-        auto cursor = current;
-        for (; cursor != program->instructions.end() && is_mutation(*cursor); ++cursor) {
-            auto staged = std::visit(
-                [&](const auto& value) -> core::Result<void, core::Diagnostics> {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, core::compiled::ApplyEffectInstruction>)
-                        return staged_primitives.apply(value.effect);
-                    else if constexpr (std::is_same_v<T,
-                                                      core::compiled::MoveInteractableInstruction>)
-                        return staged_world.move_interactable(value.interactable, value.target);
-                    else if constexpr (std::is_same_v<
-                                           T, core::compiled::SetInteractableStateInstruction>) {
-                        if (value.enabled) {
-                            auto changed = staged_world.set_interactable_enabled(value.interactable,
-                                                                                 *value.enabled);
-                            if (!changed)
-                                return changed;
-                        }
-                        if (value.visible)
-                            return staged_world.set_interactable_visible(value.interactable,
-                                                                         *value.visible);
-                        return core::Result<void, core::Diagnostics>::success();
-                    } else
-                        return core::Result<void, core::Diagnostics>::failure(interaction_error(
-                            "execution.invalid_interaction_program",
-                            "Non-mutation instruction entered the atomic mutation batch"));
-                },
-                *cursor);
-            if (!staged)
-                return fault(staged.error());
+        auto staged_results = frame->command_results;
+        std::vector<const core::GameplayCommand*> batch;
+        auto cursor = std::optional<core::InteractionInstructionId>{instruction_id};
+        while (cursor) {
+            const auto* candidate = find_instruction(*program, *cursor);
+            if (candidate == nullptr || !gameplay_command_is_immediate(*candidate))
+                break;
+            batch.push_back(candidate);
+            cursor = next_instruction(*program, *cursor);
         }
-        for (auto commit = current; commit != cursor; ++commit) {
-            auto applied = std::visit(
-                [&](const auto& value) -> core::Result<void, core::Diagnostics> {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, core::compiled::ApplyEffectInstruction>)
-                        return m_primitives.apply(value.effect);
-                    else if constexpr (std::is_same_v<T,
-                                                      core::compiled::MoveInteractableInstruction>)
-                        return m_world.move_interactable(value.interactable, value.target);
-                    else if constexpr (std::is_same_v<
-                                           T, core::compiled::SetInteractableStateInstruction>) {
-                        if (value.enabled) {
-                            auto changed = m_world.set_interactable_enabled(value.interactable,
-                                                                            *value.enabled);
-                            if (!changed)
-                                return changed;
-                        }
-                        if (value.visible)
-                            return m_world.set_interactable_visible(value.interactable,
-                                                                    *value.visible);
-                        return core::Result<void, core::Diagnostics>::success();
-                    } else
-                        return core::Result<void, core::Diagnostics>::failure(interaction_error(
-                            "execution.invalid_interaction_program",
-                            "Non-mutation instruction entered the atomic mutation batch"));
-                },
-                *commit);
+        for (const auto* candidate : batch) {
+            auto applied = apply_immediate_gameplay_command(
+                *candidate, staged_state, staged_world, staged_flow, staged_primitives,
+                frame->invocation.bindings, staged_results);
+            if (!applied)
+                return fault(applied.error());
+        }
+        for (const auto* candidate : batch) {
+            auto applied = apply_immediate_gameplay_command(
+                *candidate, m_state, m_world, m_flow, m_primitives, frame->invocation.bindings,
+                frame->command_results);
             if (!applied)
                 return fault(applied.error());
         }
         auto next = expected;
-        next.next_instruction = cursor == program->instructions.end()
-                                    ? std::nullopt
-                                    : std::optional<core::InteractionInstructionId>{std::visit(
-                                          [](const auto& value) { return value.id; }, *cursor)};
+        next.next_instruction = cursor;
         auto advanced = m_flow.advance_interaction(expected, frame->program, next);
         return advanced ? std::nullopt
                         : std::optional<core::FlowRunOutcome>{fault(advanced.error())};
@@ -1019,15 +987,12 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
         [this, &fault, &expected, &frame, &sequential,
          runtime_locale](const auto& value) -> std::optional<core::FlowRunOutcome> {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, core::compiled::ApplyEffectInstruction>) {
-                auto applied = apply(value.effect, "typed-interaction-effect");
+            if constexpr (std::is_same_v<T, core::RunLuaCommand>) {
+                auto applied = invoke_script(value.source, "gameplay-command");
                 const auto* outcome = applied.value_if();
-                if (outcome == nullptr) {
-                    if (const auto* script = std::get_if<ScriptInvocationError>(&applied.error()))
-                        return fault(interaction_error("execution.interaction_script_failed",
-                                                       script->message));
-                    return fault(std::get<core::Diagnostics>(applied.error()));
-                }
+                if (outcome == nullptr)
+                    return fault(interaction_error("execution.interaction_script_failed",
+                                                   applied.error().message));
                 auto next = expected;
                 if (std::holds_alternative<ScriptInvocationSuspended>(*outcome)) {
                     next.awaiting_completion = true;
@@ -1040,25 +1005,7 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
                 auto advanced = m_flow.advance_interaction(expected, frame->program, next);
                 return advanced ? std::nullopt
                                 : std::optional<core::FlowRunOutcome>{fault(advanced.error())};
-            } else if constexpr (std::is_same_v<T, core::compiled::MoveInteractableInstruction>) {
-                auto moved = m_world.move_interactable(value.interactable, value.target);
-                if (!moved)
-                    return fault(moved.error());
-            } else if constexpr (std::is_same_v<T,
-                                                core::compiled::SetInteractableStateInstruction>) {
-                if (value.enabled) {
-                    auto changed =
-                        m_world.set_interactable_enabled(value.interactable, *value.enabled);
-                    if (!changed)
-                        return fault(changed.error());
-                }
-                if (value.visible) {
-                    auto changed =
-                        m_world.set_interactable_visible(value.interactable, *value.visible);
-                    if (!changed)
-                        return fault(changed.error());
-                }
-            } else if constexpr (std::is_same_v<T, core::compiled::NotifyInstruction>) {
+            } else if constexpr (std::is_same_v<T, core::NotifyCommand>) {
                 auto message = resolve(value.message.source, runtime_locale);
                 const auto* text = message.value_if();
                 if (text == nullptr) {
@@ -1070,21 +1017,40 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
                 auto requested = m_gateway.request_notification(*text);
                 if (!requested)
                     return fault(requested.error());
-            } else if constexpr (std::is_same_v<T,
-                                                core::compiled::CallSceneInteractionInstruction>) {
+            } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
                 auto next = expected;
                 next.next_instruction = sequential;
                 auto called = m_flow.call_child(value.scene, core::FlowFramePosition{next});
                 return called ? std::nullopt
                               : std::optional<core::FlowRunOutcome>{fault(called.error())};
-            } else if constexpr (std::is_same_v<
-                                     T, core::compiled::CallDialogueInteractionInstruction>) {
+            } else if constexpr (std::is_same_v<T, core::CallDialogueCommand>) {
                 auto next = expected;
                 next.next_instruction = sequential;
                 auto called =
                     m_flow.call_child(value.dialogue, std::nullopt, core::FlowFramePosition{next});
                 return called ? std::nullopt
                               : std::optional<core::FlowRunOutcome>{fault(called.error())};
+            } else if constexpr (std::is_same_v<T, core::IfGameplayCommand>) {
+                const core::ConditionEvaluationContext context{
+                    .interaction_bindings = frame->invocation.bindings,
+                    .command_results = frame->command_results};
+                auto condition = m_primitives.evaluate(value.condition, context);
+                if (!condition)
+                    return fault(condition.error());
+                const auto& branch =
+                    *condition.value_if() ? value.then_commands : value.else_commands;
+                auto next = expected;
+                next.next_instruction =
+                    branch.empty()
+                        ? sequential
+                        : std::optional<core::InteractionInstructionId>{branch.front().id};
+                auto advanced = m_flow.advance_interaction(expected, frame->program, next);
+                return advanced ? std::nullopt
+                                : std::optional<core::FlowRunOutcome>{fault(advanced.error())};
+            } else {
+                return fault(interaction_error(
+                    "execution.invalid_interaction_program",
+                    "Immediate Gameplay Command reached an observable command boundary"));
             }
             auto next = expected;
             next.next_instruction = sequential;
@@ -1092,7 +1058,7 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
             return advanced ? std::nullopt
                             : std::optional<core::FlowRunOutcome>{fault(advanced.error())};
         },
-        *instruction);
+        instruction->value);
 }
 
 core::Result<core::InteractionView, RuntimeExecutionError>

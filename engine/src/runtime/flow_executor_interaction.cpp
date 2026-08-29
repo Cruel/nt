@@ -43,13 +43,16 @@ FlowExecutor::mark_interaction_wait(const InteractionFramePosition& expected_pos
     if (!next_position.awaiting_completion)
         return fail(interaction_error("execution.invalid_interaction_wait",
                                       "Interaction wait position must await completion"));
-    auto ready = ensure_flow_ready();
-    if (!ready)
-        return fail(ready.error());
-    auto* frame = std::get_if<InteractionFrame>(&m_state.m_flow_stack.back());
-    if (frame == nullptr || frame->position != expected_position)
-        return fail(interaction_error("execution.stale_interaction_position",
-                                      "Interaction position changed before it was blocked"));
+    if (m_state.m_execution_fault)
+        return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
+    auto* frame = !m_state.m_flow_stack.empty()
+                      ? std::get_if<InteractionFrame>(&m_state.m_flow_stack.back())
+                      : nullptr;
+    if (frame == nullptr || frame->position != expected_position || !m_state.m_blocker ||
+        flow_blocker_owner(*m_state.m_blocker) != frame->frame_id)
+        return fail(
+            interaction_error("execution.stale_interaction_position",
+                              "Interaction wait does not match the active position and blocker"));
     auto valid = validate_position(*frame, FlowFramePosition{next_position});
     if (!valid)
         return fail(valid.error());

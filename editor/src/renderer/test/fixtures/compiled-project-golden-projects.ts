@@ -1355,7 +1355,14 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
           speaker: characterReference('hero'),
           text: { markup: 'plain', source: { kind: 'inline', text: 'Inline dialogue.' } },
           condition: { kind: 'always' },
-          effects: [{ kind: 'set-variable', variable: variableReference('flag'), value: true }],
+          effects: [
+            {
+              id: 'inline-line-effect',
+              kind: 'set-global-property',
+              variable: variableReference('flag'),
+              value: true,
+            },
+          ],
           showOnce: true,
           logged: true,
           autosaveSafePoint: true,
@@ -1369,7 +1376,9 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
             operator: 'less',
             value: 10,
           },
-          effects: [{ kind: 'run-lua-effect', source: 'after_localized_line()' }],
+          effects: [
+            { id: 'localized-line-effect', kind: 'run-lua', source: 'after_localized_line()' },
+          ],
           logged: false,
         },
         {
@@ -1412,7 +1421,14 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
         variable: variableReference('flag'),
         operator: 'truthy',
       },
-      effects: [{ kind: 'set-variable', variable: variableReference('count'), value: 4 }],
+      effects: [
+        {
+          id: 'choice-again-effect',
+          kind: 'set-global-property',
+          variable: variableReference('count'),
+          value: 4,
+        },
+      ],
       logged: true,
       autosaveSafePoint: true,
     },
@@ -1426,7 +1442,7 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
         source: { kind: 'lua-expression', source: 'final_choice_label()' },
       },
       condition: { kind: 'lua-predicate', source: 'can_finish_dialogue()' },
-      effects: [{ kind: 'run-lua-effect', source: 'finish_dialogue()' }],
+      effects: [{ id: 'choice-final-effect', kind: 'run-lua', source: 'finish_dialogue()' }],
       logged: false,
       autosaveSafePoint: false,
     },
@@ -1756,23 +1772,26 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         instructions: [
           {
             id: 'effect',
-            kind: 'apply-effect',
-            effect: { kind: 'set-variable', variable: variableReference('flag'), value: true },
+            kind: 'set-global-property',
+            variable: variableReference('flag'),
+            value: true,
           },
           {
             id: 'inventory',
-            kind: 'move-interactable',
-            interactable: interactableReference('key'),
-            target: {
+            kind: 'move-instance',
+            subject: { kind: 'interactable', interactable: interactableInstanceReference('key') },
+            location: {
               kind: 'inventory',
-              inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+              inventory: {
+                kind: 'inventory',
+                inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+              },
             },
           },
           {
             id: 'state',
-            kind: 'set-interactable-state',
-            interactable: interactableReference('key'),
-            enabled: true,
+            kind: 'set-visible',
+            subject: { kind: 'interactable', interactable: interactableInstanceReference('key') },
             visible: false,
           },
           {
@@ -1824,9 +1843,9 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         instructions: [
           {
             id: 'room',
-            kind: 'move-interactable',
-            interactable: interactableReference('key'),
-            target: { kind: 'room', room: roomReference('start') },
+            kind: 'move-instance',
+            subject: { kind: 'interactable', interactable: interactableInstanceReference('key') },
+            location: { kind: 'room', room: { kind: 'room', room: roomReference('start') } },
           },
           {
             id: 'unlock-rule-dialogue',
@@ -1876,8 +1895,8 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         instructions: [
           {
             id: 'lua-effect',
-            kind: 'apply-effect',
-            effect: { kind: 'run-lua-effect', source: 'combine_items()' },
+            kind: 'run-lua',
+            source: 'combine_items()',
           },
         ],
         completion: { kind: 'return' },

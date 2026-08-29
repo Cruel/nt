@@ -78,29 +78,41 @@ void certify_text(core::Diagnostics& diagnostics, ScriptCertificationPort& scrip
         certify_chunk(diagnostics, scripts, lua->source, path, true);
 }
 
+void certify_gameplay_commands(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
+                               const std::vector<core::GameplayCommand>& commands,
+                               const std::string& path)
+{
+    const auto certify_command = [&](const auto& self, const core::GameplayCommand& command,
+                                     const std::string& command_path) -> void {
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::RunLuaCommand>)
+                    certify_chunk(diagnostics, scripts, value.source, command_path + "/source");
+                else if constexpr (std::is_same_v<T, core::NotifyCommand>)
+                    certify_text(diagnostics, scripts, value.message, command_path + "/message");
+                else if constexpr (std::is_same_v<T, core::IfGameplayCommand>) {
+                    certify_condition(diagnostics, scripts, value.condition,
+                                      command_path + "/condition");
+                    for (std::size_t index = 0; index < value.then_commands.size(); ++index)
+                        self(self, value.then_commands[index],
+                             command_path + "/then/" + std::to_string(index));
+                    for (std::size_t index = 0; index < value.else_commands.size(); ++index)
+                        self(self, value.else_commands[index],
+                             command_path + "/else/" + std::to_string(index));
+                }
+            },
+            command.value);
+    };
+    for (std::size_t index = 0; index < commands.size(); ++index)
+        certify_command(certify_command, commands[index], path + "/" + std::to_string(index));
+}
+
 void certify_interaction_program(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                                  const core::compiled::InteractionProgram& program,
                                  const std::string& path)
 {
-    for (std::size_t index = 0; index < program.instructions.size(); ++index) {
-        std::visit(
-            [&](const auto& instruction) {
-                using T = std::decay_t<decltype(instruction)>;
-                const auto item_path = path + "/instructions/" + std::to_string(index);
-                if constexpr (std::is_same_v<T, core::compiled::ApplyEffectInstruction>)
-                    certify_effect(diagnostics, scripts, instruction.effect, item_path + "/effect");
-                else if constexpr (std::is_same_v<T, core::compiled::NotifyInstruction>)
-                    certify_text(diagnostics, scripts, instruction.message, item_path + "/message");
-                else if constexpr (
-                    std::is_same_v<T, core::compiled::MoveInteractableInstruction> ||
-                    std::is_same_v<T, core::compiled::SetInteractableStateInstruction> ||
-                    std::is_same_v<T, core::compiled::CallSceneInteractionInstruction> ||
-                    std::is_same_v<T, core::compiled::CallDialogueInteractionInstruction>) {
-                } else
-                    static_assert(always_false<T>, "Unhandled InteractionInstruction");
-            },
-            program.instructions[index]);
-    }
+    certify_gameplay_commands(diagnostics, scripts, program.instructions, path + "/instructions");
 }
 
 } // namespace
@@ -329,9 +341,8 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                             else if constexpr (std::is_same_v<
                                                    T, core::compiled::DialogueLineSegment>) {
                                 certify_text(diagnostics, scripts, segment.text, path + "/text");
-                                for (std::size_t e = 0; e < segment.effects.size(); ++e)
-                                    certify_effect(diagnostics, scripts, segment.effects[e],
-                                                   path + "/effects/" + std::to_string(e));
+                                certify_gameplay_commands(diagnostics, scripts, segment.effects,
+                                                          path + "/effects");
                             }
                         },
                         sequence->segments[segment_index]);
@@ -346,9 +357,7 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                     certify_condition(diagnostics, scripts, *choice->condition,
                                       path + "/condition");
                 certify_text(diagnostics, scripts, choice->label, path + "/label");
-                for (std::size_t e = 0; e < choice->effects.size(); ++e)
-                    certify_effect(diagnostics, scripts, choice->effects[e],
-                                   path + "/effects/" + std::to_string(e));
+                certify_gameplay_commands(diagnostics, scripts, choice->effects, path + "/effects");
             }
         }
     }

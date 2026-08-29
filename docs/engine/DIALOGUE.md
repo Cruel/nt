@@ -39,7 +39,8 @@ Segment IDs are unique throughout their Dialogue rather than only within one Seq
 ## Lines, choices, and policy
 
 A Line contains typed text, an optional Character speaker override, ordered typed inline cues, an
-optional typed Condition, ordered typed Effects, show-once policy, logging policy, and an
+optional typed Condition, an ordered shared Gameplay Command effect program, show-once policy,
+logging policy, and an
 autosave-safe-point flag. Speaker resolution is line override, then Sequence-block default, then
 Dialogue default. Cue IDs are stable within the Dialogue. Every cue has a Unicode code-point text
 offset plus an explicit order for deterministic same-position sequencing.
@@ -83,7 +84,8 @@ choreography remains Scene work.
 Text source is Inline, Localized key, or synchronous Lua expression; markup is Plain or ActiveText.
 Show-once state is keyed by Dialogue ID plus Segment ID.
 
-A Choice edge contains typed label text, an optional Condition, ordered Effects, logging policy, an
+A Choice edge contains typed label text, an optional Condition, an ordered shared Gameplay Command
+effect program, logging policy, an
 autosave-safe-point flag, and one target block ID. `showDisabledChoices` controls whether a false
 choice is hidden or displayed disabled. Disabled choices are never selectable.
 
@@ -153,7 +155,7 @@ The Dialogue editor supports:
 - dense Sequence transcript editing and safe segment-ID rename;
 - child Scene target/input/UI-policy editing and Handoff payload/condition editing;
 - ordered Choice edge creation, editing, reordering, deletion, and safe edge-ID rename;
-- typed text-source, Character, Condition, Effect, show-once, logging, autosave, and completion fields;
+- typed text-source, Character, Condition, shared Gameplay Command, show-once, logging, autosave, and completion fields;
 - Stage Slot and Media Slot creation/removal/configuration, initial retained state, speaker sync, and
   line-level sparse semantic cues;
 - a cue timeline for stable cue IDs, text offsets, deterministic same-position order, Gesture
@@ -168,10 +170,16 @@ adapter emits the current `noveltea.dialogue-preview` document from Dialogue dat
 
 ## Typed runtime execution
 
-The additive typed execution kernel is the sole Dialogue executor on the `CompiledProject` path. It
+The typed execution kernel is the sole Dialogue executor on the `CompiledProject` path. It
 executes Sequence, Choice, and Redirect blocks; Line, RunLua, CallScene, and Handoff segments; Next and Choice edges;
-conditions, text sources, ordered effects, disabled-choice policy, history/show-once, logging, safe
+conditions, text sources, ordered shared Gameplay Command effects, disabled-choice policy,
+history/show-once, logging, safe
 points, redirects, nested Return, and completion targets through `FlowExecutor` and `SessionState`.
+Dialogue effect programs use the same command definitions and immediate-transaction semantics as
+Interactions. Observable/yielding commands inside nested `If/Else` store the exact nested command
+cursor in the Dialogue frame so resume and checkpoint restore continue after the boundary rather than
+re-running prior mutations. Program-local command results are cleared when that line/choice effect
+program ends.
 
 Each Dialogue frame initializes every Stage/Media Slot from the immutable definition, including a
 direct Dialogue entrypoint with no Scene caller. Semantic line cues are compiled in position/order

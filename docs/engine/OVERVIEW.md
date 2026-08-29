@@ -27,6 +27,7 @@ Read the specific component doc before changing its schema, commands, editor UI,
 - `docs/engine/MATERIAL.md` — material entity records, texture sources, shader references, preview, runtime/export status.
 - `docs/engine/VARIABLE.md` — project Variables/Global Properties, typed Property resolution, mutation, saves, and Lua APIs.
 - `docs/engine/TRAIT.md` — Property-backed Trait declarations, attachments, precedence, validation, discovery, and runtime behavior.
+- `docs/engine/GAMEPLAY_COMMAND.md` — shared typed Gameplay Commands, operands/results, atomic mutation groups, yielding boundaries, and reusable editor/runtime execution.
 - `docs/engine/TEST.md` — authoring tests, semantic recorder/playback inputs, stable identities, test editor, and playback integration.
 
 ## Migration Context

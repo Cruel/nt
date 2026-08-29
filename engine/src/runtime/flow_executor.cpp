@@ -98,8 +98,7 @@ first_interaction_instruction(const compiled::InteractionProgram& program)
 {
     if (program.instructions.empty())
         return std::nullopt;
-    return std::visit([](const auto& value) { return instruction_id(value); },
-                      program.instructions.front());
+    return program.instructions.front().id;
 }
 
 std::vector<DialogueStageSlotRuntimeState>
@@ -224,11 +223,42 @@ bool dialogue_edge_starts_at(const compiled::DialogueEdge& edge, const DialogueB
 bool has_interaction_instruction(const compiled::InteractionProgram& program,
                                  const InteractionInstructionId& id)
 {
-    return std::any_of(program.instructions.begin(), program.instructions.end(),
-                       [&id](const compiled::InteractionInstruction& instruction) {
-                           return std::visit([&id](const auto& value) { return value.id == id; },
-                                             instruction);
-                       });
+    const auto contains = [&id](const auto& self,
+                                std::span<const GameplayCommand> commands) -> bool {
+        for (const auto& command : commands) {
+            if (command.id == id)
+                return true;
+            if (const auto* branch = std::get_if<IfGameplayCommand>(&command.value);
+                branch && (self(self, branch->then_commands) || self(self, branch->else_commands)))
+                return true;
+        }
+        return false;
+    };
+    return contains(contains, program.instructions);
+}
+
+bool valid_dialogue_effect_command(const std::vector<GameplayCommand>& effects,
+                                   const DialogueFramePosition& position)
+{
+    if (!position.effect_command)
+        return true;
+    if (position.next_effect >= effects.size())
+        return false;
+    const auto* branch = std::get_if<IfGameplayCommand>(&effects[position.next_effect].value);
+    if (!branch)
+        return false;
+    const auto contains = [&position](const auto& self,
+                                      std::span<const GameplayCommand> commands) -> bool {
+        for (const auto& command : commands) {
+            if (command.id == *position.effect_command)
+                return true;
+            if (const auto* child = std::get_if<IfGameplayCommand>(&command.value);
+                child && (self(self, child->then_commands) || self(self, child->else_commands)))
+                return true;
+        }
+        return false;
+    };
+    return contains(contains, branch->then_commands) || contains(contains, branch->else_commands);
 }
 
 void assign_position(FlowFrame& frame, FlowFramePosition position)
@@ -480,11 +510,12 @@ Result<void, Diagnostics> FlowExecutor::validate_position(const FlowFrame& frame
                 case DialogueFramePosition::Stage::EnterBlock:
                 case DialogueFramePosition::Stage::Complete:
                     return !candidate->segment && !candidate->edge && candidate->next_effect == 0 &&
-                           !candidate->awaiting_completion;
+                           !candidate->awaiting_completion && !candidate->effect_command;
                 case DialogueFramePosition::Stage::PresentSegment:
                     return segment != nullptr && !candidate->edge && candidate->next_effect == 0 &&
                            (!candidate->awaiting_completion ||
-                            std::holds_alternative<compiled::DialogueRunLuaSegment>(*segment));
+                            std::holds_alternative<compiled::DialogueRunLuaSegment>(*segment)) &&
+                           !candidate->effect_command;
                 case DialogueFramePosition::Stage::ApplySegmentEffects: {
                     const auto* line = segment == nullptr
                                            ? nullptr
@@ -492,22 +523,25 @@ Result<void, Diagnostics> FlowExecutor::validate_position(const FlowFrame& frame
                     return line != nullptr && !candidate->edge &&
                            candidate->next_effect <= line->effects.size() &&
                            (!candidate->awaiting_completion ||
-                            candidate->next_effect < line->effects.size());
+                            candidate->next_effect < line->effects.size()) &&
+                           valid_dialogue_effect_command(line->effects, *candidate);
                 }
                 case DialogueFramePosition::Stage::PresentChoices:
                     return std::holds_alternative<compiled::DialogueChoiceBlock>(*block) &&
-                           !candidate->segment && !candidate->edge && candidate->next_effect == 0;
+                           !candidate->segment && !candidate->edge && candidate->next_effect == 0 &&
+                           !candidate->effect_command;
                 case DialogueFramePosition::Stage::ApplyChoiceEffects: {
                     const auto* choice =
                         edge == nullptr ? nullptr : std::get_if<compiled::DialogueChoiceEdge>(edge);
                     return choice != nullptr && !candidate->segment &&
                            candidate->next_effect <= choice->effects.size() &&
                            (!candidate->awaiting_completion ||
-                            candidate->next_effect < choice->effects.size());
+                            candidate->next_effect < choice->effects.size()) &&
+                           valid_dialogue_effect_command(choice->effects, *candidate);
                 }
                 case DialogueFramePosition::Stage::FollowEdge:
                     return edge != nullptr && !candidate->segment && candidate->next_effect == 0 &&
-                           !candidate->awaiting_completion;
+                           !candidate->awaiting_completion && !candidate->effect_command;
                 }
                 return false;
             } else if constexpr (std::is_same_v<Frame, InteractionFrame>) {
@@ -614,7 +648,8 @@ Result<void, Diagnostics> FlowExecutor::start_transient(const DialogueId& dialog
                        DialogueFramePosition::Stage::EnterBlock, 0},
                       initial_dialogue_stage_slots(*definition),
                       initial_dialogue_media_slots(*definition),
-                      ResumeRoomDestination{room->room}});
+                      ResumeRoomDestination{room->room},
+                      {}});
     record_execution_provenance(id, ExecutionRelationship::Root);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
@@ -693,7 +728,8 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
         std::move(program_reference),
         {first_interaction_instruction(*program), InteractionFallbackStage::SelectedProgram,
          InteractionExecutionOutcome::Pending, false},
-        ResumeRoomDestination{room->room}});
+        ResumeRoomDestination{room->room},
+        {}});
     record_execution_provenance(id, ExecutionRelationship::Interaction);
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
@@ -777,7 +813,8 @@ Result<void, Diagnostics> FlowExecutor::call_interaction(InteractionInvocationCo
                                        {first_interaction_instruction(*program),
                                         InteractionFallbackStage::SelectedProgram,
                                         InteractionExecutionOutcome::Pending, false},
-                                       CallerDestination{}};
+                                       CallerDestination{},
+                                       {}};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
     set_execution_state(caller, ExecutionState::Suspended);
     ++m_state.m_next_frame_id;
@@ -949,7 +986,8 @@ Result<void, Diagnostics> FlowExecutor::call_child(const DialogueId& dialogue,
         {block, std::nullopt, std::nullopt, DialogueFramePosition::Stage::EnterBlock, 0},
         initial_dialogue_stage_slots(*definition),
         initial_dialogue_media_slots(*definition),
-        CallerDestination{}};
+        CallerDestination{},
+        {}};
     assign_position(m_state.m_flow_stack.back(), std::move(caller_next_position));
     set_execution_state(caller, ExecutionState::Suspended);
     ++m_state.m_next_frame_id;
@@ -1164,7 +1202,8 @@ Result<void, Diagnostics> FlowExecutor::replace_with_dialogue(const DialogueId& 
                        DialogueFramePosition::Stage::EnterBlock, 0},
                       initial_dialogue_stage_slots(*definition),
                       initial_dialogue_media_slots(*definition),
-                      destination};
+                      destination,
+                      {}};
     set_execution_state(old_id, ExecutionState::Completed);
     record_execution_provenance(id, ExecutionRelationship::Continue, old_id, old_parent);
     clear_blocker_for(old_id);

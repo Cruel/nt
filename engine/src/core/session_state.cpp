@@ -486,15 +486,24 @@ bool valid_interaction_log_origin(const CompiledProject& project,
     const auto* interaction = project.find_interaction(origin.interaction);
     if (interaction == nullptr)
         return false;
+    const auto contains_notification = [&](const auto& self,
+                                           const GameplayCommand& command) -> bool {
+        if (command.id == origin.instruction &&
+            std::holds_alternative<NotifyCommand>(command.value))
+            return true;
+        const auto* conditional = std::get_if<IfGameplayCommand>(&command.value);
+        if (conditional == nullptr)
+            return false;
+        return std::ranges::any_of(conditional->then_commands,
+                                   [&](const auto& child) { return self(self, child); }) ||
+               std::ranges::any_of(conditional->else_commands,
+                                   [&](const auto& child) { return self(self, child); });
+    };
     return std::any_of(interaction->rules.begin(), interaction->rules.end(),
-                       [&origin](const compiled::InteractionRule& rule) {
-                           return std::any_of(
-                               rule.program.instructions.begin(), rule.program.instructions.end(),
-                               [&origin](const compiled::InteractionInstruction& instruction) {
-                                   const auto* notification =
-                                       std::get_if<compiled::NotifyInstruction>(&instruction);
-                                   return notification != nullptr &&
-                                          notification->id == origin.instruction;
+                       [&](const compiled::InteractionRule& rule) {
+                           return std::ranges::any_of(
+                               rule.program.instructions, [&](const auto& command) {
+                                   return contains_notification(contains_notification, command);
                                });
                        });
 }
@@ -710,7 +719,8 @@ Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project
                                    DialogueFramePosition::Stage::EnterBlock, 0},
                                   std::move(stage_slots),
                                   std::move(media_slots),
-                                  NoReturnDestination{}});
+                                  NoReturnDestination{},
+                                  {}});
                 return true;
             }
         },

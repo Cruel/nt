@@ -24,113 +24,13 @@ std::optional<std::vector<Effect>> decode_effects(Decoder& decoder, const nlohma
         });
 }
 
-std::optional<InteractionInstruction> decode_interaction_instruction(Decoder& decoder,
-                                                                     const nlohmann::json& value,
-                                                                     std::string_view pointer)
+std::optional<std::vector<GameplayCommand>>
+decode_gameplay_commands(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
-    if (!value.is_object()) {
-        decoder.error(k_code_type, "Expected an interaction instruction object.",
-                      std::string(pointer));
-        return std::nullopt;
-    }
-    const auto* kind_value = decoder.member(value, "kind", pointer);
-    const auto* id_value = decoder.member(value, "id", pointer);
-    auto kind =
-        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
-    auto id = id_value
-                  ? decoder.id<InteractionInstructionId>(*id_value, pointer_child(pointer, "id"))
-                  : std::nullopt;
-    if (!kind || !id)
-        return std::nullopt;
-    if (*kind == "apply-effect") {
-        decoder.object(value, pointer, {"effect", "id", "kind"});
-        const auto* effect_value = decoder.member(value, "effect", pointer);
-        auto effect = effect_value ? decode_effect_impl(decoder, *effect_value,
-                                                        pointer_child(pointer, "effect"))
-                                   : std::nullopt;
-        return effect ? std::optional<InteractionInstruction>(
-                            ApplyEffectInstruction{std::move(*id), std::move(*effect)})
-                      : std::nullopt;
-    }
-    if (*kind == "move-interactable") {
-        decoder.object(value, pointer, {"id", "interactable", "kind", "target"});
-        const auto* interactable_value = decoder.member(value, "interactable", pointer);
-        const auto* target_value = decoder.member(value, "target", pointer);
-        auto interactable = interactable_value
-                                ? decode_reference<InteractableInstanceId>(
-                                      decoder, *interactable_value,
-                                      pointer_child(pointer, "interactable"), "interactable")
-                                : std::nullopt;
-        auto target =
-            target_value ? decode_location(decoder, *target_value, pointer_child(pointer, "target"))
-                         : std::nullopt;
-        return interactable && target
-                   ? std::optional<InteractionInstruction>(MoveInteractableInstruction{
-                         std::move(*id), std::move(*interactable), std::move(*target)})
-                   : std::nullopt;
-    }
-    if (*kind == "set-interactable-state") {
-        decoder.object(value, pointer, {"enabled", "id", "interactable", "kind", "visible"});
-        const auto* interactable_value = decoder.member(value, "interactable", pointer);
-        auto interactable = interactable_value
-                                ? decode_reference<InteractableInstanceId>(
-                                      decoder, *interactable_value,
-                                      pointer_child(pointer, "interactable"), "interactable")
-                                : std::nullopt;
-        std::optional<bool> enabled;
-        bool enabled_ok = true;
-        if (const auto* field = json_access::member(value, "enabled")) {
-            enabled = decoder.boolean(*field, pointer_child(pointer, "enabled"));
-            enabled_ok = enabled.has_value();
-        }
-        std::optional<bool> visible;
-        bool visible_ok = true;
-        if (const auto* field = json_access::member(value, "visible")) {
-            visible = decoder.boolean(*field, pointer_child(pointer, "visible"));
-            visible_ok = visible.has_value();
-        }
-        return interactable && enabled_ok && visible_ok
-                   ? std::optional<InteractionInstruction>(SetInteractableStateInstruction{
-                         std::move(*id), std::move(*interactable), enabled, visible})
-                   : std::nullopt;
-    }
-    if (*kind == "notify") {
-        decoder.object(value, pointer, {"id", "kind", "message"});
-        const auto* message_value = decoder.member(value, "message", pointer);
-        auto message = message_value
-                           ? decode_text(decoder, *message_value, pointer_child(pointer, "message"))
-                           : std::nullopt;
-        return message ? std::optional<InteractionInstruction>(
-                             NotifyInstruction{std::move(*id), std::move(*message)})
-                       : std::nullopt;
-    }
-    if (*kind == "call-scene") {
-        decoder.object(value, pointer, {"id", "kind", "scene"});
-        const auto* scene_value = decoder.member(value, "scene", pointer);
-        auto scene = scene_value
-                         ? decode_reference<SceneId>(decoder, *scene_value,
-                                                     pointer_child(pointer, "scene"), "scene")
-                         : std::nullopt;
-        return scene ? std::optional<InteractionInstruction>(
-                           CallSceneInteractionInstruction{std::move(*id), std::move(*scene)})
-                     : std::nullopt;
-    }
-    if (*kind == "call-dialogue") {
-        decoder.object(value, pointer, {"dialogue", "id", "kind"});
-        const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
-        auto dialogue =
-            dialogue_value
-                ? decode_reference<DialogueId>(decoder, *dialogue_value,
-                                               pointer_child(pointer, "dialogue"), "dialogue")
-                : std::nullopt;
-        return dialogue ? std::optional<InteractionInstruction>(CallDialogueInteractionInstruction{
-                              std::move(*id), std::move(*dialogue)})
-                        : std::nullopt;
-    }
-    decoder.object(value, pointer, {"id", "kind"});
-    decoder.error(k_code_variant, "Unknown interaction instruction variant '" + *kind + "'.",
-                  pointer_child(pointer, "kind"));
-    return std::nullopt;
+    return decoder.array<GameplayCommand>(
+        value, pointer, [&](const nlohmann::json& command, const std::string& item_pointer) {
+            return decode_gameplay_command_impl(decoder, command, item_pointer);
+        });
 }
 
 std::optional<InteractionProgram>
@@ -141,14 +41,10 @@ decode_interaction_program(Decoder& decoder, const nlohmann::json& value, std::s
     const auto* instructions_value = decoder.member(value, "instructions", pointer);
     const auto* completion_value = decoder.member(value, "completion", pointer);
     const auto* outcome_value = decoder.member(value, "outcome", pointer);
-    auto instructions =
-        instructions_value
-            ? decoder.array<InteractionInstruction>(
-                  *instructions_value, pointer_child(pointer, "instructions"),
-                  [&](const nlohmann::json& instruction, const std::string& item_pointer) {
-                      return decode_interaction_instruction(decoder, instruction, item_pointer);
-                  })
-            : std::nullopt;
+    auto instructions = instructions_value
+                            ? decode_gameplay_commands(decoder, *instructions_value,
+                                                       pointer_child(pointer, "instructions"))
+                            : std::nullopt;
     auto completion = completion_value
                           ? decode_flow_target_impl(decoder, *completion_value,
                                                     pointer_child(pointer, "completion"))
@@ -160,13 +56,10 @@ decode_interaction_program(Decoder& decoder, const nlohmann::json& value, std::s
                                  : std::nullopt;
     if (!instructions || !completion || !outcome)
         return std::nullopt;
-    decoder.duplicate_ids(
-        *instructions, pointer_child(pointer, "instructions"),
-        [](const InteractionInstruction& instruction) -> const InteractionInstructionId& {
-            return std::visit(
-                [](const auto& typed) -> const InteractionInstructionId& { return typed.id; },
-                instruction);
-        });
+    decoder.duplicate_ids(*instructions, pointer_child(pointer, "instructions"),
+                          [](const GameplayCommand& command) -> const InteractionInstructionId& {
+                              return command.id;
+                          });
     return InteractionProgram{std::move(*instructions), std::move(*completion), *outcome};
 }
 

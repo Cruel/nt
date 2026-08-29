@@ -403,7 +403,8 @@ nlohmann::json encode_dialogue_position(const DialogueFramePosition& value)
             {"nextEffect", value.next_effect},
             {"awaitingCompletion", value.awaiting_completion},
             {"nextCue", value.next_cue},
-            {"revealOffset", value.reveal_offset}};
+            {"revealOffset", value.reveal_offset},
+            {"effectCommand", encode_optional_id(value.effect_command)}};
 }
 
 std::optional<DialogueFramePosition>
@@ -411,7 +412,7 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
 {
     if (!d.object(value, pointer,
                   {"block", "segment", "edge", "stage", "nextEffect", "awaitingCompletion",
-                   "nextCue", "revealOffset"}))
+                   "nextCue", "revealOffset", "effectCommand"}))
         return std::nullopt;
     const auto* block = d.member(value, "block", pointer);
     const auto* segment = d.member(value, "segment", pointer);
@@ -421,6 +422,7 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
     const auto* awaiting = d.member(value, "awaitingCompletion", pointer);
     const auto* next_cue = d.member(value, "nextCue", pointer);
     const auto* reveal_offset = d.member(value, "revealOffset", pointer);
+    const auto* effect_command = d.member(value, "effectCommand", pointer);
     auto block_id = block ? d.id<DialogueBlockId>(*block, child(pointer, "block")) : std::nullopt;
     auto segment_id = segment
                           ? d.optional_id<DialogueSegmentId>(*segment, child(pointer, "segment"))
@@ -440,8 +442,11 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
         reveal_offset
             ? d.unsigned_integer<std::uint64_t>(*reveal_offset, child(pointer, "revealOffset"))
             : std::nullopt;
+    auto effect_command_id = effect_command ? d.optional_id<InteractionInstructionId>(
+                                                  *effect_command, child(pointer, "effectCommand"))
+                                            : Decoder::OptionalId<InteractionInstructionId>{};
     if (!block_id || !segment_id || !edge_id || !name || !effect_index || !awaiting_value ||
-        !next_cue_index || !reveal_value)
+        !next_cue_index || !reveal_value || !effect_command_id)
         return std::nullopt;
     const std::array<std::string_view, 7> names = {
         "enter-block",     "present-segment",      "apply-segment-effects",
@@ -460,7 +465,8 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
         *effect_index,
         *awaiting_value,
         *next_cue_index,
-        *reveal_value};
+        *reveal_value,
+        std::move(effect_command_id.value)};
 }
 
 nlohmann::json encode_interaction_program(const InteractionProgramRef& value)
@@ -814,6 +820,96 @@ decode_dialogue_media_state(Decoder& d, const nlohmann::json& value, std::string
                : std::nullopt;
 }
 
+nlohmann::json encode_command_result_value(const GameplayOperandValue& value)
+{
+    return std::visit(
+        [](const auto& typed) -> nlohmann::json {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, RoomId>)
+                return {{"kind", "room-instance"}, {"id", typed.text()}};
+            else if constexpr (std::is_same_v<T, CharacterId>)
+                return {{"kind", "character"}, {"id", typed.text()}};
+            else if constexpr (std::is_same_v<T, InteractableInstanceId>)
+                return {{"kind", "interactable"}, {"id", typed.text()}};
+            else
+                return {{"kind", "invalid"}};
+        },
+        value);
+}
+
+std::optional<GameplayOperandValue>
+decode_command_result_value(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        d.error(k_type, "Expected a Gameplay Command result value object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = d.member(value, "kind", pointer);
+    auto kind = kind_value ? d.string(*kind_value, child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "room-instance") {
+        d.object(value, pointer, {"id", "kind"});
+        const auto* id_value = d.member(value, "id", pointer);
+        auto id = id_value ? d.id<RoomId>(*id_value, child(pointer, "id")) : std::nullopt;
+        return id ? std::optional<GameplayOperandValue>(*id) : std::nullopt;
+    }
+    if (*kind == "character") {
+        d.object(value, pointer, {"id", "kind"});
+        const auto* id_value = d.member(value, "id", pointer);
+        auto id = id_value ? d.id<CharacterId>(*id_value, child(pointer, "id")) : std::nullopt;
+        return id ? std::optional<GameplayOperandValue>(*id) : std::nullopt;
+    }
+    if (*kind == "interactable") {
+        d.object(value, pointer, {"id", "kind"});
+        const auto* id_value = d.member(value, "id", pointer);
+        auto id =
+            id_value ? d.id<InteractableInstanceId>(*id_value, child(pointer, "id")) : std::nullopt;
+        return id ? std::optional<GameplayOperandValue>(*id) : std::nullopt;
+    }
+    d.error(k_variant, "Unknown Gameplay Command result value kind '" + *kind + "'.",
+            child(pointer, "kind"));
+    return std::nullopt;
+}
+
+nlohmann::json encode_command_results(const std::vector<CommandResultBinding>& bindings)
+{
+    auto result = nlohmann::json::array();
+    for (const auto& binding : bindings)
+        result.push_back({{"bindingId", binding.binding_id.text()},
+                          {"value", encode_command_result_value(binding.value)}});
+    return result;
+}
+
+std::optional<std::vector<CommandResultBinding>>
+decode_command_results(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_array()) {
+        d.error(k_type, "Expected an array.", std::string(pointer));
+        return std::nullopt;
+    }
+    std::vector<CommandResultBinding> decoded_bindings;
+    decoded_bindings.reserve(value.size());
+    for (std::size_t item = 0; item < value.size(); ++item) {
+        const auto item_pointer = index(pointer, item);
+        const auto* binding = json_access::element(value, item);
+        if (!binding || !d.object(*binding, item_pointer, {"bindingId", "value"}))
+            return std::nullopt;
+        const auto* id_value = d.member(*binding, "bindingId", item_pointer);
+        const auto* result_value = d.member(*binding, "value", item_pointer);
+        auto id = id_value
+                      ? d.id<CommandResultBindingId>(*id_value, child(item_pointer, "bindingId"))
+                      : std::nullopt;
+        auto decoded = result_value ? decode_command_result_value(d, *result_value,
+                                                                  child(item_pointer, "value"))
+                                    : std::nullopt;
+        if (!id || !decoded)
+            return std::nullopt;
+        decoded_bindings.push_back(CommandResultBinding{std::move(*id), std::move(*decoded)});
+    }
+    return decoded_bindings;
+}
+
 nlohmann::json encode_frame(const SavedFlowFrame& frame)
 {
     return std::visit(
@@ -856,7 +952,8 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                         {"position", encode_dialogue_position(value.position)},
                         {"stageSlots", std::move(stage_slots)},
                         {"mediaSlots", std::move(media_slots)},
-                        {"destination", encode_destination(value.destination)}};
+                        {"destination", encode_destination(value.destination)},
+                        {"commandResults", encode_command_results(value.command_results)}};
             } else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
                 nlohmann::json bindings = nlohmann::json::array();
                 for (const auto& binding : value.invocation.bindings) {
@@ -901,7 +998,8 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                           {"bindings", std::move(bindings)}}},
                         {"program", encode_interaction_program(value.program)},
                         {"position", encode_interaction_position(value.position)},
-                        {"destination", encode_destination(value.destination)}};
+                        {"destination", encode_destination(value.destination)},
+                        {"commandResults", encode_command_results(value.command_results)}};
             } else
                 return {{"kind", "room-transition"},
                         {"id", value.snapshot_id.value},
@@ -1028,12 +1126,14 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
     }
     if (*name == "dialogue") {
         d.object(value, pointer,
-                 {"kind", "id", "dialogue", "position", "stageSlots", "mediaSlots", "destination"});
+                 {"kind", "id", "dialogue", "position", "stageSlots", "mediaSlots", "destination",
+                  "commandResults"});
         const auto* dialogue = d.member(value, "dialogue", pointer);
         const auto* position = d.member(value, "position", pointer);
         const auto* stage_slots = d.member(value, "stageSlots", pointer);
         const auto* media_slots = d.member(value, "mediaSlots", pointer);
         const auto* destination = d.member(value, "destination", pointer);
+        const auto* command_results = d.member(value, "commandResults", pointer);
         auto dialogue_id =
             dialogue ? d.id<DialogueId>(*dialogue, child(pointer, "dialogue")) : std::nullopt;
         auto saved_position =
@@ -1042,6 +1142,10 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         auto saved_destination =
             destination ? decode_destination(d, *destination, child(pointer, "destination"))
                         : std::nullopt;
+        auto decoded_command_results =
+            command_results
+                ? decode_command_results(d, *command_results, child(pointer, "commandResults"))
+                : std::nullopt;
         std::vector<DialogueStageSlotRuntimeState> decoded_stage_slots;
         if (!stage_slots || !stage_slots->is_array()) {
             if (stage_slots)
@@ -1072,23 +1176,26 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                 return std::nullopt;
             decoded_media_slots.push_back(std::move(*decoded));
         }
-        return dialogue_id && saved_position && saved_destination
+        return dialogue_id && saved_position && saved_destination && decoded_command_results
                    ? std::optional<SavedFlowFrame>(
                          SavedDialogueFrame{{*snapshot},
                                             std::move(*dialogue_id),
                                             std::move(*saved_position),
                                             std::move(decoded_stage_slots),
                                             std::move(decoded_media_slots),
-                                            std::move(*saved_destination)})
+                                            std::move(*saved_destination),
+                                            std::move(*decoded_command_results)})
                    : std::nullopt;
     }
     if (*name == "interaction") {
-        d.object(value, pointer,
-                 {"kind", "id", "invocation", "program", "position", "destination"});
+        d.object(
+            value, pointer,
+            {"kind", "id", "invocation", "program", "position", "destination", "commandResults"});
         const auto* invocation = d.member(value, "invocation", pointer);
         const auto* program = d.member(value, "program", pointer);
         const auto* position = d.member(value, "position", pointer);
         const auto* destination = d.member(value, "destination", pointer);
+        const auto* command_results = d.member(value, "commandResults", pointer);
         if (!invocation ||
             !d.object(*invocation, child(pointer, "invocation"), {"verb", "room", "bindings"}))
             return std::nullopt;
@@ -1184,14 +1291,20 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         auto saved_destination =
             destination ? decode_destination(d, *destination, child(pointer, "destination"))
                         : std::nullopt;
-        return verb_id && room_id && saved_program && saved_position && saved_destination
+        auto decoded_command_results =
+            command_results
+                ? decode_command_results(d, *command_results, child(pointer, "commandResults"))
+                : std::nullopt;
+        return verb_id && room_id && saved_program && saved_position && saved_destination &&
+                       decoded_command_results
                    ? std::optional<SavedFlowFrame>(
                          SavedInteractionFrame{{*snapshot},
                                                {std::move(*verb_id), std::move(room_id.value),
                                                 std::move(decoded_bindings)},
                                                std::move(*saved_program),
                                                std::move(*saved_position),
-                                               std::move(*saved_destination)})
+                                               std::move(*saved_destination),
+                                               std::move(*decoded_command_results)})
                    : std::nullopt;
     }
     if (*name == "room-transition") {

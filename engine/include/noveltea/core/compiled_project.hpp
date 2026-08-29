@@ -854,43 +854,12 @@ struct ArchetypeDefinition {
     ArchetypeConfiguration configuration;
 };
 
-struct ApplyEffectInstruction {
-    InteractionInstructionId id;
-    Effect effect;
-};
-struct MoveInteractableInstruction {
-    InteractionInstructionId id;
-    InteractableInstanceId interactable;
-    InteractableLocation target;
-};
-struct SetInteractableStateInstruction {
-    InteractionInstructionId id;
-    InteractableInstanceId interactable;
-    std::optional<bool> enabled;
-    std::optional<bool> visible;
-};
-struct NotifyInstruction {
-    InteractionInstructionId id;
-    TextContent message;
-};
-struct CallSceneInteractionInstruction {
-    InteractionInstructionId id;
-    SceneId scene;
-};
-struct CallDialogueInteractionInstruction {
-    InteractionInstructionId id;
-    DialogueId dialogue;
-};
-using InteractionInstruction =
-    std::variant<ApplyEffectInstruction, MoveInteractableInstruction,
-                 SetInteractableStateInstruction, NotifyInstruction,
-                 CallSceneInteractionInstruction, CallDialogueInteractionInstruction>;
 enum class InteractionOutcome : std::uint8_t {
     Handled,
     Unhandled
 };
 struct InteractionProgram {
-    std::vector<InteractionInstruction> instructions;
+    std::vector<GameplayCommand> instructions;
     FlowTarget completion;
     InteractionOutcome outcome;
 };
@@ -1709,7 +1678,7 @@ struct DialogueLineSegment {
     DialogueSegmentId id;
     bool autosave_safe_point;
     std::optional<Condition> condition;
-    std::vector<Effect> effects;
+    std::vector<GameplayCommand> effects;
     bool logged;
     bool show_once;
     std::optional<CharacterId> speaker;
@@ -1763,7 +1732,7 @@ struct DialogueChoiceEdge {
     DialogueEdgeId id;
     bool autosave_safe_point;
     std::optional<Condition> condition;
-    std::vector<Effect> effects;
+    std::vector<GameplayCommand> effects;
     DialogueBlockId from_block_id;
     TextContent label;
     bool logged;

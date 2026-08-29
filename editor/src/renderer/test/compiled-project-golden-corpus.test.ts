@@ -152,7 +152,6 @@ describe('compiled project cross-language golden corpus', () => {
       'actor-cue',
       'always',
       'family',
-      'apply-effect',
       'asset',
       'audio-cue',
       'camera',
@@ -531,12 +530,13 @@ describe('compiled project cross-language golden corpus', () => {
       ),
     ).toEqual(
       sorted([
-        'apply-effect',
         'call-dialogue',
         'call-scene',
-        'move-interactable',
+        'move-instance',
         'notify',
-        'set-interactable-state',
+        'run-lua',
+        'set-global-property',
+        'set-visible',
       ]),
     );
     expect(sorted(new Set(actions.rules.map((rule) => rule.program.outcome)))).toEqual([
@@ -548,7 +548,7 @@ describe('compiled project cross-language golden corpus', () => {
         new Set(
           actions.rules.flatMap((rule) =>
             rule.program.instructions.flatMap((instruction) =>
-              instruction.kind === 'move-interactable' ? [instruction.target.kind] : [],
+              instruction.kind === 'move-instance' ? [instruction.location.kind] : [],
             ),
           ),
         ),
