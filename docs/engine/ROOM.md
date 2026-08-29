@@ -84,11 +84,22 @@ operation acceptance and stores those captured world bounds in the finite operat
 the source live while the effect is running.
 
 A `RoomPlacement` is an occupant-free anchor with stable nested identity, normalized bounds,
-presentation metadata, and deterministic order. Character and Interactable initial declarations may
-reference the same valid anchor. Interactable location, enabled state, and visible state remain in
-`SessionState`; the current Room view derives occupants by matching those locations and never stores
-a hidden placement owner. Character and declarative Room-cast occupants are resolved through the
-same Room-presentation resolver.
+presentation metadata, and deterministic order. Character and Interactable presentation occurrences
+may reference the same valid anchor. Interactable semantic Location, enabled state, and visible state
+remain in `SessionState`; a Room occurrence is a separate presentation identity that references one
+exact Interactable Instance. One Instance may therefore have zero, one, or multiple authored
+occurrences without duplicating the gameplay object.
+
+Runtime-created or dynamically moved Interactables may own at most one current dynamic occurrence in
+addition to authored occurrences. Each Room may also select zero or one generic fallback Interactable
+placement. Placement resolution is deterministic: dynamic occurrence, authored exact occurrence,
+fallback placement, then none. Ordinary Room moves resolve this presentation transaction before
+committing semantic Location; a missing presentation path rejects the move atomically. An explicit
+advanced no-presentation policy is the only way to leave an Instance semantically in a Room without a
+current occurrence. Dynamic occurrence identity and placement round-trip through SaveState.
+
+Character and declarative Room-cast occupants are resolved through the same Room-presentation
+resolver, but Interactable occurrence identity remains distinct from semantic Instance identity.
 
 `RoomView` publishes visit count, resolved description text/markup, background, overlays, placement
 bounds and labels, live Interactable state, and resolved exits. RmlUi and other presentation code
@@ -105,7 +116,7 @@ with explicit presentation owners use the scoped desired-state path and are pers
 The current version-4 authoring schema uses strict Room records with typed descriptions,
 conditions/effects, owner-local Features, semantic Hotspot targets, exits and optional transition
 overrides, World Presentation Space, default/named Camera Views, Anchors, placements, cast, props,
-environment loops, overlays, composition hooks, and required `scriptHooks` storage for zero or more
+an optional fallback Interactable placement, environment loops, overlays, composition hooks, and required `scriptHooks` storage for zero or more
 direct lifecycle handler mappings. The current compiled-project format atomically contains the resulting
 Room shape: every producer emits World Presentation Space and Anchor fields, and both TypeScript and native
 consumers require that same shape. The canonical default remains a
@@ -122,7 +133,10 @@ General, Camera, Composition, Hotspots, Navigation, Contents, and Behavior categ
 selected group mounted, retain the selected category as Room tab state, and route workbench targets
 to their owning category before reveal. Camera edits the logical presentation-space size, optional
 bounds, Contain/Overscan policy, default/named Views, and Anchors; focused Room preview consumes the
-same values immediately. Composition contains the command-backed Interactable placement editor.
+same values immediately. Composition contains the command-backed Interactable occurrence editor and
+a separate fallback-placement selector. Creating/placing an Instance, adding/removing an occurrence,
+moving an occurrence between Room placements, moving/unplacing the semantic Instance, and destroying
+the Instance are distinct operations; removing an occurrence does not destroy the Instance.
 Hotspots contains both nested Feature authoring and the shared React image stage. Feature editing
 covers stable ID, label, compatible Traits, and compatible Properties. The image stage uses direct
 manipulation: click a Hotspot to select it, drag a rectangular Hotspot or its handles to move/resize

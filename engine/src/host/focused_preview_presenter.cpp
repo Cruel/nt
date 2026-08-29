@@ -717,6 +717,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         .overlays = {},
         .cast = {},
         .interactables = {},
+        .fallback_interactable_placement = std::nullopt,
         .props = {},
         .environments = {},
         .placements = {},
@@ -856,7 +857,8 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         const auto id = decoded_id<core::InteractableInstanceId>(interactable.interactable_id);
         if (std::none_of(state.interactables.begin(), state.interactables.end(),
                          [&](const auto& current) { return current.interactable == id; }))
-            state.interactables.push_back({id, interactable.enabled, interactable.visible});
+            state.interactables.push_back(
+                {id, interactable.enabled, interactable.visible, true, std::nullopt});
     }
 
     std::vector<std::string> exit_labels;

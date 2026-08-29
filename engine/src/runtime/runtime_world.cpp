@@ -738,7 +738,7 @@ RuntimeWorld::create_character(RuntimeInstanceConfigurationRequest source,
 core::Result<core::InteractableInstanceId, core::Diagnostics>
 RuntimeWorld::create_interactable(RuntimeInstanceConfigurationRequest source,
                                   core::compiled::InteractableLocation location, bool enabled,
-                                  bool visible)
+                                  bool visible, InteractableRoomPresentationPolicy presentation)
 {
     if (const auto* room = std::get_if<core::compiled::RoomLocation>(&location);
         room != nullptr && resolved_configuration(room->room) == nullptr)
@@ -780,8 +780,15 @@ RuntimeWorld::create_interactable(RuntimeInstanceConfigurationRequest source,
         auto birth = request->configuration;
         m_state.m_runtime_interactables.push_back(core::RuntimeInteractableConfiguration{
             *id, false, request->source, std::nullopt, request->provenance, birth, std::nullopt});
-        m_state.m_interactables.push_back(
-            core::InteractableState{*id, std::move(location), enabled, visible, 1});
+        m_state.m_interactables.push_back(core::InteractableState{
+            *id, core::compiled::UnplacedLocation{}, enabled, visible, 1, std::nullopt});
+        auto moved = move_interactable(*id, std::move(location), presentation);
+        if (!moved) {
+            m_state.m_interactables.pop_back();
+            m_state.m_runtime_interactables.pop_back();
+            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
+                moved.error());
+        }
         ++m_state.m_next_runtime_instance_id;
         return core::Result<core::InteractableInstanceId, core::Diagnostics>::success(*id);
     }
@@ -1791,6 +1798,44 @@ bool RuntimeWorld::matches_interactable(const core::InteractableInstanceId& inst
     return true;
 }
 
+std::optional<ResolvedInteractableRoomPlacement>
+RuntimeWorld::resolve_interactable_room_placement(const core::InteractableInstanceId& instance,
+                                                  const core::RoomId& room) const
+{
+    const auto* state = interactable_state(instance);
+    const auto* configuration = resolved_configuration(room);
+    if (state == nullptr || configuration == nullptr)
+        return std::nullopt;
+
+    if (state->dynamic_room_occurrence && state->dynamic_room_occurrence->room == room &&
+        has_room_placement(
+            core::compiled::RoomPlacementRef{room, state->dynamic_room_occurrence->placement}))
+        return ResolvedInteractableRoomPlacement{state->dynamic_room_occurrence->placement,
+                                                 InteractableRoomPlacementSource::Dynamic,
+                                                 std::nullopt};
+
+    const core::compiled::RoomInteractableEntry* authored = nullptr;
+    for (const auto& occurrence : configuration->interactables) {
+        if (occurrence.interactable != instance)
+            continue;
+        if (authored == nullptr ||
+            std::tie(occurrence.order, occurrence.id) < std::tie(authored->order, authored->id))
+            authored = &occurrence;
+    }
+    if (authored != nullptr &&
+        has_room_placement(core::compiled::RoomPlacementRef{room, authored->placement_id}))
+        return ResolvedInteractableRoomPlacement{
+            authored->placement_id, InteractableRoomPlacementSource::Authored, authored->id};
+
+    if (configuration->fallback_interactable_placement &&
+        has_room_placement(core::compiled::RoomPlacementRef{
+            room, *configuration->fallback_interactable_placement}))
+        return ResolvedInteractableRoomPlacement{*configuration->fallback_interactable_placement,
+                                                 InteractableRoomPlacementSource::Fallback,
+                                                 std::nullopt};
+    return std::nullopt;
+}
+
 namespace {
 
 bool same_quantity_property_contracts(const std::vector<core::compiled::TraitProperty>& left,
@@ -1823,7 +1868,9 @@ bool RuntimeWorld::interactable_quantity_compatible(const core::InteractableInst
         right_record != nullptr ? interactable_origin_definition(*right_record) : std::nullopt;
     if (left_state == nullptr || right_state == nullptr || left_record == nullptr ||
         right_record == nullptr || !left_origin || !right_origin || *left_origin != *right_origin ||
-        left_state->enabled != right_state->enabled || left_state->visible != right_state->visible)
+        left_state->enabled != right_state->enabled ||
+        left_state->visible != right_state->visible ||
+        left_state->dynamic_room_occurrence != right_state->dynamic_room_occurrence)
         return false;
     const auto& left_configuration = left_record->effective_configuration();
     const auto& right_configuration = right_record->effective_configuration();
@@ -1916,14 +1963,34 @@ RuntimeWorld::clone_interactable_quantity_instance(const core::InteractableInsta
     if (!allocated)
         return allocated;
     const auto id = *allocated.value_if();
+    std::optional<ResolvedInteractableRoomPlacement> inherited_room_placement;
+    if (location == source_state->location) {
+        if (const auto* room = std::get_if<core::compiled::RoomLocation>(&location))
+            inherited_room_placement = resolve_interactable_room_placement(source, room->room);
+    }
     m_state.m_runtime_interactables.push_back(core::RuntimeInteractableConfiguration{
         id, false, core::CompiledInteractableConfigurationSource{definition->identity.id},
         std::nullopt,
         core::RuntimeInstanceProvenance{core::RuntimeInstanceProvenanceKind::Clone, std::nullopt,
                                         core::GameplayInstanceRef{source}},
         source_record->effective_configuration(), std::nullopt});
-    m_state.m_interactables.push_back(core::InteractableState{
-        id, std::move(location), source_state->enabled, source_state->visible, quantity});
+    m_state.m_interactables.push_back(
+        core::InteractableState{id, core::compiled::UnplacedLocation{}, source_state->enabled,
+                                source_state->visible, quantity, std::nullopt});
+    if (const auto* room = std::get_if<core::compiled::RoomLocation>(&location);
+        room != nullptr && inherited_room_placement) {
+        auto* created_state = find_record(m_state.m_interactables, id);
+        created_state->location = location;
+        created_state->dynamic_room_occurrence = core::InteractableState::DynamicRoomOccurrence{
+            room->room, inherited_room_placement->placement};
+    } else {
+        auto moved = move_interactable(id, std::move(location));
+        if (!moved) {
+            erase_interactable_quantity_instance(id);
+            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
+                moved.error());
+        }
+    }
     const auto overrides = m_state.m_property_overrides;
     for (const auto& value : overrides) {
         const auto* owner = std::get_if<core::InteractableInstanceId>(&value.target());
@@ -2000,8 +2067,16 @@ RuntimeWorld::create_interactable_quantity(const core::InteractableDefinitionId&
             core::RuntimeInstanceProvenance{core::RuntimeInstanceProvenanceKind::CompiledDefinition,
                                             std::nullopt, std::nullopt},
             *definition, std::nullopt});
-        m_state.m_interactables.push_back(
-            core::InteractableState{id, location, true, true, granted});
+        m_state.m_interactables.push_back(core::InteractableState{
+            id, core::compiled::UnplacedLocation{}, true, true, granted, std::nullopt});
+        auto moved = move_interactable(id, location);
+        if (!moved) {
+            m_state.m_runtime_interactables = saved_configurations;
+            m_state.m_interactables = saved_states;
+            m_state.m_next_runtime_instance_id = saved_allocator;
+            return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+                moved.error());
+        }
         result.created.push_back(id);
         result.surviving.push_back(id);
         remaining -= granted;
@@ -2715,17 +2790,33 @@ RuntimeWorld::set_character_visible(const core::CharacterId& id, bool visible)
 
 core::Result<void, core::Diagnostics>
 RuntimeWorld::move_interactable(const core::InteractableInstanceId& id,
-                                core::compiled::InteractableLocation location)
+                                core::compiled::InteractableLocation location,
+                                InteractableRoomPresentationPolicy presentation)
 {
     auto found = std::find_if(m_state.m_interactables.begin(), m_state.m_interactables.end(),
                               [&](const auto& value) { return value.interactable == id; });
     if (found == m_state.m_interactables.end())
         return core::Result<void, core::Diagnostics>::failure(world_error(
             "runtime.unknown_interactable", "Interactable Gameplay Instance is not live"));
-    if (const auto* room = std::get_if<core::compiled::RoomLocation>(&location);
-        room != nullptr && resolved_configuration(room->room) == nullptr)
-        return core::Result<void, core::Diagnostics>::failure(world_error(
-            "runtime.invalid_interactable_location", "Interactable Room Location is unresolved"));
+    std::optional<core::InteractableState::DynamicRoomOccurrence> dynamic_occurrence;
+    if (const auto* room = std::get_if<core::compiled::RoomLocation>(&location)) {
+        if (resolved_configuration(room->room) == nullptr)
+            return core::Result<void, core::Diagnostics>::failure(
+                world_error("runtime.invalid_interactable_location",
+                            "Interactable Room Location is unresolved"));
+        if (presentation == InteractableRoomPresentationPolicy::Resolve) {
+            const auto resolved = resolve_interactable_room_placement(id, room->room);
+            if (!resolved)
+                return core::Result<void, core::Diagnostics>::failure(
+                    world_error("runtime.interactable_presentation_unresolved",
+                                "Interactable Room move requires an authored occurrence or "
+                                "fallback placement"));
+            if (resolved->source == InteractableRoomPlacementSource::Dynamic ||
+                resolved->source == InteractableRoomPlacementSource::Fallback)
+                dynamic_occurrence =
+                    core::InteractableState::DynamicRoomOccurrence{room->room, resolved->placement};
+        }
+    }
     if (const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&location)) {
         if (!has_inventory(inventory->inventory))
             return core::Result<void, core::Diagnostics>::failure(
@@ -2750,6 +2841,7 @@ RuntimeWorld::move_interactable(const core::InteractableInstanceId& id,
         }
     }
     found->location = std::move(location);
+    found->dynamic_room_occurrence = std::move(dynamic_occurrence);
     return core::Result<void, core::Diagnostics>::success();
 }
 

@@ -44,9 +44,12 @@ import { replaceInteractableDataPatches } from '@/project/interactable-operation
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import {
+  addInteractableOccurrencePatches,
   detachInteractablePlacementPatches,
   moveInteractableToPlacementPatches,
   placeInteractablePatches,
+  removeInteractableOccurrencePatches,
+  setRoomFallbackInteractablePlacementPatches,
   setRoomPlacementBoundsPatches,
 } from '@/project/room-placement-operations';
 import {
@@ -725,17 +728,33 @@ const roomPlaceInteractableSchema = z.object({
   roomId: entityIdSchema,
   interactableId: entityIdSchema,
   instanceId: entityIdSchema,
+  occurrenceId: entityIdSchema.optional(),
   placementId: entityIdSchema,
   bounds: roomNormalizedRectSchema,
 });
+const roomAddInteractableOccurrenceSchema = z.object({
+  roomId: entityIdSchema,
+  instanceId: entityIdSchema,
+  occurrenceId: entityIdSchema,
+  placementId: entityIdSchema,
+  visible: z.boolean().optional(),
+});
+const roomRemoveInteractableOccurrenceSchema = z.object({
+  roomId: entityIdSchema,
+  occurrenceId: entityIdSchema,
+});
+const roomSetFallbackInteractablePlacementSchema = z.object({
+  roomId: entityIdSchema,
+  placementId: entityIdSchema.nullable(),
+});
 const roomMoveInteractableToPlacementSchema = z.object({
   roomId: entityIdSchema,
-  interactableId: entityIdSchema,
+  occurrenceId: entityIdSchema,
   placementId: entityIdSchema,
 });
 const roomDetachInteractablePlacementSchema = z.object({
   roomId: entityIdSchema,
-  interactableId: entityIdSchema,
+  occurrenceId: entityIdSchema,
   sourcePlacementId: entityIdSchema,
   placementId: entityIdSchema,
 });
@@ -1209,6 +1228,21 @@ export const roomPlaceInteractableCommand: CommandHandler = ({ document, payload
   parseEntityCommand(roomPlaceInteractableSchema, payload, (parsed) =>
     placeInteractablePatches(document, parsed),
   );
+export const roomAddInteractableOccurrenceCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomAddInteractableOccurrenceSchema, payload, (parsed) =>
+    addInteractableOccurrencePatches(document, parsed),
+  );
+export const roomRemoveInteractableOccurrenceCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomRemoveInteractableOccurrenceSchema, payload, (parsed) =>
+    removeInteractableOccurrencePatches(document, parsed),
+  );
+export const roomSetFallbackInteractablePlacementCommand: CommandHandler = ({
+  document,
+  payload,
+}) =>
+  parseEntityCommand(roomSetFallbackInteractablePlacementSchema, payload, (parsed) =>
+    setRoomFallbackInteractablePlacementPatches(document, parsed),
+  );
 export const roomMoveInteractableToPlacementCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(roomMoveInteractableToPlacementSchema, payload, (parsed) =>
     moveInteractableToPlacementPatches(document, parsed),
@@ -1510,6 +1544,9 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'room.reorderHotspots': roomReorderHotspotsCommand,
     'room.setPlacementBounds': roomSetPlacementBoundsCommand,
     'room.placeInteractable': roomPlaceInteractableCommand,
+    'room.addInteractableOccurrence': roomAddInteractableOccurrenceCommand,
+    'room.removeInteractableOccurrence': roomRemoveInteractableOccurrenceCommand,
+    'room.setFallbackInteractablePlacement': roomSetFallbackInteractablePlacementCommand,
     'room.moveInteractableToPlacement': roomMoveInteractableToPlacementCommand,
     'room.detachInteractablePlacement': roomDetachInteractablePlacementCommand,
     'interactable.addHotspot': interactableAddHotspotCommand,
@@ -1622,8 +1659,14 @@ export function labelForCommand(type: string): string {
       return 'Update room placement bounds';
     case 'room.placeInteractable':
       return 'Place interactable';
+    case 'room.addInteractableOccurrence':
+      return 'Add interactable occurrence';
+    case 'room.removeInteractableOccurrence':
+      return 'Remove interactable occurrence';
+    case 'room.setFallbackInteractablePlacement':
+      return 'Set fallback interactable placement';
     case 'room.moveInteractableToPlacement':
-      return 'Move interactable to placement';
+      return 'Move interactable occurrence';
     case 'room.detachInteractablePlacement':
       return 'Create dedicated interactable placement';
     case 'scene.replaceData':

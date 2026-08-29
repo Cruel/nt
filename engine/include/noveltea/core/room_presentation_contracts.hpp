@@ -106,6 +106,7 @@ struct RoomPresentationDefinitionView {
     std::vector<Overlay> overlays;
     std::vector<CastEntry> cast;
     std::vector<InteractableOccurrence> interactables;
+    std::optional<RoomPlacementId> fallback_interactable_placement;
     std::vector<Prop> props;
     std::vector<Environment> environments;
     std::vector<Placement> placements;
@@ -122,6 +123,8 @@ struct RoomPresentationStateView {
         InteractableInstanceId interactable;
         bool enabled = true;
         bool visible = true;
+        bool room_location_matches = false;
+        std::optional<RoomPlacementId> dynamic_placement;
     };
     struct OverlayVisibility {
         RoomOverlayId overlay;
@@ -158,8 +161,22 @@ struct ResolvedRoomActor {
     std::int32_t order = 0;
 };
 
+struct DynamicRoomInteractableOccurrenceId {
+    InteractableInstanceId interactable;
+    auto operator<=>(const DynamicRoomInteractableOccurrenceId&) const = default;
+};
+
+struct FallbackRoomInteractableOccurrenceId {
+    InteractableInstanceId interactable;
+    auto operator<=>(const FallbackRoomInteractableOccurrenceId&) const = default;
+};
+
+using ResolvedRoomInteractableOccurrenceId =
+    std::variant<RoomInteractableEntryId, DynamicRoomInteractableOccurrenceId,
+                 FallbackRoomInteractableOccurrenceId>;
+
 struct ResolvedRoomInteractable {
-    RoomInteractableEntryId occurrence;
+    ResolvedRoomInteractableOccurrenceId occurrence;
     InteractableInstanceId interactable;
     RoomPlacementId placement;
     bool enabled = true;

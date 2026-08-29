@@ -965,25 +965,25 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     setSelectedPlacementId(placementId);
     setPlacingInteractable(null);
   };
-  const detachInteractable = (interactableId: string, sourcePlacementId: string) => {
+  const detachInteractable = (occurrenceId: string, sourcePlacementId: string) => {
     const placementId = nextId(
       data.placements.map((placement) => placement.id),
-      `${interactableId}-placement`,
+      `${occurrenceId}-placement`,
     );
     useCommandStore.getState().executeCommand({
       type: 'room.detachInteractablePlacement',
       label: 'Create dedicated Interactable placement',
-      payload: { roomId, interactableId, sourcePlacementId, placementId },
+      payload: { roomId, occurrenceId, sourcePlacementId, placementId },
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
     setSelectedPlacementId(placementId);
   };
-  const moveInteractableToPlacement = (interactableId: string, placementId: string) => {
+  const moveInteractableToPlacement = (occurrenceId: string, placementId: string) => {
     useCommandStore.getState().executeCommand({
       type: 'room.moveInteractableToPlacement',
       label: 'Move Interactable to placement',
-      payload: { roomId, interactableId, placementId },
+      payload: { roomId, occurrenceId, placementId },
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
@@ -2372,6 +2372,39 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     : t('roomComposition.placeInteractable')}
                 </Button>
               </div>
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-2">
+                <span className="text-xs font-medium">Fallback Interactable placement</span>
+                <Select
+                  value={data.fallbackInteractablePlacementId ?? '__none__'}
+                  onValueChange={(placementId) =>
+                    useCommandStore.getState().executeCommand({
+                      type: 'room.setFallbackInteractablePlacement',
+                      label: 'Set fallback Interactable placement',
+                      payload: {
+                        roomId,
+                        placementId: placementId === '__none__' ? null : placementId,
+                      },
+                      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                      persistencePolicy: 'manual-save',
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-8 w-56">
+                    <SelectValue placeholder="No fallback placement" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No fallback placement</SelectItem>
+                    {data.placements.map((placement) => (
+                      <SelectItem key={placement.id} value={placement.id}>
+                        {placement.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">
+                  Used for Room-present Interactable Instances without an exact occurrence.
+                </span>
+              </div>
               <RoomCompositionStage
                 backgroundUrl={compositionBackgroundUrl}
                 backgroundImageSize={compositionBackgroundSize}
@@ -2457,36 +2490,57 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </div>
               ) : null}
               {selectedPlacementInteractables.map((interactable) => (
-                <InteractableInstancePropertiesEditor
-                  key={interactable.instanceId}
-                  compact
-                  project={project}
-                  instanceId={interactable.instanceId}
-                  instance={interactable.instance}
-                  onChange={(next, change) =>
-                    useCommandStore.getState().executeCommand({
-                      type: 'project.applyPatch',
-                      label: 'Update Interactable Instance Properties',
-                      payload: [
-                        {
-                          op: 'replace',
-                          path: `/interactableInstances/${escapePointerSegment(interactable.instanceId)}`,
-                          value: next,
-                        },
-                        ...(change
-                          ? renameOwnerLocalPropertyReferencePatches(
-                              project,
-                              { kind: 'interactable', id: interactable.instanceId },
-                              change.fromId,
-                              change.toId,
-                            )
-                          : []),
-                      ],
-                      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                      persistencePolicy: 'manual-save',
-                    })
-                  }
-                />
+                <div key={interactable.id} className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      Occurrence: {interactable.id}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        useCommandStore.getState().executeCommand({
+                          type: 'room.removeInteractableOccurrence',
+                          label: 'Remove Interactable occurrence',
+                          payload: { roomId, occurrenceId: interactable.id },
+                          originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                          persistencePolicy: 'manual-save',
+                        })
+                      }
+                    >
+                      Remove occurrence
+                    </Button>
+                  </div>
+                  <InteractableInstancePropertiesEditor
+                    compact
+                    project={project}
+                    instanceId={interactable.instanceId}
+                    instance={interactable.instance}
+                    onChange={(next, change) =>
+                      useCommandStore.getState().executeCommand({
+                        type: 'project.applyPatch',
+                        label: 'Update Interactable Instance Properties',
+                        payload: [
+                          {
+                            op: 'replace',
+                            path: `/interactableInstances/${escapePointerSegment(interactable.instanceId)}`,
+                            value: next,
+                          },
+                          ...(change
+                            ? renameOwnerLocalPropertyReferencePatches(
+                                project,
+                                { kind: 'interactable', id: interactable.instanceId },
+                                change.fromId,
+                                change.toId,
+                              )
+                            : []),
+                        ],
+                        originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                        persistencePolicy: 'manual-save',
+                      })
+                    }
+                  />
+                </div>
               ))}
             </section>
             <section

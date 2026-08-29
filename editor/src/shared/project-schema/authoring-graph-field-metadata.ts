@@ -300,6 +300,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // compiled/runtime Property projection rather than creating an independent graph identity.
   [/^\/interactables\/\*\/defaultProperties(?:\/|$)/, OWNER],
   [/^\/interactableInstances\/\*\/localProperties(?:\/|$)/, OWNER],
+  // #120 gives each Room one optional catchall placement for semantically present Interactable
+  // Instances that have no exact authored occurrence. It changes only the owning Room projection.
+  [/^\/rooms\/\*\/data\/fallbackInteractablePlacementId$/, OWNER],
   // Nullable is a new Variable runtime semantic in #136. The renamed authored `value` leaf is
   // preserved against the previous `defaultValue` review slot below.
   [/^\/variables\/\*\/data\/nullable$/, OWNER],
@@ -792,7 +795,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     maps: 'af4e0eba',
     materials: '546711ca',
     project: 'da3be83d',
-    rooms: '7cefd676',
+    rooms: '8dff66ee',
     scenes: '1e4988b5',
     schema: '63fb9bb9',
     scripts: 'f3482815',

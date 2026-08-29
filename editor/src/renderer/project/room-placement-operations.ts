@@ -121,6 +121,7 @@ export function placeInteractablePatches(
     roomId: string;
     interactableId: string;
     instanceId: string;
+    occurrenceId?: string;
     placementId: string;
     bounds: RoomNormalizedRect;
   },
@@ -133,18 +134,22 @@ export function placeInteractablePatches(
     return { patches: [], diagnostics: [error('Room placement bounds are invalid.')] };
   if (loaded.room.placements.some((item) => item.id === payload.placementId))
     return { patches: [], diagnostics: [error('Room placement ID already exists.')] };
-  if (loaded.room.interactables.some((item) => item.id === payload.instanceId))
-    return { patches: [], diagnostics: [error('Room Interactable instance ID already exists.')] };
+  const occurrenceId = payload.occurrenceId ?? payload.instanceId;
+  if (loaded.room.interactables.some((item) => item.id === occurrenceId))
+    return { patches: [], diagnostics: [error('Room Interactable occurrence ID already exists.')] };
   const existingInstance = document.interactableInstances[payload.instanceId];
   if (existingInstance && existingInstance.definition.$ref.id !== payload.interactableId)
     return {
       patches: [],
       diagnostics: [error('Interactable Instance does not use the selected definition.')],
     };
-  if (existingInstance?.location.kind === 'room')
+  if (
+    existingInstance?.location.kind === 'room' &&
+    existingInstance.location.room.$ref.id !== payload.roomId
+  )
     return {
       patches: [],
-      diagnostics: [error('Interactable Instance is already assigned to a Room.')],
+      diagnostics: [error('Interactable Instance is assigned to a different Room.')],
     };
   const maximumOrder = loaded.room.placements.reduce(
     (maximum, placement) => Math.max(maximum, placement.order ?? 0),
@@ -165,7 +170,7 @@ export function placeInteractablePatches(
     interactables: [
       ...loaded.room.interactables,
       {
-        id: payload.instanceId,
+        id: occurrenceId,
         interactable: {
           $ref: { registry: 'interactableInstances', id: payload.instanceId },
         },
@@ -187,31 +192,111 @@ export function placeInteractablePatches(
   prospectiveDocument.interactableInstances[payload.instanceId] = instance;
   const room = roomResult(prospectiveDocument, payload.roomId, roomData);
   if (room.diagnostics?.some((item) => item.severity === 'error')) return room;
+  const alreadyInRoom =
+    existingInstance?.location.kind === 'room' &&
+    existingInstance.location.room.$ref.id === payload.roomId;
   const patches = [
-    {
-      op: existingInstance ? ('replace' as const) : ('add' as const),
-      path: buildJsonPointer(['interactableInstances', payload.instanceId]),
-      value: toJsonValue(instance),
-    },
+    ...(alreadyInRoom
+      ? []
+      : [
+          {
+            op: existingInstance ? ('replace' as const) : ('add' as const),
+            path: buildJsonPointer(['interactableInstances', payload.instanceId]),
+            value: toJsonValue(instance),
+          },
+        ]),
     ...room.patches,
   ];
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }
 
+export function addInteractableOccurrencePatches(
+  document: unknown,
+  payload: {
+    roomId: string;
+    instanceId: string;
+    occurrenceId: string;
+    placementId: string;
+    visible?: boolean;
+  },
+): EntityOperationResult {
+  const loaded = loadedRecords(document, payload.roomId);
+  if ('patches' in loaded) return loaded;
+  if (!isAuthoringProject(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  const instance = document.interactableInstances[payload.instanceId];
+  if (!instance)
+    return { patches: [], diagnostics: [error('Interactable Instance does not exist.')] };
+  if (instance.location.kind !== 'room' || instance.location.room.$ref.id !== payload.roomId)
+    return {
+      patches: [],
+      diagnostics: [error('Interactable Instance must be semantically present in this Room.')],
+    };
+  if (!loaded.room.placements.some((item) => item.id === payload.placementId))
+    return { patches: [], diagnostics: [error('Room placement does not exist.')] };
+  if (loaded.room.interactables.some((item) => item.id === payload.occurrenceId))
+    return { patches: [], diagnostics: [error('Room Interactable occurrence ID already exists.')] };
+  return roomResult(document, payload.roomId, {
+    ...loaded.room,
+    interactables: [
+      ...loaded.room.interactables,
+      {
+        id: payload.occurrenceId,
+        interactable: { $ref: { registry: 'interactableInstances', id: payload.instanceId } },
+        condition: { kind: 'always' },
+        placementId: payload.placementId,
+        visible: payload.visible ?? true,
+        order: loaded.room.interactables.length,
+      },
+    ],
+  });
+}
+
+export function removeInteractableOccurrencePatches(
+  document: unknown,
+  payload: { roomId: string; occurrenceId: string },
+): EntityOperationResult {
+  const loaded = loadedRecords(document, payload.roomId);
+  if ('patches' in loaded) return loaded;
+  if (!loaded.room.interactables.some((item) => item.id === payload.occurrenceId))
+    return { patches: [], diagnostics: [error('Room Interactable occurrence does not exist.')] };
+  return roomResult(document, payload.roomId, {
+    ...loaded.room,
+    interactables: loaded.room.interactables.filter((item) => item.id !== payload.occurrenceId),
+  });
+}
+
+export function setRoomFallbackInteractablePlacementPatches(
+  document: unknown,
+  payload: { roomId: string; placementId: string | null },
+): EntityOperationResult {
+  const loaded = loadedRecords(document, payload.roomId);
+  if ('patches' in loaded) return loaded;
+  if (
+    payload.placementId &&
+    !loaded.room.placements.some((item) => item.id === payload.placementId)
+  )
+    return { patches: [], diagnostics: [error('Room placement does not exist.')] };
+  return roomResult(document, payload.roomId, {
+    ...loaded.room,
+    fallbackInteractablePlacementId: payload.placementId,
+  });
+}
+
 export function moveInteractableToPlacementPatches(
   document: unknown,
-  payload: { roomId: string; interactableId: string; placementId: string },
+  payload: { roomId: string; occurrenceId: string; placementId: string },
 ): EntityOperationResult {
   const loaded = loadedRecords(document, payload.roomId);
   if ('patches' in loaded) return loaded;
   if (!loaded.room.placements.some((item) => item.id === payload.placementId))
     return { patches: [], diagnostics: [error('Room placement does not exist.')] };
-  if (!loaded.room.interactables.some((item) => item.id === payload.interactableId))
-    return { patches: [], diagnostics: [error('Room Interactable instance does not exist.')] };
+  if (!loaded.room.interactables.some((item) => item.id === payload.occurrenceId))
+    return { patches: [], diagnostics: [error('Room Interactable occurrence does not exist.')] };
   return roomResult(document, payload.roomId, {
     ...loaded.room,
     interactables: loaded.room.interactables.map((item) =>
-      item.id === payload.interactableId ? { ...item, placementId: payload.placementId } : item,
+      item.id === payload.occurrenceId ? { ...item, placementId: payload.placementId } : item,
     ),
   });
 }
@@ -220,7 +305,7 @@ export function detachInteractablePlacementPatches(
   document: unknown,
   payload: {
     roomId: string;
-    interactableId: string;
+    occurrenceId: string;
     sourcePlacementId: string;
     placementId: string;
   },
@@ -232,7 +317,7 @@ export function detachInteractablePlacementPatches(
   const source = loaded.room.placements.find((item) => item.id === payload.sourcePlacementId);
   if (!source)
     return { patches: [], diagnostics: [error('Source Room placement does not exist.')] };
-  const instance = loaded.room.interactables.find((item) => item.id === payload.interactableId);
+  const instance = loaded.room.interactables.find((item) => item.id === payload.occurrenceId);
   if (!instance || instance.placementId !== payload.sourcePlacementId)
     return {
       patches: [],
@@ -250,7 +335,7 @@ export function detachInteractablePlacementPatches(
     ...loaded.room,
     placements: [...loaded.room.placements, placement],
     interactables: loaded.room.interactables.map((item) =>
-      item.id === payload.interactableId ? { ...item, placementId: payload.placementId } : item,
+      item.id === payload.occurrenceId ? { ...item, placementId: payload.placementId } : item,
     ),
   });
 }

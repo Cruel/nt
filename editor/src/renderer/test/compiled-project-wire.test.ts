@@ -188,6 +188,7 @@ function representativeWireFixture() {
           props: [],
           scriptHooks: [],
           placements: [],
+          fallbackInteractablePlacementId: null,
           exits: [],
           features: [],
           hotspots: [],

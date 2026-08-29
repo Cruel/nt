@@ -855,7 +855,7 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
             std::move(effective_definition), std::nullopt});
         interactables.push_back(InteractableState{declaration.id, declaration.location,
                                                   declaration.enabled, declaration.visible,
-                                                  declaration.quantity});
+                                                  declaration.quantity, std::nullopt});
     }
     std::vector<RuntimeCharacterConfiguration> character_configurations;
     character_configurations.reserve(project.characters().size());

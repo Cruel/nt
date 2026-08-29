@@ -1609,6 +1609,21 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                  (configuration->stack_limit && item.quantity > *configuration->stack_limit))
             error("save_codec.invalid_interactable_quantity",
                   "Interactable state has an invalid quantity for its effective definition.");
+        if (item.dynamic_room_occurrence) {
+            const auto* room_location = std::get_if<compiled::RoomLocation>(&item.location);
+            if (room_location == nullptr ||
+                room_location->room != item.dynamic_room_occurrence->room) {
+                error("save_codec.invalid_interactable_occurrence",
+                      "Dynamic Interactable occurrence must belong to the semantic Room Location.");
+            } else {
+                auto room = resolved_room(project, save, item.dynamic_room_occurrence->room);
+                if (!room || std::ranges::none_of(room->placements, [&](const auto& placement) {
+                        return placement.id == item.dynamic_room_occurrence->placement;
+                    }))
+                    error("save_codec.invalid_interactable_occurrence",
+                          "Dynamic Interactable occurrence references a missing Room placement.");
+            }
+        }
     }
     if (save.interactables.size() != save.runtime_interactables.size())
         error("save_codec.incomplete_interactables",

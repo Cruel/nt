@@ -1275,6 +1275,12 @@ private:
                           entry_path + "/placementId");
                 validate_condition(entry.condition, entry_path + "/condition");
             }
+            if (value.fallback_interactable_placement &&
+                !placement(
+                    RoomPlacementRef{value.identity.id, *value.fallback_interactable_placement}))
+                error("compiled_project.unresolved_nested_reference",
+                      "Room fallback Interactable placement references a missing placement.",
+                      path + "/fallbackInteractablePlacementId");
             std::unordered_set<RoomPropId> prop_ids;
             for (std::size_t prop_index = 0; prop_index < value.props.size(); ++prop_index) {
                 const auto& prop = value.props[prop_index];

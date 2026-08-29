@@ -118,6 +118,7 @@ describe('asset operations', () => {
         },
         exits: [],
         placements: [],
+        fallbackInteractablePlacementId: null,
         overlays: [],
         cast: [],
         props: [],

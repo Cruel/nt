@@ -450,12 +450,19 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
                              {"property", value.property.text()},
                              {"value", encode_value(value.value)}});
     nlohmann::json interactables = nlohmann::json::array();
-    for (const auto& value : save.interactables)
+    for (const auto& value : save.interactables) {
+        nlohmann::json dynamic_room_occurrence = nullptr;
+        if (value.dynamic_room_occurrence)
+            dynamic_room_occurrence = {
+                {"room", value.dynamic_room_occurrence->room.text()},
+                {"placement", value.dynamic_room_occurrence->placement.text()}};
         interactables.push_back({{"id", value.interactable.text()},
                                  {"location", encode_location(value.location)},
                                  {"enabled", value.enabled},
                                  {"visible", value.visible},
-                                 {"quantity", value.quantity}});
+                                 {"quantity", value.quantity},
+                                 {"dynamicRoomOccurrence", std::move(dynamic_room_occurrence)}});
+    }
     nlohmann::json characters = nlohmann::json::array();
     for (const auto& value : save.characters)
         characters.push_back({{"id", value.character.text()},
@@ -884,13 +891,16 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
         d, interactables, "/interactables",
         [&d](const nlohmann::json& value,
              const std::string& pointer) -> std::optional<InteractableState> {
-            if (!d.object(value, pointer, {"id", "location", "enabled", "quantity", "visible"}))
+            if (!d.object(
+                    value, pointer,
+                    {"dynamicRoomOccurrence", "enabled", "id", "location", "quantity", "visible"}))
                 return std::nullopt;
             const auto* id = d.member(value, "id", pointer);
             const auto* location = d.member(value, "location", pointer);
             const auto* enabled = d.member(value, "enabled", pointer);
             const auto* visible = d.member(value, "visible", pointer);
             const auto* quantity = d.member(value, "quantity", pointer);
+            const auto* dynamic_occurrence = d.member(value, "dynamicRoomOccurrence", pointer);
             auto interactable =
                 id ? d.id<InteractableInstanceId>(*id, child(pointer, "id")) : std::nullopt;
             auto saved_location =
@@ -908,11 +918,34 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                         child(pointer, "quantity"));
                 saved_quantity = std::nullopt;
             }
+            std::optional<InteractableState::DynamicRoomOccurrence> saved_dynamic_occurrence;
+            bool dynamic_occurrence_ok = dynamic_occurrence != nullptr;
+            if (dynamic_occurrence && !dynamic_occurrence->is_null()) {
+                const auto dynamic_pointer = child(pointer, "dynamicRoomOccurrence");
+                if (!d.object(*dynamic_occurrence, dynamic_pointer, {"placement", "room"})) {
+                    dynamic_occurrence_ok = false;
+                } else {
+                    const auto* room_value = d.member(*dynamic_occurrence, "room", dynamic_pointer);
+                    const auto* placement_value =
+                        d.member(*dynamic_occurrence, "placement", dynamic_pointer);
+                    auto room = room_value
+                                    ? d.id<RoomId>(*room_value, child(dynamic_pointer, "room"))
+                                    : std::nullopt;
+                    auto placement =
+                        placement_value ? d.id<RoomPlacementId>(*placement_value,
+                                                                child(dynamic_pointer, "placement"))
+                                        : std::nullopt;
+                    dynamic_occurrence_ok = room.has_value() && placement.has_value();
+                    if (dynamic_occurrence_ok)
+                        saved_dynamic_occurrence = InteractableState::DynamicRoomOccurrence{
+                            std::move(*room), std::move(*placement)};
+                }
+            }
             return interactable && saved_location && saved_enabled && saved_visible &&
-                           saved_quantity
-                       ? std::optional<InteractableState>(
-                             InteractableState{std::move(*interactable), std::move(*saved_location),
-                                               *saved_enabled, *saved_visible, *saved_quantity})
+                           saved_quantity && dynamic_occurrence_ok
+                       ? std::optional<InteractableState>(InteractableState{
+                             std::move(*interactable), std::move(*saved_location), *saved_enabled,
+                             *saved_visible, *saved_quantity, std::move(saved_dynamic_occurrence)})
                        : std::nullopt;
         });
     auto saved_characters = decode_array<CharacterWorldState>(

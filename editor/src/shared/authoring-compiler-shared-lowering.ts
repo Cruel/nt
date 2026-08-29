@@ -818,6 +818,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         visible: entry.visible,
         order: entry.order,
       })),
+      fallbackInteractablePlacementId: data.fallbackInteractablePlacementId,
       ...(data.environments.length > 0
         ? {
             environments: data.environments.map((entry) => ({
@@ -1179,6 +1180,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           visible: entry.visible,
           order: entry.order,
         })),
+        fallbackInteractablePlacementId: data.fallbackInteractablePlacementId,
         environments: data.environments.map((entry) => ({
           id: entry.id,
           condition: compileCondition(entry.condition),

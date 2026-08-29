@@ -592,6 +592,7 @@ const roomDefinitionSchema = strict({
       order: z.number().int(),
     }),
   ),
+  fallbackInteractablePlacementId: id.nullable(),
   environments: z
     .array(
       strict({

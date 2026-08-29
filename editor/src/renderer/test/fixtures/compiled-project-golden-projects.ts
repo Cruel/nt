@@ -2552,6 +2552,8 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
     },
   };
 
+  project.rooms.start!.data.fallbackInteractablePlacementId = 'key-placement';
+
   const mutation = defaultSceneData('Exploration Mutation');
   mutation.stage = { kind: 'inherited' };
   mutation.events = [
