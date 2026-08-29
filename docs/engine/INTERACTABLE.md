@@ -22,6 +22,14 @@ may declare ordered typed Property contracts with optional Defaults and may inte
 required contract without a Default for concrete Instances to satisfy. A Definition Default is more
 specific than an inherited Archetype Default, which is more specific than a Trait Default.
 
+Definitions also declare intrinsic quantity behavior. `stackable=false` fixes every live Instance at
+quantity `1`. `stackable=true` permits a positive safe-integer quantity and may declare an optional
+positive `stackLimit`; omitting the limit means the portable safe-integer ceiling. Stackable
+Definitions may still own presentation, Hotspots, Traits, and Properties, but they may not own
+identity-bearing Features or Inventories. Changing stackability or reducing a Stack limit never
+silently rewrites authored Instances: incompatible quantities or identity-bearing children are kept
+in the Project and reported as blocking authoring diagnostics until explicitly repaired.
+
 An Interactable may own stable nested Features. Each Feature has an ID unique within the owning
 Interactable, a label, compatible Trait attachments, and compatible Property assignments. An exact
 Feature subject is always referenced as `(InteractableInstanceId, FeatureId)`; a bare Feature ID is not a
@@ -41,17 +49,34 @@ intentionally non-clickable Interactable.
 
 Declared Instances live in the project-level `interactableInstances` registry. Each entry owns its
 stable exact ID, Definition reference, optional editor label, authoritative Location, enabled/visible
-state, Trait additions/removals, sparse inherited Property overrides, and ordered completely
+state, positive quantity, Trait additions/removals, sparse inherited Property overrides, and ordered completely
 Instance-local typed Properties. Multiple Instances may reference the same Definition and remain
 independent identities. Effective Values resolve by specificity: Instance-local/override Value,
 Definition Default, inherited Archetype Default, Trait Default, then missing. Resetting an inherited
 override reveals the lower layer instead of copying that lower Value into the Instance.
 
 Room geometry belongs to nested `RoomPlacement`, not the Definition. A mutable `InteractableState`
-stores exactly one authoritative Location—owner-qualified Inventory, Room, or Unplaced—plus enabled
-and visible state. Room Location names only the `RoomId`; visual placement is supplied separately by
+stores exactly one authoritative Location—owner-qualified Inventory, Room, or Unplaced—plus enabled,
+visible, and quantity state. Room Location names only the `RoomId`; visual placement is supplied separately by
 Room Interactable occurrences, which reference the exact Instance. Moving an Interactable updates
 Instance state; it does not rewrite its Definition.
+
+Quantity mutations preserve exact identity semantics. Create-with-quantity always creates the minimum
+number of new limit-respecting identities and never coalesces an existing identity. Split keeps the
+source identity and creates one new identity with copied semantic state. Merge requires the same
+immutable origin Definition, Location, enabled/visible state, effective Traits, and effective Property
+Values; the receiver survives and the donor ends. Exact transfer preserves identity for a whole-stack
+move and performs one split for a partial move. `Add Quantity` fills only compatible Instances that
+remain in the Definition's default semantic state, then creates the minimum number of new default
+Instances. Consume decrements quantity or ends the identity at zero. Aggregate mutations use stable
+Instance-ID ordering, require one semantic compatibility class, and are atomic on ambiguity,
+insufficient quantity, invalid Location, overflow, or Stack-limit failure. Pure aggregate observation
+may sum across compatibility classes.
+
+Runtime-created Interactable identities use the shared gameplay-instance allocator. Split and
+quantity creation therefore consume from the same monotonic allocator as other runtime Interactable
+creation; ended identities are never reused, and allocator position plus quantity round-trip through
+SaveState without changing the already-selected save/schema versions.
 
 An Interactable may declare owner-local Inventories. Inventory membership is derived solely from Interactable Location, and each Inventory reference includes both its owner and owner-local `InventoryId`. Inventory ownership may also belong to the Project/session convention, Characters, or Features. Containment is acyclic, and moving an Inventory owner changes descendants' derived effective Room without rewriting their direct Inventory Locations.
 
@@ -62,11 +87,12 @@ parallel Item identities.
 ## Authoring, compiled, and state disposition
 
 - **Authoring Definition:** collection-specific Interactable record, Trait attachments, ordered typed
-  Property schemas with optional Defaults, owner-local Features, immutable presentation, and semantic
-  Hotspot targets.
+  Property schemas with optional Defaults, intrinsic stackability/optional Stack limit, owner-local
+  Features for non-stackable definitions, immutable presentation, and semantic Hotspot targets.
 - **Authoring Instance:** infrastructure-level `interactableInstances` registry entry with exact ID,
-  Definition reference, optional editor label, Location/state, Trait deltas, sparse inherited Value
-  overrides, and ordered Instance-local typed Properties.
+  Definition reference, optional editor label, Location/state/quantity, Trait deltas, sparse inherited
+  Value overrides, and ordered Instance-local typed Properties. The editor labels these entries
+  `Initial Stacks` for stackable Definitions.
 - **Compiled:** immutable `InteractableDefinition` records plus separate
   `InteractableInstanceDeclaration` records. Room occurrences refer to exact Instance IDs.
 - **Mutable:** exact-Instance `InteractableState` and Property overrides in `SessionState`; Save-policy
@@ -101,6 +127,12 @@ required Property contracts are compile errors, and runtime Instance creation va
 effective contracts before publishing a new identity.
 Placements have no occupant back-reference or Interactable owner. Lua, player, Map, and Interaction
 operations all use these same typed Location and semantic-subject APIs.
+
+Lua quantity operations live on `noveltea.interactables`, alongside exact Location operations. The
+surface queries exact quantity and exposes create-with-quantity, split, merge, exact transfer,
+Add Quantity, consume, and aggregate Definition quantity/consume helpers. These APIs return and accept
+`InteractableInstanceId` identities; the retired `noveltea.item_stacks` compatibility surface is not
+used to implement Interactable quantity semantics and remains only for its later contraction ticket.
 
 At runtime, multiple placed Interactables that reference one sprite share its source texture and alpha
 occupancy. Custom mode derives a distinct owner-union binary `R8` mask through the ordinary

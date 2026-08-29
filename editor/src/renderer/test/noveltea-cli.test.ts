@@ -1648,7 +1648,7 @@ describe('NovelTea headless CLI', () => {
       [typedBindings, 'noveltea', 'noveltea', 1],
       [typedBindings, 'game_properties', 'Game', 3],
       [typedBindings, 'properties', 'noveltea.properties', 6],
-      [typedBindings, 'interactables', 'noveltea.interactables', 2],
+      [typedBindings, 'interactables', 'noveltea.interactables', 12],
       [typedBindings, 'characters', 'noveltea.characters', 2],
       [typedBindings, 'navigation', 'noveltea.navigation', 1],
       [typedBindings, 'flow', 'noveltea.flow', 9],

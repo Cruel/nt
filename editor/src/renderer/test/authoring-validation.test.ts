@@ -17,6 +17,56 @@ import {
 } from '../../shared/project-schema/authoring-validation';
 
 describe('authoring validation', () => {
+  it('preserves incompatible Interactable quantities and stack limits as blocking diagnostics', () => {
+    const project = createAuthoringProject();
+    const data = defaultInteractableData('Coins');
+    data.stackable = true;
+    data.stackLimit = 5;
+    project.interactables.coins = { id: 'coins', label: 'Coins', data };
+    project.interactableInstances.coins = defaultInteractableInstanceData('coins', 'coins');
+    project.interactableInstances.coins.quantity = 6;
+
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.interactable.stack_limit_exceeded',
+        path: '/interactableInstances/coins/quantity',
+      }),
+    );
+    expect(project.interactableInstances.coins.quantity).toBe(6);
+
+    data.stackable = false;
+    expect(validateAuthoringProject(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.interactable.invalid_stack_limit',
+          path: '/interactables/coins/data/stackLimit',
+        }),
+        expect.objectContaining({
+          code: 'authoring.interactable.invalid_quantity',
+          path: '/interactableInstances/coins/quantity',
+        }),
+      ]),
+    );
+    expect(data.stackLimit).toBe(5);
+    expect(project.interactableInstances.coins.quantity).toBe(6);
+  });
+
+  it('rejects identity-bearing child declarations on stackable Interactables without deleting them', () => {
+    const project = createAuthoringProject();
+    const data = defaultInteractableData('Container');
+    data.stackable = true;
+    data.inventories.push({ id: 'contents', label: 'Contents' });
+    project.interactables.container = { id: 'container', label: 'Container', data };
+
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.interactable.stackable_identity_children',
+        path: '/interactables/container/data',
+      }),
+    );
+    expect(data.inventories).toEqual([{ id: 'contents', label: 'Contents' }]);
+  });
+
   it('allows incomplete reusable Interactable Property contracts but requires concrete Instance Values', () => {
     const project = createAuthoringProject();
     project.interactables.key = {

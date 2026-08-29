@@ -157,14 +157,15 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                       -> std::optional<InteractableInstanceDeclaration> {
                       if (!decoder.object(item, pointer,
                                           {"definition", "enabled", "id", "location",
-                                           "localProperties", "propertyOverrides", "traitAdds",
-                                           "traitRemoves", "visible"}))
+                                           "localProperties", "propertyOverrides", "quantity",
+                                           "traitAdds", "traitRemoves", "visible"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", pointer);
                       const auto* definition_value = decoder.member(item, "definition", pointer);
                       const auto* location_value = decoder.member(item, "location", pointer);
                       const auto* enabled_value = decoder.member(item, "enabled", pointer);
                       const auto* visible_value = decoder.member(item, "visible", pointer);
+                      const auto* quantity_value = decoder.member(item, "quantity", pointer);
                       const auto* adds_value = decoder.member(item, "traitAdds", pointer);
                       const auto* removes_value = decoder.member(item, "traitRemoves", pointer);
                       const auto* overrides_value =
@@ -192,6 +193,16 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                           visible_value
                               ? decoder.boolean(*visible_value, pointer_child(pointer, "visible"))
                               : std::nullopt;
+                      auto quantity = quantity_value ? decoder.unsigned_integer<std::uint64_t>(
+                                                           *quantity_value,
+                                                           pointer_child(pointer, "quantity"), true)
+                                                     : std::nullopt;
+                      if (quantity && *quantity > max_interactable_quantity) {
+                          decoder.error(k_code_number,
+                                        "Interactable quantity exceeds the portable numeric range.",
+                                        pointer_child(pointer, "quantity"));
+                          quantity = std::nullopt;
+                      }
                       const auto decode_traits =
                           [&](const nlohmann::json* value,
                               std::string_view member) -> std::optional<std::vector<TraitId>> {
@@ -268,14 +279,15 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                    : std::nullopt;
                                     })
                               : std::nullopt;
-                      if (!id || !definition || !location || !enabled || !visible || !trait_adds ||
-                          !trait_removes || !property_overrides || !local_properties)
+                      if (!id || !definition || !location || !enabled || !visible || !quantity ||
+                          !trait_adds || !trait_removes || !property_overrides || !local_properties)
                           return std::nullopt;
                       return InteractableInstanceDeclaration{std::move(*id),
                                                              std::move(*definition),
                                                              std::move(*location),
                                                              *enabled,
                                                              *visible,
+                                                             *quantity,
                                                              std::move(*trait_adds),
                                                              std::move(*trait_removes),
                                                              std::move(*property_overrides),

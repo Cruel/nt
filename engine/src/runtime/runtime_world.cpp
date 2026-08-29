@@ -208,6 +208,24 @@ const Record* find_record(const std::vector<Record>& records, const Id& id) noex
     return found == records.end() ? nullptr : &*found;
 }
 
+core::InteractableState* find_record(std::vector<core::InteractableState>& records,
+                                     const core::InteractableInstanceId& id) noexcept
+{
+    const auto found = std::find_if(records.begin(), records.end(), [&id](const auto& record) {
+        return record.interactable == id;
+    });
+    return found == records.end() ? nullptr : &*found;
+}
+
+std::optional<core::InteractableDefinitionId>
+interactable_origin_definition(const core::RuntimeInteractableConfiguration& record) noexcept
+{
+    const auto* source =
+        std::get_if<core::CompiledInteractableConfigurationSource>(&record.birth_source);
+    return source != nullptr ? std::optional<core::InteractableDefinitionId>{source->definition}
+                             : std::nullopt;
+}
+
 template<class Definition> void replace_definition_identity(Definition& definition, const auto& id)
 {
     definition.identity.id = id;
@@ -763,7 +781,7 @@ RuntimeWorld::create_interactable(RuntimeInstanceConfigurationRequest source,
         m_state.m_runtime_interactables.push_back(core::RuntimeInteractableConfiguration{
             *id, false, request->source, std::nullopt, request->provenance, birth, std::nullopt});
         m_state.m_interactables.push_back(
-            core::InteractableState{*id, std::move(location), enabled, visible});
+            core::InteractableState{*id, std::move(location), enabled, visible, 1});
         ++m_state.m_next_runtime_instance_id;
         return core::Result<core::InteractableInstanceId, core::Diagnostics>::success(*id);
     }
@@ -924,6 +942,22 @@ core::Result<void, core::Diagnostics> RuntimeWorld::validate_interactable_config
     const core::InteractableInstanceId& id,
     const core::compiled::InteractableDefinition& configuration) const
 {
+    const auto* record = find_record(m_state.m_runtime_interactables, id);
+    const auto origin = record != nullptr ? interactable_origin_definition(*record) : std::nullopt;
+    const auto* origin_definition =
+        origin ? m_project.find_interactable_definition(*origin) : nullptr;
+    if (origin_definition != nullptr &&
+        (configuration.stackable != origin_definition->stackable ||
+         configuration.stack_limit != origin_definition->stack_limit))
+        return core::Result<void, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_structural_edit", "Interactable structural replacement cannot change "
+                                               "intrinsic stackability or Stack limit"));
+    if (configuration.stackable &&
+        (!configuration.features.empty() || !configuration.inventories.empty()))
+        return core::Result<void, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_structural_edit", "Stackable Interactable configuration cannot own "
+                                               "identity-bearing Features or Inventories"));
+
     auto property_state = validate_configuration_property_overrides(
         m_project, m_state.m_property_overrides, core::PropertyOwnerRef{id}, configuration.identity,
         configuration.properties);
@@ -1689,6 +1723,601 @@ std::optional<core::RoomId> RuntimeWorld::effective_room(const core::ItemStackId
                 return std::nullopt;
         },
         inventory->inventory.owner);
+}
+
+bool RuntimeWorld::valid_interactable_location(
+    const core::compiled::InteractableLocation& location) const noexcept
+{
+    if (std::holds_alternative<core::compiled::UnplacedLocation>(location))
+        return true;
+    if (const auto* room = std::get_if<core::compiled::RoomLocation>(&location))
+        return resolved_configuration(room->room) != nullptr;
+    const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&location);
+    return inventory != nullptr && has_inventory(inventory->inventory);
+}
+
+core::Result<core::InteractableInstanceId, core::Diagnostics>
+RuntimeWorld::allocate_interactable_instance_id()
+{
+    for (;;) {
+        const auto ordinal = m_state.m_next_runtime_instance_id;
+        if (ordinal == std::numeric_limits<std::uint64_t>::max())
+            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
+                world_error("runtime.instance_identity_exhausted",
+                            "Runtime Gameplay Instance identity allocator is exhausted"));
+        auto candidate =
+            core::InteractableInstanceId::create("runtime-interactable-" + std::to_string(ordinal));
+        if (!candidate)
+            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
+                candidate.error());
+        ++m_state.m_next_runtime_instance_id;
+        const auto* id = candidate.value_if();
+        if (id != nullptr && resolved_configuration(*id) == nullptr)
+            return core::Result<core::InteractableInstanceId, core::Diagnostics>::success(*id);
+    }
+}
+
+bool RuntimeWorld::interactable_quantity_matches(const core::InteractableState& state,
+                                                 const InteractableQuantityFilter& filter) const
+{
+    const auto* record = find_record(m_state.m_runtime_interactables, state.interactable);
+    if (record == nullptr)
+        return false;
+    const auto origin = interactable_origin_definition(*record);
+    if (!origin || (filter.definition && *origin != *filter.definition))
+        return false;
+    return !filter.location || state.location == *filter.location;
+}
+
+namespace {
+
+bool same_quantity_property_contracts(const std::vector<core::compiled::TraitProperty>& left,
+                                      const std::vector<core::compiled::TraitProperty>& right)
+{
+    if (left.size() != right.size())
+        return false;
+    for (const auto& property : left) {
+        const auto match = std::ranges::find(right, property.property_id,
+                                             &core::compiled::TraitProperty::property_id);
+        if (match == right.end() || match->value_type.index() != property.value_type.index() ||
+            match->nullable != property.nullable || match->enum_values != property.enum_values)
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool RuntimeWorld::interactable_quantity_compatible(const core::InteractableInstanceId& left,
+                                                    const core::InteractableInstanceId& right) const
+{
+    const auto* left_state = interactable_state(left);
+    const auto* right_state = interactable_state(right);
+    const auto* left_record = find_record(m_state.m_runtime_interactables, left);
+    const auto* right_record = find_record(m_state.m_runtime_interactables, right);
+    const auto left_origin =
+        left_record != nullptr ? interactable_origin_definition(*left_record) : std::nullopt;
+    const auto right_origin =
+        right_record != nullptr ? interactable_origin_definition(*right_record) : std::nullopt;
+    if (left_state == nullptr || right_state == nullptr || left_record == nullptr ||
+        right_record == nullptr || !left_origin || !right_origin || *left_origin != *right_origin ||
+        left_state->enabled != right_state->enabled || left_state->visible != right_state->visible)
+        return false;
+    const auto& left_configuration = left_record->effective_configuration();
+    const auto& right_configuration = right_record->effective_configuration();
+    if (left_configuration.identity.traits != right_configuration.identity.traits ||
+        !same_quantity_property_contracts(left_configuration.properties,
+                                          right_configuration.properties))
+        return false;
+    std::vector<core::PropertyId> properties;
+    for (const auto& property : left_configuration.properties)
+        properties.push_back(property.property_id);
+    for (const auto& property : right_configuration.properties)
+        if (std::ranges::find(properties, property.property_id) == properties.end())
+            properties.push_back(property.property_id);
+    for (const auto& override_value : m_state.m_property_overrides) {
+        const auto* owner = std::get_if<core::InteractableInstanceId>(&override_value.target());
+        if (owner != nullptr && (*owner == left || *owner == right) &&
+            std::ranges::find(properties, override_value.property_id()) == properties.end())
+            properties.push_back(override_value.property_id());
+    }
+    core::PropertyResolver resolver(m_project, m_state);
+    for (const auto& property : properties) {
+        const auto left_value = resolver.get(core::PropertyOwnerRef{left}, property);
+        const auto right_value = resolver.get(core::PropertyOwnerRef{right}, property);
+        if (!left_value || !right_value)
+            return false;
+        const auto* left_runtime = std::get_if<core::RuntimeValue>(left_value.value_if());
+        const auto* right_runtime = std::get_if<core::RuntimeValue>(right_value.value_if());
+        if ((left_runtime == nullptr) != (right_runtime == nullptr) ||
+            (left_runtime != nullptr && *left_runtime != *right_runtime))
+            return false;
+    }
+    return true;
+}
+
+bool RuntimeWorld::default_interactable_quantity_state(
+    const core::InteractableInstanceId& id,
+    const core::compiled::InteractableDefinition& definition) const
+{
+    const auto* state = interactable_state(id);
+    const auto* record = find_record(m_state.m_runtime_interactables, id);
+    const auto origin = record != nullptr ? interactable_origin_definition(*record) : std::nullopt;
+    if (state == nullptr || record == nullptr || !state->enabled || !state->visible || !origin ||
+        *origin != definition.identity.id || record->structural_override ||
+        record->birth_configuration.identity.traits != definition.identity.traits ||
+        !same_quantity_property_contracts(record->birth_configuration.properties,
+                                          definition.properties))
+        return false;
+    if (std::ranges::any_of(m_state.m_property_overrides, [&](const auto& value) {
+            const auto* owner = std::get_if<core::InteractableInstanceId>(&value.target());
+            return owner != nullptr && *owner == id;
+        }))
+        return false;
+    core::PropertyResolver resolver(m_project, m_state);
+    for (const auto& property : definition.properties) {
+        const auto current = resolver.get(core::PropertyOwnerRef{id}, property.property_id);
+        if (!current)
+            return false;
+        const auto configured = property.configured_value;
+        if (configured) {
+            const auto* runtime = std::get_if<core::RuntimeValue>(current.value_if());
+            if (runtime == nullptr || *runtime != *configured)
+                return false;
+        } else if (std::get_if<core::MissingPropertyValue>(current.value_if()) == nullptr)
+            return false;
+    }
+    return true;
+}
+
+core::Result<core::InteractableInstanceId, core::Diagnostics>
+RuntimeWorld::clone_interactable_quantity_instance(const core::InteractableInstanceId& source,
+                                                   std::uint64_t quantity,
+                                                   core::compiled::InteractableLocation location)
+{
+    const auto* source_state = interactable_state(source);
+    const auto* source_record = find_record(m_state.m_runtime_interactables, source);
+    const auto origin =
+        source_record != nullptr ? interactable_origin_definition(*source_record) : std::nullopt;
+    if (source_state == nullptr || source_record == nullptr || quantity == 0 || !origin ||
+        !valid_interactable_location(location))
+        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_interactable_quantity",
+            "Quantity clone requires a live source, positive quantity, and valid Location"));
+    const auto* definition = m_project.find_interactable_definition(*origin);
+    if (definition == nullptr || !definition->stackable ||
+        (definition->stack_limit && quantity > *definition->stack_limit))
+        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
+            world_error("runtime.invalid_interactable_quantity",
+                        "Quantity clone exceeds the source Interactable Stack contract"));
+    auto allocated = allocate_interactable_instance_id();
+    if (!allocated)
+        return allocated;
+    const auto id = *allocated.value_if();
+    m_state.m_runtime_interactables.push_back(core::RuntimeInteractableConfiguration{
+        id, false, core::CompiledInteractableConfigurationSource{definition->identity.id},
+        std::nullopt,
+        core::RuntimeInstanceProvenance{core::RuntimeInstanceProvenanceKind::Clone, std::nullopt,
+                                        core::GameplayInstanceRef{source}},
+        source_record->effective_configuration(), std::nullopt});
+    m_state.m_interactables.push_back(core::InteractableState{
+        id, std::move(location), source_state->enabled, source_state->visible, quantity});
+    const auto overrides = m_state.m_property_overrides;
+    for (const auto& value : overrides) {
+        const auto* owner = std::get_if<core::InteractableInstanceId>(&value.target());
+        if (owner == nullptr || *owner != source)
+            continue;
+        auto copied = core::make_dynamic_property_override(core::PropertyTargetRef{id},
+                                                           value.property_id(), value.value());
+        if (copied)
+            m_state.m_property_overrides.push_back(std::move(copied).value());
+    }
+    return core::Result<core::InteractableInstanceId, core::Diagnostics>::success(id);
+}
+
+void RuntimeWorld::erase_interactable_quantity_instance(const core::InteractableInstanceId& id)
+{
+    m_state.m_runtime_interactables.erase(
+        std::remove_if(m_state.m_runtime_interactables.begin(),
+                       m_state.m_runtime_interactables.end(),
+                       [&](const auto& value) { return value.id == id; }),
+        m_state.m_runtime_interactables.end());
+    m_state.m_interactables.erase(
+        std::remove_if(m_state.m_interactables.begin(), m_state.m_interactables.end(),
+                       [&](const auto& value) { return value.interactable == id; }),
+        m_state.m_interactables.end());
+    m_state.m_property_overrides.erase(
+        std::remove_if(m_state.m_property_overrides.begin(), m_state.m_property_overrides.end(),
+                       [&](const auto& value) {
+                           const auto* owner =
+                               std::get_if<core::InteractableInstanceId>(&value.target());
+                           return owner != nullptr && *owner == id;
+                       }),
+        m_state.m_property_overrides.end());
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeWorld::create_interactable_quantity(const core::InteractableDefinitionId& definition_id,
+                                           std::uint64_t quantity,
+                                           core::compiled::InteractableLocation location)
+{
+    const auto* definition = m_project.find_interactable_definition(definition_id);
+    if (definition == nullptr || quantity == 0 ||
+        quantity > core::compiled::max_interactable_quantity ||
+        !valid_interactable_location(location))
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_interactable_quantity_create",
+            "Create quantity requires a valid definition, positive quantity, and Location"));
+    if (definition->stackable &&
+        (!definition->features.empty() || !definition->inventories.empty()))
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_interactable_stack_definition",
+                        "Stackable Interactable definition owns identity-bearing children"));
+    const auto saved_configurations = m_state.m_runtime_interactables;
+    const auto saved_states = m_state.m_interactables;
+    const auto saved_allocator = m_state.m_next_runtime_instance_id;
+    InteractableQuantityMutation result{quantity, {}, {}, {}, {}};
+    auto remaining = quantity;
+    const auto limit =
+        definition->stackable
+            ? definition->stack_limit.value_or(core::compiled::max_interactable_quantity)
+            : std::uint64_t{1};
+    while (remaining != 0) {
+        const auto granted = std::min(remaining, limit);
+        auto allocated = allocate_interactable_instance_id();
+        if (!allocated) {
+            m_state.m_runtime_interactables = saved_configurations;
+            m_state.m_interactables = saved_states;
+            m_state.m_next_runtime_instance_id = saved_allocator;
+            return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+                allocated.error());
+        }
+        const auto id = *allocated.value_if();
+        m_state.m_runtime_interactables.push_back(core::RuntimeInteractableConfiguration{
+            id, false, core::CompiledInteractableConfigurationSource{definition_id}, std::nullopt,
+            core::RuntimeInstanceProvenance{core::RuntimeInstanceProvenanceKind::CompiledDefinition,
+                                            std::nullopt, std::nullopt},
+            *definition, std::nullopt});
+        m_state.m_interactables.push_back(
+            core::InteractableState{id, location, true, true, granted});
+        result.created.push_back(id);
+        result.surviving.push_back(id);
+        remaining -= granted;
+    }
+    return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+        std::move(result));
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeWorld::split_interactable_quantity(const core::InteractableInstanceId& source,
+                                          std::uint64_t quantity)
+{
+    auto* state = find_record(m_state.m_interactables, source);
+    const auto* record = find_record(m_state.m_runtime_interactables, source);
+    const auto origin = record != nullptr ? interactable_origin_definition(*record) : std::nullopt;
+    const auto* definition = origin ? m_project.find_interactable_definition(*origin) : nullptr;
+    if (state == nullptr || definition == nullptr || !definition->stackable || quantity == 0 ||
+        quantity >= state->quantity)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_interactable_quantity_split",
+            "Split requires a live stackable Interactable and a smaller positive quantity"));
+    const auto saved_configurations = m_state.m_runtime_interactables;
+    const auto saved_states = m_state.m_interactables;
+    const auto saved_overrides = m_state.m_property_overrides;
+    const auto saved_allocator = m_state.m_next_runtime_instance_id;
+    const auto location = state->location;
+    auto cloned = clone_interactable_quantity_instance(source, quantity, location);
+    if (!cloned) {
+        m_state.m_runtime_interactables = saved_configurations;
+        m_state.m_interactables = saved_states;
+        m_state.m_property_overrides = saved_overrides;
+        m_state.m_next_runtime_instance_id = saved_allocator;
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            cloned.error());
+    }
+    state = find_record(m_state.m_interactables, source);
+    state->quantity -= quantity;
+    const auto id = *cloned.value_if();
+    return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+        InteractableQuantityMutation{quantity, {source, id}, {source}, {id}, {}});
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeWorld::merge_interactable_quantities(const core::InteractableInstanceId& receiver,
+                                            const core::InteractableInstanceId& donor)
+{
+    auto* target = find_record(m_state.m_interactables, receiver);
+    const auto* source = interactable_state(donor);
+    const auto* record = find_record(m_state.m_runtime_interactables, receiver);
+    const auto origin = record != nullptr ? interactable_origin_definition(*record) : std::nullopt;
+    const auto* definition = origin ? m_project.find_interactable_definition(*origin) : nullptr;
+    if (target == nullptr || source == nullptr || receiver == donor || definition == nullptr ||
+        !definition->stackable || target->location != source->location ||
+        !interactable_quantity_compatible(receiver, donor))
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.incompatible_interactable_quantities",
+                        "Merge requires compatible live stackable Interactable Instances"));
+    const auto limit = definition->stack_limit.value_or(core::compiled::max_interactable_quantity);
+    if (source->quantity > limit - target->quantity)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.interactable_stack_limit_exceeded",
+                        "Merged quantity would exceed the Interactable Stack limit"));
+    const auto moved = source->quantity;
+    target->quantity += moved;
+    erase_interactable_quantity_instance(donor);
+    return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+        InteractableQuantityMutation{moved, {receiver}, {receiver}, {}, {donor}});
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeWorld::transfer_interactable_quantity(const core::InteractableInstanceId& source,
+                                             std::uint64_t quantity,
+                                             core::compiled::InteractableLocation location)
+{
+    auto* state = find_record(m_state.m_interactables, source);
+    const auto* record = find_record(m_state.m_runtime_interactables, source);
+    const auto origin = record != nullptr ? interactable_origin_definition(*record) : std::nullopt;
+    const auto* definition = origin ? m_project.find_interactable_definition(*origin) : nullptr;
+    if (state == nullptr || definition == nullptr || quantity == 0 || quantity > state->quantity ||
+        !valid_interactable_location(location) || (!definition->stackable && quantity != 1))
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_interactable_quantity_transfer",
+                        "Transfer quantity, source, or target Location is invalid"));
+    if (state->location == location)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+            InteractableQuantityMutation{quantity, {source}, {}, {}, {}});
+    if (quantity == state->quantity) {
+        state->location = std::move(location);
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+            InteractableQuantityMutation{quantity, {source}, {source}, {}, {}});
+    }
+    const auto saved_configurations = m_state.m_runtime_interactables;
+    const auto saved_states = m_state.m_interactables;
+    const auto saved_overrides = m_state.m_property_overrides;
+    const auto saved_allocator = m_state.m_next_runtime_instance_id;
+    auto cloned = clone_interactable_quantity_instance(source, quantity, std::move(location));
+    if (!cloned) {
+        m_state.m_runtime_interactables = saved_configurations;
+        m_state.m_interactables = saved_states;
+        m_state.m_property_overrides = saved_overrides;
+        m_state.m_next_runtime_instance_id = saved_allocator;
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            cloned.error());
+    }
+    state = find_record(m_state.m_interactables, source);
+    state->quantity -= quantity;
+    const auto id = *cloned.value_if();
+    return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+        InteractableQuantityMutation{quantity, {source, id}, {source}, {id}, {}});
+}
+
+core::Result<std::uint64_t, core::Diagnostics>
+RuntimeWorld::aggregate_interactable_quantity(const InteractableQuantityFilter& filter) const
+{
+    std::uint64_t quantity = 0;
+    for (const auto& state : m_state.m_interactables) {
+        if (!interactable_quantity_matches(state, filter))
+            continue;
+        if (state.quantity > core::compiled::max_interactable_quantity - quantity)
+            return core::Result<std::uint64_t, core::Diagnostics>::failure(
+                world_error("runtime.interactable_quantity_overflow",
+                            "Aggregate Interactable quantity exceeds the portable range"));
+        quantity += state.quantity;
+    }
+    return core::Result<std::uint64_t, core::Diagnostics>::success(quantity);
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeWorld::consume_interactable_quantity(const core::InteractableInstanceId& instance,
+                                            std::uint64_t quantity)
+{
+    auto* state = find_record(m_state.m_interactables, instance);
+    if (state == nullptr || quantity == 0 || quantity > state->quantity)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_interactable_quantity",
+                        "Consume quantity exceeds the live Interactable Instance"));
+    if (quantity == state->quantity) {
+        erase_interactable_quantity_instance(instance);
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+            InteractableQuantityMutation{quantity, {}, {}, {}, {instance}});
+    }
+    const auto* record = find_record(m_state.m_runtime_interactables, instance);
+    const auto origin = record != nullptr ? interactable_origin_definition(*record) : std::nullopt;
+    const auto* definition = origin ? m_project.find_interactable_definition(*origin) : nullptr;
+    if (definition == nullptr || !definition->stackable)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_interactable_quantity",
+                        "Non-stackable Interactable quantity cannot be partially consumed"));
+    state->quantity -= quantity;
+    return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+        InteractableQuantityMutation{quantity, {instance}, {instance}, {}, {}});
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeWorld::consume_interactable_quantity(const InteractableQuantityFilter& filter,
+                                            std::uint64_t quantity)
+{
+    if (quantity == 0)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_interactable_quantity", "Consume quantity must be positive"));
+    std::vector<core::InteractableInstanceId> matches;
+    for (const auto& state : m_state.m_interactables)
+        if (interactable_quantity_matches(state, filter))
+            matches.push_back(state.interactable);
+    std::ranges::sort(matches, {}, [](const auto& id) { return id.text(); });
+    if (matches.empty())
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.insufficient_interactable_quantity",
+                        "No matching Interactable quantity is available"));
+    for (const auto& id : matches)
+        if (!interactable_quantity_compatible(matches.front(), id))
+            return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+                world_error("runtime.ambiguous_interactable_quantity_state",
+                            "Aggregate mutation matches multiple semantic compatibility classes"));
+    auto available = aggregate_interactable_quantity(filter);
+    if (!available || *available.value_if() < quantity)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            available ? world_error("runtime.insufficient_interactable_quantity",
+                                    "Matching Interactables do not contain the requested quantity")
+                      : available.error());
+    const auto saved_configurations = m_state.m_runtime_interactables;
+    const auto saved_states = m_state.m_interactables;
+    const auto saved_overrides = m_state.m_property_overrides;
+    InteractableQuantityMutation result{quantity, {}, {}, {}, {}};
+    auto remaining = quantity;
+    for (const auto& id : matches) {
+        const auto* state = interactable_state(id);
+        if (state == nullptr)
+            continue;
+        const auto consumed = std::min(remaining, state->quantity);
+        auto mutation = consume_interactable_quantity(id, consumed);
+        if (!mutation) {
+            m_state.m_runtime_interactables = saved_configurations;
+            m_state.m_interactables = saved_states;
+            m_state.m_property_overrides = saved_overrides;
+            return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+                mutation.error());
+        }
+        const auto& applied = mutation.value();
+        result.surviving.insert(result.surviving.end(), applied.surviving.begin(),
+                                applied.surviving.end());
+        result.changed.insert(result.changed.end(), applied.changed.begin(), applied.changed.end());
+        result.ended.insert(result.ended.end(), applied.ended.begin(), applied.ended.end());
+        remaining -= consumed;
+        if (remaining == 0)
+            break;
+    }
+    return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+        std::move(result));
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeWorld::transfer_interactable_quantity(const InteractableQuantityFilter& filter,
+                                             std::uint64_t quantity,
+                                             core::compiled::InteractableLocation location)
+{
+    if (quantity == 0 || !valid_interactable_location(location))
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_interactable_quantity_transfer",
+                        "Aggregate transfer quantity or target Location is invalid"));
+    std::vector<core::InteractableInstanceId> matches;
+    for (const auto& state : m_state.m_interactables)
+        if (interactable_quantity_matches(state, filter) && state.location != location)
+            matches.push_back(state.interactable);
+    std::ranges::sort(matches, {}, [](const auto& id) { return id.text(); });
+    if (matches.empty())
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.insufficient_interactable_quantity",
+                        "No matching Interactable quantity is available for transfer"));
+    for (const auto& id : matches)
+        if (!interactable_quantity_compatible(matches.front(), id))
+            return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+                world_error("runtime.ambiguous_interactable_quantity_state",
+                            "Aggregate transfer matches multiple semantic compatibility classes"));
+    std::uint64_t available = 0;
+    for (const auto& id : matches) {
+        const auto* state = interactable_state(id);
+        if (state == nullptr)
+            continue;
+        if (state->quantity > core::compiled::max_interactable_quantity - available)
+            return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+                world_error("runtime.interactable_quantity_overflow",
+                            "Matching Interactable quantity exceeds the portable range"));
+        available += state->quantity;
+    }
+    if (available < quantity)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            world_error("runtime.insufficient_interactable_quantity",
+                        "Matching Interactables do not contain the requested transfer quantity"));
+    const auto saved_configurations = m_state.m_runtime_interactables;
+    const auto saved_states = m_state.m_interactables;
+    const auto saved_overrides = m_state.m_property_overrides;
+    const auto saved_allocator = m_state.m_next_runtime_instance_id;
+    InteractableQuantityMutation result{quantity, {}, {}, {}, {}};
+    auto remaining = quantity;
+    for (const auto& id : matches) {
+        const auto* state = interactable_state(id);
+        if (state == nullptr)
+            continue;
+        const auto moved = std::min(remaining, state->quantity);
+        auto mutation = transfer_interactable_quantity(id, moved, location);
+        if (!mutation) {
+            m_state.m_runtime_interactables = saved_configurations;
+            m_state.m_interactables = saved_states;
+            m_state.m_property_overrides = saved_overrides;
+            m_state.m_next_runtime_instance_id = saved_allocator;
+            return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+                mutation.error());
+        }
+        const auto& applied = mutation.value();
+        result.surviving.insert(result.surviving.end(), applied.surviving.begin(),
+                                applied.surviving.end());
+        result.changed.insert(result.changed.end(), applied.changed.begin(), applied.changed.end());
+        result.created.insert(result.created.end(), applied.created.begin(), applied.created.end());
+        remaining -= moved;
+        if (remaining == 0)
+            break;
+    }
+    return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+        std::move(result));
+}
+
+core::Result<InteractableQuantityMutation, core::Diagnostics>
+RuntimeWorld::add_interactable_quantity(const core::InteractableDefinitionId& definition_id,
+                                        std::uint64_t quantity,
+                                        core::compiled::InteractableLocation location)
+{
+    const auto* definition = m_project.find_interactable_definition(definition_id);
+    if (definition == nullptr || !definition->stackable || quantity == 0 ||
+        quantity > core::compiled::max_interactable_quantity ||
+        !valid_interactable_location(location))
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_interactable_quantity_add",
+            "Add Quantity requires a stackable definition, positive quantity, and valid Location"));
+    const auto saved_configurations = m_state.m_runtime_interactables;
+    const auto saved_states = m_state.m_interactables;
+    const auto saved_overrides = m_state.m_property_overrides;
+    const auto saved_allocator = m_state.m_next_runtime_instance_id;
+    const auto limit = definition->stack_limit.value_or(core::compiled::max_interactable_quantity);
+    InteractableQuantityMutation result{quantity, {}, {}, {}, {}};
+    std::vector<core::InteractableInstanceId> candidates;
+    for (const auto& state : m_state.m_interactables)
+        if (state.location == location && state.quantity < limit &&
+            default_interactable_quantity_state(state.interactable, *definition))
+            candidates.push_back(state.interactable);
+    std::ranges::sort(candidates, {}, [](const auto& id) { return id.text(); });
+    auto remaining = quantity;
+    for (const auto& id : candidates) {
+        auto* state = find_record(m_state.m_interactables, id);
+        const auto moved = std::min(remaining, limit - state->quantity);
+        state->quantity += moved;
+        remaining -= moved;
+        if (moved != 0) {
+            result.surviving.push_back(id);
+            result.changed.push_back(id);
+        }
+        if (remaining == 0)
+            break;
+    }
+    if (remaining != 0) {
+        auto created = create_interactable_quantity(definition_id, remaining, location);
+        if (!created) {
+            m_state.m_runtime_interactables = saved_configurations;
+            m_state.m_interactables = saved_states;
+            m_state.m_property_overrides = saved_overrides;
+            m_state.m_next_runtime_instance_id = saved_allocator;
+            return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+                created.error());
+        }
+        const auto& applied = created.value();
+        result.surviving.insert(result.surviving.end(), applied.surviving.begin(),
+                                applied.surviving.end());
+        result.created.insert(result.created.end(), applied.created.begin(), applied.created.end());
+    }
+    std::ranges::sort(result.surviving, {}, [](const auto& id) { return id.text(); });
+    std::ranges::sort(result.changed, {}, [](const auto& id) { return id.text(); });
+    return core::Result<InteractableQuantityMutation, core::Diagnostics>::success(
+        std::move(result));
 }
 
 core::Result<core::ItemStackId, core::Diagnostics> RuntimeWorld::allocate_item_stack_id()

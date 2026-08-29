@@ -1366,6 +1366,20 @@ private:
         for (std::size_t index = 0; index < m_input.interactables.size(); ++index) {
             const auto& value = m_input.interactables[index];
             const auto path = item("/definitions/interactables", index);
+            if (!value.stackable && value.stack_limit)
+                error("compiled_project.invalid_interactable_stack_limit",
+                      "Non-stackable Interactable definitions cannot declare a Stack limit.",
+                      path + "/stackLimit");
+            if (value.stack_limit &&
+                (*value.stack_limit == 0 || *value.stack_limit > max_interactable_quantity))
+                error("compiled_project.invalid_interactable_stack_limit",
+                      "Interactable Stack limit must be a positive portable safe integer.",
+                      path + "/stackLimit");
+            if (value.stackable && (!value.features.empty() || !value.inventories.empty()))
+                error(
+                    "compiled_project.stackable_interactable_has_identity_children",
+                    "Stackable Interactables cannot own identity-bearing Features or Inventories.",
+                    path);
             validate_assignments(value, PropertyOwnerKind::Interactable, path);
             std::unordered_set<PropertyId> property_ids;
             for (std::size_t property_index = 0; property_index < value.properties.size();
@@ -1503,6 +1517,21 @@ private:
             require(m_interactables, value.definition, "interactable definition",
                     path + "/definition");
             const auto* definition = interactable_definition(value.definition);
+            if (value.quantity == 0 || value.quantity > max_interactable_quantity)
+                error("compiled_project.invalid_interactable_quantity",
+                      "Interactable Instance quantity must be a positive portable safe integer.",
+                      path + "/quantity");
+            if (definition != nullptr) {
+                if (!definition->stackable && value.quantity != 1)
+                    error("compiled_project.invalid_interactable_quantity",
+                          "Non-stackable Interactable Instances must have quantity 1.",
+                          path + "/quantity");
+                if (definition->stackable && definition->stack_limit &&
+                    value.quantity > *definition->stack_limit)
+                    error("compiled_project.interactable_stack_limit_exceeded",
+                          "Interactable Instance quantity exceeds its definition Stack limit.",
+                          path + "/quantity");
+            }
             validate_location(value.location, path + "/location");
             std::unordered_set<TraitId> adds;
             std::unordered_set<TraitId> removes;

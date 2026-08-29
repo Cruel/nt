@@ -71,6 +71,22 @@ core::CompiledProject load_fixture_with_runtime_archetypes()
     return decode_fixture(std::move(document), "comprehensive-runtime-archetypes.json");
 }
 
+core::CompiledProject load_stackable_interactable_fixture()
+{
+    auto document = load_fixture_document("comprehensive.json");
+    for (auto& definition : document["definitions"]["interactables"]) {
+        if (definition["id"] == "dust") {
+            definition["stackable"] = true;
+            definition["stackLimit"] = 3;
+        }
+    }
+    for (auto& instance : document["interactableInstances"]) {
+        if (instance["id"] == "dust")
+            instance["quantity"] = 2;
+    }
+    return decode_fixture(std::move(document), "stackable-interactable.json");
+}
+
 TEST_CASE("runtime world resolves declared gameplay instances without owning definitions")
 {
     const auto project = load_fixture("comprehensive.json");
@@ -141,6 +157,159 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
     CHECK(project.find_interactable_instance(key)->visible);
     CHECK(world.resolved_configuration(hero) == hero_definition);
     CHECK(world.resolved_configuration(key) == key_definition);
+}
+
+TEST_CASE("runtime world creates splits merges and transfers stackable Interactable quantities")
+{
+    const auto project = load_stackable_interactable_fixture();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto dust_definition = id<core::InteractableDefinitionId>("dust");
+    const auto dust = id<core::InteractableInstanceId>("dust");
+    const auto hall = id<core::RoomId>("hall");
+
+    auto created =
+        world.create_interactable_quantity(dust_definition, 7, core::compiled::UnplacedLocation{});
+    REQUIRE(created);
+    REQUIRE(created.value().created.size() == 3);
+    CHECK(world.interactable_state(dust)->quantity == 2);
+    CHECK(world.interactable_state(created.value().created[0])->quantity == 3);
+    CHECK(world.interactable_state(created.value().created[1])->quantity == 3);
+    CHECK(world.interactable_state(created.value().created[2])->quantity == 1);
+
+    auto split = world.split_interactable_quantity(dust, 1);
+    REQUIRE(split);
+    REQUIRE(split.value().created.size() == 1);
+    const auto split_id = split.value().created.front();
+    CHECK(world.interactable_state(dust)->quantity == 1);
+    CHECK(world.interactable_state(split_id)->quantity == 1);
+
+    auto merged = world.merge_interactable_quantities(dust, split_id);
+    REQUIRE(merged);
+    CHECK(world.interactable_state(dust)->quantity == 2);
+    CHECK(world.interactable_state(split_id) == nullptr);
+
+    auto transferred =
+        world.transfer_interactable_quantity(dust, 1, core::compiled::RoomLocation{hall});
+    REQUIRE(transferred);
+    REQUIRE(transferred.value().created.size() == 1);
+    const auto moved_id = transferred.value().created.front();
+    CHECK(world.interactable_state(dust)->quantity == 1);
+    const auto* moved = world.interactable_state(moved_id);
+    REQUIRE(moved != nullptr);
+    CHECK(moved->quantity == 1);
+    REQUIRE(std::get_if<core::compiled::RoomLocation>(&moved->location) != nullptr);
+    CHECK(std::get<core::compiled::RoomLocation>(moved->location).room == hall);
+}
+
+TEST_CASE(
+    "runtime world Add Quantity uses only default semantic state and aggregate mutation is atomic")
+{
+    const auto project = load_stackable_interactable_fixture();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto definition = id<core::InteractableDefinitionId>("dust");
+    auto specialized =
+        world.create_interactable_quantity(definition, 1, core::compiled::UnplacedLocation{});
+    auto default_stack =
+        world.create_interactable_quantity(definition, 1, core::compiled::UnplacedLocation{});
+    REQUIRE(specialized);
+    REQUIRE(default_stack);
+    REQUIRE(world.set_interactable_enabled(specialized.value().created.front(), false));
+
+    auto added = world.add_interactable_quantity(definition, 4, core::compiled::UnplacedLocation{});
+    REQUIRE(added);
+    CHECK(world.interactable_state(specialized.value().created.front())->quantity == 1);
+    CHECK(world.interactable_state(id<core::InteractableInstanceId>("dust"))->quantity == 3);
+    CHECK(world.interactable_state(default_stack.value().created.front())->quantity == 3);
+    REQUIRE(added.value().created.size() == 1);
+    CHECK(world.interactable_state(added.value().created.front())->quantity == 1);
+
+    const auto before = world.aggregate_interactable_quantity(
+        InteractableQuantityFilter{definition, core::compiled::UnplacedLocation{}});
+    REQUIRE(before);
+    auto ambiguous = world.consume_interactable_quantity(
+        InteractableQuantityFilter{definition, core::compiled::UnplacedLocation{}}, 1);
+    REQUIRE_FALSE(ambiguous);
+    CHECK(ambiguous.error().front().code == "runtime.ambiguous_interactable_quantity_state");
+    const auto after = world.aggregate_interactable_quantity(
+        InteractableQuantityFilter{definition, core::compiled::UnplacedLocation{}});
+    REQUIRE(after);
+    CHECK(after.value() == before.value());
+}
+
+TEST_CASE("stackable Interactable quantities and allocator round-trip without identity reuse")
+{
+    const auto project = load_stackable_interactable_fixture();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+    const auto definition = id<core::InteractableDefinitionId>("dust");
+
+    auto created =
+        world.create_interactable_quantity(definition, 4, core::compiled::UnplacedLocation{});
+    REQUIRE(created);
+    REQUIRE(created.value().created.size() == 2);
+    const auto ended_id = created.value().created.front();
+    const auto live_id = created.value().created.back();
+    REQUIRE(world.consume_interactable_quantity(ended_id, 3));
+    CHECK(world.interactable_state(ended_id) == nullptr);
+    REQUIRE(world.interactable_state(live_id) != nullptr);
+    CHECK(world.interactable_state(live_id)->quantity == 1);
+
+    auto saved = core::make_save_state(project, state);
+    REQUIRE(saved);
+    auto encoded = core::encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    auto decoded =
+        core::decode_save_state(project, encoded.value(), "stackable-quantity-roundtrip");
+    REQUIRE(decoded);
+    auto restored_result = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored_result);
+    auto restored = std::move(restored_result).value();
+    RuntimeWorld restored_world(project, restored);
+    CHECK(restored_world.interactable_state(ended_id) == nullptr);
+    REQUIRE(restored_world.interactable_state(live_id) != nullptr);
+    CHECK(restored_world.interactable_state(live_id)->quantity == 1);
+
+    auto next = restored_world.create_interactable_quantity(definition, 1,
+                                                            core::compiled::UnplacedLocation{});
+    REQUIRE(next);
+    REQUIRE(next.value().created.size() == 1);
+    CHECK(next.value().created.front() != ended_id);
+}
+
+TEST_CASE("fully consumed declared non-stackable Interactable remains stale across save restore")
+{
+    const auto project = load_fixture("comprehensive.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+    const auto key = id<core::InteractableInstanceId>("key");
+
+    REQUIRE(world.consume_interactable_quantity(key, 1));
+    CHECK(world.interactable_state(key) == nullptr);
+
+    auto saved = core::make_save_state(project, state);
+    REQUIRE(saved);
+    auto encoded = core::encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    auto decoded =
+        core::decode_save_state(project, encoded.value(), "consumed-declared-interactable");
+    REQUIRE(decoded);
+    auto restored_result = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored_result);
+    RuntimeWorld restored_world(project, restored_result.value());
+    CHECK(restored_world.interactable_state(key) == nullptr);
+    CHECK(restored_world.resolved_configuration(key) == nullptr);
 }
 
 TEST_CASE("declared Interactable Instances sharing one definition save and restore independently")

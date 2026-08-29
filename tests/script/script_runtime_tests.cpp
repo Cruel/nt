@@ -1293,6 +1293,20 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
 
         local location, location_error = noveltea.interactables.location("coin")
         assert(location_error == nil and location.kind == "unplaced")
+        local quantity, quantity_error = noveltea.interactables.quantity("coin")
+        assert(quantity_error == nil and quantity == 1)
+        local quantity_created, quantity_create_error =
+            noveltea.interactables.create_quantity("dust", 2, { kind = "unplaced" })
+        assert(quantity_create_error == nil and quantity_created.quantity == 2)
+        assert(#quantity_created.created == 2 and #quantity_created.surviving == 2)
+        quantity, quantity_error = noveltea.interactables.quantity(quantity_created.created[1])
+        assert(quantity_error == nil and quantity == 1)
+        local aggregate, aggregate_error =
+            noveltea.interactables.aggregate_definition("dust", { kind = "unplaced" })
+        assert(aggregate_error == nil and aggregate >= 2)
+        local transferred, transfer_error = noveltea.interactables.transfer_definition(
+            "dust", 1, { kind = "unplaced" }, { kind = "room", room = "hall" })
+        assert(transfer_error == nil and transferred.quantity == 1)
         location, location_error = noveltea.interactables.location("key")
         assert(location_error == nil and location.kind == "room" and location.room == "start")
         ok, error_message = noveltea.interactables.set_location("key", {

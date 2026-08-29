@@ -290,6 +290,25 @@ sol::object item_mutation_object(sol::state_view lua, const runtime::ItemStackMu
     return sol::make_object(lua, result);
 }
 
+sol::object
+interactable_quantity_mutation_object(sol::state_view lua,
+                                      const runtime::InteractableQuantityMutation& value)
+{
+    sol::table result = lua.create_table();
+    result["quantity"] = value.quantity;
+    const auto ids = [&lua](const std::vector<core::InteractableInstanceId>& values) {
+        sol::table table = lua.create_table();
+        for (std::size_t index = 0; index < values.size(); ++index)
+            table[index + 1] = values[index].text();
+        return table;
+    };
+    result["surviving"] = ids(value.surviving);
+    result["changed"] = ids(value.changed);
+    result["created"] = ids(value.created);
+    result["ended"] = ids(value.ended);
+    return sol::make_object(lua, result);
+}
+
 sol::object character_location_object(sol::state_view lua,
                                       const core::CharacterWorldLocation& value)
 {
@@ -834,6 +853,181 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
             return mutation(view,
                             host->request_interactable_location(std::move(*interactable.value_if()),
                                                                 std::move(*location.value_if())));
+        });
+    interactables.set_function(
+        "quantity", [host](std::string id, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableInstanceId>(std::move(id));
+            if (!parsed)
+                return failure(view, parsed.error());
+            auto value = host->interactable_quantity(*parsed.value_if());
+            return value ? ObjectResult{sol::make_object(view, *value.value_if()), nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "create_quantity",
+        [host](std::string definition, std::uint64_t quantity, sol::table target,
+               sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableDefinitionId>(std::move(definition));
+            auto location = parse_interactable_location(target);
+            if (!parsed)
+                return failure(view, parsed.error());
+            if (!location)
+                return failure(view, location.error());
+            auto value = host->create_interactable_quantity(std::move(*parsed.value_if()), quantity,
+                                                            std::move(*location.value_if()));
+            return value ? ObjectResult{interactable_quantity_mutation_object(view,
+                                                                              *value.value_if()),
+                                        nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "split",
+        [host](std::string id, std::uint64_t quantity, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableInstanceId>(std::move(id));
+            if (!parsed)
+                return failure(view, parsed.error());
+            auto value = host->split_interactable_quantity(std::move(*parsed.value_if()), quantity);
+            return value ? ObjectResult{interactable_quantity_mutation_object(view,
+                                                                              *value.value_if()),
+                                        nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "merge",
+        [host](std::string receiver, std::string donor, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto receiver_id = parse_id<core::InteractableInstanceId>(std::move(receiver));
+            auto donor_id = parse_id<core::InteractableInstanceId>(std::move(donor));
+            if (!receiver_id)
+                return failure(view, receiver_id.error());
+            if (!donor_id)
+                return failure(view, donor_id.error());
+            auto value = host->merge_interactable_quantities(std::move(*receiver_id.value_if()),
+                                                             std::move(*donor_id.value_if()));
+            return value ? ObjectResult{interactable_quantity_mutation_object(view,
+                                                                              *value.value_if()),
+                                        nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "transfer",
+        [host](std::string id, std::uint64_t quantity, sol::table target,
+               sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableInstanceId>(std::move(id));
+            auto location = parse_interactable_location(target);
+            if (!parsed)
+                return failure(view, parsed.error());
+            if (!location)
+                return failure(view, location.error());
+            auto value = host->transfer_interactable_quantity(
+                std::move(*parsed.value_if()), quantity, std::move(*location.value_if()));
+            return value ? ObjectResult{interactable_quantity_mutation_object(view,
+                                                                              *value.value_if()),
+                                        nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "add_quantity",
+        [host](std::string definition, std::uint64_t quantity, sol::table target,
+               sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableDefinitionId>(std::move(definition));
+            auto location = parse_interactable_location(target);
+            if (!parsed)
+                return failure(view, parsed.error());
+            if (!location)
+                return failure(view, location.error());
+            auto value = host->add_interactable_quantity(std::move(*parsed.value_if()), quantity,
+                                                         std::move(*location.value_if()));
+            return value ? ObjectResult{interactable_quantity_mutation_object(view,
+                                                                              *value.value_if()),
+                                        nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "consume",
+        [host](std::string id, std::uint64_t quantity, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableInstanceId>(std::move(id));
+            if (!parsed)
+                return failure(view, parsed.error());
+            auto value =
+                host->consume_interactable_quantity(std::move(*parsed.value_if()), quantity);
+            return value ? ObjectResult{interactable_quantity_mutation_object(view,
+                                                                              *value.value_if()),
+                                        nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "aggregate_definition",
+        [host](std::string definition, sol::optional<sol::table> source,
+               sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableDefinitionId>(std::move(definition));
+            if (!parsed)
+                return failure(view, parsed.error());
+            std::optional<core::compiled::InteractableLocation> source_location;
+            if (source) {
+                auto location = parse_interactable_location(*source);
+                if (!location)
+                    return failure(view, location.error());
+                source_location = std::move(*location.value_if());
+            }
+            auto value = host->aggregate_interactable_quantity(runtime::InteractableQuantityFilter{
+                std::move(*parsed.value_if()), std::move(source_location)});
+            return value ? ObjectResult{sol::make_object(view, *value.value_if()), nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "transfer_definition",
+        [host](std::string definition, std::uint64_t quantity, sol::table source, sol::table target,
+               sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableDefinitionId>(std::move(definition));
+            auto source_location = parse_interactable_location(source);
+            auto target_location = parse_interactable_location(target);
+            if (!parsed)
+                return failure(view, parsed.error());
+            if (!source_location)
+                return failure(view, source_location.error());
+            if (!target_location)
+                return failure(view, target_location.error());
+            auto value = host->transfer_interactable_quantity(
+                runtime::InteractableQuantityFilter{std::move(*parsed.value_if()),
+                                                    std::move(*source_location.value_if())},
+                quantity, std::move(*target_location.value_if()));
+            return value ? ObjectResult{interactable_quantity_mutation_object(view,
+                                                                              *value.value_if()),
+                                        nil(view)}
+                         : failure(view, value.error());
+        });
+    interactables.set_function(
+        "consume_definition",
+        [host](std::string definition, std::uint64_t quantity, sol::optional<sol::table> source,
+               sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableDefinitionId>(std::move(definition));
+            if (!parsed)
+                return failure(view, parsed.error());
+            std::optional<core::compiled::InteractableLocation> source_location;
+            if (source) {
+                auto location = parse_interactable_location(*source);
+                if (!location)
+                    return failure(view, location.error());
+                source_location = std::move(*location.value_if());
+            }
+            auto value = host->consume_interactable_quantity(
+                runtime::InteractableQuantityFilter{std::move(*parsed.value_if()),
+                                                    std::move(source_location)},
+                quantity);
+            return value ? ObjectResult{interactable_quantity_mutation_object(view,
+                                                                              *value.value_if()),
+                                        nil(view)}
+                         : failure(view, value.error());
         });
     noveltea["interactables"] = interactables;
 
