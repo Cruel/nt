@@ -834,27 +834,6 @@ struct InteractableInstanceDeclaration {
 };
 
 inline constexpr std::uint64_t max_interactable_quantity = 9'007'199'254'740'991ULL;
-inline constexpr std::uint64_t max_item_stack_quantity = max_interactable_quantity;
-
-struct ItemDefinitionPresentation {
-    std::optional<MaterialId> material;
-    std::optional<AssetId> sprite;
-    bool operator==(const ItemDefinitionPresentation&) const = default;
-};
-struct ItemDefinition {
-    PropertyBearingDefinition<ItemDefinitionId> identity;
-    std::string display_name;
-    std::string description;
-    ItemDefinitionPresentation presentation;
-    std::optional<std::uint64_t> stack_limit;
-};
-using ItemStackLocation = InteractableLocation;
-struct ItemStackDeclaration {
-    ItemStackId id;
-    ItemDefinitionId definition;
-    std::uint64_t quantity;
-    ItemStackLocation location;
-};
 
 enum class GameplayInstanceKind : std::uint8_t {
     Room,
@@ -1906,10 +1885,6 @@ public:
     find_interactable_definition(const InteractableDefinitionId& id) const noexcept;
     [[nodiscard]] const compiled::InteractableInstanceDeclaration*
     find_interactable_instance(const InteractableInstanceId& id) const noexcept;
-    [[nodiscard]] const compiled::ItemDefinition*
-    find_item_definition(const ItemDefinitionId& id) const noexcept;
-    [[nodiscard]] const compiled::ItemStackDeclaration*
-    find_item_stack(const ItemStackId& id) const noexcept;
     [[nodiscard]] const compiled::FeatureDefinition*
     find_feature(const RoomFeatureRef& reference) const noexcept;
     [[nodiscard]] const compiled::FeatureDefinition*
@@ -1945,10 +1920,6 @@ private:
     std::vector<compiled::RoomDefinition> m_rooms;
     std::vector<compiled::InteractableDefinition> m_interactables;
     std::vector<compiled::InteractableInstanceDeclaration> m_interactable_instances;
-    // Retained only as unreachable backing for legacy internal Item APIs until #127 removes that
-    // subsystem. Canonical CompiledProject input and enumerable collections do not expose Items.
-    std::vector<compiled::ItemDefinition> m_item_definitions;
-    std::vector<compiled::ItemStackDeclaration> m_item_stacks;
     std::vector<compiled::VerbDefinition> m_verbs;
     std::vector<compiled::InteractionDefinition> m_interactions;
     std::optional<compiled::InteractionProgram> m_undefined_interaction_program;
@@ -1968,8 +1939,6 @@ private:
     NOVELTEA_COMPILED_INDEX(RoomId, room);
     NOVELTEA_COMPILED_INDEX(InteractableDefinitionId, interactable_definition);
     NOVELTEA_COMPILED_INDEX(InteractableInstanceId, interactable_instance);
-    NOVELTEA_COMPILED_INDEX(ItemDefinitionId, item_definition);
-    NOVELTEA_COMPILED_INDEX(ItemStackId, item_stack);
     NOVELTEA_COMPILED_INDEX(VerbId, verb);
     NOVELTEA_COMPILED_INDEX(InteractionId, interaction);
     NOVELTEA_COMPILED_INDEX(SceneId, scene);

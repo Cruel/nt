@@ -29,11 +29,6 @@ core::Diagnostics gateway_error(std::string code, std::string message)
         core::Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
-bool changes_item_stacks(const ItemStackMutation& mutation) noexcept
-{
-    return !mutation.changed.empty() || !mutation.created.empty() || !mutation.ended.empty();
-}
-
 bool changes_interactable_quantities(const InteractableQuantityMutation& mutation) noexcept
 {
     return !mutation.changed.empty() || !mutation.created.empty() || !mutation.ended.empty();
@@ -441,85 +436,6 @@ RuntimeCommandGateway::aggregate_interactable_quantity(
     const InteractableQuantityFilter& filter) const
 {
     return m_world.aggregate_interactable_quantity(filter);
-}
-
-core::Result<core::ItemStackState, core::Diagnostics>
-RuntimeCommandGateway::item_stack(const core::ItemStackId& id) const
-{
-    const auto* value = m_world.item_stack(id);
-    return value != nullptr
-               ? core::Result<core::ItemStackState, core::Diagnostics>::success(*value)
-               : core::Result<core::ItemStackState, core::Diagnostics>::failure(
-                     gateway_error("runtime.stale_item_stack", "Item Stack identity is not live"));
-}
-
-core::Result<ItemStackMutation, core::Diagnostics>
-RuntimeCommandGateway::split_item_stack(core::ItemStackId source, std::uint64_t quantity)
-{
-    auto result = m_world.split_item_stack(source, quantity);
-    if (const auto* mutation = result.value_if();
-        mutation != nullptr && changes_item_stacks(*mutation))
-        record_structural_mutation();
-    return result;
-}
-
-core::Result<ItemStackMutation, core::Diagnostics>
-RuntimeCommandGateway::merge_item_stacks(core::ItemStackId receiver, core::ItemStackId donor)
-{
-    auto result = m_world.merge_item_stacks(receiver, donor);
-    if (const auto* mutation = result.value_if();
-        mutation != nullptr && changes_item_stacks(*mutation))
-        record_structural_mutation();
-    return result;
-}
-
-core::Result<ItemStackMutation, core::Diagnostics>
-RuntimeCommandGateway::transfer_item_quantity(core::ItemStackId source, std::uint64_t quantity,
-                                              core::compiled::ItemStackLocation location,
-                                              ItemStackPlacementPolicy policy)
-{
-    auto result = m_world.transfer_item_quantity(source, quantity, std::move(location), policy);
-    if (const auto* mutation = result.value_if();
-        mutation != nullptr && changes_item_stacks(*mutation))
-        record_structural_mutation();
-    return result;
-}
-
-core::Result<ItemStackMutation, core::Diagnostics> RuntimeCommandGateway::grant_item_quantity(
-    core::ItemDefinitionId definition, std::uint64_t quantity,
-    core::compiled::ItemStackLocation location, ItemStackPlacementPolicy policy)
-{
-    auto result = m_world.grant_item_quantity(definition, quantity, std::move(location), policy);
-    if (const auto* mutation = result.value_if();
-        mutation != nullptr && changes_item_stacks(*mutation))
-        record_structural_mutation();
-    return result;
-}
-
-core::Result<ItemStackMutation, core::Diagnostics>
-RuntimeCommandGateway::consume_item_quantity(core::ItemStackId stack, std::uint64_t quantity)
-{
-    auto result = m_world.consume_item_quantity(stack, quantity);
-    if (const auto* mutation = result.value_if();
-        mutation != nullptr && changes_item_stacks(*mutation))
-        record_structural_mutation();
-    return result;
-}
-
-core::Result<ItemStackMutation, core::Diagnostics>
-RuntimeCommandGateway::consume_item_quantity(ItemStackFilter filter, std::uint64_t quantity)
-{
-    auto result = m_world.consume_item_quantity(filter, quantity);
-    if (const auto* mutation = result.value_if();
-        mutation != nullptr && changes_item_stacks(*mutation))
-        record_structural_mutation();
-    return result;
-}
-
-core::Result<std::uint64_t, core::Diagnostics>
-RuntimeCommandGateway::aggregate_item_quantity(const ItemStackFilter& filter) const
-{
-    return m_world.aggregate_item_quantity(filter);
 }
 
 core::Result<void, core::Diagnostics>
@@ -1389,7 +1305,8 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
                     else if constexpr (std::is_same_v<
                                            T, core::compiled::InteractableInteractionSubject>)
                         return m_world.resolved_configuration(value.interactable) != nullptr;
-                    else if constexpr (std::is_same_v<T, core::compiled::FeatureInteractionSubject>)
+                    else {
+                        static_assert(std::is_same_v<T, core::compiled::FeatureInteractionSubject>);
                         return std::visit(
                             [this](const auto& feature) {
                                 const auto* owner = m_world.resolved_configuration([&]() {
@@ -1407,8 +1324,7 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
                                                    });
                             },
                             value.feature);
-                    else
-                        return m_world.item_stack(value.item_stack) != nullptr;
+                    }
                 },
                 binding.subject))
             return core::Result<void, core::Diagnostics>::failure(

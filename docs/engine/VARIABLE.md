@@ -85,8 +85,8 @@ There is no compiled Variable reference or separate Variable runtime store.
 ```
 
 `PropertyTargetRef` is either the explicit global target or an exact Room, Character, Interactable,
-or Feature identity target. Item Stacks are not Property owners. Globals do not use a fake
-Game/entity owner ID.
+or Feature identity target. The retired Item Stack owner kind is invalid rather than an alias for an
+Interactable Instance. Globals do not use a fake Game/entity owner ID.
 
 `PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and
 identity-scoped writes. For an owner-qualified read it resolves the exact owner's authored contract

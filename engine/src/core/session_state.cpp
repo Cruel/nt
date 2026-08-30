@@ -891,14 +891,11 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
             definition.identity.id, definition.initial_world_state.location,
             definition.initial_world_state.enabled, definition.initial_world_state.visible});
     }
-    // Item Definitions/Stacks are no longer canonical CompiledProject content. The legacy runtime
-    // subsystem remains unreachable until its dedicated contraction ticket removes it.
-    std::vector<ItemStackState> item_stacks;
     return Result<SessionState, Diagnostics>::success(
         SessionState(FlowMode{}, std::move(*initial_stack), std::move(rooms),
                      std::move(character_configurations), std::move(interactable_configurations),
-                     std::move(characters), std::move(interactables), std::move(item_stacks), 2,
-                     *presentation_session, *shell_presentation_scope));
+                     std::move(characters), std::move(interactables), 2, *presentation_session,
+                     *shell_presentation_scope));
 }
 
 Result<RoomVisitInstanceId, Diagnostics> SessionState::allocate_room_visit_instance_id()
@@ -1053,13 +1050,6 @@ const RuntimeValue* SessionState::property_override(const PropertyTargetRef& tar
                          return value.target() == target && value.property_id() == property;
                      });
     return found == m_property_overrides.end() ? nullptr : &found->value();
-}
-
-const ItemStackState* SessionState::item_stack(const ItemStackId& id) const noexcept
-{
-    const auto found = std::find_if(m_item_stacks.begin(), m_item_stacks.end(),
-                                    [&id](const auto& value) { return value.id == id; });
-    return found == m_item_stacks.end() ? nullptr : &*found;
 }
 
 void SessionState::store_property_override(PropertyOverride value)

@@ -377,7 +377,6 @@ export const dialogueDataSchema = strict({
 export type DialogueCharacterRef = CharacterRef;
 export type DialogueTextData = TextContent;
 export type DialogueConditionData = Condition;
-export type DialogueEffectData = GameplayCommand;
 export type DialogueCompletionTarget = FlowTarget;
 export type DialogueSegmentData = z.infer<typeof dialogueSegmentDataSchema>;
 export type DialogueBlockData = z.infer<typeof dialogueBlockDataSchema>;
@@ -635,7 +634,7 @@ export function validateDialogueData(
   const validateCondition = (condition: DialogueConditionData | undefined, path: string) => {
     if (condition) diagnostics.push(...validateSharedCondition(project, condition, path));
   };
-  const validateEffects = (effects: readonly DialogueEffectData[], path: string) => {
+  const validateEffects = (effects: readonly GameplayCommand[], path: string) => {
     effects.forEach((effect, index) => {
       if (effect.kind === 'set-global-property') {
         validateVariableValue(effect.variable.$ref.id, effect.value, `${path}/${index}/value`);

@@ -133,10 +133,10 @@ The certified current-model documentation is rooted in:
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md` and `docs/editor/AGENT_GUIDE.md` for editor preview,
   playback, diagnostics, and authoring conventions.
 
-Older documentation that still describes unreachable legacy Item Stack runtime scaffolding is not a
-license to restore it to Project or Compiled Project content. `docs/engine/ITEM.md` is the normative
-retirement boundary until later stackability/quantity work replaces the remaining internal
-scaffolding on top of exact Interactable Instances.
+Issue #127 subsequently removed the unreachable legacy Item runtime scaffolding itself: native IDs,
+session/save records, mutation APIs, Lua bindings, Property-owner/Interaction-subject branches, and
+preview/debug projections are no longer present. `docs/engine/ITEM.md` is the normative retirement
+boundary; stackability and quantity now exist only on exact Interactable Instances.
 
 ## Verification evidence
 

@@ -109,26 +109,6 @@ public:
     consume_interactable_quantity(InteractableQuantityFilter filter, std::uint64_t quantity);
     [[nodiscard]] core::Result<std::uint64_t, core::Diagnostics>
     aggregate_interactable_quantity(const InteractableQuantityFilter& filter) const;
-    [[nodiscard]] core::Result<core::ItemStackState, core::Diagnostics>
-    item_stack(const core::ItemStackId& id) const;
-    [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
-    split_item_stack(core::ItemStackId source, std::uint64_t quantity);
-    [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
-    merge_item_stacks(core::ItemStackId receiver, core::ItemStackId donor);
-    [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
-    transfer_item_quantity(core::ItemStackId source, std::uint64_t quantity,
-                           core::compiled::ItemStackLocation location,
-                           ItemStackPlacementPolicy policy = ItemStackPlacementPolicy::Coalesce);
-    [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
-    grant_item_quantity(core::ItemDefinitionId definition, std::uint64_t quantity,
-                        core::compiled::ItemStackLocation location,
-                        ItemStackPlacementPolicy policy = ItemStackPlacementPolicy::Coalesce);
-    [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
-    consume_item_quantity(core::ItemStackId stack, std::uint64_t quantity);
-    [[nodiscard]] core::Result<ItemStackMutation, core::Diagnostics>
-    consume_item_quantity(ItemStackFilter filter, std::uint64_t quantity);
-    [[nodiscard]] core::Result<std::uint64_t, core::Diagnostics>
-    aggregate_item_quantity(const ItemStackFilter& filter) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     replace_instance_configuration(core::GameplayInstanceRef instance,
                                    RuntimeInstanceConfigurationRequest source);

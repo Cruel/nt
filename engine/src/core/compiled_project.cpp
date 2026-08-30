@@ -657,12 +657,6 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
         [](const compiled::InteractableInstanceDeclaration& value)
             -> const InteractableInstanceId& { return value.id; },
         "interactable instance");
-    INDEX_DEFINITION(ItemDefinitionId, item_definition, item_definitions, ItemDefinition,
-                     "item definition");
-    INDEX(
-        ItemStackId, item_stack, item_stacks,
-        [](const compiled::ItemStackDeclaration& value) -> const ItemStackId& { return value.id; },
-        "item stack");
     INDEX_DEFINITION(VerbId, verb, verbs, VerbDefinition, "verb");
     INDEX_DEFINITION(InteractionId, interaction, interactions, InteractionDefinition,
                      "interaction");
@@ -690,9 +684,6 @@ FIND(interactable_definition, interactables, InteractableDefinitionId,
      compiled::InteractableDefinition)
 FIND(interactable_instance, interactable_instances, InteractableInstanceId,
      compiled::InteractableInstanceDeclaration)
-FIND(item_definition, item_definitions, ItemDefinitionId, compiled::ItemDefinition)
-FIND(item_stack, item_stacks, ItemStackId, compiled::ItemStackDeclaration)
-
 const compiled::LayoutResource* CompiledProject::find_layout(const LayoutId& id) const noexcept
 {
     if (id.text() == compiled::builtin_inventory_layout_id ||

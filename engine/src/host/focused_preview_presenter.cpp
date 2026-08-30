@@ -378,8 +378,6 @@ public:
                     kind = "feature";
                     owner_id = "interactable:" + id.interactable.text() +
                                "/feature:" + id.feature_id.text();
-                } else {
-                    kind = "item-stack";
                 }
                 if constexpr (!std::is_same_v<T, core::RoomFeatureRef> &&
                               !std::is_same_v<T, core::InteractableFeatureRef>)

@@ -1002,43 +1002,6 @@ nlohmann::json encode_inventory_ref(const compiled::InventoryRef& inventory)
             {"id", inventory.inventory_id.text()}};
 }
 
-nlohmann::json encode_item_stack_location(const compiled::ItemStackLocation& location)
-{
-    return std::visit(
-        [](const auto& value) -> nlohmann::json {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, compiled::UnplacedLocation>)
-                return {{"kind", "unplaced"}};
-            else if constexpr (std::is_same_v<T, compiled::RoomLocation>)
-                return {{"kind", "room"}, {"room", value.room.text()}};
-            else
-                return {{"kind", "inventory"},
-                        {"inventory", encode_inventory_ref(value.inventory)}};
-        },
-        location);
-}
-
-nlohmann::json encode_item_stack_view(const ItemStackView& stack)
-{
-    nlohmann::json traits = nlohmann::json::array();
-    for (const auto& trait : stack.traits)
-        traits.push_back(trait.text());
-    return {{"id", stack.stack.text()},
-            {"definition", stack.definition.text()},
-            {"quantity", stack.quantity},
-            {"location", encode_item_stack_location(stack.location)},
-            {"effectiveRoom", stack.effective_room ? nlohmann::json(stack.effective_room->text())
-                                                   : nlohmann::json(nullptr)},
-            {"label", stack.display_name},
-            {"description", stack.description},
-            {"sprite", stack.presentation.sprite ? nlohmann::json(stack.presentation.sprite->text())
-                                                 : nlohmann::json(nullptr)},
-            {"material", stack.presentation.material
-                             ? nlohmann::json(stack.presentation.material->text())
-                             : nlohmann::json(nullptr)},
-            {"traits", std::move(traits)}};
-}
-
 nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
 {
     nlohmann::json out = {{"mode", view.mode},
@@ -1049,7 +1012,6 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                           {"selectedSubjects", nlohmann::json::array()},
                           {"inventories", nlohmann::json::array()},
                           {"inventory", nlohmann::json::array()},
-                          {"itemStacks", nlohmann::json::array()},
                           {"textLog", nlohmann::json::array()}};
     for (const auto& offer : view.verb_offers) {
         nlohmann::json binding_order = nlohmann::json::array();
@@ -1089,17 +1051,16 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
     for (const auto& entry : view.text_log.entries)
         out["textLog"].push_back(entry.text);
     if (view.room) {
-        out["room"] = {
-            {"id", view.room->room.text()},          {"visits", view.room->visits},
-            {"description", view.room->description}, {"exits", nlohmann::json::array()},
-            {"itemStacks", nlohmann::json::array()}, {"placements", nlohmann::json::array()}};
+        out["room"] = {{"id", view.room->room.text()},
+                       {"visits", view.room->visits},
+                       {"description", view.room->description},
+                       {"exits", nlohmann::json::array()},
+                       {"placements", nlohmann::json::array()}};
         for (const auto& exit : view.room->exits)
             out["room"]["exits"].push_back({{"id", exit.exit.text()},
                                             {"target", exit.target.text()},
                                             {"label", exit.label},
                                             {"enabled", exit.enabled}});
-        for (const auto& stack : view.room->item_stacks)
-            out["room"]["itemStacks"].push_back(encode_item_stack_view(stack));
         for (const auto& placement : view.room->placements) {
             nlohmann::json occupants = nlohmann::json::array();
             for (const auto& occupant : placement.occupants) {

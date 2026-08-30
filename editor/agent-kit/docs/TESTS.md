@@ -11,7 +11,7 @@ Playback identities are semantic authored IDs:
 - Dialogue choices use the exact Dialogue Edge ID.
 - Scene choices use the exact Scene Choice Option ID.
 - Room navigation uses the exact Room Exit ID.
-- Interaction subjects are Characters, Interactables, exact Item Stacks, or owner-qualified Features.
+- Interaction subjects are Characters, exact Interactable Instances, or owner-qualified Features.
 - Interaction commands use the exact Verb ID and named slot bindings.
 - Save/load steps identify a save slot.
 

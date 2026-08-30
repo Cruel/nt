@@ -251,38 +251,6 @@ sol::object location_object(sol::state_view lua, const core::compiled::Interacta
     return sol::make_object(lua, result);
 }
 
-sol::object item_stack_object(sol::state_view lua, const core::ItemStackState& value)
-{
-    sol::table result = lua.create_table();
-    result["id"] = value.id.text();
-    result["definition"] = value.definition.text();
-    result["quantity"] = value.quantity;
-    result["location"] = location_object(lua, value.location);
-    result["declared"] = value.declared;
-    sol::table traits = lua.create_table();
-    for (std::size_t index = 0; index < value.traits.size(); ++index)
-        traits[index + 1] = value.traits[index].text();
-    result["traits"] = std::move(traits);
-    return sol::make_object(lua, result);
-}
-
-sol::object item_mutation_object(sol::state_view lua, const runtime::ItemStackMutation& value)
-{
-    sol::table result = lua.create_table();
-    result["quantity"] = value.quantity;
-    const auto ids = [&lua](const std::vector<core::ItemStackId>& values) {
-        sol::table table = lua.create_table();
-        for (std::size_t index = 0; index < values.size(); ++index)
-            table[index + 1] = values[index].text();
-        return table;
-    };
-    result["surviving"] = ids(value.surviving);
-    result["changed"] = ids(value.changed);
-    result["created"] = ids(value.created);
-    result["ended"] = ids(value.ended);
-    return sol::make_object(lua, result);
-}
-
 sol::object
 interactable_quantity_mutation_object(sol::state_view lua,
                                       const runtime::InteractableQuantityMutation& value)
@@ -1024,116 +992,6 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
         });
     noveltea["interactables"] = interactables;
 
-    sol::table item_stacks = lua.create_table();
-    item_stacks.set_function("get", [host](std::string id, sol::this_state state) -> ObjectResult {
-        sol::state_view view(state);
-        auto parsed = parse_id<core::ItemStackId>(std::move(id));
-        if (!parsed)
-            return failure(view, parsed.error());
-        auto value = host->item_stack(*parsed.value_if());
-        return value ? ObjectResult{item_stack_object(view, *value.value_if()), nil(view)}
-                     : failure(view, value.error());
-    });
-    item_stacks.set_function(
-        "split",
-        [host](std::string id, std::uint64_t quantity, sol::this_state state) -> ObjectResult {
-            sol::state_view view(state);
-            auto parsed = parse_id<core::ItemStackId>(std::move(id));
-            if (!parsed)
-                return failure(view, parsed.error());
-            auto value = host->split_item_stack(std::move(*parsed.value_if()), quantity);
-            return value ? ObjectResult{item_mutation_object(view, *value.value_if()), nil(view)}
-                         : failure(view, value.error());
-        });
-    item_stacks.set_function(
-        "merge",
-        [host](std::string receiver, std::string donor, sol::this_state state) -> ObjectResult {
-            sol::state_view view(state);
-            auto receiver_id = parse_id<core::ItemStackId>(std::move(receiver));
-            auto donor_id = parse_id<core::ItemStackId>(std::move(donor));
-            if (!receiver_id)
-                return failure(view, receiver_id.error());
-            if (!donor_id)
-                return failure(view, donor_id.error());
-            auto value = host->merge_item_stacks(std::move(*receiver_id.value_if()),
-                                                 std::move(*donor_id.value_if()));
-            return value ? ObjectResult{item_mutation_object(view, *value.value_if()), nil(view)}
-                         : failure(view, value.error());
-        });
-    item_stacks.set_function(
-        "transfer",
-        [host](std::string id, std::uint64_t quantity, sol::table target,
-               sol::optional<bool> keep_separate, sol::this_state state) -> ObjectResult {
-            sol::state_view view(state);
-            auto parsed = parse_id<core::ItemStackId>(std::move(id));
-            auto location = parse_interactable_location(target);
-            if (!parsed)
-                return failure(view, parsed.error());
-            if (!location)
-                return failure(view, location.error());
-            auto value = host->transfer_item_quantity(
-                std::move(*parsed.value_if()), quantity, std::move(*location.value_if()),
-                keep_separate.value_or(false) ? runtime::ItemStackPlacementPolicy::KeepSeparate
-                                              : runtime::ItemStackPlacementPolicy::Coalesce);
-            return value ? ObjectResult{item_mutation_object(view, *value.value_if()), nil(view)}
-                         : failure(view, value.error());
-        });
-    item_stacks.set_function(
-        "grant",
-        [host](std::string definition, std::uint64_t quantity, sol::table target,
-               sol::optional<bool> keep_separate, sol::this_state state) -> ObjectResult {
-            sol::state_view view(state);
-            auto parsed = parse_id<core::ItemDefinitionId>(std::move(definition));
-            auto location = parse_interactable_location(target);
-            if (!parsed)
-                return failure(view, parsed.error());
-            if (!location)
-                return failure(view, location.error());
-            auto value = host->grant_item_quantity(
-                std::move(*parsed.value_if()), quantity, std::move(*location.value_if()),
-                keep_separate.value_or(false) ? runtime::ItemStackPlacementPolicy::KeepSeparate
-                                              : runtime::ItemStackPlacementPolicy::Coalesce);
-            return value ? ObjectResult{item_mutation_object(view, *value.value_if()), nil(view)}
-                         : failure(view, value.error());
-        });
-    item_stacks.set_function(
-        "consume",
-        [host](std::string id, std::uint64_t quantity, sol::this_state state) -> ObjectResult {
-            sol::state_view view(state);
-            auto parsed = parse_id<core::ItemStackId>(std::move(id));
-            if (!parsed)
-                return failure(view, parsed.error());
-            auto value = host->consume_item_quantity(std::move(*parsed.value_if()), quantity);
-            return value ? ObjectResult{item_mutation_object(view, *value.value_if()), nil(view)}
-                         : failure(view, value.error());
-        });
-    item_stacks.set_function(
-        "aggregate_definition",
-        [host](std::string definition, sol::this_state state) -> ObjectResult {
-            sol::state_view view(state);
-            auto parsed = parse_id<core::ItemDefinitionId>(std::move(definition));
-            if (!parsed)
-                return failure(view, parsed.error());
-            auto value = host->aggregate_item_quantity(
-                runtime::ItemStackFilter{std::move(*parsed.value_if()), std::nullopt});
-            return value ? ObjectResult{sol::make_object(view, *value.value_if()), nil(view)}
-                         : failure(view, value.error());
-        });
-    item_stacks.set_function(
-        "consume_definition",
-        [host](std::string definition, std::uint64_t quantity,
-               sol::this_state state) -> ObjectResult {
-            sol::state_view view(state);
-            auto parsed = parse_id<core::ItemDefinitionId>(std::move(definition));
-            if (!parsed)
-                return failure(view, parsed.error());
-            auto value = host->consume_item_quantity(
-                runtime::ItemStackFilter{std::move(*parsed.value_if()), std::nullopt}, quantity);
-            return value ? ObjectResult{item_mutation_object(view, *value.value_if()), nil(view)}
-                         : failure(view, value.error());
-        });
-    noveltea["item_stacks"] = item_stacks;
-
     sol::table characters = lua.create_table();
     characters.set_function(
         "location", [host](std::string id, sol::this_state state) -> ObjectResult {
@@ -1332,7 +1190,6 @@ void clear_typed_script_host(lua_State* state)
     noveltea["project"] = sol::lua_nil;
     noveltea["properties"] = sol::lua_nil;
     noveltea["interactables"] = sol::lua_nil;
-    noveltea["item_stacks"] = sol::lua_nil;
     noveltea["characters"] = sol::lua_nil;
     noveltea["navigation"] = sol::lua_nil;
     noveltea["flow"] = sol::lua_nil;

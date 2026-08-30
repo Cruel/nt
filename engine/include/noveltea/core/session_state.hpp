@@ -133,13 +133,11 @@ protected:
                   std::vector<RuntimeCharacterConfiguration> character_configurations,
                   std::vector<RuntimeInteractableConfiguration> interactable_configurations,
                   std::vector<CharacterWorldState> characters,
-                  std::vector<InteractableState> interactables,
-                  std::vector<ItemStackState> item_stacks)
+                  std::vector<InteractableState> interactables)
         : m_runtime_rooms(std::move(rooms)),
           m_runtime_characters(std::move(character_configurations)),
           m_runtime_interactables(std::move(interactable_configurations)),
-          m_character_world(std::move(characters)), m_interactables(std::move(interactables)),
-          m_item_stacks(std::move(item_stacks))
+          m_character_world(std::move(characters)), m_interactables(std::move(interactables))
     {
     }
 
@@ -150,8 +148,6 @@ protected:
     std::uint64_t m_next_runtime_instance_id = 1;
     std::vector<CharacterWorldState> m_character_world;
     std::vector<InteractableState> m_interactables;
-    std::vector<ItemStackState> m_item_stacks;
-    std::uint64_t m_next_item_stack_id = 1;
     std::optional<RoomVisitContext> m_room_visit;
     std::optional<RoomVisitInstanceId> m_room_visit_instance;
     std::uint64_t m_room_entry_sequence = 0;
@@ -399,12 +395,6 @@ public:
     }
     [[nodiscard]] const InteractableState*
     interactable(const InteractableInstanceId& id) const noexcept;
-    [[nodiscard]] const std::vector<ItemStackState>& item_stacks() const noexcept
-    {
-        return m_item_stacks;
-    }
-    [[nodiscard]] const ItemStackState* item_stack(const ItemStackId& id) const noexcept;
-    [[nodiscard]] std::uint64_t next_item_stack_id() const noexcept { return m_next_item_stack_id; }
     [[nodiscard]] const std::vector<CharacterWorldState>& character_world() const noexcept
     {
         return m_character_world;
@@ -558,14 +548,13 @@ private:
                  std::vector<RuntimeCharacterConfiguration> character_configurations,
                  std::vector<RuntimeInteractableConfiguration> interactable_configurations,
                  std::vector<CharacterWorldState> characters,
-                 std::vector<InteractableState> interactables,
-                 std::vector<ItemStackState> item_stacks, std::uint64_t next_frame_id,
+                 std::vector<InteractableState> interactables, std::uint64_t next_frame_id,
                  PresentationSessionId presentation_session,
                  ShellPresentationScopeId shell_presentation_scope)
         : FlowState(std::move(mode), std::move(flow_stack), next_frame_id),
           GameplayState(std::move(rooms), std::move(character_configurations),
                         std::move(interactable_configurations), std::move(characters),
-                        std::move(interactables), std::move(item_stacks)),
+                        std::move(interactables)),
           PresentationState(presentation_session, shell_presentation_scope)
     {
         if (!m_flow_stack.empty()) {

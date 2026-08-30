@@ -14,7 +14,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Reusable Room/Character/Interactable configuration, Traits, and Properties: `.noveltea/agent/docs/ARCHETYPES_TRAITS.md`
 - Characters, presentation profiles, poses, expressions, appearances, and gestures: `.noveltea/agent/docs/CHARACTERS.md`
 - Rooms, placements, props, room interactables, and background hotspots: `.noveltea/agent/docs/ROOMS.md`
-- Item Definitions, Item Stacks, locations, and Inventories: `.noveltea/agent/docs/ITEMS_INVENTORIES.md`
+- Interactable quantities, locations, and Inventories: `.noveltea/agent/docs/ITEMS_INVENTORIES.md`
 - Verbs, named subject slots/selectors, interactions, and hotspot selection: `.noveltea/agent/docs/INTERACTIONS.md`
 - Dialogue graphs, choices, Stage/Media Slots, cues, and Scene handoff: `.noveltea/agent/docs/DIALOGUES.md`
 - Scene staging, ordered events, flow, gameplay orchestration, and terminals: `.noveltea/agent/docs/SCENES.md`

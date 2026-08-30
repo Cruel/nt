@@ -218,8 +218,8 @@ retain their own presentation/editing state. They can derive the subject-first s
 Offer slot from `gameplay.interaction.selected_subject_kind`, `selected_subject_id`, and
 `actions[].slot_id`, then use the generic `Game.ui` Builder transport to begin an occurrence, replace
 its exact watched-reference set, and submit complete named bindings. Builder subject tables mirror
-the projection as `{ kind = "...", id = "..." }`: Character/Interactable/Item Stack use their stable
-ID, while Feature uses the projected owner-qualified `room:<owner>#<feature>` or
+the projection as `{ kind = "...", id = "..." }`: Character and exact Interactable Instance subjects
+use their stable ID, while Feature uses the projected owner-qualified `room:<owner>#<feature>` or
 `interactable:<owner>#<feature>` ID. Binding rows are `{ slotId = "...", subject = <subject> }`.
 
 A one-slot Offer can be submitted directly with its starting subject. The built-in adapter begins a

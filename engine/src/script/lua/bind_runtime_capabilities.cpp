@@ -813,9 +813,6 @@ sol::table material_property_target_table(sol::state_view lua,
             } else if constexpr (std::is_same_v<T, core::InteractableInstanceId>) {
                 table["kind"] = "interactable";
                 table["id"] = typed.text();
-            } else if constexpr (std::is_same_v<T, core::ItemStackId>) {
-                table["kind"] = "item-stack";
-                table["id"] = typed.text();
             } else if constexpr (std::is_same_v<T, core::RoomFeatureRef>) {
                 table["kind"] = "room-feature";
                 table["id"] = typed.room.text();

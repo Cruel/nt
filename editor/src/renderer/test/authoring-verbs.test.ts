@@ -7,6 +7,47 @@ import { validateAuthoringProject } from '../../shared/project-schema/authoring-
 import { defaultVerbData, verbDataSchema } from '../../shared/project-schema/authoring-verbs';
 
 describe('authoring verbs', () => {
+  it('rejects retired Item Stack selector families and Item Definition selectors', () => {
+    const verb = defaultVerbData('Use');
+    verb.slots = [
+      {
+        id: 'target',
+        label: { source: { kind: 'inline', text: 'Target' }, markup: 'plain' },
+        prompt: { source: { kind: 'inline', text: 'Choose a target' }, markup: 'plain' },
+        selectors: [{ kind: 'any-subject' }],
+      },
+    ];
+    verb.bindingOrder = ['target'];
+
+    expect(
+      verbDataSchema.safeParse({
+        ...verb,
+        slots: [
+          {
+            ...verb.slots[0],
+            selectors: [{ kind: 'family', family: 'item-stack' }],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      verbDataSchema.safeParse({
+        ...verb,
+        slots: [
+          {
+            ...verb.slots[0],
+            selectors: [
+              {
+                kind: 'item-definition',
+                itemDefinition: { $ref: { collection: 'itemDefinitions', id: 'coin' } },
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it('accepts stable named completed-command placeholders and rejects positional or unknown placeholders', () => {
     const verb = defaultVerbData('Show');
     verb.slots = [

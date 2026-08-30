@@ -33,8 +33,9 @@ The current capability surface includes:
 
 - `noveltea.instances.create`, `replace_configuration`, `clear_configuration`, `retarget_exit`,
   `destroy`, and `provenance` for session-owned Gameplay Instances;
-- `noveltea.item_stacks.get`, `set_traits`, `split`, `merge`, `transfer`, `grant`, `consume`, and
-  definition-filtered `consume_definition`/`aggregate_definition` for exact checked Item Stack state;
+- `noveltea.interactables.location`, `set_location`, `quantity`, `create_quantity`, `split`, `merge`,
+  `transfer`, `add_quantity`, and exact/definition-filtered aggregate transfer/consume/query helpers
+  for checked exact Interactable Instance state;
 - `noveltea.random.seed`, `noveltea.random.integer`, and `noveltea.random.number`; Lua's
   `math.random` and `math.randomseed` are wrappers over the same saved session generator;
 - `noveltea.map.activate(map_id, connection_id)` for exact Exit-backed Map navigation;

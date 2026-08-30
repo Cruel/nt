@@ -1262,14 +1262,14 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
     }
 
-    SECTION("current Item Stack fields are mandatory and stale identities are rejected")
+    SECTION("retired Item Stack save shapes and Property owner kinds are rejected")
     {
         auto invalid = encoded.value();
-        invalid["runtimeWorld"].erase("nextItemStackId");
+        invalid["runtimeWorld"]["nextItemStackId"] = 1;
         CHECK_FALSE(decode_save_state_wire(invalid, "save-fixture.json"));
 
         invalid = encoded.value();
-        invalid.erase("itemStacks");
+        invalid["itemStacks"] = nlohmann::json::array();
         CHECK_FALSE(decode_save_state_wire(invalid, "save-fixture.json"));
 
         invalid = encoded.value();

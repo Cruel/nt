@@ -137,15 +137,16 @@
       ]
     },
     "docs/ITEMS_INVENTORIES.md": {
-      "reviewed": "2026-08-26",
-      "strategy": "Explain Item Definition versus exact live Item Stack identity, owner-qualified Inventories, Locations, and Interaction use without reproducing stack implementation details.",
+      "reviewed": "2026-08-29",
+      "strategy": "Explain exact Interactable Instance quantity semantics, stackable Definitions, owner-qualified Inventories, Locations, and Interaction use without restoring the retired Item model.",
       "sources": [
         {
           "source": "noveltea",
           "areas": [
             "docs/engine/ITEM.md",
+            "docs/engine/INTERACTABLE.md",
             "editor/src/shared/project-schema/authoring-inventories.ts",
-            "editor/src/shared/project-schema/authoring-items.ts"
+            "editor/src/shared/project-schema/authoring-interactables.ts"
           ]
         }
       ]

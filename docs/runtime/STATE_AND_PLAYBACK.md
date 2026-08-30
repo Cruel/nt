@@ -111,10 +111,10 @@ or mismatched Save Contract, stale declaration/reference, invalid value/type, or
 rejects the save without migration, repair, or partial restoration. The saved Project version remains
 metadata and need not equal the currently loaded Project version when identity and Save Contract match.
 
-Save File V1 persists the deterministic random-generator position and authoritative desired
-presentation. It also persists every exact live Item Stack, the deterministic next-Stack allocator,
-and validated engine-owned Layout State Slots. Ended Stack identities and authoritative references to
-them are invalid. Layout Slot values are recursive Persistable Value trees validated against the
+Save File V1 persists the deterministic random-generator position, shared gameplay-instance allocator,
+exact live Interactable Instance state including quantity and Location, and authoritative desired
+presentation. It also persists validated engine-owned Layout State Slots. Ended Interactable identities
+and authoritative references to them are invalid. Layout Slot values are recursive Persistable Value trees validated against the
 compiled Layout State Shape; arbitrary Lua VM state, RmlUi DOM/focus state, metatables, and backend
 objects are never encoded. It stores logical identities and owner-remap data rather than effective
 snapshot caches, backend handles, or operation progress. Visit, Room, Flow, and Session Slot owners

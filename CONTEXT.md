@@ -71,29 +71,26 @@ One visual occurrence of a Character with independent profile, pose, expression,
 **Character Presentation Profile**:
 A named visual realization of a Character, such as full-body stage art or dialogue portrait art, with its own layered poses, expressions, and animations.
 
-**Interactable**:
-A non-Character gameplay object with one semantic identity and state that may be present in a Room, Inventory, or other presentation context and participate in interactions. An Interactable may be declared in the Project or created during a Runtime Session.
-_Avoid_: Object, Item
+**Interactable Definition**:
+Immutable reusable configuration for one kind of non-Character gameplay object. It supplies presentation, stackability, Traits, Properties, Features, and Inventories as admitted by its configuration, but it is not itself a live semantic identity.
+
+**Interactable Instance**:
+An exact live non-Character gameplay identity with one immutable origin Interactable Definition, one authoritative Location, enabled/visible state, effective Traits/Properties, and a positive quantity. Declared and runtime-created Instances use the same identity model and participate directly in Interactions.
+_Avoid_: Object, Item, Item Stack
 _See_: `docs/engine/INTERACTABLE.md`
 
-**Item Definition**:
-An immutable Project-defined description of one fungible gameplay kind whose interchangeable units may exist in Item Stacks. It supplies shared configuration, presentation defaults, Traits, and initial Property assignments without itself becoming a Gameplay Instance or mutable runtime state.
-
-**Item Stack**:
-An independently identified semantic quantity of interchangeable units from one Item Definition, with one authoritative Room, Inventory, or Unplaced Location, a strictly positive integer quantity, and shared Stack-level Traits and Property state. An Item Stack may be declared in the Project or created during a Runtime Session; it is an interaction subject but neither a Gameplay Instance nor a per-unit identity, and its identity ends when the Stack is fully consumed or explicitly merged away.
-
 **Location**:
-The single authoritative semantic destination of a Character, Interactable, or Item Stack. Room and Inventory presence derive from Location; visual presentation occurrences do not change it.
+The single authoritative semantic destination of a Character or Interactable Instance. Room and Inventory presence derive from Location; visual presentation occurrences do not change it.
 
 **Unplaced**:
-A Location state in which a Character, Interactable, or Item Stack still exists but belongs to no Room or Inventory.
+A Location state in which a Character or Interactable Instance still exists but belongs to no Room or Inventory.
 _Avoid_: Nowhere
 
 **Inventory**:
-An owner-local semantic container with stable qualified identity whose members are uniquely identified Interactables or Item Stacks located in it. Membership does not imply current accessibility or presentation, and an Inventory is not a separate item identity or interaction system.
+An owner-local semantic container with stable qualified identity whose members are exact Interactable Instances located in it. Membership does not imply current accessibility or presentation, and an Inventory is not a separate object identity or interaction system.
 
 **Containment**:
-The ancestry formed when an Interactable or Item Stack is located in an owner-local Inventory. Its direct Location remains that Inventory while its ultimate world context follows the Inventory owner chain.
+The ancestry formed when an Interactable Instance is located in an owner-local Inventory. Its direct Location remains that Inventory while its ultimate world context follows the Inventory owner chain.
 
 **Hotspot**:
 A hit-testable region that maps pointer input to a semantic interaction subject or Exit navigation target. A Hotspot is not itself a gameplay object or behavior.
@@ -151,7 +148,7 @@ A named, discoverable gameplay capability schema that requires or configures ord
 A selector over one addressable semantic kind and a stable qualified-identity pattern, used by systems such as hook registration. Exact identities and trailing namespace wildcards support deterministic specificity without creating entity inheritance, ownership, or a cross-kind untyped namespace.
 
 **Subject Selector**:
-A reusable typed selector over gameplay subjects using subject family, exact or qualified-wildcard identity, Traits, and Item Definition where applicable. Verb slots, Verb Offers, Interaction Rules, and future gameplay features may share this vocabulary without making it Interaction-owned.
+A reusable typed selector over gameplay subjects using subject family, exact or qualified-wildcard identity, Traits, and Interactable Definition where applicable. Verb slots, Verb Offers, Interaction Rules, and future gameplay features may share this vocabulary without making it Interaction-owned.
 
 **Command Draft**:
 Transient Command Builder state containing a selected Verb and zero or more bound subject slots while a complete command is constructed. It is never saved; subject changes are reported for Layout-controlled reconciliation, while runtime may terminate the Builder when interaction control itself ends.

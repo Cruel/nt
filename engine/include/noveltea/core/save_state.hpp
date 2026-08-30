@@ -357,7 +357,6 @@ struct SaveState {
     std::chrono::milliseconds play_time{0};
     std::uint64_t random_state = 0;
     std::uint64_t next_runtime_instance_id = 1;
-    std::uint64_t next_item_stack_id = 1;
     std::uint64_t room_entry_sequence = 0;
     std::vector<SavedRuntimeRoomConfiguration> runtime_rooms;
     std::vector<SavedRuntimeCharacterConfiguration> runtime_characters;
@@ -365,7 +364,6 @@ struct SaveState {
     std::vector<SavedPropertyOverride> property_overrides;
     std::vector<CharacterWorldState> characters;
     std::vector<InteractableState> interactables;
-    std::vector<ItemStackState> item_stacks;
     std::optional<RoomVisitContext> active_room_visit;
     std::vector<SavedRoomVisits> room_visits;
     std::vector<SavedDialogueLineHistory> dialogue_line_history;

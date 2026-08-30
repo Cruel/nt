@@ -27,6 +27,11 @@
       "titleImage": null
     },
     "text": { "defaultFont": null },
+    "inventory": {
+      "playerInventory": null,
+      "defaultLayout": null
+    },
+    "interaction": { "defaultVerbMenuLayout": null },
     "roomNavigationTransition": {
       "kind": "cut",
       "durationMs": 0,
@@ -42,7 +47,10 @@
       { "role": "settings-menu", "layout": null },
       { "role": "text-log", "layout": null },
       { "role": "modal", "layout": null },
-      { "role": "debug-overlay", "layout": null }
+      { "role": "debug-overlay", "layout": null },
+      { "role": "command-builder", "layout": null },
+      { "role": "scene-text", "layout": null },
+      { "role": "scene-choice", "layout": null }
     ],
     "audio": {
       "purposes": {

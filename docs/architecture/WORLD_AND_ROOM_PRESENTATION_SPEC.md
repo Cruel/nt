@@ -476,13 +476,13 @@ when visual placement is needed.
 
 ### Interaction subjects and named Verb slots
 
-The Interaction domain uses one closed semantic subject variant covering Character, Interactable,
-owner-qualified Feature, and exact live Item Stack identities. Room-local cast entries are not valid
+The Interaction domain uses one closed semantic subject variant covering Character, exact live
+Interactable Instance, and owner-qualified Feature identities. Room-local cast entries are not valid
 subjects merely because they portray a Character.
 
 Verbs declare stable named required subject slots instead of numeric arity or positional operand roles.
 Each slot carries a finite union of reusable Subject Selectors. Selectors may admit any subject, one
-subject family, a required Trait, an Item Definition, a qualified identity prefix pattern, or one
+subject family, a required Trait, an Interactable Definition, a qualified identity prefix pattern, or one
 exact identity. `bindingOrder` is the locale-neutral progressive-selection order; final commands bind
 exact live subjects by `slotId`, so localized command wording may reorder placeholders without
 changing command semantics.
