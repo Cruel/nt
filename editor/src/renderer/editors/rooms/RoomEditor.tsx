@@ -53,6 +53,10 @@ import {
 import { InteractableInstancePropertiesEditor } from '@/components/properties/InteractablePropertyEditors';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
+import {
+  GameplayCommandListEditor,
+  type GameplayCommandKind,
+} from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 import {
   CategorizedEditorLayout,
@@ -77,6 +81,29 @@ import {
 function escapePointerSegment(value: string) {
   return value.replaceAll('~', '~0').replaceAll('/', '~1');
 }
+
+const roomPrecommitGameplayCommandKinds: readonly GameplayCommandKind[] = [
+  'set-global-property',
+  'unset-global-property',
+  'set-property',
+  'unset-property',
+  'add-trait',
+  'remove-trait',
+  'set-enabled',
+  'set-visible',
+  'move-instance',
+  'create-room',
+  'create-character',
+  'create-interactable',
+  'destroy-instance',
+  'split-quantity',
+  'merge-quantity',
+  'transfer-quantity',
+  'add-quantity',
+  'consume-quantity',
+  'present-inventory',
+  'if',
+];
 import {
   defaultRoomData,
   parseRoomData,
@@ -2100,6 +2127,38 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   value={data.lifecycle[hook]}
                   project={project}
                   scope={{ currentRoom: true }}
+                  onChange={(next) =>
+                    commit(
+                      { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
+                      `Update room ${hook}`,
+                    )
+                  }
+                />
+              </div>
+            ))}
+            {(
+              [
+                ['beforeEnter', 'Before enter'],
+                ['afterEnter', 'After enter'],
+                ['beforeLeave', 'Before leave'],
+                ['afterLeave', 'After leave'],
+                ['onEnterRejected', 'On enter rejected'],
+                ['onLeaveRejected', 'On leave rejected'],
+              ] as const
+            ).map(([hook, label]) => (
+              <div key={hook} className="space-y-1.5">
+                <Label>{label}</Label>
+                <GameplayCommandListEditor
+                  value={data.lifecycle[hook]}
+                  project={project}
+                  policy={{
+                    currentRoom: true,
+                    playerInventory: true,
+                    admittedKinds:
+                      hook === 'beforeEnter' || hook === 'beforeLeave'
+                        ? roomPrecommitGameplayCommandKinds
+                        : undefined,
+                  }}
                   onChange={(next) =>
                     commit(
                       { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
