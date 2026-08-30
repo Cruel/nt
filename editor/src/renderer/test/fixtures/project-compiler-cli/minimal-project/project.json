@@ -16,6 +16,9 @@
       "playerInventory": null,
       "defaultLayout": null
     },
+    "interaction": {
+      "defaultVerbMenuLayout": null
+    },
     "text": {
       "defaultFont": null
     },

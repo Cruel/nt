@@ -2365,6 +2365,60 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
             "runtime.invalid_mounted_layout",
             "Mounted Layout contains an invalid owner, key, Layout, policy, or composition group"));
 
+    if (value.trigger_context) {
+        const auto finite = [](double number) { return std::isfinite(number); };
+        const bool pointer_valid =
+            !value.trigger_context->pointer || (finite(value.trigger_context->pointer->x) &&
+                                                finite(value.trigger_context->pointer->y));
+        const bool bounds_valid = !value.trigger_context->source_bounds ||
+                                  (finite(value.trigger_context->source_bounds->x) &&
+                                   finite(value.trigger_context->source_bounds->y) &&
+                                   finite(value.trigger_context->source_bounds->width) &&
+                                   finite(value.trigger_context->source_bounds->height) &&
+                                   value.trigger_context->source_bounds->width >= 0.0 &&
+                                   value.trigger_context->source_bounds->height >= 0.0);
+        if (!pointer_valid || !bounds_valid)
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.invalid_layout_trigger_context",
+                              "Mounted Layout Trigger Context contains invalid geometry"));
+    }
+
+    if (value.presentation_parent) {
+        auto current_parent = *value.presentation_parent;
+        std::vector<LayoutPresentationParent> visited;
+        bool invalid_parent = false;
+        while (true) {
+            if (current_parent.owner == value.owner && current_parent.key == value.key) {
+                invalid_parent = true;
+                break;
+            }
+            if (std::find(visited.begin(), visited.end(), current_parent) != visited.end()) {
+                invalid_parent = true;
+                break;
+            }
+            visited.push_back(current_parent);
+            const auto parent =
+                std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
+                             [&](const DesiredMountedLayout& item) {
+                                 return item.owner == current_parent.owner &&
+                                        item.key == current_parent.key && item.occurrence &&
+                                        *item.occurrence == current_parent.occurrence;
+                             });
+            if (parent == m_mounted_layouts.end()) {
+                invalid_parent = true;
+                break;
+            }
+            if (!parent->presentation_parent)
+                break;
+            current_parent = *parent->presentation_parent;
+        }
+        if (invalid_parent)
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.invalid_layout_presentation_parent",
+                              "Mounted Layout presentation parent is stale, missing, "
+                              "self-referential, or cyclic"));
+    }
+
     for (const auto& slot : m_layout_state_slots) {
         if (slot.key != value.key || !layout_state_slot_applies_to_mount(*this, slot, value.owner))
             continue;
@@ -2388,13 +2442,15 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
                                         [&](const LayoutInputDefinition& definition) {
                                             return definition.id == assignment.input;
                                         });
-        if (input == layout_definition->contract.inputs.end() &&
-            assignment.input.text() == inventory_layout_context_input) {
+        const bool reserved_context_input =
+            assignment.input.text() == inventory_layout_context_input ||
+            assignment.input.text() == verb_menu_layout_subject_input;
+        if (input == layout_definition->contract.inputs.end() && reserved_context_input) {
             const auto* literal = std::get_if<LayoutLiteralInput>(&assignment.source);
             if (!literal || !std::holds_alternative<std::string>(literal->value))
                 return Result<void, Diagnostics>::failure(
-                    feature_error("runtime.layout_inventory_context_type_mismatch",
-                                  "Inventory Layout context must be a literal string"));
+                    feature_error("runtime.layout_reserved_context_type_mismatch",
+                                  "Reserved Layout context inputs must be literal strings"));
             assigned_inputs.push_back(assignment.input);
             continue;
         }
@@ -2439,11 +2495,49 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
     const auto mounted_layout = value.layout;
     const auto mounted_key = value.key;
     const auto mounted_owner = value.owner;
-    const auto found =
-        std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
-                     [&value](const DesiredMountedLayout& current) {
-                         return current.key == value.key && current.owner == value.owner;
-                     });
+    auto erase_descendants = [&](const PresentationOwner& parent_owner,
+                                 const MountedLayoutPresentationKey& parent_key,
+                                 LayoutMountOccurrenceId parent_occurrence) {
+        std::vector<LayoutPresentationParent> retired{
+            {parent_owner, parent_key, parent_occurrence}};
+        for (std::size_t index = 0; index < retired.size(); ++index) {
+            const auto current = retired[index];
+            for (const auto& mounted : m_mounted_layouts) {
+                if (!mounted.presentation_parent || *mounted.presentation_parent != current ||
+                    !mounted.occurrence)
+                    continue;
+                const LayoutPresentationParent descendant{mounted.owner, mounted.key,
+                                                          *mounted.occurrence};
+                if (std::find(retired.begin(), retired.end(), descendant) == retired.end())
+                    retired.push_back(descendant);
+            }
+        }
+        std::erase_if(m_mounted_layouts, [&](const DesiredMountedLayout& mounted) {
+            return mounted.presentation_parent &&
+                   std::find(retired.begin(), retired.end(), *mounted.presentation_parent) !=
+                       retired.end();
+        });
+    };
+
+    if (value.replacement_group) {
+        std::vector<LayoutPresentationParent> replaced;
+        for (const auto& mounted : m_mounted_layouts) {
+            if (mounted.replacement_group == value.replacement_group &&
+                !(mounted.owner == value.owner && mounted.key == value.key) && mounted.occurrence)
+                replaced.push_back({mounted.owner, mounted.key, *mounted.occurrence});
+        }
+        for (const auto& mount : replaced)
+            erase_descendants(mount.owner, mount.key, mount.occurrence);
+        std::erase_if(m_mounted_layouts, [&](const DesiredMountedLayout& mounted) {
+            return mounted.replacement_group == value.replacement_group &&
+                   !(mounted.owner == value.owner && mounted.key == value.key);
+        });
+    }
+
+    auto found = std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
+                              [&value](const DesiredMountedLayout& current) {
+                                  return current.key == value.key && current.owner == value.owner;
+                              });
     const auto allocate_occurrence = [&]() -> std::optional<LayoutMountOccurrenceId> {
         if (m_next_layout_mount_occurrence == 0)
             return std::nullopt;
@@ -2467,6 +2561,23 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
         if (found->layout == value.layout) {
             value.occurrence = found->occurrence;
         } else {
+            if (found->occurrence)
+                erase_descendants(found->owner, found->key, *found->occurrence);
+            found =
+                std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
+                             [&value](const DesiredMountedLayout& current) {
+                                 return current.key == value.key && current.owner == value.owner;
+                             });
+            if (found == m_mounted_layouts.end()) {
+                auto occurrence = allocate_occurrence();
+                if (!occurrence)
+                    return Result<void, Diagnostics>::failure(
+                        feature_error("runtime.layout_mount_identity_exhausted",
+                                      "Layout Mount occurrence identity space is exhausted"));
+                value.occurrence = *occurrence;
+                m_mounted_layouts.push_back(std::move(value));
+                return Result<void, Diagnostics>::success();
+            }
             auto occurrence = allocate_occurrence();
             if (!occurrence)
                 return Result<void, Diagnostics>::failure(
@@ -2520,21 +2631,20 @@ SessionState::resolve_layout_inputs(const CompiledProject& project,
                               "Resolved Layout input no longer matches its declared type"));
         resolved.push_back(LayoutResolvedInput{definition.id, std::move(input_value)});
     }
-    const auto inventory_context =
-        std::find_if(value.inputs.begin(), value.inputs.end(), [](const auto& assignment) {
-            return assignment.input.text() == inventory_layout_context_input;
-        });
-    if (inventory_context != value.inputs.end() &&
-        std::none_of(
-            layout->contract.inputs.begin(), layout->contract.inputs.end(),
-            [&](const auto& definition) { return definition.id == inventory_context->input; })) {
+    for (const auto& assignment : value.inputs) {
+        const bool reserved_context_input =
+            assignment.input.text() == inventory_layout_context_input ||
+            assignment.input.text() == verb_menu_layout_subject_input;
+        if (!reserved_context_input ||
+            std::any_of(layout->contract.inputs.begin(), layout->contract.inputs.end(),
+                        [&](const auto& definition) { return definition.id == assignment.input; }))
+            continue;
         auto current = resolve_layout_input_source(project, const_cast<SessionState&>(*this),
-                                                   inventory_context->source);
+                                                   assignment.source);
         if (!current)
             return Result<std::vector<LayoutResolvedInput>, Diagnostics>::failure(
                 std::move(current).error());
-        resolved.push_back(
-            LayoutResolvedInput{inventory_context->input, std::move(*current.value_if())});
+        resolved.push_back(LayoutResolvedInput{assignment.input, std::move(*current.value_if())});
     }
     return Result<std::vector<LayoutResolvedInput>, Diagnostics>::success(std::move(resolved));
 }
@@ -2712,8 +2822,27 @@ Result<void, Diagnostics>
 SessionState::remove_mounted_layout(const MountedLayoutPresentationKey& key,
                                     const PresentationOwner& owner)
 {
-    std::erase_if(m_mounted_layouts, [&key, &owner](const DesiredMountedLayout& value) {
-        return value.key == key && value.owner == owner;
+    std::vector<LayoutPresentationParent> retired;
+    for (const auto& mounted : m_mounted_layouts)
+        if (mounted.key == key && mounted.owner == owner && mounted.occurrence)
+            retired.push_back({mounted.owner, mounted.key, *mounted.occurrence});
+    for (std::size_t index = 0; index < retired.size(); ++index) {
+        const auto parent = retired[index];
+        for (const auto& mounted : m_mounted_layouts) {
+            if (!mounted.presentation_parent || *mounted.presentation_parent != parent ||
+                !mounted.occurrence)
+                continue;
+            const LayoutPresentationParent descendant{mounted.owner, mounted.key,
+                                                      *mounted.occurrence};
+            if (std::find(retired.begin(), retired.end(), descendant) == retired.end())
+                retired.push_back(descendant);
+        }
+    }
+    std::erase_if(m_mounted_layouts, [&](const DesiredMountedLayout& value) {
+        if (value.key == key && value.owner == owner)
+            return true;
+        return value.presentation_parent && std::find(retired.begin(), retired.end(),
+                                                      *value.presentation_parent) != retired.end();
     });
     return Result<void, Diagnostics>::success();
 }

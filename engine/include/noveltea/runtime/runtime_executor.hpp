@@ -206,9 +206,26 @@ public:
     interaction_view(std::string_view runtime_locale);
     [[nodiscard]] core::Result<core::InventoryView, RuntimeExecutionError>
     inventory_view(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<void, core::Diagnostics> present_inventory(
+        const core::compiled::InventoryRef& inventory,
+        std::optional<core::LayoutId> layout = std::nullopt,
+        std::optional<core::TriggerContext> trigger_context = std::nullopt,
+        std::optional<core::LayoutPresentationParent> presentation_parent = std::nullopt,
+        bool coexist = false);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    present_inventory(const core::compiled::InventoryRef& inventory,
-                      std::optional<core::LayoutId> layout = std::nullopt);
+    present_verb_menu(const core::compiled::InteractionSubject& subject,
+                      std::optional<core::TriggerContext> trigger_context = std::nullopt);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    present_contextual_layout(core::LayoutId layout,
+                              std::optional<core::ScopedLayoutInstanceId> instance,
+                              std::optional<core::TriggerContext> trigger_context,
+                              core::LayoutPresentationParent presentation_parent);
+    [[nodiscard]] core::Result<void, core::Diagnostics> dismiss_verb_menu();
+    void set_trigger_context(std::optional<core::TriggerContext> context) noexcept
+    {
+        m_trigger_context = std::move(context);
+    }
+    void clear_trigger_context() noexcept { m_trigger_context.reset(); }
     [[nodiscard]] core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>
     verb_offers(const core::compiled::InteractionSubject& subject, std::string_view runtime_locale);
     [[nodiscard]] core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>
@@ -347,6 +364,7 @@ private:
     std::optional<core::SessionState> m_pending_presentation_source_state;
     std::optional<core::RoomPresentationResolution> m_pending_presentation_source_room;
     std::vector<PendingAudioOperation> m_pending_audio_operations;
+    std::optional<core::TriggerContext> m_trigger_context;
     std::string m_pending_presentation_source_locale;
     bool m_pending_presentation_source_dirty = true;
 };

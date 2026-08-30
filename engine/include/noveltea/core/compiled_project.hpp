@@ -26,6 +26,7 @@ enum class LayoutClockDomain : std::uint8_t;
 namespace noveltea::core::compiled {
 
 inline constexpr std::string_view builtin_inventory_layout_id = "builtin-inventory";
+inline constexpr std::string_view builtin_verb_menu_layout_id = "builtin-verb-menu";
 
 struct TraitProperty {
     PropertyId property_id;
@@ -308,6 +309,9 @@ struct InventorySettings {
     std::optional<InventoryId> player_inventory;
     std::optional<LayoutId> default_layout;
 };
+struct InteractionPresentationSettings {
+    std::optional<LayoutId> default_verb_menu_layout;
+};
 enum class TransitionKind : std::uint8_t {
     Fade,
     Cut,
@@ -328,6 +332,7 @@ struct RuntimeSettings {
     RoomNavigationTransition room_navigation_transition{TransitionKind::Cut, 0, std::nullopt, true};
     AudioMixSettings audio;
     InventorySettings inventory;
+    InteractionPresentationSettings interaction;
 };
 
 enum class BackgroundFit : std::uint8_t {

@@ -2057,6 +2057,9 @@ const runtimeSettingsSchema = strict({
     playerInventory: id.nullable(),
     defaultLayout: layoutReferenceSchema.nullable(),
   }),
+  interaction: strict({
+    defaultVerbMenuLayout: layoutReferenceSchema.nullable(),
+  }),
   systemLayouts: z.array(
     strict({
       layout: layoutReferenceSchema.nullable(),

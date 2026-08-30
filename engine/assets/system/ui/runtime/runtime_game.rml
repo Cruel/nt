@@ -23,7 +23,8 @@
                             data-class-disabled="!object.enabled"
                             data-class-selected="object.selected"
                             data-attrif-disabled="!object.enabled"
-                            data-event-click="ui_primary_activate(object.subject_kind, object.subject_id)">
+                            data-event-click="ui_primary_activate(object.subject_kind, object.subject_id)"
+                            data-event-mousedown="ui_context_activate(object.subject_kind, object.subject_id)">
                         {{ object.label }}
                     </button>
                     <button data-for="object : gameplay.room.objects"

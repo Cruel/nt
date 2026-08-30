@@ -1,5 +1,7 @@
 #include <noveltea/core/compiled_project.hpp>
+#include <noveltea/core/presentation_contracts.hpp>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <type_traits>
@@ -7,6 +9,7 @@
 
 using namespace noveltea::core;
 namespace compiled = noveltea::core::compiled;
+using Catch::Approx;
 
 namespace {
 template<class Id> Id id(std::string value)
@@ -221,6 +224,66 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
                                   compiled::DialogueChoiceBlock>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<2, compiled::DialogueBlock>,
                                   compiled::DialogueRedirectBlock>);
+}
+
+TEST_CASE(
+    "contextual anchoring resolves immutable normalized activation geometry in receiver space")
+{
+    const TriggerContext trigger{
+        .pointer = TriggerPoint{0.9, 0.95},
+        .source_bounds = TriggerRect{0.7, 0.7, 0.2, 0.2},
+    };
+    const auto logical = resolve_layout_trigger_context(trigger, 1000.0, 500.0);
+    REQUIRE(logical.pointer);
+    REQUIRE(logical.source_bounds);
+    CHECK(logical.pointer->x == Approx(900.0));
+    CHECK(logical.pointer->y == Approx(475.0));
+    CHECK(logical.source_bounds->x == Approx(700.0));
+    CHECK(logical.source_bounds->y == Approx(350.0));
+    CHECK(logical.source_bounds->width == Approx(200.0));
+    CHECK(logical.source_bounds->height == Approx(100.0));
+
+    const auto pointer_anchor = resolve_contextual_anchor(
+        logical, ContextualAnchorRequest{.source = ContextualAnchorSource::Pointer,
+                                         .side = ContextualAnchorSide::Bottom,
+                                         .alignment = ContextualAnchorAlignment::Start,
+                                         .popup_width = 200.0,
+                                         .popup_height = 100.0,
+                                         .gap = 8.0,
+                                         .viewport_padding = 16.0,
+                                         .viewport_safe = true});
+    CHECK(pointer_anchor.x == Approx(784.0));
+    CHECK(pointer_anchor.y == Approx(384.0));
+
+    const auto source_anchor = resolve_contextual_anchor(
+        logical, ContextualAnchorRequest{.source = ContextualAnchorSource::SourceBounds,
+                                         .side = ContextualAnchorSide::Left,
+                                         .alignment = ContextualAnchorAlignment::Center,
+                                         .popup_width = 120.0,
+                                         .popup_height = 60.0,
+                                         .gap = 10.0,
+                                         .viewport_padding = 0.0,
+                                         .viewport_safe = false});
+    CHECK(source_anchor.x == Approx(570.0));
+    CHECK(source_anchor.y == Approx(370.0));
+
+    const LayoutLogicalTriggerContext nearest_context{
+        .pointer = TriggerPoint{900.0, 50.0},
+        .source_bounds = TriggerRect{200.0, 100.0, 300.0, 200.0},
+        .viewport = TriggerRect{0.0, 0.0, 1000.0, 500.0},
+    };
+    const auto nearest_anchor = resolve_contextual_anchor(
+        nearest_context,
+        ContextualAnchorRequest{.source = ContextualAnchorSource::NearestSourcePoint,
+                                .side = ContextualAnchorSide::Bottom,
+                                .alignment = ContextualAnchorAlignment::Center,
+                                .popup_width = 100.0,
+                                .popup_height = 40.0,
+                                .gap = 6.0,
+                                .viewport_padding = 0.0,
+                                .viewport_safe = false});
+    CHECK(nearest_anchor.x == Approx(450.0));
+    CHECK(nearest_anchor.y == Approx(106.0));
 }
 
 TEST_CASE("compiled project publishes immutable collections and checked indexes")

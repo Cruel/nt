@@ -1588,6 +1588,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         playerInventory: settings.inventory.playerInventory,
         defaultLayout: layoutRef(settings.inventory.defaultLayout),
       },
+      interaction: {
+        defaultVerbMenuLayout: layoutRef(settings.interaction.defaultVerbMenuLayout),
+      },
       text: { defaultFont: assetRef(settings.text.defaultFont) },
       titleScreen: {
         titleImage: assetRef(settings.titleScreen.titleImage),

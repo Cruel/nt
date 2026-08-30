@@ -139,6 +139,7 @@ struct PresentationMountedLayout {
     std::vector<LayoutSignalId> connected_signals;
     std::optional<LayoutStateShape> state_shape;
     std::vector<PresentationLayoutStateValue> state_values;
+    std::optional<TriggerContext> trigger_context;
     bool operator==(const PresentationMountedLayout&) const = default;
 };
 

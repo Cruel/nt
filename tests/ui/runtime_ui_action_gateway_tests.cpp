@@ -155,6 +155,42 @@ TEST_CASE("RuntimeUiActionGateway opens only the configured exact Player Invento
     CHECK(diagnostics.back().code == "runtime_ui.player_inventory_unavailable");
 }
 
+TEST_CASE("RuntimeUiActionGateway presents a generic contextual child Layout")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::RuntimeUiActionGateway gateway(diagnostics);
+    RecordingRuntimeUiInputSink sink;
+    gateway.bind_input_sink(&sink);
+    gateway.bind_layout_gameplay_admission([]() { return true; });
+
+    auto layout = noveltea::core::LayoutId::create("details");
+    auto parent_instance = noveltea::core::ScopedLayoutInstanceId::create("parent");
+    REQUIRE(layout);
+    REQUIRE(parent_instance);
+    const auto parent_occurrence = noveltea::core::LayoutMountOccurrenceId::from_number(7);
+    const noveltea::core::TriggerContext trigger{
+        .pointer = noveltea::core::TriggerPoint{0.25, 0.75},
+        .source_bounds = noveltea::core::TriggerRect{0.1, 0.2, 0.3, 0.4},
+    };
+    const noveltea::core::LayoutPresentationParent parent{
+        noveltea::core::PresentationOwner{noveltea::core::SessionPresentationOwner{
+            noveltea::core::PresentationSessionId::from_number(3)}},
+        noveltea::core::MountedLayoutPresentationKey{
+            noveltea::core::ScopedLayoutMountKey{*parent_instance.value_if()}},
+        parent_occurrence,
+    };
+
+    REQUIRE(gateway.action_present_child_layout("details", std::nullopt, trigger, parent));
+    REQUIRE(sink.last_gameplay_input);
+    const auto* presented =
+        std::get_if<noveltea::core::PresentContextualLayoutInput>(&*sink.last_gameplay_input);
+    REQUIRE(presented != nullptr);
+    CHECK(presented->layout == *layout.value_if());
+    CHECK_FALSE(presented->instance);
+    CHECK(presented->trigger_context == trigger);
+    CHECK(presented->presentation_parent == parent);
+}
+
 TEST_CASE(
     "RuntimeUiActionGateway captures event outputs without recursively invoking the host sink")
 {

@@ -52,6 +52,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/render/material.hpp
     engine/include/noveltea/render/shader.hpp
     engine/src/core/compiled_project.cpp
+    engine/src/core/contextual_presentation.cpp
     engine/src/core/compiled_project_validation.cpp
     engine/src/core/compiled_project_validation.hpp
     engine/src/core/diagnostic.cpp

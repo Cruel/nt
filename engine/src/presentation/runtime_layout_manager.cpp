@@ -20,6 +20,7 @@ constexpr const char* kBuiltinCommandBuilderLayoutId = "builtin-command-builder"
 constexpr const char* kBuiltinSceneTextLayoutId = "builtin-scene-text";
 constexpr const char* kBuiltinSceneChoiceLayoutId = "builtin-scene-choice";
 constexpr const char* kBuiltinInventoryLayoutId = "builtin-inventory";
+constexpr const char* kBuiltinVerbMenuLayoutId = "builtin-verb-menu";
 
 core::Diagnostics failure(std::string code, std::string message)
 {
@@ -65,6 +66,7 @@ system_role_for_builtin(RuntimeLayoutBuiltinDocument document) noexcept
     case RuntimeLayoutBuiltinDocument::SceneChoice:
         return core::compiled::SystemLayoutRole::SceneChoice;
     case RuntimeLayoutBuiltinDocument::Inventory:
+    case RuntimeLayoutBuiltinDocument::VerbMenu:
         return std::nullopt;
     case RuntimeLayoutBuiltinDocument::None:
         return std::nullopt;
@@ -229,6 +231,19 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request,
                           .entrance_operation = std::nullopt,
                           .exit_operation = std::nullopt};
         break;
+    case RuntimeLayoutBuiltinDocument::VerbMenu:
+        request.layout_id = kBuiltinVerbMenuLayoutId;
+        request.owner = core::MountedLayoutOwner::Gameplay;
+        request.policy = {.plane = core::PresentationPlane::GameUi,
+                          .local_order = 50,
+                          .clock = core::LayoutClockDomain::Gameplay,
+                          .input = core::LayoutInputMode::Normal,
+                          .gameplay_pause = core::GameplayPausePolicy::Continue,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
     case RuntimeLayoutBuiltinDocument::None:
         break;
     }
@@ -302,6 +317,7 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
         .state_values = std::move(request.state_values),
         .material_parameters = std::move(request.material_parameters),
         .material_camera_zoom = request.material_camera_zoom,
+        .trigger_context = std::move(request.trigger_context),
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
     });
@@ -362,6 +378,7 @@ RuntimeLayoutManager::UpdateResult RuntimeLayoutManager::update(core::MountedLay
         .state_values = std::move(request.state_values),
         .material_parameters = std::move(request.material_parameters),
         .material_camera_zoom = request.material_camera_zoom,
+        .trigger_context = std::move(request.trigger_context),
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
     };

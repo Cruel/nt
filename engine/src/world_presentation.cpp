@@ -1113,13 +1113,18 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
 
     if (event.kind == WorldPointerEventKind::MouseDown ||
         event.kind == WorldPointerEventKind::TouchDown) {
-        if (!event.primary || m_capture)
+        if ((!event.primary && !event.secondary) || m_capture)
             return result;
         auto target = hit_test(event.reference_position);
         if (!target)
             return result;
-        m_capture = Capture{
-            *target, event.host_position, event.reference_position, event.pointer_id, touch, false};
+        m_capture = Capture{*target,
+                            event.host_position,
+                            event.reference_position,
+                            event.pointer_id,
+                            touch,
+                            event.primary,
+                            false};
         set_visual_state(std::nullopt, target);
         result.consumed = true;
         return result;
@@ -1133,10 +1138,26 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
         !m_capture->target_canceled && contains(captured, event.reference_position);
     const auto* semantic_target = select_target ? hit_target(captured) : nullptr;
     const auto target = semantic_target ? std::optional{semantic_target->target} : std::nullopt;
+    const bool primary_activation = m_capture->primary;
     m_capture.reset();
     set_visual_state(std::nullopt, std::nullopt);
     if (target) {
         result.target = std::move(target);
+        result.primary_activation = primary_activation;
+        const auto viewport = m_backend.viewport();
+        if (viewport.width > 0.0f && viewport.height > 0.0f) {
+            core::TriggerContext trigger;
+            trigger.pointer = core::TriggerPoint{event.reference_position.x / viewport.width,
+                                                 event.reference_position.y / viewport.height};
+            if (semantic_target) {
+                trigger.source_bounds =
+                    core::TriggerRect{semantic_target->owner_rect.x / viewport.width,
+                                      semantic_target->owner_rect.y / viewport.height,
+                                      semantic_target->owner_rect.width / viewport.width,
+                                      semantic_target->owner_rect.height / viewport.height};
+            }
+            result.trigger_context = trigger;
+        }
     } else if (!touch) {
         set_visual_state(hit_test(event.reference_position), std::nullopt);
     }

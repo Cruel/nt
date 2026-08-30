@@ -4,25 +4,8 @@
     <link type="text/rcss" href="system|/ui/runtime/command-builder.rcss"/>
 </head>
 <body data-model="noveltea">
-    <div id="command_builder_root"
-         data-if="gameplay.interaction.verb_menu_open || gameplay.command_builder.active">
-        <div data-if="!gameplay.command_builder.active">
-            <div id="command_builder_menu" data-if="gameplay.interaction.verb_menu_open">
-                <p class="command-builder-heading">Actions</p>
-                <button class="command-builder-clear"
-                        data-if="gameplay.interaction.has_selection"
-                        data-event-click="ui_clear_selection()">Clear selection</button>
-                <button data-for="action : gameplay.interaction.actions"
-                        class="command-builder-action"
-                        data-class-disabled="!action.enabled"
-                        data-attrif-disabled="!action.enabled"
-                        data-event-click="ui_invoke_interaction(action.verb_id)">
-                    {{ action.label }}
-                </button>
-            </div>
-        </div>
-
-        <div id="command_builder_draft" data-if="gameplay.command_builder.active">
+    <div id="command_builder_root" data-if="gameplay.command_builder.active">
+        <div id="command_builder_draft">
             <p class="command-builder-heading">Command</p>
             <p id="command_builder_label">{{ gameplay.command_builder.label }}</p>
             <p id="command_builder_progress">

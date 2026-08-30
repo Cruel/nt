@@ -65,6 +65,7 @@ private:
         std::vector<core::PresentationLayoutStateValue> state_values;
         std::vector<core::PresentationMaterialParameter> material_parameters;
         std::optional<double> material_camera_zoom;
+        std::optional<core::TriggerContext> trigger_context;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
         core::PresentationSnapshotRevision revision =

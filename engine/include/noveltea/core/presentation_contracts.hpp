@@ -63,6 +63,74 @@ enum class MountedLayoutOwner : std::uint8_t {
     Shell,
 };
 
+// Immutable activation geometry captured at the input boundary. Coordinates are normalized to the
+// fitted game viewport so the snapshot is independent of the source UI context's logical scale.
+// Receiving Layouts resolve the normalized geometry into their own logical coordinate space.
+struct TriggerPoint {
+    double x = 0.0;
+    double y = 0.0;
+    bool operator==(const TriggerPoint&) const = default;
+};
+
+struct TriggerRect {
+    double x = 0.0;
+    double y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+    bool operator==(const TriggerRect&) const = default;
+};
+
+struct TriggerContext {
+    std::optional<TriggerPoint> pointer;
+    std::optional<TriggerRect> source_bounds;
+    bool operator==(const TriggerContext&) const = default;
+};
+
+struct LayoutLogicalTriggerContext {
+    std::optional<TriggerPoint> pointer;
+    std::optional<TriggerRect> source_bounds;
+    TriggerRect viewport;
+    bool operator==(const LayoutLogicalTriggerContext&) const = default;
+};
+
+enum class ContextualAnchorSource : std::uint8_t {
+    Pointer,
+    SourceBounds,
+    NearestSourcePoint,
+};
+
+enum class ContextualAnchorSide : std::uint8_t {
+    Top,
+    Right,
+    Bottom,
+    Left,
+};
+
+enum class ContextualAnchorAlignment : std::uint8_t {
+    Start,
+    Center,
+    End,
+};
+
+struct ContextualAnchorRequest {
+    ContextualAnchorSource source = ContextualAnchorSource::Pointer;
+    ContextualAnchorSide side = ContextualAnchorSide::Bottom;
+    ContextualAnchorAlignment alignment = ContextualAnchorAlignment::Start;
+    double popup_width = 0.0;
+    double popup_height = 0.0;
+    double gap = 0.0;
+    double viewport_padding = 0.0;
+    bool viewport_safe = true;
+    bool operator==(const ContextualAnchorRequest&) const = default;
+};
+
+[[nodiscard]] LayoutLogicalTriggerContext
+resolve_layout_trigger_context(const TriggerContext& context, double logical_width,
+                               double logical_height) noexcept;
+[[nodiscard]] TriggerPoint
+resolve_contextual_anchor(const LayoutLogicalTriggerContext& context,
+                          const ContextualAnchorRequest& request) noexcept;
+
 struct MountedLayoutPolicy {
     PresentationPlane plane;
     std::int32_t local_order = 0;

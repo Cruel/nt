@@ -339,6 +339,29 @@ template<class T> T event_arg(const Rml::VariantList& arguments, std::size_t ind
     return index < arguments.size() ? arguments[index].Get<T>() : std::move(fallback);
 }
 
+std::optional<core::TriggerContext> trigger_context_from_event(Rml::Event& event)
+{
+    auto* element = event.GetCurrentElement();
+    auto* context = element ? element->GetContext() : nullptr;
+    if (!context)
+        return std::nullopt;
+    const auto dimensions = context->GetDimensions();
+    if (dimensions.x <= 0 || dimensions.y <= 0)
+        return std::nullopt;
+
+    core::TriggerContext result;
+    const float mouse_x = event.GetParameter<float>("mouse_x", -1.0f);
+    const float mouse_y = event.GetParameter<float>("mouse_y", -1.0f);
+    if (std::isfinite(mouse_x) && std::isfinite(mouse_y) && mouse_x >= 0.0f && mouse_y >= 0.0f)
+        result.pointer = core::TriggerPoint{mouse_x / dimensions.x, mouse_y / dimensions.y};
+
+    const auto offset = element->GetAbsoluteOffset(Rml::BoxArea::Border);
+    const auto size = element->GetBox().GetSize(Rml::BoxArea::Border);
+    result.source_bounds = core::TriggerRect{offset.x / dimensions.x, offset.y / dimensions.y,
+                                             size.x / dimensions.x, size.y / dimensions.y};
+    return result;
+}
+
 std::uint64_t event_slot_number_arg(const Rml::VariantList& arguments, std::size_t index)
 {
     constexpr auto invalid = std::numeric_limits<std::uint64_t>::max();
@@ -997,6 +1020,10 @@ struct RuntimeUiDataModel::Impl {
                 (void)function(args);
             };
         };
+        const auto contextual_callback = [](auto function) {
+            return [function](Rml::DataModelHandle, Rml::Event& event,
+                              const Rml::VariantList& args) { (void)function(event, args); };
+        };
         bool ok = true;
         ok &= c.BindEventCallback(
             "ui_continue", callback([this](const auto&) { return gateway.action_continue(); }));
@@ -1013,18 +1040,30 @@ struct RuntimeUiDataModel::Impl {
                                           event_arg<std::string>(args, 0),
                                           event_arg<std::string>(args, 1));
                                   }));
-        ok &= c.BindEventCallback("ui_primary_activate", callback([this](const auto& args) {
-                                      return gateway.action_primary_activate(
-                                          event_arg<std::string>(args, 0),
-                                          event_arg<std::string>(args, 1));
-                                  }));
-        ok &= c.BindEventCallback("ui_open_verb_menu", callback([this](const auto& args) {
-                                      return gateway.action_open_verb_menu(
-                                          event_arg<std::string>(args, 0),
-                                          event_arg<std::string>(args, 1));
-                                  }));
-        ok &= c.BindEventCallback("ui_present_player_inventory", callback([this](const auto&) {
-                                      return gateway.action_present_player_inventory();
+        ok &= c.BindEventCallback(
+            "ui_primary_activate", contextual_callback([this](Rml::Event& event, const auto& args) {
+                return gateway.action_primary_activate(event_arg<std::string>(args, 0),
+                                                       event_arg<std::string>(args, 1),
+                                                       trigger_context_from_event(event));
+            }));
+        ok &= c.BindEventCallback(
+            "ui_open_verb_menu", contextual_callback([this](Rml::Event& event, const auto& args) {
+                return gateway.action_open_verb_menu(event_arg<std::string>(args, 0),
+                                                     event_arg<std::string>(args, 1),
+                                                     trigger_context_from_event(event));
+            }));
+        ok &= c.BindEventCallback(
+            "ui_context_activate", contextual_callback([this](Rml::Event& event, const auto& args) {
+                if (event.GetParameter<int>("button", -1) != 1)
+                    return false;
+                return gateway.action_open_verb_menu(event_arg<std::string>(args, 0),
+                                                     event_arg<std::string>(args, 1),
+                                                     trigger_context_from_event(event));
+            }));
+        ok &= c.BindEventCallback("ui_present_player_inventory",
+                                  contextual_callback([this](Rml::Event& event, const auto&) {
+                                      return gateway.action_present_player_inventory(
+                                          trigger_context_from_event(event));
                                   }));
         ok &= c.BindEventCallback("ui_clear_selection", callback([this](const auto&) {
                                       return gateway.action_clear_selection();

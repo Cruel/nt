@@ -200,11 +200,14 @@ struct WorldPointerEvent {
     std::uint64_t pointer_id = 0;
     bool primary = false;
     bool admitted = false;
+    bool secondary = false;
 };
 
 struct WorldPointerEventResult {
     bool consumed = false;
+    bool primary_activation = true;
     std::optional<core::compiled::ResolvedHotspotTarget> target;
+    std::optional<core::TriggerContext> trigger_context;
 };
 
 class WorldPresentationBackend;
@@ -225,6 +228,7 @@ private:
         Vec2 reference_position{};
         std::uint64_t pointer_id = 0;
         bool touch = false;
+        bool primary = true;
         bool target_canceled = false;
     };
 

@@ -92,6 +92,16 @@ TEST_CASE("compiled project shared decoder consumes every golden boundary")
     }
 }
 
+TEST_CASE("compiled project settings require the current interaction presentation contract")
+{
+    auto document = fixture("minimal");
+    REQUIRE_FALSE(document.is_discarded());
+    REQUIRE(document["settings"].erase("interaction") == 1);
+
+    auto result = decode_compiled_project(document, "missing-interaction-settings.json");
+    REQUIRE_FALSE(result);
+}
+
 TEST_CASE("compiled project shared decoder retains representative declarations and definitions")
 {
     auto result = decode_shared_project(fixture("comprehensive"), "comprehensive.json");

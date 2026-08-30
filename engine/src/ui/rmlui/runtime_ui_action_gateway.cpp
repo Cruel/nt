@@ -555,7 +555,8 @@ bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string
         core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{std::move(selection)}});
 }
 
-bool RuntimeUiActionGateway::action_primary_activate(std::string kind, std::string text)
+bool RuntimeUiActionGateway::action_primary_activate(
+    std::string kind, std::string text, std::optional<core::TriggerContext> trigger_context)
 {
     auto subject = resolve_subject(std::move(kind), std::move(text));
     if (!subject)
@@ -564,29 +565,57 @@ bool RuntimeUiActionGateway::action_primary_activate(std::string kind, std::stri
         return dispatch_layout_input(
             core::RuntimeInputMessage{core::CommandBuilderSubjectPressInput{
                 *view()->command_builder.occurrence, std::move(*subject)}});
-    return dispatch_layout_input(
-        core::RuntimeInputMessage{core::PrimaryActivateInput{std::move(*subject)}});
+    return dispatch_layout_input(core::RuntimeInputMessage{
+        core::PrimaryActivateInput{std::move(*subject), std::move(trigger_context)}});
 }
 
-bool RuntimeUiActionGateway::action_open_verb_menu(std::string kind, std::string text)
+bool RuntimeUiActionGateway::action_open_verb_menu(
+    std::string kind, std::string text, std::optional<core::TriggerContext> trigger_context)
 {
     if (view() && view()->command_builder.active && view()->command_builder.occurrence)
         return action_primary_activate(std::move(kind), std::move(text));
     auto subject = resolve_subject(std::move(kind), std::move(text));
     if (!subject)
         return false;
-    return dispatch_layout_input(
-        core::RuntimeInputMessage{core::OpenVerbMenuInput{std::move(*subject)}});
+    return dispatch_layout_input(core::RuntimeInputMessage{
+        core::OpenVerbMenuInput{std::move(*subject), std::move(trigger_context)}});
 }
 
-bool RuntimeUiActionGateway::action_present_player_inventory()
+bool RuntimeUiActionGateway::action_present_player_inventory(
+    std::optional<core::TriggerContext> trigger_context,
+    std::optional<core::LayoutPresentationParent> presentation_parent, bool coexist)
 {
     if (!require_view() || !view()->inventory.player_inventory_available ||
         !view()->inventory.player_inventory)
         return invalid("runtime_ui.player_inventory_unavailable",
                        "Player Inventory is not configured or is unavailable");
-    return dispatch_layout_input(core::RuntimeInputMessage{
-        core::PresentInventoryInput{*view()->inventory.player_inventory, std::nullopt}});
+    return dispatch_layout_input(core::RuntimeInputMessage{core::PresentInventoryInput{
+        *view()->inventory.player_inventory, std::nullopt, std::move(trigger_context),
+        std::move(presentation_parent), coexist}});
+}
+
+bool RuntimeUiActionGateway::action_present_child_layout(
+    std::string layout_text, std::optional<std::string> instance_text,
+    std::optional<core::TriggerContext> trigger_context,
+    core::LayoutPresentationParent presentation_parent)
+{
+    auto layout = core::LayoutId::create(std::move(layout_text));
+    if (!layout) {
+        core::append_diagnostics(m_diagnostics, layout.error());
+        return false;
+    }
+    std::optional<core::ScopedLayoutInstanceId> instance;
+    if (instance_text) {
+        auto created = core::ScopedLayoutInstanceId::create(std::move(*instance_text));
+        if (!created) {
+            core::append_diagnostics(m_diagnostics, created.error());
+            return false;
+        }
+        instance = *created.value_if();
+    }
+    return dispatch_layout_input(core::RuntimeInputMessage{core::PresentContextualLayoutInput{
+        *layout.value_if(), std::move(instance), std::move(trigger_context),
+        std::move(presentation_parent)}});
 }
 
 bool RuntimeUiActionGateway::action_clear_selection()

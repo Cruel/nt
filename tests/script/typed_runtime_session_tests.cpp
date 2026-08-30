@@ -744,7 +744,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 39);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 40);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
@@ -1182,6 +1182,39 @@ TEST_CASE("semantic Verb menu publication never auto-selects a primary Offer")
     CHECK(std::holds_alternative<core::compiled::RoomLocation>(location.value()));
 }
 
+TEST_CASE("contextual Verb Menu dismisses when its semantic target becomes unavailable")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
+    const core::compiled::InteractionSubject subject =
+        core::compiled::InteractableInteractionSubject{key};
+
+    auto opened = dispatch_settled(
+        *fixture.session,
+        core::RuntimeInputMessage{core::OpenVerbMenuInput{
+            subject, core::TriggerContext{.pointer = core::TriggerPoint{0.5, 0.5}}}});
+    REQUIRE(opened.diagnostics.empty());
+    REQUIRE(opened.publication);
+    REQUIRE(opened.publication->gameplay_ui.verb_menu_open);
+
+    REQUIRE(fixture.session->gateway().request_interactable_state(key, std::nullopt, std::nullopt,
+                                                                  false));
+    auto invalidated =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+    REQUIRE(invalidated.diagnostics.empty());
+    REQUIRE(invalidated.publication);
+    CHECK_FALSE(invalidated.publication->gameplay_ui.verb_menu_open);
+    CHECK(invalidated.publication->gameplay_ui.selected_subjects.empty());
+    CHECK(std::none_of(fixture.session->presentation_state().mounted_layouts().begin(),
+                       fixture.session->presentation_state().mounted_layouts().end(),
+                       [](const auto& mounted) {
+                           const auto* key = std::get_if<core::ScopedLayoutMountKey>(&mounted.key);
+                           return key != nullptr && key->instance.text() == "verb-menu-ui";
+                       }));
+}
+
 TEST_CASE("Primary Activate executes the unique primary Verb Offer")
 {
     Fixture fixture("interaction-program.json");
@@ -1362,6 +1395,74 @@ TEST_CASE(
     REQUIRE(submitted.publication);
     CHECK_FALSE(submitted.publication->gameplay_ui.command_builder.active);
     CHECK_FALSE(submitted.publication->gameplay_ui.command_builder.occurrence);
+}
+
+TEST_CASE("Command Builder submission preserves the activation Trigger Context")
+{
+    Fixture fixture("interaction-program.json", {}, [](nlohmann::json& document) {
+        document["settings"]["inventory"] = {
+            {"playerInventory", "player"},
+            {"defaultLayout", nullptr},
+        };
+        for (auto& interaction : document["definitions"]["interactions"]) {
+            if (interaction["id"] != "actions")
+                continue;
+            for (auto& rule : interaction["rules"]) {
+                if (rule["id"] != "predicate-context")
+                    continue;
+                rule["slots"][1]["selectors"][0]["subject"]["interactable"]["id"] = "key";
+                rule["program"] = {
+                    {"instructions",
+                     nlohmann::json::array({{{"id", "show-player-inventory"},
+                                             {"kind", "present-inventory"},
+                                             {"inventory", {{"kind", "player-inventory"}}}}})},
+                    {"outcome", "handled"},
+                    {"completion", {{"kind", "return"}}},
+                };
+            }
+        }
+    });
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{
+            make_id<core::InteractableInstanceIdTag>("key")};
+    const core::TriggerContext trigger{
+        .pointer = core::TriggerPoint{0.25, 0.75},
+        .source_bounds = core::TriggerRect{0.2, 0.7, 0.1, 0.15},
+    };
+    auto opened = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::OpenVerbMenuInput{key_subject, trigger}});
+    REQUIRE(opened.diagnostics.empty());
+
+    auto begun = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::BeginCommandBuilderInput{{key_subject}}});
+    REQUIRE(begun.diagnostics.empty());
+    REQUIRE(begun.publication);
+    REQUIRE(begun.publication->gameplay_ui.command_builder.occurrence);
+    const auto occurrence = *begun.publication->gameplay_ui.command_builder.occurrence;
+
+    auto captured = dispatch_settled(
+        *fixture.session,
+        core::RuntimeInputMessage{core::CommandBuilderSubjectPressInput{occurrence, key_subject}});
+    REQUIRE(captured.diagnostics.empty());
+
+    auto submitted = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::SubmitCommandBuilderInput{
+                              occurrence,
+                              make_id<core::VerbIdTag>("combine"),
+                              {{make_id<core::VerbSlotIdTag>("first"), key_subject},
+                               {make_id<core::VerbSlotIdTag>("second"), key_subject}}}});
+    REQUIRE(submitted.diagnostics.empty());
+
+    const auto& layouts = fixture.session->presentation_state().mounted_layouts();
+    const auto inventory = std::find_if(layouts.begin(), layouts.end(), [](const auto& mounted) {
+        const auto* key = std::get_if<core::ScopedLayoutMountKey>(&mounted.key);
+        return key != nullptr && key->instance.text() == "inventory-ui";
+    });
+    REQUIRE(inventory != layouts.end());
+    CHECK(inventory->trigger_context == trigger);
 }
 
 TEST_CASE("Command Builder is transient and terminates on runtime lifecycle changes")

@@ -238,6 +238,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #125 designates an ordinary Project Inventory and reusable Layout as presentation defaults.
   // Both settings contribute to runtime dependency and preview invalidation.
   [/^\/settings\/inventory(?:\/|$)/, OWNER],
+  // #126 adds the reusable Verb Menu Layout override. Its Layout reference contributes to the
+  // Project runtime/UI dependency and preview invalidation just like the Inventory defaults.
+  [/^\/settings\/interaction(?:\/|$)/, OWNER],
   // #96 replaces provisional Scene steps/default presentation with ordered Events and an
   // invocation-local Stage at the preserved authoring schema version. Timeline/dependency leaves
   // and the Stage discriminator/staged-Room reference are genuinely new owner contributions;
@@ -940,7 +943,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scenes: 'd015ee22',
     schema: '63fb9bb9',
     scripts: 'f3482815',
-    settings: '2c5a17f9',
+    settings: 'd5567b28',
     shaders: '94d3aa6e',
     tests: '99f1bf10',
     traits: 'f6534a48',

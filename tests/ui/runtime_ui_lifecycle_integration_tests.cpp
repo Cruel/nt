@@ -962,6 +962,19 @@ TEST_CASE("RuntimeUI Layout Slot Lua conversion accepts only declared persistabl
                           "assert(not m:commit_state('session', math.huge)); "
                           "assert(not m:commit_state('session', 0/0))") == LUA_OK);
     CHECK(input_sink.gameplay_inputs == accepted_after_object);
+
+    input_sink.last_gameplay_input.reset();
+    REQUIRE(luaL_dostring(fixture.lua_state(), "local m=assert(Game.mount_context('state-doc')); "
+                                               "assert(m:present_child('details'))") == LUA_OK);
+    REQUIRE(input_sink.last_gameplay_input);
+    const auto* child =
+        std::get_if<noveltea::core::PresentContextualLayoutInput>(&*input_sink.last_gameplay_input);
+    REQUIRE(child != nullptr);
+    CHECK(child->layout.text() == "details");
+    CHECK(child->presentation_parent.owner == owner);
+    CHECK(child->presentation_parent.key == key);
+    CHECK(child->presentation_parent.occurrence ==
+          noveltea::core::LayoutMountOccurrenceId::from_number(7));
 }
 
 TEST_CASE("RmlUiHost fails primary context creation when required context initialization fails")
@@ -2062,11 +2075,13 @@ TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
     CHECK(navigation->exit == *exit.value_if());
 }
 
-TEST_CASE("built-in Command Builder Layout begins and repairs a multi-slot Draft through RmlUi")
+TEST_CASE("built-in Verb Menu begins and Command Builder repairs a multi-slot Draft through RmlUi")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     REQUIRE(fixture.initialize());
     auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(
+        ui, "runtime_verb_menu", "system:/ui/runtime/verb-menu.rml"));
     REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(
         ui, "runtime_command_builder", "system:/ui/runtime/command-builder.rml"));
 
@@ -2115,8 +2130,10 @@ TEST_CASE("built-in Command Builder Layout begins and repairs a multi-slot Draft
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(driver);
-    auto* document = driver->document("runtime_command_builder");
-    REQUIRE(document);
+    auto* verb_menu_document = driver->document("runtime_verb_menu");
+    auto* command_builder_document = driver->document("runtime_command_builder");
+    REQUIRE(verb_menu_document);
+    REQUIRE(command_builder_document);
     const noveltea::PresentationTransform transform{
         noveltea::make_presentation_metrics(
             noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
@@ -2145,7 +2162,7 @@ TEST_CASE("built-in Command Builder Layout begins and repairs a multi-slot Draft
     };
 
     Rml::ElementList action_buttons;
-    document->GetElementsByClassName(action_buttons, "command-builder-action");
+    verb_menu_document->GetElementsByClassName(action_buttons, "nt-verb-menu-action");
     const auto action = std::find_if(action_buttons.begin(), action_buttons.end(),
                                      [](const auto* element) { return element->IsVisible(true); });
     REQUIRE(action != action_buttons.end());
@@ -2172,7 +2189,7 @@ TEST_CASE("built-in Command Builder Layout begins and repairs a multi-slot Draft
     ui.begin_frame({});
 
     Rml::ElementList rebind_buttons;
-    document->GetElementsByClassName(rebind_buttons, "command-builder-rebind");
+    command_builder_document->GetElementsByClassName(rebind_buttons, "command-builder-rebind");
     std::vector<Rml::Element*> visible_rebinds;
     std::copy_if(rebind_buttons.begin(), rebind_buttons.end(), std::back_inserter(visible_rebinds),
                  [](const auto* element) { return element->IsVisible(true); });

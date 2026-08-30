@@ -161,7 +161,7 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(inventory_rml.find("item.inventory_key == gameplay.inventory.presented_key") !=
           std::string::npos);
     CHECK(inventory_rml.find("{{ item.quantity }}") != std::string::npos);
-    CHECK(inventory_lua.find("Game.ui.primary_activate(\"interactable\", subject_id)") !=
+    CHECK(inventory_rml.find("data-event-click=\"ui_primary_activate('interactable', item.id)\"") !=
           std::string::npos);
     CHECK(inventory_lua.find("mount:dismiss()") != std::string::npos);
 
@@ -170,9 +170,7 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     REQUIRE_FALSE(builder_rml.empty());
     REQUIRE_FALSE(builder_rcss.empty());
     CHECK(builder_rml.find("system|/ui/runtime/command-builder.rcss") != std::string::npos);
-    CHECK(builder_rml.find("data-for=\"action : gameplay.interaction.actions\"") !=
-          std::string::npos);
-    CHECK(builder_rml.find("data-event-click=\"ui_clear_selection()\"") != std::string::npos);
+    CHECK(builder_rml.find("gameplay.interaction.actions") == std::string::npos);
     CHECK(builder_rml.find("data-event-click=\"ui_command_builder_submit()\"") !=
           std::string::npos);
     CHECK(builder_rml.find("data-event-click=\"ui_command_builder_rebind(slot)\"") !=
@@ -180,6 +178,19 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(builder_rml.find("data-event-click=\"ui_command_builder_cancel()\"") !=
           std::string::npos);
     CHECK(builder_rcss.find("#command_builder_root") != std::string::npos);
+
+    const auto verb_menu_rml = read_source_file(hud_root / "verb-menu.rml");
+    const auto verb_menu_rcss = read_source_file(hud_root / "verb-menu.rcss");
+    const auto verb_menu_lua = read_source_file(hud_root / "verb-menu.lua");
+    REQUIRE_FALSE(verb_menu_rml.empty());
+    REQUIRE_FALSE(verb_menu_rcss.empty());
+    REQUIRE_FALSE(verb_menu_lua.empty());
+    CHECK(verb_menu_rml.find("data-for=\"action : gameplay.interaction.actions\"") !=
+          std::string::npos);
+    CHECK(verb_menu_rml.find("data-event-click=\"ui_clear_selection()\"") != std::string::npos);
+    CHECK(verb_menu_rml.find("data-event-click=\"ui_invoke_interaction(action.verb_id)\"") !=
+          std::string::npos);
+    CHECK(verb_menu_lua.find("mount:anchor") != std::string::npos);
     const std::vector<std::string> compass_directions{"northwest", "north",  "northeast",
                                                       "west",      "custom", "east",
                                                       "southwest", "south",  "southeast"};

@@ -18,6 +18,7 @@
 namespace noveltea::core {
 
 inline constexpr std::string_view inventory_layout_context_input = "noveltea-inventory";
+inline constexpr std::string_view verb_menu_layout_subject_input = "noveltea-verb-menu-subject";
 
 struct PersistableValue {
     using Array = std::vector<PersistableValue>;
