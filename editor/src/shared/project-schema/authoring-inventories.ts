@@ -20,8 +20,15 @@ export type InventoryReferenceData = InventoryReference;
 
 export { inventoryOwnerSchema, inventoryReferenceSchema };
 
-export function projectInventoryRef(inventoryId: string): InventoryReferenceData {
-  return { owner: { kind: 'project' }, inventoryId };
+export const PROJECT_INVENTORY_ID = 'inventory';
+export const PROJECT_INVENTORY_LABEL = 'Inventory';
+export const DEFAULT_PROJECT_INVENTORY: InventoryDefinitionData = Object.freeze({
+  id: PROJECT_INVENTORY_ID,
+  label: PROJECT_INVENTORY_LABEL,
+});
+
+export function projectInventoryRef(): InventoryReferenceData {
+  return { owner: { kind: 'project' }, inventoryId: PROJECT_INVENTORY_ID };
 }
 
 export function characterInventoryRef(

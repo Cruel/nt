@@ -567,7 +567,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       },
     ],
   };
-  project.inventories = [{ id: 'player', label: 'Player Inventory' }];
+  project.inventories = [{ id: 'inventory', label: 'Inventory' }];
 
   const credits = defaultInteractableData('Credits');
   credits.presentation = {
@@ -583,7 +583,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   };
   project.interactableInstances.wallet = defaultInteractableInstanceData('wallet', 'credits', {
     kind: 'inventory',
-    inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+    inventory: { owner: { kind: 'project' }, inventoryId: 'inventory' },
   });
   project.interactableInstances.wallet.editorLabel = 'Wallet credits';
   project.interactableInstances.wallet.localProperties.push({
@@ -1801,7 +1801,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
               kind: 'inventory',
               inventory: {
                 kind: 'inventory',
-                inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+                inventory: { owner: { kind: 'project' }, inventoryId: 'inventory' },
               },
             },
           },
@@ -1988,7 +1988,7 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
     'credits',
     {
       kind: 'inventory',
-      inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+      inventory: { owner: { kind: 'project' }, inventoryId: 'inventory' },
     },
   );
   project.interactableInstances['wallet-spare'].editorLabel = 'Spare credits';
@@ -2662,7 +2662,7 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
             kind: 'inventory',
             inventory: {
               kind: 'inventory',
-              inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+              inventory: { owner: { kind: 'project' }, inventoryId: 'inventory' },
             },
           },
         },

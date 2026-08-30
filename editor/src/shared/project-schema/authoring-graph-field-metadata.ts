@@ -235,8 +235,8 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/settings\/ui\/systemLayouts\/command-builder\//, OWNER],
   [/^\/settings\/ui\/systemLayouts\/scene-text\//, OWNER],
   [/^\/settings\/ui\/systemLayouts\/scene-choice\//, OWNER],
-  // #125 designates an ordinary Project Inventory and reusable Layout as presentation defaults.
-  // Both settings contribute to runtime dependency and preview invalidation.
+  // Inventory presentation settings contribute to runtime dependency and preview invalidation.
+  // The Project Inventory itself is canonical rather than selected through settings.
   [/^\/settings\/inventory(?:\/|$)/, OWNER],
   // #126 adds the reusable Verb Menu Layout override. Its Layout reference contributes to the
   // Project runtime/UI dependency and preview invalidation just like the Inventory defaults.
@@ -933,7 +933,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scenes: 'd015ee22',
     schema: '63fb9bb9',
     scripts: 'f3482815',
-    settings: 'd5567b28',
+    settings: '955fcf25',
     shaders: '94d3aa6e',
     tests: '99f1bf10',
     traits: 'f6534a48',

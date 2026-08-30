@@ -50,16 +50,23 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
-  it('compiles Player Inventory and the default Inventory Layout as ordinary project settings', () => {
+  it('compiles the implicit Project Inventory and default Inventory Layout', () => {
     const project = validProject();
-    project.inventories.push({ id: 'bag', label: 'Bag' });
+    project.interactables.coin = {
+      id: 'coin',
+      label: 'Coin',
+      data: defaultInteractableData('Coin'),
+    };
+    project.interactableInstances.coin = defaultInteractableInstanceData('coin', 'coin', {
+      kind: 'inventory',
+      inventory: { owner: { kind: 'project' }, inventoryId: 'inventory' },
+    });
     project.layouts.inventory = {
       id: 'inventory',
       label: 'Inventory',
       data: defaultLayoutData('Inventory'),
     };
     project.settings.inventory = {
-      playerInventory: 'bag',
       defaultLayout: { $ref: { collection: 'layouts', id: 'inventory' } },
     };
 
@@ -68,9 +75,19 @@ describe('authoring compiler framework', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.project.settings.inventory).toEqual({
-      playerInventory: 'bag',
+      playerInventory: null,
       defaultLayout: { kind: 'layout', id: 'inventory' },
     });
+    expect(result.project.inventories).toEqual([{ id: 'player', label: 'Player Inventory' }]);
+    expect(result.project.interactableInstances).toContainEqual(
+      expect.objectContaining({
+        id: 'coin',
+        location: {
+          kind: 'inventory',
+          inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+        },
+      }),
+    );
   });
 
   it('lowers the complete reusable Subject Selector vocabulary without positional rewriting', () => {
@@ -771,7 +788,6 @@ describe('authoring compiler framework', () => {
         imageMetadata: null,
       }),
     };
-    project.inventories = [{ id: 'bag', label: 'Bag' }];
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
     const key = defaultInteractableData('Key');
     key.presentation.hotspots = { kind: 'custom', hotspots: [] };
@@ -997,7 +1013,7 @@ describe('authoring compiler framework', () => {
                 kind: 'inventory',
                 inventory: {
                   kind: 'inventory',
-                  inventory: { owner: { kind: 'project' }, inventoryId: 'bag' },
+                  inventory: { owner: { kind: 'project' }, inventoryId: 'inventory' },
                 },
               },
             },

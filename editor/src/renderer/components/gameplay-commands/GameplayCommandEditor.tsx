@@ -151,14 +151,8 @@ function defaultInteractableOperand(
 }
 
 function defaultInventoryOperand(project: AuthoringEditorProject): InventoryOperand {
-  if (project.settings.inventory.playerInventory) return { kind: 'player-inventory' };
-  const inventory = project.inventories[0];
-  return inventory
-    ? {
-        kind: 'inventory',
-        inventory: { owner: { kind: 'project' }, inventoryId: inventory.id },
-      }
-    : { kind: 'player-inventory' };
+  void project;
+  return { kind: 'player-inventory' };
 }
 
 function defaultLocation(

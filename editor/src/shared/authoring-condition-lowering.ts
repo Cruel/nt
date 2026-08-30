@@ -146,7 +146,8 @@ export function compileInventoryOperand(operand: InventoryOperand) {
                     },
                     featureId: owner.featureId,
                   },
-      inventoryId: operand.inventory.inventoryId,
+      inventoryId:
+        operand.inventory.owner.kind === 'project' ? 'player' : operand.inventory.inventoryId,
     },
   };
 }
