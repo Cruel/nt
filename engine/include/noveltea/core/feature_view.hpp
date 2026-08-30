@@ -146,17 +146,24 @@ struct InventoryContainerView {
 };
 struct InventoryItemView {
     InteractableInstanceId interactable;
+    std::optional<InteractableDefinitionId> definition;
     compiled::InventoryRef inventory;
     std::optional<RoomId> effective_room;
     std::string display_name;
     compiled::InteractablePresentation presentation;
+    std::uint64_t quantity = 1;
+    bool stackable = false;
+    std::optional<std::uint64_t> stack_limit;
+    std::vector<TraitId> traits;
     bool enabled;
     bool visible;
 };
 struct InventoryView {
     std::vector<InventoryContainerView> inventories;
     std::vector<InventoryItemView> items;
-    std::vector<ItemStackView> item_stacks;
+    std::string presented_inventory_key;
+    bool player_inventory_available = false;
+    std::optional<compiled::InventoryRef> player_inventory;
     std::vector<InteractionControlView> controls;
 };
 

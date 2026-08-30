@@ -121,6 +121,40 @@ TEST_CASE("RuntimeUiActionGateway emits typed inputs and capabilities through th
     CHECK(sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Shell);
 }
 
+TEST_CASE("RuntimeUiActionGateway opens only the configured exact Player Inventory")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::RuntimeUiActionGateway gateway(diagnostics);
+    RecordingRuntimeUiInputSink sink;
+    gateway.bind_input_sink(&sink);
+    gateway.bind_layout_gameplay_admission([]() { return true; });
+
+    auto inventory_id = noveltea::core::InventoryId::create("player");
+    REQUIRE(inventory_id);
+    const noveltea::core::compiled::InventoryRef player_inventory{
+        noveltea::core::compiled::ProjectInventoryOwner{}, *inventory_id.value_if()};
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.inventory.player_inventory = player_inventory;
+    values.view.inventory.player_inventory_available = true;
+    REQUIRE(gateway.apply(values));
+
+    REQUIRE(gateway.action_present_player_inventory());
+    REQUIRE(sink.last_gameplay_input);
+    const auto* presented =
+        std::get_if<noveltea::core::PresentInventoryInput>(&*sink.last_gameplay_input);
+    REQUIRE(presented != nullptr);
+    CHECK(presented->inventory == player_inventory);
+    CHECK_FALSE(presented->layout);
+
+    values.revision = 2;
+    values.view.inventory.player_inventory_available = false;
+    REQUIRE(gateway.apply(values));
+    CHECK_FALSE(gateway.action_present_player_inventory());
+    REQUIRE_FALSE(diagnostics.empty());
+    CHECK(diagnostics.back().code == "runtime_ui.player_inventory_unavailable");
+}
+
 TEST_CASE(
     "RuntimeUiActionGateway captures event outputs without recursively invoking the host sink")
 {

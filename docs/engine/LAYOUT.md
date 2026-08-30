@@ -187,6 +187,8 @@ connected Layout Signal. A stateful Layout additionally uses `context:state(scop
 semantic runtime inputs, not DOM events: the runtime validates the owner-qualified Mount identity and
 occurrence token before accepting them into the ordered input pipeline.
 
+`context:dismiss()` is the generic occurrence-safe self-dismiss primitive. The runtime accepts it only while the exact owner/key/occurrence tuple is still live, so stale document events cannot dismiss a replacement Mount. The built-in compact Inventory Layout composes ordinary exact-subject activation with this primitive: successful activation dismisses the built-in presentation, while custom Inventory Layouts are free to remain open. Inventory presentation mounts use Normal input by default and are ordinary Layout Mounts rather than a System Layout Role.
+
 Layout Slot state is explicit engine-owned checkpoint state. A Slot is addressed by its semantic Mount
 key inside the selected lifetime scope, and a successful commit atomically replaces the prior value.
 Clearing removes the value so the State Shape default becomes visible again; unmounting a Layout does

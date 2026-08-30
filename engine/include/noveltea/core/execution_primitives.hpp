@@ -228,6 +228,10 @@ struct ConsumeQuantityCommand {
     std::optional<InventoryOperand> source_inventory;
     std::uint64_t quantity = 0;
 };
+struct PresentInventoryCommand {
+    InventoryOperand inventory;
+    std::optional<LayoutId> layout;
+};
 struct CallSceneCommand {
     SceneId scene;
 };
@@ -254,8 +258,9 @@ struct GameplayCommand {
                      SetVisibleCommand, MoveInstanceCommand, CreateRoomCommand,
                      CreateCharacterCommand, CreateInteractableCommand, DestroyInstanceCommand,
                      SplitQuantityCommand, MergeQuantityCommand, TransferQuantityCommand,
-                     AddQuantityCommand, ConsumeQuantityCommand, CallSceneCommand,
-                     CallDialogueCommand, NotifyCommand, RunLuaCommand, IfGameplayCommand>;
+                     AddQuantityCommand, ConsumeQuantityCommand, PresentInventoryCommand,
+                     CallSceneCommand, CallDialogueCommand, NotifyCommand, RunLuaCommand,
+                     IfGameplayCommand>;
 
     InteractionInstructionId id;
     Value value;

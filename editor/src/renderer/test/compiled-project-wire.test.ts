@@ -38,6 +38,7 @@ function representativeWireFixture() {
         },
         voiceDucking: { enabled: false, musicGain: 0.5, ambienceGain: 0.5 },
       },
+      inventory: { playerInventory: 'player', defaultLayout: null },
       text: { defaultFont: null },
       titleScreen: {
         titleImage: null,

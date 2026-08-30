@@ -75,6 +75,7 @@ function project() {
     data: { kind: 'script-module', source: { kind: 'inline-lua', source: '' } },
   };
   next.layouts.main = { id: 'main', label: 'Main Layout', data: defaultLayoutData('Main Layout') };
+  next.inventories.push({ id: 'backpack', label: 'Backpack' });
   next.assets['main-font'] = {
     id: 'main-font',
     label: 'Main Font',
@@ -535,6 +536,12 @@ describe('ProjectSettingsEditor', () => {
     expect(await screen.findByText('Choose Title screen')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Main Layout'));
     fireEvent.change(screen.getByLabelText('Default font'), { target: { value: 'main-font' } });
+    fireEvent.change(screen.getByLabelText('Player Inventory'), {
+      target: { value: 'backpack' },
+    });
+    fireEvent.change(screen.getByLabelText('Default Inventory Layout'), {
+      target: { value: 'main' },
+    });
     selectProjectSettingsCategory('Title Screen');
     fireEvent.change(screen.getByLabelText('Title image'), { target: { value: 'logo' } });
     fireEvent.change(screen.getByLabelText('Start label'), { target: { value: 'Begin' } });
@@ -545,6 +552,10 @@ describe('ProjectSettingsEditor', () => {
       expect(useProjectStore.getState().document).toMatchObject({
         settings: {
           ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } },
+          inventory: {
+            playerInventory: 'backpack',
+            defaultLayout: { $ref: { collection: 'layouts', id: 'main' } },
+          },
           text: { defaultFont: { $ref: { collection: 'assets', id: 'main-font' } } },
           titleScreen: {
             titleImage: { $ref: { collection: 'assets', id: 'logo' } },

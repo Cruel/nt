@@ -579,6 +579,16 @@ bool RuntimeUiActionGateway::action_open_verb_menu(std::string kind, std::string
         core::RuntimeInputMessage{core::OpenVerbMenuInput{std::move(*subject)}});
 }
 
+bool RuntimeUiActionGateway::action_present_player_inventory()
+{
+    if (!require_view() || !view()->inventory.player_inventory_available ||
+        !view()->inventory.player_inventory)
+        return invalid("runtime_ui.player_inventory_unavailable",
+                       "Player Inventory is not configured or is unavailable");
+    return dispatch_layout_input(core::RuntimeInputMessage{
+        core::PresentInventoryInput{*view()->inventory.player_inventory, std::nullopt}});
+}
+
 bool RuntimeUiActionGateway::action_clear_selection()
 {
     return dispatch_layout_input(
@@ -875,6 +885,8 @@ void RuntimeUiActionGateway::install_lua_api()
     ui.set_function("open_verb_menu", [this](std::string kind, std::string text) {
         return action_open_verb_menu(std::move(kind), std::move(text));
     });
+    ui.set_function("present_player_inventory",
+                    [this]() { return action_present_player_inventory(); });
     ui.set_function("clear_selection", [this]() { return action_clear_selection(); });
     ui.set_function("invoke_interaction", [this](std::string text) {
         return action_invoke_interaction(std::move(text));

@@ -322,7 +322,8 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         }
     }
     for (const auto& layout : input.layouts) {
-        if (!enum_at_most(layout.kind, compiled::LayoutKind::Fragment) ||
+        if (layout.id.text() == compiled::builtin_inventory_layout_id ||
+            !enum_at_most(layout.kind, compiled::LayoutKind::Fragment) ||
             !enum_at_most(layout.target, compiled::LayoutTarget::CustomOverlay) ||
             !enum_at_most(layout.scale_policy.ui, LayoutScaleInheritance::Ignore) ||
             !enum_at_most(layout.scale_policy.text, LayoutScaleInheritance::Ignore)) {
@@ -680,7 +681,6 @@ FIND(property, properties, PropertyId, PropertyDefinition)
 FIND(trait, traits, TraitId, compiled::TraitDefinition)
 FIND(archetype, archetypes, ArchetypeId, compiled::ArchetypeDefinition)
 FIND(asset, assets, AssetId, compiled::AssetResource)
-FIND(layout, layouts, LayoutId, compiled::LayoutResource)
 FIND(material_interface, material_interfaces, MaterialId, compiled::MaterialInterfaceResource)
 FIND(script, scripts, ScriptId, compiled::ScriptResource)
 FIND(character, characters, CharacterId, compiled::CharacterDefinition)
@@ -691,6 +691,33 @@ FIND(interactable_instance, interactable_instances, InteractableInstanceId,
      compiled::InteractableInstanceDeclaration)
 FIND(item_definition, item_definitions, ItemDefinitionId, compiled::ItemDefinition)
 FIND(item_stack, item_stacks, ItemStackId, compiled::ItemStackDeclaration)
+
+const compiled::LayoutResource* CompiledProject::find_layout(const LayoutId& id) const noexcept
+{
+    if (id.text() == compiled::builtin_inventory_layout_id) {
+        static const compiled::LayoutResource builtin = [] {
+            auto id_result = LayoutId::create(std::string(compiled::builtin_inventory_layout_id));
+            const auto* builtin_id = id_result.value_if();
+            return compiled::LayoutResource{
+                *builtin_id,
+                compiled::LayoutKind::Document,
+                compiled::LayoutTarget::CustomOverlay,
+                {},
+                {},
+                compiled::InlineLayoutSource{""},
+                compiled::InlineLayoutSource{""},
+                compiled::InlineLayoutSource{""},
+                {},
+                std::nullopt,
+                true,
+                false,
+                std::nullopt,
+            };
+        }();
+        return &builtin;
+    }
+    return checked_find(id, m_layout_index, m_layouts);
+}
 
 const PropertyDefinition* CompiledProject::find_property(const PropertyOwnerRef& owner,
                                                          const PropertyId& id) const noexcept

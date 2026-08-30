@@ -652,13 +652,17 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
     const compiled::InventoryRef inventory_ref{compiled::ProjectInventoryOwner{},
                                                std::move(inventory_id.value())};
     view.inventory.inventories.push_back({inventory_ref, "Player Inventory", room_id.value()});
-    view.inventory.items.push_back({std::move(key_id.value()),
-                                    inventory_ref,
-                                    room_id.value(),
-                                    "Key",
-                                    {.hotspots = compiled::CustomInteractableHotspots{}},
-                                    true,
-                                    true});
+    view.inventory.items.push_back(
+        {.interactable = std::move(key_id.value()),
+         .definition = *InteractableDefinitionId::create("key").value_if(),
+         .inventory = inventory_ref,
+         .effective_room = room_id.value(),
+         .display_name = "Key",
+         .presentation = {.hotspots = compiled::CustomInteractableHotspots{}},
+         .quantity = 1,
+         .stackable = false,
+         .enabled = true,
+         .visible = true});
     std::vector<noveltea::runtime::RuntimeEvent> events;
     events.push_back(
         noveltea::runtime::ObservationEvent{RuntimeObservation{PlaybackObservation{3, true}}});
@@ -687,9 +691,12 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
                      {"effectiveRoom", "start"}}}},
                   {"inventory",
                    {{{"id", "key"},
+                     {"definition", "key"},
                      {"inventory", {{"owner", {{"kind", "project"}}}, {"id", "player"}}},
                      {"effectiveRoom", "start"},
                      {"label", "Key"},
+                     {"quantity", 1},
+                     {"stackable", false},
                      {"enabled", true},
                      {"visible", true}}}},
                   {"itemStacks", nlohmann::json::array()},

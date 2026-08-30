@@ -209,12 +209,13 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                                                std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"accessibility", "audio", "display", "roomNavigationTransition",
-                         "systemLayouts", "text", "titleScreen"}))
+                        {"accessibility", "audio", "display", "inventory",
+                         "roomNavigationTransition", "systemLayouts", "text", "titleScreen"}))
         return std::nullopt;
     const auto* accessibility_value = decoder.member(value, "accessibility", pointer);
     const auto* display_value = decoder.member(value, "display", pointer);
     const auto* audio_value = decoder.member(value, "audio", pointer);
+    const auto* inventory_value = decoder.member(value, "inventory", pointer);
     const auto* layouts_value = decoder.member(value, "systemLayouts", pointer);
     const auto* text_value = decoder.member(value, "text", pointer);
     const auto* title_value = decoder.member(value, "titleScreen", pointer);
@@ -405,6 +406,33 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             audio = AudioMixSettings{*music, *ambience, *voice, *sound_effect, *ui_sound, *ducking};
     }
 
+    std::optional<InventorySettings> inventory;
+    if (inventory_value && decoder.object(*inventory_value, pointer_child(pointer, "inventory"),
+                                          {"defaultLayout", "playerInventory"})) {
+        const auto inventory_pointer = pointer_child(pointer, "inventory");
+        const auto* player_value =
+            decoder.member(*inventory_value, "playerInventory", inventory_pointer);
+        const auto* layout_value =
+            decoder.member(*inventory_value, "defaultLayout", inventory_pointer);
+        std::optional<InventoryId> player_inventory;
+        bool player_ok = player_value != nullptr;
+        if (player_value && !player_value->is_null()) {
+            player_inventory = decoder.id<InventoryId>(
+                *player_value, pointer_child(inventory_pointer, "playerInventory"));
+            player_ok = player_inventory.has_value();
+        }
+        std::optional<LayoutId> default_layout;
+        bool layout_ok = layout_value != nullptr;
+        if (layout_value && !layout_value->is_null()) {
+            default_layout = decode_reference<LayoutId>(
+                decoder, *layout_value, pointer_child(inventory_pointer, "defaultLayout"),
+                "layout");
+            layout_ok = default_layout.has_value();
+        }
+        if (player_ok && layout_ok)
+            inventory = InventorySettings{std::move(player_inventory), std::move(default_layout)};
+    }
+
     auto layouts =
         layouts_value
             ? decoder.array<SystemLayout>(
@@ -530,11 +558,12 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             (*kind == TransitionKind::Fade || !color))
             transition = RoomNavigationTransition{*kind, *duration, std::move(color), *skippable};
     }
-    if (!display || !accessibility || !audio || !layouts || !text || !title || !transition)
+    if (!display || !accessibility || !audio || !inventory || !layouts || !text || !title ||
+        !transition)
         return std::nullopt;
     return RuntimeSettings{std::move(*display), std::move(*accessibility), std::move(*layouts),
                            std::move(*text),    std::move(*title),         std::move(*transition),
-                           std::move(*audio)};
+                           std::move(*audio),   std::move(*inventory)};
 }
 
 std::optional<PropertyOwnerRef>

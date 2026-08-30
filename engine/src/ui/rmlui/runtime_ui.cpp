@@ -676,6 +676,12 @@ void RuntimeUI::State::install_shell_lua_api()
                            core::RuntimeInputMessage{core::ClearLayoutStateInput{
                                context->owner, context->key, context->occurrence, *scope}});
             });
+        mount.set_function("dismiss", [this, resolve_mount_context](sol::table mount) {
+            const auto* context = resolve_mount_context(mount);
+            return context &&
+                   dispatch_layout_typed_input(core::RuntimeInputMessage{core::DismissLayoutInput{
+                       context->owner, context->key, context->occurrence}});
+        });
         mount.set_function(
             "signal", [this, resolve_mount_context](sol::table mount, std::string name,
                                                     sol::optional<sol::table> payload) {

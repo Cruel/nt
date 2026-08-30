@@ -67,6 +67,7 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
                    std::is_same_v<T, core::NavigateRoomInput> ||
                    std::is_same_v<T, core::PrimaryActivateInput> ||
                    std::is_same_v<T, core::OpenVerbMenuInput> ||
+                   std::is_same_v<T, core::PresentInventoryInput> ||
                    std::is_same_v<T, core::InvokeInteractionInput> ||
                    std::is_same_v<T, core::BeginCommandBuilderInput> ||
                    std::is_same_v<T, core::CommandBuilderSubjectPressInput> ||
@@ -75,7 +76,8 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
                    std::is_same_v<T, core::CancelCommandBuilderInput> ||
                    std::is_same_v<T, core::LayoutSignalInput> ||
                    std::is_same_v<T, core::CommitLayoutStateInput> ||
-                   std::is_same_v<T, core::ClearLayoutStateInput>;
+                   std::is_same_v<T, core::ClearLayoutStateInput> ||
+                   std::is_same_v<T, core::DismissLayoutInput>;
         },
         input);
 }
@@ -2569,6 +2571,29 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         m_project, value.owner, value.key, value.occurrence, value.scope);
                     if (!cleared)
                         result.diagnostics = std::move(cleared).error();
+                } else if constexpr (std::is_same_v<T, core::DismissLayoutInput>) {
+                    const auto& mounted = m_kernel->state().mounted_layouts();
+                    const auto found = std::find_if(mounted.begin(), mounted.end(),
+                                                    [&](const core::DesiredMountedLayout& item) {
+                                                        return item.owner == value.owner &&
+                                                               item.key == value.key &&
+                                                               item.occurrence &&
+                                                               *item.occurrence == value.occurrence;
+                                                    });
+                    if (found == mounted.end()) {
+                        result.diagnostics = {{.code = "execution.stale_layout_dismissal",
+                                               .message = "Layout dismissal references a stale "
+                                                          "Mount occurrence"}};
+                    } else {
+                        auto dismissed =
+                            m_kernel->state().remove_mounted_layout(value.key, value.owner);
+                        if (!dismissed)
+                            result.diagnostics = std::move(dismissed).error();
+                    }
+                } else if constexpr (std::is_same_v<T, core::PresentInventoryInput>) {
+                    auto presented = m_kernel->present_inventory(value.inventory, value.layout);
+                    if (!presented)
+                        result.diagnostics = std::move(presented).error();
                 } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
                     if (value.slot.is_autosave()) {
                         (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});

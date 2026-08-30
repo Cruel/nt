@@ -840,6 +840,11 @@ function semanticEdgeOptions(
       ['reference-integrity', 'tooling-reference', 'preview-ui'],
     ],
     [
+      /^\/settings\/inventory\/defaultLayout\/\$ref$/,
+      'system-layout',
+      ['reference-integrity', 'tooling-reference', 'preview-ui'],
+    ],
+    [
       /^\/settings\/text\/defaultFont\/\$ref$/,
       'default-font',
       ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
@@ -1833,6 +1838,11 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
       path: '/settings/text/defaultFont',
       value: project.settings.text.defaultFont,
       label: 'Default font',
+    },
+    {
+      path: '/settings/inventory/defaultLayout',
+      value: project.settings.inventory.defaultLayout,
+      label: 'Default Inventory Layout',
     },
     ...systemLayoutRoleValues.map((role) => ({
       path: `/settings/ui/systemLayouts/${escapeJsonPointerSegment(role)}` as JsonPointer,

@@ -276,6 +276,57 @@ bind_command_result(std::vector<core::CommandResultBinding>& bindings,
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Result<void, core::Diagnostics>
+mount_inventory_presentation(const core::CompiledProject& project, core::SessionState& state,
+                             RuntimeWorld& world, const core::compiled::InventoryRef& inventory,
+                             std::optional<core::LayoutId> layout,
+                             const core::ScopedLayoutInstanceId& instance)
+{
+    if (!world.has_inventory(inventory))
+        return core::Result<void, core::Diagnostics>::failure(
+            execution_error("execution.inventory_missing",
+                            "Present Inventory resolved an Inventory that does not exist"));
+    if (!layout)
+        layout = project.settings().inventory.default_layout;
+    if (!layout) {
+        auto builtin =
+            core::LayoutId::create(std::string(core::compiled::builtin_inventory_layout_id));
+        if (!builtin)
+            return core::Result<void, core::Diagnostics>::failure(builtin.error());
+        layout = *builtin.value_if();
+    }
+    if (project.find_layout(*layout) == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            execution_error("execution.inventory_layout_missing",
+                            "Present Inventory resolved a Layout that does not exist"));
+    auto input = core::LayoutInputId::create(std::string(core::inventory_layout_context_input));
+    if (!input)
+        return core::Result<void, core::Diagnostics>::failure(input.error());
+    return state.upsert_mounted_layout(
+        project, core::DesiredMountedLayout{
+                     core::ScopedLayoutMountKey{instance},
+                     state.session_presentation_owner(),
+                     *layout,
+                     core::MountedLayoutPolicy{
+                         .plane = core::PresentationPlane::GameUi,
+                         .clock = core::LayoutClockDomain::Gameplay,
+                         .input = core::LayoutInputMode::Normal,
+                         .gameplay_pause = core::GameplayPausePolicy::Continue,
+                         .visibility = core::LayoutVisibility::Visible,
+                         .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+                         .entrance_operation = std::nullopt,
+                         .exit_operation = std::nullopt,
+                     },
+                     {},
+                     core::PresentationCompositionGroup::Interface,
+                     std::nullopt,
+                     {core::LayoutInputAssignment{
+                         *input.value_if(), core::LayoutLiteralInput{core::RuntimeValue{
+                                                core::compiled::inventory_ref_key(inventory)}}}},
+                     {},
+                 });
+}
+
 } // namespace
 
 bool RuntimeExecutor::gameplay_command_is_immediate(const core::GameplayCommand& command) const
@@ -285,6 +336,7 @@ bool RuntimeExecutor::gameplay_command_is_immediate(const core::GameplayCommand&
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, core::CallSceneCommand> ||
                           std::is_same_v<T, core::CallDialogueCommand> ||
+                          std::is_same_v<T, core::PresentInventoryCommand> ||
                           std::is_same_v<T, core::NotifyCommand> ||
                           std::is_same_v<T, core::RunLuaCommand>)
                 return false;
@@ -300,6 +352,16 @@ bool RuntimeExecutor::gameplay_command_is_immediate(const core::GameplayCommand&
                 return true;
         },
         command.value);
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeExecutor::present_inventory(const core::compiled::InventoryRef& inventory,
+                                   std::optional<core::LayoutId> layout)
+{
+    auto instance = core::ScopedLayoutInstanceId::create("inventory-ui");
+    return instance ? mount_inventory_presentation(m_project, m_state, m_world, inventory,
+                                                   std::move(layout), *instance.value_if())
+                    : core::Result<void, core::Diagnostics>::failure(instance.error());
 }
 
 core::Result<void, core::Diagnostics> RuntimeExecutor::apply_immediate_gameplay_command(

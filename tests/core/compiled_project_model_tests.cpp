@@ -125,7 +125,7 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::variant_size_v<compiled::LayoutSource> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::ScriptSource> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractableLocation> == 3);
-    STATIC_REQUIRE(std::variant_size_v<GameplayCommand::Value> == 23);
+    STATIC_REQUIRE(std::variant_size_v<GameplayCommand::Value> == 24);
     STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::guard), Condition>);
     STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::priority), std::int64_t>);
     STATIC_REQUIRE(std::variant_size_v<compiled::SubjectSelector> == 7);
@@ -203,16 +203,18 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
                                   SetGlobalPropertyCommand>);
     STATIC_REQUIRE(
         std::is_same_v<std::variant_alternative_t<8, GameplayCommand::Value>, MoveInstanceCommand>);
+    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<18, GameplayCommand::Value>,
+                                  PresentInventoryCommand>);
     STATIC_REQUIRE(
-        std::is_same_v<std::variant_alternative_t<18, GameplayCommand::Value>, CallSceneCommand>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<19, GameplayCommand::Value>,
+        std::is_same_v<std::variant_alternative_t<19, GameplayCommand::Value>, CallSceneCommand>);
+    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<20, GameplayCommand::Value>,
                                   CallDialogueCommand>);
     STATIC_REQUIRE(
-        std::is_same_v<std::variant_alternative_t<20, GameplayCommand::Value>, NotifyCommand>);
+        std::is_same_v<std::variant_alternative_t<21, GameplayCommand::Value>, NotifyCommand>);
     STATIC_REQUIRE(
-        std::is_same_v<std::variant_alternative_t<21, GameplayCommand::Value>, RunLuaCommand>);
+        std::is_same_v<std::variant_alternative_t<22, GameplayCommand::Value>, RunLuaCommand>);
     STATIC_REQUIRE(
-        std::is_same_v<std::variant_alternative_t<22, GameplayCommand::Value>, IfGameplayCommand>);
+        std::is_same_v<std::variant_alternative_t<23, GameplayCommand::Value>, IfGameplayCommand>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, compiled::DialogueBlock>,
                                   compiled::DialogueSequenceBlock>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, compiled::DialogueBlock>,
@@ -319,6 +321,26 @@ TEST_CASE("compiled project construction rejects structurally invalid public inp
     auto oversized_display_result = CompiledProject::create(std::move(oversized_display));
     REQUIRE_FALSE(oversized_display_result);
     CHECK(oversized_display_result.error().front().code == "compiled.invalid_model");
+
+    auto reserved_layout = project_input();
+    reserved_layout.layouts.push_back(compiled::LayoutResource{
+        id<LayoutId>(std::string(compiled::builtin_inventory_layout_id)),
+        compiled::LayoutKind::Document,
+        compiled::LayoutTarget::CustomOverlay,
+        {},
+        {},
+        compiled::InlineLayoutSource{""},
+        compiled::InlineLayoutSource{""},
+        compiled::InlineLayoutSource{""},
+        {},
+        std::nullopt,
+        true,
+        false,
+        std::nullopt,
+    });
+    auto reserved_layout_result = CompiledProject::create(std::move(reserved_layout));
+    REQUIRE_FALSE(reserved_layout_result);
+    CHECK(reserved_layout_result.error().front().code == "compiled.invalid_model");
 
     auto invalid_room = project_input();
     invalid_room.rooms[0].placements.push_back(compiled::RoomPlacement{

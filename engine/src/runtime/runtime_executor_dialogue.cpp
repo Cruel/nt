@@ -309,6 +309,17 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                         return fault(requested.error());
                     auto advanced = m_flow.advance_dialogue(frame.dialogue, frame.position, next);
                     return advanced ? std::nullopt : fault(advanced.error());
+                } else if constexpr (std::is_same_v<T, core::PresentInventoryCommand>) {
+                    const core::ConditionEvaluationContext context{
+                        .interaction_bindings = {}, .command_results = frame.command_results};
+                    auto inventory = m_primitives.resolve_inventory(value.inventory, context);
+                    if (!inventory)
+                        return fault(inventory.error());
+                    auto presented = present_inventory(*inventory.value_if(), value.layout);
+                    if (!presented)
+                        return fault(presented.error());
+                    auto advanced = m_flow.advance_dialogue(frame.dialogue, frame.position, next);
+                    return advanced ? std::nullopt : fault(advanced.error());
                 } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
                     auto called = m_flow.call_child(value.scene, core::FlowFramePosition{next});
                     return called ? std::nullopt : fault(called.error());

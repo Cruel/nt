@@ -206,6 +206,9 @@ public:
     interaction_view(std::string_view runtime_locale);
     [[nodiscard]] core::Result<core::InventoryView, RuntimeExecutionError>
     inventory_view(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    present_inventory(const core::compiled::InventoryRef& inventory,
+                      std::optional<core::LayoutId> layout = std::nullopt);
     [[nodiscard]] core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>
     verb_offers(const core::compiled::InteractionSubject& subject, std::string_view runtime_locale);
     [[nodiscard]] core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>

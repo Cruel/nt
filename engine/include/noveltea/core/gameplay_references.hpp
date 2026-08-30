@@ -2,6 +2,7 @@
 
 #include "noveltea/core/domain_ids.hpp"
 
+#include <string>
 #include <variant>
 
 namespace noveltea::core::compiled {
@@ -25,6 +26,27 @@ struct InventoryRef {
     InventoryId inventory_id;
     bool operator==(const InventoryRef&) const = default;
 };
+
+[[nodiscard]] inline std::string inventory_ref_key(const InventoryRef& inventory)
+{
+    std::string prefix = std::visit(
+        [](const auto& owner) -> std::string {
+            using T = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<T, ProjectInventoryOwner>)
+                return "project";
+            else if constexpr (std::is_same_v<T, CharacterInventoryOwner>)
+                return "character:" + owner.character.text();
+            else if constexpr (std::is_same_v<T, InteractableInventoryOwner>)
+                return "interactable:" + owner.interactable.text();
+            else if constexpr (std::is_same_v<T, RoomFeatureRef>)
+                return "room-feature:" + owner.room.text() + ":" + owner.feature_id.text();
+            else
+                return "interactable-feature:" + owner.interactable.text() + ":" +
+                       owner.feature_id.text();
+        },
+        inventory.owner);
+    return prefix + ":" + inventory.inventory_id.text();
+}
 struct UnplacedLocation {
     bool operator==(const UnplacedLocation&) const = default;
 };

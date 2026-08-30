@@ -1426,6 +1426,8 @@ std::string LayoutRealizer::builtin_document_id(RuntimeLayoutBuiltinDocument doc
         return "runtime_scene_text";
     case RuntimeLayoutBuiltinDocument::SceneChoice:
         return "runtime_scene_choice";
+    case RuntimeLayoutBuiltinDocument::Inventory:
+        return "runtime_inventory";
     case RuntimeLayoutBuiltinDocument::None:
         return {};
     }

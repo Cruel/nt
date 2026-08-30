@@ -19,6 +19,7 @@ import type {
   GameplayCommand,
   GameplayConfigurationSource,
   InteractableOperand,
+  InventoryOperand,
   LocationOperand,
 } from '../../../shared/project-schema/authoring-flow';
 
@@ -47,6 +48,7 @@ const allKinds: readonly GameplayCommandKind[] = [
   'transfer-quantity',
   'add-quantity',
   'consume-quantity',
+  'present-inventory',
   'call-scene',
   'call-dialogue',
   'notify',
@@ -64,6 +66,7 @@ const variableRef = (id: string) => ({ $ref: { collection: 'variables' as const,
 const traitRef = (id: string) => ({ $ref: { collection: 'traits' as const, id } });
 const sceneRef = (id: string) => ({ $ref: { collection: 'scenes' as const, id } });
 const dialogueRef = (id: string) => ({ $ref: { collection: 'dialogues' as const, id } });
+const layoutRef = (id: string) => ({ $ref: { collection: 'layouts' as const, id } });
 const interactableRef = (id: string) => ({ $ref: { collection: 'interactables' as const, id } });
 const archetypeRef = (id: string) => ({ $ref: { collection: 'archetypes' as const, id } });
 const roomRef = (id: string) => ({ $ref: { collection: 'rooms' as const, id } });
@@ -145,6 +148,17 @@ function defaultInteractableOperand(
     kind: 'interactable',
     interactable: instanceRef(Object.keys(project.interactableInstances)[0] ?? 'interactable'),
   };
+}
+
+function defaultInventoryOperand(project: AuthoringEditorProject): InventoryOperand {
+  if (project.settings.inventory.playerInventory) return { kind: 'player-inventory' };
+  const inventory = project.inventories[0];
+  return inventory
+    ? {
+        kind: 'inventory',
+        inventory: { owner: { kind: 'project' }, inventoryId: inventory.id },
+      }
+    : { kind: 'player-inventory' };
 }
 
 function defaultLocation(
@@ -268,6 +282,8 @@ function createCommand(
       };
     case 'consume-quantity':
       return { id, kind, mode: 'exact', source: interactable, quantity: 1 };
+    case 'present-inventory':
+      return { id, kind, inventory: defaultInventoryOperand(project) };
     case 'call-scene':
       return { id, kind, scene: sceneRef(Object.keys(project.scenes)[0] ?? 'scene') };
     case 'call-dialogue':
@@ -881,6 +897,39 @@ function CommandFields({
           policy={policy}
           onChange={(location) => onChange({ ...command, location })}
         />
+      </div>
+    );
+  if (command.kind === 'present-inventory')
+    return (
+      <div className="grid gap-2 md:grid-cols-2">
+        <div className="space-y-1">
+          <Label>Inventory</Label>
+          <InventoryOperandEditor
+            value={command.inventory}
+            project={project}
+            scope={policy}
+            onChange={(inventory) => onChange({ ...command, inventory })}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Layout</Label>
+          <Select
+            value={command.layout?.$ref.id ?? '__default__'}
+            onValueChange={(value) =>
+              onChange({
+                ...command,
+                layout: value === '__default__' ? undefined : layoutRef(String(value)),
+              })
+            }
+          >
+            <SelectItem value="__default__">Project default / built-in fallback</SelectItem>
+            {Object.values(project.layouts).map((layout) => (
+              <SelectItem key={layout.id} value={layout.id}>
+                {layout.label || layout.id} ({layout.id})
+              </SelectItem>
+            ))}
+          </Select>
+        </div>
       </div>
     );
   if (command.kind === 'call-scene')

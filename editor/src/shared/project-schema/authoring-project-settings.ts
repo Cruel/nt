@@ -2,7 +2,11 @@ import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
 import { DEFAULT_PROJECT_AUDIO_SETTINGS, projectAudioSettingsSchema } from './authoring-audio';
 import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
-import { systemLayoutRoleValues, systemLayoutSettingsSchema } from './authoring-layouts';
+import {
+  layoutRecordRefSchema,
+  systemLayoutRoleValues,
+  systemLayoutSettingsSchema,
+} from './authoring-layouts';
 import {
   roomNavigationTransitionSchema,
   validateRoomNavigationTransition,
@@ -209,6 +213,13 @@ export const typedProjectSettingsSchema = z
       .object({ systemLayouts: systemLayoutSettingsSchema })
       .strict()
       .default({ systemLayouts: {} }),
+    inventory: z
+      .object({
+        playerInventory: z.string().min(1).nullable(),
+        defaultLayout: layoutRecordRefSchema.nullable(),
+      })
+      .strict()
+      .default({ playerInventory: null, defaultLayout: null }),
     text: projectTextSettingsSchema.default({ defaultFont: null }),
     titleScreen: projectTitleScreenSettingsSchema.default({
       titleImage: null,
@@ -328,6 +339,7 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
   const raw = objectValue(project.settings);
   const rawUi = objectValue(raw.ui);
   const rawText = objectValue(raw.text);
+  const rawInventory = objectValue(raw.inventory);
   const rawTitleScreen = objectValue(raw.titleScreen);
   const rawApp = objectValue(raw.app);
   const rawDisplay = objectValue(raw.display);
@@ -358,6 +370,14 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
     ui: {
       ...rawUi,
       systemLayouts: { ...objectValue(rawUi.systemLayouts) },
+    },
+    inventory: {
+      playerInventory: Object.prototype.hasOwnProperty.call(rawInventory, 'playerInventory')
+        ? rawInventory.playerInventory
+        : null,
+      defaultLayout: Object.prototype.hasOwnProperty.call(rawInventory, 'defaultLayout')
+        ? rawInventory.defaultLayout
+        : null,
     },
     text: {
       ...rawText,
@@ -640,6 +660,28 @@ export function validateTypedProjectSettings(
       );
     }
   }
+  if (
+    settings.inventory.playerInventory &&
+    !project.inventories.some((inventory) => inventory.id === settings.inventory.playerInventory)
+  )
+    diagnostics.push(
+      diagnostic(
+        'authoring.settings.inventory.player.missing',
+        '/settings/inventory/playerInventory',
+        `Missing Project Inventory '${settings.inventory.playerInventory}'.`,
+      ),
+    );
+  if (
+    settings.inventory.defaultLayout &&
+    !project.layouts[settings.inventory.defaultLayout.$ref.id]
+  )
+    diagnostics.push(
+      diagnostic(
+        'authoring.settings.inventory.layout.missing',
+        '/settings/inventory/defaultLayout/$ref',
+        `Missing default Inventory Layout '${settings.inventory.defaultLayout.$ref.id}'.`,
+      ),
+    );
   validateAssetRef(
     project,
     settings.text.defaultFont,

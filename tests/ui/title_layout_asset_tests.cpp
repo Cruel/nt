@@ -118,7 +118,8 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(rml.find("data-for=\"choice : gameplay.dialogue.choices\"") != std::string::npos);
     CHECK(rml.find("data-event-click=\"ui_choose('dialogue', choice.id)\"") != std::string::npos);
     CHECK(rml.find("data-for=\"object : gameplay.room.objects\"") != std::string::npos);
-    CHECK(rml.find("data-for=\"item : gameplay.inventory.items\"") != std::string::npos);
+    CHECK(rml.find("gameplay.inventory.player_available") != std::string::npos);
+    CHECK(rml.find("data-event-click=\"ui_present_player_inventory()\"") != std::string::npos);
     CHECK(rml.find("data-for=\"exit : gameplay.room.exits\"") != std::string::npos);
     CHECK(rml.find("data-event-click=\"ui_navigate_room(exit.id)\"") != std::string::npos);
     CHECK(rml.find("id=\"rt_menu\" data-event-click=\"shell_pause()\"") != std::string::npos);
@@ -147,6 +148,22 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
           std::string::npos);
     CHECK(scene_choice_rml.find("gameplay.scene_choices") == std::string::npos);
     CHECK(scene_presentation_rcss.find("pointer-events: none") != std::string::npos);
+
+    const auto inventory_rml = read_source_file(hud_root / "inventory.rml");
+    const auto inventory_rcss = read_source_file(hud_root / "inventory.rcss");
+    const auto inventory_lua = read_source_file(hud_root / "inventory.lua");
+    REQUIRE_FALSE(inventory_rml.empty());
+    REQUIRE_FALSE(inventory_rcss.empty());
+    REQUIRE_FALSE(inventory_lua.empty());
+    CHECK(inventory_rml.find("system|/ui/runtime/inventory.rcss") != std::string::npos);
+    CHECK(inventory_rml.find("system|/ui/runtime/inventory.lua") != std::string::npos);
+    CHECK(inventory_rml.find("data-for=\"item : gameplay.inventory.items\"") != std::string::npos);
+    CHECK(inventory_rml.find("item.inventory_key == gameplay.inventory.presented_key") !=
+          std::string::npos);
+    CHECK(inventory_rml.find("{{ item.quantity }}") != std::string::npos);
+    CHECK(inventory_lua.find("Game.ui.primary_activate(\"interactable\", subject_id)") !=
+          std::string::npos);
+    CHECK(inventory_lua.find("mount:dismiss()") != std::string::npos);
 
     const auto builder_rml = read_source_file(hud_root / "command-builder.rml");
     const auto builder_rcss = read_source_file(hud_root / "command-builder.rcss");

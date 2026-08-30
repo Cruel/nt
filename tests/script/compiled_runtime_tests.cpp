@@ -557,7 +557,6 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
     CHECK(started.publication->gameplay_ui.maps.front().map.text() == "house");
     REQUIRE(started.publication->gameplay_ui.maps.front().current_room);
     CHECK(started.publication->gameplay_ui.maps.front().current_room->text() == "start");
-    CHECK(started.publication->gameplay_ui.inventory.item_stacks.empty());
 
     const core::compiled::InteractionSubject door_subject =
         core::compiled::FeatureInteractionSubject{core::RoomFeatureRef{
@@ -589,7 +588,6 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
         if (!instance.declared)
             runtime_instances.push_back(instance.instance);
     CHECK(runtime_instances.size() == 2);
-    CHECK(activated.publication->gameplay_ui.inventory.item_stacks.empty());
 
     const auto layout =
         std::find_if(activated.publication->presentation.layouts.begin(),
@@ -643,7 +641,6 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
         if (!instance.declared)
             restored_runtime_instances.push_back(instance.instance);
     CHECK(restored_runtime_instances == runtime_instances);
-    CHECK(restored_publication.gameplay_ui.inventory.item_stacks.empty());
     const auto restored_layout =
         std::find_if(restored_publication.presentation.layouts.begin(),
                      restored_publication.presentation.layouts.end(), [](const auto& candidate) {

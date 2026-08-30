@@ -150,7 +150,9 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
     };
 
     for (const auto& item : desired) {
-        if (!m_project->find_layout(item.layout)) {
+        const bool builtin_inventory =
+            item.layout.text() == core::compiled::builtin_inventory_layout_id;
+        if (!builtin_inventory && !m_project->find_layout(item.layout)) {
             rollback_new_mounts();
             return core::Result<void, core::Diagnostics>::failure(
                 {{.code = "presentation.layout_missing",
@@ -191,7 +193,11 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         request.state_values = item.state_values;
         request.material_parameters = item.material_parameters;
         request.material_camera_zoom = item.material_camera_zoom;
-        request.source = presentation::RuntimeLayoutProjectSource{};
+        request.source =
+            builtin_inventory
+                ? presentation::RuntimeLayoutSource{presentation::RuntimeLayoutBuiltinSource{
+                      presentation::RuntimeLayoutBuiltinDocument::Inventory}}
+                : presentation::RuntimeLayoutSource{presentation::RuntimeLayoutProjectSource{}};
         request.composition_group = item.composition_group;
         request.publication_revision = snapshot.revision;
         if (existing != m_current.end() && existing->second.layout == item.layout) {

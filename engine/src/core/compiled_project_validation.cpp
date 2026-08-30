@@ -973,7 +973,13 @@ private:
                         using T = std::decay_t<decltype(exact)>;
                         if constexpr (std::is_same_v<T, ExactInventoryOperand>)
                             validate_inventory_ref(exact.inventory, operand_path + "/inventory");
-                        else if constexpr (std::is_same_v<T, OwnerInventoryOperand>)
+                        else if constexpr (std::is_same_v<T, PlayerInventoryOperand>) {
+                            if (!m_input.settings.inventory.player_inventory)
+                                error("compiled_project.player_inventory_unconfigured",
+                                      "Player Inventory operand requires Project Settings to "
+                                      "designate a Player Inventory.",
+                                      operand_path);
+                        } else if constexpr (std::is_same_v<T, OwnerInventoryOperand>)
                             validate_inventory_owner(exact.owner, operand_path + "/owner");
                         else if constexpr (std::is_same_v<T, CommandResultOperand>)
                             validate_result(exact, {}, operand_path);
@@ -1226,6 +1232,12 @@ private:
                             require(m_interactables, value.definition, "interactable definition",
                                     command_path + "/definition");
                             validate_location_operand(value.location, command_path + "/location");
+                        } else if constexpr (std::is_same_v<T, PresentInventoryCommand>) {
+                            validate_inventory_operand(value.inventory,
+                                                       command_path + "/inventory");
+                            if (value.layout)
+                                require(m_layouts, *value.layout, "layout",
+                                        command_path + "/layout");
                         } else if constexpr (std::is_same_v<T, CallSceneCommand>)
                             require(m_scenes, value.scene, "scene", command_path + "/scene");
                         else if constexpr (std::is_same_v<T, CallDialogueCommand>)
@@ -1470,6 +1482,15 @@ private:
             },
             m_input.entrypoint);
         require(m_scripts, m_input.bootstrap_module, "script", "/bootstrapModule");
+        if (m_input.settings.inventory.player_inventory &&
+            !inventory(InventoryRef{ProjectInventoryOwner{},
+                                    *m_input.settings.inventory.player_inventory}))
+            error("compiled_project.unresolved_inventory",
+                  "Player Inventory references an unknown Project Inventory.",
+                  "/settings/inventory/playerInventory");
+        if (m_input.settings.inventory.default_layout)
+            require(m_layouts, *m_input.settings.inventory.default_layout, "layout",
+                    "/settings/inventory/defaultLayout");
         for (std::size_t index = 0; index < m_input.settings.system_layouts.size(); ++index) {
             if (!m_input.settings.system_layouts[index].layout)
                 continue;

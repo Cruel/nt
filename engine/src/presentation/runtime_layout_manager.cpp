@@ -19,6 +19,7 @@ constexpr const char* kBuiltinModalLayoutId = "builtin-modal";
 constexpr const char* kBuiltinCommandBuilderLayoutId = "builtin-command-builder";
 constexpr const char* kBuiltinSceneTextLayoutId = "builtin-scene-text";
 constexpr const char* kBuiltinSceneChoiceLayoutId = "builtin-scene-choice";
+constexpr const char* kBuiltinInventoryLayoutId = "builtin-inventory";
 
 core::Diagnostics failure(std::string code, std::string message)
 {
@@ -63,6 +64,8 @@ system_role_for_builtin(RuntimeLayoutBuiltinDocument document) noexcept
         return core::compiled::SystemLayoutRole::SceneText;
     case RuntimeLayoutBuiltinDocument::SceneChoice:
         return core::compiled::SystemLayoutRole::SceneChoice;
+    case RuntimeLayoutBuiltinDocument::Inventory:
+        return std::nullopt;
     case RuntimeLayoutBuiltinDocument::None:
         return std::nullopt;
     }
@@ -206,6 +209,18 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request,
         request.owner = core::MountedLayoutOwner::Gameplay;
         request.policy = {.plane = core::PresentationPlane::GameUi,
                           .local_order = 40,
+                          .clock = core::LayoutClockDomain::Gameplay,
+                          .input = core::LayoutInputMode::Normal,
+                          .gameplay_pause = core::GameplayPausePolicy::Continue,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::Inventory:
+        request.layout_id = kBuiltinInventoryLayoutId;
+        request.owner = core::MountedLayoutOwner::Gameplay;
+        request.policy = {.plane = core::PresentationPlane::GameUi,
                           .clock = core::LayoutClockDomain::Gameplay,
                           .input = core::LayoutInputMode::Normal,
                           .gameplay_pause = core::GameplayPausePolicy::Continue,

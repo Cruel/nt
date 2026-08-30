@@ -754,6 +754,26 @@ std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder& decoder,
                          AddQuantityCommand{std::move(*definition), *count, std::move(*target)}})
                    : std::nullopt;
     }
+    if (*kind == "present-inventory") {
+        decoder.object(value, pointer, {"id", "inventory", "kind", "layout"});
+        const auto* inventory_value = decoder.member(value, "inventory", pointer);
+        const auto* layout_value = json_access::member(value, "layout");
+        auto inventory = inventory_value
+                             ? decode_inventory_operand(decoder, *inventory_value,
+                                                        pointer_child(pointer, "inventory"))
+                             : std::nullopt;
+        std::optional<LayoutId> layout;
+        bool layout_ok = true;
+        if (layout_value && !layout_value->is_null()) {
+            layout = decode_reference<LayoutId>(decoder, *layout_value,
+                                                pointer_child(pointer, "layout"), "layout");
+            layout_ok = layout.has_value();
+        }
+        return inventory && layout_ok
+                   ? std::optional<GameplayCommand>(GameplayCommand{
+                         std::move(*id), PresentInventoryCommand{std::move(*inventory), layout}})
+                   : std::nullopt;
+    }
     if (*kind == "call-scene" || *kind == "call-dialogue") {
         const auto name = *kind == "call-scene" ? "scene" : "dialogue";
         decoder.object(value, pointer, {"id", "kind", name});

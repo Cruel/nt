@@ -400,6 +400,15 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
                     auto requested = m_gateway.request_notification(*text);
                     if (!requested)
                         return fault(requested.error());
+                } else if constexpr (std::is_same_v<T, core::PresentInventoryCommand>) {
+                    const core::ConditionEvaluationContext context{
+                        .interaction_bindings = {}, .command_results = live->command_results};
+                    auto inventory = m_primitives.resolve_inventory(value.inventory, context);
+                    if (!inventory)
+                        return fault(inventory.error());
+                    auto presented = present_inventory(*inventory.value_if(), value.layout);
+                    if (!presented)
+                        return fault(presented.error());
                 } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
                     auto next = transition.position;
                     next.next_effect = sequential;

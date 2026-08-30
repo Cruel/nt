@@ -235,6 +235,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/settings\/ui\/systemLayouts\/command-builder\//, OWNER],
   [/^\/settings\/ui\/systemLayouts\/scene-text\//, OWNER],
   [/^\/settings\/ui\/systemLayouts\/scene-choice\//, OWNER],
+  // #125 designates an ordinary Project Inventory and reusable Layout as presentation defaults.
+  // Both settings contribute to runtime dependency and preview invalidation.
+  [/^\/settings\/inventory(?:\/|$)/, OWNER],
   // #96 replaces provisional Scene steps/default presentation with ordered Events and an
   // invocation-local Stage at the preserved authoring schema version. Timeline/dependency leaves
   // and the Stage discriminator/staged-Room reference are genuinely new owner contributions;
@@ -318,6 +321,20 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/interactions\/\*\/data\/rules\/\*\/(?:guard|priority)(?:\/|$)/, OWNER],
   [/^\/undefinedInteractionProgram\/instructions\/\*\/effect\/source$/, SOURCE],
   [/^\/undefinedInteractionProgram(?:\/|$)/, OWNER],
+  // #125 adds Present Inventory to the shared Interaction-program Gameplay Command vocabulary.
+  // Inventory/Layout operands and compact-layout dismissal policy remain owner-local runtime shape.
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*)\/(?:inventory|layout)(?:\/|$)/,
+    OWNER,
+  ],
+  [
+    /^\/scenes\/\*\/data\/(?:steps|events)\/\*\/operations\/\*\/(?:inventory|layout)(?:\/|$)/,
+    OWNER,
+  ],
+  [
+    /^\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*\/(?:inventory|layout)(?:\/|$)/,
+    OWNER,
+  ],
   // #82 atomically replaces provisional Map point/shape and authored endpoint fields at the preserved
   // authoring schema version. New geometry, visibility, presentation, ordering, and exit-pair leaves
   // all contribute to the owning Map runtime projection.
@@ -907,29 +924,29 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
     characters: '53873c0e',
-    dialogues: 'ce13bade',
+    dialogues: '699d61fa',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
     interactableInstances: '287ef173',
     interactables: '81498bf0',
-    interactions: '5fccdb49',
+    interactions: 'c5f3f74e',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
     localization: '3f6d0d11',
     maps: '9d711bea',
     materials: '546711ca',
     project: 'da3be83d',
-    rooms: '568ad3a3',
-    scenes: '775ab0fe',
+    rooms: '83341550',
+    scenes: 'd015ee22',
     schema: '63fb9bb9',
     scripts: 'f3482815',
-    settings: 'e2c61a79',
+    settings: '2c5a17f9',
     shaders: '94d3aa6e',
     tests: '99f1bf10',
     traits: 'f6534a48',
-    undefinedInteractionProgram: '96fc1f59',
+    undefinedInteractionProgram: '6cb45dd0',
     variables: '9c9e4800',
-    verbs: '4ad9edd8',
+    verbs: '5a9389c5',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {

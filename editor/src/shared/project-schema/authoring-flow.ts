@@ -412,6 +412,12 @@ export type GameplayCommand =
       sourceInventory?: z.infer<typeof inventoryOperandSchema>;
       quantity: number;
     }
+  | {
+      id: string;
+      kind: 'present-inventory';
+      inventory: z.infer<typeof inventoryOperandSchema>;
+      layout?: z.infer<typeof layoutRefSchema>;
+    }
   | { id: string; kind: 'call-scene'; scene: z.infer<typeof sceneRefSchema> }
   | { id: string; kind: 'call-dialogue'; dialogue: z.infer<typeof dialogueRefSchema> }
   | { id: string; kind: 'notify'; message: z.infer<typeof textContentSchema> }
@@ -562,6 +568,12 @@ export const gameplayCommandSchema: z.ZodType<GameplayCommand> = z.lazy(() =>
       matcher: interactableMatcherSchema,
       sourceInventory: inventoryOperandSchema.optional(),
       quantity: quantitySchema,
+    }),
+    strict({
+      id: entityIdSchema,
+      kind: z.literal('present-inventory'),
+      inventory: inventoryOperandSchema,
+      layout: layoutRefSchema.optional(),
     }),
     strict({ id: entityIdSchema, kind: z.literal('call-scene'), scene: sceneRefSchema }),
     strict({ id: entityIdSchema, kind: z.literal('call-dialogue'), dialogue: dialogueRefSchema }),
