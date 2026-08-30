@@ -323,6 +323,7 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
     }
     for (const auto& layout : input.layouts) {
         if (layout.id.text() == compiled::builtin_inventory_layout_id ||
+            layout.id.text() == compiled::builtin_verb_menu_layout_id ||
             !enum_at_most(layout.kind, compiled::LayoutKind::Fragment) ||
             !enum_at_most(layout.target, compiled::LayoutTarget::CustomOverlay) ||
             !enum_at_most(layout.scale_policy.ui, LayoutScaleInheritance::Ignore) ||
@@ -694,27 +695,47 @@ FIND(item_stack, item_stacks, ItemStackId, compiled::ItemStackDeclaration)
 
 const compiled::LayoutResource* CompiledProject::find_layout(const LayoutId& id) const noexcept
 {
-    if (id.text() == compiled::builtin_inventory_layout_id) {
-        static const compiled::LayoutResource builtin = [] {
-            auto id_result = LayoutId::create(std::string(compiled::builtin_inventory_layout_id));
-            const auto* builtin_id = id_result.value_if();
-            return compiled::LayoutResource{
-                *builtin_id,
-                compiled::LayoutKind::Document,
-                compiled::LayoutTarget::CustomOverlay,
-                {},
-                {},
-                compiled::InlineLayoutSource{""},
-                compiled::InlineLayoutSource{""},
-                compiled::InlineLayoutSource{""},
-                {},
-                std::nullopt,
-                true,
-                false,
-                std::nullopt,
-            };
-        }();
-        return &builtin;
+    if (id.text() == compiled::builtin_inventory_layout_id ||
+        id.text() == compiled::builtin_verb_menu_layout_id) {
+        const auto builtin_layout =
+            [](std::string_view id_text) -> const compiled::LayoutResource& {
+            static const compiled::LayoutResource inventory = [] {
+                auto id_result =
+                    LayoutId::create(std::string(compiled::builtin_inventory_layout_id));
+                return compiled::LayoutResource{*id_result.value_if(),
+                                                compiled::LayoutKind::Document,
+                                                compiled::LayoutTarget::CustomOverlay,
+                                                {},
+                                                {},
+                                                compiled::InlineLayoutSource{""},
+                                                compiled::InlineLayoutSource{""},
+                                                compiled::InlineLayoutSource{""},
+                                                {},
+                                                std::nullopt,
+                                                true,
+                                                false,
+                                                std::nullopt};
+            }();
+            static const compiled::LayoutResource verb_menu = [] {
+                auto id_result =
+                    LayoutId::create(std::string(compiled::builtin_verb_menu_layout_id));
+                return compiled::LayoutResource{*id_result.value_if(),
+                                                compiled::LayoutKind::Document,
+                                                compiled::LayoutTarget::CustomOverlay,
+                                                {},
+                                                {},
+                                                compiled::InlineLayoutSource{""},
+                                                compiled::InlineLayoutSource{""},
+                                                compiled::InlineLayoutSource{""},
+                                                {},
+                                                std::nullopt,
+                                                true,
+                                                false,
+                                                std::nullopt};
+            }();
+            return id_text == compiled::builtin_inventory_layout_id ? inventory : verb_menu;
+        };
+        return &builtin_layout(id.text());
     }
     return checked_find(id, m_layout_index, m_layouts);
 }

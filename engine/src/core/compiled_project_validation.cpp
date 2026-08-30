@@ -1491,6 +1491,9 @@ private:
         if (m_input.settings.inventory.default_layout)
             require(m_layouts, *m_input.settings.inventory.default_layout, "layout",
                     "/settings/inventory/defaultLayout");
+        if (m_input.settings.interaction.default_verb_menu_layout)
+            require(m_layouts, *m_input.settings.interaction.default_verb_menu_layout, "layout",
+                    "/settings/interaction/defaultVerbMenuLayout");
         for (std::size_t index = 0; index < m_input.settings.system_layouts.size(); ++index) {
             if (!m_input.settings.system_layouts[index].layout)
                 continue;

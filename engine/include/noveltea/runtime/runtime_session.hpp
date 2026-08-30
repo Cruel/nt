@@ -256,6 +256,7 @@ private:
 
     std::vector<core::compiled::InteractionSubject> m_selection;
     bool m_verb_menu_open = false;
+    std::optional<core::TriggerContext> m_interaction_trigger_context;
     std::optional<CommandBuilderState> m_command_builder;
     std::uint64_t m_next_command_builder_occurrence = 1;
     std::optional<RoomDescriptionVisit> m_room_description_visit;

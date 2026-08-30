@@ -209,12 +209,13 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                                                std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"accessibility", "audio", "display", "inventory",
+                        {"accessibility", "audio", "display", "interaction", "inventory",
                          "roomNavigationTransition", "systemLayouts", "text", "titleScreen"}))
         return std::nullopt;
     const auto* accessibility_value = decoder.member(value, "accessibility", pointer);
     const auto* display_value = decoder.member(value, "display", pointer);
     const auto* audio_value = decoder.member(value, "audio", pointer);
+    const auto* interaction_value = decoder.member(value, "interaction", pointer);
     const auto* inventory_value = decoder.member(value, "inventory", pointer);
     const auto* layouts_value = decoder.member(value, "systemLayouts", pointer);
     const auto* text_value = decoder.member(value, "text", pointer);
@@ -433,6 +434,27 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             inventory = InventorySettings{std::move(player_inventory), std::move(default_layout)};
     }
 
+    std::optional<InteractionPresentationSettings> interaction;
+    if (interaction_value &&
+        decoder.object(*interaction_value, pointer_child(pointer, "interaction"),
+                       {"defaultVerbMenuLayout"})) {
+        const auto interaction_pointer = pointer_child(pointer, "interaction");
+        const auto* layout_value =
+            decoder.member(*interaction_value, "defaultVerbMenuLayout", interaction_pointer);
+        std::optional<LayoutId> default_layout;
+        bool layout_ok = layout_value != nullptr;
+        if (layout_value && !layout_value->is_null()) {
+            default_layout = decode_reference<LayoutId>(
+                decoder, *layout_value, pointer_child(interaction_pointer, "defaultVerbMenuLayout"),
+                "layout");
+            layout_ok = default_layout.has_value();
+        }
+        if (layout_ok)
+            interaction = InteractionPresentationSettings{std::move(default_layout)};
+        else
+            interaction.reset();
+    }
+
     auto layouts =
         layouts_value
             ? decoder.array<SystemLayout>(
@@ -558,12 +580,12 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             (*kind == TransitionKind::Fade || !color))
             transition = RoomNavigationTransition{*kind, *duration, std::move(color), *skippable};
     }
-    if (!display || !accessibility || !audio || !inventory || !layouts || !text || !title ||
-        !transition)
+    if (!display || !accessibility || !audio || !inventory || !interaction || !layouts || !text ||
+        !title || !transition)
         return std::nullopt;
     return RuntimeSettings{std::move(*display), std::move(*accessibility), std::move(*layouts),
                            std::move(*text),    std::move(*title),         std::move(*transition),
-                           std::move(*audio),   std::move(*inventory)};
+                           std::move(*audio),   std::move(*inventory),     std::move(*interaction)};
 }
 
 std::optional<PropertyOwnerRef>

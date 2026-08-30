@@ -220,6 +220,12 @@ export const typedProjectSettingsSchema = z
       })
       .strict()
       .default({ playerInventory: null, defaultLayout: null }),
+    interaction: z
+      .object({
+        defaultVerbMenuLayout: layoutRecordRefSchema.nullable(),
+      })
+      .strict()
+      .default({ defaultVerbMenuLayout: null }),
     text: projectTextSettingsSchema.default({ defaultFont: null }),
     titleScreen: projectTitleScreenSettingsSchema.default({
       titleImage: null,

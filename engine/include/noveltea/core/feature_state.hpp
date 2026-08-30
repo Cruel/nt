@@ -120,6 +120,15 @@ struct ScopedLayoutMountKey {
 using MountedLayoutPresentationKey =
     std::variant<ReservedLayoutMountKey, RoomOverlayLayoutMountKey, ScopedLayoutMountKey>;
 
+using LayoutReplacementGroupId = StrongId<struct LayoutReplacementGroupTag>;
+
+struct LayoutPresentationParent {
+    PresentationOwner owner;
+    MountedLayoutPresentationKey key;
+    LayoutMountOccurrenceId occurrence;
+    bool operator==(const LayoutPresentationParent&) const = default;
+};
+
 struct BackgroundMaterialOccurrence {
     auto operator<=>(const BackgroundMaterialOccurrence&) const = default;
 };
@@ -310,6 +319,9 @@ struct DesiredMountedLayout {
     std::optional<LayoutMountOccurrenceId> occurrence;
     std::vector<LayoutInputAssignment> inputs;
     std::vector<LayoutSignalId> connected_signals;
+    std::optional<TriggerContext> trigger_context = std::nullopt;
+    std::optional<LayoutPresentationParent> presentation_parent = std::nullopt;
+    std::optional<LayoutReplacementGroupId> replacement_group = std::nullopt;
     bool operator==(const DesiredMountedLayout&) const = default;
 };
 

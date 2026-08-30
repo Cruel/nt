@@ -2137,17 +2137,26 @@ void Engine::Impl::handle_events()
                      .reference_position = reference,
                      .pointer_id = touch ? normalized.touch_id : 0,
                      .primary = touch || normalized.mouse_button == SDL_BUTTON_LEFT,
-                     .admitted = routed.route_diagnostics.gameplay_admitted});
+                     .admitted = routed.route_diagnostics.gameplay_admitted,
+                     .secondary = !touch && normalized.mouse_button == SDL_BUTTON_RIGHT});
                 if (world.target) {
                     const bool accepted = std::visit(
-                        [this](const auto& target) {
+                        [this, &world](const auto& target) {
                             using T = std::decay_t<decltype(target)>;
-                            if constexpr (std::is_same_v<T, core::compiled::InteractionSubject>)
-                                return dispatch_runtime_input(core::RuntimeInputMessage{
-                                    core::SelectInteractionSubjectsInput{{target}}});
-                            else
+                            if constexpr (std::is_same_v<T, core::compiled::InteractionSubject>) {
+                                return world.primary_activation
+                                           ? dispatch_runtime_input(core::RuntimeInputMessage{
+                                                 core::PrimaryActivateInput{target,
+                                                                            world.trigger_context}})
+                                           : dispatch_runtime_input(
+                                                 core::RuntimeInputMessage{core::OpenVerbMenuInput{
+                                                     target, world.trigger_context}});
+                            } else if (world.primary_activation) {
                                 return dispatch_runtime_input(core::RuntimeInputMessage{
                                     core::NavigateRoomInput{target.exit_id}});
+                            } else {
+                                return true;
+                            }
                         },
                         *world.target);
                     if (!accepted) {

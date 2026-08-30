@@ -28,6 +28,7 @@ enum class RuntimeLayoutBuiltinDocument : std::uint8_t {
     SceneText,
     SceneChoice,
     Inventory,
+    VerbMenu,
 };
 
 struct RuntimeLayoutProjectSource {
@@ -74,6 +75,7 @@ struct RuntimeMountedLayout {
     std::vector<core::PresentationLayoutStateValue> state_values;
     std::vector<core::PresentationMaterialParameter> material_parameters;
     double material_camera_zoom = 1.0;
+    std::optional<core::TriggerContext> trigger_context;
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;
     core::PresentationSnapshotRevision publication_revision =
@@ -104,6 +106,7 @@ struct RuntimeLayoutMountRequest {
     std::vector<core::PresentationLayoutStateValue> state_values;
     std::vector<core::PresentationMaterialParameter> material_parameters;
     double material_camera_zoom = 1.0;
+    std::optional<core::TriggerContext> trigger_context;
     core::MountedLayoutPolicy policy{
         .plane = core::PresentationPlane::GameUi,
         .clock = core::LayoutClockDomain::Gameplay,

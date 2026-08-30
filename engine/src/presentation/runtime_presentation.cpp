@@ -1429,7 +1429,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         result.layouts.push_back(PresentationMountedLayout{
             mount.key, mount.owner, mount.layout, mount.policy, mount.scale_overrides,
             mount.composition_group, mount.occurrence, std::move(*inputs.value_if()),
-            mount.connected_signals, layout_definition->contract.state, std::move(state_values)});
+            mount.connected_signals, layout_definition->contract.state, std::move(state_values),
+            mount.trigger_context});
     }
     for (const auto& stage_layout : stage_layouts) {
         const auto* layout_definition = project.find_layout(stage_layout.layout);
@@ -1463,7 +1464,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                                                            {},
                                                            {},
                                                            layout_definition->contract.state,
-                                                           {}});
+                                                           {},
+                                                           std::nullopt});
     }
 
     validate_text_and_choice(project, world, state, diagnostics);

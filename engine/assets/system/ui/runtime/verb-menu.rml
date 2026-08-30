@@ -1,0 +1,20 @@
+<rml>
+<head>
+    <title>NovelTea Verb Menu</title>
+    <link type="text/rcss" href="system|/ui/runtime/verb-menu.rcss"/>
+    <script src="system|/ui/runtime/verb-menu.lua"></script>
+</head>
+<body data-model="noveltea" onload="noveltea_verb_menu.position(event, element, document)">
+    <div id="nt_verb_menu" data-if="gameplay.interaction.verb_menu_open">
+        <p class="nt-verb-menu-heading">Actions</p>
+        <button data-for="action : gameplay.interaction.actions"
+                class="nt-verb-menu-action"
+                data-class-disabled="!action.enabled"
+                data-attrif-disabled="!action.enabled"
+                data-event-click="ui_invoke_interaction(action.verb_id)">
+            {{ action.label }}
+        </button>
+        <button class="nt-verb-menu-close" data-event-click="ui_clear_selection()">Close</button>
+    </div>
+</body>
+</rml>

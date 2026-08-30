@@ -542,6 +542,9 @@ describe('ProjectSettingsEditor', () => {
     fireEvent.change(screen.getByLabelText('Default Inventory Layout'), {
       target: { value: 'main' },
     });
+    fireEvent.change(screen.getByLabelText('Default Verb Menu Layout'), {
+      target: { value: 'main' },
+    });
     selectProjectSettingsCategory('Title Screen');
     fireEvent.change(screen.getByLabelText('Title image'), { target: { value: 'logo' } });
     fireEvent.change(screen.getByLabelText('Start label'), { target: { value: 'Begin' } });
@@ -555,6 +558,9 @@ describe('ProjectSettingsEditor', () => {
           inventory: {
             playerInventory: 'backpack',
             defaultLayout: { $ref: { collection: 'layouts', id: 'main' } },
+          },
+          interaction: {
+            defaultVerbMenuLayout: { $ref: { collection: 'layouts', id: 'main' } },
           },
           text: { defaultFont: { $ref: { collection: 'assets', id: 'main-font' } } },
           titleScreen: {

@@ -55,9 +55,20 @@ public:
     [[nodiscard]] bool action_choose(std::string kind, std::string id);
     [[nodiscard]] bool action_navigate_room(std::string id);
     [[nodiscard]] bool action_toggle_subject(std::string kind, std::string id);
-    [[nodiscard]] bool action_primary_activate(std::string kind, std::string id);
-    [[nodiscard]] bool action_open_verb_menu(std::string kind, std::string id);
-    [[nodiscard]] bool action_present_player_inventory();
+    [[nodiscard]] bool
+    action_primary_activate(std::string kind, std::string id,
+                            std::optional<core::TriggerContext> trigger_context = std::nullopt);
+    [[nodiscard]] bool
+    action_open_verb_menu(std::string kind, std::string id,
+                          std::optional<core::TriggerContext> trigger_context = std::nullopt);
+    [[nodiscard]] bool action_present_player_inventory(
+        std::optional<core::TriggerContext> trigger_context = std::nullopt,
+        std::optional<core::LayoutPresentationParent> presentation_parent = std::nullopt,
+        bool coexist = false);
+    [[nodiscard]] bool
+    action_present_child_layout(std::string layout_id, std::optional<std::string> instance_id,
+                                std::optional<core::TriggerContext> trigger_context,
+                                core::LayoutPresentationParent presentation_parent);
     [[nodiscard]] bool action_clear_selection();
     [[nodiscard]] bool action_invoke_interaction(std::string id);
     [[nodiscard]] bool

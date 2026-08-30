@@ -29,6 +29,7 @@ struct RuntimeUiLayoutMountContext {
     std::vector<core::PresentationLayoutStateValue> state_values;
     std::vector<core::PresentationMaterialParameter> material_parameters;
     double material_camera_zoom = 1.0;
+    std::optional<core::TriggerContext> trigger_context;
     bool operator==(const RuntimeUiLayoutMountContext&) const = default;
 };
 

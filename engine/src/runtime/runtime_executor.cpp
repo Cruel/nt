@@ -280,7 +280,10 @@ core::Result<void, core::Diagnostics>
 mount_inventory_presentation(const core::CompiledProject& project, core::SessionState& state,
                              RuntimeWorld& world, const core::compiled::InventoryRef& inventory,
                              std::optional<core::LayoutId> layout,
-                             const core::ScopedLayoutInstanceId& instance)
+                             const core::ScopedLayoutInstanceId& instance,
+                             std::optional<core::TriggerContext> trigger_context,
+                             std::optional<core::LayoutPresentationParent> presentation_parent,
+                             std::optional<core::LayoutReplacementGroupId> replacement_group)
 {
     if (!world.has_inventory(inventory))
         return core::Result<void, core::Diagnostics>::failure(
@@ -324,7 +327,53 @@ mount_inventory_presentation(const core::CompiledProject& project, core::Session
                          *input.value_if(), core::LayoutLiteralInput{core::RuntimeValue{
                                                 core::compiled::inventory_ref_key(inventory)}}}},
                      {},
+                     std::move(trigger_context),
+                     std::move(presentation_parent),
+                     std::move(replacement_group),
                  });
+}
+
+std::string interaction_subject_key(const core::compiled::InteractionSubject& subject)
+{
+    return std::visit(
+        [](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
+                return "character:" + value.character.text();
+            else if constexpr (std::is_same_v<T, core::compiled::InteractableInteractionSubject>)
+                return "interactable:" + value.interactable.text();
+            else
+                return std::visit(
+                    [](const auto& feature) -> std::string {
+                        using F = std::decay_t<decltype(feature)>;
+                        if constexpr (std::is_same_v<F, core::RoomFeatureRef>)
+                            return "room-feature:" + feature.room.text() + ":" +
+                                   feature.feature_id.text();
+                        else
+                            return "interactable-feature:" + feature.interactable.text() + ":" +
+                                   feature.feature_id.text();
+                    },
+                    value.feature);
+        },
+        subject);
+}
+
+std::optional<core::ScopedLayoutInstanceId>
+unique_contextual_layout_instance(const core::SessionState& state, std::string_view prefix)
+{
+    for (std::uint64_t number = 1; number != 0; ++number) {
+        auto candidate = core::ScopedLayoutInstanceId::create(std::string(prefix) + "-" +
+                                                              std::to_string(number));
+        if (!candidate)
+            return std::nullopt;
+        const bool used = std::ranges::any_of(state.mounted_layouts(), [&](const auto& mounted) {
+            const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&mounted.key);
+            return scoped && scoped->instance == *candidate.value_if();
+        });
+        if (!used)
+            return *candidate.value_if();
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -354,14 +403,133 @@ bool RuntimeExecutor::gameplay_command_is_immediate(const core::GameplayCommand&
         command.value);
 }
 
-core::Result<void, core::Diagnostics>
-RuntimeExecutor::present_inventory(const core::compiled::InventoryRef& inventory,
-                                   std::optional<core::LayoutId> layout)
+core::Result<void, core::Diagnostics> RuntimeExecutor::present_inventory(
+    const core::compiled::InventoryRef& inventory, std::optional<core::LayoutId> layout,
+    std::optional<core::TriggerContext> trigger_context,
+    std::optional<core::LayoutPresentationParent> presentation_parent, bool coexist)
 {
-    auto instance = core::ScopedLayoutInstanceId::create("inventory-ui");
-    return instance ? mount_inventory_presentation(m_project, m_state, m_world, inventory,
-                                                   std::move(layout), *instance.value_if())
-                    : core::Result<void, core::Diagnostics>::failure(instance.error());
+    std::optional<core::ScopedLayoutInstanceId> instance;
+    if (coexist || presentation_parent) {
+        instance = unique_contextual_layout_instance(m_state, "inventory-ui");
+    } else {
+        auto created = core::ScopedLayoutInstanceId::create("inventory-ui");
+        if (created)
+            instance = *created.value_if();
+    }
+    if (!instance)
+        return core::Result<void, core::Diagnostics>::failure(
+            execution_error("execution.inventory_mount_identity_invalid",
+                            "Inventory presentation identity could not be created"));
+
+    std::optional<core::LayoutReplacementGroupId> replacement;
+    if (!coexist && !presentation_parent) {
+        auto created = core::LayoutReplacementGroupId::create("inventory-default");
+        if (!created)
+            return core::Result<void, core::Diagnostics>::failure(created.error());
+        replacement = *created.value_if();
+    }
+    return mount_inventory_presentation(
+        m_project, m_state, m_world, inventory, std::move(layout), *instance,
+        trigger_context ? std::move(trigger_context) : m_trigger_context,
+        std::move(presentation_parent), std::move(replacement));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeExecutor::present_contextual_layout(core::LayoutId layout,
+                                           std::optional<core::ScopedLayoutInstanceId> instance,
+                                           std::optional<core::TriggerContext> trigger_context,
+                                           core::LayoutPresentationParent presentation_parent)
+{
+    if (m_project.find_layout(layout) == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            execution_error("execution.contextual_layout_missing",
+                            "Contextual presentation resolved a Layout that does not exist"));
+    if (!instance)
+        instance = unique_contextual_layout_instance(m_state, "contextual-ui");
+    if (!instance)
+        return core::Result<void, core::Diagnostics>::failure(
+            execution_error("execution.contextual_layout_mount_identity_invalid",
+                            "Contextual Layout presentation identity could not be created"));
+
+    return m_state.upsert_mounted_layout(
+        m_project,
+        core::DesiredMountedLayout{
+            core::ScopedLayoutMountKey{*instance},
+            presentation_parent.owner,
+            std::move(layout),
+            core::MountedLayoutPolicy{.plane = core::PresentationPlane::GameUi,
+                                      .clock = core::LayoutClockDomain::Gameplay,
+                                      .input = core::LayoutInputMode::Normal,
+                                      .gameplay_pause = core::GameplayPausePolicy::Continue,
+                                      .visibility = core::LayoutVisibility::Visible,
+                                      .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                                      .entrance_operation = std::nullopt,
+                                      .exit_operation = std::nullopt},
+            {},
+            core::PresentationCompositionGroup::Interface,
+            std::nullopt,
+            {},
+            {},
+            trigger_context ? std::move(trigger_context) : m_trigger_context,
+            std::move(presentation_parent),
+            std::nullopt});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeExecutor::present_verb_menu(const core::compiled::InteractionSubject& subject,
+                                   std::optional<core::TriggerContext> trigger_context)
+{
+    auto instance = core::ScopedLayoutInstanceId::create("verb-menu-ui");
+    auto group = core::LayoutReplacementGroupId::create("verb-menu-default");
+    auto input = core::LayoutInputId::create(std::string(core::verb_menu_layout_subject_input));
+    auto layout = m_project.settings().interaction.default_verb_menu_layout;
+    if (!layout) {
+        auto builtin =
+            core::LayoutId::create(std::string(core::compiled::builtin_verb_menu_layout_id));
+        if (builtin)
+            layout = *builtin.value_if();
+    }
+    if (!instance || !group || !input || !layout)
+        return core::Result<void, core::Diagnostics>::failure(
+            execution_error("execution.verb_menu_mount_invalid",
+                            "Verb Menu presentation identity could not be created"));
+    if (m_project.find_layout(*layout) == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            execution_error("execution.verb_menu_layout_missing",
+                            "Verb Menu resolved a Layout that does not exist"));
+    return m_state.upsert_mounted_layout(
+        m_project,
+        core::DesiredMountedLayout{
+            core::ScopedLayoutMountKey{*instance.value_if()},
+            m_state.session_presentation_owner(),
+            *layout,
+            core::MountedLayoutPolicy{.plane = core::PresentationPlane::GameUi,
+                                      .clock = core::LayoutClockDomain::Gameplay,
+                                      .input = core::LayoutInputMode::Normal,
+                                      .gameplay_pause = core::GameplayPausePolicy::Continue,
+                                      .visibility = core::LayoutVisibility::Visible,
+                                      .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                                      .entrance_operation = std::nullopt,
+                                      .exit_operation = std::nullopt},
+            {},
+            core::PresentationCompositionGroup::Interface,
+            std::nullopt,
+            {core::LayoutInputAssignment{
+                *input.value_if(),
+                core::LayoutLiteralInput{core::RuntimeValue{interaction_subject_key(subject)}}}},
+            {},
+            trigger_context ? std::move(trigger_context) : m_trigger_context,
+            std::nullopt,
+            *group.value_if()});
+}
+
+core::Result<void, core::Diagnostics> RuntimeExecutor::dismiss_verb_menu()
+{
+    auto instance = core::ScopedLayoutInstanceId::create("verb-menu-ui");
+    return instance
+               ? m_state.remove_mounted_layout(core::ScopedLayoutMountKey{*instance.value_if()},
+                                               m_state.session_presentation_owner())
+               : core::Result<void, core::Diagnostics>::failure(instance.error());
 }
 
 core::Result<void, core::Diagnostics> RuntimeExecutor::apply_immediate_gameplay_command(

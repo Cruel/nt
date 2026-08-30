@@ -678,6 +678,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
+  function setDefaultVerbMenuLayout(layoutId: string | null) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.replaceAtPath',
+        {
+          path: '/settings/interaction/defaultVerbMenuLayout',
+          value: layoutId ? { $ref: { collection: 'layouts', id: layoutId } } : null,
+        },
+        'Set default Verb Menu Layout',
+      ),
+    );
+  }
+
   function setUndefinedInteractionProgram(program: InteractionProgram | null) {
     return commandSucceeded(
       runProjectCommand(
@@ -1072,6 +1085,28 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   }
                 >
                   <option value="__built_in__">Built-in compact Inventory Layout</option>
+                  {Object.values(project.layouts).map((layout) => (
+                    <option key={layout.id} value={layout.id}>
+                      {layout.label} ({layout.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="default-verb-menu-layout">Default Verb Menu Layout</Label>
+                <select
+                  id="default-verb-menu-layout"
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  value={settings.interaction.defaultVerbMenuLayout?.$ref.id ?? '__built_in__'}
+                  onChange={(event) =>
+                    setDefaultVerbMenuLayout(
+                      event.currentTarget.value === '__built_in__'
+                        ? null
+                        : event.currentTarget.value,
+                    )
+                  }
+                >
+                  <option value="__built_in__">Built-in anchored Verb Menu Layout</option>
                   {Object.values(project.layouts).map((layout) => (
                     <option key={layout.id} value={layout.id}>
                       {layout.label} ({layout.id})

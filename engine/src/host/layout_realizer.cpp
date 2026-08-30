@@ -85,11 +85,11 @@ public:
     {
         if (layout.semantic_owner && layout.semantic_key && layout.occurrence) {
             m_runtime_ui.set_layout_mount_context(
-                document_id,
-                RuntimeUiLayoutMountContext{
-                    *layout.semantic_owner, *layout.semantic_key, *layout.occurrence, layout.inputs,
-                    layout.connected_signals, layout.state_shape, layout.state_values,
-                    layout.material_parameters, layout.material_camera_zoom});
+                document_id, RuntimeUiLayoutMountContext{
+                                 *layout.semantic_owner, *layout.semantic_key, *layout.occurrence,
+                                 layout.inputs, layout.connected_signals, layout.state_shape,
+                                 layout.state_values, layout.material_parameters,
+                                 layout.material_camera_zoom, layout.trigger_context});
         } else {
             m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
         }
@@ -611,6 +611,7 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
                                              .state_values = {},
                                              .material_parameters = {},
                                              .material_camera_zoom = 1.0,
+                                             .trigger_context = std::nullopt,
                                              .composition_group = value.composition_group,
                                              .publication_revision = value.publication_revision};
                 if (!m_host_generation || value.host_generation != *m_host_generation)
@@ -1428,6 +1429,8 @@ std::string LayoutRealizer::builtin_document_id(RuntimeLayoutBuiltinDocument doc
         return "runtime_scene_choice";
     case RuntimeLayoutBuiltinDocument::Inventory:
         return "runtime_inventory";
+    case RuntimeLayoutBuiltinDocument::VerbMenu:
+        return "runtime_verb_menu";
     case RuntimeLayoutBuiltinDocument::None:
         return {};
     }

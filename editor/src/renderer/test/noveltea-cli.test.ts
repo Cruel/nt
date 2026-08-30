@@ -1333,6 +1333,9 @@ describe('NovelTea headless CLI', () => {
       'ui/runtime/scene-choice.rml',
       'ui/runtime/scene-presentation.rcss',
       'ui/runtime/scene-text.rml',
+      'ui/runtime/verb-menu.lua',
+      'ui/runtime/verb-menu.rcss',
+      'ui/runtime/verb-menu.rml',
       'ui/title/default-title.rcss',
       'ui/title/default-title.rml',
     ]);
@@ -1376,6 +1379,7 @@ describe('NovelTea headless CLI', () => {
       'ui_toggle_subject',
       'ui_primary_activate',
       'ui_open_verb_menu',
+      'ui_context_activate',
       'ui_present_player_inventory',
       'ui_clear_selection',
       'ui_invoke_interaction',

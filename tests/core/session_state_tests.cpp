@@ -1027,6 +1027,115 @@ TEST_CASE("presentation target application preserves compatible Layout Mount occ
     CHECK(state.mounted_layouts().front().policy.local_order == 17);
 }
 
+TEST_CASE("contextual Layout parent lifetime and replacement groups are occurrence-bound")
+{
+    const auto compiled_project = load_fixture("comprehensive.json");
+    auto state_result = SessionState::create(compiled_project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    const PresentationOwner owner{state.session_presentation_owner()};
+
+    REQUIRE(state.set_layout(compiled_project, owner, compiled::LayoutSlot::Custom,
+                             id<LayoutId>("hud-inline")));
+    REQUIRE(state.mounted_layouts().size() == 1);
+    auto prototype = state.mounted_layouts().front();
+    REQUIRE(state.remove_mounted_layout(prototype.key, owner));
+    REQUIRE(state.mounted_layouts().empty());
+
+    const auto replacement_group = id<LayoutReplacementGroupId>("contextual-default");
+    const MountedLayoutPresentationKey first_key =
+        ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("contextual-first")};
+    prototype.key = first_key;
+    prototype.occurrence.reset();
+    prototype.trigger_context = TriggerContext{
+        .pointer = TriggerPoint{0.25, 0.5},
+        .source_bounds = TriggerRect{0.2, 0.4, 0.1, 0.2},
+    };
+    prototype.presentation_parent.reset();
+    prototype.replacement_group = replacement_group;
+    REQUIRE(state.upsert_mounted_layout(compiled_project, prototype));
+    REQUIRE(state.mounted_layouts().size() == 1);
+    REQUIRE(state.mounted_layouts().front().occurrence);
+    const auto first_occurrence = *state.mounted_layouts().front().occurrence;
+
+    auto child = prototype;
+    child.key = ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("contextual-child")};
+    child.occurrence.reset();
+    child.replacement_group.reset();
+    child.presentation_parent = LayoutPresentationParent{owner, first_key, first_occurrence};
+    REQUIRE(state.upsert_mounted_layout(compiled_project, child));
+    REQUIRE(state.mounted_layouts().size() == 2);
+    const auto child_mount = std::ranges::find_if(
+        state.mounted_layouts(), [&](const auto& mounted) { return mounted.key == child.key; });
+    REQUIRE(child_mount != state.mounted_layouts().end());
+    CHECK(child_mount->trigger_context == prototype.trigger_context);
+
+    auto replacement = prototype;
+    replacement.key = ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("contextual-second")};
+    replacement.occurrence.reset();
+    replacement.trigger_context = TriggerContext{.pointer = TriggerPoint{0.75, 0.25}};
+    REQUIRE(state.upsert_mounted_layout(compiled_project, replacement));
+    REQUIRE(state.mounted_layouts().size() == 1);
+    CHECK(state.mounted_layouts().front().key == replacement.key);
+    CHECK(state.mounted_layouts().front().replacement_group == replacement_group);
+    CHECK(state.mounted_layouts().front().trigger_context == replacement.trigger_context);
+
+    auto stale_child = child;
+    stale_child.key = ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("contextual-stale-child")};
+    stale_child.occurrence.reset();
+    CHECK_FALSE(state.upsert_mounted_layout(compiled_project, stale_child));
+
+    auto coexist = prototype;
+    coexist.key = ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("contextual-coexist")};
+    coexist.occurrence.reset();
+    coexist.replacement_group.reset();
+    coexist.presentation_parent.reset();
+    REQUIRE(state.upsert_mounted_layout(compiled_project, coexist));
+    CHECK(state.mounted_layouts().size() == 2);
+
+    REQUIRE(state.remove_mounted_layout(replacement.key, owner));
+    REQUIRE(state.mounted_layouts().size() == 1);
+    CHECK(state.mounted_layouts().front().key == coexist.key);
+}
+
+TEST_CASE("contextual Layout presentation parent rejects descendant cycles")
+{
+    const auto compiled_project = load_fixture("comprehensive.json");
+    auto state_result = SessionState::create(compiled_project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    const PresentationOwner owner{state.session_presentation_owner()};
+
+    REQUIRE(state.set_layout(compiled_project, owner, compiled::LayoutSlot::Custom,
+                             id<LayoutId>("hud-inline")));
+    auto prototype = state.mounted_layouts().front();
+    REQUIRE(state.remove_mounted_layout(prototype.key, owner));
+
+    prototype.key = ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("parent")};
+    prototype.occurrence.reset();
+    REQUIRE(state.upsert_mounted_layout(compiled_project, prototype));
+    REQUIRE(state.mounted_layouts().front().occurrence);
+    const auto parent_occurrence = *state.mounted_layouts().front().occurrence;
+
+    auto child = prototype;
+    child.key = ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("child")};
+    child.occurrence.reset();
+    child.presentation_parent = LayoutPresentationParent{owner, prototype.key, parent_occurrence};
+    REQUIRE(state.upsert_mounted_layout(compiled_project, child));
+    const auto child_mount = std::ranges::find_if(
+        state.mounted_layouts(), [&](const auto& mounted) { return mounted.key == child.key; });
+    REQUIRE(child_mount != state.mounted_layouts().end());
+    REQUIRE(child_mount->occurrence);
+
+    auto cyclic_parent = prototype;
+    cyclic_parent.presentation_parent =
+        LayoutPresentationParent{owner, child.key, *child_mount->occurrence};
+    const auto rejected = state.upsert_mounted_layout(compiled_project, cyclic_parent);
+    REQUIRE_FALSE(rejected);
+    REQUIRE_FALSE(rejected.error().empty());
+    CHECK(rejected.error().front().code == "runtime.invalid_layout_presentation_parent");
+}
+
 TEST_CASE("occurrence Material Parameters enforce binding authority and bounded postprocess state")
 {
     const auto compiled_project = load_fixture("scene-program.json");

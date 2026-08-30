@@ -22,7 +22,9 @@
                     data-class-selected="item.selected"
                     data-attrif-disabled="!item.enabled"
                     data-attr-data-subject-id="item.id"
-                    onclick="noveltea_inventory.activate(event, element, document)">
+                    data-event-click="ui_primary_activate('interactable', item.id)"
+                    data-event-mousedown="ui_context_activate('interactable', item.id)"
+                    onclick="noveltea_inventory.dismiss(event, element, document)">
                 <span class="nt-inventory-item-name">{{ item.display_name }}</span>
                 <span class="nt-inventory-item-quantity" data-if="item.stackable || item.quantity > 1">×{{ item.quantity }}</span>
             </button>

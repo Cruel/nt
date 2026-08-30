@@ -682,6 +682,109 @@ void RuntimeUI::State::install_shell_lua_api()
                    dispatch_layout_typed_input(core::RuntimeInputMessage{core::DismissLayoutInput{
                        context->owner, context->key, context->occurrence}});
         });
+        mount.set_function("trigger", [this, resolve_mount_context,
+                                       mount_lua_state](sol::table mount) {
+            sol::state_view lua(mount_lua_state);
+            const auto* context = resolve_mount_context(mount);
+            if (!context || !context->trigger_context)
+                return sol::make_object(lua, sol::lua_nil);
+            const sol::optional<std::string> document_id = mount["document_id"];
+            auto* mounted_document = document_id ? document(*document_id) : nullptr;
+            auto* rml_context = mounted_document ? mounted_document->GetContext() : nullptr;
+            if (!rml_context)
+                return sol::make_object(lua, sol::lua_nil);
+            const auto dimensions = rml_context->GetDimensions();
+            const auto resolved = core::resolve_layout_trigger_context(*context->trigger_context,
+                                                                       dimensions.x, dimensions.y);
+            sol::table value = lua.create_table();
+            sol::table viewport = lua.create_table();
+            viewport["x"] = resolved.viewport.x;
+            viewport["y"] = resolved.viewport.y;
+            viewport["width"] = resolved.viewport.width;
+            viewport["height"] = resolved.viewport.height;
+            value["viewport"] = viewport;
+            if (resolved.pointer) {
+                sol::table pointer = lua.create_table();
+                pointer["x"] = resolved.pointer->x;
+                pointer["y"] = resolved.pointer->y;
+                value["pointer"] = pointer;
+            }
+            if (resolved.source_bounds) {
+                sol::table bounds = lua.create_table();
+                bounds["x"] = resolved.source_bounds->x;
+                bounds["y"] = resolved.source_bounds->y;
+                bounds["width"] = resolved.source_bounds->width;
+                bounds["height"] = resolved.source_bounds->height;
+                value["source_bounds"] = bounds;
+            }
+            return sol::make_object(lua, std::move(value));
+        });
+        mount.set_function("anchor", [this, resolve_mount_context, mount_lua_state](
+                                         sol::table mount, double width, double height,
+                                         sol::optional<std::string> source_name,
+                                         sol::optional<std::string> side_name,
+                                         sol::optional<std::string> alignment_name,
+                                         sol::optional<double> gap, sol::optional<double> padding) {
+            sol::state_view lua(mount_lua_state);
+            const auto* context = resolve_mount_context(mount);
+            if (!context || !context->trigger_context)
+                return sol::make_object(lua, sol::lua_nil);
+            const sol::optional<std::string> document_id = mount["document_id"];
+            auto* mounted_document = document_id ? document(*document_id) : nullptr;
+            auto* rml_context = mounted_document ? mounted_document->GetContext() : nullptr;
+            if (!rml_context)
+                return sol::make_object(lua, sol::lua_nil);
+            const auto dimensions = rml_context->GetDimensions();
+            const auto resolved = core::resolve_layout_trigger_context(*context->trigger_context,
+                                                                       dimensions.x, dimensions.y);
+            core::ContextualAnchorRequest request;
+            request.popup_width = width;
+            request.popup_height = height;
+            request.gap = gap.value_or(0.0);
+            request.viewport_padding = padding.value_or(0.0);
+            if (source_name == "source")
+                request.source = core::ContextualAnchorSource::SourceBounds;
+            else if (source_name == "nearest")
+                request.source = core::ContextualAnchorSource::NearestSourcePoint;
+            if (side_name == "top")
+                request.side = core::ContextualAnchorSide::Top;
+            else if (side_name == "right")
+                request.side = core::ContextualAnchorSide::Right;
+            else if (side_name == "left")
+                request.side = core::ContextualAnchorSide::Left;
+            if (alignment_name == "center")
+                request.alignment = core::ContextualAnchorAlignment::Center;
+            else if (alignment_name == "end")
+                request.alignment = core::ContextualAnchorAlignment::End;
+            const auto anchor = core::resolve_contextual_anchor(resolved, request);
+            sol::table value = lua.create_table();
+            value["x"] = anchor.x;
+            value["y"] = anchor.y;
+            return sol::make_object(lua, std::move(value));
+        });
+        mount.set_function("present_child_inventory",
+                           [this, resolve_mount_context](sol::table mount) {
+                               const auto* context = resolve_mount_context(mount);
+                               return context && action_gateway &&
+                                      action_gateway->action_present_player_inventory(
+                                          context->trigger_context,
+                                          core::LayoutPresentationParent{
+                                              context->owner, context->key, context->occurrence},
+                                          true);
+                           });
+        mount.set_function("present_child", [this, resolve_mount_context](
+                                                sol::table mount, std::string layout_id,
+                                                sol::optional<std::string> instance_id) {
+            const auto* context = resolve_mount_context(mount);
+            if (!context || !action_gateway)
+                return false;
+            std::optional<std::string> instance;
+            if (instance_id)
+                instance = *instance_id;
+            return action_gateway->action_present_child_layout(
+                std::move(layout_id), std::move(instance), context->trigger_context,
+                core::LayoutPresentationParent{context->owner, context->key, context->occurrence});
+        });
         mount.set_function(
             "signal", [this, resolve_mount_context](sol::table mount, std::string name,
                                                     sol::optional<sol::table> payload) {
