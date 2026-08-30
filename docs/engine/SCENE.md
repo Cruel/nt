@@ -35,7 +35,7 @@ limit.
 
 Gameplay mutation is deliberately split from orchestration. `GameplayEffectBatch` is an immediate,
 typed transaction over admitted semantic Property, Character/Interactable Location and state, Trait,
-and Item Stack operations. Runtime validates and applies the whole batch against staged Session state,
+and Interactable quantity operations. Runtime validates and applies the whole batch against staged Session state,
 then publishes that state only if every operation succeeds; a failed operation therefore cannot leak
 an earlier mutation from the same batch. `RuntimeWorldTransaction` uses the same copy-on-commit
 boundary for creation, configuration replacement/clearing, exit retargeting, and instance destruction,

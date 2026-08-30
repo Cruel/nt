@@ -18,8 +18,6 @@ NOVELTEA_DOMAIN_ID(DialogueId);
 NOVELTEA_DOMAIN_ID(CharacterId);
 NOVELTEA_DOMAIN_ID(InteractableDefinitionId);
 NOVELTEA_DOMAIN_ID(InteractableInstanceId);
-NOVELTEA_DOMAIN_ID(ItemDefinitionId);
-NOVELTEA_DOMAIN_ID(ItemStackId);
 NOVELTEA_DOMAIN_ID(VerbId);
 NOVELTEA_DOMAIN_ID(VerbSlotId);
 NOVELTEA_DOMAIN_ID(CommandResultBindingId);

@@ -16,8 +16,6 @@ export interface AssetNode {
   type:
     | 'room'
     | 'interactable'
-    | 'item-definition'
-    | 'item-stack'
     | 'verb'
     | 'interaction'
     | 'map'

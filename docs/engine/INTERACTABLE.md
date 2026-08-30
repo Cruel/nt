@@ -94,9 +94,9 @@ An Interactable may declare owner-local Inventories. Inventory membership is der
 
 Inventory presentation is generic and exact-identity based. Project Settings may designate zero or one ordinary Project-owned Inventory as the Player Inventory and may designate one reusable default Inventory Layout. `Present Inventory` accepts Player Inventory or any exact owner-qualified Inventory and resolves its Layout as explicit command Layout, then Project default, then the built-in compact fallback. Inventory membership remains direct and semantically unordered; RuntimeUI publishes direct exact Interactable members in stable Instance-ID order and does not flatten nested container contents. Each row carries the exact Instance and origin Definition identities, quantity/stackability, presentation, and enabled/visible state. Activating a row uses the same exact Interactable Primary Activate/Verb resolution used by Room objects; no aggregate Inventory subject or Item Stack presentation path is created.
 
-The former Item Definition/Item Stack project model is retired. `docs/engine/ITEM.md` records that
-boundary; follow-up stackability work extends exact Interactable Instances rather than restoring
-parallel Item identities.
+The former Item Definition/Item Stack project/runtime model is retired. `docs/engine/ITEM.md` records
+that boundary; stackability and quantity are native exact-Interactable-Instance semantics and there
+is no parallel Item identity path.
 
 ## Authoring, compiled, and state disposition
 
@@ -146,8 +146,8 @@ operations all use these same typed Location and semantic-subject APIs.
 Lua quantity operations live on `noveltea.interactables`, alongside exact Location operations. The
 surface queries exact quantity and exposes create-with-quantity, split, merge, exact transfer,
 Add Quantity, consume, and aggregate Definition quantity/consume helpers. These APIs return and accept
-`InteractableInstanceId` identities; the retired `noveltea.item_stacks` compatibility surface is not
-used to implement Interactable quantity semantics and remains only for its later contraction ticket.
+`InteractableInstanceId` identities. The retired `noveltea.item_stacks` surface is absent rather than
+aliased or normalized onto Interactable quantity semantics.
 
 At runtime, multiple placed Interactables that reference one sprite share its source texture and alpha
 occupancy. Custom mode derives a distinct owner-union binary `R8` mask through the ordinary

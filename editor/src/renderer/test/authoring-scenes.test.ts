@@ -49,6 +49,23 @@ describe('authoring scenes', () => {
     ).toBe(false);
   });
 
+  it('rejects the superseded Scene-specific gameplay operation shape', () => {
+    const batch = defaultSceneStep('gameplay-effect-batch');
+    expect(
+      sceneStepDataSchema.safeParse({
+        ...batch,
+        operations: [
+          {
+            kind: 'set-character-state',
+            character: { $ref: { collection: 'characters', id: 'hero' } },
+            enabled: true,
+            visible: true,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it('creates valid defaults for every standalone step variant', () => {
     expect(sceneStepDataSchema.safeParse(defaultSceneStep('run-lua')).success).toBe(true);
     expect(defaultSceneStep('run-lua')).toMatchObject({ source: '-- Lua' });

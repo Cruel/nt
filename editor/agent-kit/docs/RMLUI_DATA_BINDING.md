@@ -203,7 +203,7 @@ gameplay.command_builder.bound_slots: string[]
 gameplay.command_builder.focused_slot: string
 gameplay.command_builder.complete: bool
 gameplay.command_builder.watched[]:
-  subject_kind: 'character' | 'interactable' | 'item-stack' | 'feature'
+  subject_kind: 'character' | 'interactable' | 'feature'
   subject_id: string
   live: bool
   available: bool

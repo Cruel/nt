@@ -688,17 +688,6 @@ RuntimeExecutor::room_view(std::string_view runtime_locale)
         return core::Result<core::RoomView, RuntimeExecutionError>::failure(
             execution_error("execution.room_view_unavailable", "Room presentation is unavailable"));
     auto view = m_room_presentation->view;
-    for (const auto& stack : m_state.item_stacks()) {
-        const auto* location = std::get_if<core::compiled::RoomLocation>(&stack.location);
-        const auto* definition = m_project.find_item_definition(stack.definition);
-        if (location == nullptr || location->room != visit->room || definition == nullptr)
-            continue;
-        view.item_stacks.push_back({stack.id, stack.definition, stack.quantity, stack.location,
-                                    m_world.effective_room(stack.id), definition->display_name,
-                                    definition->description, definition->presentation,
-                                    stack.traits});
-    }
-    std::ranges::sort(view.item_stacks, {}, [](const auto& stack) { return stack.stack.text(); });
     auto inventory = inventory_view(runtime_locale);
     const auto* inventory_value = inventory.value_if();
     if (inventory_value == nullptr)

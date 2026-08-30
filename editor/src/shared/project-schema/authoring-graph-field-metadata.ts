@@ -493,14 +493,6 @@ function isArchetypeContractLeaf(path: JsonPointer): boolean {
   );
 }
 
-function isItemContractLeaf(path: JsonPointer): boolean {
-  return (
-    path.startsWith('/itemDefinitions/') ||
-    path.startsWith('/itemStacks/') ||
-    path.includes('/itemStack/')
-  );
-}
-
 function isSceneChoiceGameplayCommandLeaf(path: JsonPointer): boolean {
   return path.startsWith('/scenes/*/data/events/*/options/*/effects/*');
 }
@@ -675,7 +667,6 @@ const legacySchemaLeafPaths = [
       (path) =>
         !path.startsWith('/traits/') &&
         !isArchetypeContractLeaf(path) &&
-        !isItemContractLeaf(path) &&
         !isSceneChoiceGameplayCommandLeaf(path) &&
         roomLifecycleGameplayCommandEffect(path) === undefined,
     )
@@ -860,8 +851,7 @@ const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
   .map((path) => {
     const roomLifecycleEffect = roomLifecycleGameplayCommandEffect(path);
     if (roomLifecycleEffect) return roomLifecycleEffect;
-    if (path.startsWith('/traits/') || isArchetypeContractLeaf(path) || isItemContractLeaf(path))
-      return 'o';
+    if (path.startsWith('/traits/') || isArchetypeContractLeaf(path)) return 'o';
     const segments = parseJsonPointer(path);
     if (
       segments.length === 4 &&

@@ -4340,8 +4340,6 @@ private:
     MAP(rooms, RoomId);
     MAP(interactables, InteractableDefinitionId);
     MAP(interactable_instances, InteractableInstanceId);
-    MAP(item_definitions, ItemDefinitionId);
-    MAP(item_stacks, ItemStackId);
     MAP(verbs, VerbId);
     MAP(interactions, InteractionId);
     MAP(scenes, SceneId);

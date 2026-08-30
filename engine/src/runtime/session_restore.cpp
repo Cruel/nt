@@ -331,8 +331,6 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_runtime_characters = std::move(runtime_characters);
     state->m_runtime_interactables = std::move(runtime_interactables);
     state->m_next_runtime_instance_id = save.next_runtime_instance_id;
-    state->m_item_stacks = save.item_stacks;
-    state->m_next_item_stack_id = save.next_item_stack_id;
 
     state->m_mode = save.mode;
     state->m_flow_stack.clear();

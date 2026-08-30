@@ -867,6 +867,13 @@ describe('preview protocol validation', () => {
     expect(isRuntimeDebugSnapshot(snapshot)).toBe(true);
     expect(isRuntimeDebugSnapshot({ ...snapshot, gameplayPaused: true })).toBe(true);
     expect(isRuntimeDebugSnapshot({ ...snapshot, gameplayPaused: 'yes' })).toBe(false);
+    expect(isRuntimeDebugSnapshot({ ...snapshot, itemStacks: [] })).toBe(false);
+    expect(
+      isRuntimeDebugSnapshot({
+        ...snapshot,
+        selectedSubjects: [{ kind: 'item-stack', id: 'coins' }],
+      }),
+    ).toBe(false);
     expect(
       isPreviewToEditorMessage({
         version: 1,

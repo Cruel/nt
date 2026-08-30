@@ -11,10 +11,9 @@ Inventory-capable world objects use the Interactable definition/Instance model d
 object has an exact `InteractableInstanceId`, a definition reference, one Location, enabled/visible
 state, and Instance-local Trait/Property deltas.
 
-The old Item Stack runtime types and mutation implementation remain temporarily as unreachable
-internal scaffolding. They are not seeded by canonical Project data, are not exposed as editor
-collections, and must not be used as a project-format compatibility path. Follow-up work replaces
-stackability and quantity on top of Interactable Instances before the legacy internals are removed.
+The old Item runtime IDs, state records, mutation implementation, save fields, Property-owner and
+Interaction-subject variants, Lua surface, and preview/debug projections have been removed. There is
+no compatibility alias or second runtime object model behind the Interactable Instance contract.
 
 ## Authoring and editor
 
@@ -24,5 +23,6 @@ Explorer collection. Room authoring can either create a new Instance from a Defi
 already-declared Instance without changing its identity.
 
 Do not add Item Definition/Item Stack creation flows, schemas, generated agent-kit record schemas,
-or compatibility readers. Any future counted/stackable inventory behavior must preserve exact
-Interactable Instance identity and extend that model rather than restoring the retired Item family.
+compatibility readers, deprecated Lua aliases, or save/protocol variants. Counted/stackable inventory
+behavior preserves exact Interactable Instance identity and extends that model rather than restoring
+the retired Item family.

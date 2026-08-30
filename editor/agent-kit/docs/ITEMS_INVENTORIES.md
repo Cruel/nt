@@ -1,35 +1,33 @@
-# Item Definitions, Item Stacks, and Inventories
+# Interactable Quantities and Inventories
 
-NovelTea separates a fungible item's reusable definition from each live quantity-bearing identity.
+NovelTea uses one exact-identity object model for unique and fungible gameplay objects. The retired Item Definition/Item Stack model is not a second authoring path.
 
-An **Item Definition** says what an item is: display name/description, optional sprite/material, optional stack limit, and Item-Stack Properties/Traits that instances of that definition inherit.
+An **Interactable Definition** says what a reusable object kind is. It may declare presentation, Traits/Properties, stackability, and an optional stack limit. A non-stackable Definition fixes every live Instance at quantity `1`; a stackable Definition permits positive quantity-bearing Instances up to its limit.
 
-An **Item Stack** is one exact live identity with one Item Definition, a positive quantity, and one Location. Two Stacks of the same definition are still different semantic subjects until an explicit stack operation combines them.
+An **Interactable Instance** is one exact live identity with one immutable origin Definition, a positive quantity, and one Location. Two Instances of the same Definition remain distinct semantic subjects unless an explicit Merge ends one identity.
 
-## When to use Items versus Interactables
+## Unique versus stackable objects
 
-Use Items for fungible/countable things such as currency, ammunition, ingredients, generic keys, or consumables where quantity matters. Use an Interactable for a unique object whose individual identity, presentation, Features, or state matters independently.
+Use the same Interactable collection for both. A unique key, door, tool, coin stack, ammunition bundle, or ingredient stack is differentiated by Definition configuration and exact Instance state, not by choosing a separate Item record family.
 
-Do not emulate stackable inventory by putting a `count` Property on an Interactable. Do not use an Item Definition as a substitute for the exact Item Stack when an Interaction or Test needs a live subject.
+Do not emulate stackable inventory with a custom `count` Property. Use the Definition's stackability/stack-limit fields and the Instance's canonical quantity. Interactions and Tests address exact Interactable Instance IDs rather than a visually grouped inventory row.
+
+Stackable Definitions cannot own identity-bearing Features or Inventories. If each unit needs independently addressable child state, model it as non-stackable exact Instances instead.
 
 ## Inventories and Location
 
-Inventories are named containers declared by their owner rather than standalone records. Project, Character, Interactable, Room Feature, and Interactable Feature ownership are supported where the current schema admits them. An Item Stack can be Unplaced, directly in a Room, or in an owner-qualified Inventory.
+Inventories are named owner-local containers rather than standalone records. Project, Character, Interactable Instance, Room Feature, and Interactable Feature ownership are supported where the current schema admits them. An Interactable Instance can be Unplaced, directly in a Room, or in an owner-qualified Inventory.
 
-Inventory references therefore need both the owner identity and the Inventory ID. An Inventory ID such as `bag` is not globally unique by itself.
+Inventory references therefore need both the owner identity and Inventory ID. An Inventory ID such as `bag` is not globally unique by itself. Membership is derived from exact Instance Location and is semantically unordered; UI grouping never creates a new gameplay identity.
 
-Moving a Stack into or out of an Inventory changes its semantic Location. UI grouping is presentation only: even if several compatible Stacks appear as one row, gameplay references still use exact Stack IDs.
+## Quantity behavior
 
-## Stack behavior
+Typed Gameplay Commands and `noveltea.interactables` Lua operations can create quantities, split, merge, transfer, add, consume, and aggregate exact Interactable Instances. Create never silently coalesces. Split preserves the source and creates a new exact identity. Merge preserves the explicit receiver and ends the donor. Whole exact transfer may preserve identity; partial transfer splits.
 
-Runtime gameplay can grant, consume, split, merge, and transfer Item Stacks. Stack limits are enforced. A split creates a new exact Stack identity; a full merge ends the donor identity. Code or authored behavior must not assume an ended Stack ID redirects to the survivor.
-
-For initial project state, author Item Stack records with the desired definition, quantity, and Location. For story-time changes, use Scene gameplay effects, Interactions, or Lua rather than rewriting immutable authoring data.
+For initial project state, edit the infrastructure-level declared Interactable Instance registry through the normal Interactable/Room/Inventory authoring surfaces. For story-time changes, use shared Gameplay Commands, Interactions, or `noveltea.interactables` Lua operations rather than rewriting immutable authoring data.
 
 ## Interactions and selectors
 
-An Item Stack can be an Interaction subject. A Verb slot may admit any Item Stack, require a Trait, require one Item Definition, match a qualified/exact identity, or combine selectors as a union. The final command binds the exact live Stack ID.
+An exact Interactable Instance can be an Interaction subject. A Verb slot may admit any Interactable, require a Trait, require one Interactable Definition, match a qualified/exact identity, or combine selectors as a union. The final command always binds the exact live Instance ID.
 
-This distinction lets an Interaction mean “use any healing herb” at rule-selection time while still executing against the actual Stack the player selected.
-
-Use `noveltea entity create itemDefinitions <id>` and `noveltea entity create itemStacks <id>` for initialized shapes. Exact schemas are `schemas/records/itemDefinitions.schema.json` and `schemas/records/itemStacks.schema.json`.
+There are no `itemDefinitions` or `itemStacks` collections, no Item Stack subject/Property-owner kind, and no `noveltea.item_stacks` Lua compatibility API. Retired shapes are invalid rather than normalized.

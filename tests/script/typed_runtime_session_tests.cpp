@@ -2679,6 +2679,18 @@ TEST_CASE("runtime script API uses owner-qualified Feature subjects and Properti
         "script-api-feature-invalid-owner"));
 }
 
+TEST_CASE("runtime Lua rejects the retired Item Stack API surface")
+{
+    Fixture fixture;
+    REQUIRE(execute_session_lua(
+        fixture,
+        "assert(noveltea.item_stacks == nil)\n"
+        "assert(noveltea.properties.get_item_stack == nil)\n"
+        "local ok = pcall(function() return noveltea.item_stacks.get('coins') end)\n"
+        "assert(not ok)",
+        "retired-item-stack-api"));
+}
+
 TEST_CASE("runtime script API teardown leaves inert bindings without a stale target")
 {
     Fixture fixture;

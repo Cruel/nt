@@ -9,11 +9,9 @@ NovelTea projects are file-first. Use the focused generated documents to underst
 - **Room**: an explorable world location with background presentation, exits, placements, props, cast, Interactables, Features, and lifecycle behavior.
 - **Placement**: a named normalized rectangle inside a Room. Placements provide geometry that Room content can reuse.
 - **Prop**: a visual Room object that associates an Asset and/or Material with a Placement. Use a Prop when the object is only presentation and is not meant to participate in interaction.
-- **Interactable**: a reusable interactive object definition. It owns its sprite/material presentation, hotspot definition, and initial enabled/visible state.
-- **Room interactable**: an instance of an Interactable in one Room. It references both the global Interactable record and a Room Placement.
+- **Interactable**: a reusable interactive object definition. Exact Interactable Instances reference that Definition and carry live Location, enabled/visible state, Traits/Properties, and quantity.
+- **Room interactable**: an exact Interactable Instance whose semantic Location is a Room and whose Room presentation may use one or more exact occurrences/placements.
 - **Room hotspot**: an interactive region directly on the Room background image, useful when the clickable feature is already baked into that image.
-- **Item Definition**: the reusable definition of a fungible inventory item, such as a coin, herb, or ammunition type.
-- **Item Stack**: one exact live identity containing a quantity of one Item Definition at one Location. Interactions and tests address the Stack identity, not a visually grouped inventory row.
 - **Verb**: an interaction operation with stable named required subject slots, reusable Subject Selectors, and one locale-neutral `bindingOrder`.
 - **Interaction**: authored behavior associated with a Verb, one selector union per named Verb slot, and semantic context/conditions.
 - **Dialogue**: a conversation graph specialized for lines, choices, Dialogue-local Character/media presentation, inline cues, and cooperative Scene handoff.
@@ -34,7 +32,7 @@ Use this decision rule before editing a Room:
 - Need only an image visible in the Room? Use a **Prop** plus a Placement.
 - Need an object the player can target or interact with? Use an **Interactable** record plus a Placement and a Room-interactable instance.
 - Need an interactive region over something already visible in the Room background? Use a **Room hotspot**.
-- Need a fungible quantity such as coins, ingredients, or ammunition? Use an **Item Definition** plus one or more **Item Stacks**, not an Interactable with a custom count Property.
+- Need a fungible quantity such as coins, ingredients, or ammunition? Make the **Interactable Definition** stackable and use exact quantity-bearing Interactable Instances; do not invent a custom count Property or a separate Item record.
 - Need a scripted/cinematic sequence that coordinates presentation and gameplay? Use a **Scene**.
 - Need a branching conversation with line/choice history and Dialogue-local presentation? Use a **Dialogue**.
 

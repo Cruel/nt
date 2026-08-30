@@ -11,9 +11,9 @@ A completed-command template may use stable named placeholders, for example `Sho
 Subject Selectors are the shared closed vocabulary:
 
 - `any-subject`;
-- `family` for Character, Interactable, Feature, or Item Stack;
+- `family` for Character, Interactable, or Feature;
 - `trait` for a required live Trait;
-- `item-definition` for Item Stacks of one Item Definition;
+- `interactable-definition` for Interactable Instances of one Interactable Definition;
 - `qualified-pattern` for a stable family-qualified identity prefix with one trailing `*`;
 - `exact` for one exact semantic subject.
 
@@ -21,9 +21,9 @@ Selector arrays are unions: a subject is admitted when any selector in the slot 
 
 ## Semantic subjects
 
-Interaction subjects are exactly Character, Interactable, owner-qualified Feature, and exact live Item Stack identities. A Feature is a stable semantic part owned by a Room or Interactable; its reference is always owner-qualified. Item Stack subjects use the live Stack ID rather than merely an Item Definition.
+Interaction subjects are exactly Character, exact live Interactable Instance, and owner-qualified Feature identities. A Feature is a stable semantic part owned by a Room or Interactable Instance; its reference is always owner-qualified.
 
-Runtime-created subjects use the same selector vocabulary as declared subjects. Match their live family, effective Traits, Item Definition, qualified identity, or exact identity; do not depend on Archetype provenance.
+Runtime-created subjects use the same selector vocabulary as declared subjects. Match their live family, effective Traits, Interactable Definition, qualified identity, or exact identity; do not depend on Archetype provenance.
 
 ## Hotspots select subjects; they do not own behavior
 

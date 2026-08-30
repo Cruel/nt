@@ -23,7 +23,7 @@ Major event families include:
 - presentation: background changes, actor cues, Layout changes, material parameters, postprocess effects, transition groups;
 - story flow: call Scene, call Dialogue, resume handed-off Dialogue, detached Scene launch;
 - player/text flow: Scene text, Scene choice, waits, conditional branches;
-- gameplay: variable/property/location/state/Item Stack effects and atomic gameplay-effect batches;
+- gameplay: shared Property/Trait/Location/state/Interactable-quantity commands and atomic gameplay-command batches;
 - runtime world structure: create/configure/destroy runtime instances and retarget exits through runtime-world transactions;
 - exploration: directed Room change, guarded navigation attempt, call Interaction;
 - media/scripting: semantic audio cues and Run Lua.

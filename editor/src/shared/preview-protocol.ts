@@ -886,7 +886,29 @@ function isRuntimeDebugPublicationSnapshot(
 
 export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSnapshot {
   if (!isRecord(value)) return false;
+  const allowedKeys = new Set([
+    'requestId',
+    'loaded',
+    'running',
+    'shellMode',
+    'runtimeMode',
+    'gameplayPaused',
+    'entrypoint',
+    'currentEntity',
+    'currentRoomId',
+    'currentMapId',
+    'currentDialogueId',
+    'waiting',
+    'availableInputs',
+    'variables',
+    'inventory',
+    'selectedSubjects',
+    'diagnostics',
+    'saveSnapshot',
+    'publication',
+  ]);
   return (
+    Object.keys(value).every((key) => allowedKeys.has(key)) &&
     (value.requestId === undefined || typeof value.requestId === 'string') &&
     typeof value.loaded === 'boolean' &&
     typeof value.running === 'boolean' &&

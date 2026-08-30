@@ -662,7 +662,6 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
                   .overlays = draft.overlays,
                   .placements = {},
                   .exits = {},
-                  .item_stacks = {},
                   .controls = {}};
     for (const auto& placement : room.placements) {
         RoomPlacementView item{.placement = placement.id,

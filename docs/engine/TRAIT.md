@@ -27,8 +27,8 @@ An absent Default means the Trait contributes schema/capability only; an attache
 eventually provide a more-specific value. Empty Traits are valid semantic markers and may be compiled,
 attached, and matched at runtime without declaring any Properties.
 
-Traits attach to stateful Gameplay Instances—Room, Character, and Interactable—and to Item Stack
-semantic state through its immutable Item Definition defaults plus live Stack Trait set. Scene,
+Traits attach to stateful Gameplay Instances—Room, Character, and exact Interactable Instances.
+Interactable Instance Traits resolve against their immutable Definition defaults plus live deltas. Scene,
 Dialogue, Verb, Interaction, and Map are immutable program/vocabulary definitions rather than
 stateful Property- or Trait-bearing identities. Assets, Layouts, Script Modules, Shaders, Materials,
 Variables/Global Properties, Tests, and the Project root are also not Trait owners.

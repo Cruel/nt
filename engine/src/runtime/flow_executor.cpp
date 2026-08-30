@@ -722,10 +722,10 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
                         else if constexpr (std::is_same_v<T,
                                                           compiled::InteractableInteractionSubject>)
                             return interactable_definition(value.interactable) != nullptr;
-                        else if constexpr (std::is_same_v<T, compiled::FeatureInteractionSubject>)
+                        else {
+                            static_assert(std::is_same_v<T, compiled::FeatureInteractionSubject>);
                             return feature_definition(value.feature) != nullptr;
-                        else
-                            return m_state.item_stack(value.item_stack) != nullptr;
+                        }
                     },
                     binding.subject);
             });
@@ -804,10 +804,10 @@ Result<void, Diagnostics> FlowExecutor::call_interaction(InteractionInvocationCo
                         else if constexpr (std::is_same_v<T,
                                                           compiled::InteractableInteractionSubject>)
                             return interactable_definition(value.interactable) != nullptr;
-                        else if constexpr (std::is_same_v<T, compiled::FeatureInteractionSubject>)
+                        else {
+                            static_assert(std::is_same_v<T, compiled::FeatureInteractionSubject>);
                             return feature_definition(value.feature) != nullptr;
-                        else
-                            return m_state.item_stack(value.item_stack) != nullptr;
+                        }
                     },
                     binding.subject);
             });
