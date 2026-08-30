@@ -35,8 +35,8 @@ produced them. Hosts that do not own those contexts reject such operands during 
 compiled-project validation; runtime resolution also fails closed if a stale or mistyped dynamic
 operand reaches execution.
 
-Player Inventory is a typed operand, not a hidden container. It resolves only when Project settings
-designate a Player Inventory.
+Player Inventory is a typed operand for the Project's single canonical Inventory, not a hidden or
+separately selected container.
 
 ## Validation and preview
 

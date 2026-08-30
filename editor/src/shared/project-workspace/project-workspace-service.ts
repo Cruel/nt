@@ -418,7 +418,14 @@ function ownershipFor(
   const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
       files: ['project.json'],
-      paths: ['/project', '/settings', '/bootstrapModule', '/entrypoint', '/inventories'],
+      paths: [
+        '/project',
+        '/settings',
+        '/bootstrapModule',
+        '/entrypoint',
+        '/inventories',
+        '/interactableInstances',
+      ],
     },
     'collection:traits': { files: ['traits.json'], paths: ['/traits'] },
     'project:localization': { files: ['localization.json'], paths: ['/localization'] },

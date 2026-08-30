@@ -185,6 +185,9 @@ describe('ProjectWorkspaceService', () => {
     expect(opened.snapshot.saveUnitFileOwnership['project:settings']?.files).toEqual([
       'project.json',
     ]);
+    expect(opened.snapshot.saveUnitFileOwnership['project:settings']?.paths).toContain(
+      '/interactableInstances',
+    );
     expect(opened.snapshot.saveUnitFileOwnership['collection:traits']?.files).toEqual([
       'traits.json',
     ]);

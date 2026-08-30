@@ -224,7 +224,10 @@ function compileInventoryReference(inventory: {
                 },
                 featureId: owner.featureId,
               };
-  return { owner: compiledOwner, inventoryId: inventory.inventoryId };
+  return {
+    owner: compiledOwner,
+    inventoryId: owner.kind === 'project' ? 'player' : inventory.inventoryId,
+  };
 }
 
 function compileInteractableLocation(

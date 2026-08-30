@@ -28,6 +28,11 @@ Project Settings edits the authoring project document through undoable command-b
 does not write editor preferences, runtime user settings, or game progress. Editor preferences remain
 in the Electron `noveltea-preferences` store; runtime user settings and typed saves use their separate
 C++ versioned contracts.
+The Project owns one canonical Inventory (`inventory`, displayed as `Inventory`). Project Settings
+authors its starting contents directly: adding an Interactable creates an exact declared Interactable
+Instance located in that Inventory, stackable Definitions expose an initial quantity, and removing a
+row moves that exact Instance to `unplaced` rather than deleting its identity. Characters,
+Interactables, and Features may still declare their own owner-local Inventories independently.
 ComfyUI connection settings and workflow-library management are machine/user-level surfaces shared with the headless CLI. Shared user workflow packages live beneath the NovelTea user configuration root, while project-local packages remain contextual to the saved Project. Project Settings only shows a compact workflow summary and a Manage button; it must not write server URLs, enablement, default workflow preferences, or workflow-library state into the authoring project document.
 
 ## Editing and Save Behavior
@@ -77,6 +82,9 @@ bootstrapModule // typed Script Module reference
 Runtime defaults use:
 
 ```ts
+inventories[0] // fixed { id: "inventory", label: "Inventory" }
+interactableInstances // exact starting Inventory membership/location + quantity
+settings.inventory.defaultLayout
 settings.ui.systemLayouts.title
 settings.ui.systemLayouts.game-hud
 settings.ui.systemLayouts.command-builder

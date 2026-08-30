@@ -72,7 +72,7 @@ The generated `ui/` tree is copied byte-for-byte from the engine's shipped syste
 
 ## Contextual Verb Menu and Inventory presentation
 
-Verb Menu and ordinary Inventory presentation are contextual gameplay Layouts, not additional System Layout Roles. Project settings may choose `settings.interaction.defaultVerbMenuLayout` and `settings.inventory.defaultLayout`; each falls back to the corresponding built-in Layout when unset. `Present Inventory` may also supply an explicit Layout, which takes precedence over the Project default. `settings.inventory.playerInventory` designates the optional ordinary Project-owned Inventory used by Player Inventory operands/actions.
+Verb Menu and ordinary Inventory presentation are contextual gameplay Layouts, not additional System Layout Roles. Project settings may choose `settings.interaction.defaultVerbMenuLayout` and `settings.inventory.defaultLayout`; each falls back to the corresponding built-in Layout when unset. `Present Inventory` may also supply an explicit Layout, which takes precedence over the Project default. Player Inventory operands/actions resolve the Project's single canonical Inventory; authoring no longer selects among multiple Project Inventories.
 
 The Verb Menu is not the Command Builder. It presents resolved Verb Offers for one exact subject. A one-slot offer can complete directly; an offer that still needs bindings starts the separate Command Builder role.
 

@@ -13,7 +13,6 @@
       "systemLayouts": {}
     },
     "inventory": {
-      "playerInventory": null,
       "defaultLayout": null
     },
     "interaction": {
@@ -127,6 +126,6 @@
     "kind": "room",
     "id": "start"
   },
-  "inventories": [],
+  "inventories": [{ "id": "inventory", "label": "Inventory" }],
   "interactableInstances": {}
 }

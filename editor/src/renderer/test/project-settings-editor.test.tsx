@@ -19,6 +19,7 @@ import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
+import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 
 vi.mock('@/components/source/SourceEditor', () => ({
@@ -75,7 +76,15 @@ function project() {
     data: { kind: 'script-module', source: { kind: 'inline-lua', source: '' } },
   };
   next.layouts.main = { id: 'main', label: 'Main Layout', data: defaultLayoutData('Main Layout') };
-  next.inventories.push({ id: 'backpack', label: 'Backpack' });
+  next.interactables.coin = {
+    id: 'coin',
+    label: 'Coin',
+    data: defaultInteractableData('Coin'),
+  };
+  const credits = defaultInteractableData('Credits');
+  credits.stackable = true;
+  credits.stackLimit = 10;
+  next.interactables.credits = { id: 'credits', label: 'Credits', data: credits };
   next.assets['main-font'] = {
     id: 'main-font',
     label: 'Main Font',
@@ -536,9 +545,6 @@ describe('ProjectSettingsEditor', () => {
     expect(await screen.findByText('Choose Title screen')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Main Layout'));
     fireEvent.change(screen.getByLabelText('Default font'), { target: { value: 'main-font' } });
-    fireEvent.change(screen.getByLabelText('Player Inventory'), {
-      target: { value: 'backpack' },
-    });
     fireEvent.change(screen.getByLabelText('Default Inventory Layout'), {
       target: { value: 'main' },
     });
@@ -556,7 +562,6 @@ describe('ProjectSettingsEditor', () => {
         settings: {
           ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } },
           inventory: {
-            playerInventory: 'backpack',
             defaultLayout: { $ref: { collection: 'layouts', id: 'main' } },
           },
           interaction: {
@@ -569,6 +574,51 @@ describe('ProjectSettingsEditor', () => {
           },
           app: { icon: { $ref: { collection: 'assets', id: 'logo' } } },
         },
+      }),
+    );
+  });
+
+  it('authors starting contents for the single default Inventory', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Runtime');
+
+    expect(screen.queryByLabelText('Player Inventory')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Inventory Interactable'), {
+      target: { value: 'credits' },
+    });
+    fireEvent.change(screen.getByLabelText('New inventory quantity'), {
+      target: { value: '4' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => {
+      const document = useProjectStore.getState().document;
+      expect(document).toMatchObject({
+        inventories: [{ id: 'inventory', label: 'Inventory' }],
+        interactableInstances: {
+          credits: {
+            id: 'credits',
+            definition: { $ref: { collection: 'interactables', id: 'credits' } },
+            quantity: 4,
+            location: {
+              kind: 'inventory',
+              inventory: { owner: { kind: 'project' }, inventoryId: 'inventory' },
+            },
+          },
+        },
+      });
+    });
+
+    expect(screen.getByLabelText('Quantity for credits')).toHaveValue(4);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        interactableInstances: { credits: { location: { kind: 'unplaced' } } },
       }),
     );
   });

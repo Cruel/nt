@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -40,6 +39,15 @@ import {
   type SystemLayoutRole,
 } from '../../../shared/project-schema/authoring-layouts';
 import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import {
+  defaultInteractableInstanceData,
+  parseInteractableData,
+} from '../../../shared/project-schema/authoring-interactables';
+import {
+  PROJECT_INVENTORY_ID,
+  PROJECT_INVENTORY_LABEL,
+  projectInventoryRef,
+} from '../../../shared/project-schema/authoring-inventories';
 import { decodeAuthoringProject } from '../../../shared/project-schema/decode-authoring-project';
 import { stripEditorProjectState } from '../../../shared/project-schema/editor-project-state';
 import {
@@ -421,6 +429,13 @@ function nullableValue(value: string) {
   return value === '__built_in__' || value === '__none__' ? null : value;
 }
 
+function nextInventoryInstanceId(project: AuthoringProject, definitionId: string) {
+  if (!project.interactableInstances[definitionId]) return definitionId;
+  let suffix = 2;
+  while (project.interactableInstances[`${definitionId}-${suffix}`]) suffix += 1;
+  return `${definitionId}-${suffix}`;
+}
+
 function runProjectCommand(type: string, payload: unknown, label: string) {
   return useCommandStore.getState().executeCommand({
     type,
@@ -429,6 +444,170 @@ function runProjectCommand(type: string, payload: unknown, label: string) {
     originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
     persistencePolicy: 'manual-save',
   });
+}
+
+function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject }) {
+  const definitions = Object.values(project.interactables)
+    .map((record) => ({ record, data: parseInteractableData(record.data) }))
+    .filter(
+      (
+        entry,
+      ): entry is { record: (typeof entry)['record']; data: NonNullable<typeof entry.data> } =>
+        Boolean(entry.data),
+    )
+    .sort((left, right) => left.record.label.localeCompare(right.record.label));
+  const [definitionId, setDefinitionId] = useState(definitions[0]?.record.id ?? '');
+  const selected = definitions.find((entry) => entry.record.id === definitionId) ?? definitions[0];
+  const [quantityText, setQuantityText] = useState('1');
+  const contents = Object.values(project.interactableInstances)
+    .filter(
+      (instance) =>
+        instance.location.kind === 'inventory' &&
+        instance.location.inventory.owner.kind === 'project' &&
+        instance.location.inventory.inventoryId === PROJECT_INVENTORY_ID,
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  useEffect(() => {
+    if (!selected && definitions[0]) setDefinitionId(definitions[0].record.id);
+  }, [definitions, selected]);
+
+  const parsedQuantity = Number(quantityText);
+  const quantity =
+    selected?.data.stackable && Number.isSafeInteger(parsedQuantity) && parsedQuantity > 0
+      ? Math.min(parsedQuantity, selected.data.stackLimit ?? Number.MAX_SAFE_INTEGER)
+      : 1;
+
+  function addStartingItem() {
+    if (!selected) return;
+    const instanceId = nextInventoryInstanceId(project, selected.record.id);
+    const instance = defaultInteractableInstanceData(selected.record.id, selected.record.id, {
+      kind: 'inventory',
+      inventory: projectInventoryRef(),
+    });
+    instance.id = instanceId;
+    instance.quantity = quantity;
+    runProjectCommand(
+      'project.addAtPath',
+      { path: `/interactableInstances/${instanceId}`, value: instance },
+      `Add ${selected.record.label} to Inventory`,
+    );
+  }
+
+  return (
+    <div className="space-y-2 md:col-span-2">
+      <div>
+        <Label>{PROJECT_INVENTORY_LABEL}</Label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Starting contents of the project&apos;s default player Inventory.
+        </p>
+      </div>
+      {contents.length > 0 ? (
+        <div className="space-y-2">
+          {contents.map((instance) => {
+            const definition = project.interactables[instance.definition.$ref.id];
+            const data = definition ? parseInteractableData(definition.data) : null;
+            return (
+              <div
+                key={instance.id}
+                className="grid gap-2 rounded border p-2 md:grid-cols-[minmax(0,1fr)_7rem_auto] md:items-center"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {definition?.label ?? instance.definition.$ref.id}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">{instance.id}</div>
+                </div>
+                {data?.stackable ? (
+                  <Label className="gap-1">
+                    Quantity
+                    <Input
+                      aria-label={`Quantity for ${instance.id}`}
+                      type="number"
+                      min={1}
+                      max={data.stackLimit ?? undefined}
+                      value={instance.quantity}
+                      onChange={(event) => {
+                        const next = Number(event.currentTarget.value);
+                        if (!Number.isSafeInteger(next) || next <= 0) return;
+                        const clamped = Math.min(next, data.stackLimit ?? Number.MAX_SAFE_INTEGER);
+                        runProjectCommand(
+                          'project.replaceAtPath',
+                          {
+                            path: `/interactableInstances/${instance.id}/quantity`,
+                            value: clamped,
+                          },
+                          `Update ${definition?.label ?? instance.id} quantity`,
+                        );
+                      }}
+                    />
+                  </Label>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Quantity 1</span>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    runProjectCommand(
+                      'project.replaceAtPath',
+                      {
+                        path: `/interactableInstances/${instance.id}/location`,
+                        value: { kind: 'unplaced' },
+                      },
+                      `Remove ${definition?.label ?? instance.id} from Inventory`,
+                    )
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Inventory starts empty.</p>
+      )}
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_7rem_auto] md:items-end">
+        <Label className="gap-1">
+          Interactable
+          <select
+            aria-label="Inventory Interactable"
+            className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+            value={selected?.record.id ?? ''}
+            disabled={definitions.length === 0}
+            onChange={(event) => setDefinitionId(event.currentTarget.value)}
+          >
+            {definitions.length === 0 ? <option value="">No Interactables</option> : null}
+            {definitions.map(({ record }) => (
+              <option key={record.id} value={record.id}>
+                {record.label} ({record.id})
+              </option>
+            ))}
+          </select>
+        </Label>
+        {selected?.data.stackable ? (
+          <Label className="gap-1">
+            Quantity
+            <Input
+              aria-label="New inventory quantity"
+              type="number"
+              min={1}
+              max={selected.data.stackLimit ?? undefined}
+              value={quantityText}
+              onChange={(event) => setQuantityText(event.currentTarget.value)}
+            />
+          </Label>
+        ) : (
+          <div className="text-xs text-muted-foreground">Quantity 1</div>
+        )}
+        <Button type="button" size="sm" disabled={!selected} onClick={addStartingItem}>
+          Add
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
@@ -652,16 +831,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   function setDefaultFont(assetId: string | null) {
     return commandSucceeded(
       runProjectCommand('project.setDefaultFont', { assetId }, 'Set default font'),
-    );
-  }
-
-  function setPlayerInventory(inventoryId: string | null) {
-    return commandSucceeded(
-      runProjectCommand(
-        'project.replaceAtPath',
-        { path: '/settings/inventory/playerInventory', value: inventoryId },
-        'Set Player Inventory',
-      ),
     );
   }
 
@@ -897,18 +1066,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardContent>
           </Card>
 
-          <InventoryDeclarationsEditor
-            inventories={project.inventories}
-            title="Project Inventories"
-            onChange={(inventories, label) =>
-              runProjectCommand(
-                'project.replaceAtPath',
-                { path: '/inventories', value: inventories },
-                label,
-              )
-            }
-          />
-
           <Card data-workbench-anchor="projectSettings.startup">
             <CardHeader>
               <CardTitle>Startup</CardTitle>
@@ -1048,29 +1205,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 </select>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="player-inventory">Player Inventory</Label>
-                <select
-                  id="player-inventory"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={settings.inventory.playerInventory ?? '__none__'}
-                  onChange={(event) =>
-                    setPlayerInventory(
-                      event.currentTarget.value === '__none__' ? null : event.currentTarget.value,
-                    )
-                  }
-                >
-                  <option value="__none__">No Player Inventory</option>
-                  {project.inventories.map((inventory) => (
-                    <option key={inventory.id} value={inventory.id}>
-                      {inventory.label} ({inventory.id})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground">
-                  Designates an ordinary Project Inventory as the player backpack.
-                </p>
-              </div>
-              <div className="space-y-1">
                 <Label htmlFor="default-inventory-layout">Default Inventory Layout</Label>
                 <select
                   id="default-inventory-layout"
@@ -1092,6 +1226,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   ))}
                 </select>
               </div>
+              <ProjectInventoryContentsEditor project={project} />
               <div className="space-y-1">
                 <Label htmlFor="default-verb-menu-layout">Default Verb Menu Layout</Label>
                 <select

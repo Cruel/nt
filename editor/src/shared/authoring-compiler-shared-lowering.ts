@@ -36,6 +36,7 @@ import {
   effectiveInteractableInstanceProperties,
 } from './project-schema/authoring-interactable-properties';
 import type { InventoryReferenceData } from './project-schema/authoring-inventories';
+import { PROJECT_INVENTORY_ID } from './project-schema/authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
 import { compileRoomNavigationTransition, parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
@@ -295,6 +296,29 @@ function compileInventories(inventories: readonly { id: string; label: string }[
   return inventories.map((inventory) => ({ ...inventory }));
 }
 
+function usesPlayerInventoryOperand(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(usesPlayerInventoryOperand);
+  if (!value || typeof value !== 'object') return false;
+  const object = value as Record<string, unknown>;
+  if (object.kind === 'player-inventory') return true;
+  return Object.values(object).some(usesPlayerInventoryOperand);
+}
+
+function usesProjectInventory(value: unknown): boolean {
+  if (usesPlayerInventoryOperand(value)) return true;
+  if (Array.isArray(value)) return value.some(usesProjectInventory);
+  if (!value || typeof value !== 'object') return false;
+  const object = value as Record<string, unknown>;
+  if (
+    object.inventoryId === PROJECT_INVENTORY_ID &&
+    object.owner &&
+    typeof object.owner === 'object' &&
+    (object.owner as Record<string, unknown>).kind === 'project'
+  )
+    return true;
+  return Object.values(object).some(usesProjectInventory);
+}
+
 function compileInventoryReference(inventory: InventoryReferenceData) {
   const owner = inventory.owner;
   const compiledOwner =
@@ -324,7 +348,10 @@ function compileInventoryReference(inventory: InventoryReferenceData) {
                 },
                 featureId: owner.featureId,
               };
-  return { owner: compiledOwner, inventoryId: inventory.inventoryId };
+  return {
+    owner: compiledOwner,
+    inventoryId: owner.kind === 'project' ? 'player' : inventory.inventoryId,
+  };
 }
 
 function compileInteractableLocation(location: InteractableInstanceData['location']) {
@@ -1559,6 +1586,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
 
   if (diagnostics.length > 0) return { diagnostics };
   const settings = project.settings;
+  const projectInventoryUsed = usesProjectInventory(project);
+  const playerInventoryOperandUsed = usesPlayerInventoryOperand(project);
   const draft: CompiledProjectSharedDraft = {
     schema: COMPILED_PROJECT_SCHEMA,
     schemaVersion: COMPILED_PROJECT_FORMAT_VERSION,
@@ -1585,7 +1614,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         voiceDucking: { ...settings.audio.voiceDucking },
       },
       inventory: {
-        playerInventory: settings.inventory.playerInventory,
+        playerInventory: playerInventoryOperandUsed ? 'player' : null,
         defaultLayout: layoutRef(settings.inventory.defaultLayout),
       },
       interaction: {
@@ -1612,7 +1641,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     properties,
     traits,
     archetypes,
-    inventories: compileInventories(project.inventories),
+    inventories: projectInventoryUsed ? [{ id: 'player', label: 'Player Inventory' }] : [],
     interactableInstances,
     localization: {
       defaultLocale: project.localization.defaultLocale,

@@ -21,6 +21,7 @@ import { editorProjectStateSchema, emptyEditorProjectState } from './editor-proj
 import { defaultExportProfile, exportProfileSchema } from './authoring-export';
 import { platformExportProfileSchema } from './platform-export-contracts';
 import { inventoryDefinitionSchema } from './authoring-inventories';
+import { DEFAULT_PROJECT_INVENTORY } from './authoring-inventories';
 import { interactableInstanceDataSchema } from './authoring-interactables';
 import { scriptRefSchema } from './authoring-flow';
 import { interactionProgramSchema } from './authoring-interaction-programs';
@@ -70,7 +71,14 @@ export const authoringProjectSchema = z
     undefinedInteractionProgram: interactionProgramSchema.nullable().default(null),
     entrypoint: projectEntrypointSchema.nullable().default(null),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
-    inventories: z.array(inventoryDefinitionSchema),
+    inventories: z
+      .tuple([inventoryDefinitionSchema])
+      .refine(
+        ([inventory]) =>
+          inventory.id === DEFAULT_PROJECT_INVENTORY.id &&
+          inventory.label === DEFAULT_PROJECT_INVENTORY.label,
+        { message: 'Project Inventory must use the canonical inventory/Inventory identity.' },
+      ),
     interactableInstances: z.record(entityIdSchema, interactableInstanceDataSchema),
     localization: authoringLocalizationSchema.default(defaultAuthoringLocalization()),
     editor: editorProjectStateSchema.default(emptyEditorProjectState),
@@ -157,7 +165,7 @@ export function createAuthoringProject(
     undefinedInteractionProgram: null,
     entrypoint: null,
     traits: {},
-    inventories: [],
+    inventories: [{ ...DEFAULT_PROJECT_INVENTORY }],
     interactableInstances: {},
     localization: defaultAuthoringLocalization(),
     editor: emptyEditorProjectState(),

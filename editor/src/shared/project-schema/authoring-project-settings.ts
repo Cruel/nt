@@ -215,11 +215,10 @@ export const typedProjectSettingsSchema = z
       .default({ systemLayouts: {} }),
     inventory: z
       .object({
-        playerInventory: z.string().min(1).nullable(),
         defaultLayout: layoutRecordRefSchema.nullable(),
       })
       .strict()
-      .default({ playerInventory: null, defaultLayout: null }),
+      .default({ defaultLayout: null }),
     interaction: z
       .object({
         defaultVerbMenuLayout: layoutRecordRefSchema.nullable(),
@@ -378,9 +377,6 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
       systemLayouts: { ...objectValue(rawUi.systemLayouts) },
     },
     inventory: {
-      playerInventory: Object.prototype.hasOwnProperty.call(rawInventory, 'playerInventory')
-        ? rawInventory.playerInventory
-        : null,
       defaultLayout: Object.prototype.hasOwnProperty.call(rawInventory, 'defaultLayout')
         ? rawInventory.defaultLayout
         : null,
@@ -666,17 +662,6 @@ export function validateTypedProjectSettings(
       );
     }
   }
-  if (
-    settings.inventory.playerInventory &&
-    !project.inventories.some((inventory) => inventory.id === settings.inventory.playerInventory)
-  )
-    diagnostics.push(
-      diagnostic(
-        'authoring.settings.inventory.player.missing',
-        '/settings/inventory/playerInventory',
-        `Missing Project Inventory '${settings.inventory.playerInventory}'.`,
-      ),
-    );
   if (
     settings.inventory.defaultLayout &&
     !project.layouts[settings.inventory.defaultLayout.$ref.id]
