@@ -46,6 +46,22 @@ ordinary UI values through the data model. RML authors its own loops, visibility
 attributes, styles, and callback bindings. There is no selector/index compatibility protocol or
 generic controller-command adaptation; invalid or stale IDs/messages fail at the typed boundary.
 
+Inventory rows project exact Interactable Instance and origin Definition identity, quantity,
+stackability, presentation, and enabled/visible state for one owner-qualified Inventory. Activating an
+Inventory row sends the same exact Interactable subject used by Room activation; RuntimeUI never
+creates an aggregate Item/Stack subject. `Present Inventory` chooses its Layout through explicit
+command override, Project default, then built-in compact fallback while preserving the exact Inventory
+reference in the Mount inputs.
+
+The contextual Verb Menu is distinct from the Command Builder. Opening it presents the resolved Verb
+Offers for one exact subject; a multi-slot choice may then begin Command Builder capture. Contextual
+Inventory/Verb/Layout mounts may carry the immutable activation Trigger Context, so authored Layouts
+can anchor from pointer/source bounds without retaining DOM or world handles. Their occurrence-safe
+Mount Context supplies self-dismiss and explicit child presentation; child lifetime follows the exact
+parent occurrence, while the captured activation geometry remains independent of that parent/source
+lifetime. Ordinary Inventory presentation participates in its replacement group, while an explicitly
+contextual child Inventory may coexist.
+
 The exact field and callback schema is defined in `docs/ui/RMLUI_DATA_MODEL_CONTRACT.md`.
 
 ## Custom Components

@@ -322,8 +322,8 @@ export const roomLayoutRef = (id: string): RoomLayoutRef => ({
 export const roomCharacterRef = (id: string): RoomCharacterRef => ({
   $ref: { collection: 'characters', id },
 });
-export const roomInteractableRef = (id: string) => ({
-  $ref: { collection: 'interactables' as const, id },
+export const roomInteractableRef = (id: string): z.infer<typeof roomInteractableRefSchema> => ({
+  $ref: { registry: 'interactableInstances', id },
 });
 export const roomRoomRef = (id: string): RoomRoomRef => ({ $ref: { collection: 'rooms', id } });
 

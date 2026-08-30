@@ -22,6 +22,12 @@ Workspace-v1 persistence stores each record at its canonical stable-ID path; Lay
 directory for their companion source files and Traits are stored in `traits.json`.
 Stable record IDs are unique within a collection and nested IDs within their owner.
 
+The Project root additionally owns infrastructure-level Project Inventory declarations and the
+`interactableInstances` registry. Interactable collection records are immutable reusable Definitions;
+registry entries are exact declared live Instances with their own Definition reference, Location,
+enabled/visible state, quantity, Trait deltas, and Property state. Room Interactable occurrences refer
+to those exact registry identities rather than defining another live-object record family.
+
 Room, Character, and Interactable Gameplay Instances may attach compatible Traits and carry declared
 typed Property assignments. Scene, Dialogue, Verb, Interaction, and Map are immutable program or
 vocabulary definitions and are not Property/Trait owners. Universal same-type gameplay `extends` is
@@ -32,7 +38,10 @@ workbench state remain editor-only.
 
 Entrypoint is a strict Room, Scene, or Dialogue reference. The Project also names one Bootstrap Module by stable Script Module ID. Each fresh Project VM imports that module synchronously without gameplay-state authority; its initialization and any modules it explicitly imports must complete without yielding before the entrypoint starts. Typed settings include display/text,
 system Layout roles, title behavior, default font, application icon, localization, and runtime
-defaults. Presentation settings include the validated project-default Room navigation transition;
+defaults. Inventory settings may designate one ordinary Project Inventory as Player Inventory and one
+default Inventory Layout; interaction settings may designate one default Verb Menu Layout. These are
+presentation/default-selection settings over the same exact Inventory and Interactable identities,
+not alternate gameplay state. Presentation settings include the validated project-default Room navigation transition;
 an explicit navigation request and then the selected exit override take precedence over it.
 
 ## Compilation
@@ -40,7 +49,9 @@ an explicit navigation request and then the selected exit override take preceden
 `compileAuthoringProject` is the sole semantic compiler. It validates schemas, Traits and Property
 requirements, references, programs, resources, settings, and startup; lowers specialized
 Room/Scene/Dialogue/Interaction content; removes tooling metadata; and emits deterministic canonical
-gameplay bytes.
+gameplay bytes. Interactable Definitions and declared Interactable Instances remain separate compiled
+records, with exact Instance Location/quantity/state preserved and no retired Item Definition/Item
+Stack lowering path.
 
 `publishCompiledArtifact` is the shared gameplay publication module. The deep
 `prepareRuntimeArtifact` module is the sole preparation interface used by preview, playback,

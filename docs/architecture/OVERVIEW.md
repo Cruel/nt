@@ -24,6 +24,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/certifications/CANONICAL_MODEL_CERTIFICATION.md` records the final #135 / #64
   compiler/wire/RunningGame/editor certification of the current exact-Interactable-Instance and
   owner-local-Property model, including the complete Linux native acceptance result.
+- `docs/architecture/certifications/UNIFIED_AUTHORING_INTEGRATION_CERTIFICATION.md` records the final
+  #128 / #115 authoring-guidance, canonical compiler, Running Game, RuntimeUI/Layout, Linux, Web, and
+  Agent Kit certification of the unified exact-Interactable-Instance model.
 - `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable capability-level evidence map
   for complete, deferred, rejected, duplicate, and tooling dispositions.
 - `docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md` defines current presentation ownership,

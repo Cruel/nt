@@ -2587,6 +2587,13 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
   const project = canonicalVocabularyGoldenProject();
   renameProject(project, 'golden-canonical-exploration', 'Golden Canonical Exploration');
 
+  const credits = project.interactables.credits?.data;
+  if (credits) {
+    credits.stackable = true;
+    credits.stackLimit = 10;
+  }
+  if (project.interactableInstances.wallet) project.interactableInstances.wallet.quantity = 4;
+
   delete project.scenes.vocabulary;
   delete project.dialogues['cue-vocabulary'];
   delete project.materials['layout-decorator-material'];
@@ -2680,6 +2687,16 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
           },
           propertyId: 'note',
           value: 'mutated',
+        },
+        {
+          id: 'consume-wallet-credit',
+          kind: 'consume-quantity',
+          mode: 'exact',
+          source: {
+            kind: 'interactable',
+            interactable: interactableInstanceReference('wallet'),
+          },
+          quantity: 1,
         },
       ],
     },

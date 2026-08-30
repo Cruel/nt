@@ -81,8 +81,8 @@
       ]
     },
     "docs/AUTHORING.md": {
-      "reviewed": "2026-08-26",
-      "strategy": "Explain only NovelTea-specific authoring concepts and distinctions that schema structure alone does not communicate well.",
+      "reviewed": "2026-08-30",
+      "strategy": "Explain NovelTea-specific authoring concepts, including the Definition/declared-Instance/Room-occurrence split, and distinctions that schema structure alone does not communicate well.",
       "sources": [
         {
           "source": "noveltea",
@@ -137,8 +137,8 @@
       ]
     },
     "docs/ITEMS_INVENTORIES.md": {
-      "reviewed": "2026-08-29",
-      "strategy": "Explain exact Interactable Instance quantity semantics, stackable Definitions, owner-qualified Inventories, Locations, and Interaction use without restoring the retired Item model.",
+      "reviewed": "2026-08-30",
+      "strategy": "Explain exact Interactable Instance quantity semantics, stackable Definitions, owner-qualified Inventories, Locations, Inventory presentation, and Interaction use without restoring the retired Item model.",
       "sources": [
         {
           "source": "noveltea",
@@ -162,8 +162,8 @@
       ]
     },
     "docs/INTERACTIONS.md": {
-      "reviewed": "2026-08-16",
-      "strategy": "Reconcile interaction terminology and hotspot behavior against the current project schema and runtime authoring contract, excluding implementation plumbing.",
+      "reviewed": "2026-08-30",
+      "strategy": "Reconcile Interaction terminology, shared Conditions/Gameplay Commands, and hotspot behavior against the current project schema and runtime authoring contract, excluding implementation plumbing.",
       "sources": [
         {
           "source": "noveltea",
@@ -176,8 +176,8 @@
       ]
     },
     "docs/LAYOUTS.md": {
-      "reviewed": "2026-08-16",
-      "strategy": "Treat NovelTea's pinned RmlUi build, Layout persistence contract, system-role fallback contract, and exact shipped built-in UI source as authoritative; use RmlUi source semantics only where they affect authored RML/RCSS/Lua.",
+      "reviewed": "2026-08-30",
+      "strategy": "Treat NovelTea's pinned RmlUi build, Layout persistence/contextual-mount contract, system-role fallback contract, and exact shipped built-in UI source as authoritative; use RmlUi source semantics only where they affect authored RML/RCSS/Lua.",
       "sources": [
         {
           "source": "noveltea",
@@ -403,8 +403,8 @@
       ]
     },
     "docs/ROOMS.md": {
-      "reviewed": "2026-08-16",
-      "strategy": "Reconcile Room geometry and composition examples against the current schema and hotspot contract, emphasizing coordinate spaces and author-visible ownership.",
+      "reviewed": "2026-08-30",
+      "strategy": "Reconcile Room geometry and composition examples against the current exact-Instance schema and hotspot contract, emphasizing coordinate spaces and author-visible ownership.",
       "sources": [
         {
           "source": "noveltea",
