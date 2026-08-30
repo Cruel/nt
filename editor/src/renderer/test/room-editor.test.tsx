@@ -78,6 +78,44 @@ describe('RoomEditor', () => {
     selectRoomCategory('Composition');
     expect(screen.getByText('Placements')).toBeInTheDocument();
   });
+  it('edits shared Gameplay Commands for every Room lifecycle command hook', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    selectRoomCategory('Behavior');
+
+    for (const label of [
+      'Before enter',
+      'After enter',
+      'Before leave',
+      'After leave',
+      'On enter rejected',
+      'On leave rejected',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+
+    const afterEnter = screen.getByText('After enter').parentElement;
+    expect(afterEnter).not.toBeNull();
+    const beforeEnter = screen.getByText('Before enter').parentElement;
+    expect(beforeEnter).not.toBeNull();
+    expect(within(beforeEnter!).queryByRole('button', { name: '+ Run Lua' })).toBeNull();
+    fireEvent.click(within(afterEnter!).getByRole('button', { name: '+ Run Lua' }));
+
+    const updated = useProjectStore.getState().document;
+    expect(isAuthoringProject(updated)).toBe(true);
+    if (!isAuthoringProject(updated)) return;
+    const room = parseRoomData(updated.rooms.foyer?.data);
+    expect(room?.lifecycle.afterEnter).toEqual([
+      {
+        id: 'run-lua',
+        kind: 'run-lua',
+        source: 'return true',
+      },
+    ]);
+  });
   it('exposes canonical Hook Registry resolution from the Behavior surface', () => {
     const project = createAuthoringProject();
     project.scripts['room-hooks'] = {
