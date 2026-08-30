@@ -1,17 +1,19 @@
 # Gameplay Commands
 
 Gameplay Commands are the shared typed vocabulary for ordinary gameplay mutation, flow handoff,
-feedback, and the explicit Lua escape hatch. Interactions, Dialogue effect programs, and Scene
-gameplay-mutation surfaces use the same authoring definitions, compiled command records, editor
-component, validation rules, and runtime execution semantics. Hosts provide only their available
-reference context and admissibility policy; they do not define private copies of the command language.
+feedback, and the explicit Lua escape hatch. Interactions, Dialogue effect programs, Scene
+gameplay-mutation surfaces, and Room lifecycle/rejection programs use the same authoring definitions,
+compiled command records, editor component, validation rules, and runtime execution semantics. Hosts
+provide only their available reference context and admissibility policy; they do not define private
+copies of the command language.
 
 ## Vocabulary
 
 The current command set covers Global Property and identity Property mutation, Add/Remove Trait, Set
 Enabled/Visible, Move Instance, Room/Character/Interactable creation, Instance destruction,
 Split/Merge/Transfer/Add/Consume quantity operations, Call Scene, Call Dialogue, Notify, Run Lua, and
-recursive `If/Else`.
+recursive `If/Else`. `Present Inventory` presents an exact owner-qualified Inventory using an explicit
+Layout when supplied, otherwise the Project default Inventory Layout and then the built-in fallback.
 
 These commands are generic mechanics rather than adventure-game Verbs. Pick Up, Give, Open, Use,
 Inspect, and similar authored actions remain Verbs/Interactions composed from Gameplay Commands.
@@ -56,10 +58,10 @@ singular result.
 
 ## Editor and implementation
 
-`GameplayCommandListEditor` is the reusable editor for Interaction programs, Dialogue effects, and
-Scene gameplay-mutation surfaces. Host policy supplies available Interaction slots, command results,
-Current Room/Player Inventory, and an optional admitted-command set; nested `If/Else` uses the same
-component recursively.
+`GameplayCommandListEditor` is the reusable editor for Interaction programs, Dialogue effects, Room
+lifecycle/rejection programs, and Scene gameplay-mutation surfaces. Host policy supplies available
+Interaction slots, command results, Current Room/Player Inventory, and an optional admitted-command
+set; nested `If/Else` uses the same component recursively.
 
 The primary implementation surfaces are:
 

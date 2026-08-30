@@ -558,6 +558,17 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
     REQUIRE(started.publication->gameplay_ui.maps.front().current_room);
     CHECK(started.publication->gameplay_ui.maps.front().current_room->text() == "start");
 
+    const auto wallet = core::InteractableInstanceId::create("wallet").value();
+    const core::compiled::InventoryRef player_inventory{
+        core::compiled::ProjectInventoryOwner{}, core::InventoryId::create("player").value()};
+    auto initial_wallet = game.session().gateway().interactable_state(wallet);
+    REQUIRE(initial_wallet);
+    CHECK(initial_wallet.value().quantity == 4);
+    REQUIRE(
+        std::holds_alternative<core::compiled::InventoryLocation>(initial_wallet.value().location));
+    CHECK(std::get<core::compiled::InventoryLocation>(initial_wallet.value().location).inventory ==
+          player_inventory);
+
     const core::compiled::InteractionSubject door_subject =
         core::compiled::FeatureInteractionSubject{core::RoomFeatureRef{
             core::RoomId::create("start").value(), core::FeatureId::create("door").value()}};
@@ -582,6 +593,11 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
     REQUIRE(activated.publication->gameplay_ui.scene);
     CHECK(activated.publication->gameplay_ui.scene->scene.text() == "exploration-mutation");
     CHECK(activated.publication->gameplay_ui.can_continue);
+    auto consumed_wallet = game.session().gateway().interactable_state(wallet);
+    REQUIRE(consumed_wallet);
+    CHECK(consumed_wallet.value().quantity == 3);
+    CHECK(std::get<core::compiled::InventoryLocation>(consumed_wallet.value().location).inventory ==
+          player_inventory);
 
     std::vector<core::GameplayInstanceRef> runtime_instances;
     for (const auto& instance : activated.publication->gameplay_instances)
@@ -654,6 +670,13 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
                       }));
     auto previous = game.commit_candidate(std::move(candidate).value());
     REQUIRE(previous);
+    auto restored_wallet = game.session().gateway().interactable_state(wallet);
+    REQUIRE(restored_wallet);
+    CHECK(restored_wallet.value().quantity == 3);
+    REQUIRE(std::holds_alternative<core::compiled::InventoryLocation>(
+        restored_wallet.value().location));
+    CHECK(std::get<core::compiled::InventoryLocation>(restored_wallet.value().location).inventory ==
+          player_inventory);
 
     auto hall = game.session().dispatch(core::RuntimeInputMessage{
         core::NavigateRoomInput{core::RoomExitId::create("north-exit").value()}});
@@ -678,6 +701,25 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
                      [](const auto& exit) { return exit.exit.text() == "north-exit"; });
     REQUIRE(north != returned.publication->gameplay_ui.room->exits.end());
     CHECK(north->enabled);
+
+    auto blocked_flag =
+        game.session().dispatch(core::RuntimeInputMessage{core::SetVariableDebugInput{
+            core::PropertyId::create("flag").value(), core::RuntimeValue{false}}});
+    REQUIRE(blocked_flag.diagnostics.empty());
+    const auto start_visits_before_rejection =
+        game.session().presentation_state().room_visits(core::RoomId::create("start").value());
+    const auto hall_visits_before_rejection =
+        game.session().presentation_state().room_visits(core::RoomId::create("hall").value());
+    auto rejected = game.session().dispatch(core::RuntimeInputMessage{
+        core::NavigateRoomInput{core::RoomExitId::create("north-exit").value()}});
+    REQUIRE(rejected.diagnostics.empty());
+    REQUIRE(rejected.publication);
+    REQUIRE(rejected.publication->gameplay_ui.room);
+    CHECK(rejected.publication->gameplay_ui.room->room.text() == "start");
+    CHECK(game.session().presentation_state().room_visits(core::RoomId::create("start").value()) ==
+          start_visits_before_rejection);
+    CHECK(game.session().presentation_state().room_visits(core::RoomId::create("hall").value()) ==
+          hall_visits_before_rejection);
 }
 
 TEST_CASE("compiled running game preserves declared Gameplay Instance lookup and mutation")

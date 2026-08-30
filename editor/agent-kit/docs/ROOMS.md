@@ -56,7 +56,7 @@ The Prop points at the Placement by `placementId`. The image Asset itself is not
 
 ## Template 2: sprite-backed Interactable placed in a Room
 
-Use this when the sprite represents an object that can participate in interaction. This is one logical authoring operation involving a global Interactable record plus two Room entries.
+Use this when the sprite represents an object that can participate in interaction. This is one logical authoring operation involving a reusable Interactable Definition, one exact declared Interactable Instance in `project.json`, and Room presentation entries. The Definition does not own live Location/state.
 
 Create `records/interactables/key.json`:
 
@@ -67,6 +67,8 @@ Create `records/interactables/key.json`:
   "data": {
     "kind": "interactable",
     "displayName": "Key",
+    "stackable": false,
+    "stackLimit": null,
     "presentation": {
       "sprite": { "$ref": { "collection": "assets", "id": "key-image" } },
       "material": null,
@@ -82,13 +84,31 @@ Create `records/interactables/key.json`:
         }
       }
     },
-    "initialState": {
-      "enabled": true,
-      "visible": true
-    }
+    "features": [],
+    "inventories": []
   }
 }
 ```
+
+Then add one exact declared Instance to the top-level `interactableInstances` object in `project.json`:
+
+```json
+"interactableInstances": {
+  "key-instance": {
+    "id": "key-instance",
+    "definition": { "$ref": { "collection": "interactables", "id": "key" } },
+    "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "foyer" } } },
+    "enabled": true,
+    "visible": true,
+    "quantity": 1,
+    "traits": { "add": [], "remove": [] },
+    "localProperties": [],
+    "featureOverrides": []
+  }
+}
+```
+
+That registry entry is the gameplay identity. Its `location` is authoritative; the Room entries below only provide presentation geometry/occurrence identity. Replace `foyer` with the actual owning Room ID.
 
 Then add a Placement to the Room:
 
@@ -103,21 +123,22 @@ Then add a Placement to the Room:
 }
 ```
 
-And add a Room-interactable instance to `data.interactables`:
+And add a Room-local occurrence to `data.interactables`:
 
 ```json
 {
-  "id": "key-instance",
-  "interactable": { "$ref": { "collection": "interactables", "id": "key" } },
+  "id": "key-occurrence",
+  "interactable": { "$ref": { "registry": "interactableInstances", "id": "key-instance" } },
   "condition": { "kind": "always" },
   "placementId": "key-placement",
-  "enabled": true,
   "visible": true,
   "order": 0
 }
 ```
 
-The Interactable owns the sprite. Do not add a duplicate Prop just to display the same sprite.
+The Definition owns the sprite; the exact Instance owns semantic state; the Room occurrence owns only
+Room-local presentation linkage. Do not add a duplicate Prop just to display the same sprite, and do
+not copy Instance state into the Room occurrence.
 
 The default sprite-alpha Hotspot targets the owning Interactable. Gameplay behavior is defined by
 ordinary Interaction rules/Verbs for that Interactable subject; the Hotspot does not own a Verb.
@@ -169,6 +190,14 @@ part has multiple clickable regions.
 
 Room Hotspots can instead select an owner-local Room Exit with
 `{ "kind": "exit", "exitId": "..." }`; the referenced Exit must belong to the same Room.
+
+## Room navigation rejection and lifecycle
+
+Room navigation uses the shared Condition and Gameplay Command contracts. `lifecycle.canLeave` and `lifecycle.canEnter` are pure Conditions. `beforeLeave`/`beforeEnter` run before the Room switch and therefore admit only immediate commands; `afterLeave`/`afterEnter` run after commit and may use the Flow-capable command set.
+
+Expected Exploration rejection is authored behavior, not a failed Room switch. A false source `canLeave` runs the source Room's `lifecycle.onLeaveRejected`. A false selected Exit `condition` runs that Exit's `onRejected` commands when present, otherwise it falls back to the source `onLeaveRejected`. A false target `canEnter` runs the target Room's `lifecycle.onEnterRejected`. The Current Room remains the source while rejection commands run, and those programs may hand off to a Scene or Dialogue. Directed Scene/Lua Room changes remain authoritative even when an exploration guard would be false.
+
+Use these shared lifecycle fields rather than inventing directional rejection hooks or putting rejection behavior in a Hotspot.
 
 ## Validation workflow
 

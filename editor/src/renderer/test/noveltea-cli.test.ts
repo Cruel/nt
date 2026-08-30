@@ -1899,7 +1899,7 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('/.noveltea/\n/dist/\n');
     const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
     expect(JSON.parse(manifestBefore).provenance.documents['docs/LAYOUTS.md']).toMatchObject({
-      reviewed: '2026-08-16',
+      reviewed: '2026-08-30',
     });
     const systemLayoutSources = loadAgentKitSystemLayoutSourceFiles();
     expect(

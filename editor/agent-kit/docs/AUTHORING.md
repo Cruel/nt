@@ -10,7 +10,7 @@ NovelTea projects are file-first. Use the focused generated documents to underst
 - **Placement**: a named normalized rectangle inside a Room. Placements provide geometry that Room content can reuse.
 - **Prop**: a visual Room object that associates an Asset and/or Material with a Placement. Use a Prop when the object is only presentation and is not meant to participate in interaction.
 - **Interactable**: a reusable interactive object definition. Exact Interactable Instances reference that Definition and carry live Location, enabled/visible state, Traits/Properties, and quantity.
-- **Room interactable**: an exact Interactable Instance whose semantic Location is a Room and whose Room presentation may use one or more exact occurrences/placements.
+- **Room Interactable occurrence**: a Room-local presentation occurrence that references one exact Interactable Instance plus a Placement. It does not own that Instance's Location, enabled state, quantity, Traits, or Properties.
 - **Room hotspot**: an interactive region directly on the Room background image, useful when the clickable feature is already baked into that image.
 - **Verb**: an interaction operation with stable named required subject slots, reusable Subject Selectors, and one locale-neutral `bindingOrder`.
 - **Interaction**: authored behavior associated with a Verb, one selector union per named Verb slot, and semantic context/conditions.
@@ -30,7 +30,7 @@ The Project chooses exactly one initial entrypoint: Room, Scene, or Dialogue. Sc
 Use this decision rule before editing a Room:
 
 - Need only an image visible in the Room? Use a **Prop** plus a Placement.
-- Need an object the player can target or interact with? Use an **Interactable** record plus a Placement and a Room-interactable instance.
+- Need an object the player can target or interact with? Use an **Interactable Definition**, one exact declared **Interactable Instance** in the Project registry, and a Room Placement/occurrence when it should be presented in that Room.
 - Need an interactive region over something already visible in the Room background? Use a **Room hotspot**.
 - Need a fungible quantity such as coins, ingredients, or ammunition? Make the **Interactable Definition** stackable and use exact quantity-bearing Interactable Instances; do not invent a custom count Property or a separate Item record.
 - Need a scripted/cinematic sequence that coordinates presentation and gameplay? Use a **Scene**.
@@ -44,16 +44,17 @@ For exact current record fields, create a correctly initialized record with `nov
 
 Many authoring operations span more than one record or array. Treat them as one coherent edit before validation. For example, placing a new Interactable in a Room normally requires all of the following:
 
-1. A global `records/interactables/<id>.json` record.
-2. A Room `placements[]` entry.
-3. A Room `interactables[]` entry that references both the Interactable and Placement.
-4. Any Feature and Interaction/Verb records required by the intended semantic behavior; the Hotspot itself only selects a subject.
+1. A reusable `records/interactables/<definition-id>.json` Definition record.
+2. A top-level `project.json` `interactableInstances` registry entry with a stable Instance ID, Definition reference, and authoritative Location/state/quantity.
+3. A Room `placements[]` entry when that Room needs authored presentation geometry.
+4. A Room `interactables[]` occurrence that references the exact Instance registry ID and Placement.
+5. Any Feature and Interaction/Verb records required by the intended semantic behavior; the Hotspot itself only selects a subject.
 
 Make the complete relationship first, then run `noveltea validate`. Semantic CLI commands operate against the current project and can surface diagnostics from unrelated or temporarily incomplete intermediate state.
 
 ## Required boilerplate versus semantic choices
 
-Some required fields are routine defaults. Preserve them unless the requested behavior needs something different. Common examples include `condition: {"kind":"always"}`, `visible`, `enabled`, `order`, `presentation`, `initialState`, and nullable Material/Layout fields.
+Some required fields are routine defaults. Preserve them unless the requested behavior needs something different. Common examples include `condition: {"kind":"always"}`, `visible`, `enabled`, `quantity`, `order`, `presentation`, and nullable Material/Layout fields. Definition records do not own mutable `initialState`; declared Interactable Instance state belongs in `project.json` `interactableInstances`.
 
 Other required fields encode important semantics and should not be guessed. In particular:
 

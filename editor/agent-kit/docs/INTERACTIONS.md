@@ -59,4 +59,8 @@ Interaction Rules connect a Verb to one selector union for every named Verb slot
 
 Interaction contexts are semantic runtime contexts such as active Room, Room placement, or predicate. Hotspot identity is not an Interaction context and cannot be supplied through `Game.run_action`.
 
+Interaction `offer.condition`, rule `guard`, and nested Gameplay Command `if` branches use the same recursive Condition vocabulary used elsewhere in NovelTea. Conditions may compose `all`/`any`/`not` and use typed Property, Trait, Location, Inventory-quantity, Global Property, or admitted Lua predicate leaves. Do not invent an Interaction-only predicate shape.
+
+Interaction `program.instructions` use the shared Gameplay Command vocabulary also used by Dialogue effects, Room lifecycle/rejection programs, and admitted Scene gameplay mutation. That vocabulary includes typed Property/Trait/state mutation, exact Instance movement and quantity operations, `present-inventory`, Scene/Dialogue calls, notification, Lua, and recursive `if`. The host controls which operands/results are available; copy the current initialized shape or consult the generated schema instead of translating the command into a host-specific effect record.
+
 Inline conditions, expressions, predicates, and effect snippets remain in their owning JSON records unless the current workspace contract explicitly externalizes them. Do not infer semantic references from arbitrary Lua text.

@@ -59,7 +59,7 @@ A player-facing request to traverse an Exit or otherwise navigate through Explor
 An authoritative Scene- or Lua-directed change of Current Room. Lifecycle guards are evaluated only for diagnostics and cannot veto it; the ordinary successful-transition lifecycle still runs.
 
 **Room Lifecycle**:
-The serialized, non-reentrant effect sequence surrounding a Current Room transition. Pure `canLeave` and `canEnter` guards govern player/Exploration navigation; `onLeaveReject` and `onEnterReject` hooks react when they deny it, while an unmatched rejection is a no-op. Scene- or Lua-directed Room changes cannot be vetoed by these guards, though a false guard produces an internal diagnostic. Before/after hooks perform effects along a transition that proceeds. Transitions to or from no Current Room run only the applicable half, while save restoration does not run lifecycle.
+The serialized, non-reentrant effect sequence surrounding a Current Room transition. Pure `canLeave` and `canEnter` guards govern player/Exploration navigation; source `onLeaveRejected`, Exit `onRejected`, and target `onEnterRejected` Gameplay Command programs handle expected rejection before the matching `reject-leave` or `reject-enter` Script Hook Registry extension point. Scene- or Lua-directed Room changes cannot be vetoed by these guards, though a false guard produces an internal diagnostic. Before/after Gameplay Command programs and Script Hooks perform effects along a transition that proceeds. Transitions to or from no Current Room run only the applicable half, while save restoration does not run lifecycle.
 
 **Character**:
 A semantic person identity whose Traits, Properties, dialogue metadata, and presentation definitions are shared across every representation of that person. A Character may be declared in the Project or created during a Runtime Session.
@@ -88,6 +88,9 @@ _Avoid_: Nowhere
 
 **Inventory**:
 An owner-local semantic container with stable qualified identity whose members are exact Interactable Instances located in it. Membership does not imply current accessibility or presentation, and an Inventory is not a separate object identity or interaction system.
+
+**Inventory Presentation**:
+Runtime UI presentation of one exact owner-qualified Inventory. Rows project exact Interactable Instances and preserve their identities; Layout choice is explicit command Layout, Project default Inventory Layout, then the engine fallback, without creating Item Stack or aggregate-row identities.
 
 **Containment**:
 The ancestry formed when an Interactable Instance is located in an owner-local Inventory. Its direct Location remains that Inventory while its ultimate world context follows the Inventory owner chain.
@@ -130,10 +133,19 @@ A pure runtime condition that determines whether a matching Verb Offer is curren
 A semantic request to use a subject's unique resolved primary Verb Offer, falling back to opening its Verb menu when no unambiguous primary exists. Physical mouse, touch, keyboard, and controller mappings belong to input policy.
 
 **Open Verb Menu**:
-A semantic request to open the Command Builder for a subject and present its resolved Verb Offers without automatically selecting the primary offer.
+A semantic request to present the contextual Verb Menu for one exact subject and its resolved Verb Offers without automatically selecting a primary offer. Choosing a one-slot Verb may submit the complete command directly; choosing a Verb that still needs bindings begins the separate Command Builder flow.
+
+**Verb Menu**:
+The contextual Layout presentation of resolved Verb Offers for one exact subject. It is distinct from the Command Builder, may use the Project's default Verb Menu Layout or the built-in fallback, and may receive the activation Trigger Context that opened it.
 
 **Property**:
 A declared typed custom value in global gameplay state or attached to a supported gameplay identity, read and written through the explicit Property API. Every runtime Property override is saved; transient authored state belongs in Lua rather than a second Property persistence class.
+
+**Condition**:
+A pure recursive boolean gameplay expression shared by Room eligibility/lifecycle, Verb discovery, Interaction Guards, Dialogue/Scene branches, Hotspots, Maps, and other admitted hosts. Hosts constrain available typed operands rather than defining private condition languages.
+
+**Gameplay Command**:
+A typed unit of ordinary gameplay mutation, Flow handoff, feedback, or explicit Lua escape shared by Interactions, Dialogue effects, Room lifecycle programs, and admitted Scene gameplay-mutation surfaces. Hosts constrain which commands and operands are legal rather than defining parallel command vocabularies.
 
 **Global Property**:
 A Property declared in the Project-wide gameplay-state scope rather than on a gameplay identity. It is accessed through the Game facade without making Project, Running Game, or Runtime Session into a property-bearing semantic entity.
@@ -231,6 +243,9 @@ One engine-owned runtime occurrence of a reusable Layout, with its own identity,
 
 **Layout Mount Context**:
 The per-occurrence Layout-facing context containing one Mount's identity, contract inputs, Layout Signal emitter, and local UI state. Layout Mount Contexts are distinct even though their scripts share the Project's Lua VM, global `Game` API, and imported modules; local state persists only through an explicit Layout persistence contract.
+
+**Trigger Context**:
+An immutable engine-owned snapshot of activation pointer/source geometry carried by contextual Layout presentation. A receiving Layout transforms it into its own logical coordinate space for anchoring without retaining DOM, Hotspot, renderer, or live world-object handles.
 
 **Layout State Slot**:
 An engine-owned persistable state value addressed independently from a Layout Mount by a stable scope, semantic owner, and key. A Slot may outlive an unmounted Layout and hydrate a later Mount, while transient Lua and DOM state remain occurrence-local.

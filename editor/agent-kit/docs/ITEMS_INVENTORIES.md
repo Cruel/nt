@@ -26,6 +26,12 @@ Typed Gameplay Commands and `noveltea.interactables` Lua operations can create q
 
 For initial project state, edit the infrastructure-level declared Interactable Instance registry through the normal Interactable/Room/Inventory authoring surfaces. For story-time changes, use shared Gameplay Commands, Interactions, or `noveltea.interactables` Lua operations rather than rewriting immutable authoring data.
 
+## Inventory presentation
+
+Project settings may designate one ordinary Project-owned Inventory as Player Inventory and one reusable default Inventory Layout. The shared `present-inventory` Gameplay Command accepts Player Inventory or another exact owner-qualified Inventory and may name an explicit Layout. Layout resolution is explicit command Layout, then Project default, then the built-in compact fallback.
+
+RuntimeUI publishes direct Inventory members as exact Interactable Instance rows, including quantity/stackability and presentation. Activating a row uses the same exact Interactable Primary Activate/Verb resolution used by a Room occurrence; presenting or grouping Inventory UI never creates a new aggregate gameplay subject. A contextual Layout may present Player Inventory as a child through its Mount Context when coexistence with the parent is intended.
+
 ## Interactions and selectors
 
 An exact Interactable Instance can be an Interaction subject. A Verb slot may admit any Interactable, require a Trait, require one Interactable Definition, match a qualified/exact identity, or combine selectors as a union. The final command always binds the exact live Instance ID.

@@ -7,6 +7,7 @@ import {
   defaultRoomData,
   parseRoomData,
   roomAssetRef,
+  roomInteractableRef,
   roomRoomRef,
   validateRoomData,
 } from '../../shared/project-schema/authoring-rooms';
@@ -38,6 +39,31 @@ describe('authoring rooms schema', () => {
       },
       exits: [],
       placements: [],
+    });
+  });
+
+  it('authors Room Interactable occurrences against exact declared Instance identities', () => {
+    const data = defaultRoomData('Foyer');
+    data.placements = [
+      {
+        id: 'key-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    data.interactables = [
+      {
+        id: 'key-occurrence',
+        interactable: roomInteractableRef('key-instance'),
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        visible: true,
+        order: 0,
+      },
+    ];
+
+    expect(parseRoomData(data)?.interactables[0]?.interactable).toEqual({
+      $ref: { registry: 'interactableInstances', id: 'key-instance' },
     });
   });
 
