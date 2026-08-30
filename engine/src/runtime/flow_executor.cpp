@@ -1073,7 +1073,7 @@ Result<void, Diagnostics> FlowExecutor::return_from_flow()
         set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
         remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
-        m_state.m_mode = RoomMode{room->room};
+        m_state.m_mode = RoomMode{m_state.m_room_visit ? m_state.m_room_visit->room : room->room};
         return Result<void, Diagnostics>::success();
     }
     return fail(execution_error("execution.invalid_root_return",
@@ -1109,7 +1109,7 @@ Result<void, Diagnostics> FlowExecutor::return_from_scene(std::optional<SceneOut
         set_stack_execution_state(m_state.m_flow_stack, ExecutionState::Completed);
         remove_scene_presentation(m_state, m_state.m_flow_stack);
         m_state.m_flow_stack.clear();
-        m_state.m_mode = RoomMode{room->room};
+        m_state.m_mode = RoomMode{m_state.m_room_visit ? m_state.m_room_visit->room : room->room};
         return Result<void, Diagnostics>::success();
     }
     if (m_state.m_detached_flow_active) {

@@ -1024,9 +1024,30 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
                 auto inventory = m_primitives.resolve_inventory(value.inventory, context);
                 if (!inventory)
                     return fault(inventory.error());
-                auto presented = present_inventory(*inventory.value_if(), value.layout);
+                auto presented = present_inventory(
+                    *inventory.value_if(), value.layout,
+                    value.use_trigger_anchor ? m_trigger_context : std::nullopt,
+                    value.parent_to_triggering_layout ? m_trigger_presentation_parent
+                                                      : std::nullopt,
+                    value.coexist, value.use_trigger_anchor);
                 if (!presented)
                     return fault(presented.error());
+            } else if constexpr (std::is_same_v<T, core::NavigateExitCommand>) {
+                auto next = expected;
+                next.next_instruction = sequential;
+                auto called = call_navigation_command(value, core::FlowFramePosition{next});
+                return called ? std::nullopt
+                              : std::optional<core::FlowRunOutcome>{fault(called.error())};
+            } else if constexpr (std::is_same_v<T, core::ChangeRoomCommand>) {
+                const core::ConditionEvaluationContext context{
+                    .interaction_bindings = frame->invocation.bindings,
+                    .command_results = frame->command_results};
+                auto next = expected;
+                next.next_instruction = sequential;
+                auto called =
+                    call_change_room_command(value, context, core::FlowFramePosition{next});
+                return called ? std::nullopt
+                              : std::optional<core::FlowRunOutcome>{fault(called.error())};
             } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
                 auto next = expected;
                 next.next_instruction = sequential;

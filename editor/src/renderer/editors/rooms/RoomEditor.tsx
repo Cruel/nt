@@ -409,6 +409,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [compositionBackgroundUrl, setCompositionBackgroundUrl] = useState<string | null>(null);
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
   const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
+  const [placementCount, setPlacementCount] = useState(1);
   const [placingInteractable, setPlacingInteractable] = useState<
     | { kind: 'definition'; definitionId: string }
     | { kind: 'instance'; instanceId: string; definitionId: string }
@@ -746,12 +747,20 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     useCommandStore.getState().executeCommand({
       type: 'room.placeInteractable',
       label: 'Place Interactable instance in Room',
-      payload: { roomId, interactableId, instanceId, placementId, bounds },
+      payload: {
+        roomId,
+        interactableId,
+        instanceId,
+        placementId,
+        bounds,
+        count: target.kind === 'definition' ? placementCount : 1,
+      },
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
     setSelectedPlacementId(placementId);
     setPlacingInteractable(null);
+    setPlacementCount(1);
   };
   const detachInteractable = (occurrenceId: string, sourcePlacementId: string) => {
     const placementId = nextId(
@@ -2230,6 +2239,30 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   Used for Room-present Interactable Instances without an exact occurrence.
                 </span>
               </div>
+              {placingInteractable?.kind === 'definition' ? (
+                <div className="flex flex-wrap items-end gap-3 rounded-md border bg-muted/20 p-2">
+                  <div className="space-y-1">
+                    <Label htmlFor={`room-interactable-count-${roomId}`}>Count</Label>
+                    <Input
+                      id={`room-interactable-count-${roomId}`}
+                      className="h-8 w-28"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={placementCount}
+                      onChange={(event) => {
+                        const next = Number(event.currentTarget.value);
+                        if (Number.isSafeInteger(next) && next > 0) setPlacementCount(next);
+                      }}
+                    />
+                  </div>
+                  <p className="max-w-xl text-xs text-muted-foreground">
+                    Non-stackable definitions create this many exact Instances. Stackable
+                    definitions create the minimum number of exact stacks required by the stack
+                    limit. The created occurrences share the placement you draw.
+                  </p>
+                </div>
+              ) : null}
               <RoomCompositionStage
                 backgroundUrl={compositionBackgroundUrl}
                 backgroundImageSize={compositionBackgroundSize}
@@ -2266,7 +2299,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 onCommitPlacement={(bounds) => {
                   if (placingInteractable) placeInteractable(placingInteractable, bounds);
                 }}
-                onCancelPlacement={() => setPlacingInteractable(null)}
+                onCancelPlacement={() => {
+                  setPlacingInteractable(null);
+                  setPlacementCount(1);
+                }}
               />
               {placingInteractable ? (
                 <p className="text-xs text-muted-foreground">
@@ -2334,6 +2370,38 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       }
                     >
                       Remove occurrence
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        useCommandStore.getState().executeCommand({
+                          type: 'room.unplaceInteractableInstance',
+                          label: 'Remove Interactable Instance from Room',
+                          payload: { instanceId: interactable.instanceId },
+                          originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                          persistencePolicy: 'manual-save',
+                        })
+                      }
+                    >
+                      Remove from Room
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() =>
+                        useCommandStore.getState().executeCommand({
+                          type: 'room.destroyInteractableInstance',
+                          label: 'Destroy Interactable Instance',
+                          payload: { instanceId: interactable.instanceId },
+                          originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                          persistencePolicy: 'manual-save',
+                        })
+                      }
+                    >
+                      Destroy Instance
                     </Button>
                   </div>
                   <InteractableInstancePropertiesEditor

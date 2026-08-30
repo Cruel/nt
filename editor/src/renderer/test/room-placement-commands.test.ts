@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vite-plus/test';
 import { toJsonValue } from '@/project/json-value';
 import { createInitialCommandBusState, executeCommand, undoCommand } from './command-test-utils';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   defaultInteractableData,
   defaultInteractableInstanceData,
 } from '../../shared/project-schema/authoring-interactables';
+import { roomDestroyInteractableInstanceCommand } from '@/commands/builtin-commands';
 
 describe('Room placement commands', () => {
   it('places an Interactable with exact defaults and undoes both records atomically', () => {
@@ -311,5 +313,164 @@ describe('Room placement commands', () => {
         },
       },
     });
+  });
+
+  it('expands count into the minimum exact stack identities allowed by stackLimit', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const coins = defaultInteractableData('Coins');
+    coins.stackable = true;
+    coins.stackLimit = 3;
+    project.interactables.coins = { id: 'coins', label: 'Coins', data: coins };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const placed = executeCommand(state, {
+      type: 'room.placeInteractable',
+      payload: {
+        roomId: 'foyer',
+        interactableId: 'coins',
+        instanceId: 'coins',
+        placementId: 'coins-placement',
+        bounds: { x: 0.2, y: 0.2, width: 0.2, height: 0.2 },
+        count: 7,
+      },
+    });
+
+    expect(placed.ok).toBe(true);
+    const placedProject = placed.document as typeof project;
+    expect(Object.keys(placedProject.interactableInstances)).toEqual([
+      'coins',
+      'coins-2',
+      'coins-3',
+    ]);
+    expect(
+      Object.values(placedProject.interactableInstances).map((instance) => instance.quantity),
+    ).toEqual([3, 3, 1]);
+    expect(placedProject.rooms.foyer?.data.interactables).toMatchObject([
+      { interactable: { $ref: { id: 'coins' } }, placementId: 'coins-placement' },
+      { interactable: { $ref: { id: 'coins-2' } }, placementId: 'coins-placement' },
+      { interactable: { $ref: { id: 'coins-3' } }, placementId: 'coins-placement' },
+    ]);
+    expect(undoCommand(placed.state).document).toEqual(state.document);
+  });
+
+  it('separates occurrence removal, semantic unplacement, and destruction', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'key-placement',
+        bounds: { x: 0.2, y: 0.2, width: 0.2, height: 0.2 },
+        order: 0,
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key-occurrence',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const occurrenceOnly = executeCommand(initial, {
+      type: 'room.removeInteractableOccurrence',
+      payload: { roomId: 'foyer', occurrenceId: 'key-occurrence' },
+    });
+    expect(occurrenceOnly.ok).toBe(true);
+    expect(
+      (occurrenceOnly.document as typeof project).interactableInstances.key?.location.kind,
+    ).toBe('room');
+    expect((occurrenceOnly.document as typeof project).rooms.foyer?.data.interactables).toEqual([]);
+
+    const unplaced = executeCommand(initial, {
+      type: 'room.unplaceInteractableInstance',
+      payload: { instanceId: 'key' },
+    });
+    expect(unplaced.ok).toBe(true);
+    expect((unplaced.document as typeof project).interactableInstances.key?.location).toEqual({
+      kind: 'unplaced',
+    });
+    expect((unplaced.document as typeof project).rooms.foyer?.data.interactables).toEqual([]);
+
+    const destroyed = executeCommand(initial, {
+      type: 'room.destroyInteractableInstance',
+      payload: { instanceId: 'key' },
+    });
+    expect(destroyed.ok).toBe(true);
+    expect((destroyed.document as typeof project).interactableInstances.key).toBeUndefined();
+    expect((destroyed.document as typeof project).rooms.foyer?.data.interactables).toEqual([]);
+  });
+
+  it('blocks Instance destruction while typed references remain', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key');
+    project.undefinedInteractionProgram = defaultInteractionProgram();
+    project.undefinedInteractionProgram.instructions.push({
+      id: 'move-key',
+      kind: 'move-instance',
+      subject: {
+        kind: 'interactable',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+      },
+      location: { kind: 'unplaced' },
+    });
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const destroyed = executeCommand(initial, {
+      type: 'room.destroyInteractableInstance',
+      payload: { instanceId: 'key' },
+    });
+
+    expect(destroyed.ok).toBe(false);
+    expect(destroyed.state.document).toEqual(initial.document);
+    expect(destroyed.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        path: '/undefinedInteractionProgram/instructions/0/subject/interactable/$ref',
+      }),
+    ]);
+  });
+
+  it('fails closed when Instance destruction has no current dependency graph', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key');
+    const document = toJsonValue(project);
+
+    const result = roomDestroyInteractableInstanceCommand({
+      document,
+      savedDocument: document,
+      payload: { instanceId: 'key' },
+      request: {
+        type: 'room.destroyInteractableInstance',
+        payload: { instanceId: 'key' },
+        originSaveUnitId: 'test:room',
+        persistencePolicy: 'manual-save',
+      },
+      graphSnapshot: null,
+      projectInstanceId: 'test:project',
+      projectRevision: 1,
+    });
+
+    expect(result.patches).toEqual([]);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        message: 'The dependency graph is not ready for the current project revision.',
+        path: '/interactableInstances/key',
+      }),
+    ]);
   });
 });

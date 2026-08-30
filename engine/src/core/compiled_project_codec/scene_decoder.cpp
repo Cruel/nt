@@ -324,14 +324,23 @@ std::optional<SceneRuntimeWorldOperation> decode_scene_world_operation(Decoder& 
                    : std::nullopt;
     }
     if (*kind == "create-interactable") {
-        decoder.object(value, pointer, {"enabled", "kind", "location", "source", "visible"});
-        const auto* source_value = decoder.member(value, "source", pointer);
+        decoder.object(value, pointer,
+                       {"definition", "enabled", "kind", "location", "quantity", "roomPresentation",
+                        "visible"});
+        const auto* definition_value = decoder.member(value, "definition", pointer);
+        const auto* quantity_value = decoder.member(value, "quantity", pointer);
         const auto* location_value = decoder.member(value, "location", pointer);
         const auto* enabled_value = decoder.member(value, "enabled", pointer);
         const auto* visible_value = decoder.member(value, "visible", pointer);
-        auto source = source_value ? decode_scene_configuration_source(
-                                         decoder, *source_value, pointer_child(pointer, "source"))
-                                   : std::nullopt;
+        const auto* presentation_value = decoder.member(value, "roomPresentation", pointer);
+        auto definition = definition_value
+                              ? decode_reference<InteractableDefinitionId>(
+                                    decoder, *definition_value,
+                                    pointer_child(pointer, "definition"), "interactable-definition")
+                              : std::nullopt;
+        auto quantity = quantity_value ? decoder.unsigned_integer<std::uint64_t>(
+                                             *quantity_value, pointer_child(pointer, "quantity"))
+                                       : std::nullopt;
         auto location = location_value ? decode_location(decoder, *location_value,
                                                          pointer_child(pointer, "location"))
                                        : std::nullopt;
@@ -341,11 +350,24 @@ std::optional<SceneRuntimeWorldOperation> decode_scene_world_operation(Decoder& 
         auto visible = visible_value
                            ? decoder.boolean(*visible_value, pointer_child(pointer, "visible"))
                            : std::nullopt;
-        return source && location && enabled && visible
-                   ? std::optional<SceneRuntimeWorldOperation>(
-                         CreateInteractableSceneWorldOperation{
-                             std::move(*source), std::move(*location), *enabled, *visible})
-                   : std::nullopt;
+        auto presentation =
+            presentation_value
+                ? decoder.string(*presentation_value, pointer_child(pointer, "roomPresentation"))
+                : std::nullopt;
+        if (!definition || !quantity || !location || !enabled || !visible || !presentation)
+            return std::nullopt;
+        RoomPresentationPolicy room_presentation = RoomPresentationPolicy::Resolve;
+        if (*presentation == "none")
+            room_presentation = RoomPresentationPolicy::None;
+        else if (*presentation != "resolve") {
+            decoder.error(k_code_variant,
+                          "Create Interactable roomPresentation must be 'resolve' or 'none'.",
+                          pointer_child(pointer, "roomPresentation"));
+            return std::nullopt;
+        }
+        return CreateInteractableSceneWorldOperation{
+            std::move(*definition), *quantity, std::move(*location), *enabled, *visible,
+            room_presentation};
     }
     if (*kind == "replace-configuration") {
         decoder.object(value, pointer, {"instance", "kind", "source"});

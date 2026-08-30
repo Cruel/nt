@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { renameInteractableInstancePatches } from '@/project/interactable-instance-operations';
 import { renameOwnerLocalPropertyReferencePatches } from '@/project/owner-local-property-references';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
@@ -38,6 +39,7 @@ import {
   type InteractableData,
 } from '../../../shared/project-schema/authoring-interactables';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { entityIdSchema } from '../../../shared/project-schema/authoring-common';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   captureScrollViewState,
@@ -467,6 +469,64 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                         : 'Unplaced'}
                   </div>
                 </div>
+                <div className="grid max-w-xl gap-1">
+                  <Label htmlFor={`interactable-editor-label-${instanceId}`}>Editor label</Label>
+                  <Input
+                    id={`interactable-editor-label-${instanceId}`}
+                    value={instance.editorLabel ?? ''}
+                    placeholder="Optional non-semantic label"
+                    onChange={(event) =>
+                      applyProjectPatches('Update Interactable Instance editor label', [
+                        {
+                          op: 'replace',
+                          path: `/interactableInstances/${escapePointerSegment(instanceId)}`,
+                          value: {
+                            ...instance,
+                            editorLabel: event.currentTarget.value.trim() || undefined,
+                          },
+                        },
+                      ])
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Editor-only. This does not change the exact gameplay identity.
+                  </p>
+                </div>
+                <details className="max-w-xl rounded border p-2">
+                  <summary className="cursor-pointer text-xs font-medium">
+                    Advanced identity
+                  </summary>
+                  <div className="mt-2 grid gap-1">
+                    <Label htmlFor={`interactable-instance-id-${instanceId}`}>Instance ID</Label>
+                    <Input
+                      key={instanceId}
+                      id={`interactable-instance-id-${instanceId}`}
+                      defaultValue={instanceId}
+                      onBlur={(event) => {
+                        const nextId = event.currentTarget.value.trim();
+                        if (
+                          nextId === instanceId ||
+                          !entityIdSchema.safeParse(nextId).success ||
+                          project.interactableInstances[nextId]
+                        ) {
+                          event.currentTarget.value = instanceId;
+                          return;
+                        }
+                        const patches = renameInteractableInstancePatches(
+                          project,
+                          instanceId,
+                          nextId,
+                        );
+                        if (patches.length)
+                          applyProjectPatches('Rename Interactable Instance ID', patches);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Advanced: rewrites typed references to preserve this exact identity under a
+                      new authored ID.
+                    </p>
+                  </div>
+                </details>
                 <div className="max-w-40">
                   <Label htmlFor={`interactable-quantity-${instanceId}`}>Quantity</Label>
                   <Input

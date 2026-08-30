@@ -230,25 +230,16 @@ RuntimeScriptApi::create_character(runtime::RuntimeInstanceConfigurationRequest 
         gateway->create_character(std::move(source), std::move(location), enabled, visible));
 }
 
-core::Result<core::InteractableInstanceId, core::Diagnostics>
-RuntimeScriptApi::create_interactable(runtime::RuntimeInstanceConfigurationRequest source,
-                                      core::compiled::InteractableLocation location, bool enabled,
-                                      bool visible)
+core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
+RuntimeScriptApi::create_interactable_quantity(
+    core::InteractableDefinitionId definition, std::uint64_t quantity,
+    core::compiled::InteractableLocation location, bool enabled, bool visible,
+    runtime::InteractableRoomPresentationPolicy presentation)
 {
     NOVELTEA_WITH_COMMAND(
-        runtime::RuntimeCapabilityGroup::Interactable, "Interactable instance creation",
-        gateway->create_interactable(std::move(source), std::move(location), enabled, visible));
-}
-
-core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
-RuntimeScriptApi::create_interactable_quantity(core::InteractableDefinitionId definition,
-                                               std::uint64_t quantity,
-                                               core::compiled::InteractableLocation location)
-{
-    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Interactable,
-                          "Interactable quantity creation",
-                          gateway->create_interactable_quantity(std::move(definition), quantity,
-                                                                std::move(location)));
+        runtime::RuntimeCapabilityGroup::Interactable, "Interactable quantity creation",
+        gateway->create_interactable_quantity(std::move(definition), quantity, std::move(location),
+                                              enabled, visible, presentation));
 }
 
 core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>

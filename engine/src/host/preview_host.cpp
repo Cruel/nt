@@ -584,12 +584,35 @@ PreviewMutationResult PreviewHost::create_runtime_instance(const std::string& ki
                                                            const std::string& source_id)
 {
     auto* running_game = m_dependencies.game_host.running_game();
-    auto source = runtime_instance_source(kind, source_kind, source_id);
-    if (!running_game || !source)
+    if (!running_game)
         return mutation_result(false, "instance-create", source_id,
                                "invalid Gameplay Instance creation request");
 
     auto& gateway = running_game->session().gateway();
+    if (kind == "interactable") {
+        if (source_kind != "definition")
+            return mutation_result(false, "instance-create", source_id,
+                                   "Interactable creation requires an Interactable definition");
+        auto definition = core::InteractableDefinitionId::create(source_id);
+        if (!definition)
+            return mutation_result(false, "instance-create", source_id,
+                                   first_diagnostic_message(definition.error()));
+        auto created = gateway.create_interactable_quantity(*definition.value_if(), 1,
+                                                            core::compiled::UnplacedLocation{});
+        if (!created)
+            return mutation_result(false, "instance-create", source_id,
+                                   first_diagnostic_message(created.error()));
+        if (created.value_if()->created.size() != 1)
+            return mutation_result(false, "instance-create", source_id,
+                                   "Interactable creation produced an invalid exact identity set");
+        const auto id = created.value_if()->created.front().text();
+        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+        return mutation_result(true, "instance-create", id);
+    }
+    auto source = runtime_instance_source(kind, source_kind, source_id);
+    if (!source)
+        return mutation_result(false, "instance-create", source_id,
+                               "invalid Gameplay Instance creation source");
     if (kind == "room") {
         auto created = gateway.create_room(std::move(*source));
         if (!created)
@@ -601,15 +624,6 @@ PreviewMutationResult PreviewHost::create_runtime_instance(const std::string& ki
     }
     if (kind == "character") {
         auto created = gateway.create_character(std::move(*source));
-        if (!created)
-            return mutation_result(false, "instance-create", source_id,
-                                   first_diagnostic_message(created.error()));
-        const auto id = created.value_if()->text();
-        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
-        return mutation_result(true, "instance-create", id);
-    }
-    if (kind == "interactable") {
-        auto created = gateway.create_interactable(std::move(*source));
         if (!created)
             return mutation_result(false, "instance-create", source_id,
                                    first_diagnostic_message(created.error()));

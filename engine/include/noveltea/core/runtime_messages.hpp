@@ -72,11 +72,13 @@ struct ClearInteractionSubjectSelectionInput {
 struct PrimaryActivateInput {
     compiled::InteractionSubject subject;
     std::optional<TriggerContext> trigger_context = std::nullopt;
+    std::optional<LayoutPresentationParent> presentation_parent = std::nullopt;
     bool operator==(const PrimaryActivateInput&) const = default;
 };
 struct OpenVerbMenuInput {
     compiled::InteractionSubject subject;
     std::optional<TriggerContext> trigger_context = std::nullopt;
+    std::optional<LayoutPresentationParent> presentation_parent = std::nullopt;
     bool operator==(const OpenVerbMenuInput&) const = default;
 };
 struct PresentInventoryInput {

@@ -1124,10 +1124,12 @@ struct CreateCharacterSceneWorldOperation {
     bool visible = true;
 };
 struct CreateInteractableSceneWorldOperation {
-    SceneInstanceConfigurationSource source;
+    InteractableDefinitionId definition;
+    std::uint64_t quantity = 1;
     InteractableLocation location;
     bool enabled = true;
     bool visible = true;
+    RoomPresentationPolicy room_presentation = RoomPresentationPolicy::Resolve;
 };
 struct ReplaceConfigurationSceneWorldOperation {
     SceneGameplayInstanceRef instance;

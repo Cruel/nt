@@ -828,10 +828,15 @@ struct RuntimeUiDataModel::Impl {
     };
 
     RuntimeUiActionGateway& gateway;
+    RuntimeUiDataModel::PresentationParentResolver presentation_parent_resolver;
     Projection projection;
     std::vector<HandleRecord> handles;
 
-    explicit Impl(RuntimeUiActionGateway& action_gateway) : gateway(action_gateway) {}
+    Impl(RuntimeUiActionGateway& action_gateway,
+         RuntimeUiDataModel::PresentationParentResolver resolver)
+        : gateway(action_gateway), presentation_parent_resolver(std::move(resolver))
+    {
+    }
 
     void dirty_all()
     {
@@ -1042,23 +1047,29 @@ struct RuntimeUiDataModel::Impl {
                                   }));
         ok &= c.BindEventCallback(
             "ui_primary_activate", contextual_callback([this](Rml::Event& event, const auto& args) {
-                return gateway.action_primary_activate(event_arg<std::string>(args, 0),
-                                                       event_arg<std::string>(args, 1),
-                                                       trigger_context_from_event(event));
+                return gateway.action_primary_activate(
+                    event_arg<std::string>(args, 0), event_arg<std::string>(args, 1),
+                    trigger_context_from_event(event),
+                    presentation_parent_resolver ? presentation_parent_resolver(event)
+                                                 : std::nullopt);
             }));
         ok &= c.BindEventCallback(
             "ui_open_verb_menu", contextual_callback([this](Rml::Event& event, const auto& args) {
-                return gateway.action_open_verb_menu(event_arg<std::string>(args, 0),
-                                                     event_arg<std::string>(args, 1),
-                                                     trigger_context_from_event(event));
+                return gateway.action_open_verb_menu(
+                    event_arg<std::string>(args, 0), event_arg<std::string>(args, 1),
+                    trigger_context_from_event(event),
+                    presentation_parent_resolver ? presentation_parent_resolver(event)
+                                                 : std::nullopt);
             }));
         ok &= c.BindEventCallback(
             "ui_context_activate", contextual_callback([this](Rml::Event& event, const auto& args) {
                 if (event.GetParameter<int>("button", -1) != 1)
                     return false;
-                return gateway.action_open_verb_menu(event_arg<std::string>(args, 0),
-                                                     event_arg<std::string>(args, 1),
-                                                     trigger_context_from_event(event));
+                return gateway.action_open_verb_menu(
+                    event_arg<std::string>(args, 0), event_arg<std::string>(args, 1),
+                    trigger_context_from_event(event),
+                    presentation_parent_resolver ? presentation_parent_resolver(event)
+                                                 : std::nullopt);
             }));
         ok &= c.BindEventCallback("ui_present_player_inventory",
                                   contextual_callback([this](Rml::Event& event, const auto&) {
@@ -1163,8 +1174,9 @@ struct RuntimeUiDataModel::Impl {
     }
 };
 
-RuntimeUiDataModel::RuntimeUiDataModel(RuntimeUiActionGateway& action_gateway)
-    : m_impl(std::make_unique<Impl>(action_gateway))
+RuntimeUiDataModel::RuntimeUiDataModel(RuntimeUiActionGateway& action_gateway,
+                                       PresentationParentResolver presentation_parent_resolver)
+    : m_impl(std::make_unique<Impl>(action_gateway, std::move(presentation_parent_resolver)))
 {
 }
 

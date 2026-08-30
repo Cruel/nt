@@ -34,7 +34,7 @@ Selector evaluation is based on the exact live subject and its current effective
 - `qualified-pattern` checks a stable qualified identity prefix with one trailing `*`;
 - `exact` compares the exact semantic subject identity.
 
-Runtime-created Interactable Instances participate in the same matching and specificity rules as declared Instances. Definition-created and cloned Instances preserve the immutable origin definition used by `interactable-definition`; effective Traits and Properties are resolved from the live Instance configuration. Archetype provenance is not itself a selector or specificity dimension.
+Runtime-created Interactable Instances participate in the same matching and specificity rules as declared Instances. Ordinary Interactable creation always names an Interactable definition, establishing the immutable origin definition used by `interactable-definition`; later structural replacement may change effective configuration without changing that origin. Effective Traits and Properties are resolved from the live Instance configuration. Archetype provenance is not itself a selector or specificity dimension.
 
 Inventory and quantity-oriented APIs reuse a deliberately narrower `InteractableMatcher` rather than the multi-family `SubjectSelector`. It supports broad Interactable matching plus conjunctive definition, Trait, Property-value, and exact-Instance narrowing. Boolean composition belongs to the surrounding Condition language; the matcher is not recursively composable.
 

@@ -168,6 +168,17 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/(?:propertyId|mode|quantity|result)$/,
     OWNER,
   ],
+  // #115 alignment completes the shared Gameplay Command surface with explicit Room-presentation
+  // policy, contextual Inventory lifetime controls, and the distinct Navigate Exit / Change Room
+  // commands. These fields are all owner-local execution shape at every shared-command host.
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/(?:roomPresentation|useTriggerAnchor|parentToTriggeringLayout|coexist|exitId)$/,
+    OWNER,
+  ],
+  [
+    /^(?:\/undefinedInteractionProgram\/instructions\/\*|\/verbs\/\*\/data\/defaultProgram\/instructions\/\*|\/interactions\/\*\/data\/rules\/\*\/program\/instructions\/\*|\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*)\/room(?:\/|$)/,
+    OWNER,
+  ],
   [
     /^\/dialogues\/\*\/data\/(?:blocks\/\*\/segments\/\*|edges\/\*)\/effects\/\*\/(?:id|enabled|visible|message|scene|dialogue)(?:\/|$)/,
     OWNER,
@@ -917,29 +928,29 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
     characters: '53873c0e',
-    dialogues: '699d61fa',
+    dialogues: '81f2a616',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
     interactableInstances: '287ef173',
     interactables: '81498bf0',
-    interactions: 'c5f3f74e',
+    interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
     localization: '3f6d0d11',
     maps: '9d711bea',
     materials: '546711ca',
     project: 'da3be83d',
-    rooms: '83341550',
-    scenes: 'd015ee22',
+    rooms: '4bfeca2e',
+    scenes: '9d060243',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: '955fcf25',
     shaders: '94d3aa6e',
     tests: '99f1bf10',
     traits: 'f6534a48',
-    undefinedInteractionProgram: '6cb45dd0',
+    undefinedInteractionProgram: 'da7c64b8',
     variables: '9c9e4800',
-    verbs: '5a9389c5',
+    verbs: 'ede9b385',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {

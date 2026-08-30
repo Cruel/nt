@@ -21,6 +21,7 @@ import type {
   InteractableOperand,
   InventoryOperand,
   LocationOperand,
+  RoomOperand,
 } from '../../../shared/project-schema/authoring-flow';
 
 export type GameplayCommandKind = GameplayCommand['kind'];
@@ -49,6 +50,8 @@ const allKinds: readonly GameplayCommandKind[] = [
   'add-quantity',
   'consume-quantity',
   'present-inventory',
+  'navigate-exit',
+  'change-room',
   'call-scene',
   'call-dialogue',
   'notify',
@@ -170,7 +173,7 @@ function defaultLocation(
 
 function defaultSource(
   project: AuthoringEditorProject,
-  kind: 'room' | 'character' | 'interactable',
+  kind: 'room' | 'character',
 ): GameplayConfigurationSource {
   const archetype = Object.entries(project.archetypes).find(([, record]) => {
     const data = record.data as { instanceKind?: unknown } | undefined;
@@ -193,10 +196,20 @@ function defaultSource(
   return {
     kind: 'compiled-instance',
     instance: {
-      kind: 'interactable',
-      interactable: instanceRef(Object.keys(project.interactableInstances)[0] ?? 'interactable'),
+      kind: 'character',
+      character: characterRef(Object.keys(project.characters)[0] ?? 'character'),
     },
   };
+}
+
+function defaultRoomOperand(
+  project: AuthoringEditorProject,
+  policy: GameplayCommandEditorPolicy,
+): RoomOperand {
+  const result = resultBindings(policy, ['room'])[0];
+  if (result) return { kind: 'command-result', bindingId: result.id };
+  if (policy.currentRoom) return { kind: 'current-room' };
+  return { kind: 'room', room: roomRef(Object.keys(project.rooms)[0] ?? 'room') };
 }
 
 function createCommand(
@@ -244,7 +257,8 @@ function createCommand(
       return {
         id,
         kind,
-        source: defaultSource(project, 'interactable'),
+        definition: interactableRef(Object.keys(project.interactables)[0] ?? 'interactable'),
+        quantity: 1,
         location,
         enabled: true,
         visible: true,
@@ -278,6 +292,10 @@ function createCommand(
       return { id, kind, mode: 'exact', source: interactable, quantity: 1 };
     case 'present-inventory':
       return { id, kind, inventory: defaultInventoryOperand(project) };
+    case 'navigate-exit':
+      return { id, kind, exitId: 'exit' };
+    case 'change-room':
+      return { id, kind, room: defaultRoomOperand(project, policy) };
     case 'call-scene':
       return { id, kind, scene: sceneRef(Object.keys(project.scenes)[0] ?? 'scene') };
     case 'call-dialogue':
@@ -458,6 +476,50 @@ function LocationOperandEditor({
         />
       ) : null}
     </div>
+  );
+}
+
+function RoomOperandEditor({
+  value,
+  project,
+  policy,
+  onChange,
+}: {
+  value: RoomOperand;
+  project: AuthoringEditorProject;
+  policy: GameplayCommandEditorPolicy;
+  onChange: (value: RoomOperand) => void;
+}) {
+  const roomResults = resultBindings(policy, ['room']);
+  return (
+    <Select
+      value={
+        value.kind === 'current-room'
+          ? '__current__'
+          : value.kind === 'command-result'
+            ? `result:${value.bindingId}`
+            : value.room.$ref.id
+      }
+      onValueChange={(selected) => {
+        const id = String(selected);
+        if (id === '__current__') onChange({ kind: 'current-room' });
+        else if (id.startsWith('result:'))
+          onChange({ kind: 'command-result', bindingId: id.slice(7) });
+        else onChange({ kind: 'room', room: roomRef(id) });
+      }}
+    >
+      {policy.currentRoom ? <SelectItem value="__current__">Current Room</SelectItem> : null}
+      {Object.keys(project.rooms).map((id) => (
+        <SelectItem key={id} value={id}>
+          {id}
+        </SelectItem>
+      ))}
+      {roomResults.map((result) => (
+        <SelectItem key={`result:${result.id}`} value={`result:${result.id}`}>
+          Result: {result.id}
+        </SelectItem>
+      ))}
+    </Select>
   );
 }
 
@@ -654,13 +716,22 @@ function CommandFields({
           policy={policy}
           onChange={(location) => onChange({ ...command, location })}
         />
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={command.roomPresentation === 'none'}
+            onChange={(event) =>
+              onChange({
+                ...command,
+                roomPresentation: event.currentTarget.checked ? 'none' : undefined,
+              })
+            }
+          />
+          Advanced: allow Room presence without presentation
+        </label>
       </div>
     );
-  if (
-    command.kind === 'create-room' ||
-    command.kind === 'create-character' ||
-    command.kind === 'create-interactable'
-  )
+  if (command.kind === 'create-room' || command.kind === 'create-character')
     return (
       <div className="grid gap-2">
         <ConfigurationSourceEditor
@@ -701,6 +772,89 @@ function CommandFields({
           value={command.result}
           onChange={(result) => onChange({ ...command, result })}
         />
+      </div>
+    );
+  if (command.kind === 'create-interactable')
+    return (
+      <div className="grid gap-2">
+        <div className="grid gap-2 md:grid-cols-2">
+          <div className="space-y-1">
+            <Label>Interactable Definition</Label>
+            <Select
+              value={command.definition.$ref.id}
+              onValueChange={(id) =>
+                onChange({ ...command, definition: interactableRef(String(id)) })
+              }
+            >
+              {Object.keys(project.interactables).map((id) => (
+                <SelectItem key={id} value={id}>
+                  {id}
+                </SelectItem>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Quantity / count</Label>
+            <Input
+              type="number"
+              min={1}
+              value={command.quantity}
+              onChange={(event) =>
+                onChange({
+                  ...command,
+                  quantity: Math.max(1, Number(event.currentTarget.value) || 1),
+                })
+              }
+            />
+          </div>
+        </div>
+        <LocationOperandEditor
+          value={command.location}
+          project={project}
+          policy={policy}
+          onChange={(location) => onChange({ ...command, location })}
+        />
+        <div className="flex flex-wrap gap-4">
+          <label>
+            <input
+              type="checkbox"
+              checked={command.enabled}
+              onChange={(event) => onChange({ ...command, enabled: event.currentTarget.checked })}
+            />{' '}
+            Enabled
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={command.visible}
+              onChange={(event) => onChange({ ...command, visible: event.currentTarget.checked })}
+            />{' '}
+            Visible
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={command.roomPresentation === 'none'}
+              onChange={(event) =>
+                onChange({
+                  ...command,
+                  roomPresentation: event.currentTarget.checked ? 'none' : undefined,
+                })
+              }
+            />{' '}
+            No Room presentation
+          </label>
+        </div>
+        <ResultBinding
+          value={command.result}
+          onChange={(result) => onChange({ ...command, result })}
+        />
+        {command.result && command.quantity > 1 ? (
+          <p className="text-xs text-muted-foreground">
+            A result binding is valid only when this quantity resolves to one exact Instance under
+            the Definition's stack limit.
+          </p>
+        ) : null}
       </div>
     );
   if (command.kind === 'destroy-instance')
@@ -924,6 +1078,58 @@ function CommandFields({
             ))}
           </Select>
         </div>
+        <div className="col-span-full flex flex-wrap gap-4 text-sm">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={command.useTriggerAnchor ?? true}
+              onChange={(event) =>
+                onChange({ ...command, useTriggerAnchor: event.currentTarget.checked })
+              }
+            />
+            Use activation Trigger Context anchor
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={command.parentToTriggeringLayout ?? false}
+              onChange={(event) =>
+                onChange({ ...command, parentToTriggeringLayout: event.currentTarget.checked })
+              }
+            />
+            Parent to triggering Layout
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={command.coexist ?? false}
+              onChange={(event) => onChange({ ...command, coexist: event.currentTarget.checked })}
+            />
+            Allow coexistence
+          </label>
+        </div>
+      </div>
+    );
+  if (command.kind === 'navigate-exit')
+    return (
+      <div className="space-y-1">
+        <Label>Current Room Exit ID</Label>
+        <Input
+          value={command.exitId}
+          onChange={(event) => onChange({ ...command, exitId: event.currentTarget.value })}
+        />
+      </div>
+    );
+  if (command.kind === 'change-room')
+    return (
+      <div className="space-y-1">
+        <Label>Destination Room</Label>
+        <RoomOperandEditor
+          value={command.room}
+          project={project}
+          policy={policy}
+          onChange={(room) => onChange({ ...command, room })}
+        />
       </div>
     );
   if (command.kind === 'call-scene')

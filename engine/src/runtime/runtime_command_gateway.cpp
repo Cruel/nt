@@ -327,24 +327,15 @@ RuntimeCommandGateway::create_character(RuntimeInstanceConfigurationRequest sour
     return created;
 }
 
-core::Result<core::InteractableInstanceId, core::Diagnostics>
-RuntimeCommandGateway::create_interactable(RuntimeInstanceConfigurationRequest source,
-                                           core::compiled::InteractableLocation location,
-                                           bool enabled, bool visible)
-{
-    auto created =
-        m_world.create_interactable(std::move(source), std::move(location), enabled, visible);
-    if (created)
-        record_structural_mutation();
-    return created;
-}
-
 core::Result<InteractableQuantityMutation, core::Diagnostics>
 RuntimeCommandGateway::create_interactable_quantity(core::InteractableDefinitionId definition,
                                                     std::uint64_t quantity,
-                                                    core::compiled::InteractableLocation location)
+                                                    core::compiled::InteractableLocation location,
+                                                    bool enabled, bool visible,
+                                                    InteractableRoomPresentationPolicy presentation)
 {
-    auto result = m_world.create_interactable_quantity(definition, quantity, std::move(location));
+    auto result = m_world.create_interactable_quantity(definition, quantity, std::move(location),
+                                                       enabled, visible, presentation);
     if (const auto* mutation = result.value_if();
         mutation != nullptr && changes_interactable_quantities(*mutation))
         record_structural_mutation();

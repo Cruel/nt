@@ -556,7 +556,8 @@ bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string
 }
 
 bool RuntimeUiActionGateway::action_primary_activate(
-    std::string kind, std::string text, std::optional<core::TriggerContext> trigger_context)
+    std::string kind, std::string text, std::optional<core::TriggerContext> trigger_context,
+    std::optional<core::LayoutPresentationParent> presentation_parent)
 {
     auto subject = resolve_subject(std::move(kind), std::move(text));
     if (!subject)
@@ -565,20 +566,21 @@ bool RuntimeUiActionGateway::action_primary_activate(
         return dispatch_layout_input(
             core::RuntimeInputMessage{core::CommandBuilderSubjectPressInput{
                 *view()->command_builder.occurrence, std::move(*subject)}});
-    return dispatch_layout_input(core::RuntimeInputMessage{
-        core::PrimaryActivateInput{std::move(*subject), std::move(trigger_context)}});
+    return dispatch_layout_input(core::RuntimeInputMessage{core::PrimaryActivateInput{
+        std::move(*subject), std::move(trigger_context), std::move(presentation_parent)}});
 }
 
 bool RuntimeUiActionGateway::action_open_verb_menu(
-    std::string kind, std::string text, std::optional<core::TriggerContext> trigger_context)
+    std::string kind, std::string text, std::optional<core::TriggerContext> trigger_context,
+    std::optional<core::LayoutPresentationParent> presentation_parent)
 {
     if (view() && view()->command_builder.active && view()->command_builder.occurrence)
         return action_primary_activate(std::move(kind), std::move(text));
     auto subject = resolve_subject(std::move(kind), std::move(text));
     if (!subject)
         return false;
-    return dispatch_layout_input(core::RuntimeInputMessage{
-        core::OpenVerbMenuInput{std::move(*subject), std::move(trigger_context)}});
+    return dispatch_layout_input(core::RuntimeInputMessage{core::OpenVerbMenuInput{
+        std::move(*subject), std::move(trigger_context), std::move(presentation_parent)}});
 }
 
 bool RuntimeUiActionGateway::action_present_player_inventory(

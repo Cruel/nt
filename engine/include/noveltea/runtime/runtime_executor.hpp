@@ -211,7 +211,7 @@ public:
         std::optional<core::LayoutId> layout = std::nullopt,
         std::optional<core::TriggerContext> trigger_context = std::nullopt,
         std::optional<core::LayoutPresentationParent> presentation_parent = std::nullopt,
-        bool coexist = false);
+        bool coexist = false, bool inherit_trigger_context = true);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     present_verb_menu(const core::compiled::InteractionSubject& subject,
                       std::optional<core::TriggerContext> trigger_context = std::nullopt);
@@ -226,6 +226,12 @@ public:
         m_trigger_context = std::move(context);
     }
     void clear_trigger_context() noexcept { m_trigger_context.reset(); }
+    void
+    set_trigger_presentation_parent(std::optional<core::LayoutPresentationParent> parent) noexcept
+    {
+        m_trigger_presentation_parent = std::move(parent);
+    }
+    void clear_trigger_presentation_parent() noexcept { m_trigger_presentation_parent.reset(); }
     [[nodiscard]] core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>
     verb_offers(const core::compiled::InteractionSubject& subject, std::string_view runtime_locale);
     [[nodiscard]] core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>
@@ -327,6 +333,13 @@ private:
         std::span<const core::GameplayCommand> commands,
         std::span<const core::InteractionSubjectBinding> interaction_bindings,
         std::vector<core::CommandResultBinding>& command_results);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    call_navigation_command(const core::NavigateExitCommand& command,
+                            core::FlowFramePosition caller_next_position);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    call_change_room_command(const core::ChangeRoomCommand& command,
+                             core::ConditionEvaluationContext context,
+                             core::FlowFramePosition caller_next_position);
     [[nodiscard]] core::Result<std::optional<core::PresentationFlowCompletion>, core::Diagnostics>
     advance_scene_for_presentation(const core::SceneId& scene, const core::SceneStepId& step,
                                    std::optional<core::SceneStepId> next,
@@ -365,6 +378,7 @@ private:
     std::optional<core::RoomPresentationResolution> m_pending_presentation_source_room;
     std::vector<PendingAudioOperation> m_pending_audio_operations;
     std::optional<core::TriggerContext> m_trigger_context;
+    std::optional<core::LayoutPresentationParent> m_trigger_presentation_parent;
     std::string m_pending_presentation_source_locale;
     bool m_pending_presentation_source_dirty = true;
 };

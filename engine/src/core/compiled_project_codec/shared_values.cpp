@@ -479,6 +479,24 @@ std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder& decoder,
         return member ? decode_interactable_operand(decoder, *member, pointer_child(pointer, name))
                       : std::nullopt;
     };
+    const auto room = [&](std::string_view name) -> std::optional<RoomOperand> {
+        const auto* member = decoder.member(value, name, pointer);
+        if (!member)
+            return std::nullopt;
+        auto decoded =
+            decode_gameplay_identity_operand(decoder, *member, pointer_child(pointer, name));
+        if (!decoded)
+            return std::nullopt;
+        if (const auto* exact = std::get_if<RoomId>(&*decoded))
+            return RoomOperand{*exact};
+        if (std::holds_alternative<CurrentRoomOperand>(*decoded))
+            return RoomOperand{CurrentRoomOperand{}};
+        if (const auto* result = std::get_if<CommandResultOperand>(&*decoded))
+            return RoomOperand{*result};
+        decoder.error(k_code_variant, "Gameplay Command requires a Room operand.",
+                      pointer_child(pointer, name));
+        return std::nullopt;
+    };
     const auto quantity = [&](std::string_view name) -> std::optional<std::uint64_t> {
         const auto* member = decoder.member(value, name, pointer);
         return member
@@ -608,15 +626,33 @@ std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder& decoder,
                 : GameplayCommand::Value(SetVisibleCommand{std::move(*subject), *state})};
     }
     if (*kind == "move-instance") {
-        decoder.object(value, pointer, {"id", "kind", "location", "subject"});
+        decoder.object(value, pointer, {"id", "kind", "location", "roomPresentation", "subject"});
         auto subject = location_subject("subject");
         auto target = location("location");
-        return subject && target ? std::optional<GameplayCommand>(GameplayCommand{
-                                       std::move(*id), MoveInstanceCommand{std::move(*subject),
-                                                                           std::move(*target)}})
-                                 : std::nullopt;
+        auto presentation = RoomPresentationPolicy::Resolve;
+        if (const auto* presentation_value = json_access::member(value, "roomPresentation")) {
+            auto text =
+                decoder.string(*presentation_value, pointer_child(pointer, "roomPresentation"));
+            if (!text)
+                return std::nullopt;
+            if (*text == "resolve")
+                presentation = RoomPresentationPolicy::Resolve;
+            else if (*text == "none")
+                presentation = RoomPresentationPolicy::None;
+            else {
+                decoder.error(k_code_variant,
+                              "Room presentation policy must be 'resolve' or 'none'.",
+                              pointer_child(pointer, "roomPresentation"));
+                return std::nullopt;
+            }
+        }
+        return subject && target
+                   ? std::optional<GameplayCommand>(GameplayCommand{
+                         std::move(*id), MoveInstanceCommand{std::move(*subject),
+                                                             std::move(*target), presentation}})
+                   : std::nullopt;
     }
-    if (*kind == "create-room" || *kind == "create-character" || *kind == "create-interactable") {
+    if (*kind == "create-room" || *kind == "create-character") {
         if (*kind == "create-room")
             decoder.object(value, pointer, {"id", "kind", "result", "source"});
         else
@@ -639,13 +675,54 @@ std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder& decoder,
                            : std::nullopt;
         if (!target || !enabled || !visible)
             return std::nullopt;
-        return GameplayCommand{
-            std::move(*id),
-            *kind == "create-character"
-                ? GameplayCommand::Value(CreateCharacterCommand{
-                      std::move(*source), std::move(*target), *enabled, *visible, result})
-                : GameplayCommand::Value(CreateInteractableCommand{
-                      std::move(*source), std::move(*target), *enabled, *visible, result})};
+        return GameplayCommand{std::move(*id),
+                               CreateCharacterCommand{std::move(*source), std::move(*target),
+                                                      *enabled, *visible, result}};
+    }
+    if (*kind == "create-interactable") {
+        decoder.object(value, pointer,
+                       {"definition", "enabled", "id", "kind", "location", "quantity", "result",
+                        "roomPresentation", "visible"});
+        const auto* definition_value = decoder.member(value, "definition", pointer);
+        auto definition = definition_value
+                              ? decode_reference<InteractableDefinitionId>(
+                                    decoder, *definition_value,
+                                    pointer_child(pointer, "definition"), "interactable-definition")
+                              : std::nullopt;
+        auto count = quantity("quantity");
+        auto target = location("location");
+        auto result = binding("result");
+        const auto* enabled_value = decoder.member(value, "enabled", pointer);
+        const auto* visible_value = decoder.member(value, "visible", pointer);
+        auto enabled = enabled_value
+                           ? decoder.boolean(*enabled_value, pointer_child(pointer, "enabled"))
+                           : std::nullopt;
+        auto visible = visible_value
+                           ? decoder.boolean(*visible_value, pointer_child(pointer, "visible"))
+                           : std::nullopt;
+        auto presentation = RoomPresentationPolicy::Resolve;
+        if (const auto* presentation_value = json_access::member(value, "roomPresentation")) {
+            auto text =
+                decoder.string(*presentation_value, pointer_child(pointer, "roomPresentation"));
+            if (!text)
+                return std::nullopt;
+            if (*text == "resolve")
+                presentation = RoomPresentationPolicy::Resolve;
+            else if (*text == "none")
+                presentation = RoomPresentationPolicy::None;
+            else {
+                decoder.error(k_code_variant,
+                              "Room presentation policy must be 'resolve' or 'none'.",
+                              pointer_child(pointer, "roomPresentation"));
+                return std::nullopt;
+            }
+        }
+        return definition && count && target && enabled && visible
+                   ? std::optional<GameplayCommand>(GameplayCommand{
+                         std::move(*id), CreateInteractableCommand{std::move(*definition), *count,
+                                                                   std::move(*target), *enabled,
+                                                                   *visible, presentation, result}})
+                   : std::nullopt;
     }
     if (*kind == "destroy-instance") {
         decoder.object(value, pointer, {"id", "instance", "kind"});
@@ -755,7 +832,9 @@ std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder& decoder,
                    : std::nullopt;
     }
     if (*kind == "present-inventory") {
-        decoder.object(value, pointer, {"id", "inventory", "kind", "layout"});
+        decoder.object(value, pointer,
+                       {"coexist", "id", "inventory", "kind", "layout", "parentToTriggeringLayout",
+                        "useTriggerAnchor"});
         const auto* inventory_value = decoder.member(value, "inventory", pointer);
         const auto* layout_value = json_access::member(value, "layout");
         auto inventory = inventory_value
@@ -769,10 +848,43 @@ std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder& decoder,
                                                 pointer_child(pointer, "layout"), "layout");
             layout_ok = layout.has_value();
         }
-        return inventory && layout_ok
+        const auto optional_bool = [&](std::string_view name,
+                                       bool fallback) -> std::optional<bool> {
+            const auto* member = json_access::member(value, name);
+            return member ? decoder.boolean(*member, pointer_child(pointer, name))
+                          : std::optional<bool>{fallback};
+        };
+        auto use_trigger_anchor = optional_bool("useTriggerAnchor", true);
+        auto parent_to_triggering = optional_bool("parentToTriggeringLayout", false);
+        auto coexist = optional_bool("coexist", false);
+        return inventory && layout_ok && use_trigger_anchor && parent_to_triggering && coexist
                    ? std::optional<GameplayCommand>(GameplayCommand{
-                         std::move(*id), PresentInventoryCommand{std::move(*inventory), layout}})
+                         std::move(*id),
+                         PresentInventoryCommand{std::move(*inventory), layout, *use_trigger_anchor,
+                                                 *parent_to_triggering, *coexist}})
                    : std::nullopt;
+    }
+    if (*kind == "navigate-exit") {
+        decoder.object(value, pointer, {"exitId", "id", "kind"});
+        const auto* exit_value = decoder.member(value, "exitId", pointer);
+        auto exit_text = exit_value ? decoder.string(*exit_value, pointer_child(pointer, "exitId"))
+                                    : std::nullopt;
+        if (!exit_text)
+            return std::nullopt;
+        auto exit = RoomExitId::create(std::move(*exit_text));
+        if (!exit) {
+            decoder.error(k_code_variant, "Gameplay Command Exit ID is invalid.",
+                          pointer_child(pointer, "exitId"));
+            return std::nullopt;
+        }
+        return GameplayCommand{std::move(*id), NavigateExitCommand{std::move(*exit.value_if())}};
+    }
+    if (*kind == "change-room") {
+        decoder.object(value, pointer, {"id", "kind", "room"});
+        auto target = room("room");
+        return target ? std::optional<GameplayCommand>(
+                            GameplayCommand{std::move(*id), ChangeRoomCommand{std::move(*target)}})
+                      : std::nullopt;
     }
     if (*kind == "call-scene" || *kind == "call-dialogue") {
         const auto name = *kind == "call-scene" ? "scene" : "dialogue";

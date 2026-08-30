@@ -329,6 +329,7 @@ export type GameplayCommand =
       kind: 'move-instance';
       subject: z.infer<typeof locationSubjectOperandSchema>;
       location: z.infer<typeof locationOperandSchema>;
+      roomPresentation?: 'resolve' | 'none';
     }
   | {
       id: string;
@@ -348,10 +349,12 @@ export type GameplayCommand =
   | {
       id: string;
       kind: 'create-interactable';
-      source: z.infer<typeof gameplayConfigurationSourceSchema>;
+      definition: z.infer<typeof interactableRefSchema>;
+      quantity: number;
       location: z.infer<typeof locationOperandSchema>;
       enabled: boolean;
       visible: boolean;
+      roomPresentation?: 'resolve' | 'none';
       result?: string;
     }
   | {
@@ -417,7 +420,12 @@ export type GameplayCommand =
       kind: 'present-inventory';
       inventory: z.infer<typeof inventoryOperandSchema>;
       layout?: z.infer<typeof layoutRefSchema>;
+      useTriggerAnchor?: boolean;
+      parentToTriggeringLayout?: boolean;
+      coexist?: boolean;
     }
+  | { id: string; kind: 'navigate-exit'; exitId: string }
+  | { id: string; kind: 'change-room'; room: z.infer<typeof roomOperandSchema> }
   | { id: string; kind: 'call-scene'; scene: z.infer<typeof sceneRefSchema> }
   | { id: string; kind: 'call-dialogue'; dialogue: z.infer<typeof dialogueRefSchema> }
   | { id: string; kind: 'notify'; message: z.infer<typeof textContentSchema> }
@@ -486,6 +494,7 @@ export const gameplayCommandSchema: z.ZodType<GameplayCommand> = z.lazy(() =>
       kind: z.literal('move-instance'),
       subject: locationSubjectOperandSchema,
       location: locationOperandSchema,
+      roomPresentation: z.enum(['resolve', 'none']).optional(),
     }),
     strict({
       id: entityIdSchema,
@@ -505,10 +514,12 @@ export const gameplayCommandSchema: z.ZodType<GameplayCommand> = z.lazy(() =>
     strict({
       id: entityIdSchema,
       kind: z.literal('create-interactable'),
-      source: gameplayConfigurationSourceSchema,
+      definition: interactableRefSchema,
+      quantity: quantitySchema,
       location: locationOperandSchema,
       enabled: z.boolean(),
       visible: z.boolean(),
+      roomPresentation: z.enum(['resolve', 'none']).optional(),
       result: entityIdSchema.optional(),
     }),
     strict({
@@ -574,7 +585,12 @@ export const gameplayCommandSchema: z.ZodType<GameplayCommand> = z.lazy(() =>
       kind: z.literal('present-inventory'),
       inventory: inventoryOperandSchema,
       layout: layoutRefSchema.optional(),
+      useTriggerAnchor: z.boolean().optional(),
+      parentToTriggeringLayout: z.boolean().optional(),
+      coexist: z.boolean().optional(),
     }),
+    strict({ id: entityIdSchema, kind: z.literal('navigate-exit'), exitId: entityIdSchema }),
+    strict({ id: entityIdSchema, kind: z.literal('change-room'), room: roomOperandSchema }),
     strict({ id: entityIdSchema, kind: z.literal('call-scene'), scene: sceneRefSchema }),
     strict({ id: entityIdSchema, kind: z.literal('call-dialogue'), dialogue: dialogueRefSchema }),
     strict({ id: entityIdSchema, kind: z.literal('notify'), message: textContentSchema }),

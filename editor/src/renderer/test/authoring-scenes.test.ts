@@ -66,6 +66,31 @@ describe('authoring scenes', () => {
     ).toBe(false);
   });
 
+  it('rejects non-immediate shared commands from Scene gameplay mutation batches', () => {
+    const project = createAuthoringProject();
+    const batch = defaultSceneStep('gameplay-effect-batch');
+    batch.operations = [
+      {
+        id: 'inventory',
+        kind: 'present-inventory',
+        inventory: { kind: 'player-inventory' },
+      },
+      { id: 'navigate', kind: 'navigate-exit', exitId: 'north' },
+      { id: 'change', kind: 'change-room', room: { kind: 'current-room' } },
+    ];
+    const data = defaultSceneData('Opening');
+    data.events = [batch];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
+
+    expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/operations/0/kind' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/operations/1/kind' }),
+        expect.objectContaining({ path: '/scenes/opening/data/events/0/operations/2/kind' }),
+      ]),
+    );
+  });
+
   it('creates valid defaults for every standalone step variant', () => {
     expect(sceneStepDataSchema.safeParse(defaultSceneStep('run-lua')).success).toBe(true);
     expect(defaultSceneStep('run-lua')).toMatchObject({ source: '-- Lua' });

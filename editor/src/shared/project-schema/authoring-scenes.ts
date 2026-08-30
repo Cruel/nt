@@ -15,6 +15,7 @@ import {
   dialogueRefSchema,
   gameplayCommandSchema,
   inlineTextContent,
+  interactableRefSchema,
   layoutRefSchema,
   materialRefSchema,
   roomRefSchema,
@@ -138,10 +139,12 @@ const sceneRuntimeWorldOperationSchema = z.discriminatedUnion('kind', [
   }),
   strict({
     kind: z.literal('create-interactable'),
-    source: sceneInstanceConfigurationSourceSchema,
+    definition: interactableRefSchema,
+    quantity: z.number().int().positive().safe().default(1),
     location: interactableLocationSchema,
     enabled: z.boolean(),
     visible: z.boolean(),
+    roomPresentation: z.enum(['resolve', 'none']).default('resolve'),
   }),
   strict({
     kind: z.literal('replace-configuration'),
@@ -928,6 +931,9 @@ export function validateSceneData(
         if (
           command.kind === 'call-scene' ||
           command.kind === 'call-dialogue' ||
+          command.kind === 'present-inventory' ||
+          command.kind === 'navigate-exit' ||
+          command.kind === 'change-room' ||
           command.kind === 'notify' ||
           (command.kind === 'run-lua' && (context !== 'choice' || !topLevel))
         )
@@ -1460,6 +1466,12 @@ export function validateSceneData(
           else requireInstance(source.instance, `${sourcePath}/instance`);
         };
         if ('source' in operation) requireSource(operation.source, `${operationPath}/source`);
+        if (operation.kind === 'create-interactable')
+          requireRecord(
+            'interactables',
+            operation.definition.$ref.id,
+            `${operationPath}/definition`,
+          );
         if ('instance' in operation)
           requireInstance(operation.instance, `${operationPath}/instance`);
         if (operation.kind === 'retarget-room-exit') {

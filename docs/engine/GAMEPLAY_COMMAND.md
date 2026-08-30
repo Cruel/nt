@@ -11,9 +11,11 @@ copies of the command language.
 
 The current command set covers Global Property and identity Property mutation, Add/Remove Trait, Set
 Enabled/Visible, Move Instance, Room/Character/Interactable creation, Instance destruction,
-Split/Merge/Transfer/Add/Consume quantity operations, Call Scene, Call Dialogue, Notify, Run Lua, and
-recursive `If/Else`. `Present Inventory` presents an exact owner-qualified Inventory using an explicit
-Layout when supplied, otherwise the Project default Inventory Layout and then the built-in fallback.
+Split/Merge/Transfer/Add/Consume quantity operations, Present Inventory, Navigate Exit, Change Room,
+Call Scene, Call Dialogue, Notify, Run Lua, and recursive `If/Else`. `Present Inventory` presents an
+exact owner-qualified Inventory using an explicit Layout when supplied, otherwise the Project default
+Inventory Layout and then the built-in fallback. `Navigate Exit` is a guard-vetoable exploration
+request; `Change Room` is authoritative directed relocation through the canonical Room lifecycle.
 
 These commands are generic mechanics rather than adventure-game Verbs. Pick Up, Give, Open, Use,
 Inspect, and similar authored actions remain Verbs/Interactions composed from Gameplay Commands.
@@ -37,12 +39,12 @@ Consecutive immediate commands form one automatic atomic mutation group. Runtime
 group to staged state; if any command fails, none of the group's mutations commit. Pure `If/Else`
 participates in that group when every command in both branches is immediate.
 
-Observable or yielding commands form natural transaction boundaries. Notify, Call Scene, Call
-Dialogue, and a suspending Run Lua therefore do not retroactively roll back already committed
-immediate mutations. `If/Else` may contain those commands: the Flow frame records the exact nested
-command cursor so execution resumes after the observable child rather than restarting the branch.
-Dialogue persists that nested effect cursor in the existing current save shape so a valid checkpoint
-can resume deterministically.
+Observable or yielding commands form natural transaction boundaries. Present Inventory, Navigate
+Exit, Change Room, Notify, Call Scene, Call Dialogue, and a suspending Run Lua therefore do not
+retroactively roll back already committed immediate mutations. `If/Else` may contain those commands:
+the Flow frame records the exact nested command cursor so execution resumes after the observable child
+rather than restarting the branch. Dialogue persists that nested effect cursor in the existing
+current save shape so a valid checkpoint can resume deterministically.
 
 Scene `gameplay-effect-batch` Events admit immediate Gameplay Commands only and therefore remain one
 atomic mutation boundary. The legacy `set-variable` Scene authoring Event lowers to a one-command
