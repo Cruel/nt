@@ -170,6 +170,47 @@ export interface RuntimeDebugInventoryItemSnapshot {
   location?: RuntimeDebugEntityRef;
 }
 
+export interface RuntimeDebugDialogueStagePresentationSnapshot {
+  characterId: string;
+  profileId: string;
+  poseId: string;
+  expressionId: string;
+  appearanceId: string | null;
+  position: number;
+  offset: { x: number; y: number };
+  scale: number;
+  visible: boolean;
+}
+
+export interface RuntimeDebugDialogueStageSlotSnapshot {
+  id: string;
+  speakerSync: boolean;
+  speaking: boolean;
+  presentation: RuntimeDebugDialogueStagePresentationSnapshot | null;
+}
+
+export type RuntimeDebugDialogueMediaContentSnapshot =
+  | { kind: 'image'; assetId: string }
+  | {
+      kind: 'character';
+      characterId: string;
+      profileId: string;
+      poseId: string;
+      expressionId: string;
+      appearanceId: string | null;
+    };
+
+export interface RuntimeDebugDialogueMediaSlotSnapshot {
+  id: string;
+  visible: boolean;
+  content: RuntimeDebugDialogueMediaContentSnapshot | null;
+}
+
+export interface RuntimeDebugDialoguePresentationSnapshot {
+  stageSlots: RuntimeDebugDialogueStageSlotSnapshot[];
+  mediaSlots: RuntimeDebugDialogueMediaSlotSnapshot[];
+}
+
 export interface RuntimeDebugChoiceSnapshot {
   kind: 'dialogue' | 'scene';
   id: string;
@@ -294,6 +335,7 @@ export interface RuntimeDebugSnapshot {
   inventory: RuntimeDebugInventoryItemSnapshot[];
   selectedSubjects: PreviewInteractionSubject[];
   diagnostics: RuntimeDebugDiagnosticSnapshot[];
+  dialoguePresentation: RuntimeDebugDialoguePresentationSnapshot;
   saveSnapshot: Record<string, unknown>;
   publication: RuntimeDebugPublicationSnapshot;
 }
@@ -884,6 +926,89 @@ function isRuntimeDebugPublicationSnapshot(
   );
 }
 
+function isRuntimeDebugDialogueStagePresentationSnapshot(
+  value: unknown,
+): value is RuntimeDebugDialogueStagePresentationSnapshot {
+  if (!isRecord(value) || !isRecord(value.offset)) return false;
+  return (
+    typeof value.characterId === 'string' &&
+    value.characterId.length > 0 &&
+    typeof value.profileId === 'string' &&
+    value.profileId.length > 0 &&
+    typeof value.poseId === 'string' &&
+    value.poseId.length > 0 &&
+    typeof value.expressionId === 'string' &&
+    value.expressionId.length > 0 &&
+    (value.appearanceId === null || typeof value.appearanceId === 'string') &&
+    isNonnegativeInteger(value.position) &&
+    value.position <= 3 &&
+    typeof value.offset.x === 'number' &&
+    Number.isFinite(value.offset.x) &&
+    typeof value.offset.y === 'number' &&
+    Number.isFinite(value.offset.y) &&
+    typeof value.scale === 'number' &&
+    Number.isFinite(value.scale) &&
+    typeof value.visible === 'boolean'
+  );
+}
+
+function isRuntimeDebugDialogueStageSlotSnapshot(
+  value: unknown,
+): value is RuntimeDebugDialogueStageSlotSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.speakerSync === 'boolean' &&
+    typeof value.speaking === 'boolean' &&
+    (value.presentation === null ||
+      isRuntimeDebugDialogueStagePresentationSnapshot(value.presentation))
+  );
+}
+
+function isRuntimeDebugDialogueMediaContentSnapshot(
+  value: unknown,
+): value is RuntimeDebugDialogueMediaContentSnapshot {
+  if (!isRecord(value)) return false;
+  if (value.kind === 'image') return typeof value.assetId === 'string' && value.assetId.length > 0;
+  if (value.kind !== 'character') return false;
+  return (
+    typeof value.characterId === 'string' &&
+    value.characterId.length > 0 &&
+    typeof value.profileId === 'string' &&
+    value.profileId.length > 0 &&
+    typeof value.poseId === 'string' &&
+    value.poseId.length > 0 &&
+    typeof value.expressionId === 'string' &&
+    value.expressionId.length > 0 &&
+    (value.appearanceId === null || typeof value.appearanceId === 'string')
+  );
+}
+
+function isRuntimeDebugDialogueMediaSlotSnapshot(
+  value: unknown,
+): value is RuntimeDebugDialogueMediaSlotSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.visible === 'boolean' &&
+    (value.content === null || isRuntimeDebugDialogueMediaContentSnapshot(value.content))
+  );
+}
+
+function isRuntimeDebugDialoguePresentationSnapshot(
+  value: unknown,
+): value is RuntimeDebugDialoguePresentationSnapshot {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.stageSlots) &&
+    value.stageSlots.every(isRuntimeDebugDialogueStageSlotSnapshot) &&
+    Array.isArray(value.mediaSlots) &&
+    value.mediaSlots.every(isRuntimeDebugDialogueMediaSlotSnapshot)
+  );
+}
+
 export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSnapshot {
   if (!isRecord(value)) return false;
   const allowedKeys = new Set([
@@ -904,6 +1029,7 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
     'inventory',
     'selectedSubjects',
     'diagnostics',
+    'dialoguePresentation',
     'saveSnapshot',
     'publication',
   ]);
@@ -930,6 +1056,7 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
     value.selectedSubjects.every(isPreviewInteractionSubject) &&
     Array.isArray(value.diagnostics) &&
     value.diagnostics.every(isRuntimeDebugDiagnosticSnapshot) &&
+    isRuntimeDebugDialoguePresentationSnapshot(value.dialoguePresentation) &&
     isRecord(value.saveSnapshot) &&
     isRuntimeDebugPublicationSnapshot(value.publication)
   );

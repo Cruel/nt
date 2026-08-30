@@ -72,6 +72,7 @@ describe('current-behavior characterization', () => {
       "send({ version: protocolVersion, type: 'runtime-debug-snapshot', snapshot })",
     );
     expect(widget).toContain('currentRoomId: snapshot.currentRoomId');
+    expect(widget).toContain('dialoguePresentation: snapshot.dialoguePresentation');
     expect(widget).not.toContain('publication: snapshot.publication');
   });
 

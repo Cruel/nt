@@ -706,6 +706,7 @@ describe('preview protocol validation', () => {
             inventory: [],
             selectedSubjects: [],
             diagnostics: [],
+            dialoguePresentation: { stageSlots: [], mediaSlots: [] },
             saveSnapshot: {},
             publication: {
               revision: 1,
@@ -832,6 +833,29 @@ describe('preview protocol validation', () => {
         { kind: 'interactable', id: 'lamp' },
       ],
       diagnostics: [{ severity: 'warning', category: 'runtime', message: 'Example diagnostic' }],
+      dialoguePresentation: {
+        stageSlots: [
+          {
+            id: 'speaker-left',
+            speakerSync: true,
+            speaking: true,
+            presentation: {
+              characterId: 'guard',
+              profileId: 'stage',
+              poseId: 'idle',
+              expressionId: 'neutral',
+              appearanceId: null,
+              position: 0,
+              offset: { x: -24, y: 10 },
+              scale: 1,
+              visible: true,
+            },
+          },
+        ],
+        mediaSlots: [
+          { id: 'evidence', visible: true, content: { kind: 'image', assetId: 'photo' } },
+        ],
+      },
       saveSnapshot: { properties: { route: 'main' } },
       publication: {
         revision: 8,
@@ -867,6 +891,23 @@ describe('preview protocol validation', () => {
     expect(isRuntimeDebugSnapshot(snapshot)).toBe(true);
     expect(isRuntimeDebugSnapshot({ ...snapshot, gameplayPaused: true })).toBe(true);
     expect(isRuntimeDebugSnapshot({ ...snapshot, gameplayPaused: 'yes' })).toBe(false);
+    expect(
+      isRuntimeDebugSnapshot({
+        ...snapshot,
+        dialoguePresentation: {
+          ...snapshot.dialoguePresentation,
+          stageSlots: [
+            {
+              ...snapshot.dialoguePresentation.stageSlots[0],
+              presentation: {
+                ...snapshot.dialoguePresentation.stageSlots[0]!.presentation!,
+                position: 4,
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
     expect(isRuntimeDebugSnapshot({ ...snapshot, itemStacks: [] })).toBe(false);
     expect(
       isRuntimeDebugSnapshot({

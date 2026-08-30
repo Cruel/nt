@@ -241,6 +241,7 @@ async function postInputSnapshot(
         inventory: [],
         selectedSubjects: [],
         diagnostics: [],
+        dialoguePresentation: { stageSlots: [], mediaSlots: [] },
         saveSnapshot: {},
         publication: {
           revision: 1,
@@ -845,6 +846,7 @@ describe('FullGamePreviewEditor', () => {
             inventory: [],
             selectedSubjects: [],
             diagnostics: [],
+            dialoguePresentation: { stageSlots: [], mediaSlots: [] },
             saveSnapshot: {},
             publication: {
               revision: 2,
@@ -949,6 +951,7 @@ describe('FullGamePreviewEditor', () => {
           inventory: [{ id: 'key', label: 'key', selected: true }],
           selectedSubjects: [{ kind: 'interactable', id: 'key' }],
           diagnostics: [],
+          dialoguePresentation: { stageSlots: [], mediaSlots: [] },
           saveSnapshot: { variables: { flag: true }, inventory: ['key'] },
           publication: {
             revision: 3,
@@ -1031,6 +1034,7 @@ describe('FullGamePreviewEditor', () => {
           inventory: [],
           selectedSubjects: [],
           diagnostics: [],
+          dialoguePresentation: { stageSlots: [], mediaSlots: [] },
           saveSnapshot: {},
           publication: {
             revision: 4,
