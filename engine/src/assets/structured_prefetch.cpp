@@ -36,6 +36,12 @@ void add_diagnostic(core::Diagnostics& diagnostics, std::string code, std::strin
         {.code = std::move(code), .message = std::move(message), .severity = severity});
 }
 
+[[nodiscard]] bool is_builtin_runtime_layout(const core::LayoutId& id) noexcept
+{
+    return id.text() == core::compiled::builtin_inventory_layout_id ||
+           id.text() == core::compiled::builtin_verb_menu_layout_id;
+}
+
 class DescriptorAccumulator {
 public:
     explicit DescriptorAccumulator(std::set<CacheIdentity>* shared_seen = nullptr)
@@ -257,6 +263,11 @@ struct StructuredAssetDependencyIndex::Impl {
     void append_layout(DescriptorAccumulator& output, const core::LayoutId& id,
                        core::Diagnostics& collection_diagnostics, std::string_view context) const
     {
+        // Built-in contextual Layouts are system-owned documents realized from system:/ assets.
+        // They intentionally do not appear in the compiled project's Layout resource collection,
+        // so they have no project dependency closure for structured prefetch to collect.
+        if (is_builtin_runtime_layout(id))
+            return;
         const auto found = layout_dependencies.find(id);
         if (found == layout_dependencies.end()) {
             add_diagnostic(collection_diagnostics, "assets.prefetch_missing_layout",

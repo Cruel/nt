@@ -667,6 +667,44 @@ TEST_CASE("optional adjacency diagnostics do not block current mandatory publica
     gate.clear_package_on_owner();
 }
 
+TEST_CASE("built-in contextual Layouts do not block mandatory publication",
+          "[assets][structured-prefetch][mandatory-assets][layouts]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    const assets::StructuredAssetDependencyCollector collector(index);
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(10);
+    snapshot.current_room = id<core::RoomId>("start");
+    snapshot.layouts.push_back(core::PresentationMountedLayout{
+        .key = core::ScopedLayoutMountKey{id<core::ScopedLayoutInstanceId>("inventory-ui")},
+        .owner = core::RoomPresentationOwner{id<core::RoomId>("start")},
+        .layout = id<core::LayoutId>(std::string(core::compiled::builtin_inventory_layout_id)),
+    });
+    snapshot.layouts.push_back(core::PresentationMountedLayout{
+        .key = core::ScopedLayoutMountKey{id<core::ScopedLayoutInstanceId>("verb-menu-ui")},
+        .owner = core::RoomPresentationOwner{id<core::RoomId>("start")},
+        .layout = id<core::LayoutId>(std::string(core::compiled::builtin_verb_menu_layout_id)),
+    });
+
+    assets::StructuredAssetDependencyContext context;
+    context.current_presentation = &snapshot;
+    const auto collected = collector.collect(context);
+
+    CHECK_FALSE(has_code(collected.mandatory_diagnostics, "assets.prefetch_missing_layout"));
+    CHECK_FALSE(has_code(collected.diagnostics, "assets.prefetch_missing_layout"));
+
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    const auto begun = gate.begin_on_owner(snapshot);
+    CHECK(begun.disposition != assets::MandatoryAssetGateDisposition::Failed);
+    gate.clear_package_on_owner();
+}
+
 TEST_CASE("mandatory package rebinding reuses identical generation-scoped texture requirements",
           "[assets][structured-prefetch][mandatory-assets][texture-alpha]")
 {
