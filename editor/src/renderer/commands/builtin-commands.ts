@@ -45,12 +45,14 @@ import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import {
   addInteractableOccurrencePatches,
+  destroyInteractableInstancePatches,
   detachInteractablePlacementPatches,
   moveInteractableToPlacementPatches,
   placeInteractablePatches,
   removeInteractableOccurrencePatches,
   setRoomFallbackInteractablePlacementPatches,
   setRoomPlacementBoundsPatches,
+  unplaceInteractableInstancePatches,
 } from '@/project/room-placement-operations';
 import {
   deleteInteractableHotspot,
@@ -731,6 +733,7 @@ const roomPlaceInteractableSchema = z.object({
   occurrenceId: entityIdSchema.optional(),
   placementId: entityIdSchema,
   bounds: roomNormalizedRectSchema,
+  count: z.number().int().positive().safe().optional(),
 });
 const roomAddInteractableOccurrenceSchema = z.object({
   roomId: entityIdSchema,
@@ -743,6 +746,7 @@ const roomRemoveInteractableOccurrenceSchema = z.object({
   roomId: entityIdSchema,
   occurrenceId: entityIdSchema,
 });
+const roomInteractableInstanceSchema = z.object({ instanceId: entityIdSchema });
 const roomSetFallbackInteractablePlacementSchema = z.object({
   roomId: entityIdSchema,
   placementId: entityIdSchema.nullable(),
@@ -1236,6 +1240,57 @@ export const roomRemoveInteractableOccurrenceCommand: CommandHandler = ({ docume
   parseEntityCommand(roomRemoveInteractableOccurrenceSchema, payload, (parsed) =>
     removeInteractableOccurrencePatches(document, parsed),
   );
+export const roomUnplaceInteractableInstanceCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomInteractableInstanceSchema, payload, (parsed) =>
+    unplaceInteractableInstancePatches(document, parsed),
+  );
+export const roomDestroyInteractableInstanceCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) =>
+  parseEntityCommand(roomInteractableInstanceSchema, payload, (parsed) => {
+    const result = destroyInteractableInstancePatches(document, parsed);
+    if (result.diagnostics?.some((diagnostic) => diagnostic.severity === 'error')) return result;
+    const targetPath = buildJsonPointer(['interactableInstances', parsed.instanceId]);
+    const preflight = preflightGraphCommand({
+      snapshot: graphSnapshot ?? null,
+      projectInstanceId: projectInstanceId ?? null,
+      projectRevision: projectRevision ?? 0,
+      target: { kind: 'project-field', path: targetPath },
+      operation: 'delete',
+    });
+    if (preflight.kind === 'blocked')
+      return { patches: [], diagnostics: [error(preflight.reason, targetPath)] };
+
+    const remaining = preflight.usages.filter((usage) => {
+      const repairedRoomOccurrence =
+        /^\/rooms\/[^/]+\/data\/interactables\/\d+\/interactable\/\$ref$/.test(usage.sourcePath);
+      return !repairedRoomOccurrence && usage.edge.facets.includes('reference-integrity');
+    });
+    if (remaining.length > 0)
+      return {
+        patches: [],
+        diagnostics: [
+          error(
+            `Interactable Instance '${parsed.instanceId}' is referenced by ${remaining.length} remaining semantic reference${remaining.length === 1 ? '' : 's'}. Remove or retarget them before destruction.`,
+            remaining[0]!.sourcePath,
+          ),
+        ],
+      };
+
+    const diagnostics = preflight.warnings.map((warning) => ({
+      severity: 'warning' as const,
+      path: warning.sourcePath,
+      message:
+        'Possible Lua reference may require manual review after Interactable Instance destruction.',
+    }));
+    return diagnostics.length === 0
+      ? result
+      : { ...result, diagnostics: [...(result.diagnostics ?? []), ...diagnostics] };
+  });
 export const roomSetFallbackInteractablePlacementCommand: CommandHandler = ({
   document,
   payload,
@@ -1546,6 +1601,8 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'room.placeInteractable': roomPlaceInteractableCommand,
     'room.addInteractableOccurrence': roomAddInteractableOccurrenceCommand,
     'room.removeInteractableOccurrence': roomRemoveInteractableOccurrenceCommand,
+    'room.unplaceInteractableInstance': roomUnplaceInteractableInstanceCommand,
+    'room.destroyInteractableInstance': roomDestroyInteractableInstanceCommand,
     'room.setFallbackInteractablePlacement': roomSetFallbackInteractablePlacementCommand,
     'room.moveInteractableToPlacement': roomMoveInteractableToPlacementCommand,
     'room.detachInteractablePlacement': roomDetachInteractablePlacementCommand,
@@ -1663,6 +1720,10 @@ export function labelForCommand(type: string): string {
       return 'Add interactable occurrence';
     case 'room.removeInteractableOccurrence':
       return 'Remove interactable occurrence';
+    case 'room.unplaceInteractableInstance':
+      return 'Remove interactable from Room';
+    case 'room.destroyInteractableInstance':
+      return 'Destroy interactable instance';
     case 'room.setFallbackInteractablePlacement':
       return 'Set fallback interactable placement';
     case 'room.moveInteractableToPlacement':

@@ -31,6 +31,7 @@ import {
   compileLocationOperand,
   compileLocationSubjectOperand,
   compileMatcher,
+  compileRoomOperand,
 } from './authoring-condition-lowering';
 
 export interface CompleteProgramLoweringResult {
@@ -241,10 +242,10 @@ export function compileGameplayCommand(command: GameplayCommand): CompiledGamepl
         kind: command.kind,
         subject: compileLocationSubjectOperand(command.subject),
         location: compileLocationOperand(command.location),
+        ...(command.roomPresentation ? { roomPresentation: command.roomPresentation } : {}),
       };
     case 'create-room':
-    case 'create-character':
-    case 'create-interactable': {
+    case 'create-character': {
       const source =
         command.source.kind === 'archetype'
           ? {
@@ -272,6 +273,18 @@ export function compileGameplayCommand(command: GameplayCommand): CompiledGamepl
         ...(command.result ? { result: command.result } : {}),
       } as CompiledGameplayCommand;
     }
+    case 'create-interactable':
+      return {
+        id: command.id,
+        kind: command.kind,
+        definition: { kind: 'interactable-definition', id: command.definition.$ref.id },
+        quantity: command.quantity,
+        location: compileLocationOperand(command.location),
+        enabled: command.enabled,
+        visible: command.visible,
+        ...(command.roomPresentation ? { roomPresentation: command.roomPresentation } : {}),
+        ...(command.result ? { result: command.result } : {}),
+      };
     case 'destroy-instance':
       return {
         id: command.id,
@@ -348,7 +361,18 @@ export function compileGameplayCommand(command: GameplayCommand): CompiledGamepl
         kind: command.kind,
         inventory: compileInventoryOperand(command.inventory),
         layout: command.layout ? { kind: 'layout', id: command.layout.$ref.id } : null,
+        ...(command.useTriggerAnchor === undefined
+          ? {}
+          : { useTriggerAnchor: command.useTriggerAnchor }),
+        ...(command.parentToTriggeringLayout === undefined
+          ? {}
+          : { parentToTriggeringLayout: command.parentToTriggeringLayout }),
+        ...(command.coexist === undefined ? {} : { coexist: command.coexist }),
       };
+    case 'navigate-exit':
+      return { id: command.id, kind: command.kind, exitId: command.exitId };
+    case 'change-room':
+      return { id: command.id, kind: command.kind, room: compileRoomOperand(command.room) };
     case 'notify':
       return { id: command.id, kind: command.kind, message: compileText(command.message) };
     case 'call-scene':

@@ -1139,8 +1139,22 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     m_state->action_gateway->set_lua_state(m_state->lua_state);
     m_state->refresh_action_gateway_shell_slots();
     if (!m_state->data_model) {
-        m_state->data_model =
-            std::make_unique<ui::rmlui::RuntimeUiDataModel>(*m_state->action_gateway);
+        auto* state = m_state;
+        m_state->data_model = std::make_unique<ui::rmlui::RuntimeUiDataModel>(
+            *m_state->action_gateway,
+            [state](Rml::Event& event) -> std::optional<core::LayoutPresentationParent> {
+                auto* element = event.GetCurrentElement();
+                auto* owner_document = element ? element->GetOwnerDocument() : nullptr;
+                if (!owner_document)
+                    return std::nullopt;
+                for (const auto& [document_id, context] : state->layout_mount_contexts) {
+                    if (state->document(document_id) != owner_document)
+                        continue;
+                    return core::LayoutPresentationParent{context.owner, context.key,
+                                                          context.occurrence};
+                }
+                return std::nullopt;
+            });
         m_state->data_model->set_project(m_state->title_project, m_state->title_subtitle,
                                          m_state->title_start_label);
         if (const auto* view = m_state->action_gateway->view()) {

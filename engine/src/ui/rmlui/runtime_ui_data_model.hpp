@@ -4,13 +4,15 @@
 #include "noveltea/runtime_ui_contracts.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace Rml {
 class Context;
-}
+class Event;
+} // namespace Rml
 
 namespace noveltea::ui::rmlui {
 
@@ -18,7 +20,11 @@ class RuntimeUiActionGateway;
 
 class RuntimeUiDataModel final {
 public:
-    explicit RuntimeUiDataModel(RuntimeUiActionGateway& action_gateway);
+    using PresentationParentResolver =
+        std::function<std::optional<core::LayoutPresentationParent>(Rml::Event&)>;
+
+    explicit RuntimeUiDataModel(RuntimeUiActionGateway& action_gateway,
+                                PresentationParentResolver presentation_parent_resolver = {});
     ~RuntimeUiDataModel();
 
     RuntimeUiDataModel(const RuntimeUiDataModel&) = delete;

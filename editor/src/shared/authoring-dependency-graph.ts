@@ -1107,6 +1107,24 @@ function scanStructuralReferences(
       ),
     );
   }
+  if (
+    isRecord(value.$ref) &&
+    value.$ref.registry === 'interactableInstances' &&
+    typeof value.$ref.id === 'string'
+  ) {
+    const targetPath =
+      `/interactableInstances/${escapeJsonPointerSegment(value.$ref.id)}` as JsonPointer;
+    const target = projectFieldNodeKey(targetPath);
+    edges.push(
+      structuralEdge(
+        source,
+        target,
+        `${path}/$ref` as JsonPointer,
+        targetPath,
+        semanticEdgeOptions(`${path}/$ref` as JsonPointer, target),
+      ),
+    );
+  }
   if (isVariableRef(value)) {
     const variableId = value.$var;
     const target = recordNodeKey('variables', variableId);
@@ -1828,6 +1846,11 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
     },
     { path: '/bootstrapModule', value: project.bootstrapModule, label: 'Bootstrap Module' },
     { path: '/entrypoint', value: project.entrypoint, label: 'Entrypoint' },
+    {
+      path: '/undefinedInteractionProgram',
+      value: project.undefinedInteractionProgram,
+      label: 'Undefined Interaction Program',
+    },
     { path: '/settings/display', value: project.settings.display, label: 'Display settings' },
     {
       path: '/settings/accessibility',
@@ -1950,7 +1973,10 @@ function deriveStructuralContributionByKey(
           'entrypoint',
         ),
       );
-    } else if (field.path.startsWith('/settings/')) {
+    } else if (
+      field.path.startsWith('/settings/') ||
+      field.path === '/undefinedInteractionProgram'
+    ) {
       scanStructuralReferences(field.value, field.path, key, edges, project);
     } else if (field.path.startsWith('/interactableInstances/')) {
       scanStructuralReferences(field.value, field.path, key, edges, project);

@@ -183,3 +183,52 @@ Issue #128's unified product-contract boundary is implemented and certified. Aut
 generated agent guidance, canonical compilation, native Running Game behavior, and RuntimeUI/Layout
 presentation now describe and exercise the same exact Interactable Instance model from source Project
 through runtime UI without a second Item Stack architecture.
+
+## Post-certification #115 alignment follow-up
+
+A subsequent parent-spec audit of issue #115 found several gaps that were not exercised strongly
+enough by the original #128 certification. They were corrected without changing any selected schema,
+protocol, compiled-project, or save version:
+
+- ordinary runtime Interactable creation now always names an Interactable Definition. The shared
+  Gameplay Command, Scene runtime-world operation, Runtime World/Lua capability surface, compiler,
+  decoder, and canonical goldens no longer use compiled/effective Instance cloning as the ordinary
+  creation path. Effective configuration cloning remains available only through the explicit
+  structural replacement capability;
+- Room authoring `count` expansion creates the minimum number of exact stackable Instances permitted
+  by `stackLimit`, while non-stackable counts remain repeated exact identities;
+- editor commands distinguish presentation-occurrence removal, semantic `Remove from Room`, and
+  exact Instance destruction. Semantic Room removal also clears that Instance's Room presentation
+  occurrences, while pure occurrence removal does not change Location;
+- exact Interactable Instance rename rewrites typed registry references, including Room occurrences
+  and owner-qualified nested Inventory references, without changing the origin Definition;
+- `Present Inventory` command policy now carries trigger anchoring, optional exact triggering-Layout
+  parent lifetime, and explicit coexistence through authoring, compiled wire, runtime execution, and
+  RuntimeUI transport;
+- shared `Navigate Exit` and `Change Room` are both executable from the common command path.
+  Navigation remains guard-vetoable, while directed Room change remains authoritative. The audit
+  exposed and fixed a root-flow continuation defect where a successful nested directed change could
+  be overwritten by the source Room captured when the root Interaction/Scene began; root return now
+  resumes the currently committed Room visit;
+- Scene gameplay-effect batches remain an immediate-only atomic host as designed. Authoring
+  validation now rejects boundary commands such as `Present Inventory`, `Navigate Exit`, and
+  `Change Room` there, matching the Scene editor and compiled-project validator; Scene-directed Room
+  control continues to use its specialized timeline Event;
+- authoring dependency-graph metadata and fingerprints explicitly classify the added command fields
+  instead of bypassing the fail-closed field audit.
+
+Follow-up verification on 2026-08-30:
+
+| Verification | Result |
+| --- | --- |
+| `pnpm -C editor run check` | PASS: formatting, lint with zero warnings/errors, TypeScript, and schema-version policy. |
+| `pnpm -C editor run test` | PASS: 232 files passed, 2 skipped; 1,706 tests passed, 5 skipped. Existing non-failing React `act(...)` warnings remain. |
+| Linux Debug build | PASS. |
+| `DISPLAY=:0 ctest --test-dir build/linux-debug --output-on-failure` | PASS: 991/991 tests, including all GPU/readback and package smoke tests. |
+| Web Debug threaded build | PASS: player and sandbox built. |
+| `pnpm run web:smoke` | PASS, including compiled-world readback and renderer performance publication. |
+| `git diff --check` | PASS. |
+
+The remaining `Item Definition` / `Item Stack` references outside historical certification text are
+retirement documentation or deliberate negative tests. No live compatibility path was found during
+the follow-up audit.

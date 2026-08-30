@@ -830,6 +830,141 @@ TEST_CASE("Present Inventory resolves built-in fallback and explicit Layout prec
     CHECK(inventory_mount()->layout == id<core::LayoutId>("hud-assets"));
 }
 
+TEST_CASE(
+    "Present Inventory command can inherit the triggering Layout occurrence as lifetime parent")
+{
+    auto document = load_document();
+    document["settings"]["inventory"] = {
+        {"playerInventory", "player"},
+        {"defaultLayout", nullptr},
+    };
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    rules[2]["program"] =
+        program(nlohmann::json::array({{{"id", "show-child-inventory"},
+                                        {"kind", "present-inventory"},
+                                        {"inventory", {{"kind", "player-inventory"}}},
+                                        {"parentToTriggeringLayout", true},
+                                        {"coexist", true}}}));
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::PresentationOwner owner{kernel->state().session_presentation_owner()};
+    REQUIRE(kernel->state().set_layout(project, owner, core::compiled::LayoutSlot::Custom,
+                                       id<core::LayoutId>("hud-inline")));
+    const auto parent_mount =
+        std::ranges::find_if(kernel->state().mounted_layouts(), [&](const auto& mounted) {
+            return mounted.owner == owner && mounted.layout == id<core::LayoutId>("hud-inline");
+        });
+    REQUIRE(parent_mount != kernel->state().mounted_layouts().end());
+    REQUIRE(parent_mount->occurrence);
+    const core::LayoutPresentationParent parent{owner, parent_mount->key,
+                                                *parent_mount->occurrence};
+    kernel->set_trigger_presentation_parent(parent);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+    drive_interaction(*kernel);
+
+    const auto inventory_mount =
+        std::ranges::find_if(kernel->state().mounted_layouts(), [](const auto& mounted) {
+            const auto* key = std::get_if<core::ScopedLayoutMountKey>(&mounted.key);
+            return key != nullptr && key->instance.text().starts_with("inventory-ui");
+        });
+    REQUIRE(inventory_mount != kernel->state().mounted_layouts().end());
+    REQUIRE(inventory_mount->presentation_parent);
+    CHECK(*inventory_mount->presentation_parent == parent);
+}
+
+TEST_CASE("Present Inventory command can explicitly ignore the triggering anchor")
+{
+    auto document = load_document();
+    document["settings"]["inventory"] = {
+        {"playerInventory", "player"},
+        {"defaultLayout", nullptr},
+    };
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    rules[2]["program"] =
+        program(nlohmann::json::array({{{"id", "show-unanchored-inventory"},
+                                        {"kind", "present-inventory"},
+                                        {"inventory", {{"kind", "player-inventory"}}},
+                                        {"useTriggerAnchor", false}}}));
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+    kernel->set_trigger_context(core::TriggerContext{.pointer = core::TriggerPoint{0.25, 0.75}});
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+    drive_interaction(*kernel);
+
+    const auto inventory_mount =
+        std::ranges::find_if(kernel->state().mounted_layouts(), [](const auto& mounted) {
+            const auto* key = std::get_if<core::ScopedLayoutMountKey>(&mounted.key);
+            return key != nullptr && key->instance.text() == "inventory-ui";
+        });
+    REQUIRE(inventory_mount != kernel->state().mounted_layouts().end());
+    CHECK_FALSE(inventory_mount->trigger_context);
+}
+
+TEST_CASE("shared Navigate Exit remains vetoable while Change Room is authoritative")
+{
+    const auto run_command = [](nlohmann::json command, const core::RoomId& expected_room) {
+        RuntimeFixture fixture;
+        auto document = load_document();
+        definition(document, "rooms", "start")["lifecycle"]["canLeave"] = {
+            {"kind", "lua-predicate"}, {"source", "offer_false()"}};
+        definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+        auto& rules = definition(document, "interactions", "actions")["rules"];
+        rules[2]["program"] = program(nlohmann::json::array({std::move(command)}));
+
+        auto project = decode(std::move(document));
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
+        REQUIRE(created);
+        auto kernel = std::move(created).value();
+        drive_to_room(*kernel);
+        const core::compiled::InteractionSubject key =
+            core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
+        REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+        drive_interaction(*kernel);
+        REQUIRE(std::holds_alternative<core::RoomMode>(kernel->state().mode()));
+        INFO("expected Room " << expected_room.text() << ", actual Room "
+                              << std::get<core::RoomMode>(kernel->state().mode()).room.text());
+        CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == expected_room);
+        return kernel->take_room_presentation_diagnostics();
+    };
+
+    const auto navigation_diagnostics =
+        run_command({{"id", "navigate"}, {"kind", "navigate-exit"}, {"exitId", "north-exit"}},
+                    id<core::RoomId>("start"));
+    CHECK(std::none_of(navigation_diagnostics.begin(), navigation_diagnostics.end(),
+                       [](const core::Diagnostic& item) {
+                           return item.code == "execution.directed_room_guard_false";
+                       }));
+
+    const auto directed_diagnostics =
+        run_command({{"id", "change"},
+                     {"kind", "change-room"},
+                     {"room", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", "hall"}}}}}},
+                    id<core::RoomId>("hall"));
+    CHECK(std::any_of(directed_diagnostics.begin(), directed_diagnostics.end(),
+                      [](const core::Diagnostic& item) {
+                          return item.code == "execution.directed_room_guard_false";
+                      }));
+}
+
 TEST_CASE("Present Inventory mount survives save encode and strict restore validation")
 {
     auto document = load_document();

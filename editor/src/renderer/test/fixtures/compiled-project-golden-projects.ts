@@ -2188,20 +2188,19 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
         },
         {
           kind: 'create-interactable',
-          source: {
-            kind: 'effective-instance',
-            instance: { kind: 'interactable', interactable: interactableReference('key') },
-          },
+          definition: interactableReference('key'),
+          quantity: 1,
           location: { kind: 'room', room: roomReference('start') },
           enabled: true,
           visible: true,
+          roomPresentation: 'resolve',
         },
         {
           kind: 'replace-configuration',
           instance: { kind: 'room', room: sceneRoomRef('hall') },
           source: {
-            kind: 'archetype',
-            archetype: { $ref: { collection: 'archetypes', id: 'room-template' } },
+            kind: 'effective-instance',
+            instance: { kind: 'room', room: sceneRoomRef('hall') },
           },
         },
         {
@@ -2634,13 +2633,12 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
         },
         {
           kind: 'create-interactable',
-          source: {
-            kind: 'effective-instance',
-            instance: { kind: 'interactable', interactable: interactableReference('dust') },
-          },
+          definition: interactableReference('dust'),
+          quantity: 1,
           location: { kind: 'room', room: roomReference('start') },
           enabled: true,
           visible: true,
+          roomPresentation: 'resolve',
         },
       ],
     },

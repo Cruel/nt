@@ -303,11 +303,14 @@ Lua predicates and runtime facts not represented in the debug snapshot remain vi
 the tooling never fabricates a result merely to make the explanation complete. Runtime-created
 subjects can still be analyzed by the exact family and identity already present in the snapshot.
 
-Runtime Gameplay Instance tooling uses the same semantic gateway as authored Lua. Create and
-configuration-replacement messages identify `instanceKind`, one source kind (`archetype`, `compiled`,
-or `effective`), and a stable source ID. Clear, destroy, and Room-exit retarget commands address exact
-typed identities. Successful commands settle the Runtime Session before the preview publishes the
-result; failed validation leaves the prior session world unchanged.
+Runtime Gameplay Instance tooling uses the same semantic gateway as authored Lua. Create messages
+identify `instanceKind`, a kind-specific source kind, and a stable source ID: Interactable creation
+requires `definition` plus an Interactable Definition ID, while Room and Character creation use
+`archetype`, `compiled`, or `effective`. Configuration replacement for every Instance kind remains
+the explicit `archetype`, `compiled`, or `effective` structural operation. Clear, destroy, and
+Room-exit retarget commands address exact typed identities. Successful commands settle the Runtime
+Session before the preview publishes the result; failed validation leaves the prior session world
+unchanged.
 
 The Play preview loads the normal title screen. Starting the preview runtime is routed through the
 runtime shell's `StartGameShellCommand`, which starts gameplay, hides the modal title Layout, and

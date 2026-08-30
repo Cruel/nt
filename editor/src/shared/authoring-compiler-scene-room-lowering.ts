@@ -477,10 +477,15 @@ function compileSceneStep(
             case 'create-interactable':
               return {
                 kind: 'create-interactable' as const,
-                source: compileConfigurationSource(operation.source),
+                definition: {
+                  kind: 'interactable-definition' as const,
+                  id: operation.definition.$ref.id,
+                },
+                quantity: operation.quantity,
                 location: compileInteractableLocation(operation.location),
                 enabled: operation.enabled,
                 visible: operation.visible,
+                roomPresentation: operation.roomPresentation,
               };
             case 'replace-configuration':
               return {

@@ -95,6 +95,22 @@ core::CompiledProject load_stackable_interactable_fixture()
     return decode_fixture(std::move(document), "stackable-interactable.json");
 }
 
+core::InteractableInstanceId create_from_declared_definition(
+    RuntimeWorld& world, const core::CompiledProject& project,
+    const core::InteractableInstanceId& source,
+    core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
+    bool enabled = true, bool visible = true,
+    InteractableRoomPresentationPolicy presentation = InteractableRoomPresentationPolicy::Resolve)
+{
+    const auto* declaration = project.find_interactable_instance(source);
+    REQUIRE(declaration != nullptr);
+    auto created = world.create_interactable_quantity(
+        declaration->definition, 1, std::move(location), enabled, visible, presentation);
+    REQUIRE(created);
+    REQUIRE(created.value_if()->created.size() == 1);
+    return created.value_if()->created.front();
+}
+
 TEST_CASE("runtime world resolves declared gameplay instances without owning definitions")
 {
     const auto project = load_fixture("comprehensive.json");
@@ -891,31 +907,29 @@ TEST_CASE("runtime world creates deterministic typed identities from admitted co
     REQUIRE(character);
     CHECK(character.value().text() == "runtime-character-2");
 
-    auto interactable = world.create_interactable(EffectiveInstanceConfiguration{
-        core::GameplayInstanceRef{id<core::InteractableInstanceId>("key")}});
-    REQUIRE(interactable);
-    CHECK(interactable.value().text() == "runtime-interactable-3");
+    const auto interactable =
+        create_from_declared_definition(world, project, id<core::InteractableInstanceId>("key"));
+    CHECK(interactable.text() == "runtime-interactable-3");
     CHECK(state.next_runtime_instance_id() == 4);
 
     const auto* room_provenance = world.provenance(core::GameplayInstanceRef{room.value()});
     const auto* character_provenance =
         world.provenance(core::GameplayInstanceRef{character.value()});
-    const auto* interactable_provenance =
-        world.provenance(core::GameplayInstanceRef{interactable.value()});
+    const auto* interactable_provenance = world.provenance(core::GameplayInstanceRef{interactable});
     REQUIRE(room_provenance != nullptr);
     REQUIRE(character_provenance != nullptr);
     REQUIRE(interactable_provenance != nullptr);
     CHECK(room_provenance->kind == core::RuntimeInstanceProvenanceKind::Archetype);
     CHECK(room_provenance->archetype == id<core::ArchetypeId>("runtime-room"));
     CHECK(character_provenance->kind == core::RuntimeInstanceProvenanceKind::CompiledDefinition);
-    CHECK(interactable_provenance->kind == core::RuntimeInstanceProvenanceKind::Clone);
+    CHECK(interactable_provenance->kind == core::RuntimeInstanceProvenanceKind::CompiledDefinition);
 }
 
 TEST_CASE("runtime Interactable creation atomically requires effective Property Values")
 {
     auto document = load_fixture_document("comprehensive.json");
     auto required = document["definitions"]["interactables"][0];
-    required.erase("id");
+    required["id"] = "required-interactable";
     required["properties"] = nlohmann::json::array({{{"id", "runtime-state"},
                                                      {"label", "Runtime State"},
                                                      {"description", ""},
@@ -935,14 +949,11 @@ TEST_CASE("runtime Interactable creation atomically requires effective Property 
                                                  {"enumValues", nlohmann::json::array()}}})},
           {"inventories", nlohmann::json::array()}}});
     auto defaulted = required;
+    defaulted["id"] = "defaulted-interactable";
     defaulted["properties"][0]["defaultValue"] = "ready";
     defaulted["features"][0]["properties"][0]["defaultValue"] = "feature-ready";
-    document["archetypes"] = nlohmann::json::array({{{"id", "required-interactable"},
-                                                     {"instanceKind", "interactable"},
-                                                     {"configuration", required}},
-                                                    {{"id", "defaulted-interactable"},
-                                                     {"instanceKind", "interactable"},
-                                                     {"configuration", defaulted}}});
+    document["definitions"]["interactables"].push_back(required);
+    document["definitions"]["interactables"].push_back(defaulted);
     const auto project = decode_fixture(std::move(document), "runtime-required-properties.json");
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -951,20 +962,24 @@ TEST_CASE("runtime Interactable creation atomically requires effective Property 
 
     const auto before_count = state.runtime_interactables().size();
     const auto before_allocator = state.next_runtime_instance_id();
-    auto missing = world.create_interactable(
-        ArchetypeInstanceConfiguration{id<core::ArchetypeId>("required-interactable")});
+    auto missing = world.create_interactable_quantity(
+        id<core::InteractableDefinitionId>("required-interactable"), 1,
+        core::compiled::UnplacedLocation{});
     REQUIRE_FALSE(missing);
     CHECK(missing.error().front().code == "runtime.missing_required_property");
     CHECK(state.runtime_interactables().size() == before_count);
     CHECK(state.next_runtime_instance_id() == before_allocator);
 
-    auto created = world.create_interactable(
-        ArchetypeInstanceConfiguration{id<core::ArchetypeId>("defaulted-interactable")});
+    auto created = world.create_interactable_quantity(
+        id<core::InteractableDefinitionId>("defaulted-interactable"), 1,
+        core::compiled::UnplacedLocation{});
     REQUIRE(created);
-    CHECK(created.value().text() == "runtime-interactable-1");
+    REQUIRE(created.value_if()->created.size() == 1);
+    const auto created_id = created.value_if()->created.front();
+    CHECK(created_id.text() == "runtime-interactable-1");
     core::PropertyResolver properties(project, state);
-    auto value = properties.get(core::PropertyOwnerRef{created.value()},
-                                id<core::PropertyId>("runtime-state"));
+    auto value =
+        properties.get(core::PropertyOwnerRef{created_id}, id<core::PropertyId>("runtime-state"));
     REQUIRE(value);
     const auto* runtime_value = std::get_if<core::RuntimeValue>(value.value_if());
     REQUIRE(runtime_value != nullptr);
@@ -1072,24 +1087,22 @@ TEST_CASE("runtime structural replacement rejects dependent inventory invalidati
     auto state = std::move(state_result).value();
     RuntimeWorld world(project, state);
 
-    auto owner = world.create_interactable(CompiledInstanceConfiguration{
-        core::GameplayInstanceRef{id<core::InteractableInstanceId>("key")}});
-    auto member = world.create_interactable(CompiledInstanceConfiguration{
-        core::GameplayInstanceRef{id<core::InteractableInstanceId>("dust")}});
-    REQUIRE(owner);
-    REQUIRE(member);
-    const core::compiled::InventoryRef inventory{
-        core::compiled::InteractableInventoryOwner{owner.value()}, id<core::InventoryId>("hidden")};
-    REQUIRE(world.move_interactable(member.value(), core::compiled::InventoryLocation{inventory}));
+    const auto owner =
+        create_from_declared_definition(world, project, id<core::InteractableInstanceId>("key"));
+    const auto member =
+        create_from_declared_definition(world, project, id<core::InteractableInstanceId>("dust"));
+    const core::compiled::InventoryRef inventory{core::compiled::InteractableInventoryOwner{owner},
+                                                 id<core::InventoryId>("hidden")};
+    REQUIRE(world.move_interactable(member, core::compiled::InventoryLocation{inventory}));
 
-    const auto before = world.resolved_configuration(owner.value())->display_name;
+    const auto before = world.resolved_configuration(owner)->display_name;
     auto replaced = world.replace_structural_configuration(
-        owner.value(), CompiledInstanceConfiguration{
-                           core::GameplayInstanceRef{id<core::InteractableInstanceId>("dust")}});
+        owner, CompiledInstanceConfiguration{
+                   core::GameplayInstanceRef{id<core::InteractableInstanceId>("dust")}});
     REQUIRE_FALSE(replaced);
     CHECK(replaced.error().front().code == "runtime.invalid_structural_edit");
-    REQUIRE(world.resolved_configuration(owner.value()) != nullptr);
-    CHECK(world.resolved_configuration(owner.value())->display_name == before);
+    REQUIRE(world.resolved_configuration(owner) != nullptr);
+    CHECK(world.resolved_configuration(owner)->display_name == before);
 }
 
 TEST_CASE("runtime structural replacement accepts a staged transaction that resolves nested "
@@ -1106,27 +1119,25 @@ TEST_CASE("runtime structural replacement accepts a staged transaction that reso
     const auto surface = id<core::FeatureId>("surface");
     const core::compiled::InventoryRef groove{core::InteractableFeatureRef{key, surface},
                                               id<core::InventoryId>("groove")};
-    auto member =
-        world.create_interactable(CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}});
-    REQUIRE(member);
-    REQUIRE(world.move_interactable(member.value(), core::compiled::InventoryLocation{groove}));
+    const auto member = create_from_declared_definition(world, project, dust);
+    REQUIRE(world.move_interactable(member, core::compiled::InventoryLocation{groove}));
 
     auto blocked = world.replace_structural_configuration(
         key, CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}});
     REQUIRE_FALSE(blocked);
     CHECK(blocked.error().front().code == "runtime.invalid_structural_edit");
     CHECK(world.has_inventory(groove));
-    REQUIRE(world.interactable_state(member.value()) != nullptr);
+    REQUIRE(world.interactable_state(member) != nullptr);
 
     auto staged_state = state;
     RuntimeWorld staged_world(project, staged_state);
-    REQUIRE(staged_world.destroy(core::GameplayInstanceRef{member.value()}));
+    REQUIRE(staged_world.destroy(core::GameplayInstanceRef{member}));
     REQUIRE(staged_world.replace_structural_configuration(
         key, CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}}));
 
     state = std::move(staged_state);
     RuntimeWorld committed_world(project, state);
-    CHECK(committed_world.interactable_state(member.value()) == nullptr);
+    CHECK(committed_world.interactable_state(member) == nullptr);
     CHECK_FALSE(committed_world.has_inventory(groove));
     REQUIRE(committed_world.resolved_configuration(key) != nullptr);
     const auto* dust_declaration = project.find_interactable_instance(dust);
@@ -1145,25 +1156,21 @@ TEST_CASE("runtime structural clear rejects dependent invalidation atomically")
 
     const auto dust = id<core::InteractableInstanceId>("dust");
     const auto key = id<core::InteractableInstanceId>("key");
-    auto owner =
-        world.create_interactable(CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}});
-    REQUIRE(owner);
+    const auto owner = create_from_declared_definition(world, project, dust);
     REQUIRE(world.replace_structural_configuration(
-        owner.value(), CompiledInstanceConfiguration{core::GameplayInstanceRef{key}}));
-    auto member =
-        world.create_interactable(CompiledInstanceConfiguration{core::GameplayInstanceRef{dust}});
-    REQUIRE(member);
-    const core::compiled::InventoryRef inventory{
-        core::compiled::InteractableInventoryOwner{owner.value()}, id<core::InventoryId>("hidden")};
-    REQUIRE(world.move_interactable(member.value(), core::compiled::InventoryLocation{inventory}));
+        owner, CompiledInstanceConfiguration{core::GameplayInstanceRef{key}}));
+    const auto member = create_from_declared_definition(world, project, dust);
+    const core::compiled::InventoryRef inventory{core::compiled::InteractableInventoryOwner{owner},
+                                                 id<core::InventoryId>("hidden")};
+    REQUIRE(world.move_interactable(member, core::compiled::InventoryLocation{inventory}));
 
-    auto cleared = world.clear_structural_configuration(owner.value());
+    auto cleared = world.clear_structural_configuration(owner);
     REQUIRE_FALSE(cleared);
     CHECK(cleared.error().front().code == "runtime.invalid_structural_edit");
-    REQUIRE(world.resolved_configuration(owner.value()) != nullptr);
+    REQUIRE(world.resolved_configuration(owner) != nullptr);
     const auto* key_instance = project.find_interactable_instance(key);
     REQUIRE(key_instance != nullptr);
-    CHECK(world.resolved_configuration(owner.value())->display_name ==
+    CHECK(world.resolved_configuration(owner)->display_name ==
           project.find_interactable_definition(key_instance->definition)->display_name);
     CHECK(world.has_inventory(inventory));
 }
@@ -1187,11 +1194,10 @@ TEST_CASE(
         ArchetypeInstanceConfiguration{id<core::ArchetypeId>("runtime-character")},
         core::compiled::RoomLocation{room.value()}, false, true);
     REQUIRE(character);
-    auto interactable = world.create_interactable(
-        ArchetypeInstanceConfiguration{id<core::ArchetypeId>("runtime-interactable")},
-        core::compiled::RoomLocation{room.value()}, true, false,
-        InteractableRoomPresentationPolicy::None);
-    REQUIRE(interactable);
+    const auto interactable =
+        create_from_declared_definition(world, project, id<core::InteractableInstanceId>("coin"),
+                                        core::compiled::RoomLocation{room.value()}, true, false,
+                                        InteractableRoomPresentationPolicy::None);
 
     auto saved = core::make_save_state(project, state);
     REQUIRE(saved);
@@ -1213,8 +1219,8 @@ TEST_CASE(
     CHECK(restored_east->target == start);
     REQUIRE(restored_world.character_state(character.value()) != nullptr);
     CHECK_FALSE(restored_world.character_state(character.value())->enabled);
-    REQUIRE(restored_world.interactable_state(interactable.value()) != nullptr);
-    CHECK_FALSE(restored_world.interactable_state(interactable.value())->visible);
+    REQUIRE(restored_world.interactable_state(interactable) != nullptr);
+    CHECK_FALSE(restored_world.interactable_state(interactable)->visible);
     const auto* provenance =
         restored_world.provenance(core::GameplayInstanceRef{character.value()});
     REQUIRE(provenance != nullptr);
@@ -1222,10 +1228,9 @@ TEST_CASE(
     CHECK(provenance->archetype == id<core::ArchetypeId>("runtime-character"));
     CHECK(restored.next_runtime_instance_id() == 4);
 
-    auto next = restored_world.create_interactable(CompiledInstanceConfiguration{
-        core::GameplayInstanceRef{id<core::InteractableInstanceId>("dust")}});
-    REQUIRE(next);
-    CHECK(next.value().text() == "runtime-interactable-4");
+    const auto next = create_from_declared_definition(restored_world, project,
+                                                      id<core::InteractableInstanceId>("dust"));
+    CHECK(next.text() == "runtime-interactable-4");
 }
 
 TEST_CASE("runtime destruction is explicit non-cascading and rejects live dependents")
@@ -1258,6 +1263,25 @@ TEST_CASE("runtime destruction is explicit non-cascading and rejects live depend
     auto declared = world.destroy(core::GameplayInstanceRef{id<core::RoomId>("start")});
     REQUIRE_FALSE(declared);
     CHECK(declared.error().front().code == "runtime.declared_instance_not_destroyable");
+
+    const auto declared_interactable = id<core::InteractableInstanceId>("key");
+    REQUIRE(world.destroy(core::GameplayInstanceRef{declared_interactable}));
+    CHECK(world.resolved_configuration(declared_interactable) == nullptr);
+    CHECK(world.interactable_state(declared_interactable) == nullptr);
+
+    auto saved = core::make_save_state(project, state);
+    REQUIRE(saved);
+    auto encoded = core::encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    auto decoded =
+        core::decode_save_state(project, encoded.value(), "declared-interactable-tombstone");
+    REQUIRE(decoded);
+    auto restored_result = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored_result);
+    auto restored = std::move(restored_result).value();
+    RuntimeWorld restored_world(project, restored);
+    CHECK(restored_world.resolved_configuration(declared_interactable) == nullptr);
+    CHECK(restored_world.interactable_state(declared_interactable) == nullptr);
 }
 
 } // namespace

@@ -791,65 +791,6 @@ RuntimeWorld::create_character(RuntimeInstanceConfigurationRequest source,
     }
 }
 
-core::Result<core::InteractableInstanceId, core::Diagnostics>
-RuntimeWorld::create_interactable(RuntimeInstanceConfigurationRequest source,
-                                  core::compiled::InteractableLocation location, bool enabled,
-                                  bool visible, InteractableRoomPresentationPolicy presentation)
-{
-    if (const auto* room = std::get_if<core::compiled::RoomLocation>(&location);
-        room != nullptr && resolved_configuration(room->room) == nullptr)
-        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(world_error(
-            "runtime.invalid_interactable_location", "Interactable Room Location is unresolved"));
-    if (const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&location);
-        inventory != nullptr && !has_inventory(inventory->inventory))
-        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
-            world_error("runtime.invalid_interactable_location",
-                        "Interactable Inventory Location is unresolved"));
-
-    auto resolved = resolve_interactable_request(m_project, m_state, *this, source);
-    auto* request = resolved.value_if();
-    if (request == nullptr)
-        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
-            resolved.error());
-    auto property_requirements =
-        validate_interactable_property_requirements(m_project, request->configuration);
-    if (!property_requirements)
-        return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
-            property_requirements.error());
-
-    for (;;) {
-        const auto ordinal = m_state.m_next_runtime_instance_id;
-        if (ordinal == std::numeric_limits<std::uint64_t>::max())
-            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
-                world_error("runtime.instance_identity_exhausted",
-                            "Runtime Gameplay Instance identity allocator is exhausted"));
-        auto candidate =
-            core::InteractableInstanceId::create("runtime-interactable-" + std::to_string(ordinal));
-        const auto* id = candidate.value_if();
-        if (id == nullptr)
-            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
-                candidate.error());
-        if (resolved_configuration(*id) != nullptr) {
-            ++m_state.m_next_runtime_instance_id;
-            continue;
-        }
-        auto birth = request->configuration;
-        m_state.m_runtime_interactables.push_back(core::RuntimeInteractableConfiguration{
-            *id, false, request->source, std::nullopt, request->provenance, birth, std::nullopt});
-        m_state.m_interactables.push_back(core::InteractableState{
-            *id, core::compiled::UnplacedLocation{}, enabled, visible, 1, std::nullopt});
-        auto moved = move_interactable(*id, std::move(location), presentation);
-        if (!moved) {
-            m_state.m_interactables.pop_back();
-            m_state.m_runtime_interactables.pop_back();
-            return core::Result<core::InteractableInstanceId, core::Diagnostics>::failure(
-                moved.error());
-        }
-        ++m_state.m_next_runtime_instance_id;
-        return core::Result<core::InteractableInstanceId, core::Diagnostics>::success(*id);
-    }
-}
-
 core::Result<void, core::Diagnostics> RuntimeWorld::validate_room_configuration_change(
     const core::RoomId& id, const core::compiled::RoomDefinition& configuration) const
 {
@@ -1548,10 +1489,11 @@ RuntimeWorld::destroy(const core::GameplayInstanceRef& instance)
     if (!exists)
         return core::Result<void, core::Diagnostics>::failure(
             world_error("runtime.unknown_gameplay_instance", "Gameplay Instance is not live"));
-    if (!runtime_created(instance))
+    if (!runtime_created(instance) &&
+        !std::holds_alternative<core::InteractableInstanceId>(instance))
         return core::Result<void, core::Diagnostics>::failure(
             world_error("runtime.declared_instance_not_destroyable",
-                        "Declared Gameplay Instances cannot be destroyed"));
+                        "Declared Room and Character Gameplay Instances cannot be destroyed"));
 
     const auto provenance_depends = [&](const auto& record) {
         return record.provenance.source_instance && *record.provenance.source_instance == instance;
@@ -1663,11 +1605,10 @@ RuntimeWorld::destroy(const core::GameplayInstanceRef& instance)
                                 [&](const auto& value) { return value.character == id; }))
                     return true;
             } else {
-                for (const auto& room : m_state.m_runtime_rooms)
-                    if (std::any_of(room.effective_configuration().interactables.begin(),
-                                    room.effective_configuration().interactables.end(),
-                                    [&](const auto& value) { return value.interactable == id; }))
-                        return true;
+                // Room occurrences are presentation references to an exact Interactable identity,
+                // not ownership of that identity. Destroying an Interactable intentionally leaves
+                // authored/runtime references stale; presentation simply stops resolving the dead
+                // Instance. Containment remains ownership and is checked below.
                 for (const auto& interactable : m_state.m_interactables) {
                     const auto* location =
                         std::get_if<core::compiled::InventoryLocation>(&interactable.location);
@@ -2182,7 +2123,9 @@ void RuntimeWorld::erase_interactable_quantity_instance(const core::Interactable
 core::Result<InteractableQuantityMutation, core::Diagnostics>
 RuntimeWorld::create_interactable_quantity(const core::InteractableDefinitionId& definition_id,
                                            std::uint64_t quantity,
-                                           core::compiled::InteractableLocation location)
+                                           core::compiled::InteractableLocation location,
+                                           bool enabled, bool visible,
+                                           InteractableRoomPresentationPolicy presentation)
 {
     const auto* definition = m_project.find_interactable_definition(definition_id);
     if (definition == nullptr || quantity == 0 ||
@@ -2196,6 +2139,11 @@ RuntimeWorld::create_interactable_quantity(const core::InteractableDefinitionId&
         return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
             world_error("runtime.invalid_interactable_stack_definition",
                         "Stackable Interactable definition owns identity-bearing children"));
+    auto property_requirements =
+        validate_interactable_property_requirements(m_project, *definition);
+    if (!property_requirements)
+        return core::Result<InteractableQuantityMutation, core::Diagnostics>::failure(
+            property_requirements.error());
     const auto saved_configurations = m_state.m_runtime_interactables;
     const auto saved_states = m_state.m_interactables;
     const auto saved_allocator = m_state.m_next_runtime_instance_id;
@@ -2222,8 +2170,8 @@ RuntimeWorld::create_interactable_quantity(const core::InteractableDefinitionId&
                                             std::nullopt, std::nullopt},
             *definition, std::nullopt});
         m_state.m_interactables.push_back(core::InteractableState{
-            id, core::compiled::UnplacedLocation{}, true, true, granted, std::nullopt});
-        auto moved = move_interactable(id, location);
+            id, core::compiled::UnplacedLocation{}, enabled, visible, granted, std::nullopt});
+        auto moved = move_interactable(id, location, presentation);
         if (!moved) {
             m_state.m_runtime_interactables = saved_configurations;
             m_state.m_interactables = saved_states;

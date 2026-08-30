@@ -199,13 +199,12 @@ public:
     create_character(runtime::RuntimeInstanceConfigurationRequest source,
                      core::CharacterWorldLocation location = core::compiled::UnplacedLocation{},
                      bool enabled = true, bool visible = true);
-    [[nodiscard]] core::Result<core::InteractableInstanceId, core::Diagnostics> create_interactable(
-        runtime::RuntimeInstanceConfigurationRequest source,
-        core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
-        bool enabled = true, bool visible = true);
     [[nodiscard]] core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
     create_interactable_quantity(core::InteractableDefinitionId definition, std::uint64_t quantity,
-                                 core::compiled::InteractableLocation location);
+                                 core::compiled::InteractableLocation location, bool enabled = true,
+                                 bool visible = true,
+                                 runtime::InteractableRoomPresentationPolicy presentation =
+                                     runtime::InteractableRoomPresentationPolicy::Resolve);
     [[nodiscard]] core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>
     split_interactable_quantity(core::InteractableInstanceId source, std::uint64_t quantity);
     [[nodiscard]] core::Result<runtime::InteractableQuantityMutation, core::Diagnostics>

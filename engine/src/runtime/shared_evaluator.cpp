@@ -673,6 +673,13 @@ SharedPrimitiveEvaluator::resolve_interactable(const InteractableOperand& operan
     return resolve_interactable_operand(operand, m_state, context);
 }
 
+Result<RoomId, Diagnostics>
+SharedPrimitiveEvaluator::resolve_room(const RoomOperand& operand,
+                                       ConditionEvaluationContext context) const
+{
+    return resolve_room_operand(operand, m_state, context);
+}
+
 Result<GameplayOperandValue, Diagnostics>
 SharedPrimitiveEvaluator::resolve_location_subject_value(const LocationSubjectOperand& operand,
                                                          ConditionEvaluationContext context) const

@@ -43,6 +43,8 @@ public:
     [[nodiscard]] Result<InteractableInstanceId, Diagnostics>
     resolve_interactable(const InteractableOperand& operand,
                          ConditionEvaluationContext context = {}) const;
+    [[nodiscard]] Result<RoomId, Diagnostics>
+    resolve_room(const RoomOperand& operand, ConditionEvaluationContext context = {}) const;
     [[nodiscard]] Result<GameplayOperandValue, Diagnostics>
     resolve_location_subject_value(const LocationSubjectOperand& operand,
                                    ConditionEvaluationContext context = {}) const;

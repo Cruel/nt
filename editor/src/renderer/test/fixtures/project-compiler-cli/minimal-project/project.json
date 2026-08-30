@@ -126,6 +126,11 @@
     "kind": "room",
     "id": "start"
   },
-  "inventories": [{ "id": "inventory", "label": "Inventory" }],
+  "inventories": [
+    {
+      "id": "inventory",
+      "label": "Inventory"
+    }
+  ],
   "interactableInstances": {}
 }

@@ -67,7 +67,7 @@ export function compileLocationSubjectOperand(operand: LocationSubjectOperand) {
   return { ...operand };
 }
 
-function compileRoomOperand(operand: RoomOperand) {
+export function compileRoomOperand(operand: RoomOperand) {
   if (operand.kind === 'room') {
     return { kind: 'room' as const, room: { kind: 'room' as const, id: operand.room.$ref.id } };
   }

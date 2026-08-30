@@ -55,12 +55,14 @@ public:
     [[nodiscard]] bool action_choose(std::string kind, std::string id);
     [[nodiscard]] bool action_navigate_room(std::string id);
     [[nodiscard]] bool action_toggle_subject(std::string kind, std::string id);
-    [[nodiscard]] bool
-    action_primary_activate(std::string kind, std::string id,
-                            std::optional<core::TriggerContext> trigger_context = std::nullopt);
-    [[nodiscard]] bool
-    action_open_verb_menu(std::string kind, std::string id,
-                          std::optional<core::TriggerContext> trigger_context = std::nullopt);
+    [[nodiscard]] bool action_primary_activate(
+        std::string kind, std::string id,
+        std::optional<core::TriggerContext> trigger_context = std::nullopt,
+        std::optional<core::LayoutPresentationParent> presentation_parent = std::nullopt);
+    [[nodiscard]] bool action_open_verb_menu(
+        std::string kind, std::string id,
+        std::optional<core::TriggerContext> trigger_context = std::nullopt,
+        std::optional<core::LayoutPresentationParent> presentation_parent = std::nullopt);
     [[nodiscard]] bool action_present_player_inventory(
         std::optional<core::TriggerContext> trigger_context = std::nullopt,
         std::optional<core::LayoutPresentationParent> presentation_parent = std::nullopt,

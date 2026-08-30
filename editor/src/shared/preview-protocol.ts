@@ -410,7 +410,7 @@ export type EditorToPreviewMessage =
       type: 'runtime-create-instance';
       requestId: string;
       instanceKind: 'room' | 'character' | 'interactable';
-      sourceKind: 'archetype' | 'compiled' | 'effective';
+      sourceKind: 'definition' | 'archetype' | 'compiled' | 'effective';
       sourceId: string;
     }
   | {
@@ -1158,7 +1158,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-create-instance':
       return (
         ['room', 'character', 'interactable'].includes(String(value.instanceKind)) &&
-        ['archetype', 'compiled', 'effective'].includes(String(value.sourceKind)) &&
+        ['definition', 'archetype', 'compiled', 'effective'].includes(String(value.sourceKind)) &&
         typeof value.sourceId === 'string' &&
         value.sourceId.length > 0
       );

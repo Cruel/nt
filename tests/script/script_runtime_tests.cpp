@@ -1419,7 +1419,8 @@ TEST_CASE("typed Lua host services distinguish Room transient and navigation req
     CHECK(command->target == core::RoomId::create("hall").value());
 }
 
-TEST_CASE("Lua runtime instance APIs create clone inspect and destroy through capabilities")
+TEST_CASE("Lua runtime Interactable APIs create by Definition and reserve cloning for structural "
+          "replacement")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.sources}));
@@ -1432,7 +1433,7 @@ TEST_CASE("Lua runtime instance APIs create clone inspect and destroy through ca
 
     auto create =
         invoker.execute("runtime_first, runtime_err = noveltea.instances.create('interactable', "
-                        "'compiled', 'dust'); "
+                        "'definition', 'dust'); "
                         "assert(runtime_first == 'runtime-interactable-1' and runtime_err == nil)",
                         "runtime-instance-create");
     if (!create)
@@ -1440,17 +1441,20 @@ TEST_CASE("Lua runtime instance APIs create clone inspect and destroy through ca
     REQUIRE(create);
     REQUIRE(invoker.execute(
         "local provenance = assert(noveltea.instances.provenance('interactable', runtime_first)); "
-        "assert(provenance.kind == 'compiled-definition' and provenance.source == 'dust'); "
-        "runtime_clone = assert(noveltea.instances.create('interactable', 'effective', "
-        "runtime_first)); "
-        "assert(runtime_clone == 'runtime-interactable-2')",
-        "runtime-instance-clone"));
+        "assert(provenance.kind == 'compiled-definition'); "
+        "local rejected, rejected_err = noveltea.instances.create('interactable', 'effective', "
+        "runtime_first); assert(rejected == nil and type(rejected_err) == 'string'); "
+        "runtime_second = assert(noveltea.instances.create('interactable', 'definition', 'dust')); "
+        "assert(runtime_second == 'runtime-interactable-2'); "
+        "local ok, replace_err = noveltea.instances.replace_configuration('interactable', "
+        "runtime_second, 'effective', runtime_first); assert(ok and replace_err == nil)",
+        "runtime-instance-structural-replacement"));
     REQUIRE(invoker.execute(
-        "local ok, blocked = noveltea.instances.destroy('interactable', runtime_first); "
-        "assert(not ok and type(blocked) == 'string'); "
-        "ok, runtime_err = noveltea.instances.destroy('interactable', runtime_clone); "
+        "local ok, runtime_err = noveltea.instances.destroy('interactable', runtime_first); "
         "assert(ok and runtime_err == nil); "
-        "ok, runtime_err = noveltea.instances.destroy('interactable', runtime_first); "
+        "ok, runtime_err = noveltea.instances.destroy('interactable', runtime_second); "
+        "assert(ok and runtime_err == nil); "
+        "ok, runtime_err = noveltea.instances.destroy('interactable', 'dust'); "
         "assert(ok and runtime_err == nil)",
         "runtime-instance-destroy"));
 }

@@ -300,7 +300,7 @@ export function usePreviewTransport({
       teleportRuntimeRoom: (roomId: string) => send({ type: 'runtime-teleport-room', roomId }),
       createRuntimeInstance: (
         instanceKind: 'room' | 'character' | 'interactable',
-        sourceKind: 'archetype' | 'compiled' | 'effective',
+        sourceKind: 'definition' | 'archetype' | 'compiled' | 'effective',
         sourceId: string,
       ) => send({ type: 'runtime-create-instance', instanceKind, sourceKind, sourceId }),
       replaceRuntimeInstanceConfiguration: (

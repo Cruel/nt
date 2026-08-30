@@ -198,6 +198,85 @@ TEST_CASE("Scene gameplay effect batches commit atomically and preserve earlier 
     CHECK(kernel->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{4}});
 }
 
+TEST_CASE("root Scene return preserves a committed directed Room change")
+{
+    RuntimeFixture fixture;
+    auto document = load_fixture_document("comprehensive.json");
+    auto& start = *std::find_if(
+        document["definitions"]["rooms"].begin(), document["definitions"]["rooms"].end(),
+        [](const nlohmann::json& room) { return room.value("id", "") == "start"; });
+    start["lifecycle"]["canLeave"] = {
+        {"kind", "global-property-comparison"},
+        {"property", {{"id", "count"}, {"kind", "property"}}},
+        {"operator", "greater"},
+        {"value", 999},
+    };
+    auto& hall = *std::find_if(
+        document["definitions"]["rooms"].begin(), document["definitions"]["rooms"].end(),
+        [](const nlohmann::json& room) { return room.value("id", "") == "hall"; });
+    hall["description"] = {{"markup", "plain"},
+                           {"source", {{"kind", "inline"}, {"text", "Hall."}}}};
+    for (auto& exit : hall["exits"])
+        exit["condition"] = {{"kind", "always"}};
+
+    auto opening = std::find_if(
+        document["definitions"]["scenes"].begin(), document["definitions"]["scenes"].end(),
+        [](const nlohmann::json& scene) { return scene.value("id", "") == "opening"; });
+    REQUIRE(opening != document["definitions"]["scenes"].end());
+    (*opening)["program"]["events"] = nlohmann::json::array(
+        {{{"completionDependencies", nlohmann::json::array()},
+          {"id", "change-room"},
+          {"instruction",
+           {{"id", "change-room"},
+            {"kind", "directed-room-change"},
+            {"room", {{"kind", "room"}, {"id", "hall"}}}}},
+          {"timeline", {{"durationMs", 0}, {"startMs", 0}, {"trackId", "main"}}}}});
+    (*opening)["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
+
+    auto project = decode_fixture_document(std::move(document), "scene-change-room-return.json");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::BeforeEnter));
+    REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::CommitRoomSwitch));
+    REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::AfterEnter));
+    REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::Complete));
+    REQUIRE(kernel->flow().complete_room_transition());
+
+    REQUIRE(kernel->start_transient(core::SceneId::create("opening").value()));
+    bool settled = false;
+    for (std::size_t iteration = 0; iteration < 64 && !settled; ++iteration) {
+        auto outcome = kernel->run_until_blocked(1, "en");
+        if (const auto* blocked = std::get_if<core::FlowBlockedOutcome>(&outcome)) {
+            const auto* presentation =
+                std::get_if<core::PresentationFlowBlocker>(&blocked->blocker);
+            REQUIRE(presentation != nullptr);
+            REQUIRE(kernel->pending_presentation_operation());
+            kernel->commit_pending_presentation();
+            REQUIRE(kernel->complete(presentation->owner, presentation->handle));
+            continue;
+        }
+        std::string fault_code;
+        std::string fault_message;
+        if (const auto* fault = std::get_if<core::FlowFaultOutcome>(&outcome);
+            fault != nullptr && !fault->diagnostics.empty()) {
+            fault_code = fault->diagnostics.front().code;
+            fault_message = fault->diagnostics.front().message;
+        } else if (kernel->state().execution_fault() &&
+                   !kernel->state().execution_fault()->empty()) {
+            fault_code = kernel->state().execution_fault()->front().code;
+            fault_message = kernel->state().execution_fault()->front().message;
+        }
+        CAPTURE(fault_code, fault_message);
+        REQUIRE_FALSE(std::holds_alternative<core::FlowFaultOutcome>(outcome));
+        settled = std::holds_alternative<core::FlowModeChangedOutcome>(outcome);
+    }
+    REQUIRE(settled);
+    REQUIRE(std::holds_alternative<core::RoomMode>(kernel->state().mode()));
+    CHECK(std::get<core::RoomMode>(kernel->state().mode()).room ==
+          core::RoomId::create("hall").value());
+}
+
 TEST_CASE("typed execution kernel initializes each frame category from compiled fixtures")
 {
     RuntimeFixture fixture;
@@ -251,11 +330,14 @@ TEST_CASE("flow admission accepts Features on runtime-created Interactable owner
     REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::Complete));
     REQUIRE(kernel->flow().complete_room_transition());
 
-    auto instance = kernel->gateway().create_interactable(runtime::CompiledInstanceConfiguration{
-        core::GameplayInstanceRef{core::InteractableInstanceId::create("key").value()}});
-    REQUIRE(instance);
+    auto created_instances = kernel->gateway().create_interactable_quantity(
+        core::InteractableDefinitionId::create("key").value(), 1,
+        core::compiled::UnplacedLocation{});
+    REQUIRE(created_instances);
+    REQUIRE(created_instances.value_if()->created.size() == 1);
+    const auto instance = created_instances.value_if()->created.front();
     const auto subject = core::compiled::FeatureInteractionSubject{
-        core::InteractableFeatureRef{instance.value(), core::FeatureId::create("surface").value()}};
+        core::InteractableFeatureRef{instance, core::FeatureId::create("surface").value()}};
     REQUIRE(kernel->flow().start_interaction(
         core::InteractionInvocationContext{core::VerbId::create("use").value(),
                                            core::RoomId::create("start").value(),

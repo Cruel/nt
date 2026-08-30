@@ -177,9 +177,14 @@ struct SetVisibleCommand {
     LocationSubjectOperand subject;
     bool visible = true;
 };
+enum class RoomPresentationPolicy : std::uint8_t {
+    Resolve,
+    None,
+};
 struct MoveInstanceCommand {
     LocationSubjectOperand subject;
     LocationOperand location;
+    RoomPresentationPolicy room_presentation = RoomPresentationPolicy::Resolve;
 };
 struct CreateRoomCommand {
     GameplayConfigurationSource source;
@@ -193,10 +198,12 @@ struct CreateCharacterCommand {
     std::optional<CommandResultBindingId> result;
 };
 struct CreateInteractableCommand {
-    GameplayConfigurationSource source;
+    InteractableDefinitionId definition;
+    std::uint64_t quantity = 1;
     LocationOperand location;
     bool enabled = true;
     bool visible = true;
+    RoomPresentationPolicy room_presentation = RoomPresentationPolicy::Resolve;
     std::optional<CommandResultBindingId> result;
 };
 struct DestroyInstanceCommand {
@@ -231,6 +238,15 @@ struct ConsumeQuantityCommand {
 struct PresentInventoryCommand {
     InventoryOperand inventory;
     std::optional<LayoutId> layout;
+    bool use_trigger_anchor = true;
+    bool parent_to_triggering_layout = false;
+    bool coexist = false;
+};
+struct NavigateExitCommand {
+    RoomExitId exit;
+};
+struct ChangeRoomCommand {
+    RoomOperand room;
 };
 struct CallSceneCommand {
     SceneId scene;
@@ -259,8 +275,8 @@ struct GameplayCommand {
                      CreateCharacterCommand, CreateInteractableCommand, DestroyInstanceCommand,
                      SplitQuantityCommand, MergeQuantityCommand, TransferQuantityCommand,
                      AddQuantityCommand, ConsumeQuantityCommand, PresentInventoryCommand,
-                     CallSceneCommand, CallDialogueCommand, NotifyCommand, RunLuaCommand,
-                     IfGameplayCommand>;
+                     NavigateExitCommand, ChangeRoomCommand, CallSceneCommand, CallDialogueCommand,
+                     NotifyCommand, RunLuaCommand, IfGameplayCommand>;
 
     InteractionInstructionId id;
     Value value;

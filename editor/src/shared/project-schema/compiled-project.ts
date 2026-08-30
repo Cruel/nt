@@ -363,6 +363,7 @@ export type CompiledGameplayCommand =
       kind: 'move-instance';
       subject: z.infer<typeof compiledLocationSubjectOperandSchema>;
       location: z.infer<typeof compiledLocationOperandSchema>;
+      roomPresentation?: 'resolve' | 'none';
     }
   | {
       id: string;
@@ -382,10 +383,12 @@ export type CompiledGameplayCommand =
   | {
       id: string;
       kind: 'create-interactable';
-      source: z.infer<typeof compiledGameplayConfigurationSourceSchema>;
+      definition: z.infer<typeof interactableDefinitionReferenceSchema>;
+      quantity: number;
       location: z.infer<typeof compiledLocationOperandSchema>;
       enabled: boolean;
       visible: boolean;
+      roomPresentation?: 'resolve' | 'none';
       result?: string;
     }
   | {
@@ -451,7 +454,12 @@ export type CompiledGameplayCommand =
       kind: 'present-inventory';
       inventory: z.infer<typeof compiledInventoryOperandSchema>;
       layout: z.infer<typeof layoutReferenceSchema> | null;
+      useTriggerAnchor?: boolean;
+      parentToTriggeringLayout?: boolean;
+      coexist?: boolean;
     }
+  | { id: string; kind: 'navigate-exit'; exitId: string }
+  | { id: string; kind: 'change-room'; room: z.infer<typeof compiledRoomOperandSchema> }
   | { id: string; kind: 'call-scene'; scene: z.infer<typeof sceneReferenceSchema> }
   | { id: string; kind: 'call-dialogue'; dialogue: z.infer<typeof dialogueReferenceSchema> }
   | { id: string; kind: 'notify'; message: z.infer<typeof compiledTextSchema> }
@@ -516,6 +524,7 @@ export const compiledGameplayCommandSchema: z.ZodType<CompiledGameplayCommand> =
       kind: z.literal('move-instance'),
       subject: compiledLocationSubjectOperandSchema,
       location: compiledLocationOperandSchema,
+      roomPresentation: z.enum(['resolve', 'none']).optional(),
     }),
     strict({
       id,
@@ -535,10 +544,12 @@ export const compiledGameplayCommandSchema: z.ZodType<CompiledGameplayCommand> =
     strict({
       id,
       kind: z.literal('create-interactable'),
-      source: compiledGameplayConfigurationSourceSchema,
+      definition: interactableDefinitionReferenceSchema,
+      quantity: compiledQuantitySchema,
       location: compiledLocationOperandSchema,
       enabled: z.boolean(),
       visible: z.boolean(),
+      roomPresentation: z.enum(['resolve', 'none']).optional(),
       result: id.optional(),
     }),
     strict({
@@ -604,7 +615,12 @@ export const compiledGameplayCommandSchema: z.ZodType<CompiledGameplayCommand> =
       kind: z.literal('present-inventory'),
       inventory: compiledInventoryOperandSchema,
       layout: layoutReferenceSchema.nullable(),
+      useTriggerAnchor: z.boolean().optional(),
+      parentToTriggeringLayout: z.boolean().optional(),
+      coexist: z.boolean().optional(),
     }),
+    strict({ id, kind: z.literal('navigate-exit'), exitId: id }),
+    strict({ id, kind: z.literal('change-room'), room: compiledRoomOperandSchema }),
     strict({ id, kind: z.literal('call-scene'), scene: sceneReferenceSchema }),
     strict({ id, kind: z.literal('call-dialogue'), dialogue: dialogueReferenceSchema }),
     strict({ id, kind: z.literal('notify'), message: compiledTextSchema }),
@@ -1304,10 +1320,12 @@ const sceneRuntimeWorldOperationSchema = z.discriminatedUnion('kind', [
   }),
   strict({
     kind: z.literal('create-interactable'),
-    source: sceneInstanceConfigurationSourceSchema,
+    definition: interactableDefinitionReferenceSchema,
+    quantity: compiledQuantitySchema,
     location: interactableLocationSchema,
     enabled: z.boolean(),
     visible: z.boolean(),
+    roomPresentation: z.enum(['resolve', 'none']),
   }),
   strict({
     kind: z.literal('replace-configuration'),

@@ -172,9 +172,11 @@ apply_scene_world_operation(const core::compiled::SceneRuntimeWorldOperation& op
                                : core::Result<void, core::Diagnostics>::failure(created.error());
             } else if constexpr (std::is_same_v<
                                      T, core::compiled::CreateInteractableSceneWorldOperation>) {
-                auto created =
-                    gateway.create_interactable(runtime_configuration_request(value.source),
-                                                value.location, value.enabled, value.visible);
+                auto created = gateway.create_interactable_quantity(
+                    value.definition, value.quantity, value.location, value.enabled, value.visible,
+                    value.room_presentation == core::RoomPresentationPolicy::None
+                        ? InteractableRoomPresentationPolicy::None
+                        : InteractableRoomPresentationPolicy::Resolve);
                 return created ? core::Result<void, core::Diagnostics>::success()
                                : core::Result<void, core::Diagnostics>::failure(created.error());
             } else if constexpr (std::is_same_v<
@@ -386,6 +388,8 @@ bool RuntimeExecutor::gameplay_command_is_immediate(const core::GameplayCommand&
             if constexpr (std::is_same_v<T, core::CallSceneCommand> ||
                           std::is_same_v<T, core::CallDialogueCommand> ||
                           std::is_same_v<T, core::PresentInventoryCommand> ||
+                          std::is_same_v<T, core::NavigateExitCommand> ||
+                          std::is_same_v<T, core::ChangeRoomCommand> ||
                           std::is_same_v<T, core::NotifyCommand> ||
                           std::is_same_v<T, core::RunLuaCommand>)
                 return false;
@@ -406,7 +410,8 @@ bool RuntimeExecutor::gameplay_command_is_immediate(const core::GameplayCommand&
 core::Result<void, core::Diagnostics> RuntimeExecutor::present_inventory(
     const core::compiled::InventoryRef& inventory, std::optional<core::LayoutId> layout,
     std::optional<core::TriggerContext> trigger_context,
-    std::optional<core::LayoutPresentationParent> presentation_parent, bool coexist)
+    std::optional<core::LayoutPresentationParent> presentation_parent, bool coexist,
+    bool inherit_trigger_context)
 {
     std::optional<core::ScopedLayoutInstanceId> instance;
     if (coexist || presentation_parent) {
@@ -430,7 +435,8 @@ core::Result<void, core::Diagnostics> RuntimeExecutor::present_inventory(
     }
     return mount_inventory_presentation(
         m_project, m_state, m_world, inventory, std::move(layout), *instance,
-        trigger_context ? std::move(trigger_context) : m_trigger_context,
+        trigger_context ? std::move(trigger_context)
+                        : (inherit_trigger_context ? m_trigger_context : std::nullopt),
         std::move(presentation_parent), std::move(replacement));
 }
 
@@ -591,7 +597,11 @@ core::Result<void, core::Diagnostics> RuntimeExecutor::apply_immediate_gameplay_
                     }
                     if (const auto* interactable =
                             std::get_if<core::InteractableInstanceId>(subject.value_if()))
-                        return world.move_interactable(*interactable, *location.value_if());
+                        return world.move_interactable(
+                            *interactable, *location.value_if(),
+                            value.room_presentation == core::RoomPresentationPolicy::None
+                                ? InteractableRoomPresentationPolicy::None
+                                : InteractableRoomPresentationPolicy::Resolve);
                 } else if constexpr (std::is_same_v<T, core::SetEnabledCommand>) {
                     if (const auto* character = std::get_if<core::CharacterId>(subject.value_if()))
                         return world.set_character_enabled(*character, value.enabled);
@@ -609,8 +619,7 @@ core::Result<void, core::Diagnostics> RuntimeExecutor::apply_immediate_gameplay_
                     "execution.invalid_gameplay_command_subject",
                     "Gameplay Command subject does not resolve to a movable Gameplay Instance"));
             } else if constexpr (std::is_same_v<T, core::CreateRoomCommand> ||
-                                 std::is_same_v<T, core::CreateCharacterCommand> ||
-                                 std::is_same_v<T, core::CreateInteractableCommand>) {
+                                 std::is_same_v<T, core::CreateCharacterCommand>) {
                 auto source = runtime_configuration_request(value.source, primitives, context);
                 if (!source)
                     return core::Result<void, core::Diagnostics>::failure(source.error());
@@ -643,15 +652,29 @@ core::Result<void, core::Diagnostics> RuntimeExecutor::apply_immediate_gameplay_
                                                              *created.value_if())
                                        : core::Result<void, core::Diagnostics>::failure(
                                              created.error());
-                    } else {
-                        auto created = world.create_interactable(
-                            *source.value_if(), *location.value_if(), value.enabled, value.visible);
-                        return created ? bind_command_result(command_results, value.result,
-                                                             *created.value_if())
-                                       : core::Result<void, core::Diagnostics>::failure(
-                                             created.error());
                     }
                 }
+            } else if constexpr (std::is_same_v<T, core::CreateInteractableCommand>) {
+                auto location = primitives.resolve_location(value.location, context);
+                if (!location)
+                    return core::Result<void, core::Diagnostics>::failure(location.error());
+                auto created = world.create_interactable_quantity(
+                    value.definition, value.quantity, *location.value_if(), value.enabled,
+                    value.visible,
+                    value.room_presentation == core::RoomPresentationPolicy::None
+                        ? InteractableRoomPresentationPolicy::None
+                        : InteractableRoomPresentationPolicy::Resolve);
+                if (!created)
+                    return core::Result<void, core::Diagnostics>::failure(created.error());
+                if (!value.result)
+                    return core::Result<void, core::Diagnostics>::success();
+                if (created.value_if()->created.size() != 1)
+                    return core::Result<void, core::Diagnostics>::failure(execution_error(
+                        "execution.multi_create_result_binding",
+                        "Create Interactable produced multiple exact Instances and cannot bind "
+                        "one singular result"));
+                return bind_command_result(command_results, value.result,
+                                           created.value_if()->created.front());
             } else if constexpr (std::is_same_v<T, core::DestroyInstanceCommand>) {
                 auto instance = primitives.resolve_identity(value.instance, context);
                 if (!instance)

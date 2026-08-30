@@ -406,9 +406,27 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
                     auto inventory = m_primitives.resolve_inventory(value.inventory, context);
                     if (!inventory)
                         return fault(inventory.error());
-                    auto presented = present_inventory(*inventory.value_if(), value.layout);
+                    auto presented = present_inventory(
+                        *inventory.value_if(), value.layout,
+                        value.use_trigger_anchor ? m_trigger_context : std::nullopt,
+                        value.parent_to_triggering_layout ? m_trigger_presentation_parent
+                                                          : std::nullopt,
+                        value.coexist, value.use_trigger_anchor);
                     if (!presented)
                         return fault(presented.error());
+                } else if constexpr (std::is_same_v<T, core::NavigateExitCommand>) {
+                    auto next = transition.position;
+                    next.next_effect = sequential;
+                    auto called = call_navigation_command(value, core::FlowFramePosition{next});
+                    return called ? std::nullopt : fault(called.error());
+                } else if constexpr (std::is_same_v<T, core::ChangeRoomCommand>) {
+                    const core::ConditionEvaluationContext context{
+                        .interaction_bindings = {}, .command_results = live->command_results};
+                    auto next = transition.position;
+                    next.next_effect = sequential;
+                    auto called =
+                        call_change_room_command(value, context, core::FlowFramePosition{next});
+                    return called ? std::nullopt : fault(called.error());
                 } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
                     auto next = transition.position;
                     next.next_effect = sequential;
@@ -660,6 +678,32 @@ core::Result<void, core::Diagnostics> RuntimeExecutor::navigate(const core::Room
         return core::Result<void, core::Diagnostics>::failure(execution_error(
             "execution.invalid_navigation", "Navigation requires an exit from the active Room"));
     return m_flow.start_navigation(selected->target, {mode->room, selected->id});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeExecutor::call_navigation_command(const core::NavigateExitCommand& command,
+                                         core::FlowFramePosition caller_next_position)
+{
+    const auto* visit = m_state.room_visit() ? &*m_state.room_visit() : nullptr;
+    const auto* room = visit == nullptr ? nullptr : m_world.resolved_configuration(visit->room);
+    const auto* selected = room == nullptr ? nullptr : find_exit(*room, command.exit);
+    if (visit == nullptr || room == nullptr || selected == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            execution_error("execution.invalid_navigation",
+                            "Navigate Exit requires an Exit from the current committed Room"));
+    return m_flow.call_navigation(selected->target, {visit->room, selected->id},
+                                  std::move(caller_next_position));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeExecutor::call_change_room_command(const core::ChangeRoomCommand& command,
+                                          core::ConditionEvaluationContext context,
+                                          core::FlowFramePosition caller_next_position)
+{
+    auto room = m_primitives.resolve_room(command.room, context);
+    if (!room)
+        return core::Result<void, core::Diagnostics>::failure(room.error());
+    return m_flow.call_directed_room_change(*room.value_if(), std::move(caller_next_position));
 }
 
 core::Result<void, core::Diagnostics> RuntimeExecutor::start_transient(const core::SceneId& scene)

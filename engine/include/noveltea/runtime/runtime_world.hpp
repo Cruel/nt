@@ -107,16 +107,13 @@ public:
     create_character(RuntimeInstanceConfigurationRequest source,
                      core::CharacterWorldLocation location = core::compiled::UnplacedLocation{},
                      bool enabled = true, bool visible = true);
-    [[nodiscard]] core::Result<core::InteractableInstanceId, core::Diagnostics> create_interactable(
-        RuntimeInstanceConfigurationRequest source,
+    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
+    create_interactable_quantity(
+        const core::InteractableDefinitionId& definition, std::uint64_t quantity,
         core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
         bool enabled = true, bool visible = true,
         InteractableRoomPresentationPolicy presentation =
             InteractableRoomPresentationPolicy::Resolve);
-    [[nodiscard]] core::Result<InteractableQuantityMutation, core::Diagnostics>
-    create_interactable_quantity(
-        const core::InteractableDefinitionId& definition, std::uint64_t quantity,
-        core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{});
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     replace_structural_configuration(const core::RoomId& id,

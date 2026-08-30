@@ -1009,6 +1009,18 @@ private:
                     },
                     operand);
             };
+            const auto validate_room_operand = [&](const RoomOperand& operand,
+                                                   const std::string& operand_path) {
+                std::visit(
+                    [&](const auto& room_operand) {
+                        using T = std::decay_t<decltype(room_operand)>;
+                        if constexpr (std::is_same_v<T, RoomId>)
+                            require(m_rooms, room_operand, "room", operand_path);
+                        else if constexpr (std::is_same_v<T, CommandResultOperand>)
+                            validate_result(room_operand, {CommandResultKind::Room}, operand_path);
+                    },
+                    operand);
+            };
             const auto validate_matcher = [&](const ConditionInteractableMatcher& matcher,
                                               const std::string& matcher_path) {
                 if (matcher.definition)
@@ -1188,10 +1200,31 @@ private:
                             bind_result(value.result, CommandResultKind::Character,
                                         command_path + "/result");
                         } else if constexpr (std::is_same_v<T, CreateInteractableCommand>) {
-                            validate_configuration_source(value.source,
-                                                          CommandResultKind::Interactable,
-                                                          command_path + "/source");
+                            require(m_interactables, value.definition, "interactable definition",
+                                    command_path + "/definition");
                             validate_location_operand(value.location, command_path + "/location");
+                            if (value.quantity == 0 ||
+                                value.quantity > compiled::max_interactable_quantity)
+                                error("compiled_project.invalid_interactable_quantity",
+                                      "Create Interactable quantity must be positive and within "
+                                      "the checked quantity bound.",
+                                      command_path + "/quantity");
+                            if (value.result) {
+                                const auto* definition = interactable_definition(value.definition);
+                                if (definition != nullptr) {
+                                    const auto limit =
+                                        definition->stackable
+                                            ? definition->stack_limit.value_or(
+                                                  compiled::max_interactable_quantity)
+                                            : std::uint64_t{1};
+                                    if (value.quantity > limit)
+                                        error(
+                                            "compiled_project.multi_create_result_binding",
+                                            "Create Interactable cannot bind one result when the "
+                                            "requested quantity creates multiple exact Instances.",
+                                            command_path + "/result");
+                                }
+                            }
                             bind_result(value.result, CommandResultKind::Interactable,
                                         command_path + "/result");
                         } else if constexpr (std::is_same_v<T, DestroyInstanceCommand>)
@@ -1238,6 +1271,11 @@ private:
                             if (value.layout)
                                 require(m_layouts, *value.layout, "layout",
                                         command_path + "/layout");
+                        } else if constexpr (std::is_same_v<T, NavigateExitCommand>) {
+                            // Exit identity is Room-local and is resolved against Current Room at
+                            // execution time. Strong-ID decoding validates the authored ID shape.
+                        } else if constexpr (std::is_same_v<T, ChangeRoomCommand>) {
+                            validate_room_operand(value.room, command_path + "/room");
                         } else if constexpr (std::is_same_v<T, CallSceneCommand>)
                             require(m_scenes, value.scene, "scene", command_path + "/scene");
                         else if constexpr (std::is_same_v<T, CallDialogueCommand>)

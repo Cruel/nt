@@ -124,6 +124,7 @@ export function placeInteractablePatches(
     occurrenceId?: string;
     placementId: string;
     bounds: RoomNormalizedRect;
+    count?: number;
   },
 ): EntityOperationResult {
   const loaded = loadedRecords(document, payload.roomId, payload.interactableId);
@@ -134,10 +135,18 @@ export function placeInteractablePatches(
     return { patches: [], diagnostics: [error('Room placement bounds are invalid.')] };
   if (loaded.room.placements.some((item) => item.id === payload.placementId))
     return { patches: [], diagnostics: [error('Room placement ID already exists.')] };
-  const occurrenceId = payload.occurrenceId ?? payload.instanceId;
-  if (loaded.room.interactables.some((item) => item.id === occurrenceId))
-    return { patches: [], diagnostics: [error('Room Interactable occurrence ID already exists.')] };
+  const count = payload.count ?? 1;
+  if (!Number.isSafeInteger(count) || count <= 0)
+    return {
+      patches: [],
+      diagnostics: [error('Interactable count must be a positive safe integer.')],
+    };
   const existingInstance = document.interactableInstances[payload.instanceId];
+  if (existingInstance && count !== 1)
+    return {
+      patches: [],
+      diagnostics: [error('Placing an existing exact Interactable Instance requires count 1.')],
+    };
   if (existingInstance && existingInstance.definition.$ref.id !== payload.interactableId)
     return {
       patches: [],
@@ -164,32 +173,86 @@ export function placeInteractablePatches(
       layout: null,
     },
   };
+  const usedInstanceIds = new Set(Object.keys(document.interactableInstances));
+  const usedOccurrenceIds = new Set(loaded.room.interactables.map((item) => item.id));
+  const nextGeneratedId = (base: string, used: Set<string>) => {
+    if (!used.has(base)) {
+      used.add(base);
+      return base;
+    }
+    for (let index = 2; ; index += 1) {
+      const candidate = `${base}-${index}`;
+      if (!used.has(candidate)) {
+        used.add(candidate);
+        return candidate;
+      }
+    }
+  };
+  const stackLimit = loaded.interactable!.stackable
+    ? (loaded.interactable!.stackLimit ?? Number.MAX_SAFE_INTEGER)
+    : 1;
+  const requestedInstances: Array<{ instanceId: string; occurrenceId: string; quantity: number }> =
+    [];
+  if (existingInstance) {
+    const occurrenceId = payload.occurrenceId ?? payload.instanceId;
+    if (usedOccurrenceIds.has(occurrenceId))
+      return {
+        patches: [],
+        diagnostics: [error('Room Interactable occurrence ID already exists.')],
+      };
+    requestedInstances.push({
+      instanceId: payload.instanceId,
+      occurrenceId,
+      quantity: existingInstance.quantity,
+    });
+  } else {
+    let remaining = count;
+    let first = true;
+    while (remaining > 0) {
+      const quantity = Math.min(remaining, stackLimit);
+      const instanceId = first
+        ? nextGeneratedId(payload.instanceId, usedInstanceIds)
+        : nextGeneratedId(payload.instanceId, usedInstanceIds);
+      const occurrenceBase = first && payload.occurrenceId ? payload.occurrenceId : instanceId;
+      const occurrenceId = nextGeneratedId(occurrenceBase, usedOccurrenceIds);
+      requestedInstances.push({ instanceId, occurrenceId, quantity });
+      remaining -= quantity;
+      first = false;
+    }
+  }
   const roomData: RoomData = {
     ...loaded.room,
     placements: [...loaded.room.placements, placement],
     interactables: [
       ...loaded.room.interactables,
-      {
+      ...requestedInstances.map(({ instanceId, occurrenceId }, index) => ({
         id: occurrenceId,
-        interactable: {
-          $ref: { registry: 'interactableInstances', id: payload.instanceId },
-        },
-        condition: { kind: 'always' },
+        interactable: { $ref: { registry: 'interactableInstances' as const, id: instanceId } },
+        condition: { kind: 'always' as const },
         placementId: payload.placementId,
         visible: true,
-        order: loaded.room.interactables.length,
-      },
+        order: loaded.room.interactables.length + index,
+      })),
     ],
   };
   const location = {
     kind: 'room' as const,
     room: { $ref: { collection: 'rooms' as const, id: payload.roomId } },
   };
-  const instance = existingInstance
-    ? { ...existingInstance, location }
-    : defaultInteractableInstanceData(payload.instanceId, payload.interactableId, location);
   const prospectiveDocument = structuredClone(document);
-  prospectiveDocument.interactableInstances[payload.instanceId] = instance;
+  for (const requested of requestedInstances) {
+    const instance = existingInstance
+      ? { ...existingInstance, location }
+      : {
+          ...defaultInteractableInstanceData(
+            requested.instanceId,
+            payload.interactableId,
+            location,
+          ),
+          quantity: requested.quantity,
+        };
+    prospectiveDocument.interactableInstances[requested.instanceId] = instance;
+  }
   const room = roomResult(prospectiveDocument, payload.roomId, roomData);
   if (room.diagnostics?.some((item) => item.severity === 'error')) return room;
   const alreadyInRoom =
@@ -198,13 +261,14 @@ export function placeInteractablePatches(
   const patches = [
     ...(alreadyInRoom
       ? []
-      : [
-          {
+      : requestedInstances.map((requested) => {
+          const instance = prospectiveDocument.interactableInstances[requested.instanceId]!;
+          return {
             op: existingInstance ? ('replace' as const) : ('add' as const),
-            path: buildJsonPointer(['interactableInstances', payload.instanceId]),
+            path: buildJsonPointer(['interactableInstances', requested.instanceId]),
             value: toJsonValue(instance),
-          },
-        ]),
+          };
+        })),
     ...room.patches,
   ];
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
@@ -264,6 +328,96 @@ export function removeInteractableOccurrencePatches(
     ...loaded.room,
     interactables: loaded.room.interactables.filter((item) => item.id !== payload.occurrenceId),
   });
+}
+
+export function unplaceInteractableInstancePatches(
+  document: unknown,
+  payload: { instanceId: string },
+): EntityOperationResult {
+  if (!isAuthoringProject(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  const instance = document.interactableInstances[payload.instanceId];
+  if (!instance)
+    return { patches: [], diagnostics: [error('Interactable Instance does not exist.')] };
+  if (instance.location.kind === 'unplaced') return { patches: [], affectedPaths: [] };
+  const prospective = structuredClone(document);
+  prospective.interactableInstances[payload.instanceId] = {
+    ...instance,
+    location: { kind: 'unplaced' },
+  };
+  const patches: NonNullable<EntityOperationResult['patches']> = [];
+  for (const roomId of Object.keys(document.rooms)) {
+    const loaded = loadedRecords(prospective, roomId);
+    if ('patches' in loaded) continue;
+    const interactables = loaded.room.interactables.filter(
+      (entry) => entry.interactable.$ref.id !== payload.instanceId,
+    );
+    if (interactables.length === loaded.room.interactables.length) continue;
+    const result = roomResult(prospective, roomId, { ...loaded.room, interactables });
+    if (result.diagnostics?.some((item) => item.severity === 'error')) return result;
+    patches.push(...result.patches);
+  }
+  const locationPatch = {
+    op: 'replace' as const,
+    path: buildJsonPointer(['interactableInstances', payload.instanceId, 'location']),
+    value: toJsonValue({ kind: 'unplaced' }),
+  };
+  patches.unshift(locationPatch);
+  return { patches, affectedPaths: patches.map((patch) => patch.path) };
+}
+
+export function destroyInteractableInstancePatches(
+  document: unknown,
+  payload: { instanceId: string },
+): EntityOperationResult {
+  if (!isAuthoringProject(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  const instance = document.interactableInstances[payload.instanceId];
+  if (!instance)
+    return { patches: [], diagnostics: [error('Interactable Instance does not exist.')] };
+
+  const contained = Object.entries(document.interactableInstances).find(([id, candidate]) => {
+    if (id === payload.instanceId || candidate.location.kind !== 'inventory') return false;
+    const owner = candidate.location.inventory.owner;
+    return (
+      (owner.kind === 'interactable' || owner.kind === 'interactable-feature') &&
+      owner.interactable.$ref.id === payload.instanceId
+    );
+  });
+  if (contained)
+    return {
+      patches: [],
+      diagnostics: [
+        error(
+          `Interactable Instance '${payload.instanceId}' contains '${contained[0]}'; move or destroy contained Instances first.`,
+        ),
+      ],
+    };
+
+  const prospective = structuredClone(document);
+  delete prospective.interactableInstances[payload.instanceId];
+  const patches: NonNullable<EntityOperationResult['patches']> = [];
+  for (const roomId of Object.keys(document.rooms)) {
+    const loaded = loadedRecords(prospective, roomId);
+    if ('patches' in loaded) continue;
+    const interactables = loaded.room.interactables.filter(
+      (entry) => entry.interactable.$ref.id !== payload.instanceId,
+    );
+    if (interactables.length === loaded.room.interactables.length) continue;
+    const result = roomResult(prospective, roomId, { ...loaded.room, interactables });
+    if (result.diagnostics?.some((item) => item.severity === 'error')) return result;
+    patches.push(...result.patches);
+    prospective.rooms[roomId] = {
+      ...prospective.rooms[roomId]!,
+      data: { ...loaded.room, interactables },
+    };
+  }
+  const remove = {
+    op: 'remove' as const,
+    path: buildJsonPointer(['interactableInstances', payload.instanceId]),
+  };
+  patches.unshift(remove);
+  return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }
 
 export function setRoomFallbackInteractablePlacementPatches(

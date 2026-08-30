@@ -315,11 +315,25 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                     auto inventory = m_primitives.resolve_inventory(value.inventory, context);
                     if (!inventory)
                         return fault(inventory.error());
-                    auto presented = present_inventory(*inventory.value_if(), value.layout);
+                    auto presented = present_inventory(
+                        *inventory.value_if(), value.layout,
+                        value.use_trigger_anchor ? m_trigger_context : std::nullopt,
+                        value.parent_to_triggering_layout ? m_trigger_presentation_parent
+                                                          : std::nullopt,
+                        value.coexist, value.use_trigger_anchor);
                     if (!presented)
                         return fault(presented.error());
                     auto advanced = m_flow.advance_dialogue(frame.dialogue, frame.position, next);
                     return advanced ? std::nullopt : fault(advanced.error());
+                } else if constexpr (std::is_same_v<T, core::NavigateExitCommand>) {
+                    auto called = call_navigation_command(value, core::FlowFramePosition{next});
+                    return called ? std::nullopt : fault(called.error());
+                } else if constexpr (std::is_same_v<T, core::ChangeRoomCommand>) {
+                    const core::ConditionEvaluationContext context{
+                        .interaction_bindings = {}, .command_results = frame.command_results};
+                    auto called =
+                        call_change_room_command(value, context, core::FlowFramePosition{next});
+                    return called ? std::nullopt : fault(called.error());
                 } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
                     auto called = m_flow.call_child(value.scene, core::FlowFramePosition{next});
                     return called ? std::nullopt : fault(called.error());

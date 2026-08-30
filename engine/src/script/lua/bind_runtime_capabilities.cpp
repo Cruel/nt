@@ -1140,15 +1140,51 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
         [api](std::string kind, std::string source_kind, std::string source_id,
               sol::optional<sol::table> options, sol::this_state state) -> ObjectResult {
             sol::state_view view(state);
+            const bool enabled =
+                options ? table_option<bool>(*options, "enabled").value_or(true) : true;
+            const bool visible =
+                options ? table_option<bool>(*options, "visible").value_or(true) : true;
+            if (kind == "interactable") {
+                if (source_kind != "definition")
+                    return failure(
+                        view, invalid("runtime.invalid_interactable_creation_source",
+                                      "Interactable creation requires source kind 'definition'; "
+                                      "Archetype/compiled/effective sources are structural "
+                                      "configuration operations, not ordinary creation"));
+                auto definition = parse_id<core::InteractableDefinitionId>(std::move(source_id));
+                const auto* definition_value = definition.value_if();
+                if (definition_value == nullptr)
+                    return failure(view, definition.error());
+                core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{};
+                if (options && table_option<std::string>(*options, "room")) {
+                    auto parsed = parse_optional_room_location(options);
+                    const auto* room = parsed.value_if();
+                    if (room == nullptr)
+                        return failure(view, parsed.error());
+                    location = *room;
+                }
+                const bool presentation_none =
+                    options ? table_option<bool>(*options, "presentation_none").value_or(false)
+                            : false;
+                auto result = api->create_interactable_quantity(
+                    *definition_value, 1, std::move(location), enabled, visible,
+                    presentation_none ? runtime::InteractableRoomPresentationPolicy::None
+                                      : runtime::InteractableRoomPresentationPolicy::Resolve);
+                const auto* mutation_value = result.value_if();
+                if (mutation_value == nullptr)
+                    return failure(view, result.error());
+                if (mutation_value->created.size() != 1)
+                    return failure(view, invalid("runtime.invalid_interactable_creation_result",
+                                                 "Singular Interactable creation did not create "
+                                                 "exactly one Instance"));
+                return ObjectResult{sol::make_object(view, mutation_value->created.front().text()),
+                                    nil(view)};
+            }
             auto source =
                 parse_instance_configuration_source(kind, source_kind, std::move(source_id));
             auto* source_value = source.value_if();
             if (source_value == nullptr)
                 return failure(view, source.error());
-            const bool enabled =
-                options ? table_option<bool>(*options, "enabled").value_or(true) : true;
-            const bool visible =
-                options ? table_option<bool>(*options, "visible").value_or(true) : true;
             if (kind == "room") {
                 auto result = api->create_room(std::move(*source_value));
                 const auto* value = result.value_if();
@@ -1166,21 +1202,6 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                 }
                 auto result = api->create_character(std::move(*source_value), std::move(location),
                                                     enabled, visible);
-                const auto* value = result.value_if();
-                return value ? ObjectResult{sol::make_object(view, value->text()), nil(view)}
-                             : failure(view, result.error());
-            }
-            if (kind == "interactable") {
-                core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{};
-                if (options && table_option<std::string>(*options, "room")) {
-                    auto parsed = parse_optional_room_location(options);
-                    const auto* room = parsed.value_if();
-                    if (room == nullptr)
-                        return failure(view, parsed.error());
-                    location = *room;
-                }
-                auto result = api->create_interactable(std::move(*source_value),
-                                                       std::move(location), enabled, visible);
                 const auto* value = result.value_if();
                 return value ? ObjectResult{sol::make_object(view, value->text()), nil(view)}
                              : failure(view, result.error());
