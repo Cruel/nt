@@ -327,7 +327,6 @@ Preview to editor:
 - `ready`
 - `capabilities`
 - `command-result`
-- `state`
 - `preview-state`
 - `preview-snapshot`
 - `runtime-debug-snapshot`
@@ -347,7 +346,9 @@ Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 
 The widget also publishes `runtime-debug-snapshot` without a request ID whenever the active,
 visible runtime's semantic debugger state changes. The comparison covers current entity/Room,
-runtime mode, waiting and available-input state, variables, inventory, selection, and diagnostics;
+runtime mode, waiting and available-input state, variables, inventory, selection, diagnostics, and
+Dialogue presentation state. `dialoguePresentation` contains the current Stage Slots (including
+speaker-sync/speaking state and resolved Character presentation) and Media Slots;
 publication-only revision churn does not produce debugger traffic. The publication summary also
 contains `gameplayInstances`, a stable list of live Room, Character, and Interactable identities with
 declared/runtime ownership and provenance (`declared`, `archetype`, `compiled-definition`, or
