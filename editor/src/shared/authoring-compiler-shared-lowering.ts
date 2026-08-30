@@ -1584,6 +1584,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         },
         voiceDucking: { ...settings.audio.voiceDucking },
       },
+      inventory: {
+        playerInventory: settings.inventory.playerInventory,
+        defaultLayout: layoutRef(settings.inventory.defaultLayout),
+      },
       text: { defaultFont: assetRef(settings.text.defaultFont) },
       titleScreen: {
         titleImage: assetRef(settings.titleScreen.titleImage),

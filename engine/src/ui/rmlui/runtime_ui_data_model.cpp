@@ -420,12 +420,34 @@ struct ObjectProjection {
 
 struct InventoryItemProjection {
     std::string id;
+    std::string definition_id;
+    std::string inventory_key;
     std::string display_name;
+    std::uint64_t quantity = 1;
+    bool stackable = false;
+    bool has_stack_limit = false;
+    std::uint64_t stack_limit = 0;
+    bool has_sprite = false;
+    std::string sprite_id;
+    bool has_material = false;
+    std::string material_id;
     bool enabled = false;
+    bool visible = false;
     bool selected = false;
     std::string get_id() { return id; }
+    std::string get_definition_id() { return definition_id; }
+    std::string get_inventory_key() { return inventory_key; }
     std::string get_display_name() { return display_name; }
+    std::uint64_t get_quantity() { return quantity; }
+    bool get_stackable() { return stackable; }
+    bool get_has_stack_limit() { return has_stack_limit; }
+    std::uint64_t get_stack_limit() { return stack_limit; }
+    bool get_has_sprite() { return has_sprite; }
+    std::string get_sprite_id() { return sprite_id; }
+    bool get_has_material() { return has_material; }
+    std::string get_material_id() { return material_id; }
     bool get_enabled() { return enabled; }
+    bool get_visible() { return visible; }
     bool get_selected() { return selected; }
 };
 
@@ -546,7 +568,11 @@ struct RoomProjection {
 
 struct InventoryProjection {
     std::vector<InventoryItemProjection> items;
+    std::string presented_key;
+    bool player_available = false;
     std::vector<InventoryItemProjection>& get_items() { return items; }
+    std::string get_presented_key() { return presented_key; }
+    bool get_player_available() { return player_available; }
 };
 
 struct InteractionProjection {
@@ -812,8 +838,19 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(ObjectProjection, selected));
         ok &= register_struct<InventoryItemProjection>(
             c, NT_MEMBER(InventoryItemProjection, id),
+            NT_MEMBER(InventoryItemProjection, definition_id),
+            NT_MEMBER(InventoryItemProjection, inventory_key),
             NT_MEMBER(InventoryItemProjection, display_name),
+            NT_MEMBER(InventoryItemProjection, quantity),
+            NT_MEMBER(InventoryItemProjection, stackable),
+            NT_MEMBER(InventoryItemProjection, has_stack_limit),
+            NT_MEMBER(InventoryItemProjection, stack_limit),
+            NT_MEMBER(InventoryItemProjection, has_sprite),
+            NT_MEMBER(InventoryItemProjection, sprite_id),
+            NT_MEMBER(InventoryItemProjection, has_material),
+            NT_MEMBER(InventoryItemProjection, material_id),
             NT_MEMBER(InventoryItemProjection, enabled),
+            NT_MEMBER(InventoryItemProjection, visible),
             NT_MEMBER(InventoryItemProjection, selected));
         ok &= c.RegisterArray<std::vector<std::string>>();
         ok &= register_struct<ActionProjection>(
@@ -864,7 +901,9 @@ struct RuntimeUiDataModel::Impl {
         ok &= register_struct<RoomProjection>(
             c, NT_MEMBER(RoomProjection, available), NT_MEMBER(RoomProjection, has_enabled_exits),
             NT_MEMBER(RoomProjection, exits), NT_MEMBER(RoomProjection, objects));
-        ok &= register_struct<InventoryProjection>(c, NT_MEMBER(InventoryProjection, items));
+        ok &= register_struct<InventoryProjection>(
+            c, NT_MEMBER(InventoryProjection, items), NT_MEMBER(InventoryProjection, presented_key),
+            NT_MEMBER(InventoryProjection, player_available));
         ok &= register_struct<InteractionProjection>(
             c, NT_MEMBER(InteractionProjection, has_selection),
             NT_MEMBER(InteractionProjection, selected_subject_kind),
@@ -983,6 +1022,9 @@ struct RuntimeUiDataModel::Impl {
                                       return gateway.action_open_verb_menu(
                                           event_arg<std::string>(args, 0),
                                           event_arg<std::string>(args, 1));
+                                  }));
+        ok &= c.BindEventCallback("ui_present_player_inventory", callback([this](const auto&) {
+                                      return gateway.action_present_player_inventory();
                                   }));
         ok &= c.BindEventCallback("ui_clear_selection", callback([this](const auto&) {
                                       return gateway.action_clear_selection();
@@ -1273,12 +1315,28 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
             }
         }
     }
+    out.inventory.presented_key = view.inventory.presented_inventory_key;
+    out.inventory.player_available = view.inventory.player_inventory_available;
     for (const auto& item : view.inventory.items) {
         if (!item.visible)
             continue;
-        out.inventory.items.push_back(
-            {item.interactable.text(), item.display_name, item.enabled,
-             id_matches_selected(view.selected_subjects, item.interactable)});
+        out.inventory.items.push_back({
+            item.interactable.text(),
+            item.definition ? item.definition->text() : std::string{},
+            core::compiled::inventory_ref_key(item.inventory),
+            item.display_name,
+            item.quantity,
+            item.stackable,
+            item.stack_limit.has_value(),
+            item.stack_limit.value_or(0),
+            item.presentation.sprite.has_value(),
+            item.presentation.sprite ? item.presentation.sprite->text() : std::string{},
+            item.presentation.material.has_value(),
+            item.presentation.material ? item.presentation.material->text() : std::string{},
+            item.enabled,
+            item.visible,
+            id_matches_selected(view.selected_subjects, item.interactable),
+        });
     }
     out.interaction.has_selection = !view.selected_subjects.empty();
     if (view.selected_subjects.size() == 1) {

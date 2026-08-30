@@ -37,6 +37,7 @@ inline constexpr char kRuntimeModalDocumentId[] = "runtime_modal";
 inline constexpr char kRuntimeCommandBuilderDocumentId[] = "runtime_command_builder";
 inline constexpr char kRuntimeSceneTextDocumentId[] = "runtime_scene_text";
 inline constexpr char kRuntimeSceneChoiceDocumentId[] = "runtime_scene_choice";
+inline constexpr char kRuntimeInventoryDocumentId[] = "runtime_inventory";
 
 class RmlUiHost;
 

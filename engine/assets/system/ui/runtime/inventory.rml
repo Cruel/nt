@@ -1,0 +1,32 @@
+<rml>
+<head>
+    <title>NovelTea Inventory</title>
+    <link type="text/rcss" href="system|/ui/runtime/inventory.rcss"/>
+    <script src="system|/ui/runtime/inventory.lua"></script>
+</head>
+<body data-model="noveltea">
+    <div id="nt_inventory_panel">
+        <div class="nt-inventory-header">
+            <h1>Inventory</h1>
+            <button class="nt-inventory-close" onclick="noveltea_inventory.dismiss(event, element, document)">Close</button>
+        </div>
+        <p class="nt-inventory-empty"
+           data-if="gameplay.inventory.presented_key != '' && gameplay.inventory.items.size == 0">
+            Empty
+        </p>
+        <div class="nt-inventory-items">
+            <button data-for="item : gameplay.inventory.items"
+                    data-if="item.visible && item.inventory_key == gameplay.inventory.presented_key"
+                    class="nt-inventory-item"
+                    data-class-disabled="!item.enabled"
+                    data-class-selected="item.selected"
+                    data-attrif-disabled="!item.enabled"
+                    data-attr-data-subject-id="item.id"
+                    onclick="noveltea_inventory.activate(event, element, document)">
+                <span class="nt-inventory-item-name">{{ item.display_name }}</span>
+                <span class="nt-inventory-item-quantity" data-if="item.stackable || item.quantity > 1">×{{ item.quantity }}</span>
+            </button>
+        </div>
+    </div>
+</body>
+</rml>

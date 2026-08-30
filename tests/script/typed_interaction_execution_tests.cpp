@@ -736,6 +736,147 @@ TEST_CASE("direct complete-command submission does not require a discoverable Ve
     REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
 }
 
+TEST_CASE("Present Inventory resolves Player Inventory and the Project default Layout")
+{
+    auto document = load_document();
+    document["settings"]["inventory"] = {
+        {"playerInventory", "player"},
+        {"defaultLayout", {{"kind", "layout"}, {"id", "hud-inline"}}},
+    };
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    rules[2]["program"] =
+        program(nlohmann::json::array({{{"id", "show-player-inventory"},
+                                        {"kind", "present-inventory"},
+                                        {"inventory", {{"kind", "player-inventory"}}}}}));
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+    drive_interaction(*kernel);
+
+    const auto mounted_it =
+        std::find_if(kernel->state().mounted_layouts().begin(),
+                     kernel->state().mounted_layouts().end(), [](const auto& mounted) {
+                         const auto* key = std::get_if<core::ScopedLayoutMountKey>(&mounted.key);
+                         return key != nullptr && key->instance.text() == "inventory-ui";
+                     });
+    REQUIRE(mounted_it != kernel->state().mounted_layouts().end());
+    const auto& mounted = *mounted_it;
+    CHECK(mounted.layout == id<core::LayoutId>("hud-inline"));
+    CHECK(mounted.policy.input == core::LayoutInputMode::Normal);
+    REQUIRE(mounted.occurrence);
+    const auto context =
+        std::find_if(mounted.inputs.begin(), mounted.inputs.end(), [](const auto& input) {
+            return input.input.text() == core::inventory_layout_context_input;
+        });
+    REQUIRE(context != mounted.inputs.end());
+    const auto* literal = std::get_if<core::LayoutLiteralInput>(&context->source);
+    REQUIRE(literal != nullptr);
+    const auto* key_value = std::get_if<std::string>(&literal->value);
+    REQUIRE(key_value != nullptr);
+    const core::compiled::InventoryRef player_inventory{core::compiled::ProjectInventoryOwner{},
+                                                        id<core::InventoryId>("player")};
+    CHECK(*key_value == core::compiled::inventory_ref_key(player_inventory));
+
+    auto inventory = kernel->inventory_view("en");
+    REQUIRE(inventory);
+    CHECK(inventory.value().player_inventory_available);
+    REQUIRE(inventory.value().player_inventory);
+    CHECK(*inventory.value().player_inventory == player_inventory);
+    CHECK(inventory.value().presented_inventory_key == *key_value);
+}
+
+TEST_CASE("Present Inventory resolves built-in fallback and explicit Layout precedence")
+{
+    auto document = load_document();
+    document["settings"]["inventory"] = {
+        {"playerInventory", "player"},
+        {"defaultLayout", nullptr},
+    };
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InventoryRef player_inventory{core::compiled::ProjectInventoryOwner{},
+                                                        id<core::InventoryId>("player")};
+    REQUIRE(kernel->present_inventory(player_inventory, std::nullopt));
+    const auto inventory_mount = [&]() -> const core::DesiredMountedLayout* {
+        const auto found =
+            std::find_if(kernel->state().mounted_layouts().begin(),
+                         kernel->state().mounted_layouts().end(), [](const auto& mounted) {
+                             const auto* key =
+                                 std::get_if<core::ScopedLayoutMountKey>(&mounted.key);
+                             return key != nullptr && key->instance.text() == "inventory-ui";
+                         });
+        return found == kernel->state().mounted_layouts().end() ? nullptr : &*found;
+    };
+    REQUIRE(inventory_mount() != nullptr);
+    CHECK(inventory_mount()->layout.text() == core::compiled::builtin_inventory_layout_id);
+
+    REQUIRE(kernel->present_inventory(player_inventory, id<core::LayoutId>("hud-assets")));
+    REQUIRE(inventory_mount() != nullptr);
+    CHECK(inventory_mount()->layout == id<core::LayoutId>("hud-assets"));
+}
+
+TEST_CASE("Present Inventory mount survives save encode and strict restore validation")
+{
+    auto document = load_document();
+    document["settings"]["inventory"] = {
+        {"playerInventory", "player"},
+        {"defaultLayout", nullptr},
+    };
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    rules[2]["program"] =
+        program(nlohmann::json::array({{{"id", "show-player-inventory"},
+                                        {"kind", "present-inventory"},
+                                        {"inventory", {{"kind", "player-inventory"}}}}}));
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+    drive_interaction(*kernel);
+
+    auto save = core::make_save_state(project, kernel->state());
+    REQUIRE(save);
+    auto encoded = core::encode_save_state_text(project, *save.value_if());
+    REQUIRE(encoded);
+    auto decoded =
+        core::decode_save_state_text(project, *encoded.value_if(), "inventory-save.json");
+    REQUIRE(decoded);
+    REQUIRE(decoded.value().mounted_layouts.size() >= 1);
+    const auto restored = std::find_if(
+        decoded.value().mounted_layouts.begin(), decoded.value().mounted_layouts.end(),
+        [](const auto& mounted) {
+            return mounted.layout.text() == core::compiled::builtin_inventory_layout_id;
+        });
+    REQUIRE(restored != decoded.value().mounted_layouts.end());
+    const auto context =
+        std::find_if(restored->inputs.begin(), restored->inputs.end(), [](const auto& input) {
+            return input.input.text() == core::inventory_layout_context_input;
+        });
+    REQUIRE(context != restored->inputs.end());
+}
+
 TEST_CASE(
     "typed Interaction falls back to the selected Verb default then emits typed undefined fallback")
 {
@@ -770,7 +911,6 @@ TEST_CASE(
 
     auto inventory = kernel->inventory_view("en");
     REQUIRE(inventory);
-    CHECK(inventory.value().item_stacks.empty());
     CHECK_FALSE(inventory.value().controls.empty());
     auto room = kernel->room_view("en");
     REQUIRE(room);

@@ -342,6 +342,13 @@ export function compileGameplayCommand(command: GameplayCommand): CompiledGamepl
               : {}),
             quantity: command.quantity,
           };
+    case 'present-inventory':
+      return {
+        id: command.id,
+        kind: command.kind,
+        inventory: compileInventoryOperand(command.inventory),
+        layout: command.layout ? { kind: 'layout', id: command.layout.$ref.id } : null,
+      };
     case 'notify':
       return { id: command.id, kind: command.kind, message: compileText(command.message) };
     case 'call-scene':

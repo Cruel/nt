@@ -2388,6 +2388,16 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
                                         [&](const LayoutInputDefinition& definition) {
                                             return definition.id == assignment.input;
                                         });
+        if (input == layout_definition->contract.inputs.end() &&
+            assignment.input.text() == inventory_layout_context_input) {
+            const auto* literal = std::get_if<LayoutLiteralInput>(&assignment.source);
+            if (!literal || !std::holds_alternative<std::string>(literal->value))
+                return Result<void, Diagnostics>::failure(
+                    feature_error("runtime.layout_inventory_context_type_mismatch",
+                                  "Inventory Layout context must be a literal string"));
+            assigned_inputs.push_back(assignment.input);
+            continue;
+        }
         if (input == layout_definition->contract.inputs.end())
             return Result<void, Diagnostics>::failure(
                 feature_error("runtime.undeclared_layout_input",
@@ -2485,7 +2495,7 @@ SessionState::resolve_layout_inputs(const CompiledProject& project,
                           "Mounted Layout references a missing Layout contract"));
 
     std::vector<LayoutResolvedInput> resolved;
-    resolved.reserve(layout->contract.inputs.size());
+    resolved.reserve(layout->contract.inputs.size() + 1);
     for (const auto& definition : layout->contract.inputs) {
         const auto assignment =
             std::find_if(value.inputs.begin(), value.inputs.end(),
@@ -2509,6 +2519,22 @@ SessionState::resolve_layout_inputs(const CompiledProject& project,
                 feature_error("runtime.layout_input_type_mismatch",
                               "Resolved Layout input no longer matches its declared type"));
         resolved.push_back(LayoutResolvedInput{definition.id, std::move(input_value)});
+    }
+    const auto inventory_context =
+        std::find_if(value.inputs.begin(), value.inputs.end(), [](const auto& assignment) {
+            return assignment.input.text() == inventory_layout_context_input;
+        });
+    if (inventory_context != value.inputs.end() &&
+        std::none_of(
+            layout->contract.inputs.begin(), layout->contract.inputs.end(),
+            [&](const auto& definition) { return definition.id == inventory_context->input; })) {
+        auto current = resolve_layout_input_source(project, const_cast<SessionState&>(*this),
+                                                   inventory_context->source);
+        if (!current)
+            return Result<std::vector<LayoutResolvedInput>, Diagnostics>::failure(
+                std::move(current).error());
+        resolved.push_back(
+            LayoutResolvedInput{inventory_context->input, std::move(*current.value_if())});
     }
     return Result<std::vector<LayoutResolvedInput>, Diagnostics>::success(std::move(resolved));
 }

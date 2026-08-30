@@ -12,6 +12,10 @@
     "ui": {
       "systemLayouts": {}
     },
+    "inventory": {
+      "playerInventory": null,
+      "defaultLayout": null
+    },
     "text": {
       "defaultFont": null
     },

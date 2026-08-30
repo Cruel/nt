@@ -77,6 +77,11 @@ struct OpenVerbMenuInput {
     compiled::InteractionSubject subject;
     bool operator==(const OpenVerbMenuInput&) const = default;
 };
+struct PresentInventoryInput {
+    compiled::InventoryRef inventory;
+    std::optional<LayoutId> layout;
+    bool operator==(const PresentInventoryInput&) const = default;
+};
 struct InvokeInteractionInput {
     VerbId verb;
     std::vector<InteractionSubjectBinding> bindings;
@@ -140,6 +145,12 @@ struct ClearLayoutStateInput {
     LayoutStateScope scope = LayoutStateScope::Session;
     bool operator==(const ClearLayoutStateInput&) const = default;
 };
+struct DismissLayoutInput {
+    PresentationOwner owner;
+    MountedLayoutPresentationKey key;
+    LayoutMountOccurrenceId occurrence;
+    bool operator==(const DismissLayoutInput&) const = default;
+};
 struct SaveRuntimeInput {
     TypedSaveSlotId slot;
     auto operator<=>(const SaveRuntimeInput&) const = default;
@@ -195,13 +206,14 @@ using RuntimeInputMessage = std::variant<
     StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput, ContinueInput,
     FastForwardInput, AdvanceDialogueRevealInput, SelectSceneChoiceInput, SelectDialogueChoiceInput,
     NavigateRoomInput, SelectInteractionSubjectsInput, ClearInteractionSubjectSelectionInput,
-    PrimaryActivateInput, OpenVerbMenuInput, InvokeInteractionInput, BeginCommandBuilderInput,
-    CommandBuilderSubjectPressInput, UpdateCommandBuilderWatchInput, SubmitCommandBuilderInput,
-    CancelCommandBuilderInput, SetVariableDebugInput, SetPropertyDebugInput, LayoutSignalInput,
-    CommitLayoutStateInput, ClearLayoutStateInput, SaveRuntimeInput, LoadRuntimeInput,
-    BeginPlaybackInput, EndPlaybackInput, ClearPlaybackInput, UndoPlaybackStepInput,
-    ReplayPlaybackInput, CompletePresentationInput, CancelPresentationInput, CompleteAudioInput,
-    CancelAudioInput, AcknowledgeAudioTerminationInput>;
+    PrimaryActivateInput, OpenVerbMenuInput, PresentInventoryInput, InvokeInteractionInput,
+    BeginCommandBuilderInput, CommandBuilderSubjectPressInput, UpdateCommandBuilderWatchInput,
+    SubmitCommandBuilderInput, CancelCommandBuilderInput, SetVariableDebugInput,
+    SetPropertyDebugInput, LayoutSignalInput, CommitLayoutStateInput, ClearLayoutStateInput,
+    DismissLayoutInput, SaveRuntimeInput, LoadRuntimeInput, BeginPlaybackInput, EndPlaybackInput,
+    ClearPlaybackInput, UndoPlaybackStepInput, ReplayPlaybackInput, CompletePresentationInput,
+    CancelPresentationInput, CompleteAudioInput, CancelAudioInput,
+    AcknowledgeAudioTerminationInput>;
 
 using PresentationOperation =
     std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,

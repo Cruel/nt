@@ -309,19 +309,25 @@ resolve_inventory_owner_operand(const InventoryOwnerOperand& operand, const Sess
 }
 
 Result<compiled::InventoryRef, Diagnostics>
-resolve_inventory_operand(const InventoryOperand& operand, const SessionState& state,
-                          ConditionEvaluationContext context)
+resolve_inventory_operand(const InventoryOperand& operand, const CompiledProject& project,
+                          const SessionState& state, ConditionEvaluationContext context)
 {
     return std::visit(
         [&](const auto& value) -> Result<compiled::InventoryRef, Diagnostics> {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, ExactInventoryOperand>)
                 return Result<compiled::InventoryRef, Diagnostics>::success(value.inventory);
-            else if constexpr (std::is_same_v<T, PlayerInventoryOperand>)
-                return Result<compiled::InventoryRef, Diagnostics>::failure(evaluation_error(
-                    "execution.player_inventory_unconfigured",
-                    "Player Inventory operand is unavailable until the Project designates one"));
-            else if constexpr (std::is_same_v<T, OwnerInventoryOperand>) {
+            else if constexpr (std::is_same_v<T, PlayerInventoryOperand>) {
+                const auto& player_inventory = project.settings().inventory.player_inventory;
+                return player_inventory
+                           ? Result<compiled::InventoryRef, Diagnostics>::success(
+                                 compiled::InventoryRef{compiled::ProjectInventoryOwner{},
+                                                        *player_inventory})
+                           : Result<compiled::InventoryRef, Diagnostics>::failure(
+                                 evaluation_error("execution.player_inventory_unconfigured",
+                                                  "Player Inventory operand requires a configured "
+                                                  "Player Inventory"));
+            } else if constexpr (std::is_same_v<T, OwnerInventoryOperand>) {
                 auto owner = resolve_inventory_owner_operand(value.owner, state, context);
                 const auto* exact = owner.value_if();
                 return exact ? Result<compiled::InventoryRef, Diagnostics>::success(
@@ -344,8 +350,8 @@ resolve_inventory_operand(const InventoryOperand& operand, const SessionState& s
 }
 
 Result<compiled::InteractableLocation, Diagnostics>
-resolve_location_operand(const LocationOperand& operand, const SessionState& state,
-                         ConditionEvaluationContext context)
+resolve_location_operand(const LocationOperand& operand, const CompiledProject& project,
+                         const SessionState& state, ConditionEvaluationContext context)
 {
     return std::visit(
         [&](const auto& value) -> Result<compiled::InteractableLocation, Diagnostics> {
@@ -360,7 +366,8 @@ resolve_location_operand(const LocationOperand& operand, const SessionState& sta
                              : Result<compiled::InteractableLocation, Diagnostics>::failure(
                                    room.error());
             } else {
-                auto inventory = resolve_inventory_operand(value.inventory, state, context);
+                auto inventory =
+                    resolve_inventory_operand(value.inventory, project, state, context);
                 const auto* exact = inventory.value_if();
                 return exact ? Result<compiled::InteractableLocation, Diagnostics>::success(
                                    compiled::InventoryLocation{*exact})
@@ -565,7 +572,7 @@ SharedPrimitiveEvaluator::evaluate(const Condition& condition,
                 const auto* exact_subject = subject.value_if();
                 if (exact_subject == nullptr)
                     return Result<bool, Diagnostics>::failure(subject.error());
-                auto target = resolve_location_operand(value.location, m_state, context);
+                auto target = resolve_location_operand(value.location, m_project, m_state, context);
                 const auto* exact_target = target.value_if();
                 if (exact_target == nullptr)
                     return Result<bool, Diagnostics>::failure(target.error());
@@ -603,7 +610,8 @@ SharedPrimitiveEvaluator::evaluate(const Condition& condition,
                 return Result<bool, Diagnostics>::success(
                     value.operation == EqualityComparisonOperator::Equal ? matches : !matches);
             } else if constexpr (std::is_same_v<T, InventoryQuantityComparisonCondition>) {
-                auto inventory = resolve_inventory_operand(value.inventory, m_state, context);
+                auto inventory =
+                    resolve_inventory_operand(value.inventory, m_project, m_state, context);
                 const auto* exact_inventory = inventory.value_if();
                 if (exact_inventory == nullptr)
                     return Result<bool, Diagnostics>::failure(inventory.error());
@@ -676,14 +684,14 @@ Result<compiled::InventoryRef, Diagnostics>
 SharedPrimitiveEvaluator::resolve_inventory(const InventoryOperand& operand,
                                             ConditionEvaluationContext context) const
 {
-    return resolve_inventory_operand(operand, m_state, context);
+    return resolve_inventory_operand(operand, m_project, m_state, context);
 }
 
 Result<compiled::InteractableLocation, Diagnostics>
 SharedPrimitiveEvaluator::resolve_location(const LocationOperand& operand,
                                            ConditionEvaluationContext context) const
 {
-    return resolve_location_operand(operand, m_state, context);
+    return resolve_location_operand(operand, m_project, m_state, context);
 }
 
 Result<void, Diagnostics> SharedPrimitiveEvaluator::apply(const Effect& effect)

@@ -57,6 +57,7 @@ public:
     [[nodiscard]] bool action_toggle_subject(std::string kind, std::string id);
     [[nodiscard]] bool action_primary_activate(std::string kind, std::string id);
     [[nodiscard]] bool action_open_verb_menu(std::string kind, std::string id);
+    [[nodiscard]] bool action_present_player_inventory();
     [[nodiscard]] bool action_clear_selection();
     [[nodiscard]] bool action_invoke_interaction(std::string id);
     [[nodiscard]] bool

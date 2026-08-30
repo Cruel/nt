@@ -1017,6 +1017,16 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
                 auto requested = m_gateway.request_notification(*text);
                 if (!requested)
                     return fault(requested.error());
+            } else if constexpr (std::is_same_v<T, core::PresentInventoryCommand>) {
+                const core::ConditionEvaluationContext context{
+                    .interaction_bindings = frame->invocation.bindings,
+                    .command_results = frame->command_results};
+                auto inventory = m_primitives.resolve_inventory(value.inventory, context);
+                if (!inventory)
+                    return fault(inventory.error());
+                auto presented = present_inventory(*inventory.value_if(), value.layout);
+                if (!presented)
+                    return fault(presented.error());
             } else if constexpr (std::is_same_v<T, core::CallSceneCommand>) {
                 auto next = expected;
                 next.next_instruction = sequential;
@@ -1113,6 +1123,14 @@ RuntimeExecutor::inventory_view(std::string_view runtime_locale)
             }
         };
     append_inventories(core::compiled::ProjectInventoryOwner{}, m_project.inventories());
+    if (m_project.settings().inventory.player_inventory) {
+        const core::compiled::InventoryRef player_inventory{
+            core::compiled::ProjectInventoryOwner{},
+            *m_project.settings().inventory.player_inventory,
+        };
+        view.player_inventory = player_inventory;
+        view.player_inventory_available = m_world.has_inventory(player_inventory);
+    }
     for (const auto& record : m_state.runtime_characters()) {
         const auto& character = record.effective_configuration();
         append_inventories(core::compiled::CharacterInventoryOwner{record.id},
@@ -1141,22 +1159,31 @@ RuntimeExecutor::inventory_view(std::string_view runtime_locale)
             return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
                 interaction_error("execution.invalid_inventory",
                                   "Inventory definition or membership reference is missing"));
-        view.items.push_back({state.interactable, location->inventory,
+        view.items.push_back({state.interactable, definition->identity.id, location->inventory,
                               m_world.effective_room(state.interactable), definition->display_name,
-                              definition->presentation, state.enabled, state.visible});
+                              definition->presentation, state.quantity, definition->stackable,
+                              definition->stack_limit, definition->identity.traits, state.enabled,
+                              state.visible});
     }
-    for (const auto& stack : m_state.item_stacks()) {
-        const auto* location = std::get_if<core::compiled::InventoryLocation>(&stack.location);
-        const auto* definition = m_project.find_item_definition(stack.definition);
-        if (location == nullptr || definition == nullptr ||
-            !m_world.has_inventory(location->inventory))
+    std::ranges::sort(view.items, {}, [](const auto& item) { return item.interactable.text(); });
+    std::uint64_t latest_inventory_occurrence = 0;
+    for (const auto& mounted : m_state.mounted_layouts()) {
+        if (mounted.policy.visibility != core::LayoutVisibility::Visible || !mounted.occurrence)
             continue;
-        view.item_stacks.push_back({stack.id, stack.definition, stack.quantity, stack.location,
-                                    m_world.effective_room(stack.id), definition->display_name,
-                                    definition->description, definition->presentation,
-                                    stack.traits});
+        const auto context =
+            std::find_if(mounted.inputs.begin(), mounted.inputs.end(), [](const auto& input) {
+                return input.input.text() == core::inventory_layout_context_input;
+            });
+        if (context == mounted.inputs.end() ||
+            mounted.occurrence->number() < latest_inventory_occurrence)
+            continue;
+        const auto* literal = std::get_if<core::LayoutLiteralInput>(&context->source);
+        const auto* key = literal ? std::get_if<std::string>(&literal->value) : nullptr;
+        if (!key)
+            continue;
+        latest_inventory_occurrence = mounted.occurrence->number();
+        view.presented_inventory_key = *key;
     }
-    std::ranges::sort(view.item_stacks, {}, [](const auto& stack) { return stack.stack.text(); });
     for (const auto& verb : m_project.verbs()) {
         auto label = resolve(verb.action_text.source, runtime_locale);
         const auto* text = label.value_if();

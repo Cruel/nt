@@ -92,6 +92,8 @@ SaveState without changing the already-selected save/schema versions.
 
 An Interactable may declare owner-local Inventories. Inventory membership is derived solely from Interactable Location, and each Inventory reference includes both its owner and owner-local `InventoryId`. Inventory ownership may also belong to the Project/session convention, Characters, or Features. Containment is acyclic, and moving an Inventory owner changes descendants' derived effective Room without rewriting their direct Inventory Locations.
 
+Inventory presentation is generic and exact-identity based. Project Settings may designate zero or one ordinary Project-owned Inventory as the Player Inventory and may designate one reusable default Inventory Layout. `Present Inventory` accepts Player Inventory or any exact owner-qualified Inventory and resolves its Layout as explicit command Layout, then Project default, then the built-in compact fallback. Inventory membership remains direct and semantically unordered; RuntimeUI publishes direct exact Interactable members in stable Instance-ID order and does not flatten nested container contents. Each row carries the exact Instance and origin Definition identities, quantity/stackability, presentation, and enabled/visible state. Activating a row uses the same exact Interactable Primary Activate/Verb resolution used by Room objects; no aggregate Inventory subject or Item Stack presentation path is created.
+
 The former Item Definition/Item Stack project model is retired. `docs/engine/ITEM.md` records that
 boundary; follow-up stackability work extends exact Interactable Instances rather than restoring
 parallel Item identities.

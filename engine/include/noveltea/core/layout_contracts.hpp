@@ -10,11 +10,14 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace noveltea::core {
+
+inline constexpr std::string_view inventory_layout_context_input = "noveltea-inventory";
 
 struct PersistableValue {
     using Array = std::vector<PersistableValue>;

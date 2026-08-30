@@ -160,9 +160,23 @@ gameplay.room.objects[]:
 
 gameplay.inventory.items[]:
   id: string
+  definition_id: string
+  inventory_key: string
   display_name: string
+  quantity: integer
+  stackable: bool
+  has_stack_limit: bool
+  stack_limit: integer
+  has_sprite: bool
+  sprite_id: string
+  has_material: bool
+  material_id: string
   enabled: bool
+  visible: bool
   selected: bool
+
+gameplay.inventory.presented_key: string
+gameplay.inventory.player_available: bool
 
 gameplay.interaction.has_selection: bool
 gameplay.interaction.selected_subject_kind: string
@@ -271,6 +285,7 @@ ui_navigate_room(exit_id)
 ui_toggle_subject(subject_kind, subject_id)
 ui_primary_activate(subject_kind, subject_id)
 ui_open_verb_menu(subject_kind, subject_id)
+ui_present_player_inventory()
 ui_clear_selection()
 ui_invoke_interaction(verb_id)
 ui_command_builder_submit()
@@ -301,6 +316,7 @@ Argument vocabularies are closed where applicable:
 - `ui_choose`: `kind` is `scene` or `dialogue`.
 - `ui_toggle_subject`, `ui_primary_activate`, and `ui_open_verb_menu`: `subject_kind` is `character` or `interactable`.
 - `ui_primary_activate` requests the semantic primary action; `ui_open_verb_menu` opens the ordinary resolved Offer menu without auto-selecting a primary Offer.
+- `ui_present_player_inventory` opens the configured ordinary Project-owned Player Inventory through the generic Inventory presentation path; it is unavailable when no Player Inventory is configured/live.
 - `ui_command_builder_submit` confirms the built-in transient Draft for the active occurrence; `ui_command_builder_rebind` drops one currently bound slot so the next semantic subject capture can repair it; `ui_command_builder_cancel` terminates that occurrence. Runtime watches/submissions accept only subjects already captured for the active occurrence. Replacement Command Builder Layouts own their Draft and use the `Game.ui.begin_command_builder(...)`, `Game.ui.set_command_builder_watch(...)`, and `Game.ui.submit_command_builder(verb_id, bindings)` Lua transport described in `LUA.md`; `selected_subject_kind`, `selected_subject_id`, and each action's `slot_id` provide the subject-first starting information.
 - `shell_save_slot`: only currently exposed manual slots are valid.
 - `shell_load_slot`: `kind` is `autosave` with number `0`, or `manual` with an exposed manual slot number; the slot must currently be occupied.

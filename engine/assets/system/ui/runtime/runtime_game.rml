@@ -14,7 +14,7 @@
         </div>
 
         <div id="rt_interaction_dock"
-             data-if="gameplay.room.objects.size > 0 || gameplay.inventory.items.size > 0">
+             data-if="gameplay.room.objects.size > 0 || gameplay.inventory.player_available">
             <div id="rt_objects_group" class="rt-control-group" data-if="gameplay.room.objects.size > 0">
                 <p class="rt-control-heading">Nearby</p>
                 <div id="rt_objects">
@@ -34,22 +34,11 @@
                     </button>
                 </div>
             </div>
-            <div id="rt_inventory_group" class="rt-control-group" data-if="gameplay.inventory.items.size > 0">
+            <div id="rt_inventory_group" class="rt-control-group" data-if="gameplay.inventory.player_available">
                 <p class="rt-control-heading">Inventory</p>
                 <div id="rt_inventory">
-                    <button data-for="item : gameplay.inventory.items"
-                            class="object"
-                            data-class-disabled="!item.enabled"
-                            data-class-selected="item.selected"
-                            data-attrif-disabled="!item.enabled"
-                            data-event-click="ui_primary_activate('interactable', item.id)">
-                        {{ item.display_name }}
-                    </button>
-                    <button data-for="item : gameplay.inventory.items"
-                            class="object-menu"
-                            data-attrif-disabled="!item.enabled"
-                            data-event-click="ui_open_verb_menu('interactable', item.id)">
-                        Actions…
+                    <button class="object" data-event-click="ui_present_player_inventory()">
+                        Open Inventory
                     </button>
                 </div>
             </div>

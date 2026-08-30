@@ -681,6 +681,14 @@ export function validateLayoutData(
   record: AuthoringRecordBase,
 ): LayoutSchemaDiagnostic[] {
   const diagnostics: LayoutSchemaDiagnostic[] = [];
+  if (layoutId === 'builtin-inventory') {
+    diagnostics.push(
+      diagnostic(
+        `/layouts/${layoutId}`,
+        "Layout ID 'builtin-inventory' is reserved for NovelTea's built-in Inventory fallback.",
+      ),
+    );
+  }
   const parsed = layoutDataSchema.safeParse(record.data);
   const base = `/layouts/${layoutId}/data`;
   if (!parsed.success) {

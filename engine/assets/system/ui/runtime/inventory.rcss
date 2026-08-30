@@ -1,0 +1,30 @@
+#nt_inventory_panel {
+    position: absolute;
+    right: 32dp;
+    top: 80dp;
+    width: 360dp;
+    max-height: 70vh;
+    padding: 16dp;
+    background-color: rgba(18, 24, 38, 235);
+    border-radius: 10dp;
+}
+.nt-inventory-header {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12dp;
+}
+.nt-inventory-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8dp;
+}
+.nt-inventory-item {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+}
+.nt-inventory-item[disabled] { opacity: 0.55; }
+.nt-inventory-empty { opacity: 0.7; }

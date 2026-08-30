@@ -1075,15 +1075,17 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
     for (const auto& item : view.inventory.items) {
         out["inventory"].push_back(
             {{"id", item.interactable.text()},
+             {"definition",
+              item.definition ? nlohmann::json(item.definition->text()) : nlohmann::json(nullptr)},
              {"inventory", encode_inventory_ref(item.inventory)},
              {"effectiveRoom", item.effective_room ? nlohmann::json(item.effective_room->text())
                                                    : nlohmann::json(nullptr)},
              {"label", item.display_name},
+             {"quantity", item.quantity},
+             {"stackable", item.stackable},
              {"enabled", item.enabled},
              {"visible", item.visible}});
     }
-    for (const auto& stack : view.inventory.item_stacks)
-        out["itemStacks"].push_back(encode_item_stack_view(stack));
     for (const auto& entry : view.text_log.entries)
         out["textLog"].push_back(entry.text);
     if (view.room) {

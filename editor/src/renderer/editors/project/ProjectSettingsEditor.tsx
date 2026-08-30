@@ -655,6 +655,29 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
+  function setPlayerInventory(inventoryId: string | null) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.replaceAtPath',
+        { path: '/settings/inventory/playerInventory', value: inventoryId },
+        'Set Player Inventory',
+      ),
+    );
+  }
+
+  function setDefaultInventoryLayout(layoutId: string | null) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.replaceAtPath',
+        {
+          path: '/settings/inventory/defaultLayout',
+          value: layoutId ? { $ref: { collection: 'layouts', id: layoutId } } : null,
+        },
+        'Set default Inventory Layout',
+      ),
+    );
+  }
+
   function setUndefinedInteractionProgram(program: InteractionProgram | null) {
     return commandSucceeded(
       runProjectCommand(
@@ -1007,6 +1030,51 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   {fontAssets.map((asset) => (
                     <option key={asset.id} value={asset.id}>
                       {asset.label} ({asset.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="player-inventory">Player Inventory</Label>
+                <select
+                  id="player-inventory"
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  value={settings.inventory.playerInventory ?? '__none__'}
+                  onChange={(event) =>
+                    setPlayerInventory(
+                      event.currentTarget.value === '__none__' ? null : event.currentTarget.value,
+                    )
+                  }
+                >
+                  <option value="__none__">No Player Inventory</option>
+                  {project.inventories.map((inventory) => (
+                    <option key={inventory.id} value={inventory.id}>
+                      {inventory.label} ({inventory.id})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Designates an ordinary Project Inventory as the player backpack.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="default-inventory-layout">Default Inventory Layout</Label>
+                <select
+                  id="default-inventory-layout"
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  value={settings.inventory.defaultLayout?.$ref.id ?? '__built_in__'}
+                  onChange={(event) =>
+                    setDefaultInventoryLayout(
+                      event.currentTarget.value === '__built_in__'
+                        ? null
+                        : event.currentTarget.value,
+                    )
+                  }
+                >
+                  <option value="__built_in__">Built-in compact Inventory Layout</option>
+                  {Object.values(project.layouts).map((layout) => (
+                    <option key={layout.id} value={layout.id}>
+                      {layout.label} ({layout.id})
                     </option>
                   ))}
                 </select>

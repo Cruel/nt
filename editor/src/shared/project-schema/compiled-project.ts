@@ -446,6 +446,12 @@ export type CompiledGameplayCommand =
       sourceInventory?: z.infer<typeof compiledInventoryOperandSchema>;
       quantity: number;
     }
+  | {
+      id: string;
+      kind: 'present-inventory';
+      inventory: z.infer<typeof compiledInventoryOperandSchema>;
+      layout: z.infer<typeof layoutReferenceSchema> | null;
+    }
   | { id: string; kind: 'call-scene'; scene: z.infer<typeof sceneReferenceSchema> }
   | { id: string; kind: 'call-dialogue'; dialogue: z.infer<typeof dialogueReferenceSchema> }
   | { id: string; kind: 'notify'; message: z.infer<typeof compiledTextSchema> }
@@ -592,6 +598,12 @@ export const compiledGameplayCommandSchema: z.ZodType<CompiledGameplayCommand> =
       matcher: compiledInteractableMatcherSchema,
       sourceInventory: compiledInventoryOperandSchema.optional(),
       quantity: compiledQuantitySchema,
+    }),
+    strict({
+      id,
+      kind: z.literal('present-inventory'),
+      inventory: compiledInventoryOperandSchema,
+      layout: layoutReferenceSchema.nullable(),
     }),
     strict({ id, kind: z.literal('call-scene'), scene: sceneReferenceSchema }),
     strict({ id, kind: z.literal('call-dialogue'), dialogue: dialogueReferenceSchema }),
@@ -2040,6 +2052,10 @@ const runtimeSettingsSchema = strict({
       musicGain: finiteNumber.min(0).max(1),
       ambienceGain: finiteNumber.min(0).max(1),
     }),
+  }),
+  inventory: strict({
+    playerInventory: id.nullable(),
+    defaultLayout: layoutReferenceSchema.nullable(),
   }),
   systemLayouts: z.array(
     strict({

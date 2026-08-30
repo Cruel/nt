@@ -50,6 +50,29 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('compiles Player Inventory and the default Inventory Layout as ordinary project settings', () => {
+    const project = validProject();
+    project.inventories.push({ id: 'bag', label: 'Bag' });
+    project.layouts.inventory = {
+      id: 'inventory',
+      label: 'Inventory',
+      data: defaultLayoutData('Inventory'),
+    };
+    project.settings.inventory = {
+      playerInventory: 'bag',
+      defaultLayout: { $ref: { collection: 'layouts', id: 'inventory' } },
+    };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.settings.inventory).toEqual({
+      playerInventory: 'bag',
+      defaultLayout: { kind: 'layout', id: 'inventory' },
+    });
+  });
+
   it('lowers the complete reusable Subject Selector vocabulary without positional rewriting', () => {
     const selectors = [
       { kind: 'any-subject' as const },

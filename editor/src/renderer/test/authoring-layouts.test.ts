@@ -42,6 +42,24 @@ describe('authoring layouts schema', () => {
     });
   });
 
+  it('reserves the built-in Inventory fallback Layout ID', () => {
+    const project = createAuthoringProject();
+    project.layouts['builtin-inventory'] = {
+      id: 'builtin-inventory',
+      label: 'Collision',
+      data: defaultLayoutData('Collision'),
+    };
+
+    expect(
+      validateLayoutData(project, 'builtin-inventory', project.layouts['builtin-inventory']),
+    ).toContainEqual(
+      expect.objectContaining({
+        path: '/layouts/builtin-inventory',
+        message: expect.stringContaining('reserved'),
+      }),
+    );
+  });
+
   it('validates Layout contract input defaults against declared types', () => {
     const project = createAuthoringProject();
     const valid = defaultLayoutData('Main UI');
