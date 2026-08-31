@@ -122,6 +122,20 @@ produced for publication are overlaid on detached shader/material metadata and a
 hidden `shader.applyCompiledOutputs` command. An explicit user command may still persist compiled
 outputs as ordinary save-unit-owned authoring work.
 
+## Asset-memory simulation
+
+Play exposes compact `Desktop`, `Android`, and `Web` memory-target selection plus a policy selector.
+The selector offers the built-in Low/Balanced/High policies and named reusable Project policies from
+`/export/assetMemoryPolicies`. The selection is editor-local per Play tab/project state; it does not
+modify an Export profile or compiled gameplay content. Focused Room/Layout/etc. previews do not
+participate in this simulation.
+
+Changing target, policy, or the active named policy definition reconfigures the already-running Play
+engine through `set-engine-settings`; it does not normally reload the iframe or restart gameplay.
+The renderer resolves named authoring policies to concrete target-specific byte limits before they
+cross the preview protocol. The Asset Performance panel identifies the simulated target/policy and
+reports peaks since the last policy change.
+
 ## Diagnostics and Security
 
 The iframe handshake, MessageChannel ownership, origin/session checks, and request IDs are documented

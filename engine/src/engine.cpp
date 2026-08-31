@@ -2831,6 +2831,12 @@ void EngineTooling::set_rmlui_raster_snap(Engine& engine, RmlUiRasterSnapMode mo
     engine.m_impl->set_rmlui_raster_snap(mode);
 }
 
+assets::ResidencyEvictionResult
+EngineTooling::set_asset_memory_policy(Engine& engine, assets::ResolvedAssetMemoryPolicy policy)
+{
+    return engine.m_impl->m_asset_residency->reconfigure_policy_on_owner(std::move(policy));
+}
+
 bool EngineTooling::set_runtime_ui_scale(Engine& engine, double scale)
 {
     return bool(engine.m_impl->set_runtime_ui_scale(scale));

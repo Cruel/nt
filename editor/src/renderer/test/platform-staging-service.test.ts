@@ -266,7 +266,7 @@ async function fixture() {
       includeDebugSymbols: false,
       excludeUnusedAssets: true,
       includeShaderSources: false,
-      assetMemory: { preset: 'balanced' },
+      assetMemory: { kind: 'builtin', preset: 'balanced' },
       desktop: { artifact: 'tar', executableName: 'game' },
     },
     templateToken,
@@ -322,6 +322,40 @@ describe('platform staging service', () => {
     expect(result.success, JSON.stringify(result.diagnostics)).toBe(true);
     expect(fs.existsSync(request.outputDirectory)).toBe(true);
     expect(fs.existsSync(`${request.outputDirectory}.tar.gz`)).toBe(true);
+  });
+
+  it('resolves a named project asset-memory policy into the deployment manifest', async () => {
+    const { request } = await fixture();
+    request.assetMemoryPolicies = [
+      {
+        id: 'constrained',
+        label: 'Constrained',
+        basePreset: 'low',
+        overrides: { gpuBytes: 80 * 1024 * 1024, prefetchAllowancePercent: 5 },
+      },
+    ];
+    request.profile.assetMemory = { kind: 'policy', policyId: 'constrained' };
+
+    const result = await stagePlatformExport(request);
+    expect(result.success, JSON.stringify(result.diagnostics)).toBe(true);
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(request.outputDirectory, 'export-manifest.json'), 'utf8'),
+    ) as {
+      deployment: {
+        assetMemory: {
+          preset: string;
+          preparedCpuBytes: number;
+          gpuBytes: number;
+          prefetchAllowancePercent: number;
+        };
+      };
+    };
+    expect(manifest.deployment.assetMemory).toMatchObject({
+      preset: 'custom',
+      preparedCpuBytes: 64 * 1024 * 1024,
+      gpuBytes: 80 * 1024 * 1024,
+      prefetchAllowancePercent: 5,
+    });
   });
 
   it('builds deterministic provenance and replaces a previous output', async () => {
@@ -511,7 +545,7 @@ describe('platform staging service', () => {
         includeDebugSymbols: false,
         excludeUnusedAssets: true,
         includeShaderSources: false,
-        assetMemory: { preset: 'balanced' },
+        assetMemory: { kind: 'builtin', preset: 'balanced' },
         web: {
           artifact: 'directory-zip',
           threaded: false,
@@ -725,7 +759,7 @@ describe('platform staging service', () => {
         includeDebugSymbols: true,
         excludeUnusedAssets: true,
         includeShaderSources: false,
-        assetMemory: { preset: 'balanced' },
+        assetMemory: { kind: 'builtin', preset: 'balanced' },
         desktop: { artifact: 'zip', executableName: 'Tea Game' },
       },
       identity: { ...request.identity, displayName: 'Tea Game', versionName: '1.2.3' },
@@ -906,7 +940,7 @@ describe('platform staging service', () => {
         includeDebugSymbols: true,
         excludeUnusedAssets: true,
         includeShaderSources: false,
-        assetMemory: { preset: 'balanced' },
+        assetMemory: { kind: 'builtin', preset: 'balanced' },
         desktop: { artifact: 'app-bundle', executableName: 'TeaGame' },
       },
       capabilities: [],
@@ -1070,7 +1104,7 @@ describe('platform staging service', () => {
         includeDebugSymbols: false,
         excludeUnusedAssets: true,
         includeShaderSources: false,
-        assetMemory: { preset: 'balanced' },
+        assetMemory: { kind: 'builtin', preset: 'balanced' },
         desktop: { artifact: 'app-bundle', executableName: 'Game' },
       },
       macosDmg: { command: process.execPath, args: ['-e', 'process.exit(7)'] },
@@ -1125,7 +1159,7 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
           includeDebugSymbols: true,
           excludeUnusedAssets: true,
           includeShaderSources: false,
-          assetMemory: { preset: 'balanced' },
+          assetMemory: { kind: 'builtin', preset: 'balanced' },
           desktop: { artifact: 'zip', executableName: 'Tea Game 茶' },
         },
         templateToken: `${installed.entry!.templateId}/${installed.entry!.buildId}`,
@@ -1281,7 +1315,7 @@ describe.runIf(
         includeDebugSymbols: true,
         excludeUnusedAssets: true,
         includeShaderSources: false,
-        assetMemory: { preset: 'balanced' },
+        assetMemory: { kind: 'builtin', preset: 'balanced' },
         desktop: { artifact: 'appimage', executableName: 'tea-game' },
       },
       templateToken: `${installed.entry!.templateId}/${installed.entry!.buildId}`,
@@ -1445,7 +1479,7 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
           includeDebugSymbols: true,
           excludeUnusedAssets: true,
           includeShaderSources: false,
-          assetMemory: { preset: 'balanced' },
+          assetMemory: { kind: 'builtin', preset: 'balanced' },
           desktop: { artifact: 'app-bundle', executableName: 'TeaGame' },
         },
         templateToken: `${installed.entry!.templateId}/${installed.entry!.buildId}`,

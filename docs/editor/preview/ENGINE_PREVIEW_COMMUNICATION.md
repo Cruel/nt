@@ -356,11 +356,19 @@ declared/runtime ownership and provenance (`declared`, `archetype`, `compiled-de
 without treating renderer occurrences as gameplay authority. Explicit `runtime-request-debug-snapshot`
 remains available for initial synchronization and manual refresh.
 
-`set-engine-settings` applies editor-wide preview diagnostics and rendering preferences to an
-already-running host. Its optional settings are `showFpsCounter`, `fpsCap`, and
-`rmluiRasterSnap`. Raster snapping accepts `all`, `geometry`, `text`, or `none`; changing it updates
-the existing RmlUi render interfaces without rebuilding or reloading the preview iframe. These are
-editor preferences and do not modify project data or exported player defaults.
+`set-engine-settings` applies live host configuration to an already-running preview. Its optional
+settings are `showFpsCounter`, `fpsCap`, `rmluiRasterSnap`, and `assetMemoryPolicy`. Raster snapping
+accepts `all`, `geometry`, `text`, or `none`; changing it updates the existing RmlUi render interfaces
+without rebuilding or reloading the preview iframe. `assetMemoryPolicy` carries the already-resolved
+simulation target, preset marker, prepared-CPU/GPU/audio/temporary byte limits, and Warm-prefetch
+percentage. Project policy IDs never cross this boundary.
+
+The asset-memory setting is owned by the Play simulator rather than the generic focused-preview
+preferences. Applying it reconfigures the existing residency manager on its owner thread and does not
+invalidate current gameplay state or prediction generations. New admissions use the new policy
+immediately; already-running preparation may finish and final speculative residency is evaluated
+against the current policy. The other settings remain editor preferences and none of these settings
+modify exported player defaults.
 
 ### Asset profiler transport
 

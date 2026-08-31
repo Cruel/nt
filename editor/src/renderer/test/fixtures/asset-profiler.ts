@@ -33,6 +33,7 @@ const zeroCounts = () => ({
   cached: '0',
   loading: '0',
   finishing: '0',
+  blocked: '0',
   failed: '0',
 });
 

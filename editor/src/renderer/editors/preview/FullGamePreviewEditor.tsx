@@ -40,9 +40,15 @@ import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
-import { buildDefaultRecordTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import {
+  buildDefaultRecordTab,
+  buildFullGamePreviewTab,
+  buildTestDetailTabForRecord,
+  type WorkbenchEditorProps,
+} from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useAssetProfilerPolling } from '@/asset-profiler/use-asset-profiler-polling';
+import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { visualForCollection } from '@/workspace/collection-visuals';
@@ -53,6 +59,11 @@ import {
   isAuthoringCollectionKey,
 } from '../../../shared/project-schema/authoring-collections';
 import { selectedExportProfile } from '../../../shared/project-schema/authoring-export';
+import {
+  assetMemoryProfileSchema,
+  resolveAssetMemoryPolicy,
+  type AssetMemoryProfile,
+} from '../../../shared/project-schema/platform-export-contracts';
 import {
   isAuthoringProject,
   type AuthoringProject,
@@ -80,16 +91,67 @@ import type {
   RuntimeDebugSnapshot,
   PreviewToEditorMessage,
   RuntimeFastForwardResult,
+  EnginePreviewAssetMemoryTarget,
 } from '../../../shared/preview-protocol';
 import {
   analyzeConcreteInteractionResolution,
   analyzeSubjectOffers,
   type ResolverSubjectSnapshot,
 } from '../../../shared/interaction-resolver-analysis';
+import {
+  useWorkbenchEditorTabState,
+  useWorkbenchTabStateStore,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
 
 type FullGamePreviewMode = 'debug' | 'recording';
 type CompiledProjectFreshness = 'not-loaded' | 'fresh' | 'stale';
 type RuntimeCommandFactory = () => Promise<void | RuntimeFastForwardResult>;
+
+const FULL_GAME_PREVIEW_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.full-game-preview';
+
+interface FullGamePreviewTabStatePayload {
+  assetMemoryTarget: EnginePreviewAssetMemoryTarget;
+  assetMemory: AssetMemoryProfile;
+}
+
+type FullGamePreviewTabState = WorkbenchTabStatePayload & {
+  schema: typeof FULL_GAME_PREVIEW_TAB_STATE_SCHEMA;
+  payload?: FullGamePreviewTabStatePayload;
+};
+
+function parseFullGamePreviewTabState(
+  value: WorkbenchTabStatePayload,
+): FullGamePreviewTabStatePayload | null {
+  if (
+    value.schema !== FULL_GAME_PREVIEW_TAB_STATE_SCHEMA ||
+    typeof value.payload !== 'object' ||
+    value.payload === null ||
+    Array.isArray(value.payload)
+  )
+    return null;
+  const payload = value.payload as Record<string, unknown>;
+  if (!['desktop', 'android', 'web'].includes(String(payload.assetMemoryTarget))) return null;
+  const assetMemory = assetMemoryProfileSchema.safeParse(payload.assetMemory);
+  if (!assetMemory.success) return null;
+  return {
+    assetMemoryTarget: payload.assetMemoryTarget as EnginePreviewAssetMemoryTarget,
+    assetMemory: assetMemory.data,
+  };
+}
+
+function previewAssetMemorySelectionValue(selection: AssetMemoryProfile) {
+  return selection.kind === 'builtin'
+    ? `builtin:${selection.preset}`
+    : `policy:${selection.policyId}`;
+}
+
+function previewAssetMemorySelectionFromValue(value: string): AssetMemoryProfile {
+  if (value.startsWith('policy:'))
+    return { kind: 'policy', policyId: value.slice('policy:'.length) };
+  const preset = value.slice('builtin:'.length);
+  return { kind: 'builtin', preset: preset === 'low' || preset === 'high' ? preset : 'balanced' };
+}
 
 interface RecordedRuntimeAction {
   id: string;
@@ -2046,6 +2108,10 @@ function FullGamePreviewTransportBar({
   snapshot,
   onRuntimeCommand,
   runtimeBlockers,
+  assetMemoryTarget,
+  assetMemory,
+  onAssetMemoryTargetChange,
+  onAssetMemoryChange,
 }: {
   context: EnginePreviewControlsContext;
   compiledProjectState: FullGamePreviewCompiledProjectState;
@@ -2057,6 +2123,10 @@ function FullGamePreviewTransportBar({
     options?: RuntimeCommandOptions,
   ) => void;
   runtimeBlockers: ProjectValidationDiagnostic[];
+  assetMemoryTarget: EnginePreviewAssetMemoryTarget;
+  assetMemory: AssetMemoryProfile;
+  onAssetMemoryTargetChange: (target: EnginePreviewAssetMemoryTarget) => void;
+  onAssetMemoryChange: (selection: AssetMemoryProfile) => void;
 }) {
   const runtimeDisabled = context.connectionState !== 'ready';
   const currentRuntimeBlocked = runtimeBlockers.length > 0;
@@ -2120,7 +2190,44 @@ function FullGamePreviewTransportBar({
           <RuntimeEntityButton entity={currentRoom} project={project} label="Current room" />
         ) : null}
       </div>
-      <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+      <label className="flex items-center gap-1 text-xs text-muted-foreground">
+        Target
+        <select
+          className="h-7 rounded border bg-background px-1.5 text-xs text-foreground"
+          value={assetMemoryTarget}
+          onChange={(event) =>
+            onAssetMemoryTargetChange(event.currentTarget.value as EnginePreviewAssetMemoryTarget)
+          }
+        >
+          <option value="desktop">Desktop</option>
+          <option value="android">Android</option>
+          <option value="web">Web</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-1 text-xs text-muted-foreground">
+        Memory
+        <select
+          className="h-7 max-w-36 rounded border bg-background px-1.5 text-xs text-foreground"
+          value={previewAssetMemorySelectionValue(assetMemory)}
+          onChange={(event) =>
+            onAssetMemoryChange(previewAssetMemorySelectionFromValue(event.currentTarget.value))
+          }
+        >
+          <option value="builtin:low">Low</option>
+          <option value="builtin:balanced">Balanced</option>
+          <option value="builtin:high">High</option>
+          {project?.export.assetMemoryPolicies.length ? (
+            <optgroup label="Project policies">
+              {project.export.assetMemoryPolicies.map((policy) => (
+                <option key={policy.id} value={`policy:${policy.id}`}>
+                  {policy.label}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+        </select>
+      </label>
+      <label className="flex items-center gap-1 text-xs text-muted-foreground">
         Cap
         <Input
           className="h-7 w-16"
@@ -2136,7 +2243,9 @@ function FullGamePreviewTransportBar({
   );
 }
 
-export function FullGamePreviewEditor() {
+export function FullGamePreviewEditor({
+  tab = buildFullGamePreviewTab(),
+}: Partial<WorkbenchEditorProps> = {}) {
   const projectDocument = useProjectStore((state) => state.document);
   const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
   const project = useMemo(
@@ -2145,6 +2254,16 @@ export function FullGamePreviewEditor() {
   );
   const executeCommand = useCommandStore((store) => store.executeCommand);
   const openTab = useWorkbenchStore((store) => store.openTab);
+  const restoredAssetMemory = (() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState ? parseFullGamePreviewTabState(savedState) : null;
+  })();
+  const [assetMemoryTarget, setAssetMemoryTarget] = useState<EnginePreviewAssetMemoryTarget>(
+    restoredAssetMemory?.assetMemoryTarget ?? 'desktop',
+  );
+  const [assetMemory, setAssetMemory] = useState<AssetMemoryProfile>(
+    restoredAssetMemory?.assetMemory ?? { kind: 'builtin', preset: 'balanced' },
+  );
   const [state, setState] = useState<FullGamePreviewState>({ snapshot: null, eventLog: [] });
   const [compiledProjectState, setCompiledProjectState] =
     useState<FullGamePreviewCompiledProjectState>({
@@ -2162,6 +2281,60 @@ export function FullGamePreviewEditor() {
     traceEvents: [],
   });
   const [targetTestId, setTargetTestId] = useState('');
+
+  useWorkbenchEditorTabState<FullGamePreviewTabState>(
+    tab.id,
+    useMemo(
+      () => ({
+        schema: FULL_GAME_PREVIEW_TAB_STATE_SCHEMA,
+        captureTabState: () => ({
+          schema: FULL_GAME_PREVIEW_TAB_STATE_SCHEMA,
+          payload: { assetMemoryTarget, assetMemory },
+        }),
+        restoreTabState: (savedState: FullGamePreviewTabState) => {
+          const parsed = parseFullGamePreviewTabState(savedState);
+          if (!parsed) return;
+          setAssetMemoryTarget(parsed.assetMemoryTarget);
+          setAssetMemory(parsed.assetMemory);
+        },
+      }),
+      [assetMemory, assetMemoryTarget],
+    ),
+  );
+
+  useEffect(() => {
+    if (
+      assetMemory.kind === 'policy' &&
+      !project?.export.assetMemoryPolicies.some((policy) => policy.id === assetMemory.policyId)
+    ) {
+      setAssetMemory({ kind: 'builtin', preset: 'balanced' });
+    }
+  }, [assetMemory, project?.export.assetMemoryPolicies]);
+
+  const effectiveAssetMemoryPolicy = useMemo(() => {
+    const target = assetMemoryTarget === 'desktop' ? 'linux' : assetMemoryTarget;
+    try {
+      return resolveAssetMemoryPolicy(
+        target,
+        assetMemory,
+        project?.export.assetMemoryPolicies ?? [],
+      );
+    } catch {
+      return resolveAssetMemoryPolicy(target, { kind: 'builtin', preset: 'balanced' });
+    }
+  }, [assetMemory, assetMemoryTarget, project?.export.assetMemoryPolicies]);
+  const assetMemoryDisplayName =
+    assetMemory.kind === 'builtin'
+      ? assetMemory.preset[0]!.toUpperCase() + assetMemory.preset.slice(1)
+      : (project?.export.assetMemoryPolicies.find((policy) => policy.id === assetMemory.policyId)
+          ?.label ?? 'Balanced');
+  useEffect(() => {
+    useAssetProfilerStore.getState().setSimulationPolicy({
+      target: assetMemoryTarget,
+      label: assetMemoryDisplayName,
+    });
+    return () => useAssetProfilerStore.getState().setSimulationPolicy(null);
+  }, [assetMemoryDisplayName, assetMemoryTarget]);
   const controlsRef = useRef<EnginePreviewControlsContext | null>(null);
   const bootstrappedReadyGenerationRef = useRef(0);
   const staleWarningFingerprintRef = useRef<string | null>(null);
@@ -2206,6 +2379,41 @@ export function FullGamePreviewEditor() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!previewControls || previewControls.connectionState !== 'ready') return;
+    void previewControls.controller
+      .setEngineSettings({
+        assetMemoryPolicy: {
+          target: assetMemoryTarget,
+          preset: effectiveAssetMemoryPolicy.preset,
+          preparedCpuBytes: effectiveAssetMemoryPolicy.preparedCpuBytes,
+          gpuBytes: effectiveAssetMemoryPolicy.gpuBytes,
+          audioBytes: effectiveAssetMemoryPolicy.audioBytes,
+          temporaryBytes: effectiveAssetMemoryPolicy.temporaryBytes,
+          prefetchAllowancePercent: effectiveAssetMemoryPolicy.prefetchAllowancePercent,
+        },
+      })
+      .catch((error: Error) => {
+        setState((current) => ({
+          ...current,
+          eventLog: addLogEntry(current.eventLog, {
+            label: `Asset memory policy was not applied: ${error.message}`,
+            severity: 'warning',
+          }),
+        }));
+      });
+  }, [
+    assetMemoryDisplayName,
+    assetMemoryTarget,
+    effectiveAssetMemoryPolicy.audioBytes,
+    effectiveAssetMemoryPolicy.gpuBytes,
+    effectiveAssetMemoryPolicy.prefetchAllowancePercent,
+    effectiveAssetMemoryPolicy.preparedCpuBytes,
+    effectiveAssetMemoryPolicy.preset,
+    effectiveAssetMemoryPolicy.temporaryBytes,
+    previewControls,
+  ]);
 
   useEffect(() => {
     if (!targetTestId.trim() && recorderDraft.savedTestId)
@@ -2658,6 +2866,10 @@ export function FullGamePreviewEditor() {
                   snapshot={state.snapshot}
                   onRuntimeCommand={handleRuntimeCommand}
                   runtimeBlockers={exportedCompiledProject.blockers}
+                  assetMemoryTarget={assetMemoryTarget}
+                  assetMemory={assetMemory}
+                  onAssetMemoryTargetChange={setAssetMemoryTarget}
+                  onAssetMemoryChange={setAssetMemory}
                 />
               );
             }}

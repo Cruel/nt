@@ -16,7 +16,7 @@ executable structural classification and safety policies.
 | Record | `record:<collection>:<entityId>` | `/<collection>/<entityId>` plus `/editor/recordMetadata/<collection>/<entityId>` | `manual-save` |
 | Collection editor | `collection:<collection>` | The concrete collection root plus `/editor/recordMetadata/<collection>` | `manual-save` |
 | Explorer structural operation | `structure:<collection>` | Canonical command-derived paths for create, rename, duplicate, or delete | `auto-commit` attribution only |
-| Project Settings | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint` | `manual-save` |
+| Project Settings | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint`, `/export/assetMemoryPolicies` | `manual-save` |
 | Project-scoped editor/tool | Named `project:*` unit | The exact paths listed below | Listed per surface |
 | Workflow/panel mutation | Named `workflow:*` unit | Canonical command-derived paths listed below | Listed per surface |
 | Read-only/non-content tool | `tool:<editorType>` | None | No content mutation |
@@ -28,6 +28,7 @@ The Project Settings owned-path set is exactly:
 /settings
 /bootstrapModule
 /entrypoint
+/export/assetMemoryPolicies
 ```
 
 Neither the empty JSON pointer nor `/` is a Project Settings path. Project Settings writes these
@@ -115,7 +116,7 @@ Every editor registered in `default-editors.tsx` has one explicit registry outco
 | `components` | Non-content | `tool:components` | Documentation/reference surface only |
 | `settings` | Non-content | `tool:settings` | Editor preferences, not project content |
 | `project-settings` | Savable project unit | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint` |
-| `platform-export` | Savable project tool | `project:platform-export-profiles` | Export configuration owns top-level `/export`; output/template/signing selection and export execution remain user-local/non-content |
+| `platform-export` | Savable project tool | `project:platform-export-profiles` | Owns `/export/runtime` and `/export/profiles`; reusable `/export/assetMemoryPolicies` belong to Project Settings; output/template/signing selection and export execution remain user-local/non-content |
 | `project-chapters` | Savable project tool | `project:chapters` | `/editor/chapters` |
 | `project-tags` | Savable project tool | `project:tags` | `/editor/tags` |
 
@@ -133,7 +134,8 @@ fails when a registered editor is missing from this map.
 | Explorer options and hidden categories | `ProjectExplorer.tsx` | `project:explorer-options` | `auto-commit` | Exact `/editor/explorer` metadata paths persisted through the editor-metadata channel |
 | Asset import | `workspace.tsx`, `ProjectExplorer.tsx` | `workflow:asset-import` | `auto-commit` | Added `/assets/<id>` paths from the import command |
 | Generated-image asset insertion | `ImageGenerationEditor.tsx` | `workflow:image-generation-assets` | `auto-commit` | Added `/assets/<id>` path |
-| Runtime/package and platform export-profile editing | `PackageExportDialog.tsx` / profile editor surface | `project:platform-export-profiles` | `manual-save` | `/export` |
+| Runtime/package and platform export-profile editing | `PackageExportDialog.tsx` / profile editor surface | `project:platform-export-profiles` | `manual-save` | `/export/runtime`, `/export/profiles` |
+| Reusable asset-memory policy editing | `ProjectSettingsEditor.tsx` | `project:settings` | `manual-save` | `/export/assetMemoryPolicies` |
 | Shader compiled-output application | `ShaderCompilePanel.tsx`, `package-export-workflow.ts` | `workflow:shader-compiled-output` | `manual-save` | Exact compiled-output paths returned by the shader command; one atomic group when multiple paths change |
 | Successful platform-export identity recording | `platform-export-workflow.ts` | Non-content metadata workflow | Metadata-only | `editor.lastSuccessfulPlatformExportIdentity`; written only after complete selected-target success |
 | Play-recorder test creation/update | `FullGamePreviewEditor.tsx` | `workflow:play-recorder` | `manual-save` | `/tests/<testId>` |

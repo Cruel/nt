@@ -104,10 +104,25 @@ export function normalizeRmlUiRasterSnapMode(value: unknown): RmlUiRasterSnapMod
     : 'all';
 }
 
+export const ENGINE_PREVIEW_ASSET_MEMORY_TARGETS = ['desktop', 'android', 'web'] as const;
+export const ENGINE_PREVIEW_ASSET_MEMORY_PRESETS = ['low', 'balanced', 'high', 'custom'] as const;
+export type EnginePreviewAssetMemoryTarget = (typeof ENGINE_PREVIEW_ASSET_MEMORY_TARGETS)[number];
+
+export interface EnginePreviewAssetMemoryPolicy {
+  target: EnginePreviewAssetMemoryTarget;
+  preset: (typeof ENGINE_PREVIEW_ASSET_MEMORY_PRESETS)[number];
+  preparedCpuBytes: number;
+  gpuBytes: number;
+  audioBytes: number;
+  temporaryBytes: number;
+  prefetchAllowancePercent: number;
+}
+
 export interface EnginePreviewSettings {
   showFpsCounter?: boolean;
   fpsCap?: number;
   rmluiRasterSnap?: RmlUiRasterSnapMode;
+  assetMemoryPolicy?: EnginePreviewAssetMemoryPolicy;
 }
 
 export type { PreviewDisplayProfile } from './preview-display';
@@ -715,7 +730,30 @@ function isEnginePreviewSettings(value: unknown): value is EnginePreviewSettings
         value.fpsCap >= 0 &&
         value.fpsCap <= 1000)) &&
     (value.rmluiRasterSnap === undefined ||
-      RMLUI_RASTER_SNAP_MODES.includes(value.rmluiRasterSnap as RmlUiRasterSnapMode))
+      RMLUI_RASTER_SNAP_MODES.includes(value.rmluiRasterSnap as RmlUiRasterSnapMode)) &&
+    (value.assetMemoryPolicy === undefined ||
+      isEnginePreviewAssetMemoryPolicy(value.assetMemoryPolicy))
+  );
+}
+
+function isEnginePreviewAssetMemoryPolicy(value: unknown): value is EnginePreviewAssetMemoryPolicy {
+  if (!isRecord(value)) return false;
+  const positiveSafeInteger = (candidate: unknown) =>
+    typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate > 0;
+  return (
+    ENGINE_PREVIEW_ASSET_MEMORY_TARGETS.includes(value.target as EnginePreviewAssetMemoryTarget) &&
+    ENGINE_PREVIEW_ASSET_MEMORY_PRESETS.includes(
+      value.preset as EnginePreviewAssetMemoryPolicy['preset'],
+    ) &&
+    positiveSafeInteger(value.preparedCpuBytes) &&
+    positiveSafeInteger(value.gpuBytes) &&
+    positiveSafeInteger(value.audioBytes) &&
+    positiveSafeInteger(value.temporaryBytes) &&
+    (value.temporaryBytes as number) >= 1024 * 1024 &&
+    typeof value.prefetchAllowancePercent === 'number' &&
+    Number.isInteger(value.prefetchAllowancePercent) &&
+    value.prefetchAllowancePercent >= 0 &&
+    value.prefetchAllowancePercent <= 100
   );
 }
 

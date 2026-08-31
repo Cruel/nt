@@ -4,6 +4,7 @@ import type {
   AssetProfilerWireEntry,
   AssetProfilerWireChange,
 } from '../../shared/asset-profiler-protocol';
+import type { EnginePreviewAssetMemoryTarget } from '../../shared/preview-protocol';
 
 type AssetProfilerDecimalField =
   | 'sessionId'
@@ -29,6 +30,7 @@ type AssetProfilerDecimalField =
   | 'cached'
   | 'loading'
   | 'finishing'
+  | 'blocked'
   | 'failed'
   | 'accountingRevision'
   | 'rendererSampledAtNs'
@@ -203,7 +205,11 @@ export interface AssetProfilerStore extends AssetProfilerLocalState {
   changes: NormalizedAssetProfilerChange[];
   historyGapNotice: boolean;
   error: string | null;
+  simulationPolicy: { target: EnginePreviewAssetMemoryTarget; label: string } | null;
   setStatus: (status: AssetProfilerStatus, error?: string | null) => void;
+  setSimulationPolicy: (
+    policy: { target: EnginePreviewAssetMemoryTarget; label: string } | null,
+  ) => void;
   setSelectedView: (view: AssetProfilerViewId) => void;
   setIssueQuery: (query: string) => void;
   setIssueType: (type: string) => void;
@@ -227,7 +233,9 @@ export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
   changes: [],
   historyGapNotice: false,
   error: null,
+  simulationPolicy: null,
   setStatus: (status, error = null) => set({ status, error }),
+  setSimulationPolicy: (simulationPolicy) => set({ simulationPolicy }),
   setSelectedView: (selectedView) => set({ selectedView }),
   setIssueQuery: (issueQuery) => set({ issueQuery }),
   setIssueType: (issueType) => set({ issueType }),
@@ -257,7 +265,7 @@ export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
       error: null,
     }),
   resetForEditorReload: () =>
-    set({
+    set((current) => ({
       ...defaultLocalState(),
       status: 'disconnected',
       payload: null,
@@ -266,7 +274,8 @@ export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
       changes: [],
       historyGapNotice: false,
       error: null,
-    }),
+      simulationPolicy: current.simulationPolicy,
+    })),
   applyPayload: (wirePayload) => {
     const payload = normalizePayload(wirePayload);
     let result: AssetProfilerApplyResult = 'accepted';
@@ -288,6 +297,7 @@ export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
           payload.sessionId !== current.lastAcceptedSessionId;
         return {
           ...(replacementSession ? defaultLocalState() : current),
+          simulationPolicy: current.simulationPolicy,
           status: 'ready',
           payload,
           lastAcceptedSessionId: payload.sessionId,

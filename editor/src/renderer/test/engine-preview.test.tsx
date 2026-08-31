@@ -522,6 +522,7 @@ describe('EnginePreview', () => {
     await expect(rejection).resolves.toMatchObject({
       code: 'asset-profiler.invalid-payload',
     });
+    expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready');
   });
 
   it('rejects missing or mismatched asset profiler payloads instead of accepting an acknowledgement', async () => {

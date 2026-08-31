@@ -408,6 +408,8 @@ public:
                                       ResidencyEvictionReason reason) noexcept override;
     [[nodiscard]] ResidencyAccountingSnapshot accounting_on_owner() const noexcept override;
     [[nodiscard]] ResolvedAssetMemoryPolicy policy_on_owner() const noexcept override;
+    [[nodiscard]] ResidencyEvictionResult
+    reconfigure_policy_on_owner(ResolvedAssetMemoryPolicy policy) noexcept;
 
 private:
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER

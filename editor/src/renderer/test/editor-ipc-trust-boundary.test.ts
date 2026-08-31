@@ -29,6 +29,7 @@ import {
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
+  stagePlatformExportArgumentsSchema,
   type EditorIpcEvent,
   type EditorIpcMain,
   type EditorWebContents,
@@ -41,6 +42,7 @@ import {
 import { selectDirectoryArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import type { ReadProjectTextSourcesRequest } from '../../shared/project-text-sources';
 
 class FakeIpcMain implements EditorIpcMain {
@@ -96,6 +98,54 @@ function rejectionCode(error: unknown) {
 }
 
 describe('guarded editor IPC registrar', () => {
+  it('admits named asset-memory policies at the guarded platform-stage boundary', () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const request = {
+      operationId: 'stage-1',
+      profile: defaultPlatformExportProfile('linux'),
+      assetMemoryPolicies: [
+        {
+          id: 'streaming',
+          label: 'Streaming',
+          basePreset: 'balanced',
+          overrides: { gpuBytes: 192 * 1024 * 1024 },
+        },
+      ],
+      templateToken: 'linux/build-1',
+      outputDirectory: '/tmp/out',
+      packagePath: '/tmp/game.ntpkg',
+      runtimePackageEvidence: {
+        sourceFingerprint: 'fnv1a:12345678',
+        packageSha256: 'a'.repeat(64),
+      },
+      identity: {
+        displayName: 'Game',
+        applicationId: 'org.example.game',
+        saveNamespace: 'org.example.game',
+        versionName: '1.0.0',
+      },
+      display: {
+        aspectRatio: { width: 16, height: 9 },
+        orientation: 'landscape',
+        barColor: '#000000',
+      },
+      runtimeDisplay: {
+        referenceResolution: { width: 1920, height: 1080 },
+        worldRasterPolicy: 'capped',
+        barColor: '#000000',
+      },
+      accessibility: {
+        uiScale: { enabled: true, minimum: 1, maximum: 2 },
+        textScale: { enabled: true, minimum: 1, maximum: 2 },
+      },
+      playerRuntimeApiVersion: 1,
+    };
+
+    expect(stagePlatformExportArgumentsSchema.parse([sessionId, request])[1]).toMatchObject({
+      assetMemoryPolicies: [{ id: 'streaming', basePreset: 'balanced' }],
+    });
+  });
+
   it('strictly admits Project open and creation lifecycle arguments', async () => {
     const ipcMain = new FakeIpcMain();
     const harness = trustedHarness();

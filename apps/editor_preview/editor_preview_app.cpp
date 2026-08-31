@@ -164,6 +164,42 @@ std::string diagnostics_json(const noveltea::core::Diagnostics& diagnostics)
     }
     return output.dump();
 }
+
+std::optional<noveltea::assets::AssetMemoryTarget> asset_memory_target(std::string_view value)
+{
+    if (value == "desktop")
+        return noveltea::assets::AssetMemoryTarget::Desktop;
+    if (value == "android")
+        return noveltea::assets::AssetMemoryTarget::Android;
+    if (value == "web")
+        return noveltea::assets::AssetMemoryTarget::Web;
+    return std::nullopt;
+}
+
+std::optional<noveltea::assets::AssetMemoryPreset> asset_memory_preset(std::string_view value)
+{
+    if (value == "low")
+        return noveltea::assets::AssetMemoryPreset::Low;
+    if (value == "balanced")
+        return noveltea::assets::AssetMemoryPreset::Balanced;
+    if (value == "high")
+        return noveltea::assets::AssetMemoryPreset::High;
+    if (value == "custom")
+        return noveltea::assets::AssetMemoryPreset::Custom;
+    return std::nullopt;
+}
+
+std::optional<std::uint64_t> positive_policy_bytes(const nlohmann::json& value,
+                                                   std::string_view key)
+{
+    const auto found = value.find(key);
+    if (found == value.end() || !found->is_number_integer())
+        return std::nullopt;
+    const auto parsed = found->get<std::int64_t>();
+    if (parsed <= 0)
+        return std::nullopt;
+    return static_cast<std::uint64_t>(parsed);
+}
 } // namespace
 
 extern "C" {
@@ -204,6 +240,46 @@ EMSCRIPTEN_KEEPALIVE void noveltea_engine_set_rmlui_raster_snapping(int geometry
                           : (text_enabled != 0 ? noveltea::RmlUiRasterSnapMode::Text
                                                : noveltea::RmlUiRasterSnapMode::None);
     noveltea::EngineTooling::set_rmlui_raster_snap(*engine, mode);
+}
+
+EMSCRIPTEN_KEEPALIVE int noveltea_engine_set_asset_memory_policy(const char* policy_json)
+{
+    auto* engine = preview_engine();
+    if (!engine || !policy_json)
+        return 0;
+    const auto value = nlohmann::json::parse(policy_json, nullptr, false);
+    if (value.is_discarded() || !value.is_object())
+        return 0;
+    const auto target_it = value.find("target");
+    const auto preset_it = value.find("preset");
+    if (target_it == value.end() || preset_it == value.end() || !target_it->is_string() ||
+        !preset_it->is_string())
+        return 0;
+    const auto target = asset_memory_target(target_it->get<std::string>());
+    const auto preset = asset_memory_preset(preset_it->get<std::string>());
+    const auto prepared_cpu = positive_policy_bytes(value, "preparedCpuBytes");
+    const auto gpu = positive_policy_bytes(value, "gpuBytes");
+    const auto audio = positive_policy_bytes(value, "audioBytes");
+    const auto temporary = positive_policy_bytes(value, "temporaryBytes");
+    const auto prefetch_it = value.find("prefetchAllowancePercent");
+    if (!target || !preset || !prepared_cpu || !gpu || !audio || !temporary ||
+        prefetch_it == value.end() || !prefetch_it->is_number_integer())
+        return 0;
+    const auto prefetch = prefetch_it->get<std::int64_t>();
+    if (*temporary < noveltea::assets::minimum_temporary_asset_budget_bytes || prefetch < 0 ||
+        prefetch > 100)
+        return 0;
+    noveltea::assets::ResolvedAssetMemoryPolicy policy{
+        .target = *target,
+        .preset = *preset,
+        .budget = {.source_bytes = *prepared_cpu,
+                   .prepared_cpu_bytes = *prepared_cpu,
+                   .gpu_bytes = *gpu,
+                   .audio_bytes = *audio,
+                   .temporary_bytes = *temporary,
+                   .prefetch_allowance_percent = static_cast<std::uint32_t>(prefetch)}};
+    (void)noveltea::EngineTooling::set_asset_memory_policy(*engine, std::move(policy));
+    return 1;
 }
 
 EMSCRIPTEN_KEEPALIVE int noveltea_preview_load_rml_document(const char* rml)

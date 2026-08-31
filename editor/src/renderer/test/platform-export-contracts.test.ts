@@ -6,6 +6,7 @@ import {
   PLAYER_RUNTIME_API_VERSION,
   TEMPLATE_DESCRIPTOR_FORMAT,
   TEMPLATE_DESCRIPTOR_FORMAT_VERSION,
+  assetMemoryPolicyDefinitionSchema,
   defaultPlatformExportProfile,
   parseEditorExportLocalState,
   parsePlatformExportProfile,
@@ -21,8 +22,14 @@ import { classifyProjectValidationDiagnostic } from '../../shared/project-schema
 const sha = 'a'.repeat(64);
 describe('platform export contracts', () => {
   it('does not synthesize a platform profile for absent or invalid project settings', () => {
-    expect(parseProjectPlatformExportSettings(undefined)).toEqual({ profiles: [] });
-    expect(parseProjectPlatformExportSettings({})).toEqual({ profiles: [] });
+    expect(parseProjectPlatformExportSettings(undefined)).toEqual({
+      profiles: [],
+      assetMemoryPolicies: [],
+    });
+    expect(parseProjectPlatformExportSettings({})).toEqual({
+      profiles: [],
+      assetMemoryPolicies: [],
+    });
   });
 
   it('parses and normalizes player bootstrap capabilities', () => {
@@ -105,7 +112,10 @@ describe('platform export contracts', () => {
       web: { artifact: 'directory-zip', threaded: false, pwa: true },
     } as const;
     expect(parsePlatformExportProfile(profile).compression).toBe('default');
-    expect(parsePlatformExportProfile(profile).assetMemory).toEqual({ preset: 'balanced' });
+    expect(parsePlatformExportProfile(profile).assetMemory).toEqual({
+      kind: 'builtin',
+      preset: 'balanced',
+    });
     expect(() =>
       parsePlatformExportProfile({ ...profile, outputPath: '/home/me/game.zip' }),
     ).toThrow();
@@ -119,7 +129,7 @@ describe('platform export contracts', () => {
     ).toThrow();
   });
 
-  it('resolves measured memory presets and validates custom byte fields', () => {
+  it('resolves measured memory presets and reusable named policy overrides', () => {
     const mib = 1024 * 1024;
     const expected = [
       ['linux', 'low', 64, 128, 32, 32, 20],
@@ -133,7 +143,7 @@ describe('platform export contracts', () => {
       ['web', 'high', 128, 256, 64, 64, 30],
     ] as const;
     for (const [target, preset, cpu, gpu, audio, temporary, allowance] of expected) {
-      expect(resolveAssetMemoryPolicy(target, { preset })).toEqual({
+      expect(resolveAssetMemoryPolicy(target, { kind: 'builtin', preset })).toEqual({
         preset,
         preparedCpuBytes: cpu * mib,
         gpuBytes: gpu * mib,
@@ -143,31 +153,33 @@ describe('platform export contracts', () => {
       });
     }
 
+    const namedPolicy = assetMemoryPolicyDefinitionSchema.parse({
+      id: 'web-constrained',
+      label: 'Web constrained',
+      basePreset: 'balanced',
+      overrides: { gpuBytes: 96 * 1024 * 1024, prefetchAllowancePercent: 0 },
+    });
     const custom = parsePlatformExportProfile({
       ...defaultPlatformExportProfile('web'),
-      assetMemory: {
-        preset: 'custom',
-        custom: { gpuBytes: 96 * 1024 * 1024, prefetchAllowancePercent: 0 },
-      },
+      assetMemory: { kind: 'policy', policyId: namedPolicy.id },
     });
-    expect(resolveAssetMemoryPolicy('web', custom.assetMemory)).toMatchObject({
+    expect(resolveAssetMemoryPolicy('web', custom.assetMemory, [namedPolicy])).toMatchObject({
       preset: 'custom',
       preparedCpuBytes: 64 * 1024 * 1024,
       gpuBytes: 96 * 1024 * 1024,
       prefetchAllowancePercent: 0,
     });
     expect(() =>
-      parsePlatformExportProfile({
-        ...defaultPlatformExportProfile('linux'),
-        assetMemory: { preset: 'custom', custom: { temporaryBytes: 1024 } },
+      assetMemoryPolicyDefinitionSchema.parse({
+        id: 'invalid',
+        label: 'Invalid',
+        basePreset: 'balanced',
+        overrides: { temporaryBytes: 1024 },
       }),
     ).toThrow();
     expect(() =>
-      parsePlatformExportProfile({
-        ...defaultPlatformExportProfile('linux'),
-        assetMemory: { preset: 'balanced', custom: { gpuBytes: 1 } },
-      }),
-    ).toThrow(/Custom asset memory fields/);
+      resolveAssetMemoryPolicy('linux', { kind: 'policy', policyId: 'missing' }),
+    ).toThrow(/Unknown asset memory policy/);
   });
 
   it('accepts host paths only in editor-local state', () => {

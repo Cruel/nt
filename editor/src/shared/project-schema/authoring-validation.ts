@@ -1089,6 +1089,60 @@ function validateAssets(project: AuthoringProject, diagnostics: ProjectValidatio
   }
 }
 
+function validateAssetMemoryPolicies(
+  project: AuthoringProject,
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
+  const ids = new Map<string, number>();
+  const labels = new Map<string, number>();
+  for (const [index, policy] of project.export.assetMemoryPolicies.entries()) {
+    const base = `/export/assetMemoryPolicies/${index}`;
+    const priorId = ids.get(policy.id);
+    if (priorId !== undefined)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${base}/id`,
+          `Asset memory policy ID '${policy.id}' is already used by policy ${priorId + 1}.`,
+          'Asset memory policies',
+          'authoring.asset-memory-policy.id.duplicate',
+        ),
+      );
+    else ids.set(policy.id, index);
+
+    const normalizedLabel = policy.label.trim().toLocaleLowerCase('en-US');
+    const priorLabel = labels.get(normalizedLabel);
+    if (priorLabel !== undefined)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${base}/label`,
+          `Asset memory policy name '${policy.label}' duplicates policy ${priorLabel + 1}.`,
+          'Asset memory policies',
+          'authoring.asset-memory-policy.label.duplicate',
+        ),
+      );
+    else labels.set(normalizedLabel, index);
+  }
+
+  const knownIds = new Set(project.export.assetMemoryPolicies.map((policy) => policy.id));
+  for (const [index, profile] of project.export.profiles.entries()) {
+    if (profile.assetMemory.kind !== 'policy' || knownIds.has(profile.assetMemory.policyId))
+      continue;
+    diagnostics.push(
+      diagnostic(
+        'error',
+        `/export/profiles/${index}/assetMemory/policyId`,
+        `Export profile '${profile.label}' references missing asset memory policy '${profile.assetMemory.policyId}'.`,
+        'Asset memory policies',
+        'authoring.asset-memory-policy.reference.missing',
+        undefined,
+        [`/export/profiles/${index}/assetMemory`, '/export/assetMemoryPolicies'],
+      ),
+    );
+  }
+}
+
 export function validateAuthoringProject(value: unknown): ProjectValidationDiagnostic[] {
   const diagnostics: ProjectValidationDiagnosticLike[] = [];
   const parsed = authoringProjectSchema.safeParse(value);
@@ -1226,6 +1280,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   validateFeatures(effectiveProject, diagnostics);
   diagnostics.push(...validateAuthoringInventories(project));
   validateAssets(effectiveProject, diagnostics);
+  validateAssetMemoryPolicies(project, diagnostics);
   diagnostics.push(...validateTypedProjectSettings(effectiveProject));
   diagnostics.push(...validateSystemLayoutSettings(effectiveProject));
   for (const [id, record] of Object.entries(effectiveProject.layouts))

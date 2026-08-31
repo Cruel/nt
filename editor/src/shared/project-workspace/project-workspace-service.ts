@@ -425,6 +425,7 @@ function ownershipFor(
         '/entrypoint',
         '/inventories',
         '/interactableInstances',
+        '/export/assetMemoryPolicies',
       ],
     },
     'collection:traits': { files: ['traits.json'], paths: ['/traits'] },
@@ -436,7 +437,7 @@ function ownershipFor(
     'project:tags': { files: ['editor.json'], paths: ['/editor/tags'] },
     'project:platform-export-profiles': {
       files: ['project.json'],
-      paths: ['/export'],
+      paths: ['/export/runtime', '/export/profiles'],
     },
     'editor:organization': {
       files: ['editor.json'],

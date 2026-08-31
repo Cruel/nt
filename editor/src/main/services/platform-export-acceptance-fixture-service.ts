@@ -161,6 +161,7 @@ export async function materializePlatformExportAcceptanceFixture(
       previewAfterExport: false,
     },
     profiles: [profile],
+    assetMemoryPolicies: [],
   };
   const app = project.settings.app as Record<string, unknown>;
   if (options.target === 'android') {

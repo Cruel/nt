@@ -17,7 +17,7 @@ is shown beside the active category on ordinary editor widths and becomes a hori
 selector on narrow panes. Only the selected category is rendered, so unrelated controls do not form
 one long settings page.
 
-The Project Settings categories are General, Runtime, Display, Title Screen, App Identity,
+The Project Settings categories are General, Runtime, Asset Memory, Display, Title Screen, App Identity,
 Integrations, Transitions, and Status. The active category is tab-scoped view state and is restored
 with the tab. Workbench targets and diagnostic links select the owning category before revealing,
 flashing, or focusing a section or field.
@@ -34,6 +34,13 @@ Instance located in that Inventory, stackable Definitions expose an initial quan
 row moves that exact Instance to `unplaced` rather than deleting its identity. Characters,
 Interactables, and Features may still declare their own owner-local Inventories independently.
 ComfyUI connection settings and workflow-library management are machine/user-level surfaces shared with the headless CLI. Shared user workflow packages live beneath the NovelTea user configuration root, while project-local packages remain contextual to the saved Project. Project Settings only shows a compact workflow summary and a Manage button; it must not write server URLs, enablement, default workflow preferences, or workflow-library state into the authoring project document.
+
+The Asset Memory category owns reusable Project deployment/simulation policies at
+`/export/assetMemoryPolicies`. A named policy has a stable generated ID, editable unique name,
+Low/Balanced/High base, and explicit inherited/override controls. Overrides are edited in MiB (or as
+the Warm percentage), and the editor shows resolved Desktop/Android/Web values together. Export
+profiles reference these policies by ID; deletion is disabled while references remain. The policies
+are deployment/tooling configuration and are not compiled into gameplay content.
 
 ## Editing and Save Behavior
 

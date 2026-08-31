@@ -200,6 +200,7 @@ struct AssetProfilerStateCounts {
     std::uint64_t cached = 0;
     std::uint64_t loading = 0;
     std::uint64_t finishing = 0;
+    std::uint64_t blocked = 0;
     std::uint64_t failed = 0;
 
     friend bool operator==(const AssetProfilerStateCounts&,
@@ -235,6 +236,7 @@ enum class AssetProfilerAssetType : std::uint8_t {
 enum class AssetProfilerState : std::uint8_t {
     Loading,
     Finishing,
+    Blocked,
     InUse,
     Prefetched,
     Cached,

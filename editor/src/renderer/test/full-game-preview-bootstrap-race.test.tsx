@@ -10,6 +10,7 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 const bootstrapMocks = vi.hoisted(() => ({
   loadCompiledProject: vi.fn(),
+  setEngineSettings: vi.fn().mockResolvedValue(undefined),
   requestRuntimeDebugSnapshot: vi.fn().mockResolvedValue(undefined),
   resolveLoad: null as (() => void) | null,
 }));
@@ -44,6 +45,7 @@ vi.mock('@/components/engine-preview', async () => {
         sendRuntimeCommand: vi.fn(),
         controller: {
           loadCompiledProject: bootstrapMocks.loadCompiledProject,
+          setEngineSettings: bootstrapMocks.setEngineSettings,
           requestRuntimeDebugSnapshot: bootstrapMocks.requestRuntimeDebugSnapshot,
         },
       }),
@@ -83,6 +85,7 @@ beforeEach(() => {
       }),
   );
   bootstrapMocks.requestRuntimeDebugSnapshot.mockReset().mockResolvedValue(undefined);
+  bootstrapMocks.setEngineSettings.mockReset().mockResolvedValue(undefined);
 
   usePreviewManagerStore.getState().resetPreviewManager();
   useWorkspaceStore.setState({

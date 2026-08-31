@@ -19,7 +19,10 @@ import {
 } from './authoring-project-settings';
 import { editorProjectStateSchema, emptyEditorProjectState } from './editor-project-state';
 import { defaultExportProfile, exportProfileSchema } from './authoring-export';
-import { platformExportProfileSchema } from './platform-export-contracts';
+import {
+  assetMemoryPolicyDefinitionSchema,
+  platformExportProfileSchema,
+} from './platform-export-contracts';
 import { inventoryDefinitionSchema } from './authoring-inventories';
 import { DEFAULT_PROJECT_INVENTORY } from './authoring-inventories';
 import { interactableInstanceDataSchema } from './authoring-interactables';
@@ -58,6 +61,7 @@ const projectExportSettingsSchema = z
   .object({
     runtime: exportProfileSchema,
     profiles: z.array(platformExportProfileSchema).default([]),
+    assetMemoryPolicies: z.array(assetMemoryPolicyDefinitionSchema).default([]),
   })
   .strict();
 
@@ -160,6 +164,7 @@ export function createAuthoringProject(
         },
       }),
       profiles: [],
+      assetMemoryPolicies: [],
     },
     bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
     undefinedInteractionProgram: null,
