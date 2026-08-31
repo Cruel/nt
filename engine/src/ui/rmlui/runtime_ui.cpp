@@ -724,7 +724,9 @@ void RuntimeUI::State::install_shell_lua_api()
                                          sol::optional<std::string> source_name,
                                          sol::optional<std::string> side_name,
                                          sol::optional<std::string> alignment_name,
-                                         sol::optional<double> gap, sol::optional<double> padding) {
+                                         sol::optional<double> gap, sol::optional<double> padding,
+                                         sol::optional<double> offset_x,
+                                         sol::optional<double> offset_y) {
             sol::state_view lua(mount_lua_state);
             const auto* context = resolve_mount_context(mount);
             if (!context || !context->trigger_context)
@@ -741,6 +743,8 @@ void RuntimeUI::State::install_shell_lua_api()
             request.popup_width = width;
             request.popup_height = height;
             request.gap = gap.value_or(0.0);
+            request.offset_x = offset_x.value_or(0.0);
+            request.offset_y = offset_y.value_or(0.0);
             request.viewport_padding = padding.value_or(0.0);
             if (source_name == "source")
                 request.source = core::ContextualAnchorSource::SourceBounds;

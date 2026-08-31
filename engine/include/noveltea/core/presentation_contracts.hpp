@@ -119,6 +119,8 @@ struct ContextualAnchorRequest {
     double popup_width = 0.0;
     double popup_height = 0.0;
     double gap = 0.0;
+    double offset_x = 0.0;
+    double offset_y = 0.0;
     double viewport_padding = 0.0;
     bool viewport_safe = true;
     bool operator==(const ContextualAnchorRequest&) const = default;

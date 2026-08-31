@@ -10,6 +10,8 @@ double finite_non_negative(double value) noexcept
     return std::isfinite(value) && value > 0.0 ? value : 0.0;
 }
 
+double finite_or_zero(double value) noexcept { return std::isfinite(value) ? value : 0.0; }
+
 double aligned(double start, double extent, double popup_extent,
                ContextualAnchorAlignment alignment) noexcept
 {
@@ -55,6 +57,8 @@ TriggerPoint resolve_contextual_anchor(const LayoutLogicalTriggerContext& contex
     const double popup_width = finite_non_negative(request.popup_width);
     const double popup_height = finite_non_negative(request.popup_height);
     const double gap = finite_non_negative(request.gap);
+    const double offset_x = finite_or_zero(request.offset_x);
+    const double offset_y = finite_or_zero(request.offset_y);
     const double padding = finite_non_negative(request.viewport_padding);
 
     TriggerPoint pointer =
@@ -89,6 +93,9 @@ TriggerPoint resolve_contextual_anchor(const LayoutLogicalTriggerContext& contex
                   aligned(source.y, source.height, popup_height, request.alignment)};
         break;
     }
+
+    result.x += offset_x;
+    result.y += offset_y;
 
     if (request.viewport_safe) {
         const double min_x = context.viewport.x + padding;
