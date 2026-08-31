@@ -119,7 +119,7 @@ editor-owned Project authority, then hands a private temporary local image to th
 bytes must be uploaded. The workflow manager retains image-specific automatic inference, while its strict current manual
 manifest editor can author or repair arbitrary named generic contracts and future classifications.
 
-Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export also accepts `--include-unused-assets` and `--include-shader-sources` as explicit developer overrides of the normal pruning/source-stripping policy. `noveltea --help` is authoritative for the installed version's exact syntax.
+Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, raw bimg-compatible `noveltea texturec ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export also accepts `--include-unused-assets` and `--include-shader-sources` as explicit developer overrides of the normal pruning/source-stripping policy. `noveltea --help` is authoritative for the installed version's exact syntax.
 
 Platform publication is a separate command family from Runtime Package creation:
 
@@ -201,6 +201,8 @@ Exit categories are:
 ```
 
 Raw `noveltea shaderc ...` intentionally preserves bgfx shaderc's argument/output/return-code behavior rather than wrapping it in NovelTea's JSON taxonomy.
+
+Raw `noveltea texturec ...` preserves bimg texturec's argument/output/return-code behavior and supports the upstream bimg texture formats and conversion options.
 
 ## Concurrency and transactions
 

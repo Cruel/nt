@@ -23,6 +23,7 @@ Commands:
   usages <collection> <id>
   shaders compile [--variant <id>]... [--force-rebuild]
   shaderc <bgfx-shaderc-args...>
+  texturec <bimg-texturec-args...>
   test run <test-id>
   test run-spec
   test run-ui-spec

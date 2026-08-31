@@ -51,6 +51,14 @@ function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolServ
         );
       return response.exitCode as number;
     },
+    texturec(arguments_) {
+      const response = call('texturec', arguments_) as { exitCode?: unknown };
+      if (!Number.isSafeInteger(response.exitCode) || (response.exitCode as number) < 0)
+        throw new Error(
+          `Native texturec returned invalid exit code '${String(response.exitCode)}'.`,
+        );
+      return response.exitCode as number;
+    },
   };
 }
 

@@ -15,6 +15,7 @@ declare function noveltea_tooling_export_package_json(
   response: Uint8Array,
 ): number;
 declare function noveltea_tooling_shaderc_json(request: Uint8Array, response: Uint8Array): number;
+declare function noveltea_tooling_texturec_json(request: Uint8Array, response: Uint8Array): number;
 
 function stableJsonStringify(value: unknown, arrayElement = false): string | undefined {
   if (value === undefined) return arrayElement ? 'null' : undefined;
@@ -90,5 +91,19 @@ export function shadercNative(arguments_: readonly string[]): number {
   };
   if (!Number.isSafeInteger(parsed.exitCode) || (parsed.exitCode as number) < 0)
     throw new Error(`Native shaderc returned invalid exit code '${String(parsed.exitCode)}'.`);
+  return parsed.exitCode as number;
+}
+
+export function texturecNative(arguments_: readonly string[]): number {
+  const request = new TextEncoder().encode(JSON.stringify(arguments_));
+  const response = new Uint8Array(32);
+  const written = noveltea_tooling_texturec_json(request, response);
+  if (!Number.isSafeInteger(written) || written <= 0 || written > response.length)
+    throw new Error(`Native texturec returned invalid response size '${written}'.`);
+  const parsed = JSON.parse(new TextDecoder().decode(response.subarray(0, written))) as {
+    exitCode?: unknown;
+  };
+  if (!Number.isSafeInteger(parsed.exitCode) || (parsed.exitCode as number) < 0)
+    throw new Error(`Native texturec returned invalid exit code '${String(parsed.exitCode)}'.`);
   return parsed.exitCode as number;
 }

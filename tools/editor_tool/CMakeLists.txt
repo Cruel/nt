@@ -31,6 +31,17 @@ add_library(noveltea_tooling_native STATIC
     tooling_archive.cpp
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp"
 )
+if(NOT NOVELTEA_EMBEDDED_SHADERC_SOURCE_DIR)
+    message(FATAL_ERROR "texturec requires a source-built embedded shaderc closure")
+endif()
+# Reuse the pinned bimg command-line implementation, but rename its entry point so the
+# standalone NovelTea host can expose it as a subcommand alongside shaderc.
+target_sources(noveltea_tooling_native PRIVATE
+    "${NOVELTEA_EMBEDDED_SHADERC_SOURCE_DIR}/bimg/tools/texturec/texturec.cpp"
+)
+set_source_files_properties(
+    "${NOVELTEA_EMBEDDED_SHADERC_SOURCE_DIR}/bimg/tools/texturec/texturec.cpp"
+    PROPERTIES COMPILE_DEFINITIONS main=noveltea_bimg_texturec_main)
 # This engine-owned source is reused by host tooling but remains part of the shipped runtime policy
 # domain. Apply the runtime compiler policy to this source only; the surrounding tooling target keeps
 # the normal host exception/RTTI model required by embedded shaderc.

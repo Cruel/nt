@@ -62,6 +62,9 @@ const unavailableNativeTools: NovelTeaCliNativeToolService = {
   shaderc() {
     throw new Error('Native NovelTea tooling is unavailable in this CLI host.');
   },
+  texturec() {
+    throw new Error('Native NovelTea tooling is unavailable in this CLI host.');
+  },
 };
 
 function failure(
@@ -182,6 +185,36 @@ export async function runNovelTeaCli(
     let exitCode: number;
     try {
       exitCode = nativeTools.shaderc(globals.command.slice(1));
+    } catch (error) {
+      return failure(
+        NOVELTEA_CLI_EXIT_CODES.internal,
+        [
+          cliDiagnostic(
+            'CLI_INTERNAL',
+            '/',
+            error instanceof Error ? error.message : String(error),
+          ),
+        ],
+        globals.json,
+      );
+    }
+    return {
+      exitCode: exitCode as NovelTeaCliExitCode,
+      envelope: {
+        success: exitCode === 0,
+        exitCode: exitCode as NovelTeaCliExitCode,
+        diagnostics: [],
+      },
+      stdout: '',
+      stderr: '',
+    };
+  }
+  if (globals.command[0] === 'texturec') {
+    if (globals.json)
+      return novelTeaCliUsageFailure("Raw 'texturec' does not support NovelTea --json mode.", true);
+    let exitCode: number;
+    try {
+      exitCode = nativeTools.texturec(globals.command.slice(1));
     } catch (error) {
       return failure(
         NOVELTEA_CLI_EXIT_CODES.internal,

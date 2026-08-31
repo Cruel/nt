@@ -459,6 +459,9 @@ describe('NovelTea headless CLI', () => {
       shaderc() {
         return 0;
       },
+      texturec() {
+        return 0;
+      },
     };
 
     const result = await runNovelTeaCli(
@@ -508,6 +511,9 @@ describe('NovelTea headless CLI', () => {
         return { ok: true, success: true };
       },
       shaderc() {
+        return 0;
+      },
+      texturec() {
         return 0;
       },
     };
@@ -621,6 +627,9 @@ describe('NovelTea headless CLI', () => {
       shaderc() {
         return 0;
       },
+      texturec() {
+        return 0;
+      },
     };
     const result = await runNovelTeaCli(['--json', 'validate'], options(value, root, nativeTools));
     expect(result.exitCode).toBe(0);
@@ -658,6 +667,9 @@ describe('NovelTea headless CLI', () => {
           return {};
         },
         shaderc() {
+          return 0;
+        },
+        texturec() {
           return 0;
         },
       }),

@@ -71,6 +71,17 @@ function nativeShaderc(arguments_: readonly string[]): number {
   return exitCode;
 }
 
+function nativeTexturec(arguments_: readonly string[]): number {
+  const response = invokeHost('texturec', JSON.stringify(arguments_));
+  const prefix = '{"exitCode":';
+  if (!response.startsWith(prefix) || !response.endsWith('}'))
+    throw new Error(`Native texturec returned invalid response '${response}'.`);
+  const exitCode = Number(response.slice(prefix.length, -1));
+  if (!Number.isSafeInteger(exitCode) || exitCode < 0)
+    throw new Error(`Native texturec returned invalid exit code '${String(exitCode)}'.`);
+  return exitCode;
+}
+
 function staticNativePath(argv: readonly string[]): HostResult | null {
   let project = false;
   let index = 0;
@@ -82,8 +93,9 @@ function staticNativePath(argv: readonly string[]): HostResult | null {
     project = true;
     index += 2;
   }
-  if (argv[index] !== 'shaderc') return null;
-  return [nativeShaderc(argv.slice(index + 1)), '', ''];
+  if (argv[index] === 'shaderc') return [nativeShaderc(argv.slice(index + 1)), '', ''];
+  if (argv[index] === 'texturec') return [nativeTexturec(argv.slice(index + 1)), '', ''];
+  return null;
 }
 
 function staticFastPath(argv: readonly string[]): HostResult | null {
