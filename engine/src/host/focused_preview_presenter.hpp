@@ -81,6 +81,7 @@ public:
     {
         return m_committed.owner;
     }
+    [[nodiscard]] bool mandatory_assets_pending() const noexcept;
     [[nodiscard]] const core::RoomPresentationResolution*
     committed_room_resolution_for_testing() const noexcept
     {

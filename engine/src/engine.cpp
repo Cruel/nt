@@ -1724,15 +1724,17 @@ bool Engine::Impl::tick()
     }
 
     handle_events();
-    const bool mandatory_loading = m_game_host.mandatory_assets_pending();
-    if (mandatory_loading) {
+    const bool runtime_mandatory_loading = m_game_host.mandatory_assets_pending();
+    const bool focused_preview_mandatory_loading =
+        m_preview_host.focused_preview_mandatory_assets_pending();
+    if (runtime_mandatory_loading || focused_preview_mandatory_loading) {
         service_loading_frame_jobs();
         (void)m_assets.retry_deferred_asset_requests_on_owner();
     } else {
         service_normal_frame_jobs();
     }
     apply_pending_debug_ui_commands();
-    const bool runtime_input_admitted = m_preview_running && !mandatory_loading;
+    const bool runtime_input_admitted = m_preview_running && !runtime_mandatory_loading;
     m_game_host_values.runtime_input_admitted = runtime_input_admitted;
     if (auto effective_pause = update_host_clocks(
             m_fixed_delta_seconds > 0.0 ? m_fixed_delta_seconds : m_platform.delta_time())) {

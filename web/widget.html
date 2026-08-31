@@ -804,6 +804,7 @@ thead, tbody, tfoot {
         byteSize: entry.byteSize,
         kind: entry.kind,
         ...(entry.sampling ? { sampling: entry.sampling } : {}),
+        ...(entry.retainAlphaCoverage === true ? { retainAlphaCoverage: true } : {}),
         ...(entry.sourceKind === 'authoring-asset' ? { assetId: entry.assetId } : {}),
         ...(entry.sourceKind === 'shader-compiled-output' ? {
           shaderId: entry.shaderId,

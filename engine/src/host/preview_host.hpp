@@ -147,6 +147,10 @@ public:
     [[nodiscard]] bool
     apply_focused_editor_document(core::editor::FocusedEditorDocumentRequest request);
     void update_focused_preview();
+    [[nodiscard]] bool focused_preview_mandatory_assets_pending() const noexcept
+    {
+        return m_focused_presenter->mandatory_assets_pending();
+    }
     [[nodiscard]] const FocusedContentOwnerState& focused_content_owner() const noexcept
     {
         return m_focused_presenter->committed_owner();
