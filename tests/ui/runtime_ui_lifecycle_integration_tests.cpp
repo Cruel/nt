@@ -79,6 +79,17 @@ constexpr const char* kBaselineOverrideDocument = R"(
 </rml>
 )";
 
+constexpr const char* kFullWidthButtonDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <div id="button-container" style="width: 240px;">
+      <button id="full-width-button" style="display: block; width: 100%;">Action</button>
+    </div>
+  </body>
+</rml>
+)";
+
 constexpr const char* kShellBindingDocument = R"(
 <rml>
   <head></head>
@@ -2204,6 +2215,52 @@ TEST_CASE("built-in Verb Menu begins and Command Builder repairs a multi-slot Dr
     CHECK(watch->watched_subjects.front() == coin_subject);
 }
 
+TEST_CASE("built-in Verb Menu anchors to its captured activation geometry when shown")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "room";
+    values.view.verb_menu_open = true;
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+
+    const auto instance = noveltea::core::ScopedLayoutInstanceId::create("verb-menu-ui");
+    REQUIRE(instance);
+    ui.set_layout_mount_context(
+        "runtime_verb_menu",
+        noveltea::RuntimeUiLayoutMountContext{
+            noveltea::core::SessionPresentationOwner{
+                noveltea::core::PresentationSessionId::from_number(1)},
+            noveltea::core::ScopedLayoutMountKey{instance.value()},
+            noveltea::core::LayoutMountOccurrenceId::from_number(1),
+            {},
+            {},
+            std::nullopt,
+            {},
+            {},
+            1.0,
+            noveltea::core::TriggerContext{.pointer = noveltea::core::TriggerPoint{0.45, 0.45},
+                                           .source_bounds =
+                                               noveltea::core::TriggerRect{0.4, 0.4, 0.1, 0.1}}});
+    REQUIRE(
+        ui.load_builtin_for_layout(noveltea::presentation::RuntimeLayoutBuiltinDocument::VerbMenu,
+                                   noveltea::core::MountedLayoutPolicy{}));
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* panel = driver->element("runtime_verb_menu", "nt_verb_menu");
+    REQUIRE(panel);
+    const auto offset = panel->GetAbsoluteOffset(Rml::BoxArea::Border);
+    CHECK(offset.x == Catch::Approx(872.0f));
+    CHECK(offset.y == Catch::Approx(494.0f));
+}
+
 TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing document state")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
@@ -2822,6 +2879,27 @@ TEST_CASE("RuntimeUI applies universal RmlUi baselines below path and memory doc
     CHECK(override_button->GetComputedValues().background_color() == Rml::Colourb(4, 5, 6, 255));
 
     RuntimeUiFacadeAccess::clear_preview_virtual_files(ui);
+}
+
+TEST_CASE("RuntimeUI baseline keeps full-width button border boxes inside their container")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "full-width-button", kFullWidthButtonDocument, "preview://full-width-button.rml",
+        true));
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* container = driver->element("full-width-button", "button-container");
+    auto* button = driver->element("full-width-button", "full-width-button");
+    REQUIRE(container);
+    REQUIRE(button);
+    const float container_content_width = container->GetBox().GetSize(Rml::BoxArea::Content).x;
+    const float button_border_width = button->GetBox().GetSize(Rml::BoxArea::Border).x;
+    CHECK(button_border_width <= container_content_width);
 }
 
 TEST_CASE("RuntimeUI refuses document loads when required baseline assets are unavailable")

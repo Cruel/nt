@@ -254,6 +254,8 @@ TEST_CASE(
                                          .popup_width = 200.0,
                                          .popup_height = 100.0,
                                          .gap = 8.0,
+                                         .offset_x = -12.0,
+                                         .offset_y = 5.0,
                                          .viewport_padding = 16.0,
                                          .viewport_safe = true});
     CHECK(pointer_anchor.x == Approx(784.0));
@@ -266,10 +268,12 @@ TEST_CASE(
                                          .popup_width = 120.0,
                                          .popup_height = 60.0,
                                          .gap = 10.0,
+                                         .offset_x = -7.0,
+                                         .offset_y = 9.0,
                                          .viewport_padding = 0.0,
                                          .viewport_safe = false});
-    CHECK(source_anchor.x == Approx(570.0));
-    CHECK(source_anchor.y == Approx(370.0));
+    CHECK(source_anchor.x == Approx(563.0));
+    CHECK(source_anchor.y == Approx(379.0));
 
     const LayoutLogicalTriggerContext nearest_context{
         .pointer = TriggerPoint{900.0, 50.0},
@@ -284,10 +288,12 @@ TEST_CASE(
                                 .popup_width = 100.0,
                                 .popup_height = 40.0,
                                 .gap = 6.0,
+                                .offset_x = 8.0,
+                                .offset_y = 4.0,
                                 .viewport_padding = 0.0,
                                 .viewport_safe = false});
-    CHECK(nearest_anchor.x == Approx(450.0));
-    CHECK(nearest_anchor.y == Approx(106.0));
+    CHECK(nearest_anchor.x == Approx(458.0));
+    CHECK(nearest_anchor.y == Approx(110.0));
 }
 
 TEST_CASE("compiled project publishes immutable collections and checked indexes")

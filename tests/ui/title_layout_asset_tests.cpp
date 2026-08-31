@@ -190,7 +190,13 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(verb_menu_rml.find("data-event-click=\"ui_clear_selection()\"") != std::string::npos);
     CHECK(verb_menu_rml.find("data-event-click=\"ui_invoke_interaction(action.verb_id)\"") !=
           std::string::npos);
+    CHECK(verb_menu_rml.find("onshow=\"noveltea_verb_menu.position(event, element, document)\"") !=
+          std::string::npos);
+    CHECK(verb_menu_rml.find("onload=\"noveltea_verb_menu.position") == std::string::npos);
+    CHECK(verb_menu_lua.find("Game.mount_context(\"runtime_verb_menu\")") != std::string::npos);
     CHECK(verb_menu_lua.find("mount:anchor") != std::string::npos);
+    CHECK(verb_menu_lua.find("\"nearest\", \"bottom\", \"start\", 8, 8, 8, 0") !=
+          std::string::npos);
     const std::vector<std::string> compass_directions{"northwest", "north",  "northeast",
                                                       "west",      "custom", "east",
                                                       "southwest", "south",  "southeast"};

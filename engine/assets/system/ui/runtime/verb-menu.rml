@@ -4,7 +4,7 @@
     <link type="text/rcss" href="system|/ui/runtime/verb-menu.rcss"/>
     <script src="system|/ui/runtime/verb-menu.lua"></script>
 </head>
-<body data-model="noveltea" onload="noveltea_verb_menu.position(event, element, document)">
+<body data-model="noveltea" onshow="noveltea_verb_menu.position(event, element, document)">
     <div id="nt_verb_menu" data-if="gameplay.interaction.verb_menu_open">
         <p class="nt-verb-menu-heading">Actions</p>
         <button data-for="action : gameplay.interaction.actions"
