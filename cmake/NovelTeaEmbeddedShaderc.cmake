@@ -139,4 +139,5 @@ function(noveltea_configure_embedded_shaderc)
     set(NOVELTEA_EMBEDDED_SHADERC_INCLUDE_DIR
         "${noveltea_bgfx_shaderc_source_SOURCE_DIR}/bgfx/tools/shaderc" PARENT_SCOPE)
     set(NOVELTEA_EMBEDDED_SHADERC_GENERATED_DIR "${_resource_dir}" PARENT_SCOPE)
+    set(NOVELTEA_EMBEDDED_SHADERC_SOURCE_DIR "${noveltea_bgfx_shaderc_source_SOURCE_DIR}" PARENT_SCOPE)
 endfunction()

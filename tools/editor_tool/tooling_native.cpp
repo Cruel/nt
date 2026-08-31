@@ -28,6 +28,8 @@
 #include <string_view>
 #include <vector>
 
+extern int noveltea_bimg_texturec_main(int argc, const char** argv);
+
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -837,6 +839,47 @@ noveltea_tooling_export_package_json(const std::uint8_t* request, std::uint64_t 
 extern "C" std::int32_t noveltea_tooling_shaderc(std::int32_t argc, const char* const* argv)
 {
     return bgfx::compileShader(argc, const_cast<const char**>(argv));
+}
+
+extern "C" std::int32_t noveltea_tooling_texturec(std::int32_t argc, const char* const* argv)
+{
+    return noveltea_bimg_texturec_main(argc, const_cast<const char**>(argv));
+}
+
+extern "C" std::uint64_t noveltea_tooling_texturec_json(const std::uint8_t* request,
+                                                         std::uint64_t request_size,
+                                                         std::uint8_t* response,
+                                                         std::uint64_t response_capacity)
+{
+    const auto input = noveltea::tooling::request_view(request, request_size);
+    const auto parsed = nlohmann::json::parse(input, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_array()) {
+        return noveltea::tooling::copy_result(
+            {.exit_code = 2, .response_json = R"({"exitCode":2})"}, response, response_capacity);
+    }
+    std::vector<std::string> storage;
+    storage.reserve(parsed.size() + 1);
+    storage.emplace_back("texturec");
+    for (const auto& value : parsed) {
+        if (!value.is_string()) {
+            return noveltea::tooling::copy_result(
+                {.exit_code = 2, .response_json = R"({"exitCode":2})"}, response,
+                response_capacity);
+        }
+        storage.push_back(value.get<std::string>());
+    }
+    std::vector<const char*> argv;
+    argv.reserve(storage.size());
+    for (const auto& value : storage)
+        argv.push_back(value.c_str());
+    const auto exit_code =
+        noveltea_bimg_texturec_main(static_cast<int>(argv.size()), argv.data());
+    std::fflush(stdout);
+    std::fflush(stderr);
+    return noveltea::tooling::copy_result(
+        {.exit_code = exit_code,
+         .response_json = nlohmann::json{{"exitCode", exit_code}}.dump()},
+        response, response_capacity);
 }
 
 extern "C" std::uint64_t noveltea_tooling_shaderc_json(const std::uint8_t* request,

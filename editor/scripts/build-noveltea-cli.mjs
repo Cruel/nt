@@ -298,9 +298,11 @@ const libraries = [
     path.join(shadercBgfxRoot, 'libspirv-cross.a'),
   ),
   staticArchive(vcpkgLibRoot, 'bimg_decode'),
+  staticArchive(vcpkgLibRoot, 'bimg_encode'),
   staticArchive(vcpkgLibRoot, 'lodepng'),
   staticArchive(vcpkgLibRoot, 'tinyexr'),
   staticArchive(vcpkgLibRoot, 'miniz'),
+  archive(path.join(vcpkgLibRoot, 'libsquish.a'), path.join(vcpkgLibRoot, 'libsquish.lib')),
   archive(
     ...[editorToolRoot, shadercBimgRoot].flatMap((root) => [
       path.join(root, 'bimg.lib'),

@@ -144,6 +144,7 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
   const command = globals.command;
   const knownPath =
     command[0] === 'shaderc' ||
+    command[0] === 'texturec' ||
     (command[0] === 'project' && command[1] === 'create') ||
     (command[0] === 'agent' && command[1] === 'sync') ||
     (command[0] === 'comfyui' &&

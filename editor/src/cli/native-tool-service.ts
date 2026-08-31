@@ -5,6 +5,7 @@ import {
   runHeadlessTestNative,
   runUiTestNative,
   shadercNative,
+  texturecNative,
 } from '@noveltea/tooling-native';
 
 export interface NovelTeaCliNativeToolService {
@@ -16,6 +17,7 @@ export interface NovelTeaCliNativeToolService {
   runUiTest(request: unknown): Promise<unknown>;
   exportPackage(request: unknown): Promise<unknown>;
   shaderc(arguments_: readonly string[]): number;
+  texturec(arguments_: readonly string[]): number;
 }
 
 export function createInProcessNovelTeaCliNativeToolService(): NovelTeaCliNativeToolService {
@@ -37,6 +39,9 @@ export function createInProcessNovelTeaCliNativeToolService(): NovelTeaCliNative
     },
     shaderc(arguments_) {
       return shadercNative(arguments_);
+    },
+    texturec(arguments_) {
+      return texturecNative(arguments_);
     },
   };
 }
