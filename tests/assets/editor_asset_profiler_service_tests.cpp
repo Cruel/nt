@@ -342,6 +342,35 @@ TEST_CASE("Editor asset profiler tracks exact memory peaks and coalesces frame p
     CHECK(combined.memory.peak.asset.prepared_cpu_bytes == 900);
     CHECK(combined.memory.peak.asset_ram_bytes == 975);
 
+    const assets::ResolvedAssetMemoryPolicy constrained_policy{
+        .target = assets::AssetMemoryTarget::Web,
+        .preset = assets::AssetMemoryPreset::Low,
+        .budget = {.source_bytes = 200,
+                   .prepared_cpu_bytes = 300,
+                   .gpu_bytes = 400,
+                   .audio_bytes = 500,
+                   .temporary_bytes = 600,
+                   .prefetch_allowance_percent = 10}};
+    accounting.current = {.source_bytes = 40,
+                          .prepared_cpu_bytes = 60,
+                          .gpu_bytes = 15,
+                          .audio_bytes = 20,
+                          .temporary_bytes = 30};
+    service.record({.kind = core::AssetTelemetryEventKind::MemoryPolicyResolved,
+                    .memory = accounting.current,
+                    .memory_policy = constrained_policy});
+    const auto policy_changed = service.capture_on_owner();
+    CHECK(policy_changed.memory.policy == constrained_policy);
+    CHECK(policy_changed.memory.current.asset == accounting.current);
+    CHECK(policy_changed.memory.peak.asset == accounting.current);
+    CHECK(policy_changed.memory.peak.asset_ram_bytes == 120);
+    REQUIRE_FALSE(policy_changed.retained_changes.empty());
+    REQUIRE(std::holds_alternative<core::AssetTelemetryEvent>(
+        policy_changed.retained_changes.back().payload));
+    CHECK(
+        std::get<core::AssetTelemetryEvent>(policy_changed.retained_changes.back().payload).kind ==
+        core::AssetTelemetryEventKind::MemoryPolicyResolved);
+
     accounting.current = {.source_bytes = 40, .prepared_cpu_bytes = 60, .audio_bytes = 20};
     service.record_accounting_change(accounting);
     const auto old_session = combined.session_id;

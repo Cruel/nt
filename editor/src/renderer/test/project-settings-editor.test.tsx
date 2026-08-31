@@ -21,6 +21,7 @@ import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({
@@ -127,6 +128,37 @@ beforeEach(() => {
 });
 
 describe('ProjectSettingsEditor', () => {
+  it('authors reusable asset-memory policies and blocks deleting referenced policies', async () => {
+    const source = project();
+    source.export.assetMemoryPolicies = [
+      { id: 'mobile', label: 'Mobile', basePreset: 'low', overrides: {} },
+    ];
+    const profile = defaultPlatformExportProfile('android');
+    profile.label = 'Android Release';
+    profile.assetMemory = { kind: 'policy', policyId: 'mobile' };
+    source.export.profiles = [profile];
+    useProjectStore.getState().loadProjectDocument({
+      document: source,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Asset Memory');
+
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    expect(screen.getByRole('cell', { name: 'Desktop' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Android' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Web' })).toBeInTheDocument();
+
+    const overrideSwitches = screen.getAllByRole('switch');
+    fireEvent.click(overrideSwitches[1]!);
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<typeof project>;
+      expect(current.export.assetMemoryPolicies[0]?.overrides.gpuBytes).toBe(128 * 1024 * 1024);
+    });
+    expect(screen.getByLabelText('GPU MiB')).toHaveValue(128);
+  });
+
   it('restores the selected category on the first remount render', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),

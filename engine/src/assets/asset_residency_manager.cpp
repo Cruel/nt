@@ -296,24 +296,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         : policy(configured_policy), budget(configured_policy.budget), telemetry(telemetry_sink),
           execution_mode(configured_execution_mode)
     {
-        if (telemetry != nullptr) {
-            telemetry->record({.timestamp = std::chrono::steady_clock::now(),
-                               .kind = core::AssetTelemetryEventKind::MemoryPolicyResolved,
-                               .execution_mode = execution_mode,
-                               .cache_key = std::nullopt,
-                               .job_id = {},
-                               .request_id = {},
-                               .prefetch_generation = {},
-                               .request_reason = std::nullopt,
-                               .job_priority = std::nullopt,
-                               .memory = {},
-                               .compressed_bytes = 0,
-                               .uncompressed_bytes = 0,
-                               .duration = {},
-                               .diagnostic_code = {},
-                               .eviction_reason = std::nullopt,
-                               .memory_policy = policy});
-        }
+        record_memory_policy_resolved();
     }
 
     ~Impl()
@@ -325,6 +308,28 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
     }
 
     void assert_owner() const noexcept { owner_thread.assert_owner_thread(); }
+
+    void record_memory_policy_resolved() noexcept
+    {
+        if (telemetry == nullptr)
+            return;
+        telemetry->record({.timestamp = std::chrono::steady_clock::now(),
+                           .kind = core::AssetTelemetryEventKind::MemoryPolicyResolved,
+                           .execution_mode = execution_mode,
+                           .cache_key = std::nullopt,
+                           .job_id = {},
+                           .request_id = {},
+                           .prefetch_generation = {},
+                           .request_reason = std::nullopt,
+                           .job_priority = std::nullopt,
+                           .memory = accounting.current,
+                           .compressed_bytes = 0,
+                           .uncompressed_bytes = 0,
+                           .duration = {},
+                           .diagnostic_code = {},
+                           .eviction_reason = std::nullopt,
+                           .memory_policy = policy});
+    }
 
     [[nodiscard]] ResidencyClass classification(const ResidentRecord& record) const noexcept
     {
@@ -918,6 +923,23 @@ ResolvedAssetMemoryPolicy AssetResidencyManager::policy_on_owner() const noexcep
 {
     m_impl->assert_owner();
     return m_impl->policy;
+}
+
+ResidencyEvictionResult
+AssetResidencyManager::reconfigure_policy_on_owner(ResolvedAssetMemoryPolicy policy) noexcept
+{
+    m_impl->assert_owner();
+    m_impl->policy = std::move(policy);
+    m_impl->budget = m_impl->policy.budget;
+    auto result = m_impl->enforce_budgets();
+    m_impl->accounting.high_water = m_impl->accounting.current;
+    result.accounting = m_impl->accounting;
+    m_impl->record_memory_policy_resolved();
+    if (m_impl->telemetry != nullptr) {
+        m_impl->telemetry->record_inventory_maybe_changed();
+        m_impl->telemetry->record_accounting_change(m_impl->accounting);
+    }
+    return result;
 }
 
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER

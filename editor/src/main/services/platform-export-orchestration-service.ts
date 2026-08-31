@@ -255,7 +255,10 @@ export async function exportProjectToPlatform(
     }
 
     const projectRoot = loaded.projectPath;
-    const profiles = parseProjectPlatformExportSettings({ profiles: project.export.profiles });
+    const profiles = parseProjectPlatformExportSettings({
+      profiles: project.export.profiles,
+      assetMemoryPolicies: project.export.assetMemoryPolicies,
+    });
     const profile = profiles.profiles.find((item) => item.id === request.profileId);
     if (!profile)
       return failure(operationId, [
@@ -550,6 +553,7 @@ export async function exportProjectToPlatform(
       const stageRequest = {
         operationId,
         profile,
+        assetMemoryPolicies: profiles.assetMemoryPolicies,
         templateToken: resolved.token,
         outputDirectory: path.resolve(request.outputDirectory),
         packagePath,

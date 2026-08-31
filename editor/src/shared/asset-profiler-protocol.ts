@@ -51,6 +51,7 @@ export interface AssetProfilerStateCounts {
   cached: CanonicalDecimal;
   loading: CanonicalDecimal;
   finishing: CanonicalDecimal;
+  blocked: CanonicalDecimal;
   failed: CanonicalDecimal;
 }
 
@@ -91,6 +92,7 @@ export type AssetProfilerAssetType = 'image' | 'audio' | 'font' | 'shader' | 'ma
 export type AssetProfilerAssetState =
   | 'loading'
   | 'finishing'
+  | 'blocked'
   | 'in-use'
   | 'prefetched'
   | 'cached'
@@ -192,6 +194,7 @@ export type AssetProfilerRetainedTelemetryEventKind =
   | 'prefetch-late'
   | 'prefetch-miss'
   | 'prefetch-unused'
+  | 'memory-policy-resolved'
   | 'budget-pressure';
 
 export interface AssetProfilerTelemetryEvent {
@@ -387,7 +390,15 @@ function isMemoryPeaks(value: unknown): value is AssetProfilerMemoryPeaks {
 }
 
 function isStateCounts(value: unknown): value is AssetProfilerStateCounts {
-  const keys = ['inUse', 'prefetched', 'cached', 'loading', 'finishing', 'failed'] as const;
+  const keys = [
+    'inUse',
+    'prefetched',
+    'cached',
+    'loading',
+    'finishing',
+    'blocked',
+    'failed',
+  ] as const;
   return (
     isRecord(value) &&
     hasExactKeys(value, keys) &&
@@ -477,7 +488,15 @@ function isAssetEntry(value: unknown): value is AssetProfilerWireEntry {
     isCacheKey(value.cacheKey) &&
     isEnum(value.assetType, ['image', 'audio', 'font', 'shader', 'material']) &&
     typeof value.displayIdentity === 'string' &&
-    isEnum(value.state, ['loading', 'finishing', 'in-use', 'prefetched', 'cached', 'failed']) &&
+    isEnum(value.state, [
+      'loading',
+      'finishing',
+      'blocked',
+      'in-use',
+      'prefetched',
+      'cached',
+      'failed',
+    ]) &&
     isEnum(value.requestOrigin, [
       'startup',
       'demand',
@@ -631,6 +650,7 @@ function isTelemetry(value: unknown): value is AssetProfilerTelemetryEvent {
       'prefetch-late',
       'prefetch-miss',
       'prefetch-unused',
+      'memory-policy-resolved',
       'budget-pressure',
     ]) &&
     isEnum(value.executionMode, ['threaded', 'cooperative', 'inline-test']) &&

@@ -138,7 +138,11 @@ export function buildPlatformDeployment(
       buildId: descriptor.buildId,
       compiledProjectFormatVersion: descriptor.compiledProjectFormatVersion,
       playerRuntimeApiVersion: request.playerRuntimeApiVersion,
-      assetMemory: resolveAssetMemoryPolicy(request.profile.target, request.profile.assetMemory),
+      assetMemory: resolveAssetMemoryPolicy(
+        request.profile.target,
+        request.profile.assetMemory,
+        request.assetMemoryPolicies ?? [],
+      ),
       android,
     },
   };

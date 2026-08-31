@@ -135,6 +135,11 @@ derive launch aspect/orientation from reference resolution at their platform bou
 values are not duplicated into the compiled project or canonical package display metadata. See
 `docs/assets/ASSET_MEMORY_PROFILES.md` for measurements and exact defaults.
 
+Authoring may select either a built-in policy or a reusable named Project policy. Named definitions
+are resolved during platform orchestration from their built-in base plus absolute overrides. Only the
+resolved target/preset marker and concrete limits are serialized to player/deployment metadata; the
+Project policy ID and inheritance structure are tooling-only configuration.
+
 The renderer prepares one current-revision Prepared Runtime Artifact. Main-process orchestration
 strictly parses its current schema, verifies profile, source identity, gameplay bytes, and package
 inventory, hashes the produced package, and requires matching package evidence before staging. A

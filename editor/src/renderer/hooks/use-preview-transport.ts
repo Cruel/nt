@@ -116,6 +116,7 @@ export function usePreviewTransport({
                 'asset-profiler.invalid-payload',
               ),
             );
+            return;
           }
           onErrorRef.current('Preview sent an invalid asset profiler payload.');
           return;

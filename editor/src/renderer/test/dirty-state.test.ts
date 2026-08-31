@@ -146,7 +146,13 @@ describe('workbench dirty state', () => {
     expect(getTabDirtyState(settingsTab, current, saved, {})).toMatchObject({
       dirty: true,
       saveUnitId: 'project:settings',
-      resourcePaths: ['/bootstrapModule', '/entrypoint', '/project', '/settings'],
+      resourcePaths: [
+        '/bootstrapModule',
+        '/entrypoint',
+        '/export/assetMemoryPolicies',
+        '/project',
+        '/settings',
+      ],
     });
     expect(restoreSaveUnitPatchesFromSaved(settingsTab, current, saved)).toEqual([
       {

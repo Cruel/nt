@@ -53,8 +53,13 @@ core::AssetProfilerMemorySnapshot memory_snapshot()
                               .audio_bytes = 103,
                               .temporary_bytes = 104,
                               .prefetch_allowance_percent = 25}},
-        .asset_counts =
-            {.in_use = 1, .prefetched = 2, .cached = 3, .loading = 4, .finishing = 5, .failed = 6},
+        .asset_counts = {.in_use = 1,
+                         .prefetched = 2,
+                         .cached = 3,
+                         .loading = 4,
+                         .finishing = 5,
+                         .blocked = 6,
+                         .failed = 7},
         .accounting_revision = beyond_javascript_safe_integer,
         .renderer_sampled_at_ns = beyond_javascript_safe_integer,
     };

@@ -37,6 +37,11 @@
       "error": "Asset profiler data is unavailable."
     },
     "actions": { "openPlay": "Open Play" },
+    "simulation": {
+      "label": "Simulated memory policy",
+      "peakEpoch": "Peaks are measured since the last policy change.",
+      "targets": { "desktop": "Desktop", "android": "Android", "web": "Web" }
+    },
     "metrics": {
       "assetRam": "Asset RAM",
       "loadingMemory": "Loading memory",
@@ -79,6 +84,7 @@
       "cached": "Cached",
       "loading": "Loading",
       "finishing": "Finishing",
+      "blocked": "Blocked",
       "failed": "Failed"
     },
     "assetTypes": {
@@ -161,6 +167,7 @@
         "cached": "Cached",
         "loading": "Loading",
         "finishing": "Finishing",
+        "blocked": "Blocked",
         "failed": "Failed",
         "reloaded": "Reloaded after removal"
       },

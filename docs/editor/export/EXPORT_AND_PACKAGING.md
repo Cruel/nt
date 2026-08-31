@@ -34,7 +34,9 @@ The deleted `buildAuthoringRuntimeExport`, `authoring-runtime-export.ts`, and
 The editor exposes one Export workbench tab. Its left sidebar pins the built-in Runtime Package
 entry above alphanumerically sorted project profiles. Portable export configuration lives in the
 top-level `/export` project subtree: `/export/runtime` is the built-in Runtime Package policy and
-`/export/profiles` contains platform target recipes. `/settings` is reserved for Project Settings.
+`/export/profiles` contains platform target recipes. `/export/assetMemoryPolicies` contains named
+reusable memory policies managed from Project Settings. `/settings` remains reserved for ordinary
+Project Settings data.
 Profile creation chooses name and platform first, then enters the same target-specific editor used by
 `Edit Profile`. Platform identity is immutable after creation. The currently selected profile, output
 directory, installed-template selection, and signing identity are user-local execution state rather
@@ -45,6 +47,13 @@ lives on the normal Export pane. Normal exports exclude unused assets and strip 
 engine policy. Developer Mode exposes only the exceptional overrides `Exclude Unused Assets` and
 `Include Shader Sources`; checksums, shader compilation, shader-variant closure, and other package
 mechanics remain automatic.
+
+Each platform profile selects a built-in Low/Balanced/High asset-memory policy or references one
+named Project policy by stable ID. Named policies are edited only in Project Settings; the Export
+editor shows the selected policy's base and concrete values resolved for the profile target and can
+navigate to the canonical policy editor. Platform staging receives the named policy definitions only
+to resolve the selected reference, then writes fully concrete memory limits into deployment/player
+metadata. It never copies authoring policy IDs into the runtime contract.
 
 Runtime-package compiler errors block package and platform export. Diagnostics retain compiler
 codes, source paths, JSON pointers, owner paths, explicit boundaries, and deterministic ordering.

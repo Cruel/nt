@@ -48,7 +48,8 @@ const memory = {
     cached: '3',
     loading: '4',
     finishing: '5',
-    failed: '6',
+    blocked: '6',
+    failed: '7',
   },
   accountingRevision: '11',
   rendererSampledAtNs: null,
@@ -206,6 +207,25 @@ describe('asset profiler protocol', () => {
         type: 'runtime-asset-profiler',
         requestId: 'request-1',
         payload: delta,
+      }),
+    ).toBe(true);
+  });
+
+  it('accepts retained memory-policy resolution telemetry', () => {
+    expect(
+      isAssetProfilerWirePayload({
+        ...full,
+        retainedChanges: [
+          {
+            ...telemetryChange,
+            event: {
+              ...telemetryChange.event,
+              eventKind: 'memory-policy-resolved',
+              cacheKey: null,
+              memoryPolicy: memory.policy,
+            },
+          },
+        ],
       }),
     ).toBe(true);
   });

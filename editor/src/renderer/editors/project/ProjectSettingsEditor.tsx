@@ -51,6 +51,12 @@ import {
 import { decodeAuthoringProject } from '../../../shared/project-schema/decode-authoring-project';
 import { stripEditorProjectState } from '../../../shared/project-schema/editor-project-state';
 import {
+  assetMemoryBuiltinPresetValues,
+  resolveAssetMemoryPolicy,
+  type AssetMemoryPolicyDefinition,
+  type AssetMemoryBuiltinPreset,
+} from '../../../shared/project-schema/platform-export-contracts';
+import {
   deriveProjectDisplayGeometry,
   projectSettingsForEditing,
   validateProjectSettingsAuthoringState,
@@ -75,6 +81,7 @@ import {
   AppWindow,
   BadgeInfo,
   Blocks,
+  Gauge,
   Image,
   LayoutTemplate,
   MonitorCog,
@@ -110,6 +117,7 @@ const AUDIO_PURPOSE_LABELS: Record<AudioPurpose, string> = {
 type ProjectSettingsCategory =
   | 'general'
   | 'runtime'
+  | 'asset-memory'
   | 'display'
   | 'audio'
   | 'title-screen'
@@ -130,6 +138,12 @@ const projectSettingsCategories: readonly CategorizedEditorCategory<ProjectSetti
     label: 'Runtime',
     description: 'Built-in layouts and default runtime resources.',
     icon: LayoutTemplate,
+  },
+  {
+    id: 'asset-memory',
+    label: 'Asset Memory',
+    description: 'Reusable target-relative asset residency policies.',
+    icon: Gauge,
   },
   {
     id: 'display',
@@ -195,6 +209,7 @@ function projectSettingsCategoryForTarget(targetId: string): ProjectSettingsCate
     targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/settings/text/defaultFont']
   )
     return 'runtime';
+  if (targetId.startsWith('projectSettings.assetMemory')) return 'asset-memory';
   if (
     targetId.startsWith('projectSettings.display') ||
     targetId.startsWith('projectSettings.field.referenceResolution') ||
@@ -607,6 +622,395 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
         </Button>
       </div>
     </div>
+  );
+}
+
+const ASSET_MEMORY_MIB = 1024 * 1024;
+
+function formatAssetMemoryMiB(bytes: number) {
+  return `${Math.round((bytes / ASSET_MEMORY_MIB) * 10) / 10} MiB`;
+}
+
+function uniqueAssetMemoryPolicyId(project: AuthoringProject, base = 'memory-policy') {
+  const ids = new Set(project.export.assetMemoryPolicies.map((policy) => policy.id));
+  if (!ids.has(base)) return base;
+  let index = 2;
+  while (ids.has(`${base}-${index}`)) index += 1;
+  return `${base}-${index}`;
+}
+
+function uniqueAssetMemoryPolicyLabel(project: AuthoringProject, base: string) {
+  const labels = new Set(
+    project.export.assetMemoryPolicies.map((policy) => policy.label.trim().toLowerCase()),
+  );
+  if (!labels.has(base.toLowerCase())) return base;
+  let index = 2;
+  while (labels.has(`${base} (${index})`.toLowerCase())) index += 1;
+  return `${base} (${index})`;
+}
+
+function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
+  const policies = project.export.assetMemoryPolicies;
+  const [selectedPolicyId, setSelectedPolicyId] = useState(policies[0]?.id ?? '');
+  const selectedPolicy = policies.find((policy) => policy.id === selectedPolicyId) ?? policies[0];
+
+  useEffect(() => {
+    if (!selectedPolicy && policies[0]) setSelectedPolicyId(policies[0].id);
+    if (policies.length === 0 && selectedPolicyId) setSelectedPolicyId('');
+  }, [policies, selectedPolicy, selectedPolicyId]);
+
+  function replacePolicies(next: AssetMemoryPolicyDefinition[], label: string) {
+    runProjectCommand(
+      'project.replaceAtPath',
+      { path: '/export/assetMemoryPolicies', value: next },
+      label,
+    );
+  }
+
+  function updatePolicy(
+    policyId: string,
+    update: (policy: AssetMemoryPolicyDefinition) => AssetMemoryPolicyDefinition,
+    label: string,
+  ) {
+    replacePolicies(
+      policies.map((policy) => (policy.id === policyId ? update(policy) : policy)),
+      label,
+    );
+  }
+
+  function addPolicy() {
+    const policy: AssetMemoryPolicyDefinition = {
+      id: uniqueAssetMemoryPolicyId(project),
+      label: uniqueAssetMemoryPolicyLabel(project, 'New Policy'),
+      basePreset: 'balanced',
+      overrides: {},
+    };
+    replacePolicies([...policies, policy], 'Add asset memory policy');
+    setSelectedPolicyId(policy.id);
+  }
+
+  function duplicatePolicy() {
+    if (!selectedPolicy) return;
+    const policy: AssetMemoryPolicyDefinition = {
+      ...structuredClone(selectedPolicy),
+      id: uniqueAssetMemoryPolicyId(project, selectedPolicy.id),
+      label: uniqueAssetMemoryPolicyLabel(project, selectedPolicy.label),
+    };
+    replacePolicies([...policies, policy], `Duplicate ${selectedPolicy.label}`);
+    setSelectedPolicyId(policy.id);
+  }
+
+  const references = selectedPolicy
+    ? project.export.profiles.filter(
+        (profile) =>
+          profile.assetMemory.kind === 'policy' &&
+          profile.assetMemory.policyId === selectedPolicy.id,
+      )
+    : [];
+
+  function deletePolicy() {
+    if (!selectedPolicy || references.length > 0) return;
+    const next = policies.filter((policy) => policy.id !== selectedPolicy.id);
+    replacePolicies(next, `Delete ${selectedPolicy.label}`);
+    setSelectedPolicyId(next[0]?.id ?? '');
+  }
+
+  function baseResolved(preset: AssetMemoryBuiltinPreset) {
+    return resolveAssetMemoryPolicy('linux', { kind: 'builtin', preset });
+  }
+
+  function setByteOverride(
+    field: 'preparedCpuBytes' | 'gpuBytes' | 'audioBytes' | 'temporaryBytes',
+    enabled: boolean,
+  ) {
+    if (!selectedPolicy) return;
+    updatePolicy(
+      selectedPolicy.id,
+      (policy) => {
+        const overrides = { ...policy.overrides };
+        if (enabled) overrides[field] = baseResolved(policy.basePreset)[field];
+        else delete overrides[field];
+        return { ...policy, overrides };
+      },
+      `Update ${selectedPolicy.label} ${field}`,
+    );
+  }
+
+  function setPercentOverride(enabled: boolean) {
+    if (!selectedPolicy) return;
+    updatePolicy(
+      selectedPolicy.id,
+      (policy) => {
+        const overrides = { ...policy.overrides };
+        if (enabled)
+          overrides.prefetchAllowancePercent = baseResolved(
+            policy.basePreset,
+          ).prefetchAllowancePercent;
+        else delete overrides.prefetchAllowancePercent;
+        return { ...policy, overrides };
+      },
+      `Update ${selectedPolicy.label} prefetch allowance`,
+    );
+  }
+
+  const resolutions = selectedPolicy
+    ? [
+        ['Desktop', 'linux'],
+        ['Android', 'android'],
+        ['Web', 'web'],
+      ].map(([label, target]) => ({
+        label,
+        value: resolveAssetMemoryPolicy(
+          target as 'linux' | 'android' | 'web',
+          { kind: 'policy', policyId: selectedPolicy.id },
+          policies,
+        ),
+      }))
+    : [];
+
+  const byteFields = [
+    ['preparedCpuBytes', 'Prepared CPU'],
+    ['gpuBytes', 'GPU'],
+    ['audioBytes', 'Audio'],
+    ['temporaryBytes', 'Temporary preparation'],
+  ] as const;
+
+  return (
+    <Card data-workbench-anchor="projectSettings.assetMemoryPolicies">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle>Asset Memory Policies</CardTitle>
+            <CardDescription>
+              Define reusable policies based on Low, Balanced, or High. Unoverridden fields continue
+              to follow each target&apos;s built-in values.
+            </CardDescription>
+          </div>
+          <Button type="button" size="sm" onClick={addPolicy}>
+            Add Policy
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {policies.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No project policies yet. Export and Play can still use Low, Balanced, and High.
+          </p>
+        ) : (
+          <>
+            <div className="grid gap-3 md:grid-cols-[14rem_minmax(0,1fr)]">
+              <div className="space-y-2">
+                {policies.map((policy) => (
+                  <button
+                    key={policy.id}
+                    type="button"
+                    className={`w-full rounded border px-3 py-2 text-left text-sm ${
+                      selectedPolicy?.id === policy.id
+                        ? 'bg-muted font-medium'
+                        : 'hover:bg-muted/50'
+                    }`}
+                    onClick={() => setSelectedPolicyId(policy.id)}
+                  >
+                    <div>{policy.label}</div>
+                    <div className="text-xs font-normal text-muted-foreground">{policy.id}</div>
+                  </button>
+                ))}
+              </div>
+              {selectedPolicy ? (
+                <div className="space-y-4 rounded border p-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Label className="gap-1">
+                      Name
+                      <Input
+                        value={selectedPolicy.label}
+                        onChange={(event) => {
+                          const label = event.currentTarget.value;
+                          const duplicate = policies.some(
+                            (policy) =>
+                              policy.id !== selectedPolicy.id &&
+                              policy.label.trim().toLowerCase() === label.trim().toLowerCase(),
+                          );
+                          if (!label.trim() || duplicate) return;
+                          updatePolicy(
+                            selectedPolicy.id,
+                            (policy) => ({ ...policy, label }),
+                            `Rename ${selectedPolicy.label}`,
+                          );
+                        }}
+                      />
+                    </Label>
+                    <Label className="gap-1">
+                      Base preset
+                      <select
+                        className="h-9 rounded border bg-background px-2 text-sm"
+                        value={selectedPolicy.basePreset}
+                        onChange={(event) =>
+                          updatePolicy(
+                            selectedPolicy.id,
+                            (policy) => ({
+                              ...policy,
+                              basePreset: event.currentTarget.value as AssetMemoryBuiltinPreset,
+                            }),
+                            `Change ${selectedPolicy.label} base preset`,
+                          )
+                        }
+                      >
+                        {assetMemoryBuiltinPresetValues.map((preset) => (
+                          <option key={preset} value={preset}>
+                            {preset[0]!.toUpperCase() + preset.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </Label>
+                  </div>
+
+                  <div className="space-y-3">
+                    {byteFields.map(([field, label]) => {
+                      const override = selectedPolicy.overrides[field];
+                      return (
+                        <div
+                          key={field}
+                          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_9rem] sm:items-center"
+                        >
+                          <div>
+                            <div className="text-sm font-medium">{label}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {override === undefined
+                                ? 'Inherited from target preset'
+                                : 'Absolute override'}
+                            </div>
+                          </div>
+                          <label className="flex items-center gap-2 text-xs">
+                            <Switch
+                              checked={override !== undefined}
+                              onCheckedChange={(checked) => setByteOverride(field, checked)}
+                            />
+                            Override
+                          </label>
+                          <Input
+                            aria-label={`${label} MiB`}
+                            type="number"
+                            min={field === 'temporaryBytes' ? 1 : Number.MIN_VALUE}
+                            step="1"
+                            disabled={override === undefined}
+                            value={override === undefined ? '' : override / ASSET_MEMORY_MIB}
+                            onChange={(event) => {
+                              const mibValue = Number(event.currentTarget.value);
+                              if (!Number.isFinite(mibValue) || mibValue <= 0) return;
+                              const bytes = mibValue * ASSET_MEMORY_MIB;
+                              if (!Number.isSafeInteger(bytes)) return;
+                              updatePolicy(
+                                selectedPolicy.id,
+                                (policy) => ({
+                                  ...policy,
+                                  overrides: { ...policy.overrides, [field]: bytes },
+                                }),
+                                `Update ${selectedPolicy.label} ${field}`,
+                              );
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_9rem] sm:items-center">
+                      <div>
+                        <div className="text-sm font-medium">Warm prefetch allowance</div>
+                        <div className="text-xs text-muted-foreground">
+                          {selectedPolicy.overrides.prefetchAllowancePercent === undefined
+                            ? 'Inherited from target preset'
+                            : 'Absolute percentage override'}
+                        </div>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs">
+                        <Switch
+                          checked={selectedPolicy.overrides.prefetchAllowancePercent !== undefined}
+                          onCheckedChange={setPercentOverride}
+                        />
+                        Override
+                      </label>
+                      <Input
+                        aria-label="Warm prefetch allowance percent"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        disabled={selectedPolicy.overrides.prefetchAllowancePercent === undefined}
+                        value={selectedPolicy.overrides.prefetchAllowancePercent ?? ''}
+                        onChange={(event) => {
+                          const percent = Number(event.currentTarget.value);
+                          if (!Number.isInteger(percent) || percent < 0 || percent > 100) return;
+                          updatePolicy(
+                            selectedPolicy.id,
+                            (policy) => ({
+                              ...policy,
+                              overrides: { ...policy.overrides, prefetchAllowancePercent: percent },
+                            }),
+                            `Update ${selectedPolicy.label} prefetch allowance`,
+                          );
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded border">
+                    <table className="w-full min-w-[42rem] text-left text-xs">
+                      <thead className="bg-muted/50 text-muted-foreground">
+                        <tr>
+                          <th className="px-2 py-2 font-medium">Target</th>
+                          <th className="px-2 py-2 font-medium">Prepared CPU</th>
+                          <th className="px-2 py-2 font-medium">GPU</th>
+                          <th className="px-2 py-2 font-medium">Audio</th>
+                          <th className="px-2 py-2 font-medium">Temporary</th>
+                          <th className="px-2 py-2 font-medium">Warm</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resolutions.map(({ label, value }) => (
+                          <tr key={label} className="border-t">
+                            <td className="px-2 py-2 font-medium">{label}</td>
+                            <td className="px-2 py-2">
+                              {formatAssetMemoryMiB(value.preparedCpuBytes)}
+                            </td>
+                            <td className="px-2 py-2">{formatAssetMemoryMiB(value.gpuBytes)}</td>
+                            <td className="px-2 py-2">{formatAssetMemoryMiB(value.audioBytes)}</td>
+                            <td className="px-2 py-2">
+                              {formatAssetMemoryMiB(value.temporaryBytes)}
+                            </td>
+                            <td className="px-2 py-2">{value.prefetchAllowancePercent}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {references.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Used by export profile{references.length === 1 ? '' : 's'}:{' '}
+                      {references.map((profile) => profile.label).join(', ')}. Change those
+                      references before deleting this policy.
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={duplicatePolicy}>
+                      Duplicate
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={references.length > 0}
+                      onClick={deletePolicy}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1283,6 +1687,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           </Card>
         </>
       ) : null}
+
+      {activeCategory === 'asset-memory' ? <AssetMemoryPoliciesEditor project={project} /> : null}
 
       {activeCategory === 'display' ? (
         <Card data-workbench-anchor="projectSettings.display">

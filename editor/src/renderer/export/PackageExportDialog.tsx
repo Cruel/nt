@@ -16,7 +16,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
-import { buildSettingsTab } from '@/workbench/editor-registry';
+import { buildProjectSettingsTab, buildSettingsTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
@@ -42,11 +42,13 @@ import { evaluateTemplateCompatibility } from '../../shared/project-schema/templ
 import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import {
   defaultPlatformExportProfile,
+  resolveAssetMemoryPolicy,
   PLAYER_RUNTIME_API_VERSION,
   parsePlatformExportProfile,
   parseProjectPlatformExportSettings,
   userSigningProfileToExportSigningState,
   type ExportPlatform,
+  type AssetMemoryProfile,
   type PlatformExportProfile,
   type ProjectPlatformExportSettings,
   type UserExportConfig,
@@ -225,7 +227,30 @@ function DiagnosticPreview({
 }
 
 function profileSettings(project: AuthoringProject): ProjectPlatformExportSettings {
-  return parseProjectPlatformExportSettings({ profiles: project.export.profiles });
+  return parseProjectPlatformExportSettings({
+    profiles: project.export.profiles,
+    assetMemoryPolicies: project.export.assetMemoryPolicies,
+  });
+}
+
+function assetMemorySelectionValue(selection: AssetMemoryProfile): string {
+  return selection.kind === 'builtin'
+    ? `builtin:${selection.preset}`
+    : `policy:${selection.policyId}`;
+}
+
+function assetMemorySelectionFromValue(value: string): AssetMemoryProfile {
+  if (value.startsWith('policy:'))
+    return { kind: 'policy', policyId: value.slice('policy:'.length) };
+  const preset = value.slice('builtin:'.length);
+  return {
+    kind: 'builtin',
+    preset: preset === 'low' || preset === 'high' ? preset : 'balanced',
+  };
+}
+
+function formatMemoryMiB(bytes: number) {
+  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MiB`;
 }
 
 function persistRuntimeProfile(_project: AuthoringProject, profile: ExportProfileData) {
@@ -661,6 +686,7 @@ export function PackageExportDialog({
     if (!profileDraft || !profileDraftNameIsValid()) return;
     if (profileEditMode === 'creating-config') {
       const next = {
+        ...currentPlatformSettings,
         profiles: [...currentPlatformSettings.profiles, profileDraft],
       };
       commitPlatformSettings(next);
@@ -697,6 +723,7 @@ export function PackageExportDialog({
       label: uniqueProfileLabel(base),
     });
     commitPlatformSettings({
+      ...currentPlatformSettings,
       profiles: [...currentPlatformSettings.profiles, next],
     });
     setSelectedPlatformProfileId(next.id);
@@ -726,9 +753,10 @@ export function PackageExportDialog({
       (item) => item.id !== selectedPlatformProfile.id,
     );
     if (profiles.length === 0) {
-      const result = persistPlatformSettings(currentProject, { profiles: [] });
+      const nextSettings = { ...currentPlatformSettings, profiles: [] };
+      const result = persistPlatformSettings(currentProject, nextSettings);
       if (!result.ok) return;
-      setPlatformSettings({ profiles: [] });
+      setPlatformSettings(nextSettings);
       setSelectedPlatformProfileId(null);
       setMode('runtime');
       rememberSelectedProfile('runtime-package');
@@ -737,7 +765,7 @@ export function PackageExportDialog({
       const selected = [...profiles].sort((a, b) =>
         a.label.localeCompare(b.label, undefined, { numeric: true }),
       )[0]!;
-      commitPlatformSettings({ profiles });
+      commitPlatformSettings({ ...currentPlatformSettings, profiles });
       setSelectedPlatformProfileId(selected.id);
       rememberSelectedProfile(selected.id);
       setPlatformOutput(outputForProfile(selected));
@@ -917,6 +945,20 @@ export function PackageExportDialog({
   );
   const editingProfile = profileEditMode === 'creating-config' || profileEditMode === 'editing';
   const sidebarDisabled = profileEditMode !== 'none';
+  const draftAssetMemoryPolicyId =
+    profileDraft?.assetMemory.kind === 'policy' ? profileDraft.assetMemory.policyId : null;
+  const draftNamedAssetMemoryPolicy = draftAssetMemoryPolicyId
+    ? currentPlatformSettings.assetMemoryPolicies.find(
+        (policy) => policy.id === draftAssetMemoryPolicyId,
+      )
+    : null;
+  const draftResolvedAssetMemory = profileDraft
+    ? resolveAssetMemoryPolicy(
+        profileDraft.target,
+        profileDraft.assetMemory,
+        currentPlatformSettings.assetMemoryPolicies,
+      )
+    : null;
 
   const profileEditor = editingProfile && profileDraft && (
     <div className="grid gap-5">
@@ -1088,6 +1130,94 @@ export function PackageExportDialog({
             </select>
           </div>
         ) : null}
+
+        <div className="grid gap-3 rounded border p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Label htmlFor="profile-asset-memory">Asset memory</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Select the target-relative memory policy used by this player export.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                navigateToWorkbenchTarget({
+                  tab: buildProjectSettingsTab(),
+                  target: { id: 'projectSettings.assetMemoryPolicies' },
+                })
+              }
+            >
+              Manage policies…
+            </Button>
+          </div>
+          <select
+            id="profile-asset-memory"
+            className="h-9 rounded border bg-background px-2 text-sm"
+            value={assetMemorySelectionValue(profileDraft.assetMemory)}
+            onChange={(event) =>
+              setProfileDraft({
+                ...profileDraft,
+                assetMemory: assetMemorySelectionFromValue(event.currentTarget.value),
+              })
+            }
+          >
+            <option value="builtin:low">Low</option>
+            <option value="builtin:balanced">Balanced</option>
+            <option value="builtin:high">High</option>
+            {currentPlatformSettings.assetMemoryPolicies.length > 0 ? (
+              <optgroup label="Project policies">
+                {currentPlatformSettings.assetMemoryPolicies.map((policy) => (
+                  <option key={policy.id} value={`policy:${policy.id}`}>
+                    {policy.label}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+          </select>
+          {draftNamedAssetMemoryPolicy ? (
+            <p className="text-xs text-muted-foreground">
+              Based on {draftNamedAssetMemoryPolicy.basePreset[0]!.toUpperCase()}
+              {draftNamedAssetMemoryPolicy.basePreset.slice(1)}.
+            </p>
+          ) : null}
+          {draftResolvedAssetMemory ? (
+            <div className="grid gap-2 text-xs sm:grid-cols-5">
+              <div>
+                <div className="text-muted-foreground">Prepared CPU</div>
+                <div className="font-medium">
+                  {formatMemoryMiB(draftResolvedAssetMemory.preparedCpuBytes)}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">GPU</div>
+                <div className="font-medium">
+                  {formatMemoryMiB(draftResolvedAssetMemory.gpuBytes)}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Audio</div>
+                <div className="font-medium">
+                  {formatMemoryMiB(draftResolvedAssetMemory.audioBytes)}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Temporary</div>
+                <div className="font-medium">
+                  {formatMemoryMiB(draftResolvedAssetMemory.temporaryBytes)}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Warm allowance</div>
+                <div className="font-medium">
+                  {draftResolvedAssetMemory.prefetchAllowancePercent}%
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         {developerMode ? (
           <label className="flex items-center gap-2 text-sm">

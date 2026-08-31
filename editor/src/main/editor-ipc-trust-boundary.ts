@@ -26,6 +26,7 @@ import { compiledProjectWireSchema } from '../shared/project-schema/compiled-pro
 import { preparedRuntimeArtifactSchema } from '../shared/project-schema/prepared-runtime-artifact';
 import {
   PLAYER_RUNTIME_API_VERSION,
+  assetMemoryPolicyDefinitionSchema,
   exportCapabilityValues,
   normalizedPlatformDisplayMetadataSchema,
   platformExportProfileSchema,
@@ -538,6 +539,10 @@ const platformStageRequestSchema = z
   .object({
     operationId: boundedExportIdentifierSchema,
     profile: platformExportProfileSchema,
+    assetMemoryPolicies: z
+      .array(assetMemoryPolicyDefinitionSchema)
+      .max(MAX_EXPORT_COLLECTION_ENTRIES)
+      .optional(),
     templateToken: boundedExportStringSchema,
     outputDirectory: boundedExportStringSchema,
     packagePath: boundedExportStringSchema,

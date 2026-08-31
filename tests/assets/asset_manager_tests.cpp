@@ -672,6 +672,25 @@ TEST_CASE("AssetManager profiler inventory exposes in-flight and resident-only t
     CHECK(std::ranges::none_of(
         inventory, [&](const auto& row) { return row.display_identity == canceled_request.path; }));
 
+    texture_loader.cost = {.gpu_bytes = 64, .temporary_bytes = 8192};
+    const TextureAssetRequest blocked_request{.path = "project:/images/blocked.png",
+                                              .sampler =
+                                                  noveltea::MaterialTextureSampler::ClampLinear};
+    const auto blocked_generation = manager.create_prefetch_generation_on_owner();
+    REQUIRE(blocked_generation);
+    auto blocked = manager.prefetch_texture(blocked_request, blocked_generation.value());
+    REQUIRE(blocked);
+    auto blocked_ticket = std::move(blocked).value();
+    inventory = capture_inventory();
+    const auto blocked_row = std::find_if(inventory.begin(), inventory.end(), [&](const auto& row) {
+        return row.display_identity == blocked_request.path;
+    });
+    REQUIRE(blocked_row != inventory.end());
+    CHECK(blocked_row->state == noveltea::core::AssetProfilerState::Blocked);
+    REQUIRE_FALSE(blocked_row->diagnostics.empty());
+    CHECK(blocked_row->diagnostics.front().code == "assets.prefetch_preparation_rejected");
+    blocked_ticket.reset();
+
     executor.begin_shutdown();
     (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
     CHECK(executor.shutdown_complete());

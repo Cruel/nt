@@ -44,11 +44,12 @@ export const exportArchitectureValues = ['x64', 'arm64', 'wasm32', 'x86_64'] as 
 export type ExportCapability = (typeof exportCapabilityValues)[number];
 export type ExportPlatform = (typeof exportPlatformValues)[number];
 
-export const assetMemoryPresetValues = ['low', 'balanced', 'high', 'custom'] as const;
+export const assetMemoryBuiltinPresetValues = ['low', 'balanced', 'high'] as const;
+export const assetMemoryPresetValues = [...assetMemoryBuiltinPresetValues, 'custom'] as const;
 const minimumTemporaryAssetBudgetBytes = 1024 * 1024;
 const positiveRuntimeByteCountSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
-export const customAssetMemoryPolicySchema = z
+export const assetMemoryPolicyOverridesSchema = z
   .object({
     preparedCpuBytes: positiveRuntimeByteCountSchema.optional(),
     gpuBytes: positiveRuntimeByteCountSchema.optional(),
@@ -58,20 +59,31 @@ export const customAssetMemoryPolicySchema = z
   })
   .strict();
 
-export const assetMemoryProfileSchema = z
+export const customAssetMemoryPolicySchema = assetMemoryPolicyOverridesSchema;
+
+export const assetMemoryPolicyDefinitionSchema = z
   .object({
-    preset: z.enum(assetMemoryPresetValues).default('balanced'),
-    custom: customAssetMemoryPolicySchema.optional(),
+    id: trimmedNonEmptyStringSchema,
+    label: trimmedNonEmptyStringSchema,
+    basePreset: z.enum(assetMemoryBuiltinPresetValues),
+    overrides: assetMemoryPolicyOverridesSchema.default({}),
   })
-  .strict()
-  .superRefine((value, context) => {
-    if (value.preset !== 'custom' && value.custom !== undefined)
-      context.addIssue({
-        code: 'custom',
-        path: ['custom'],
-        message: 'Custom asset memory fields require the Custom preset.',
-      });
-  });
+  .strict();
+
+export const assetMemoryProfileSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('builtin'),
+      preset: z.enum(assetMemoryBuiltinPresetValues),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('policy'),
+      policyId: trimmedNonEmptyStringSchema,
+    })
+    .strict(),
+]);
 
 export const resolvedAssetMemoryPolicySchema = z
   .object({
@@ -85,6 +97,8 @@ export const resolvedAssetMemoryPolicySchema = z
   .strict();
 
 export type AssetMemoryProfile = z.infer<typeof assetMemoryProfileSchema>;
+export type AssetMemoryPolicyDefinition = z.infer<typeof assetMemoryPolicyDefinitionSchema>;
+export type AssetMemoryBuiltinPreset = (typeof assetMemoryBuiltinPresetValues)[number];
 export type ResolvedAssetMemoryPolicy = z.infer<typeof resolvedAssetMemoryPolicySchema>;
 
 const mib = (value: number) => value * 1024 * 1024;
@@ -166,18 +180,26 @@ const measuredAssetMemoryDefaults: Record<
 export function resolveAssetMemoryPolicy(
   target: ExportPlatform,
   profile: AssetMemoryProfile,
+  policies: readonly AssetMemoryPolicyDefinition[] = [],
 ): ResolvedAssetMemoryPolicy {
   const family = target === 'web' ? 'web' : target === 'android' ? 'android' : 'desktop';
-  const baselinePreset = profile.preset === 'custom' ? 'balanced' : profile.preset;
+  const policy =
+    profile.kind === 'policy'
+      ? policies.find((candidate) => candidate.id === profile.policyId)
+      : undefined;
+  if (profile.kind === 'policy' && !policy)
+    throw new Error(`Unknown asset memory policy '${profile.policyId}'.`);
+  const baselinePreset = profile.kind === 'builtin' ? profile.preset : policy!.basePreset;
   const baseline = measuredAssetMemoryDefaults[family][baselinePreset];
+  const overrides = profile.kind === 'policy' ? policy!.overrides : undefined;
   return resolvedAssetMemoryPolicySchema.parse({
-    preset: profile.preset,
-    preparedCpuBytes: profile.custom?.preparedCpuBytes ?? baseline.preparedCpuBytes,
-    gpuBytes: profile.custom?.gpuBytes ?? baseline.gpuBytes,
-    audioBytes: profile.custom?.audioBytes ?? baseline.audioBytes,
-    temporaryBytes: profile.custom?.temporaryBytes ?? baseline.temporaryBytes,
+    preset: profile.kind === 'builtin' ? profile.preset : 'custom',
+    preparedCpuBytes: overrides?.preparedCpuBytes ?? baseline.preparedCpuBytes,
+    gpuBytes: overrides?.gpuBytes ?? baseline.gpuBytes,
+    audioBytes: overrides?.audioBytes ?? baseline.audioBytes,
+    temporaryBytes: overrides?.temporaryBytes ?? baseline.temporaryBytes,
     prefetchAllowancePercent:
-      profile.custom?.prefetchAllowancePercent ?? baseline.prefetchAllowancePercent,
+      overrides?.prefetchAllowancePercent ?? baseline.prefetchAllowancePercent,
   });
 }
 
@@ -437,7 +459,7 @@ const platformProfileBase = z.object({
   includeDebugSymbols: z.boolean().default(false),
   excludeUnusedAssets: z.boolean().default(true),
   includeShaderSources: z.boolean().default(false),
-  assetMemory: assetMemoryProfileSchema.default({ preset: 'balanced' }),
+  assetMemory: assetMemoryProfileSchema.default({ kind: 'builtin', preset: 'balanced' }),
 });
 
 const desktopProfileSchema = platformProfileBase
@@ -522,6 +544,7 @@ export const platformExportProfileSchema = z.discriminatedUnion('target', [
 export const projectPlatformExportSettingsSchema = z
   .object({
     profiles: z.array(platformExportProfileSchema),
+    assetMemoryPolicies: z.array(assetMemoryPolicyDefinitionSchema).default([]),
   })
   .strict();
 
@@ -539,7 +562,7 @@ export function defaultPlatformExportProfile(
     includeDebugSymbols: false,
     excludeUnusedAssets: true,
     includeShaderSources: false,
-    assetMemory: { preset: 'balanced' as const },
+    assetMemory: { kind: 'builtin' as const, preset: 'balanced' as const },
   };
   if (target === 'web') {
     return platformExportProfileSchema.parse({
@@ -585,7 +608,7 @@ export function defaultPlatformExportProfile(
 }
 
 export function defaultProjectPlatformExportSettings(): ProjectPlatformExportSettings {
-  return { profiles: [] };
+  return { profiles: [], assetMemoryPolicies: [] };
 }
 
 export function parseProjectPlatformExportSettings(value: unknown): ProjectPlatformExportSettings {
@@ -893,6 +916,7 @@ export interface PlatformExportManifest {
 export interface PlatformStageRequest {
   operationId: string;
   profile: PlatformExportProfile;
+  assetMemoryPolicies?: AssetMemoryPolicyDefinition[];
   templateToken: string;
   outputDirectory: string;
   packagePath: string;

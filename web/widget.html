@@ -305,6 +305,18 @@ thead, tbody, tfoot {
         }
         applyPreviewFramePacing();
         applyRmlUiRasterSnapping();
+        if (settings.assetMemoryPolicy !== undefined) {
+          if (typeof Module._noveltea_engine_set_asset_memory_policy !== 'function') {
+            throw new Error('Preview widget build does not export asset-memory policy reconfiguration. Rebuild the editor preview.');
+          }
+          const accepted = Module.ccall(
+            'noveltea_engine_set_asset_memory_policy',
+            'number',
+            ['string'],
+            [JSON.stringify(settings.assetMemoryPolicy)],
+          );
+          if (!accepted) throw new Error('Preview engine rejected the asset-memory policy.');
+        }
       }
     }
 

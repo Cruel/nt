@@ -1230,6 +1230,14 @@ std::vector<core::AssetProfilerEntry> AssetManager::asset_profiler_inventory_on_
     };
     const auto add_orchestrator = [&](Type type,
                                       const std::vector<AssetOrchestratorProfilerEntry>& entries) {
+        const auto blocked_by_memory_policy = [](const core::Diagnostics& diagnostics) {
+            return std::ranges::any_of(diagnostics, [](const core::Diagnostic& diagnostic) {
+                return diagnostic.code == "assets.prefetch_allowance_exceeded" ||
+                       diagnostic.code == "assets.prefetch_preparation_rejected" ||
+                       diagnostic.code == "assets.prefetch_preparation_resize_rejected" ||
+                       diagnostic.code == "assets.prefetch_residency_rejected";
+            });
+        };
         for (const auto& source : entries) {
             const auto typed_identity = identity(source.cache_key);
             core::AssetProfilerEntry row;
@@ -1251,6 +1259,11 @@ std::vector<core::AssetProfilerEntry> AssetManager::asset_profiler_inventory_on_
             switch (source.cache_state) {
             case AssetCacheState::Failed:
                 row.state = core::AssetProfilerState::Failed;
+                break;
+            case AssetCacheState::Canceled:
+                row.state = blocked_by_memory_policy(source.diagnostics)
+                                ? core::AssetProfilerState::Blocked
+                                : core::AssetProfilerState::Loading;
                 break;
             case AssetCacheState::WaitingForOwnerFinalization:
                 row.state = core::AssetProfilerState::Finishing;

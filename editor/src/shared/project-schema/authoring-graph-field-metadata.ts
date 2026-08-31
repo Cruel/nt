@@ -447,7 +447,13 @@ const sortedSchemaLeafPaths = [...schemaLeafPaths].sort();
 // unrelated field classifications retain their reviewed alignment.
 const exportLeafCount = sortedSchemaLeafPaths.filter((path) => path.startsWith('/export/')).length;
 const retiredExportLeafCount = 3; // capabilityOverrides, signingProfileId, and formatVersion
-const legacyExportLeafCount = exportLeafCount + retiredExportLeafCount;
+// Asset-memory policy reuse replaces the old six-leaf embedded Custom selection with a three-leaf
+// built-in/named-policy selector and adds an eight-leaf named policy definition, for a net +5
+// current export leaves. Export remains graph-inert, so preserve the reviewed pre-change export
+// block size and synthesize `none` for the five additional current leaves below.
+const assetMemoryPolicyContractLeafDelta = 5;
+const legacyExportLeafCount =
+  exportLeafCount - assetMemoryPolicyContractLeafDelta + retiredExportLeafCount;
 const exportFirstLeafIndex = sortedSchemaLeafPaths.findIndex((path) => path.startsWith('/export/'));
 const settingsPresentationLeafIndex = sortedSchemaLeafPaths.findIndex((path) =>
   path.startsWith('/settings/presentation/'),
@@ -930,7 +936,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     characters: '53873c0e',
     dialogues: '81f2a616',
     entrypoint: 'a61673d4',
-    export: 'cb4dc794',
+    export: 'a531c4c8',
     interactableInstances: '287ef173',
     interactables: '81498bf0',
     interactions: '8c02d069',

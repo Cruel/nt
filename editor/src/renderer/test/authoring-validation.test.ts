@@ -11,6 +11,7 @@ import { defaultArchetypeData } from '../../shared/project-schema/authoring-arch
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { effectiveInteractableInstanceProperties } from '../../shared/project-schema/authoring-interactable-properties';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import {
   authoringValidationSucceeded,
   validateAuthoringProject,
@@ -840,6 +841,39 @@ describe('authoring validation', () => {
     instance.featureOverrides[0]!.featureId = 'missing';
     expect(validateAuthoringProject(project)).toContainEqual(
       expect.objectContaining({ code: 'authoring.interactable.feature.missing' }),
+    );
+  });
+
+  it('reports duplicate named asset-memory policies and broken export-profile references', () => {
+    const project = createAuthoringProject();
+    project.export.assetMemoryPolicies = [
+      { id: 'mobile', label: 'Mobile', basePreset: 'low', overrides: {} },
+      { id: 'mobile', label: 'mobile', basePreset: 'balanced', overrides: {} },
+    ];
+    const profile = defaultPlatformExportProfile('web');
+    profile.assetMemory = { kind: 'policy', policyId: 'missing' };
+    project.export.profiles = [profile];
+
+    const diagnostics = validateAuthoringProject(project);
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.asset-memory-policy.id.duplicate',
+        path: '/export/assetMemoryPolicies/1/id',
+        boundaries: ['authoring', 'platform-export'],
+      }),
+    );
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.asset-memory-policy.label.duplicate',
+        path: '/export/assetMemoryPolicies/1/label',
+      }),
+    );
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.asset-memory-policy.reference.missing',
+        path: '/export/profiles/0/assetMemory/policyId',
+        ownerPaths: ['/export/assetMemoryPolicies', '/export/profiles/0/assetMemory'],
+      }),
     );
   });
 });

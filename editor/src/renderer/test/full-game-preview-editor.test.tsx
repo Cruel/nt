@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useProjectStore } from '@/project/project-store';
+import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
@@ -66,6 +67,7 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   usePendingInputStore.getState().resetPendingInputs();
+  useAssetProfilerStore.getState().resetForEditorReload();
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -83,7 +85,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function renderConnectedPreview() {
+async function renderConnectedPreview(capabilities: string[] = []) {
   useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   render(<FullGamePreviewEditor />);
   const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
@@ -103,7 +105,7 @@ async function renderConnectedPreview() {
     previewPort.postMessage({
       version: 1,
       type: 'ready',
-      capabilities: [],
+      capabilities,
       hostGeneration: 1,
       transportGeneration: 1,
       activeShaderVariant: 'glsl-120',
@@ -261,6 +263,42 @@ async function postInputSnapshot(
 }
 
 describe('FullGamePreviewEditor', () => {
+  it('connects the asset profiler when the open Play host advertises profiler support', async () => {
+    await renderConnectedPreview(['asset-profiler-v1']);
+
+    await waitFor(() => expect(useAssetProfilerStore.getState().status).not.toBe('disconnected'));
+  });
+
+  it('keeps Play connected when a stale preview rejects live asset-memory settings', async () => {
+    const { editorPort, previewPort } = await renderConnectedPreview(['asset-profiler-v1']);
+
+    let assetMemorySettingsRequest: { requestId: string } | undefined;
+    await waitFor(() => {
+      assetMemorySettingsRequest = editorPort.sent.find((message) => {
+        const candidate = message as {
+          type?: string;
+          requestId?: string;
+          settings?: { assetMemoryPolicy?: unknown };
+        };
+        return candidate.type === 'set-engine-settings' && !!candidate.settings?.assetMemoryPolicy;
+      }) as { requestId: string } | undefined;
+      expect(assetMemorySettingsRequest).toBeDefined();
+    });
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: assetMemorySettingsRequest!.requestId,
+        ok: false,
+        error: 'Preview widget build does not export asset-memory policy reconfiguration.',
+      });
+    });
+
+    await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
+    expect(useAssetProfilerStore.getState().status).not.toBe('disconnected');
+  });
+
   it('visually and semantically marks the selected inspector mode', async () => {
     const view = render(<FullGamePreviewEditor />);
     const user = userEvent.setup();
@@ -739,6 +777,46 @@ describe('FullGamePreviewEditor', () => {
         settings: { showFpsCounter: true, fpsCap: 30, rmluiRasterSnap: 'geometry' },
       }),
     );
+  });
+
+  it('applies target-resolved named asset-memory policies live without reloading Play', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.export.assetMemoryPolicies = [
+      {
+        id: 'web-constrained',
+        label: 'Web constrained',
+        basePreset: 'balanced',
+        overrides: { gpuBytes: 96 * 1024 * 1024, prefetchAllowancePercent: 0 },
+      },
+    ];
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const { editorPort } = await renderConnectedPreview();
+
+    await user.selectOptions(screen.getByLabelText('Target'), 'web');
+    await user.selectOptions(screen.getByLabelText('Memory'), 'policy:web-constrained');
+
+    await waitFor(() =>
+      expect(
+        editorPort.sent.some((message) => {
+          const candidate = message as {
+            type?: string;
+            settings?: { assetMemoryPolicy?: Record<string, unknown> };
+          };
+          return (
+            candidate.type === 'set-engine-settings' &&
+            candidate.settings?.assetMemoryPolicy?.target === 'web' &&
+            candidate.settings.assetMemoryPolicy.preset === 'custom' &&
+            candidate.settings.assetMemoryPolicy.preparedCpuBytes === 64 * 1024 * 1024 &&
+            candidate.settings.assetMemoryPolicy.gpuBytes === 96 * 1024 * 1024 &&
+            candidate.settings.assetMemoryPolicy.audioBytes === 32 * 1024 * 1024 &&
+            candidate.settings.assetMemoryPolicy.temporaryBytes === 32 * 1024 * 1024 &&
+            candidate.settings.assetMemoryPolicy.prefetchAllowancePercent === 0
+          );
+        }),
+      ).toBe(true),
+    );
+    expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(0);
   });
 
   it('reload cleanup closes the previous MessagePort', async () => {

@@ -101,6 +101,8 @@ const char* state_name(AssetProfilerState value)
         return "loading";
     case AssetProfilerState::Finishing:
         return "finishing";
+    case AssetProfilerState::Blocked:
+        return "blocked";
     case AssetProfilerState::InUse:
         return "in-use";
     case AssetProfilerState::Prefetched:
@@ -345,7 +347,8 @@ Json counts_json(const AssetProfilerStateCounts& value)
 {
     return Json{{"inUse", decimal(value.in_use)},        {"prefetched", decimal(value.prefetched)},
                 {"cached", decimal(value.cached)},       {"loading", decimal(value.loading)},
-                {"finishing", decimal(value.finishing)}, {"failed", decimal(value.failed)}};
+                {"finishing", decimal(value.finishing)}, {"blocked", decimal(value.blocked)},
+                {"failed", decimal(value.failed)}};
 }
 
 Json memory_json(const AssetProfilerMemorySnapshot& value)

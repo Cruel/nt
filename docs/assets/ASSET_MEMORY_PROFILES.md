@@ -2,8 +2,8 @@
 
 ## Scope
 
-Platform export profiles resolve an asset-memory preset into four evictable runtime ceilings and a
-Warm-prefetch allowance:
+Platform export profiles and the Play simulator resolve an asset-memory policy into four evictable
+runtime ceilings and a Warm-prefetch allowance:
 
 - prepared CPU bytes;
 - GPU bytes;
@@ -70,14 +70,25 @@ All values below are bytes except the final percentage.
 | Web | High | 134,217,728 | 268,435,456 | 67,108,864 | 67,108,864 | 30% |
 
 Windows, Linux, and macOS use the Desktop row. Missing profile data resolves to the target's Balanced
-row. A Custom profile inherits omitted fields from that same Balanced row.
+row.
 
-## Custom Validation
+## Reusable Project Policies
 
-Custom byte values are positive safe integers representable by both the editor JSON boundary and the
-runtime. `temporaryBytes` is at least 1 MiB. `prefetchAllowancePercent` is an integer from 0 through
-100. Diagnostics identify the exact offending field. The exported `player.json` contains the fully
-resolved values rather than nullable or implicit limits.
+The Project may define named reusable policies under `/export/assetMemoryPolicies`. Each policy has a
+stable generated ID, a unique case-insensitive display name, one direct built-in base (`low`,
+`balanced`, or `high`), and optional absolute overrides. Policies never derive from other named
+policies, so resolution cannot form chains or cycles.
+
+An omitted override continues to track the selected built-in for the concrete target. An overridden
+byte value is absolute across targets. Byte overrides are positive safe integers representable by
+both the editor JSON boundary and runtime; `temporaryBytes` is at least 1 MiB.
+`prefetchAllowancePercent` is an integer from 0 through 100. Empty override sets are valid.
+
+Export profiles reference either a built-in preset or a named policy by stable ID. Missing policy
+references and duplicate policy IDs/names are semantic authoring errors. A policy referenced by an
+Export profile cannot be deleted from Project Settings until those references are changed. The
+exported `player.json` and deployment manifest contain only the fully resolved policy; authoring IDs
+and inherited values do not cross into the player runtime contract.
 
 ## Runtime Semantics
 
@@ -94,5 +105,9 @@ backing remains the documented exception because it is archive source storage ra
 evictable residency.
 
 `AssetResidencyManager` emits `MemoryPolicyResolved` telemetry when a sink is attached. Profiler
-snapshots retain that resolved policy beside current and high-water accounting. The player also writes
+snapshots retain that resolved policy beside current and high-water accounting. A live policy change
+replaces the active policy on the owner thread, immediately enforces eligible Cold-before-Warm
+eviction, preserves pinned residency and already-running preparation, and starts a new profiler
+high-water epoch from the actual post-eviction accounting. The policy change succeeds even when
+mandatory pins or active preparation leave current usage above the new limit. The player also writes
 the resolved target, preset, byte ceilings, and Warm percentage to its startup log.

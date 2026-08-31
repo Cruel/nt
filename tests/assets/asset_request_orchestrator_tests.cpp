@@ -890,6 +890,83 @@ TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy"
     CHECK(rejected.admission == assets::ResidencyAdmission::RejectedPrefetch);
 }
 
+TEST_CASE("Residency policy reconfiguration preserves mandatory work and resets the peak epoch",
+          "[assets][residency-matrix]")
+{
+    TestTelemetrySink telemetry;
+    const assets::ResolvedAssetMemoryPolicy initial{
+        .target = assets::AssetMemoryTarget::Desktop,
+        .preset = assets::AssetMemoryPreset::High,
+        .budget = {.source_bytes = 200,
+                   .prepared_cpu_bytes = 200,
+                   .gpu_bytes = 200,
+                   .audio_bytes = 200,
+                   .temporary_bytes = 100,
+                   .prefetch_allowance_percent = 100},
+    };
+    assets::AssetResidencyManager residency(initial, &telemetry);
+    const auto cold = key("cold-before-policy-change", 1);
+    const auto warm = key("warm-before-policy-change", 1);
+    const auto pinned = key("pinned-before-policy-change", 1);
+    std::uint64_t destroyed_cold = 0;
+    std::uint64_t destroyed_warm = 0;
+    std::uint64_t destroyed_pinned = 0;
+
+    CHECK(admit_cpu(residency, cold, 60, assets::AssetRequestReason::Demand, destroyed_cold)
+              .admission == assets::ResidencyAdmission::Admitted);
+    CHECK(admit_cpu(residency, warm, 40, assets::AssetRequestReason::Demand, destroyed_warm)
+              .admission == assets::ResidencyAdmission::Admitted);
+    CHECK(residency.attach_prefetch_interest_on_owner(warm, assets::PrefetchGenerationId{9}));
+    CHECK(admit_cpu(residency, pinned, 80, assets::AssetRequestReason::Demand, destroyed_pinned)
+              .admission == assets::ResidencyAdmission::Admitted);
+    auto pin = residency.pin_resident_on_owner(pinned);
+    REQUIRE(pin);
+    auto preparation = residency.reserve_preparation_on_owner({.temporary_bytes = 50},
+                                                              assets::AssetRequestReason::Demand);
+    REQUIRE(preparation.reservation);
+    CHECK(residency.accounting_on_owner().current.prepared_cpu_bytes == 180);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 50);
+    CHECK(residency.accounting_on_owner().high_water.prepared_cpu_bytes == 180);
+
+    const assets::ResolvedAssetMemoryPolicy constrained{
+        .target = assets::AssetMemoryTarget::Web,
+        .preset = assets::AssetMemoryPreset::Low,
+        .budget = {.source_bytes = 100,
+                   .prepared_cpu_bytes = 100,
+                   .gpu_bytes = 100,
+                   .audio_bytes = 100,
+                   .temporary_bytes = 20,
+                   .prefetch_allowance_percent = 25},
+    };
+    const auto reconfigured = residency.reconfigure_policy_on_owner(constrained);
+
+    CHECK(residency.policy_on_owner() == constrained);
+    CHECK(destroyed_cold == 1);
+    CHECK(destroyed_warm == 1);
+    CHECK(destroyed_pinned == 0);
+    CHECK_FALSE(residency.resident_on_owner(cold));
+    CHECK_FALSE(residency.resident_on_owner(warm));
+    CHECK(residency.resident_on_owner(pinned));
+    REQUIRE(reconfigured.evicted.size() == 2);
+    CHECK(reconfigured.evicted[0] == cold);
+    CHECK(reconfigured.evicted[1] == warm);
+    CHECK(reconfigured.accounting.current.prepared_cpu_bytes == 80);
+    CHECK(reconfigured.accounting.current.temporary_bytes == 50);
+    CHECK(reconfigured.accounting.high_water == reconfigured.accounting.current);
+    CHECK(preparation.reservation->cost().temporary_bytes == 50);
+
+    const auto snapshot = telemetry.snapshot_on_owner();
+    REQUIRE(snapshot.memory_policy);
+    CHECK(*snapshot.memory_policy == constrained);
+    CHECK(snapshot.event_counts[static_cast<std::size_t>(
+              core::AssetTelemetryEventKind::MemoryPolicyResolved)] == 2);
+
+    preparation.reservation->reset();
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 0);
+    CHECK(residency.accounting_on_owner().high_water.temporary_bytes == 50);
+    pin.value().reset();
+}
+
 TEST_CASE("Preparation reservations arbitrate one mandatory expansion at a time")
 {
     assets::AssetResidencyManager residency(assets::ResidencyBudget{.source_bytes = 100,

@@ -17,6 +17,7 @@ export type AssetProfilerAssetSort =
 
 const DEFAULT_STATE_ORDER: Record<AssetProfilerAssetState, number> = {
   failed: 0,
+  blocked: 0,
   loading: 1,
   finishing: 1,
   'in-use': 2,

@@ -43,6 +43,7 @@ bool retain_in_profiler_history(const AssetTelemetryEvent& event) noexcept
     case AssetTelemetryEventKind::PrefetchLate:
     case AssetTelemetryEventKind::PrefetchMiss:
     case AssetTelemetryEventKind::PrefetchUnused:
+    case AssetTelemetryEventKind::MemoryPolicyResolved:
         return true;
     case AssetTelemetryEventKind::BudgetPressure:
         return event.prefetch_generation.valid() &&
@@ -122,6 +123,9 @@ AssetProfilerStateCounts state_counts(const std::vector<AssetProfilerEntry>& inv
             break;
         case AssetProfilerState::Finishing:
             ++counts.finishing;
+            break;
+        case AssetProfilerState::Blocked:
+            ++counts.blocked;
             break;
         case AssetProfilerState::Failed:
             ++counts.failed;
@@ -284,6 +288,15 @@ void EditorAssetProfilerService::record(AssetTelemetryEvent event) noexcept
     m_impl->recorder.record(event);
     if (event.cache_key.has_value())
         m_impl->inventory_dirty = true;
+    if (event.kind == AssetTelemetryEventKind::MemoryPolicyResolved && event.memory_policy) {
+        m_impl->policy = *event.memory_policy;
+        m_impl->memory_current.asset = event.memory;
+        m_impl->memory_current.asset_ram_bytes = asset_ram_bytes(event.memory);
+        m_impl->memory_peak = {};
+        update_memory_peak(m_impl->memory_peak, m_impl->memory_current);
+        ++m_impl->accounting_revision;
+        m_impl->inventory_dirty = true;
+    }
     const bool demand_outcome = event.request_reason != assets::AssetRequestReason::Startup;
     switch (event.kind) {
     case AssetTelemetryEventKind::PrefetchUsed:

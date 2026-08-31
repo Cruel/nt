@@ -377,6 +377,7 @@ function AssetsView() {
     'cached',
     'loading',
     'finishing',
+    'blocked',
     'failed',
     'reloaded',
   ];
@@ -630,6 +631,7 @@ export function AssetPerformancePanel() {
   const payload = useAssetProfilerStore((state) => state.payload);
   const error = useAssetProfilerStore((state) => state.error);
   const historyGapNotice = useAssetProfilerStore((state) => state.historyGapNotice);
+  const simulationPolicy = useAssetProfilerStore((state) => state.simulationPolicy);
   const view = useAssetProfilerStore((state) => state.selectedView);
   const setView = useAssetProfilerStore((state) => state.setSelectedView);
 
@@ -698,6 +700,20 @@ export function AssetPerformancePanel() {
             />
           ) : view === 'overview' && current && peak && outcomes ? (
             <div>
+              {simulationPolicy ? (
+                <div className="border-b bg-muted/20 px-3 py-2 text-[11px]">
+                  <span className="text-muted-foreground">
+                    {t('assetProfiler.simulation.label')}:{' '}
+                  </span>
+                  <span className="font-medium">
+                    {t(`assetProfiler.simulation.targets.${simulationPolicy.target}`)} ·{' '}
+                    {simulationPolicy.label}
+                  </span>
+                  <span className="ml-2 text-muted-foreground">
+                    {t('assetProfiler.simulation.peakEpoch')}
+                  </span>
+                </div>
+              ) : null}
               <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6">
                 <Metric
                   label={t('assetProfiler.metrics.assetRam')}

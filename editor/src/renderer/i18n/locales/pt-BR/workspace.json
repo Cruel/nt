@@ -37,6 +37,11 @@
       "error": "Os dados do analisador de recursos não estão disponíveis."
     },
     "actions": { "openPlay": "Abrir Jogar" },
+    "simulation": {
+      "label": "Política de memória simulada",
+      "peakEpoch": "Os picos são medidos desde a última mudança de política.",
+      "targets": { "desktop": "Desktop", "android": "Android", "web": "Web" }
+    },
     "metrics": {
       "assetRam": "RAM de recursos",
       "loadingMemory": "Memória de carregamento",
@@ -79,6 +84,7 @@
       "cached": "Em cache",
       "loading": "Carregando",
       "finishing": "Finalizando",
+      "blocked": "Bloqueado",
       "failed": "Falhou"
     },
     "assetTypes": {
@@ -161,6 +167,7 @@
         "cached": "Em cache",
         "loading": "Carregando",
         "finishing": "Finalizando",
+        "blocked": "Bloqueado",
         "failed": "Falhou",
         "reloaded": "Recarregado após remoção"
       },

@@ -62,6 +62,8 @@ public:
     static void set_show_fps_counter(Engine& engine, bool show);
     static void set_fps_cap(Engine& engine, uint32_t frames_per_second);
     static void set_rmlui_raster_snap(Engine& engine, RmlUiRasterSnapMode mode);
+    [[nodiscard]] static assets::ResidencyEvictionResult
+    set_asset_memory_policy(Engine& engine, assets::ResolvedAssetMemoryPolicy policy);
     [[nodiscard]] static bool set_runtime_ui_scale(Engine& engine, double scale);
     [[nodiscard]] static bool set_postprocess_material(Engine& engine, std::string material_id);
     [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;

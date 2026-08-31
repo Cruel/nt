@@ -15,6 +15,7 @@ export const PROJECT_SETTINGS_OWNED_PATHS: JsonPointer[] = [
   '/settings',
   '/bootstrapModule',
   '/entrypoint',
+  '/export/assetMemoryPolicies',
 ];
 
 export const SAVE_UNIT_IDS = {
@@ -260,7 +261,7 @@ export function resolveSaveUnitForResource(
         ? {
             id: SAVE_UNIT_IDS.platformExportProfiles,
             kind: 'project-tool' as const,
-            paths: ['/export'],
+            paths: ['/export/runtime', '/export/profiles'],
           }
         : editorType === 'project-chapters'
           ? {
