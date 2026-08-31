@@ -25,6 +25,20 @@ interface Harness {
   };
 }
 
+function nativeManifestProjectionHarness() {
+  const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+  const start = widget.indexOf('function nativeManifestProjection(');
+  const end = widget.indexOf('\n    function validateFocusedManifest', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const context = {
+    project: null as ((entries: unknown[]) => unknown[]) | null,
+  };
+  vm.runInNewContext(`${widget.slice(start, end)}\nproject = nativeManifestProjection;`, context);
+  if (!context.project) throw new Error('Native manifest projection harness did not load.');
+  return context.project;
+}
+
 class MemoryFs {
   readonly nodes = new Map<string, string>();
   failRenameTo: string | null = null;
@@ -177,6 +191,24 @@ function document(resources: unknown[]) {
 }
 
 describe('focused resource publication', () => {
+  it('preserves alpha-coverage requirements in the native focused manifest', () => {
+    const project = nativeManifestProjectionHarness();
+    const entry = {
+      ...manifestEntry('alpha', true),
+      kind: 'image',
+      sampling: 'linear',
+    };
+
+    expect(project([entry])).toEqual([
+      expect.objectContaining({
+        resourceId: 'asset:alpha',
+        kind: 'image',
+        sampling: 'linear',
+        retainAlphaCoverage: true,
+      }),
+    ]);
+  });
+
   it('advances the source generation when alpha preparation requirements change', () => {
     const memoryFs = new MemoryFs();
     const committed = committedResources();
