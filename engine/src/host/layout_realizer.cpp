@@ -34,8 +34,8 @@ public:
                       core::LayoutScalePolicy scale_policy,
                       LayoutContextCompatibilityGroup compatibility_group) override
     {
-        return m_runtime_ui.load_builtin_for_layout(document, policy, composition_group, owner,
-                                                    scale_policy, compatibility_group);
+        return m_runtime_ui.load_builtin_for_layout(document, false, policy, composition_group,
+                                                    owner, scale_policy, compatibility_group);
     }
 
     bool load_path(const std::string& document_id, const std::string& logical_path,

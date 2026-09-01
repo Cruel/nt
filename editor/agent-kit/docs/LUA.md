@@ -2,6 +2,8 @@
 
 Use this reference when writing NovelTea Script Modules or Layout Lua. It assumes normal Lua competence and documents only NovelTea's dialect, sandbox, public authoring APIs, execution contexts, and restrictions.
 
+NovelTea uses separate Lua VMs for gameplay Script Modules and frontend/RmlUi Layout Lua. Each gameplay session receives a fresh Project VM and executes the Project's selected Bootstrap Module there. Layout Lua runs in the stable frontend VM instead, so Project-bootstrap globals are not visible to Layout scripts. The frontend VM executes NovelTea's engine-owned `system:/scripts/bootstrap.lua` during engine initialization; standard Layout toolbox helpers documented here are therefore available to Layout Lua without importing an engine script. Engine/runtime capabilities remain native bindings.
+
 ## Runtime profile
 
 NovelTea requires **Lua 5.5.0 exactly**. Authoring compatibility is defined by NovelTea's runtime bindings and sandbox, not by whatever Lua version happens to be installed on the authoring machine.
@@ -426,14 +428,26 @@ local cleared = mount:clear_state("room")
 local signalled = mount:signal("accepted", { choice = 2 })
 local dismissed = mount:dismiss()
 local trigger = mount:trigger()
-local anchor = mount:anchor(240, 180, "nearest", "bottom", "start", 8, 8)
+local hint = mount:position_hint()
+local anchor = mount:anchor(240, 180, "nearest", "bottom", "start", 8, 8, 0, 0)
 local child = mount:present_child("context-details")
 local child = mount:present_child_inventory()
 ```
 
 `mount.document_id` identifies the realized RmlUi document and `mount.occurrence` is the runtime occurrence token. `input(name)` returns the current resolved scalar value or `nil`. `signal(name, payload?)` returns a boolean and succeeds only for a signal connected by the owner and a payload matching the Layout contract. `state(scope)` returns the current validated Slot value for `visit`, `room`, `flow`, or `session` when that scope is valid for the Mount owner; when no explicit Slot value exists, the Layout State Shape default is returned. `commit_state(scope, value)` validates the complete value against the declared recursive State Shape and atomically replaces that Slot. `clear_state(scope)` removes the explicit Slot so the default becomes visible again. `dismiss()` requests generic self-dismiss using the exact Mount occurrence, so a stale/replaced document cannot dismiss a newer occurrence with the same semantic key.
 
-Contextual Layouts may also receive an immutable activation Trigger Context. `trigger()` returns the captured pointer/source-bounds geometry transformed into the receiving Layout's logical coordinate space plus its logical viewport, or `nil` when no Trigger Context exists. The geometry is a snapshot: it does not retain or expose an RmlUi element/world occurrence and does not track later movement. `anchor(width, height, source?, side?, alignment?, gap?, padding?)` resolves a popup origin from that snapshot. `source` is `pointer` (default), `source`, or `nearest`; `side` is `top`, `right`, `bottom` (default), or `left`; `alignment` is `start` (default), `center`, or `end`. The result is viewport-adjusted and returned as `{ x, y }`, or `nil` without Trigger Context. `present_child(layout_id, instance_id?)` presents any Layout as an explicit child of this exact Mount occurrence and carries the same Trigger Context; omitting `instance_id` allocates a unique contextual key. `present_child_inventory()` is the Player Inventory convenience form and allows coexistence with other contextual Inventory presentations. Removing the parent cascades to every child Layout.
+Contextual Layouts may also receive an immutable activation Trigger Context. `trigger()` returns the captured pointer/source-bounds geometry transformed into the receiving Layout's logical coordinate space plus its logical viewport, or `nil` when no Trigger Context exists. The geometry is a snapshot: it does not retain or expose an RmlUi element/world occurrence and does not track later movement. `position_hint()` derives a recommended top-left origin from Trigger Context in current Layout logical pixels: pointer when present, otherwise source-bounds center, otherwise viewport center. It returns `nil` when no Trigger Context exists. `anchor(width, height, source?, side?, alignment?, gap?, padding?, offsetX?, offsetY?)` resolves a popup origin from Trigger Context. `source` is `pointer` (default), `source`, or `nearest`; `side` is `top`, `right`, `bottom` (default), or `left`; `alignment` is `start` (default), `center`, or `end`. `gap`, `padding`, `offsetX`, and `offsetY` default to `0`. The result is viewport-adjusted and returned as `{ x, y }`, or `nil` without Trigger Context. `present_child(layout_id, instance_id?)` presents any Layout as an explicit child of this exact Mount occurrence and carries the same Trigger Context; omitting `instance_id` allocates a unique contextual key. `present_child_inventory()` is the Player Inventory convenience form and allows coexistence with other contextual Inventory presentations. Removing the parent cascades to every child Layout.
+
+## Standard `Layout.*` toolbox
+
+The engine-owned frontend bootstrap exposes pure-Lua helpers intended for Layout authoring. They are globally available to Layout Lua in the stable frontend/RmlUi VM and require no `<script>` include.
+
+```lua
+Layout.clamp_to_viewport(element, x, y, padding?)
+    -> { x = number, y = number, clamped_x = boolean, clamped_y = boolean }
+```
+
+`element` must be a live RmlUi Element attached to a document/context. The helper reads its settled `offset_width`/`offset_height`, clamps the requested top-left `x`/`y` into the owning context's viewport, and leaves the element untouched. `padding` defaults to `0` and must be finite and non-negative. `x` and `y` must be finite. If the element is too large to fit inside the padded viewport on an axis, the returned coordinate for that axis is the padding edge. Assign the returned coordinates yourself, for example `element.style.left = position.x .. "px"`.
 
 Layout Slot values may contain only the declared persistable scalar/array/object tree. Persisted `null` values are exposed as `mount.null`, which is the explicit sentinel to use when a nullable value must survive inside a Lua array or object without becoming Lua `nil` and disappearing. Lua tables with metatables, cycles, functions, threads, userdata/DOM objects, sparse or mixed array keys, undeclared object fields, invalid key types, or non-finite numbers are rejected. Slot state belongs to the engine, not to the Lua VM or RmlUi document. Unmounting does not clear a still-live Slot: visit Slots expire with the Active Room Context, room Slots with their Room lifetime, flow Slots with the owning Flow frame, and session Slots with the runtime session.
 

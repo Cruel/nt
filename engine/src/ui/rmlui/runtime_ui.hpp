@@ -82,7 +82,7 @@ public:
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay,
         core::LayoutScalePolicy scale_policy = {}, std::uint32_t compatibility_group = 0);
     bool load_builtin_for_layout(
-        presentation::RuntimeLayoutBuiltinDocument builtin_document,
+        presentation::RuntimeLayoutBuiltinDocument builtin_document, bool show,
         const core::MountedLayoutPolicy& policy, std::uint32_t composition_group = 0,
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay,
         core::LayoutScalePolicy scale_policy = {}, std::uint32_t compatibility_group = 0);

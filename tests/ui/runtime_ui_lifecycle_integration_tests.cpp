@@ -37,6 +37,16 @@ namespace {
 
 using RuntimeUiFacadeAccess = noveltea::ui::rmlui::RuntimeUiFacadeAccess;
 
+void require_lua(lua_State* state, const char* script)
+{
+    const int result = luaL_dostring(state, script);
+    if (result != LUA_OK) {
+        const char* lua_error = lua_tostring(state, -1);
+        WARN((lua_error != nullptr ? lua_error : "unknown Lua error"));
+    }
+    REQUIRE(result == LUA_OK);
+}
+
 constexpr const char* kDocument = R"(
 <rml>
   <head>
@@ -986,6 +996,115 @@ TEST_CASE("RuntimeUI Layout Slot Lua conversion accepts only declared persistabl
     CHECK(child->presentation_parent.key == key);
     CHECK(child->presentation_parent.occurrence ==
           noveltea::core::LayoutMountOccurrenceId::from_number(7));
+}
+
+TEST_CASE("RuntimeUI position hints derive activation advice from Trigger Context")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+    const std::string kDocument = R"RML(
+<rml>
+<head><title>Position Hint</title></head>
+<body></body>
+</rml>
+)RML";
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "position-hint-doc", kDocument,
+                                                             "preview://position-hint.rml", true));
+
+    const auto instance = noveltea::core::ScopedLayoutInstanceId::create("position-hint");
+    REQUIRE(instance);
+    const auto key = noveltea::core::MountedLayoutPresentationKey{
+        noveltea::core::ScopedLayoutMountKey{instance.value()}};
+    const auto owner = noveltea::core::PresentationOwner{noveltea::core::SessionPresentationOwner{
+        noveltea::core::PresentationSessionId::from_number(1)}};
+    const auto occurrence = noveltea::core::LayoutMountOccurrenceId::from_number(3);
+    const auto set_context = [&](std::optional<noveltea::core::TriggerContext> trigger) {
+        ui.set_layout_mount_context(
+            "position-hint-doc",
+            noveltea::RuntimeUiLayoutMountContext{
+                owner, key, occurrence, {}, {}, std::nullopt, {}, {}, 1.0, std::move(trigger)});
+    };
+
+    set_context(noveltea::core::TriggerContext{.pointer = noveltea::core::TriggerPoint{0.25, 0.75},
+                                               .source_bounds = std::nullopt});
+    require_lua(fixture.lua_state(),
+                "local m=assert(Game.mount_context('position-hint-doc')); "
+                "local h=assert(m:position_hint()); local t=assert(m:trigger()); "
+                "assert(h.x==t.pointer.x and h.y==t.pointer.y)");
+
+    set_context(noveltea::core::TriggerContext{
+        .pointer = std::nullopt, .source_bounds = noveltea::core::TriggerRect{0.2, 0.3, 0.4, 0.2}});
+    require_lua(fixture.lua_state(),
+                "local m=assert(Game.mount_context('position-hint-doc')); "
+                "local h=assert(m:position_hint()); local t=assert(m:trigger()); "
+                "assert(h.x==t.source_bounds.x+t.source_bounds.width*0.5); "
+                "assert(h.y==t.source_bounds.y+t.source_bounds.height*0.5)");
+
+    set_context(noveltea::core::TriggerContext{});
+    require_lua(fixture.lua_state(),
+                "local m=assert(Game.mount_context('position-hint-doc')); "
+                "local h=assert(m:position_hint()); local t=assert(m:trigger()); "
+                "assert(h.x==t.viewport.width*0.5 and h.y==t.viewport.height*0.5)");
+
+    set_context(std::nullopt);
+    require_lua(fixture.lua_state(), "local m=assert(Game.mount_context('position-hint-doc')); "
+                                     "assert(m:position_hint()==nil)");
+}
+
+TEST_CASE("RuntimeUI Layout clamp_to_viewport keeps laid-out elements inside their viewport")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    require_lua(fixture.lua_state(), R"LUA(
+layout_clamp_probe = function(event, element, document)
+    local panel = assert(document:GetElementById("probe"))
+    local oversized = assert(document:GetElementById("oversized"))
+    LayoutClampResults = {
+        edge = Layout.clamp_to_viewport(panel, 1900, 1070, 8),
+        default_padding = Layout.clamp_to_viewport(panel, -5, -6),
+        oversized = Layout.clamp_to_viewport(oversized, 500, 500, 8),
+    }
+    LayoutClampResults.invalid_x = not pcall(function()
+        Layout.clamp_to_viewport(panel, 0 / 0, 0, 0)
+    end)
+    LayoutClampResults.invalid_padding = not pcall(function()
+        Layout.clamp_to_viewport(panel, 0, 0, -1)
+    end)
+end
+)LUA");
+
+    const std::string document = R"RML(
+<rml>
+<head>
+<style>
+#probe { width: 200px; height: 100px; }
+#oversized { width: 3000px; height: 2000px; }
+</style>
+</head>
+<body onshow="layout_clamp_probe(event, element, document)">
+<div id="probe"></div>
+<div id="oversized"></div>
+</body>
+</rml>
+)RML";
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "layout-clamp-doc", document,
+                                                             "preview://layout-clamp.rml", false));
+    REQUIRE(ui.show_document("layout-clamp-doc"));
+
+    require_lua(fixture.lua_state(), R"LUA(
+assert(Layout ~= nil and Layout.clamp_to_viewport ~= nil)
+assert(LayoutClampResults.edge.x == 1712 and LayoutClampResults.edge.y == 972)
+assert(LayoutClampResults.edge.clamped_x and LayoutClampResults.edge.clamped_y)
+assert(LayoutClampResults.default_padding.x == 0 and LayoutClampResults.default_padding.y == 0)
+assert(LayoutClampResults.default_padding.clamped_x and LayoutClampResults.default_padding.clamped_y)
+assert(LayoutClampResults.oversized.x == 8 and LayoutClampResults.oversized.y == 8)
+assert(LayoutClampResults.oversized.clamped_x and LayoutClampResults.oversized.clamped_y)
+assert(LayoutClampResults.invalid_x and LayoutClampResults.invalid_padding)
+)LUA");
 }
 
 TEST_CASE("RmlUiHost fails primary context creation when required context initialization fails")
@@ -2215,18 +2334,36 @@ TEST_CASE("built-in Verb Menu begins and Command Builder repairs a multi-slot Dr
     CHECK(watch->watched_subjects.front() == coin_subject);
 }
 
-TEST_CASE("built-in Verb Menu anchors to its captured activation geometry when shown")
+TEST_CASE("built-in Verb Menu clamps its settled geometry before the first visible frame")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     REQUIRE(fixture.initialize());
     auto& ui = fixture.runtime_ui();
     RecordingRuntimeUiInputSink input_sink;
     ui.bind_input_sink(&input_sink);
+    const auto inspect = noveltea::core::VerbId::create("inspect");
+    const auto use = noveltea::core::VerbId::create("use");
+    const auto slot = noveltea::core::VerbSlotId::create("target");
+    REQUIRE(inspect);
+    REQUIRE(use);
+    REQUIRE(slot);
 
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 1;
     values.view.mode = "room";
     values.view.verb_menu_open = true;
+    values.view.verb_offers = {{.verb = *inspect.value_if(),
+                                .slot = *slot.value_if(),
+                                .label = "Inspect",
+                                .binding_order = {*slot.value_if()},
+                                .rank = 10,
+                                .primary = true},
+                               {.verb = *use.value_if(),
+                                .slot = *slot.value_if(),
+                                .label = "Use",
+                                .binding_order = {*slot.value_if()},
+                                .rank = 0,
+                                .primary = false}};
     REQUIRE(ui.apply_gameplay_ui_values(values));
 
     const auto instance = noveltea::core::ScopedLayoutInstanceId::create("verb-menu-ui");
@@ -2244,21 +2381,36 @@ TEST_CASE("built-in Verb Menu anchors to its captured activation geometry when s
             {},
             {},
             1.0,
-            noveltea::core::TriggerContext{.pointer = noveltea::core::TriggerPoint{0.45, 0.45},
+            noveltea::core::TriggerContext{.pointer = noveltea::core::TriggerPoint{0.05, 0.95},
                                            .source_bounds =
-                                               noveltea::core::TriggerRect{0.4, 0.4, 0.1, 0.1}}});
+                                               noveltea::core::TriggerRect{0.0, 0.9, 0.1, 0.1}}});
     REQUIRE(
         ui.load_builtin_for_layout(noveltea::presentation::RuntimeLayoutBuiltinDocument::VerbMenu,
-                                   noveltea::core::MountedLayoutPolicy{}));
-    ui.begin_frame({});
+                                   false, noveltea::core::MountedLayoutPolicy{}));
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(driver);
+    auto* document = driver->document("runtime_verb_menu");
+    REQUIRE(document);
+    CHECK_FALSE(document->IsVisible());
     auto* panel = driver->element("runtime_verb_menu", "nt_verb_menu");
     REQUIRE(panel);
-    const auto offset = panel->GetAbsoluteOffset(Rml::BoxArea::Border);
-    CHECK(offset.x == Catch::Approx(872.0f));
-    CHECK(offset.y == Catch::Approx(494.0f));
+    CHECK_FALSE(panel->IsVisible(true));
+    REQUIRE(ui.show_document("runtime_verb_menu"));
+    CHECK(document->IsVisible());
+    const auto laid_out_size = panel->GetBox().GetSize(Rml::BoxArea::Border);
+    const auto first_offset = panel->GetAbsoluteOffset(Rml::BoxArea::Border);
+    CHECK(laid_out_size.x > 0.0f);
+    CHECK(laid_out_size.y > 0.0f);
+    CHECK(panel->IsVisible(true));
+    CHECK(first_offset.x == Catch::Approx(96.0f));
+    CHECK(first_offset.y == Catch::Approx(1080.0f - laid_out_size.y - 8.0f));
+    CHECK(first_offset.y < 1026.0f);
+    ui.begin_frame({});
+    const auto stable_offset = panel->GetAbsoluteOffset(Rml::BoxArea::Border);
+    const auto stable_size = panel->GetBox().GetSize(Rml::BoxArea::Border);
+    CHECK(laid_out_size == stable_size);
+    CHECK(first_offset == stable_offset);
 }
 
 TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing document state")
