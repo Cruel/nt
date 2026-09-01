@@ -65,7 +65,7 @@ function noveltea_demo.on_click(event, element, document)
     local button = document:GetElementById("demo_btn")
     local status = document:GetElementById("status_box")
 
-    button.inner_rml = "Lua clicks: " .. tostring(noveltea_demo.clicks)
+    button.inner_rml = "Lua clicks: " .. noveltea_demo.clicks
     status.inner_rml = noveltea.echo(
         "Lua " .. noveltea.lua_version() ..
         " / sol2 " .. noveltea.sol_version()

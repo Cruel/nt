@@ -1613,6 +1613,13 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
             return false;
         }
         scripts_initialized = true;
+        auto frontend_bootstrap = m_scripts.execute_asset("system:/scripts/bootstrap.lua");
+        if (!frontend_bootstrap) {
+            std::fprintf(stderr, "[engine] frontend Lua bootstrap failed: %s\n",
+                         frontend_bootstrap.error().message.c_str());
+            rollback();
+            return false;
+        }
     }
 
     m_runtime_ui.resize(m_presentation);

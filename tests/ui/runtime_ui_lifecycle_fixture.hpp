@@ -53,8 +53,13 @@ public:
                 return false;
             m_async_assets_configured = true;
         }
-        if (!m_scripts.is_initialized() && !m_scripts.initialize({&m_assets}))
-            return false;
+        if (!m_scripts.is_initialized()) {
+            if (!m_scripts.initialize({&m_assets}))
+                return false;
+            if (m_system_assets_mounted &&
+                !m_scripts.execute_asset("system:/scripts/bootstrap.lua"))
+                return false;
+        }
         m_assets.bind_font_loader(&m_font_loader);
         if (!m_runtime_ui.initialize(
                 &m_assets, nullptr, &m_scripts, nullptr,
@@ -68,8 +73,13 @@ public:
 
     [[nodiscard]] bool initialize_scripts_only()
     {
-        if (!m_scripts.is_initialized() && !m_scripts.initialize({&m_assets}))
-            return false;
+        if (!m_scripts.is_initialized()) {
+            if (!m_scripts.initialize({&m_assets}))
+                return false;
+            if (m_system_assets_mounted &&
+                !m_scripts.execute_asset("system:/scripts/bootstrap.lua"))
+                return false;
+        }
         return true;
     }
 

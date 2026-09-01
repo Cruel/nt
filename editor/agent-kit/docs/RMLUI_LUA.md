@@ -14,6 +14,8 @@ A Layout can execute Lua from three distinct places:
 
 These sources share the RmlUi/NovelTea Lua environment for that mounted runtime UI. Keep handler functions namespaced so unrelated Layout scripts do not accidentally overwrite globals.
 
+The RmlUi/NovelTea environment is the stable frontend Lua VM, which is separate from the fresh Project Lua VM used by gameplay Script Modules and the Project Bootstrap Module. NovelTea initializes the frontend VM with its engine-owned Lua system bootstrap, so documented standard helpers such as `Layout.clamp_to_viewport(...)` are already available to Layout scripts. Project-bootstrap globals are not visible here. Do not add a `<script src>` solely to load NovelTea's standard toolbox; see `.noveltea/agent/docs/LUA.md` for exact NovelTea API signatures.
+
 ### What `script.enabled` actually controls
 
 `layout.script.enabled` controls **only the dedicated Layout Lua source**. When it is enabled, NovelTea injects the dedicated Layout Lua as a `<script>` into the realized RML document. When it is disabled, NovelTea does not inject that source.

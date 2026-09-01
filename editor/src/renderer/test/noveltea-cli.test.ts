@@ -1235,6 +1235,14 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/LUA.md']).toContain('audio.play_and_wait');
     expect(first.files['docs/LUA.md']).toContain('Game.ui.navigate_map_connection');
     expect(first.files['docs/LUA.md']).toContain('Game.shell.state()');
+    expect(first.files['docs/LUA.md']).toContain(
+      'Layout.clamp_to_viewport(element, x, y, padding?)',
+    );
+    expect(first.files['docs/LUA.md']).toContain('mount:position_hint()');
+    expect(first.files['docs/LUA.md']).toContain('offsetX?, offsetY?');
+    expect(first.files['docs/LUA.md']).toContain(
+      'Project-bootstrap globals are not visible to Layout scripts',
+    );
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
     const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);

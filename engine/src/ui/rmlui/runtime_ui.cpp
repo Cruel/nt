@@ -719,6 +719,35 @@ void RuntimeUI::State::install_shell_lua_api()
             }
             return sol::make_object(lua, std::move(value));
         });
+        mount.set_function(
+            "position_hint", [this, resolve_mount_context, mount_lua_state](sol::table mount) {
+                sol::state_view lua(mount_lua_state);
+                const auto* context = resolve_mount_context(mount);
+                if (!context || !context->trigger_context)
+                    return sol::make_object(lua, sol::lua_nil);
+
+                double hint_x = 0.5;
+                double hint_y = 0.5;
+                if (context->trigger_context->pointer) {
+                    hint_x = context->trigger_context->pointer->x;
+                    hint_y = context->trigger_context->pointer->y;
+                } else if (context->trigger_context->source_bounds) {
+                    const auto& bounds = *context->trigger_context->source_bounds;
+                    hint_x = bounds.x + bounds.width * 0.5;
+                    hint_y = bounds.y + bounds.height * 0.5;
+                }
+
+                const sol::optional<std::string> document_id = mount["document_id"];
+                auto* mounted_document = document_id ? document(*document_id) : nullptr;
+                auto* rml_context = mounted_document ? mounted_document->GetContext() : nullptr;
+                if (!rml_context)
+                    return sol::make_object(lua, sol::lua_nil);
+                const auto dimensions = rml_context->GetDimensions();
+                sol::table value = lua.create_table();
+                value["x"] = hint_x * dimensions.x;
+                value["y"] = hint_y * dimensions.y;
+                return sol::make_object(lua, std::move(value));
+            });
         mount.set_function("anchor", [this, resolve_mount_context, mount_lua_state](
                                          sol::table mount, double width, double height,
                                          sol::optional<std::string> source_name,
@@ -1371,7 +1400,7 @@ bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, cons
     return m_state->document_registry->load_memory(id, rml, source_url, show, key);
 }
 
-bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document,
+bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document, bool show,
                                         const core::MountedLayoutPolicy& policy,
                                         std::uint32_t composition_group,
                                         core::MountedLayoutOwner owner,
@@ -1386,7 +1415,7 @@ bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_doc
     if (builtin_document == RuntimeLayoutBuiltinDocument::GameHud && m_state->template_resolver)
         runtime_document_path = m_state->template_resolver->resolve_runtime_document();
     const bool loaded = m_state->document_registry->load_builtin(builtin_document,
-                                                                 runtime_document_path, true, key);
+                                                                 runtime_document_path, show, key);
     if (loaded) {
         if (builtin_document == RuntimeLayoutBuiltinDocument::GameHud)
             m_state->refresh_game_hud_map();
@@ -1497,7 +1526,17 @@ bool RuntimeUI::unload_document(const std::string& id)
 
 bool RuntimeUI::show_document(const std::string& id)
 {
-    return m_state && m_state->document_registry && m_state->document_registry->show(id);
+    if (!m_state || !m_state->document_registry)
+        return false;
+    auto* document = m_state->document_registry->document(id);
+    auto* context = m_state->document_registry->document_context(id);
+    // Settle model-driven geometry while hidden, then commit onshow style changes before rendering.
+    if (!document || !context || !context->Update())
+        return false;
+    if (!m_state->document_registry->show(id))
+        return false;
+    document->UpdateDocument();
+    return true;
 }
 
 bool RuntimeUI::hide_document(const std::string& id)
