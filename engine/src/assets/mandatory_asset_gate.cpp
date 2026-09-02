@@ -77,6 +77,18 @@ const AssetLease<T>* find_lease(const std::vector<StructuredAssetLeaseRecord>& r
     return nullptr;
 }
 
+template<class T>
+const AssetLease<T>* find_lease_by_identity(const std::vector<StructuredAssetLeaseRecord>& records,
+                                            std::string_view stable_identity) noexcept
+{
+    for (const auto& record : records) {
+        const auto* lease = std::get_if<AssetLease<T>>(&record.lease);
+        if (lease != nullptr && lease->cache_key().stable_identity == stable_identity)
+            return lease;
+    }
+    return nullptr;
+}
+
 core::Result<StructuredAssetRequestHandle, core::Diagnostic>
 submit_request(AssetManager& assets, const StructuredAssetRequestDescriptor& descriptor,
                AssetRequestReason reason) noexcept
@@ -200,10 +212,22 @@ StructuredAssetLeaseSet::find_font(const AssetCacheKey& key) const noexcept
     return find_lease<FontAsset>(m_records, key);
 }
 
+const AssetLease<FontAsset>*
+StructuredAssetLeaseSet::find_font_by_identity(std::string_view stable_identity) const noexcept
+{
+    return find_lease_by_identity<FontAsset>(m_records, stable_identity);
+}
+
 const AssetLease<TextureAsset>*
 StructuredAssetLeaseSet::find_texture(const AssetCacheKey& key) const noexcept
 {
     return find_lease<TextureAsset>(m_records, key);
+}
+
+const AssetLease<TextureAsset>*
+StructuredAssetLeaseSet::find_texture_by_identity(std::string_view stable_identity) const noexcept
+{
+    return find_lease_by_identity<TextureAsset>(m_records, stable_identity);
 }
 
 const AssetLease<HotspotMaskAsset>*
@@ -212,10 +236,22 @@ StructuredAssetLeaseSet::find_hotspot_mask(const AssetCacheKey& key) const noexc
     return find_lease<HotspotMaskAsset>(m_records, key);
 }
 
+const AssetLease<HotspotMaskAsset>* StructuredAssetLeaseSet::find_hotspot_mask_by_identity(
+    std::string_view stable_identity) const noexcept
+{
+    return find_lease_by_identity<HotspotMaskAsset>(m_records, stable_identity);
+}
+
 const AssetLease<ShaderProgramAsset>*
 StructuredAssetLeaseSet::find_shader_program(const AssetCacheKey& key) const noexcept
 {
     return find_lease<ShaderProgramAsset>(m_records, key);
+}
+
+const AssetLease<ShaderProgramAsset>* StructuredAssetLeaseSet::find_shader_program_by_identity(
+    std::string_view stable_identity) const noexcept
+{
+    return find_lease_by_identity<ShaderProgramAsset>(m_records, stable_identity);
 }
 
 const AssetLease<MaterialAsset>*
@@ -224,10 +260,22 @@ StructuredAssetLeaseSet::find_material(const AssetCacheKey& key) const noexcept
     return find_lease<MaterialAsset>(m_records, key);
 }
 
+const AssetLease<MaterialAsset>*
+StructuredAssetLeaseSet::find_material_by_identity(std::string_view stable_identity) const noexcept
+{
+    return find_lease_by_identity<MaterialAsset>(m_records, stable_identity);
+}
+
 const AssetLease<AudioAsset>*
 StructuredAssetLeaseSet::find_audio(const AssetCacheKey& key) const noexcept
 {
     return find_lease<AudioAsset>(m_records, key);
+}
+
+const AssetLease<AudioAsset>*
+StructuredAssetLeaseSet::find_audio_by_identity(std::string_view stable_identity) const noexcept
+{
+    return find_lease_by_identity<AudioAsset>(m_records, stable_identity);
 }
 
 std::string StructuredAssetLeaseSet::describe_texture_keys() const
@@ -499,8 +547,197 @@ MandatoryAssetRequestGroup::take_ready_leases_on_owner() noexcept
     return std::move(m_impl->ready_leases);
 }
 
+MandatoryPublicationTransaction::MandatoryPublicationTransaction(
+    MandatoryPublicationScope& scope, AssetSourceGeneration source_generation) noexcept
+    : m_scope(&scope), m_source_generation(source_generation)
+{
+}
+
+MandatoryPublicationTransaction::~MandatoryPublicationTransaction() { rollback_on_owner(); }
+
+MandatoryPublicationTransaction::MandatoryPublicationTransaction(
+    MandatoryPublicationTransaction&& other) noexcept
+    : m_scope(std::exchange(other.m_scope, nullptr)), m_source_generation(other.m_source_generation)
+{
+}
+
+MandatoryPublicationTransaction&
+MandatoryPublicationTransaction::operator=(MandatoryPublicationTransaction&& other) noexcept
+{
+    if (this == &other)
+        return *this;
+    rollback_on_owner();
+    m_scope = std::exchange(other.m_scope, nullptr);
+    m_source_generation = other.m_source_generation;
+    return *this;
+}
+
+core::DiagnosticResult<void>
+MandatoryPublicationTransaction::commit_on_owner(bool retain_predecessor) noexcept
+{
+    if (m_scope == nullptr) {
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.mandatory_publication_transaction_inactive",
+             .message = "Mandatory publication transaction is no longer active"});
+    }
+    auto committed = m_scope->commit_candidate_on_owner(m_source_generation, retain_predecessor);
+    if (committed)
+        m_scope = nullptr;
+    return committed;
+}
+
+void MandatoryPublicationTransaction::rollback_on_owner() noexcept
+{
+    if (m_scope == nullptr)
+        return;
+    m_scope->rollback_candidate_on_owner();
+    m_scope = nullptr;
+}
+
+bool MandatoryPublicationTransaction::active_on_owner() const noexcept
+{
+    return m_scope != nullptr;
+}
+
+MandatoryPublicationScope::MandatoryPublicationScope(AssetManager& assets,
+                                                     MandatoryPublicationScopeKind kind) noexcept
+    : m_assets(assets), m_kind(kind)
+{
+}
+
+MandatoryPublicationScope::~MandatoryPublicationScope() { clear_on_owner(); }
+
+MandatoryPublicationTransaction MandatoryPublicationScope::begin_transaction_on_owner(
+    StructuredAssetLeaseSet leases, AssetSourceGeneration source_generation) noexcept
+{
+    rollback_candidate_on_owner();
+    if (m_kind == MandatoryPublicationScopeKind::Runtime)
+        m_assets.stage_candidate_leases_on_owner(std::move(leases));
+    else
+        m_assets.stage_focused_candidate_leases_on_owner(std::move(leases));
+    m_candidate_active = true;
+    return MandatoryPublicationTransaction(*this, source_generation);
+}
+
+core::DiagnosticResult<void>
+MandatoryPublicationScope::commit_candidate_on_owner(AssetSourceGeneration source_generation,
+                                                     bool retain_predecessor) noexcept
+{
+    if (!m_candidate_active) {
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.mandatory_publication_candidate_inactive",
+             .message = "Mandatory publication candidate is no longer active"});
+    }
+    if (source_generation != m_assets.source_generation_on_owner()) {
+        rollback_candidate_on_owner();
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.mandatory_publication_stale_source_generation",
+             .message = "Mandatory publication candidate belongs to a retired source generation"});
+    }
+
+    if (m_kind == MandatoryPublicationScopeKind::Runtime) {
+        m_assets.commit_candidate_leases_on_owner();
+        if (!retain_predecessor)
+            m_assets.clear_previous_published_leases_on_owner();
+    } else {
+        m_assets.commit_focused_candidate_leases_on_owner();
+    }
+    m_candidate_active = false;
+    return core::DiagnosticResult<void>::success();
+}
+
+void MandatoryPublicationScope::rollback_candidate_on_owner() noexcept
+{
+    if (!m_candidate_active)
+        return;
+    if (m_kind == MandatoryPublicationScopeKind::Runtime)
+        m_assets.rollback_candidate_leases_on_owner();
+    else
+        m_assets.rollback_focused_candidate_leases_on_owner();
+    m_candidate_active = false;
+}
+
+void MandatoryPublicationScope::release_predecessor_on_owner() noexcept
+{
+    if (m_kind == MandatoryPublicationScopeKind::Runtime)
+        m_assets.clear_previous_published_leases_on_owner();
+}
+
+void MandatoryPublicationScope::clear_on_owner() noexcept
+{
+    rollback_candidate_on_owner();
+    if (m_kind == MandatoryPublicationScopeKind::Runtime)
+        m_assets.clear_published_leases_on_owner();
+    else
+        m_assets.clear_focused_published_leases_on_owner();
+}
+
+RuntimeMandatoryPublicationTransaction::RuntimeMandatoryPublicationTransaction(
+    MandatoryAssetGate& gate, MandatoryPublicationTransaction transaction) noexcept
+    : m_gate(&gate), m_transaction(std::move(transaction))
+{
+}
+
+RuntimeMandatoryPublicationTransaction::~RuntimeMandatoryPublicationTransaction()
+{
+    rollback_on_owner();
+}
+
+RuntimeMandatoryPublicationTransaction::RuntimeMandatoryPublicationTransaction(
+    RuntimeMandatoryPublicationTransaction&& other) noexcept
+    : m_gate(std::exchange(other.m_gate, nullptr)), m_transaction(std::move(other.m_transaction))
+{
+}
+
+RuntimeMandatoryPublicationTransaction& RuntimeMandatoryPublicationTransaction::operator=(
+    RuntimeMandatoryPublicationTransaction&& other) noexcept
+{
+    if (this == &other)
+        return *this;
+    rollback_on_owner();
+    m_gate = std::exchange(other.m_gate, nullptr);
+    m_transaction = std::move(other.m_transaction);
+    return *this;
+}
+
+core::DiagnosticResult<void>
+RuntimeMandatoryPublicationTransaction::commit_on_owner(bool retain_predecessor) noexcept
+{
+    if (m_gate == nullptr || !m_transaction) {
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.mandatory_runtime_transaction_inactive",
+             .message = "Runtime mandatory publication transaction is no longer active"});
+    }
+    auto committed = m_transaction->commit_on_owner(retain_predecessor);
+    if (!committed) {
+        m_gate->abandon_ready_transaction_on_owner();
+        m_gate = nullptr;
+        m_transaction.reset();
+        return committed;
+    }
+    m_gate->commit_ready_transaction_on_owner();
+    m_gate = nullptr;
+    m_transaction.reset();
+    return core::DiagnosticResult<void>::success();
+}
+
+void RuntimeMandatoryPublicationTransaction::rollback_on_owner() noexcept
+{
+    if (m_gate == nullptr)
+        return;
+    if (m_transaction)
+        m_transaction->rollback_on_owner();
+    m_gate->abandon_ready_transaction_on_owner();
+    m_transaction.reset();
+    m_gate = nullptr;
+}
+
 struct MandatoryAssetGate::Impl {
-    explicit Impl(AssetManager& manager) noexcept : assets(manager), prefetch(manager) {}
+    explicit Impl(AssetManager& manager) noexcept
+        : assets(manager), publication(manager, MandatoryPublicationScopeKind::Runtime),
+          prefetch(manager)
+    {
+    }
 
     core::DiagnosticResult<void> rebuild_index_on_owner(AssetSourceGeneration generation)
     {
@@ -542,6 +779,7 @@ struct MandatoryAssetGate::Impl {
     }
 
     AssetManager& assets;
+    MandatoryPublicationScope publication;
     PrefetchPlanner prefetch;
     const core::LoadedCompiledPackage* package = nullptr;
     std::string active_renderer_variant;
@@ -551,7 +789,7 @@ struct MandatoryAssetGate::Impl {
     StructuredAssetDependencyBuckets dependencies;
     std::optional<core::PresentationSnapshotRevision> snapshot_revision;
     std::optional<core::RuntimePresentationSnapshot> pending_snapshot;
-    bool candidate_active = false;
+    bool transaction_active = false;
 };
 
 MandatoryAssetGate::MandatoryAssetGate(AssetManager& assets) noexcept
@@ -623,7 +861,7 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
     m_impl->collector.reset();
     m_impl->package = nullptr;
     m_impl->active_renderer_variant.clear();
-    m_impl->assets.clear_published_leases_on_owner();
+    m_impl->publication.clear_on_owner();
 }
 
 MandatoryAssetGateResult
@@ -782,24 +1020,25 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
     return core::Result<void, core::Diagnostics>::success();
 }
 
-bool MandatoryAssetGate::activate_candidate_on_owner() noexcept
+std::optional<RuntimeMandatoryPublicationTransaction>
+MandatoryAssetGate::take_ready_transaction_on_owner() noexcept
 {
-    if (!m_impl->group || m_impl->candidate_active)
-        return m_impl->candidate_active;
+    if (!m_impl->group || m_impl->transaction_active)
+        return std::nullopt;
     auto leases = m_impl->group->take_ready_leases_on_owner();
     if (!leases)
-        return false;
-    m_impl->assets.stage_candidate_leases_on_owner(std::move(*leases));
-    m_impl->candidate_active = true;
-    return true;
+        return std::nullopt;
+    auto transaction = m_impl->publication.begin_transaction_on_owner(
+        std::move(*leases), m_impl->dependency_generation);
+    m_impl->transaction_active = true;
+    return RuntimeMandatoryPublicationTransaction(*this, std::move(transaction));
 }
 
-void MandatoryAssetGate::commit_candidate_on_owner() noexcept
+void MandatoryAssetGate::commit_ready_transaction_on_owner() noexcept
 {
-    if (!m_impl->candidate_active)
+    if (!m_impl->transaction_active)
         return;
-    m_impl->assets.commit_candidate_leases_on_owner();
-    m_impl->candidate_active = false;
+    m_impl->transaction_active = false;
     auto submitted = m_impl->prefetch.replace_generation_on_owner(m_impl->dependencies);
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (const auto* report = submitted.value_if()) {
@@ -835,9 +1074,21 @@ void MandatoryAssetGate::commit_candidate_on_owner() noexcept
     m_impl->pending_snapshot.reset();
 }
 
+void MandatoryAssetGate::abandon_ready_transaction_on_owner() noexcept
+{
+    if (m_impl == nullptr)
+        return;
+    m_impl->transaction_active = false;
+    if (m_impl->group)
+        m_impl->group->cancel_on_owner();
+    m_impl->group.reset();
+    m_impl->snapshot_revision.reset();
+    m_impl->pending_snapshot.reset();
+}
+
 void MandatoryAssetGate::release_previous_publication_on_owner() noexcept
 {
-    m_impl->assets.clear_previous_published_leases_on_owner();
+    m_impl->publication.release_predecessor_on_owner();
 }
 
 void MandatoryAssetGate::rollback_candidate_on_owner() noexcept
@@ -846,8 +1097,8 @@ void MandatoryAssetGate::rollback_candidate_on_owner() noexcept
         return;
     if (m_impl->group)
         m_impl->group->cancel_on_owner();
-    m_impl->assets.rollback_candidate_leases_on_owner();
-    m_impl->candidate_active = false;
+    m_impl->publication.rollback_candidate_on_owner();
+    m_impl->transaction_active = false;
     m_impl->group.reset();
     m_impl->snapshot_revision.reset();
     m_impl->pending_snapshot.reset();

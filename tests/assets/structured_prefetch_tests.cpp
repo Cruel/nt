@@ -780,8 +780,9 @@ TEST_CASE("optional adjacency diagnostics do not block current mandatory publica
     fixture.run_until_idle();
     const auto ready = gate.poll_on_owner();
     REQUIRE(ready.disposition == assets::MandatoryAssetGateDisposition::Ready);
-    REQUIRE(gate.activate_candidate_on_owner());
-    gate.commit_candidate_on_owner();
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
     CHECK(fixture.manager.has_published_leases_on_owner());
     gate.clear_package_on_owner();
 }
@@ -879,14 +880,15 @@ TEST_CASE("mandatory gate rebuilds generation-scoped dependency keys after proje
     fixture.run_until_idle();
     const auto ready = gate.poll_on_owner();
     REQUIRE(ready.disposition == assets::MandatoryAssetGateDisposition::Ready);
-    REQUIRE(gate.activate_candidate_on_owner());
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
 
     const assets::TextureAssetRequest background{
         .path = "project:/assets/images/current.png",
         .sampler = MaterialTextureSampler::ClampLinear,
     };
     CHECK(fixture.manager.leased_texture_on_owner(background) != nullptr);
-    gate.commit_candidate_on_owner();
+    REQUIRE(transaction->commit_on_owner(false));
     CHECK(fixture.manager.leased_texture_on_owner(background) != nullptr);
     gate.clear_package_on_owner();
 }
@@ -925,15 +927,63 @@ TEST_CASE("mandatory gate restarts pending requests after a project source refre
     fixture.run_until_idle();
     const auto ready = gate.poll_on_owner();
     REQUIRE(ready.disposition == assets::MandatoryAssetGateDisposition::Ready);
-    REQUIRE(gate.activate_candidate_on_owner());
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
 
     const assets::TextureAssetRequest request{
         .path = "project:/assets/images/current.png",
         .sampler = MaterialTextureSampler::ClampLinear,
     };
     REQUIRE(fixture.manager.leased_texture_on_owner(request) != nullptr);
-    gate.commit_candidate_on_owner();
+    REQUIRE(transaction->commit_on_owner(false));
     REQUIRE(fixture.manager.leased_texture_on_owner(request) != nullptr);
+    gate.clear_package_on_owner();
+}
+
+TEST_CASE(
+    "runtime prefetch generation advances only after a current publication transaction commits",
+    "[assets][structured-prefetch][mandatory-assets][transaction][source-generation]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(41);
+    snapshot.mode = core::PresentationRuntimeMode::Room;
+    snapshot.current_room = id<core::RoomId>("start");
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-current"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto stale_transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(stale_transaction);
+    CHECK_FALSE(gate.active_prefetch_generation_on_owner());
+
+    fixture.manager.mount("project", std::make_shared<assets::MemoryAssetSource>());
+    REQUIRE(fixture.manager.source_generation_on_owner() != generation);
+    auto stale_commit = stale_transaction->commit_on_owner(false);
+    REQUIRE_FALSE(stale_commit);
+    CHECK(stale_commit.error().code == "assets.mandatory_publication_stale_source_generation");
+    CHECK_FALSE(gate.active_prefetch_generation_on_owner());
+    CHECK_FALSE(fixture.manager.has_published_leases_on_owner());
+
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto current_transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(current_transaction);
+    REQUIRE(current_transaction->commit_on_owner(false));
+    CHECK(gate.active_prefetch_generation_on_owner().has_value());
+    CHECK(fixture.manager.has_published_leases_on_owner());
     gate.clear_package_on_owner();
 }
 
@@ -1028,8 +1078,9 @@ TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
     fixture.run_until_idle();
     auto ready = gate.poll_on_owner();
     REQUIRE(ready.disposition == assets::MandatoryAssetGateDisposition::Ready);
-    REQUIRE(gate.activate_candidate_on_owner());
-    gate.commit_candidate_on_owner();
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
 
     REQUIRE(sink.generations.size() == 1);
     const auto& record = sink.generations.front();
@@ -1294,12 +1345,13 @@ TEST_CASE("mandatory gate includes transient audio in publication leases",
     fixture.run_until_idle();
     auto polled = gate.poll_on_owner();
     REQUIRE(polled.disposition == assets::MandatoryAssetGateDisposition::Ready);
-    REQUIRE(gate.activate_candidate_on_owner());
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
     const assets::AudioAssetRequest request{.path = "project:/assets/audio/voice.ogg",
                                             .mode = AudioLoadMode::Auto,
                                             .kind = AudioClipKind::Voice};
     REQUIRE(fixture.manager.leased_audio_on_owner(request));
-    gate.commit_candidate_on_owner();
+    REQUIRE(transaction->commit_on_owner(false));
     REQUIRE(fixture.manager.has_published_leases_on_owner());
     gate.clear_package_on_owner();
 }
