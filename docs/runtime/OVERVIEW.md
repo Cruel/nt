@@ -78,11 +78,16 @@ Dialogue, Room Lifecycle, or Gameplay Command definitions at runtime. The metada
 only: it never drives canonical Flow execution, and a missing/unused prediction index leaves gameplay
 correctness unchanged because mandatory asset publication remains independent.
 
-`runtime::FlowPredictor` exposes a read-only semantic projection over the generated index. The first
-tracer supports Scene-entry roots connected by deterministic Scene continuation and reports semantic
-dependencies with execution distance. Later Flow-aware work extends this same boundary with live
-execution positions, Conditions, Room lifecycle, Dialogue structure, waits, choices, and other
-prediction frontiers rather than adding parallel raw-definition walkers.
+`runtime::FlowPredictor` exposes a read-only semantic projection over the generated index. In addition
+to Scene and Dialogue entry roots, prospective Room entry is a first-class prediction root. It composes
+the canonical successful transition order (source `before_leave`, target `before_enter`, target Room
+presentation, source `after_leave`, target `after_enter` where applicable) and deliberately excludes
+rejection programs. Compiler-lowered Gameplay Command summaries can hand off to Scene or Dialogue and
+carry a narrow disposable projection of typed Global Property mutations into later Conditions. Known
+Conditions select an expected branch; unknown or Lua-dependent Conditions widen both branches as
+alternatives. Lua is never executed or analyzed, and an opaque Lua command discards projected state
+while prediction continues through statically known Flow. This remains speculative metadata only; it
+does not clone a Runtime Session or participate in authoritative execution.
 
 ## Agent Rules
 

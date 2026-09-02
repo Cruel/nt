@@ -1744,18 +1744,70 @@ struct MapDefinition {
 
 struct FlowPredictionAssetDependency {
     AssetId asset;
+    bool operator==(const FlowPredictionAssetDependency&) const = default;
 };
-using FlowPredictionDependency = std::variant<FlowPredictionAssetDependency>;
+struct FlowPredictionRoomDependency {
+    RoomId room;
+    bool operator==(const FlowPredictionRoomDependency&) const = default;
+};
+using FlowPredictionDependency =
+    std::variant<FlowPredictionAssetDependency, FlowPredictionRoomDependency>;
 
 struct SceneEntryPredictionPoint {
     SceneId scene;
+    bool operator==(const SceneEntryPredictionPoint&) const = default;
 };
-using FlowPredictionPoint = std::variant<SceneEntryPredictionPoint>;
+struct DialogueEntryPredictionPoint {
+    DialogueId dialogue;
+    bool operator==(const DialogueEntryPredictionPoint&) const = default;
+};
+enum class RoomLifecyclePredictionStage : std::uint8_t {
+    BeforeLeave,
+    BeforeEnter,
+    Presentation,
+    AfterLeave,
+    AfterEnter,
+};
+struct RoomLifecyclePredictionPoint {
+    RoomId room;
+    RoomLifecyclePredictionStage stage = RoomLifecyclePredictionStage::Presentation;
+    bool operator==(const RoomLifecyclePredictionPoint&) const = default;
+};
+using FlowPredictionPoint = std::variant<SceneEntryPredictionPoint, DialogueEntryPredictionPoint,
+                                         RoomLifecyclePredictionPoint>;
+
+struct FlowPredictionSetGlobalProperty {
+    PropertyId property;
+    RuntimeValue value;
+};
+struct FlowPredictionInvalidateGlobalProperty {
+    PropertyId property;
+};
+struct FlowPredictionCallScene {
+    SceneId scene;
+};
+struct FlowPredictionCallDialogue {
+    DialogueId dialogue;
+};
+struct FlowPredictionOpaque {};
+struct FlowPredictionCommand;
+struct FlowPredictionIf {
+    Condition condition;
+    std::vector<FlowPredictionCommand> then_commands;
+    std::vector<FlowPredictionCommand> else_commands;
+};
+struct FlowPredictionCommand {
+    using Value = std::variant<FlowPredictionSetGlobalProperty,
+                               FlowPredictionInvalidateGlobalProperty, FlowPredictionCallScene,
+                               FlowPredictionCallDialogue, FlowPredictionOpaque, FlowPredictionIf>;
+    Value value;
+};
 
 struct FlowPredictionSlice {
     FlowPredictionPoint point;
     std::vector<std::size_t> dependency_groups;
     std::vector<std::size_t> successors;
+    std::vector<FlowPredictionCommand> program;
 };
 
 struct FlowPredictionIndex {

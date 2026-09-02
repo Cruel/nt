@@ -17,11 +17,13 @@ editor state are not legal fields.
 The compiler may additionally publish a `flowPrediction` section containing immutable generated
 optimization metadata. It is runtime-blind and non-authoritative: gameplay execution continues to
 use the ordinary compiled Scene/Dialogue/Room definitions, while speculative loading may consume the
-prediction metadata when present. The initial tracer-bullet representation contains normalized
-semantic dependency groups and prediction-relevant Scene-entry slices connected by deterministic
-successor indices. It intentionally does not enumerate gameplay-state combinations or duplicate full
-asset snapshots per execution position. Absence of the section disables this optimization without
-changing gameplay semantics.
+prediction metadata when present. The representation contains normalized semantic dependency groups,
+Scene/Dialogue entry slices, reusable Room lifecycle/presentation slices, deterministic successor
+indices, and compact compiler-lowered prediction command summaries. Those summaries admit only the
+typed mutations, Flow handoffs, Conditions, and explicit opacity markers needed by the predictor; they
+are not executable Gameplay Commands. Room presentation is represented semantically by Room identity
+rather than a duplicated asset snapshot. The index intentionally does not enumerate gameplay-state
+combinations. Absence of the section disables this optimization without changing gameplay semantics.
 
 The wire contains closed `SceneProgram`, `DialogueProgram`, `InteractionProgram`, and Room hook
 representations. Program and nested IDs remain stable. Definition arrays are compiler-sorted by ID;

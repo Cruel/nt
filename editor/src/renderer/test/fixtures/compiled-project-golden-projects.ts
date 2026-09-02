@@ -65,6 +65,7 @@ const interactableInstanceReference = (id: string) => ({
   $ref: { registry: 'interactableInstances' as const, id },
 });
 const roomReference = (id: string) => ({ $ref: { collection: 'rooms' as const, id } });
+const sceneReference = (id: string) => ({ $ref: { collection: 'scenes' as const, id } });
 const variableReference = (id: string) => ({ $ref: { collection: 'variables' as const, id } });
 const verbReference = (id: string) => ({ $ref: { collection: 'verbs' as const, id } });
 
@@ -1069,6 +1070,7 @@ export function traitPropertiesLocalizationGoldenProject(): AuthoringProject {
 export function sceneProgramGoldenProject(): AuthoringProject {
   const project = comprehensiveGoldenProject();
   renameProject(project, 'golden-scene-program', 'Golden Scene Program');
+  addAsset(project, 'image-arrival-dialogue', 'image', 'assets/images/arrival-dialogue.png');
 
   const postprocessShader = defaultShaderData('Scene Postprocess Shader');
   postprocessShader.roles = ['postprocess'];
@@ -1352,6 +1354,157 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   ];
   closing.terminal = { kind: 'continue-dialogue', dialogue: sceneDialogueRef('intro') };
   project.scenes.closing = { id: 'closing', label: 'Closing', data: closing };
+
+  const arrivalDialogue = defaultDialogueData('Arrival');
+  arrivalDialogue.mediaSlots = [
+    {
+      id: 'arrival-image',
+      label: 'Arrival Image',
+      initial: { kind: 'image', asset: assetReference('image-arrival-dialogue') },
+      visible: true,
+    },
+  ];
+  project.dialogues.arrival = {
+    id: 'arrival',
+    label: 'Arrival',
+    data: arrivalDialogue,
+  };
+  project.rooms.hall!.data.lifecycle.afterEnter = [
+    {
+      id: 'current-state-arrival-branch',
+      kind: 'if',
+      condition: {
+        kind: 'variable-comparison',
+        variable: variableReference('player-name'),
+        operator: 'equal',
+        value: 'Ada',
+      },
+      // oxlint-disable-next-line unicorn/no-thenable -- Authoring wire field.
+      then: [
+        {
+          id: 'current-state-arrival-scene',
+          kind: 'call-scene',
+          scene: sceneReference('closing'),
+        },
+      ],
+      else: [
+        {
+          id: 'current-state-arrival-fallback',
+          kind: 'call-dialogue',
+          dialogue: dialogueReference('arrival'),
+        },
+      ],
+    },
+  ];
+  project.rooms.hall!.data.lifecycle.beforeLeave = [
+    {
+      id: 'prepare-arrival-mood',
+      kind: 'set-global-property',
+      variable: variableReference('mood-variable'),
+      value: 'tense',
+    },
+  ];
+  project.rooms.tower!.data.lifecycle.beforeEnter = [
+    {
+      id: 'prepare-arrival-flag',
+      kind: 'set-global-property',
+      variable: variableReference('flag'),
+      value: true,
+    },
+  ];
+  project.rooms.hall!.data.lifecycle.afterLeave = [
+    {
+      id: 'prepare-arrival-count',
+      kind: 'set-global-property',
+      variable: variableReference('count'),
+      value: 3,
+    },
+  ];
+  project.rooms.tower!.data.lifecycle.afterEnter = [
+    {
+      id: 'canonical-arrival-branch',
+      kind: 'if',
+      condition: {
+        kind: 'all',
+        conditions: [
+          {
+            kind: 'variable-comparison',
+            variable: variableReference('mood-variable'),
+            operator: 'equal',
+            value: 'tense',
+          },
+          {
+            kind: 'variable-comparison',
+            variable: variableReference('flag'),
+            operator: 'truthy',
+          },
+          {
+            kind: 'variable-comparison',
+            variable: variableReference('count'),
+            operator: 'equal',
+            value: 3,
+          },
+        ],
+      },
+      // oxlint-disable-next-line unicorn/no-thenable -- canonical authored Gameplay Command field.
+      then: [
+        { id: 'canonical-arrival-scene', kind: 'call-scene', scene: sceneReference('closing') },
+      ],
+      else: [
+        {
+          id: 'canonical-arrival-fallback',
+          kind: 'call-dialogue',
+          dialogue: dialogueReference('arrival'),
+        },
+      ],
+    },
+    { id: 'direct-arrival-scene', kind: 'call-scene', scene: sceneReference('closing') },
+    {
+      id: 'arrival-flag',
+      kind: 'set-global-property',
+      variable: variableReference('flag'),
+      value: true,
+    },
+    {
+      id: 'known-arrival-branch',
+      kind: 'if',
+      condition: {
+        kind: 'variable-comparison',
+        variable: variableReference('flag'),
+        operator: 'truthy',
+      },
+      // oxlint-disable-next-line unicorn/no-thenable -- canonical authored Gameplay Command field.
+      then: [{ id: 'arrival-scene', kind: 'call-scene', scene: sceneReference('closing') }],
+      else: [
+        {
+          id: 'arrival-dialogue-fallback',
+          kind: 'call-dialogue',
+          dialogue: dialogueReference('arrival'),
+        },
+      ],
+    },
+    {
+      id: 'opaque-arrival-branch',
+      kind: 'if',
+      condition: { kind: 'lua-predicate', source: 'choose_arrival_followup()' },
+      // oxlint-disable-next-line unicorn/no-thenable -- canonical authored Gameplay Command field.
+      then: [
+        {
+          id: 'possible-dialogue',
+          kind: 'call-dialogue',
+          dialogue: dialogueReference('arrival'),
+        },
+      ],
+      else: [{ id: 'possible-scene', kind: 'call-scene', scene: sceneReference('closing') }],
+    },
+  ];
+  project.rooms.tower!.data.lifecycle.onEnterRejected = [
+    {
+      id: 'rejected-dialogue',
+      kind: 'call-dialogue',
+      dialogue: dialogueReference('arrival'),
+    },
+  ];
   project.entrypoint = { kind: 'scene', id: 'opening' };
   return project;
 }

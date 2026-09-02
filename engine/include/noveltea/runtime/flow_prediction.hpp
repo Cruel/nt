@@ -4,13 +4,20 @@
 #include "noveltea/core/diagnostic.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace noveltea::runtime {
 
+enum class FlowPredictionConfidence : std::uint8_t {
+    Expected,
+    Alternative,
+};
+
 struct FlowPredictionProjectionEntry {
     core::compiled::FlowPredictionDependency dependency;
     std::size_t execution_distance = 0;
+    FlowPredictionConfidence confidence = FlowPredictionConfidence::Expected;
 };
 
 // Read-only tooling/runtime view over one prediction root. It intentionally exposes semantic
@@ -20,11 +27,33 @@ struct FlowPredictionProjection {
     core::Diagnostics diagnostics;
 };
 
+struct FlowPredictionGlobalProperty {
+    core::PropertyId property;
+    core::RuntimeValue value;
+};
+
+// Deliberately narrow authoritative state supplied to speculative prediction. This is not a
+// Runtime Session clone and grows only when prediction-relevant typed facts need admission.
+struct FlowPredictionContext {
+    std::vector<FlowPredictionGlobalProperty> global_properties;
+};
+
+struct ProspectiveRoomEntryPredictionRoot {
+    std::optional<core::RoomId> source_room;
+    core::RoomId target_room;
+};
+
 class FlowPredictor {
 public:
     explicit FlowPredictor(const core::CompiledProject& project) noexcept : m_project(&project) {}
 
     [[nodiscard]] FlowPredictionProjection predict(const core::compiled::Entrypoint& root) const;
+    [[nodiscard]] FlowPredictionProjection predict(const core::compiled::Entrypoint& root,
+                                                   const FlowPredictionContext& context) const;
+    [[nodiscard]] FlowPredictionProjection
+    predict(const ProspectiveRoomEntryPredictionRoot& root) const;
+    [[nodiscard]] FlowPredictionProjection predict(const ProspectiveRoomEntryPredictionRoot& root,
+                                                   const FlowPredictionContext& context) const;
 
 private:
     const core::CompiledProject* m_project;

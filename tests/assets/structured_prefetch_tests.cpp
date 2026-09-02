@@ -886,6 +886,40 @@ TEST_CASE("mandatory package binding submits compiled Scene-entry prediction thr
     gate.clear_package_on_owner();
 }
 
+TEST_CASE(
+    "mandatory Room publication submits adjacent lifecycle Flow prediction through real prefetch",
+    "[assets][flow-prediction][mandatory-assets][structured-prefetch][room-lifecycle]")
+{
+    PlannerFixture fixture;
+    auto document = read_compiled_project_golden("scene-program");
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    auto package = package_from_document(std::move(document), "scene-program.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(151);
+    snapshot.mode = core::PresentationRuntimeMode::Room;
+    snapshot.current_room = id<core::RoomId>("hall");
+
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+
+    CHECK(std::ranges::find(fixture.recorder.calls, "texture:project:/assets/images/main.png") !=
+          fixture.recorder.calls.end());
+    CHECK(std::ranges::find(fixture.recorder.calls,
+                            "texture:project:/assets/images/arrival-dialogue.png") !=
+          fixture.recorder.calls.end());
+
+    fixture.run_until_idle();
+    gate.clear_package_on_owner();
+}
+
 TEST_CASE("mandatory publication remains correct when Flow Prediction metadata is unavailable",
           "[assets][flow-prediction][mandatory-assets][structured-prefetch]")
 {
@@ -1348,6 +1382,99 @@ TEST_CASE("compiled Flow Prediction Index drives semantic prediction into real p
           std::vector<std::string>{"texture:project:/assets/images/main.png"});
     fixture.run_until_idle();
     planner.clear_on_owner();
+}
+
+TEST_CASE("prospective Room entry predicts successful lifecycle Flow and widens opaque branches",
+          "[assets][structured-prefetch][flow-prediction][room-lifecycle]")
+{
+    PlannerFixture fixture;
+    auto package =
+        package_from_document(read_compiled_project_golden("scene-program"), "scene-program.json");
+    REQUIRE(package.project().flow_prediction().has_value());
+
+    runtime::FlowPredictor predictor(package.project());
+    const auto projection = predictor.predict(runtime::ProspectiveRoomEntryPredictionRoot{
+        .source_room = id<core::RoomId>("hall"), .target_room = id<core::RoomId>("tower")});
+    REQUIRE(projection.diagnostics.empty());
+
+    const auto room_dependency = std::ranges::find_if(projection.entries, [](const auto& entry) {
+        const auto* room =
+            std::get_if<core::compiled::FlowPredictionRoomDependency>(&entry.dependency);
+        return room != nullptr && room->room == id<core::RoomId>("tower");
+    });
+    REQUIRE(room_dependency != projection.entries.end());
+    CHECK(room_dependency->execution_distance == 2);
+    CHECK(room_dependency->confidence == runtime::FlowPredictionConfidence::Expected);
+
+    const auto has_asset = [&](std::string_view asset,
+                               runtime::FlowPredictionConfidence confidence) {
+        return std::ranges::any_of(projection.entries, [&](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset)) &&
+                   entry.confidence == confidence;
+        });
+    };
+    // The direct after-enter Scene call and the typed branch selected after the projected flag
+    // mutation are expected. The Lua-predicate branch widens without executing Lua.
+    CHECK(has_asset("image-main", runtime::FlowPredictionConfidence::Expected));
+    const auto expected_scene_entries =
+        std::ranges::count_if(projection.entries, [](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr && dependency->asset == id<core::AssetId>("image-main") &&
+                   entry.confidence == runtime::FlowPredictionConfidence::Expected;
+        });
+    // Three expected Scene entries prove the source before-leave, target before-enter, and source
+    // after-leave projected mutations made the first after-enter condition fully decidable, in
+    // addition to the direct handoff and the later locally projected typed branch.
+    CHECK(expected_scene_entries == 3);
+    CHECK(has_asset("image-arrival-dialogue", runtime::FlowPredictionConfidence::Alternative));
+    // onEnterRejected also calls the Dialogue, but successful prospective entry must exclude the
+    // rejection lifecycle entirely.
+    CHECK_FALSE(has_asset("image-arrival-dialogue", runtime::FlowPredictionConfidence::Expected));
+
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto dependency_index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
+    REQUIRE(plan.diagnostics.empty());
+    const auto dialogue_prefetch = std::ranges::find_if(plan.candidates, [](const auto& candidate) {
+        const auto* texture =
+            std::get_if<assets::TextureAssetRequest>(&candidate.descriptor.request);
+        return texture != nullptr && texture->path == "project:/assets/images/arrival-dialogue.png";
+    });
+    REQUIRE(dialogue_prefetch != plan.candidates.end());
+    CHECK(dialogue_prefetch->prediction == assets::PrefetchPredictionKind::PossibleNext);
+
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto submitted = planner.replace_generation_on_owner(plan);
+    REQUIRE(submitted);
+    CHECK(submitted.value().adjacent_submitted >= 1);
+    fixture.run_until_idle();
+    planner.clear_on_owner();
+
+    const auto context_projection = predictor.predict(
+        runtime::ProspectiveRoomEntryPredictionRoot{
+            .source_room = std::nullopt,
+            .target_room = id<core::RoomId>("hall"),
+        },
+        runtime::FlowPredictionContext{
+            .global_properties = {
+                {id<core::PropertyId>("player-name"), core::RuntimeValue{std::string{"Ada"}}}}});
+    CHECK(std::ranges::any_of(context_projection.entries, [](const auto& entry) {
+        const auto* dependency =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+        return dependency != nullptr && dependency->asset == id<core::AssetId>("image-main") &&
+               entry.confidence == runtime::FlowPredictionConfidence::Expected;
+    }));
+    CHECK_FALSE(std::ranges::any_of(context_projection.entries, [](const auto& entry) {
+        const auto* dependency =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+        return dependency != nullptr &&
+               dependency->asset == id<core::AssetId>("image-arrival-dialogue");
+    }));
 }
 
 TEST_CASE("prefetch generation replacement releases stale tickets but preserves shared demand",

@@ -784,14 +784,29 @@ struct MandatoryAssetGate::Impl {
             context.required_system_layouts.push_back(
                 core::compiled::SystemLayoutRole::SceneChoice);
         }
-        if (package != nullptr && snapshot.current_room) {
-            if (const auto* room = package->project().find_room(*snapshot.current_room)) {
-                context.adjacent_alternatives.reserve(room->exits.size());
-                for (const auto& exit : room->exits)
-                    context.adjacent_alternatives.emplace_back(exit.target);
+        return context;
+    }
+
+    void append_adjacent_room_predictions(const core::RuntimePresentationSnapshot& snapshot)
+    {
+        if (package == nullptr || !dependency_index || !snapshot.current_room)
+            return;
+        const auto* room = package->project().find_room(*snapshot.current_room);
+        if (room == nullptr)
+            return;
+
+        runtime::FlowPredictor predictor(package->project());
+        for (const auto& exit : room->exits) {
+            auto projection = predictor.predict(runtime::ProspectiveRoomEntryPredictionRoot{
+                .source_room = *snapshot.current_room, .target_room = exit.target});
+            auto plan = resolve_flow_prediction(*dependency_index, projection);
+            core::append_diagnostics(dependencies.diagnostics, std::move(plan.diagnostics));
+            for (auto& candidate : plan.candidates) {
+                // Choosing this exit is itself speculative, so even deterministic work inside the
+                // prospective successful transition remains PossibleNext from the current Room.
+                dependencies.adjacent_alternatives.push_back(std::move(candidate.descriptor));
             }
         }
-        return context;
     }
 
     AssetManager& assets;
@@ -931,6 +946,7 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
 
     rollback_candidate_on_owner();
     m_impl->dependencies = m_impl->collector->collect(m_impl->context_for(snapshot));
+    m_impl->append_adjacent_room_predictions(snapshot);
     if (!m_impl->dependencies.mandatory_diagnostics.empty()) {
         return {.disposition = MandatoryAssetGateDisposition::Failed,
                 .diagnostics = m_impl->dependencies.mandatory_diagnostics};

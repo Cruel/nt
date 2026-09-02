@@ -146,12 +146,17 @@ closure. The compiler can publish a compact `Flow Prediction Index` in the Compi
 distance without walking the covered raw Scene definitions. `resolve_flow_prediction()` maps that
 read-only semantic projection through `StructuredAssetDependencyIndex` into a `PrefetchPlan`, and
 `PrefetchPlanner` can submit that plan directly through the existing typed prefetch/request/residency
-machinery. The initial production tracer captures a supported Scene entrypoint when the package is
-bound, then submits its speculative plan only after the normal mandatory publication transaction
-commits. It covers deterministic Scene continuation plus blank-Stage image dependencies. Unsupported
-Flow shapes continue to use the older speculative collector temporarily while subsequent
-Flow-prediction tickets deepen the new seam; mandatory `current_mandatory` collection remains
-independent throughout that migration. Missing prediction metadata or an empty/unsupported prediction
+machinery. Scene and Dialogue entry slices expose their immediate presentation dependencies, while a
+prospective Room-entry root exposes the target Room presentation plus successful lifecycle Flow. Room
+presentation remains a semantic dependency and is expanded through the existing structured dependency
+index rather than duplicating an asset snapshot in prediction metadata. Prediction confidence maps to
+`ExpectedNext` or `PossibleNext`; unknown typed Conditions and Lua opacity widen alternatives without
+executing gameplay. Production uses the same predictor for the package entrypoint and, once a Room is
+current, for each adjacent exit as a prospective source-to-target Room transition. Adjacent transition
+candidates are submitted as `PossibleNext` after the normal mandatory publication transaction commits,
+so their lifecycle handoffs can warm before navigation without becoming correctness requirements.
+Unsupported Flow shapes may continue to use older speculative paths temporarily. Mandatory
+`current_mandatory` collection remains independent; missing prediction metadata or an empty/unsupported
 projection never blocks publication or changes gameplay correctness.
 
 Mandatory dependency descriptors are generation-scoped. If the project asset namespace advances to
