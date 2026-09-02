@@ -185,7 +185,7 @@ jobs:
           restore-keys: |
             ubuntu-24.04-x64-vcpkg-installed-linux-debug-
 
-      - name: Cache embedded shaderc host-tool build
+      - name: Cache embedded bgfx host-tool build
         uses: actions/cache@v5
         with:
           path: |
@@ -193,7 +193,9 @@ jobs:
             build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
             build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-embedded-shaderc-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
+            build/linux-release/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
+          key: ${{ runner.os }}-x64-embedded-bgfx-tools-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Cache ccache
         uses: actions/cache@v5
@@ -216,7 +218,7 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
-      - name: Download prebuilt embedded shaderc closure
+      - name: Download prebuilt embedded bgfx tool closure
         if: vars.NOVELTEA_SHADERC_TOOLCHAIN_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
@@ -335,7 +337,7 @@ jobs:
           restore-keys: |
             ubuntu-24.04-x64-vcpkg-installed-linux-sanitize-
 
-      - name: Cache sanitizer embedded shaderc build
+      - name: Cache sanitizer embedded bgfx tool build
         uses: actions/cache@v5
         with:
           path: |
@@ -343,7 +345,9 @@ jobs:
             build/linux-sanitize/_deps/noveltea_bgfx_shaderc_source-build
             build/linux-sanitize/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
             build/linux-sanitize/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-embedded-shaderc-sanitize-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+            build/linux-sanitize/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
+            build/linux-sanitize/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
+          key: ${{ runner.os }}-x64-embedded-bgfx-tools-sanitize-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Cache sanitizer RmlUi dependencies
         id: sanitizer-rmlui-cache
