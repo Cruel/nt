@@ -512,10 +512,16 @@ documents are realized under hidden, generation-scoped IDs while the committed d
 visible. Layout display-environment changes and Shader environment restoration are prepared as
 commit closures; candidate materials are bound only during preparation. After every fallible source,
 Lua, document, material, Shader-program, and resource step succeeds, publication consists only of
-non-failing environment/material/document/lease swaps. A rejected candidate unloads only its hidden
-documents and leaves the prior environment, Lua environment, material project, virtual-file state,
-and visual owner unchanged. The focused path must not call the legacy mutating standalone document
-routine as its final commit.
+non-failing environment/material/document/lease swaps. Mandatory typed leases are owned by the
+shared `MandatoryPublicationScope` using the independent `FocusedPreview` scope kind. The ready
+transaction pins the complete candidate while Layout/world realization runs; destruction rolls it
+back automatically, and explicit commit is the only path that replaces the focused published lease
+set. Source-generation advancement therefore cannot publish stale focused assets and does not disturb
+the current focused publication. Deferred mandatory requests progress through the shared owner-frame
+asset-progress orchestrator rather than a focused-preview scheduler hook. A rejected candidate
+unloads only its hidden documents and leaves the prior environment, Lua environment, material project,
+virtual-file state, leases, and visual owner unchanged. The focused path must not call the legacy
+mutating standalone document routine as its final commit.
 
 NovelTea's dedicated RmlUi Lua-listener lifetime patch makes inline event listeners retain the Lua
 state and listener-function table from document creation.

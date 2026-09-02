@@ -93,7 +93,6 @@ private:
         std::optional<core::editor::TypedFocusedRoomPreviewEnvironment> environment;
         std::optional<ShaderMaterialProject> materials;
         WorldPresentationResourceCatalog world_catalog;
-        bool owns_committed_typed_leases = false;
         std::optional<core::editor::TypedFocusedRoomWorldDefinition> world;
         std::optional<core::RoomPresentationResolution> room_resolution;
         std::optional<core::RuntimePresentationSnapshot> snapshot;
@@ -113,6 +112,7 @@ private:
         core::editor::TypedEditorRoomPreviewDocument document;
         FocusedState state;
         std::vector<core::editor::TypedFocusedRoomLayoutDefinition> mounted_layouts;
+        assets::AssetSourceGeneration source_generation;
         std::unique_ptr<assets::MandatoryAssetRequestGroup> asset_group;
         std::unique_ptr<AssetWorldPresentationResourceResolver> prepared_world_resources;
         std::unique_ptr<WorldPresentationBackend> prepared_world;
@@ -122,6 +122,7 @@ private:
         core::editor::FocusedEditorDocumentRequest request;
         core::editor::TypedEditorPreviewDocument document;
         ShaderMaterialProject materials;
+        assets::AssetSourceGeneration source_generation;
         std::unique_ptr<assets::MandatoryAssetRequestGroup> asset_group;
     };
 
@@ -152,7 +153,8 @@ private:
     [[nodiscard]] core::Result<std::vector<assets::StructuredAssetRequestDescriptor>,
                                core::Diagnostics>
     build_asset_requests(const core::editor::FocusedEditorDocumentRequest& request,
-                         const ShaderMaterialProject& materials);
+                         const ShaderMaterialProject& materials,
+                         assets::AssetSourceGeneration generation);
     [[nodiscard]] core::Result<FocusedState, core::Diagnostics> prepare_room_state(
         const core::editor::FocusedEditorDocumentRequest& request,
         const core::editor::TypedEditorRoomPreviewDocument& document,
@@ -167,6 +169,7 @@ private:
                                              const std::function<bool()>& dispatch);
 
     Dependencies m_dependencies;
+    assets::MandatoryPublicationScope m_publication_scope;
     FocusedState m_committed;
     FocusedState m_rollback;
     std::optional<Candidate> m_candidate;

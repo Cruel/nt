@@ -157,8 +157,9 @@ publication only after explicit transaction commit. Destroying or explicitly rol
 uncommitted transaction releases only candidate state. Commit rechecks `AssetSourceGeneration`, so a
 source refresh cannot promote a ready-but-stale candidate while the previous committed publication
 remains pinned. Runtime uses its own scope and advances speculative-prefetch generation only after
-that transaction commit succeeds. The shared scope also defines the independent focused-preview
-kind that the focused-preview consumer migration uses without sharing runtime publication state.
+that transaction commit succeeds. Focused Room, Layout, and Shader preview owns a separate
+`FocusedPreview` scope; it realizes against that scope's candidate leases and commits independently
+without sharing, replacing, or cancelling runtime publication state.
 
 Runtime commits may retain one bounded predecessor lease set in addition to the current published
 set. Finite world presentation operations can therefore realize their exact source and target

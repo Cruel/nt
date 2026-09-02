@@ -761,6 +761,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     });
     assets::AssetManager assets;
     REQUIRE(assets.configure_async_requests(asset_executor, asset_residency));
+    assets.mount("project", std::make_shared<assets::MemoryAssetSource>());
     FocusedTextureLoader focused_textures;
     assets.bind_texture_loader(&focused_textures);
     FakeLayoutBackend backend;
@@ -1186,8 +1187,26 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(completions.back() ==
           std::pair<std::string, std::string>{"shader-apply-failure", "failed"});
 
+    const auto documents_before_stale_generation = backend.documents;
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Layout,
+                                         "layout-stale-generation", layout, 16)));
+    const auto candidate_generation = assets.source_generation_on_owner();
+    auto refreshed = assets.refresh_namespace_on_owner("project");
+    REQUIRE(refreshed);
+    REQUIRE(*refreshed.value_if() != candidate_generation);
+    presenter.update();
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
+    CHECK(presenter.committed_owner().apply_sequence == 12);
+    CHECK(backend.documents == documents_before_stale_generation);
+    CHECK(assets.has_focused_published_leases_on_owner());
+    CHECK_FALSE(assets.has_focused_candidate_leases_on_owner());
+    CHECK(last_diagnostic.find("assets.mandatory_publication_stale_source_generation") !=
+          std::string::npos);
+    CHECK(completions.back() ==
+          std::pair<std::string, std::string>{"layout-stale-generation", "failed"});
+
     auto alpha_layout_one = make_request(core::editor::FocusedEditorDocumentKind::Layout,
-                                         "layout-alpha-one", layout, 16);
+                                         "layout-alpha-one", layout, 17);
     alpha_layout_one.resources = {{.resource_id = "asset:alpha-sprite",
                                    .source_kind = "authoring-asset",
                                    .logical_path = "project:/images/alpha-sprite.png",
@@ -1200,7 +1219,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     REQUIRE(presenter.apply(std::move(alpha_layout_one)));
 
     auto alpha_layout_two = make_request(core::editor::FocusedEditorDocumentKind::Layout,
-                                         "layout-alpha-two", layout, 17);
+                                         "layout-alpha-two", layout, 18);
     alpha_layout_two.resources = {{.resource_id = "asset:alpha-sprite-two",
                                    .source_kind = "authoring-asset",
                                    .logical_path = "project:/images/alpha-sprite-two.png",
