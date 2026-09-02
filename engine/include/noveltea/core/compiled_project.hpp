@@ -1742,10 +1742,32 @@ struct MapDefinition {
     MapPresentation presentation;
 };
 
+struct FlowPredictionAssetDependency {
+    AssetId asset;
+};
+using FlowPredictionDependency = std::variant<FlowPredictionAssetDependency>;
+
+struct SceneEntryPredictionPoint {
+    SceneId scene;
+};
+using FlowPredictionPoint = std::variant<SceneEntryPredictionPoint>;
+
+struct FlowPredictionSlice {
+    FlowPredictionPoint point;
+    std::vector<std::size_t> dependency_groups;
+    std::vector<std::size_t> successors;
+};
+
+struct FlowPredictionIndex {
+    std::vector<std::vector<FlowPredictionDependency>> dependency_groups;
+    std::vector<FlowPredictionSlice> slices;
+};
+
 struct CompiledProjectInput {
     ProjectIdentity identity;
     RuntimeSettings settings;
     Entrypoint entrypoint;
+    std::optional<FlowPredictionIndex> flow_prediction;
     ScriptId bootstrap_module;
     std::string save_contract;
     Localization localization;
@@ -1783,6 +1805,11 @@ public:
     [[nodiscard]] const compiled::ProjectIdentity& identity() const noexcept { return m_identity; }
     [[nodiscard]] const compiled::RuntimeSettings& settings() const noexcept { return m_settings; }
     [[nodiscard]] const compiled::Entrypoint& entrypoint() const noexcept { return m_entrypoint; }
+    [[nodiscard]] const std::optional<compiled::FlowPredictionIndex>&
+    flow_prediction() const noexcept
+    {
+        return m_flow_prediction;
+    }
     [[nodiscard]] const ScriptId& bootstrap_module() const noexcept { return m_bootstrap_module; }
     [[nodiscard]] const std::string& save_contract() const noexcept { return m_save_contract; }
     [[nodiscard]] const compiled::Localization& localization() const noexcept
@@ -1907,6 +1934,7 @@ private:
     compiled::ProjectIdentity m_identity;
     compiled::RuntimeSettings m_settings;
     compiled::Entrypoint m_entrypoint;
+    std::optional<compiled::FlowPredictionIndex> m_flow_prediction;
     ScriptId m_bootstrap_module;
     std::string m_save_contract;
     compiled::Localization m_localization;

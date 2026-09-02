@@ -8,6 +8,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/player_bootstrap.hpp"
 #include "noveltea/jobs/inline_job_executor.hpp"
+#include "noveltea/runtime/flow_prediction.hpp"
 #include "../support/json_test_utils.hpp"
 
 #include <nlohmann/json.hpp>
@@ -42,11 +43,11 @@ bool has_code(const core::Diagnostics& diagnostics, std::string_view code)
         [code](const core::Diagnostic& diagnostic) { return diagnostic.code == code; });
 }
 
-nlohmann::json read_comprehensive_project()
+nlohmann::json read_compiled_project_golden(std::string_view name)
 {
     const std::string path = std::string(NOVELTEA_SOURCE_DIR) +
-                             "/editor/src/renderer/test/fixtures/compiled-project-golden/"
-                             "comprehensive.json";
+                             "/editor/src/renderer/test/fixtures/compiled-project-golden/" +
+                             std::string(name) + ".json";
     std::ifstream file(path, std::ios::binary);
     REQUIRE(file.good());
     const std::string text((std::istreambuf_iterator<char>(file)),
@@ -56,6 +57,11 @@ nlohmann::json read_comprehensive_project()
     return value;
 }
 
+nlohmann::json read_comprehensive_project()
+{
+    return read_compiled_project_golden("comprehensive");
+}
+
 nlohmann::json shader_material_manifest()
 {
     return nlohmann::json::parse(R"json({
@@ -63,7 +69,7 @@ nlohmann::json shader_material_manifest()
       "shaders":{
         "sprite-shader":{
           "display_name":"Sprite",
-          "roles":["engine-2d"],
+          "roles":["engine-2d","postprocess"],
           "role_bindings":{},
           "stages":{
             "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
@@ -87,6 +93,14 @@ nlohmann::json shader_material_manifest()
                         "sampler":"repeat-nearest"},
             "s_draw":"$draw.texture"
           },
+          "blend":"premultiplied-alpha"
+        },
+        "scene-postprocess-material":{
+          "display_name":"Scene Postprocess",
+          "role":"postprocess",
+          "shader":"sprite-shader",
+          "uniforms":{},
+          "textures":{},
           "blend":"premultiplied-alpha"
         }
       }
@@ -129,6 +143,30 @@ std::vector<core::RuntimePackageFile> inventory_for(const core::RuntimePackageMa
     for (const auto& entry : manifest.entries)
         files.push_back({entry.path, entry.size, entry.checksum});
     return files;
+}
+
+core::LoadedCompiledPackage package_from_document(nlohmann::json document, std::string source_path)
+{
+    auto project = core::decode_compiled_project(document, std::move(source_path));
+    if (!project) {
+        for (const auto& diagnostic : project.error())
+            WARN(diagnostic.code << ": " << diagnostic.message);
+    }
+    REQUIRE(project);
+    auto manifest = core::decode_runtime_package_manifest(package_manifest_for(project.value()));
+    REQUIRE(manifest);
+    auto shader_materials = core::decode_shader_material_manifest(shader_material_manifest());
+    if (!shader_materials) {
+        for (const auto& diagnostic : shader_materials.error())
+            WARN(diagnostic.code << ": " << diagnostic.message);
+    }
+    REQUIRE(shader_materials);
+    auto inventory = inventory_for(manifest.value());
+    auto package =
+        core::assemble_compiled_package(std::move(project).value(), std::move(manifest).value(),
+                                        std::move(shader_materials).value(), std::move(inventory));
+    REQUIRE(package);
+    return std::move(package).value();
 }
 
 core::LoadedCompiledPackage collector_package()
@@ -204,26 +242,7 @@ core::LoadedCompiledPackage collector_package()
           {"bounds", {{"x", 0.25}, {"y", 0.25}, {"width", 0.5}, {"height", 0.5}}}}}};
     document["definitions"]["rooms"][0]["hotspots"] = nlohmann::json::array({hall_hotspot});
 
-    auto project = core::decode_compiled_project(document, "structured-prefetch-project.json");
-    if (!project) {
-        for (const auto& diagnostic : project.error())
-            WARN(diagnostic.code << ": " << diagnostic.message);
-    }
-    REQUIRE(project);
-    auto manifest = core::decode_runtime_package_manifest(package_manifest_for(project.value()));
-    REQUIRE(manifest);
-    auto shader_materials = core::decode_shader_material_manifest(shader_material_manifest());
-    if (!shader_materials) {
-        for (const auto& diagnostic : shader_materials.error())
-            WARN(diagnostic.code << ": " << diagnostic.message);
-    }
-    REQUIRE(shader_materials);
-    auto inventory = inventory_for(manifest.value());
-    auto package =
-        core::assemble_compiled_package(std::move(project).value(), std::move(manifest).value(),
-                                        std::move(shader_materials).value(), std::move(inventory));
-    REQUIRE(package);
-    return std::move(package).value();
+    return package_from_document(std::move(document), "structured-prefetch-project.json");
 }
 
 template<class Request, class Predicate>
@@ -838,6 +857,74 @@ TEST_CASE("mandatory package rebinding reuses self-describing texture dependenci
     REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
 }
 
+TEST_CASE("mandatory package binding submits compiled Scene-entry prediction through real prefetch",
+          "[assets][flow-prediction][mandatory-assets][structured-prefetch]")
+{
+    PlannerFixture fixture;
+    auto document = read_compiled_project_golden("scene-program");
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    auto package = package_from_document(std::move(document), "scene-program.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    CHECK(fixture.recorder.calls.empty());
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(149);
+    snapshot.mode = core::PresentationRuntimeMode::Flow;
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+    CHECK(fixture.recorder.calls ==
+          std::vector<std::string>{"texture:project:/assets/images/main.png"});
+
+    fixture.run_until_idle();
+    gate.clear_package_on_owner();
+}
+
+TEST_CASE("mandatory publication remains correct when Flow Prediction metadata is unavailable",
+          "[assets][flow-prediction][mandatory-assets][structured-prefetch]")
+{
+    PlannerFixture fixture;
+    auto document = read_compiled_project_golden("scene-program");
+
+    SECTION("prediction metadata is disabled") { document.erase("flowPrediction"); }
+    SECTION("prediction metadata degrades at an invalid successor")
+    {
+        REQUIRE(document.contains("flowPrediction"));
+        document["flowPrediction"]["slices"][1]["successors"] = nlohmann::json::array({999999});
+    }
+
+    auto package = package_from_document(std::move(document), "scene-program-no-prediction.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    CHECK(fixture.recorder.calls.empty());
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(150);
+    snapshot.mode = core::PresentationRuntimeMode::Ended;
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-main"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Pending);
+    CHECK(fixture.recorder.calls ==
+          std::vector<std::string>{"texture:project:/assets/images/main.png"});
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+    CHECK(fixture.manager.has_published_leases_on_owner());
+    gate.clear_package_on_owner();
+}
+
 TEST_CASE("mandatory package binding rejects a stale source generation",
           "[assets][structured-prefetch][mandatory-assets][source-generation]")
 {
@@ -1220,6 +1307,45 @@ TEST_CASE("prefetch planner dispatches typed requests in deterministic bucket or
           std::vector<std::string>{"font:body", "texture:project:/textures/direct.png",
                                    "shader:direct-material", "material:adjacent-material",
                                    "audio:project:/audio/adjacent.ogg"});
+    fixture.run_until_idle();
+    planner.clear_on_owner();
+}
+
+TEST_CASE("compiled Flow Prediction Index drives semantic prediction into real prefetch",
+          "[assets][structured-prefetch][flow-prediction]")
+{
+    PlannerFixture fixture;
+    auto package =
+        package_from_document(read_compiled_project_golden("scene-program"), "scene-program.json");
+    REQUIRE(package.project().flow_prediction().has_value());
+
+    runtime::FlowPredictor predictor(package.project());
+    const auto projection =
+        predictor.predict(core::compiled::Entrypoint{id<core::SceneId>("opening")});
+    REQUIRE(projection.diagnostics.empty());
+    REQUIRE(projection.entries.size() == 1);
+    CHECK(projection.entries[0].execution_distance == 1);
+    const auto* dependency = std::get_if<core::compiled::FlowPredictionAssetDependency>(
+        &projection.entries[0].dependency);
+    REQUIRE(dependency != nullptr);
+    CHECK(dependency->asset == id<core::AssetId>("image-main"));
+
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto dependency_index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
+    REQUIRE(plan.diagnostics.empty());
+    REQUIRE(plan.candidates.size() == 1);
+    CHECK(plan.candidates[0].execution_distance == 1);
+
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto submitted = planner.replace_generation_on_owner(plan);
+    REQUIRE(submitted);
+    CHECK(submitted.value().direct_next_submitted == 1);
+    CHECK(submitted.value().adjacent_submitted == 0);
+    CHECK(submitted.value().failures.empty());
+    CHECK(fixture.recorder.calls ==
+          std::vector<std::string>{"texture:project:/assets/images/main.png"});
     fixture.run_until_idle();
     planner.clear_on_owner();
 }

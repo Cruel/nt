@@ -7,6 +7,7 @@
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_presentation_contracts.hpp"
+#include "noveltea/runtime/flow_prediction.hpp"
 
 #include <cstddef>
 #include <memory>
@@ -23,6 +24,7 @@ enum class PrefetchPredictionKind : std::uint8_t {
 };
 
 class AssetManager;
+struct PrefetchPlan;
 
 using StructuredAssetRequest =
     std::variant<FontAssetRequest, TextureAssetRequest, HotspotMaskAssetRequest,
@@ -75,6 +77,8 @@ private:
     std::shared_ptr<const Impl> m_impl;
 
     friend class StructuredAssetDependencyCollector;
+    friend PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex&,
+                                                const runtime::FlowPredictionProjection&);
 };
 
 class StructuredAssetDependencyCollector {
@@ -110,6 +114,21 @@ struct PrefetchSubmissionReport {
     std::vector<PrefetchSubmissionFailure> failures;
 };
 
+struct PrefetchCandidate {
+    StructuredAssetRequestDescriptor descriptor;
+    PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
+    std::size_t execution_distance = 0;
+};
+
+struct PrefetchPlan {
+    std::vector<PrefetchCandidate> candidates;
+    core::Diagnostics diagnostics;
+};
+
+[[nodiscard]] PrefetchPlan
+resolve_flow_prediction(const StructuredAssetDependencyIndex& index,
+                        const runtime::FlowPredictionProjection& projection);
+
 class PrefetchPlanner {
 public:
     explicit PrefetchPlanner(AssetManager& assets) noexcept;
@@ -122,6 +141,9 @@ public:
 
     [[nodiscard]] core::Result<PrefetchSubmissionReport, core::Diagnostic>
     replace_generation_on_owner(const StructuredAssetDependencyBuckets& dependencies) noexcept;
+
+    [[nodiscard]] core::Result<PrefetchSubmissionReport, core::Diagnostic>
+    replace_generation_on_owner(const PrefetchPlan& plan) noexcept;
 
     void clear_on_owner() noexcept;
     [[nodiscard]] std::optional<PrefetchGenerationId> active_generation_on_owner() const noexcept;

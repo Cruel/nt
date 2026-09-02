@@ -33,15 +33,141 @@ decode_flow_target(const nlohmann::json& value, std::string source_path, std::st
     return Result<FlowTarget, Diagnostics>::success(std::move(*result));
 }
 
+namespace {
+
+std::optional<FlowPredictionDependency>
+decode_flow_prediction_dependency(Decoder& decoder, const nlohmann::json& value,
+                                  std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"kind", "asset"}))
+        return std::nullopt;
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind != "asset") {
+        decoder.error(k_code_variant, "Unknown Flow Prediction dependency kind '" + *kind + "'.",
+                      pointer_child(pointer, "kind"));
+        return std::nullopt;
+    }
+    const auto* asset_value = decoder.member(value, "asset", pointer);
+    auto asset = asset_value ? decode_reference<AssetId>(decoder, *asset_value,
+                                                         pointer_child(pointer, "asset"), "asset")
+                             : std::nullopt;
+    if (!asset)
+        return std::nullopt;
+    return FlowPredictionDependency{FlowPredictionAssetDependency{std::move(*asset)}};
+}
+
+std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder,
+                                                                const nlohmann::json& value,
+                                                                std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"kind", "scene"}))
+        return std::nullopt;
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind != "scene-entry") {
+        decoder.error(k_code_variant, "Unknown Flow Prediction point kind '" + *kind + "'.",
+                      pointer_child(pointer, "kind"));
+        return std::nullopt;
+    }
+    const auto* scene_value = decoder.member(value, "scene", pointer);
+    auto scene = scene_value ? decode_reference<SceneId>(decoder, *scene_value,
+                                                         pointer_child(pointer, "scene"), "scene")
+                             : std::nullopt;
+    if (!scene)
+        return std::nullopt;
+    return FlowPredictionPoint{SceneEntryPredictionPoint{std::move(*scene)}};
+}
+
+std::optional<std::vector<std::size_t>> decode_flow_prediction_indexes(Decoder& decoder,
+                                                                       const nlohmann::json& value,
+                                                                       std::string_view pointer)
+{
+    return decoder.array<std::size_t>(
+        value, pointer, [&](const nlohmann::json& item, const std::string& item_pointer) {
+            return decoder.unsigned_integer<std::size_t>(item, item_pointer);
+        });
+}
+
+std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder,
+                                                                const nlohmann::json& value,
+                                                                std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"dependencyGroups", "slices"}))
+        return std::nullopt;
+    const auto* groups_value = decoder.member(value, "dependencyGroups", pointer);
+    const auto* slices_value = decoder.member(value, "slices", pointer);
+    auto groups =
+        groups_value ? decoder.array<std::vector<FlowPredictionDependency>>(
+                           *groups_value, pointer_child(pointer, "dependencyGroups"),
+                           [&](const nlohmann::json& group, const std::string& group_pointer) {
+                               return decoder.array<FlowPredictionDependency>(
+                                   group, group_pointer,
+                                   [&](const nlohmann::json& dependency,
+                                       const std::string& dependency_pointer) {
+                                       return decode_flow_prediction_dependency(decoder, dependency,
+                                                                                dependency_pointer);
+                                   });
+                           })
+                     : std::nullopt;
+    auto slices =
+        slices_value
+            ? decoder.array<FlowPredictionSlice>(
+                  *slices_value, pointer_child(pointer, "slices"),
+                  [&](const nlohmann::json& slice,
+                      const std::string& slice_pointer) -> std::optional<FlowPredictionSlice> {
+                      if (!decoder.object(slice, slice_pointer,
+                                          {"point", "dependencyGroups", "successors"}))
+                          return std::nullopt;
+                      const auto* point_value = decoder.member(slice, "point", slice_pointer);
+                      const auto* dependency_groups_value =
+                          decoder.member(slice, "dependencyGroups", slice_pointer);
+                      const auto* successors_value =
+                          decoder.member(slice, "successors", slice_pointer);
+                      auto point =
+                          point_value
+                              ? decode_flow_prediction_point(decoder, *point_value,
+                                                             pointer_child(slice_pointer, "point"))
+                              : std::nullopt;
+                      auto dependency_groups =
+                          dependency_groups_value
+                              ? decode_flow_prediction_indexes(
+                                    decoder, *dependency_groups_value,
+                                    pointer_child(slice_pointer, "dependencyGroups"))
+                              : std::nullopt;
+                      auto successors = successors_value
+                                            ? decode_flow_prediction_indexes(
+                                                  decoder, *successors_value,
+                                                  pointer_child(slice_pointer, "successors"))
+                                            : std::nullopt;
+                      if (!point || !dependency_groups || !successors)
+                          return std::nullopt;
+                      return FlowPredictionSlice{std::move(*point), std::move(*dependency_groups),
+                                                 std::move(*successors)};
+                  })
+            : std::nullopt;
+    if (!groups || !slices)
+        return std::nullopt;
+    return FlowPredictionIndex{std::move(*groups), std::move(*slices)};
+}
+
+} // namespace
+
 Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& document,
                                                          std::string source_path)
 {
     Decoder decoder(std::move(source_path));
     if (!decoder.object(document, "",
                         {"archetypes", "bootstrapModule", "definitions", "entrypoint",
-                         "interactableInstances", "inventories", "localization", "project",
-                         "properties", "resources", "saveContract", "schema", "schemaVersion",
-                         "settings", "traits", "undefinedInteractionProgram"}))
+                         "flowPrediction", "interactableInstances", "inventories", "localization",
+                         "project", "properties", "resources", "saveContract", "schema",
+                         "schemaVersion", "settings", "traits", "undefinedInteractionProgram"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -49,6 +175,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* project_value = decoder.member(document, "project", "");
     const auto* settings_value = decoder.member(document, "settings", "");
     const auto* entrypoint_value = decoder.member(document, "entrypoint", "");
+    const auto flow_prediction_iter = document.find("flowPrediction");
+    const auto* flow_prediction_value =
+        flow_prediction_iter == document.end() ? nullptr : &*flow_prediction_iter;
     const auto* bootstrap_value = decoder.member(document, "bootstrapModule", "");
     const auto* save_contract_value = decoder.member(document, "saveContract", "");
     const auto* localization_value = decoder.member(document, "localization", "");
@@ -91,6 +220,15 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     auto entrypoint = entrypoint_value
                           ? decode_entrypoint(decoder, *entrypoint_value, "/entrypoint")
                           : std::nullopt;
+    bool flow_prediction_valid = true;
+    std::optional<FlowPredictionIndex> flow_prediction;
+    if (flow_prediction_value && !flow_prediction_value->is_null()) {
+        auto decoded =
+            decode_flow_prediction_index(decoder, *flow_prediction_value, "/flowPrediction");
+        flow_prediction_valid = decoded.has_value();
+        if (decoded)
+            flow_prediction = std::move(*decoded);
+    }
     auto bootstrap = bootstrap_value ? decode_reference<ScriptId>(decoder, *bootstrap_value,
                                                                   "/bootstrapModule", "script")
                                      : std::nullopt;
@@ -638,12 +776,12 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     NOVELTEA_DUPLICATE_DEFINITION(maps, "/definitions/maps", MapId);
 #undef NOVELTEA_DUPLICATE_DEFINITION
 
-    const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
-                          save_contract && localization && inventories && properties && traits &&
-                          archetypes && interactable_instances && assets && layouts &&
-                          material_interfaces && scripts && characters && rooms && interactables &&
-                          verbs && interactions && undefined_interaction_valid && scenes &&
-                          dialogues && maps;
+    const bool complete =
+        schema && version && identity && settings && entrypoint && flow_prediction_valid &&
+        bootstrap && save_contract && localization && inventories && properties && traits &&
+        archetypes && interactable_instances && assets && layouts && material_interfaces &&
+        scripts && characters && rooms && interactables && verbs && interactions &&
+        undefined_interaction_valid && scenes && dialogues && maps;
     if (!complete || decoder.failed())
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
@@ -651,6 +789,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         SharedProject{std::move(*identity),
                       std::move(*settings),
                       std::move(*entrypoint),
+                      std::move(flow_prediction),
                       std::move(*bootstrap),
                       std::move(*save_contract),
                       std::move(*localization),

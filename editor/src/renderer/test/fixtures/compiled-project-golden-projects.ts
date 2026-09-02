@@ -1096,8 +1096,8 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   opening.stage = {
     kind: 'blank',
     background: {
-      asset: sceneAssetRef('image-main'),
-      material: sceneMaterialRef('sprite-material'),
+      asset: null,
+      material: null,
       color: '#112233',
       fit: 'stretch',
     },
@@ -1341,6 +1341,8 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   };
 
   const closing = defaultSceneData('Closing');
+  if (closing.stage.kind !== 'blank') throw new Error('Expected Closing Scene to use blank Stage.');
+  closing.stage.background.asset = sceneAssetRef('image-main');
   closing.events = [
     {
       ...defaultSceneStep('show-text'),
