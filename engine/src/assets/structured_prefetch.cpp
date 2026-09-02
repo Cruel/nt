@@ -1094,7 +1094,53 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
     PrefetchPlan plan;
     plan.diagnostics = projection.diagnostics;
     std::map<CacheIdentity, SeenDescriptorState> seen;
+    auto append_descriptor = [&](StructuredAssetRequestDescriptor descriptor,
+                                 const runtime::FlowPredictionProjectionEntry& projected) {
+        const auto identity = identity_of(descriptor.cache_key);
+        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(descriptor);
+        const auto [existing, inserted] = seen.try_emplace(
+            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
+        if (!inserted) {
+            existing->second.retain_alpha_coverage |= retain_alpha_coverage;
+            const auto candidate = std::find_if(
+                plan.candidates.begin(), plan.candidates.end(), [&](const auto& value) {
+                    return identity_of(value.descriptor.cache_key) == identity;
+                });
+            if (candidate != plan.candidates.end()) {
+                candidate->execution_distance =
+                    std::min(candidate->execution_distance, projected.execution_distance);
+                if (projected.confidence == runtime::FlowPredictionConfidence::Expected)
+                    candidate->prediction = PrefetchPredictionKind::ExpectedNext;
+                if (retain_alpha_coverage) {
+                    if (auto* texture =
+                            std::get_if<TextureAssetRequest>(&candidate->descriptor.request))
+                        texture->retain_alpha_coverage = true;
+                }
+            }
+            return;
+        }
+        plan.candidates.push_back(
+            {.descriptor = std::move(descriptor),
+             .prediction = projected.confidence == runtime::FlowPredictionConfidence::Expected
+                               ? PrefetchPredictionKind::ExpectedNext
+                               : PrefetchPredictionKind::PossibleNext,
+             .execution_distance = projected.execution_distance});
+    };
+
     for (const auto& projected : projection.entries) {
+        if (const auto* room_dependency =
+                std::get_if<core::compiled::FlowPredictionRoomDependency>(&projected.dependency)) {
+            DescriptorAccumulator room_descriptors;
+            core::Diagnostics room_diagnostics;
+            std::unordered_set<std::string> traversal;
+            index.m_impl->append_room(room_descriptors, room_dependency->room, room_diagnostics,
+                                      traversal);
+            core::append_diagnostics(plan.diagnostics, std::move(room_diagnostics));
+            for (auto& descriptor : room_descriptors.take())
+                append_descriptor(std::move(descriptor), projected);
+            continue;
+        }
+
         const auto* asset_dependency =
             std::get_if<core::compiled::FlowPredictionAssetDependency>(&projected.dependency);
         if (!asset_dependency)
@@ -1120,17 +1166,7 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
             continue;
         }
 
-        const auto identity = identity_of(descriptor->cache_key);
-        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(*descriptor);
-        const auto [existing, inserted] = seen.try_emplace(
-            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
-        if (!inserted) {
-            existing->second.retain_alpha_coverage |= retain_alpha_coverage;
-            continue;
-        }
-        plan.candidates.push_back({.descriptor = std::move(*descriptor),
-                                   .prediction = PrefetchPredictionKind::ExpectedNext,
-                                   .execution_distance = projected.execution_distance});
+        append_descriptor(std::move(*descriptor), projected);
     }
     return plan;
 }

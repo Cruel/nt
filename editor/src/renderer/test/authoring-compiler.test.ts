@@ -88,6 +88,111 @@ describe('authoring compiler framework', () => {
     expect('flowPrediction' in project).toBe(false);
   });
 
+  it('lowers prospective Room lifecycle Flow into prediction summaries without rejection programs', () => {
+    const project = validProject();
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+    project.scenes.arrival = {
+      id: 'arrival',
+      label: 'Arrival',
+      data: defaultSceneData('Arrival'),
+    };
+    project.dialogues.greeting = {
+      id: 'greeting',
+      label: 'Greeting',
+      data: defaultDialogueData('Greeting'),
+    };
+
+    const hall = project.rooms.hall!.data;
+    hall.lifecycle.afterEnter = [
+      {
+        id: 'project-flag',
+        kind: 'set-global-property',
+        variable: { $ref: { collection: 'variables', id: 'flag' } },
+        value: true,
+      },
+      {
+        id: 'branch',
+        kind: 'if',
+        condition: {
+          kind: 'variable-comparison',
+          variable: { $ref: { collection: 'variables', id: 'flag' } },
+          operator: 'truthy',
+        },
+        // oxlint-disable-next-line unicorn/no-thenable -- canonical authored Gameplay Command field.
+        then: [
+          {
+            id: 'arrival-scene',
+            kind: 'call-scene',
+            scene: { $ref: { collection: 'scenes', id: 'arrival' } },
+          },
+        ],
+        else: [
+          {
+            id: 'greeting-dialogue',
+            kind: 'call-dialogue',
+            dialogue: { $ref: { collection: 'dialogues', id: 'greeting' } },
+          },
+        ],
+      },
+    ];
+    hall.lifecycle.onEnterRejected = [
+      {
+        id: 'rejected-dialogue',
+        kind: 'call-dialogue',
+        dialogue: { $ref: { collection: 'dialogues', id: 'greeting' } },
+      },
+    ];
+    hall.scriptHooks = [
+      {
+        hook: 'after-enter',
+        handler: {
+          module: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+          export: 'after_enter',
+        },
+      },
+    ];
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prediction = result.project.flowPrediction;
+    expect(prediction).toBeDefined();
+    const afterEnter = prediction!.slices.find(
+      (slice) =>
+        slice.point.kind === 'room-lifecycle' &&
+        slice.point.room.id === 'hall' &&
+        slice.point.stage === 'after-enter',
+    );
+    expect(afterEnter?.program).toEqual([
+      {
+        kind: 'set-global-property',
+        property: { kind: 'property', id: 'flag' },
+        value: true,
+      },
+      {
+        kind: 'if',
+        condition: {
+          kind: 'global-property-comparison',
+          property: { kind: 'property', id: 'flag' },
+          operator: 'truthy',
+        },
+        thenCommands: [{ kind: 'call-scene', scene: { kind: 'scene', id: 'arrival' } }],
+        elseCommands: [{ kind: 'call-dialogue', dialogue: { kind: 'dialogue', id: 'greeting' } }],
+      },
+      { kind: 'opaque' },
+    ]);
+    expect(
+      prediction!.slices.some(
+        (slice) =>
+          slice.point.kind === 'room-lifecycle' &&
+          !['before-leave', 'before-enter', 'presentation', 'after-leave', 'after-enter'].includes(
+            slice.point.stage,
+          ),
+      ),
+    ).toBe(false);
+  });
+
   it('compiles the implicit Project Inventory and default Inventory Layout', () => {
     const project = validProject();
     project.interactables.coin = {

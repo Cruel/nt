@@ -652,11 +652,55 @@ const compiledEntrypointSchema = z.discriminatedUnion('kind', [
 
 const flowPredictionDependencySchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('asset'), asset: assetReferenceSchema }),
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
 ]);
 
 const flowPredictionPointSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('scene-entry'), scene: sceneReferenceSchema }),
+  strict({ kind: z.literal('dialogue-entry'), dialogue: dialogueReferenceSchema }),
+  strict({
+    kind: z.literal('room-lifecycle'),
+    room: roomReferenceSchema,
+    stage: z.enum(['before-leave', 'before-enter', 'presentation', 'after-leave', 'after-enter']),
+  }),
 ]);
+
+type FlowPredictionCommand =
+  | {
+      kind: 'set-global-property';
+      property: z.infer<typeof propertyReferenceSchema>;
+      value: z.infer<typeof runtimeValueSchema>;
+    }
+  | { kind: 'invalidate-global-property'; property: z.infer<typeof propertyReferenceSchema> }
+  | { kind: 'call-scene'; scene: z.infer<typeof sceneReferenceSchema> }
+  | { kind: 'call-dialogue'; dialogue: z.infer<typeof dialogueReferenceSchema> }
+  | { kind: 'opaque' }
+  | {
+      kind: 'if';
+      condition: CompiledCondition;
+      thenCommands: FlowPredictionCommand[];
+      elseCommands: FlowPredictionCommand[];
+    };
+
+const flowPredictionCommandSchema: z.ZodType<FlowPredictionCommand> = z.lazy(() =>
+  z.discriminatedUnion('kind', [
+    strict({
+      kind: z.literal('set-global-property'),
+      property: propertyReferenceSchema,
+      value: runtimeValueSchema,
+    }),
+    strict({ kind: z.literal('invalidate-global-property'), property: propertyReferenceSchema }),
+    strict({ kind: z.literal('call-scene'), scene: sceneReferenceSchema }),
+    strict({ kind: z.literal('call-dialogue'), dialogue: dialogueReferenceSchema }),
+    strict({ kind: z.literal('opaque') }),
+    strict({
+      kind: z.literal('if'),
+      condition: compiledConditionSchema,
+      thenCommands: z.array(flowPredictionCommandSchema),
+      elseCommands: z.array(flowPredictionCommandSchema),
+    }),
+  ]),
+);
 
 const flowPredictionIndexSchema = strict({
   dependencyGroups: z.array(z.array(flowPredictionDependencySchema)),
@@ -665,6 +709,7 @@ const flowPredictionIndexSchema = strict({
       point: flowPredictionPointSchema,
       dependencyGroups: z.array(z.number().int().nonnegative()),
       successors: z.array(z.number().int().nonnegative()),
+      program: z.array(flowPredictionCommandSchema),
     }),
   ),
 });

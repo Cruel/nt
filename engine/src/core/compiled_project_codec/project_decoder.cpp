@@ -39,13 +39,22 @@ std::optional<FlowPredictionDependency>
 decode_flow_prediction_dependency(Decoder& decoder, const nlohmann::json& value,
                                   std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"kind", "asset"}))
+    if (!decoder.object(value, pointer, {"kind", "asset", "room"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
         kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
     if (!kind)
         return std::nullopt;
+    if (*kind == "room") {
+        const auto* room_value = decoder.member(value, "room", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        if (!room)
+            return std::nullopt;
+        return FlowPredictionDependency{FlowPredictionRoomDependency{std::move(*room)}};
+    }
     if (*kind != "asset") {
         decoder.error(k_code_variant, "Unknown Flow Prediction dependency kind '" + *kind + "'.",
                       pointer_child(pointer, "kind"));
@@ -64,13 +73,53 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
                                                                 const nlohmann::json& value,
                                                                 std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"kind", "scene"}))
+    if (!decoder.object(value, pointer, {"kind", "scene", "dialogue", "room", "stage"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
         kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
     if (!kind)
         return std::nullopt;
+    if (*kind == "dialogue-entry") {
+        const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
+        auto dialogue =
+            dialogue_value
+                ? decode_reference<DialogueId>(decoder, *dialogue_value,
+                                               pointer_child(pointer, "dialogue"), "dialogue")
+                : std::nullopt;
+        if (!dialogue)
+            return std::nullopt;
+        return FlowPredictionPoint{DialogueEntryPredictionPoint{std::move(*dialogue)}};
+    }
+    if (*kind == "room-lifecycle") {
+        const auto* room_value = decoder.member(value, "room", pointer);
+        const auto* stage_value = decoder.member(value, "stage", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        auto stage = stage_value ? decoder.string(*stage_value, pointer_child(pointer, "stage"))
+                                 : std::nullopt;
+        if (!room || !stage)
+            return std::nullopt;
+        std::optional<RoomLifecyclePredictionStage> parsed_stage;
+        if (*stage == "before-leave")
+            parsed_stage = RoomLifecyclePredictionStage::BeforeLeave;
+        else if (*stage == "before-enter")
+            parsed_stage = RoomLifecyclePredictionStage::BeforeEnter;
+        else if (*stage == "presentation")
+            parsed_stage = RoomLifecyclePredictionStage::Presentation;
+        else if (*stage == "after-leave")
+            parsed_stage = RoomLifecyclePredictionStage::AfterLeave;
+        else if (*stage == "after-enter")
+            parsed_stage = RoomLifecyclePredictionStage::AfterEnter;
+        else {
+            decoder.error(k_code_variant,
+                          "Unknown Flow Prediction Room lifecycle stage '" + *stage + "'.",
+                          pointer_child(pointer, "stage"));
+            return std::nullopt;
+        }
+        return FlowPredictionPoint{RoomLifecyclePredictionPoint{std::move(*room), *parsed_stage}};
+    }
     if (*kind != "scene-entry") {
         decoder.error(k_code_variant, "Unknown Flow Prediction point kind '" + *kind + "'.",
                       pointer_child(pointer, "kind"));
@@ -83,6 +132,96 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
     if (!scene)
         return std::nullopt;
     return FlowPredictionPoint{SceneEntryPredictionPoint{std::move(*scene)}};
+}
+
+std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& decoder,
+                                                                    const nlohmann::json& value,
+                                                                    std::string_view pointer)
+{
+    if (!decoder.object(value, pointer,
+                        {"kind", "property", "value", "scene", "dialogue", "condition",
+                         "thenCommands", "elseCommands"}))
+        return std::nullopt;
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+
+    if (*kind == "opaque")
+        return FlowPredictionCommand{FlowPredictionOpaque{}};
+    if (*kind == "set-global-property" || *kind == "invalidate-global-property") {
+        const auto* property_value = decoder.member(value, "property", pointer);
+        auto property =
+            property_value
+                ? decode_reference<PropertyId>(decoder, *property_value,
+                                               pointer_child(pointer, "property"), "property")
+                : std::nullopt;
+        if (!property)
+            return std::nullopt;
+        if (*kind == "invalidate-global-property")
+            return FlowPredictionCommand{
+                FlowPredictionInvalidateGlobalProperty{std::move(*property)}};
+        const auto* runtime_value = decoder.member(value, "value", pointer);
+        auto parsed_value = runtime_value ? decode_runtime_value(decoder, *runtime_value,
+                                                                 pointer_child(pointer, "value"))
+                                          : std::nullopt;
+        if (!parsed_value)
+            return std::nullopt;
+        return FlowPredictionCommand{
+            FlowPredictionSetGlobalProperty{std::move(*property), std::move(*parsed_value)}};
+    }
+    if (*kind == "call-scene") {
+        const auto* scene_value = decoder.member(value, "scene", pointer);
+        auto scene = scene_value
+                         ? decode_reference<SceneId>(decoder, *scene_value,
+                                                     pointer_child(pointer, "scene"), "scene")
+                         : std::nullopt;
+        return scene ? std::optional<FlowPredictionCommand>{FlowPredictionCommand{
+                           FlowPredictionCallScene{std::move(*scene)}}}
+                     : std::nullopt;
+    }
+    if (*kind == "call-dialogue") {
+        const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
+        auto dialogue =
+            dialogue_value
+                ? decode_reference<DialogueId>(decoder, *dialogue_value,
+                                               pointer_child(pointer, "dialogue"), "dialogue")
+                : std::nullopt;
+        return dialogue ? std::optional<FlowPredictionCommand>{FlowPredictionCommand{
+                              FlowPredictionCallDialogue{std::move(*dialogue)}}}
+                        : std::nullopt;
+    }
+    if (*kind == "if") {
+        const auto* condition_value = decoder.member(value, "condition", pointer);
+        const auto* then_value = decoder.member(value, "thenCommands", pointer);
+        const auto* else_value = decoder.member(value, "elseCommands", pointer);
+        auto condition = condition_value
+                             ? decode_condition_impl(decoder, *condition_value,
+                                                     pointer_child(pointer, "condition"))
+                             : std::nullopt;
+        auto decode_commands =
+            [&](const nlohmann::json* commands,
+                std::string_view name) -> std::optional<std::vector<FlowPredictionCommand>> {
+            return commands
+                       ? decoder.array<FlowPredictionCommand>(
+                             *commands, pointer_child(pointer, name),
+                             [&](const nlohmann::json& item, const std::string& item_pointer) {
+                                 return decode_flow_prediction_command(decoder, item, item_pointer);
+                             })
+                       : std::nullopt;
+        };
+        auto then_commands = decode_commands(then_value, "thenCommands");
+        auto else_commands = decode_commands(else_value, "elseCommands");
+        if (!condition || !then_commands || !else_commands)
+            return std::nullopt;
+        return FlowPredictionCommand{FlowPredictionIf{
+            std::move(*condition), std::move(*then_commands), std::move(*else_commands)}};
+    }
+
+    decoder.error(k_code_variant, "Unknown Flow Prediction command kind '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
 }
 
 std::optional<std::vector<std::size_t>> decode_flow_prediction_indexes(Decoder& decoder,
@@ -123,13 +262,14 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                   [&](const nlohmann::json& slice,
                       const std::string& slice_pointer) -> std::optional<FlowPredictionSlice> {
                       if (!decoder.object(slice, slice_pointer,
-                                          {"point", "dependencyGroups", "successors"}))
+                                          {"point", "dependencyGroups", "successors", "program"}))
                           return std::nullopt;
                       const auto* point_value = decoder.member(slice, "point", slice_pointer);
                       const auto* dependency_groups_value =
                           decoder.member(slice, "dependencyGroups", slice_pointer);
                       const auto* successors_value =
                           decoder.member(slice, "successors", slice_pointer);
+                      const auto* program_value = decoder.member(slice, "program", slice_pointer);
                       auto point =
                           point_value
                               ? decode_flow_prediction_point(decoder, *point_value,
@@ -146,10 +286,19 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                                                   decoder, *successors_value,
                                                   pointer_child(slice_pointer, "successors"))
                                             : std::nullopt;
-                      if (!point || !dependency_groups || !successors)
+                      auto program = program_value ? decoder.array<FlowPredictionCommand>(
+                                                         *program_value,
+                                                         pointer_child(slice_pointer, "program"),
+                                                         [&](const nlohmann::json& command,
+                                                             const std::string& command_pointer) {
+                                                             return decode_flow_prediction_command(
+                                                                 decoder, command, command_pointer);
+                                                         })
+                                                   : std::nullopt;
+                      if (!point || !dependency_groups || !successors || !program)
                           return std::nullopt;
                       return FlowPredictionSlice{std::move(*point), std::move(*dependency_groups),
-                                                 std::move(*successors)};
+                                                 std::move(*successors), std::move(*program)};
                   })
             : std::nullopt;
     if (!groups || !slices)
