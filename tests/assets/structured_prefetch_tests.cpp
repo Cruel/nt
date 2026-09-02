@@ -533,15 +533,6 @@ TEST_CASE("structured collector builds typed ordered closure without dynamic sou
     const auto index =
         assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
     CHECK_FALSE(has_code(index.diagnostics(), "assets.prefetch_shader_resolution_failed"));
-    const auto& requirements = index.texture_preparation_requirements();
-    REQUIRE(requirements.size() == 1);
-    const assets::TextureAssetRequest canonical_image{
-        .path = "project:/assets/images/main.png",
-        .sampler = MaterialTextureSampler::ClampLinear,
-    };
-    REQUIRE(requirements.contains(assets::make_texture_cache_key(canonical_image, generation)));
-    CHECK(requirements.at(assets::make_texture_cache_key(canonical_image, generation))
-              .retain_alpha_coverage);
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.current_room = id<core::RoomId>("start");
@@ -646,6 +637,13 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
                                                        .color = std::nullopt,
                                                        .fit = core::compiled::BackgroundFit::Cover,
                                                        .material = std::nullopt};
+    snapshot.interactables.push_back(
+        {.interactable = id<core::InteractableInstanceId>("key"),
+         .placement = {.room = id<core::RoomId>("start"),
+                       .placement_id = id<core::RoomPlacementId>("key-placement")},
+         .bounds = {.x = 0.0, .y = 0.0, .width = 1.0, .height = 1.0},
+         .sprite = id<core::AssetId>("image-main"),
+         .material = std::nullopt});
     assets::StructuredAssetDependencyContext mandatory_context;
     mandatory_context.current_presentation = &snapshot;
     const auto mandatory = collector.collect(mandatory_context);
@@ -670,7 +668,7 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
 
     fixture.textures.requests.clear();
     assets::StructuredAssetDependencyContext speculative_context;
-    speculative_context.direct_next = core::compiled::Entrypoint{id<core::SceneId>("opening")};
+    speculative_context.direct_next = core::compiled::Entrypoint{id<core::RoomId>("start")};
     const auto speculative = collector.collect(speculative_context);
     const auto speculative_texture =
         find_request<assets::TextureAssetRequest>(speculative.direct_next, [](const auto& request) {
@@ -685,8 +683,68 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
     assets::PrefetchPlanner planner(fixture.manager);
     REQUIRE(planner.replace_generation_on_owner(speculative));
     fixture.run_until_idle();
-    REQUIRE_FALSE(fixture.textures.requests.empty());
-    CHECK(fixture.textures.requests.back().retain_alpha_coverage);
+    const auto submitted =
+        std::find_if(fixture.textures.requests.begin(), fixture.textures.requests.end(),
+                     [](const auto& request) {
+                         return request.path == "project:/assets/images/main.png" &&
+                                request.sampler == MaterialTextureSampler::ClampLinear;
+                     });
+    REQUIRE(submitted != fixture.textures.requests.end());
+    CHECK(submitted->retain_alpha_coverage);
+}
+
+TEST_CASE("strong speculative texture capability survives weaker current dependency dedupe",
+          "[assets][structured-prefetch][texture-alpha][capabilities]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    const assets::StructuredAssetDependencyCollector collector(index);
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-main"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+    assets::StructuredAssetDependencyContext context;
+    context.current_presentation = &snapshot;
+    context.direct_next = core::compiled::Entrypoint{id<core::RoomId>("start")};
+
+    const auto collected = collector.collect(context);
+    const auto current_texture = find_request<assets::TextureAssetRequest>(
+        collected.current_mandatory, [](const auto& request) {
+            return request.path == "project:/assets/images/main.png" &&
+                   request.sampler == MaterialTextureSampler::ClampLinear;
+        });
+    REQUIRE(current_texture);
+    CHECK_FALSE(
+        std::get<assets::TextureAssetRequest>(collected.current_mandatory[*current_texture].request)
+            .retain_alpha_coverage);
+
+    const auto speculative_texture =
+        find_request<assets::TextureAssetRequest>(collected.direct_next, [](const auto& request) {
+            return request.path == "project:/assets/images/main.png" &&
+                   request.sampler == MaterialTextureSampler::ClampLinear;
+        });
+    REQUIRE(speculative_texture);
+    CHECK(std::get<assets::TextureAssetRequest>(collected.direct_next[*speculative_texture].request)
+              .retain_alpha_coverage);
+
+    fixture.textures.requests.clear();
+    assets::PrefetchPlanner planner(fixture.manager);
+    auto replaced = planner.replace_generation_on_owner(collected);
+    REQUIRE(replaced);
+    fixture.run_until_idle();
+    const auto submitted =
+        std::find_if(fixture.textures.requests.begin(), fixture.textures.requests.end(),
+                     [](const auto& request) {
+                         return request.path == "project:/assets/images/main.png" &&
+                                request.sampler == MaterialTextureSampler::ClampLinear;
+                     });
+    REQUIRE(submitted != fixture.textures.requests.end());
+    CHECK(submitted->retain_alpha_coverage);
 }
 
 TEST_CASE("optional adjacency diagnostics do not block current mandatory publication",

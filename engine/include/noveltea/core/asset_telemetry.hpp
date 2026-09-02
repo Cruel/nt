@@ -46,6 +46,8 @@ enum class AssetTelemetryEventKind : std::uint8_t {
     PrefetchUnused,
     BudgetPressure,
     MemoryPolicyResolved,
+    CapabilityJoined,
+    CapabilityEnriched,
     Count,
 };
 

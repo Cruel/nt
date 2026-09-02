@@ -230,6 +230,22 @@ describe('asset profiler protocol', () => {
     ).toBe(true);
   });
 
+  it('accepts retained texture capability telemetry', () => {
+    for (const eventKind of ['capability-joined', 'capability-enriched'] as const) {
+      expect(
+        isAssetProfilerWirePayload({
+          ...full,
+          retainedChanges: [
+            {
+              ...telemetryChange,
+              event: { ...telemetryChange.event, eventKind },
+            },
+          ],
+        }),
+      ).toBe(true);
+    }
+  });
+
   it('rejects unsupported schemas, enum ordinals, and invalid delta cursor combinations', () => {
     expect(isAssetProfilerWirePayload({ ...full, unexpected: true })).toBe(false);
     expect(

@@ -44,13 +44,16 @@ bool retain_in_profiler_history(const AssetTelemetryEvent& event) noexcept
     case AssetTelemetryEventKind::PrefetchMiss:
     case AssetTelemetryEventKind::PrefetchUnused:
     case AssetTelemetryEventKind::MemoryPolicyResolved:
+    case AssetTelemetryEventKind::CapabilityJoined:
+    case AssetTelemetryEventKind::CapabilityEnriched:
         return true;
     case AssetTelemetryEventKind::BudgetPressure:
         return event.prefetch_generation.valid() &&
                (event.diagnostic_code == "assets.prefetch_allowance_exceeded" ||
                 event.diagnostic_code == "assets.prefetch_preparation_rejected" ||
                 event.diagnostic_code == "assets.prefetch_preparation_resize_rejected" ||
-                event.diagnostic_code == "assets.prefetch_residency_rejected");
+                event.diagnostic_code == "assets.prefetch_residency_rejected" ||
+                event.diagnostic_code == "assets.prefetch_enrichment_rejected");
     default:
         return false;
     }
@@ -61,7 +64,8 @@ bool is_prefetch_memory_rejection(std::string_view code) noexcept
     return code == "assets.prefetch_allowance_exceeded" ||
            code == "assets.prefetch_preparation_rejected" ||
            code == "assets.prefetch_preparation_resize_rejected" ||
-           code == "assets.prefetch_residency_rejected";
+           code == "assets.prefetch_residency_rejected" ||
+           code == "assets.prefetch_enrichment_rejected";
 }
 
 std::uint64_t elapsed_ns(std::chrono::steady_clock::time_point start,

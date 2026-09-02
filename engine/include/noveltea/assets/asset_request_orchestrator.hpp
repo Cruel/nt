@@ -31,6 +31,22 @@ struct AssetRequestProgress {
 
 class AssetManager;
 
+struct AssetPreparationCapabilities {
+    bool retain_alpha_coverage = false;
+
+    [[nodiscard]] bool satisfies(const AssetPreparationCapabilities& required) const noexcept
+    {
+        return !required.retain_alpha_coverage || retain_alpha_coverage;
+    }
+
+    [[nodiscard]] bool empty() const noexcept { return !retain_alpha_coverage; }
+
+    void include(const AssetPreparationCapabilities& other) noexcept
+    {
+        retain_alpha_coverage |= other.retain_alpha_coverage;
+    }
+};
+
 template<class T> struct PreparedAsset {
     T asset;
     ResidencyCost cost;
@@ -42,6 +58,35 @@ struct AssetPreparationTelemetry {
     std::uint64_t uncompressed_bytes = 0;
     std::chrono::nanoseconds source_read_duration{};
     std::chrono::nanoseconds preparation_duration{};
+};
+
+template<class T> struct PreparedAssetEnrichment {
+    ResidencyCost additional_cost;
+    AssetPreparationCapabilities capabilities;
+    std::function<void(T&)> apply_on_owner;
+};
+
+template<class T> class AssetEnrichmentTask {
+public:
+    virtual ~AssetEnrichmentTask() = default;
+
+    [[nodiscard]] virtual ResidencyCost estimated_cost_on_owner() const noexcept = 0;
+    [[nodiscard]] virtual bool reservation_update_required_on_owner() const noexcept
+    {
+        return false;
+    }
+    virtual void reservation_update_granted_on_owner() noexcept {}
+    [[nodiscard]] virtual AssetCacheState cache_state_for_next_step() const noexcept
+    {
+        return AssetCacheState::Preparing;
+    }
+    [[nodiscard]] virtual AssetPreparationTelemetry telemetry_on_owner() const noexcept
+    {
+        return {};
+    }
+    [[nodiscard]] virtual jobs::JobStepOutcome step(jobs::JobContext& context) noexcept = 0;
+    [[nodiscard]] virtual core::Result<PreparedAssetEnrichment<T>, core::Diagnostics>
+    finalize_on_owner() noexcept = 0;
 };
 
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
@@ -67,6 +112,28 @@ template<class T> class AssetPreparationTask {
 public:
     virtual ~AssetPreparationTask() = default;
 
+    [[nodiscard]] virtual AssetPreparationCapabilities
+    requested_capabilities_on_owner() const noexcept
+    {
+        return {};
+    }
+    // May be called from the owner thread while step() is executing on a worker. A task that
+    // supports capability union must synchronize this request internally.
+    [[nodiscard]] virtual bool
+    request_additional_capabilities(AssetPreparationCapabilities capabilities) noexcept
+    {
+        return capabilities.empty();
+    }
+    [[nodiscard]] virtual AssetPreparationCapabilities
+    provided_capabilities_on_owner() const noexcept
+    {
+        return {};
+    }
+    [[nodiscard]] virtual std::unique_ptr<AssetEnrichmentTask<T>>
+    create_enrichment_task_on_owner(AssetPreparationCapabilities) const
+    {
+        return {};
+    }
     [[nodiscard]] virtual ResidencyCost estimated_cost_on_owner() const noexcept = 0;
     [[nodiscard]] virtual bool reservation_update_required_on_owner() const noexcept
     {
@@ -112,6 +179,7 @@ template<class T> struct AsyncAssetConsumer {
     AssetRequestState state = AssetRequestState::Pending;
     core::Diagnostics diagnostics;
     std::optional<PrefetchGenerationId> ready_prefetch_generation;
+    AssetPreparationCapabilities required_capabilities;
     bool active = true;
     bool reservation_pin = false;
 };
@@ -119,6 +187,7 @@ template<class T> struct AsyncAssetConsumer {
 template<class T> struct AsyncAssetTicket {
     AssetRequestId request_id;
     PrefetchGenerationId generation;
+    AssetPreparationCapabilities required_capabilities;
     bool active = true;
 };
 
@@ -134,9 +203,14 @@ template<class T> struct AsyncAssetEntry {
     AssetRequestReason request_origin = AssetRequestReason::Prefetch;
     std::optional<PreparationReservation> preparation_reservation;
     std::unique_ptr<AssetPreparationTask<T>> deferred_task;
+    AssetPreparationTask<T>* active_task = nullptr;
+    std::unique_ptr<AssetEnrichmentTask<T>> deferred_enrichment_task;
     ResidencyCost estimated_cost;
+    ResidencyCost enrichment_estimated_cost;
     AssetPreparationTelemetry accumulated_preparation;
+    AssetPreparationTelemetry accumulated_enrichment;
     std::shared_ptr<T> asset;
+    AssetPreparationCapabilities capabilities;
     std::function<void(T&)> destroy_on_owner;
     std::vector<std::weak_ptr<AsyncAssetConsumer<T>>> consumers;
     std::vector<std::weak_ptr<AsyncAssetTicket<T>>> tickets;
@@ -145,6 +219,9 @@ template<class T> struct AsyncAssetEntry {
     bool policy_evicted = false;
     std::uint64_t reload_count = 0;
     bool source_read_completed_recorded = false;
+    bool enrichment_source_read_completed_recorded = false;
+    bool enrichment_pin = false;
+    bool enrichment_active = false;
     bool demand_prefetch_classified = false;
     bool prefetch_claimed_by_demand = false;
     std::optional<PrefetchGenerationId> completed_prefetch_generation;
@@ -347,6 +424,64 @@ private:
     AssetPreparationTelemetry m_telemetry;
 };
 
+template<class T> class AsyncAssetEnrichmentJob final : public jobs::JobTask {
+public:
+    AsyncAssetEnrichmentJob(std::shared_ptr<AsyncAssetState<T>> state,
+                            std::shared_ptr<AsyncAssetEntry<T>> entry,
+                            std::unique_ptr<AssetEnrichmentTask<T>> task)
+        : m_state(std::move(state)), m_entry(std::move(entry)), m_task(std::move(task))
+    {
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
+    {
+        const auto publish_phase = [this]() noexcept {
+            const auto phase = m_task->cache_state_for_next_step();
+            m_entry->active_job_state.store(phase == AssetCacheState::Reading
+                                                ? AssetCacheState::Reading
+                                                : AssetCacheState::Preparing,
+                                            std::memory_order_release);
+        };
+        const auto measured_phase = m_task->cache_state_for_next_step();
+        publish_phase();
+        const auto started_at = std::chrono::steady_clock::now();
+        auto outcome = m_task->step(context);
+        auto elapsed = std::chrono::steady_clock::now() - started_at;
+        if (elapsed <= std::chrono::steady_clock::duration::zero())
+            elapsed = std::chrono::nanoseconds{1};
+        if (measured_phase == AssetCacheState::Reading)
+            m_telemetry.source_read_duration += elapsed;
+        else
+            m_telemetry.preparation_duration += elapsed;
+        if (outcome.status == jobs::JobStepStatus::Yielded) {
+            publish_phase();
+        } else if (outcome.status == jobs::JobStepStatus::Completed &&
+                   !context.cancellation_requested()) {
+            m_entry->active_job_state.store(AssetCacheState::WaitingForOwnerFinalization,
+                                            std::memory_order_release);
+            m_state->record_inventory_maybe_changed();
+        }
+        return outcome;
+    }
+
+    void complete_on_owner(jobs::JobCompletion completion) noexcept override
+    {
+        const auto reported = m_task->telemetry_on_owner();
+        m_telemetry.compressed_bytes = reported.compressed_bytes;
+        m_telemetry.uncompressed_bytes = reported.uncompressed_bytes;
+        m_telemetry.source_read_duration += reported.source_read_duration;
+        m_telemetry.preparation_duration += reported.preparation_duration;
+        m_state->complete_enrichment_job(m_entry, std::move(m_task), std::move(completion),
+                                         m_telemetry);
+    }
+
+private:
+    std::shared_ptr<AsyncAssetState<T>> m_state;
+    std::shared_ptr<AsyncAssetEntry<T>> m_entry;
+    std::unique_ptr<AssetEnrichmentTask<T>> m_task;
+    AssetPreparationTelemetry m_telemetry;
+};
+
 template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAssetState<T>> {
     AsyncAssetState(jobs::JobExecutor& configured_executor,
                     std::shared_ptr<ResidencyManager> configured_residency,
@@ -535,6 +670,79 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         return false;
     }
 
+    [[nodiscard]] bool has_unsatisfied_capability_interest(AsyncAssetEntry<T>& entry) const noexcept
+    {
+        compact_consumers(entry);
+        for (const auto& weak : entry.consumers) {
+            const auto consumer = weak.lock();
+            if (consumer != nullptr && consumer->active &&
+                consumer->state == AssetRequestState::Pending &&
+                !entry.capabilities.satisfies(consumer->required_capabilities)) {
+                return true;
+            }
+        }
+        compact_tickets(entry);
+        for (const auto& weak : entry.tickets) {
+            const auto ticket = weak.lock();
+            if (ticket != nullptr && ticket->active &&
+                !entry.capabilities.satisfies(ticket->required_capabilities)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] AssetPreparationCapabilities
+    required_capabilities(AsyncAssetEntry<T>& entry) const noexcept
+    {
+        AssetPreparationCapabilities result;
+        compact_consumers(entry);
+        for (const auto& weak : entry.consumers) {
+            const auto consumer = weak.lock();
+            if (consumer != nullptr && consumer->active &&
+                consumer->state == AssetRequestState::Pending) {
+                result.include(consumer->required_capabilities);
+            }
+        }
+        compact_tickets(entry);
+        for (const auto& weak : entry.tickets) {
+            const auto ticket = weak.lock();
+            if (ticket != nullptr && ticket->active)
+                result.include(ticket->required_capabilities);
+        }
+        return result;
+    }
+
+    void release_enrichment_pin(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
+    {
+        assert_owner();
+        if (!entry->enrichment_pin)
+            return;
+        entry->enrichment_pin = false;
+        residency->release_pin_on_owner(entry->key);
+    }
+
+    void discard_deferred_enrichment_without_interest(
+        const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
+    {
+        assert_owner();
+        entry->deferred_enrichment_task.reset();
+        release_preparation_reservation(entry);
+        release_enrichment_pin(entry);
+        entry->enrichment_estimated_cost = {};
+        entry->accumulated_enrichment = {};
+        entry->enrichment_source_read_completed_recorded = false;
+        entry->enrichment_active = false;
+    }
+
+    void reset_enrichment_tracking(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
+    {
+        entry->enrichment_estimated_cost = {};
+        entry->accumulated_enrichment = {};
+        entry->enrichment_source_read_completed_recorded = false;
+        entry->enrichment_active = false;
+    }
+
     void
     discard_deferred_without_interest(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
     {
@@ -563,9 +771,19 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     void recompute_interest(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
     {
         assert_owner();
+        if ((entry->enrichment_active || entry->deferred_enrichment_task != nullptr) &&
+            !has_unsatisfied_capability_interest(*entry)) {
+            if (entry->job_id.valid())
+                (void)executor.request_cancel(entry->job_id);
+            else
+                discard_deferred_enrichment_without_interest(entry);
+            return;
+        }
         if (!has_live_interest(*entry)) {
             if (entry->job_id.valid()) {
                 (void)executor.request_cancel(entry->job_id);
+            } else if (entry->deferred_enrichment_task != nullptr || entry->enrichment_active) {
+                discard_deferred_enrichment_without_interest(entry);
             } else if (entry->deferred_task != nullptr || entry->preparation_reservation) {
                 discard_deferred_without_interest(entry);
             }
@@ -607,6 +825,26 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         }
     }
 
+    void fail_unsatisfied_consumers(AsyncAssetEntry<T>& entry,
+                                    const core::Diagnostics& diagnostics) noexcept
+    {
+        compact_consumers(entry);
+        for (const auto& weak : entry.consumers) {
+            const auto consumer = weak.lock();
+            if (consumer == nullptr || !consumer->active ||
+                consumer->state != AssetRequestState::Pending ||
+                entry.capabilities.satisfies(consumer->required_capabilities)) {
+                continue;
+            }
+            consumer->state = AssetRequestState::Failed;
+            consumer->diagnostics = diagnostics;
+            consumer->active = false;
+            const auto code = diagnostics.empty() ? std::string{} : diagnostics.front().code;
+            record(core::AssetTelemetryEventKind::RequestFailed, &entry, consumer.get(),
+                   consumer->reason, std::nullopt, code);
+        }
+    }
+
     void invalidate_tickets(AsyncAssetEntry<T>& entry) noexcept
     {
         compact_tickets(entry);
@@ -614,6 +852,20 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             const auto ticket = weak.lock();
             if (ticket == nullptr || !ticket->active)
                 continue;
+            residency->release_prefetch_interest_on_owner(entry.key, ticket->generation);
+            ticket->active = false;
+        }
+    }
+
+    void invalidate_unsatisfied_tickets(AsyncAssetEntry<T>& entry) noexcept
+    {
+        compact_tickets(entry);
+        for (const auto& weak : entry.tickets) {
+            const auto ticket = weak.lock();
+            if (ticket == nullptr || !ticket->active ||
+                entry.capabilities.satisfies(ticket->required_capabilities)) {
+                continue;
+            }
             residency->release_prefetch_interest_on_owner(entry.key, ticket->generation);
             ticket->active = false;
         }
@@ -628,6 +880,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                 consumer->state != AssetRequestState::Pending) {
                 continue;
             }
+            if (!entry.capabilities.satisfies(consumer->required_capabilities))
+                continue;
             if (!residency->retain_pin_on_owner(entry.key)) {
                 consumer->state = AssetRequestState::Failed;
                 consumer->active = false;
@@ -662,6 +916,274 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         destination.preparation_duration += source.preparation_duration;
     }
 
+    [[nodiscard]] bool queue_enrichment_from(const std::shared_ptr<AsyncAssetEntry<T>>& entry,
+                                             const AssetPreparationTask<T>& source,
+                                             AssetPreparationCapabilities required) noexcept
+    {
+        assert_owner();
+        if (entry->capabilities.satisfies(required) || entry->enrichment_active ||
+            entry->deferred_enrichment_task != nullptr) {
+            return true;
+        }
+        auto enrichment = source.create_enrichment_task_on_owner(required);
+        if (enrichment == nullptr)
+            return false;
+        entry->enrichment_estimated_cost = enrichment->estimated_cost_on_owner();
+        entry->deferred_enrichment_task = std::move(enrichment);
+        return true;
+    }
+
+    void submit_enrichment_reserved(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
+    {
+        assert_owner();
+        auto task = std::move(entry->deferred_enrichment_task);
+        const bool source_read_expected =
+            task->cache_state_for_next_step() == AssetCacheState::Reading;
+        auto job = std::make_unique<AsyncAssetEnrichmentJob<T>>(this->shared_from_this(), entry,
+                                                                std::move(task));
+        const auto priority = entry->admission_reason == AssetRequestReason::Prefetch
+                                  ? jobs::JobPriority::Prefetch
+                                  : jobs::JobPriority::Critical;
+        auto submitted = executor.submit(priority, std::move(job));
+        if (!submitted) {
+            release_preparation_reservation(entry);
+            release_enrichment_pin(entry);
+            const core::Diagnostics diagnostics{submitted.error()};
+            fail_unsatisfied_consumers(*entry, diagnostics);
+            invalidate_unsatisfied_tickets(*entry);
+            reset_enrichment_tracking(entry);
+            return;
+        }
+        const auto* submitted_id = submitted.value_if();
+        assert(submitted_id != nullptr);
+        entry->job_id = *submitted_id;
+        entry->last_job_id = *submitted_id;
+        entry->job_priority = priority;
+        entry->enrichment_active = true;
+        entry->active_job_state.store(AssetCacheState::Queued, std::memory_order_release);
+        const auto active_prefetch = active_prefetch_ticket(*entry);
+        if (source_read_expected) {
+            record(core::AssetTelemetryEventKind::SourceReadStarted, entry.get(), nullptr,
+                   entry->admission_reason, priority, {}, active_prefetch.get());
+        }
+    }
+
+    void try_start_enrichment(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
+    {
+        assert_owner();
+        if (entry->deferred_enrichment_task == nullptr || entry->job_id.valid())
+            return;
+        record_inventory_maybe_changed();
+        if (!has_unsatisfied_capability_interest(*entry)) {
+            discard_deferred_enrichment_without_interest(entry);
+            return;
+        }
+        if (entry->asset == nullptr || !residency->resident_on_owner(entry->key)) {
+            const core::Diagnostics diagnostics{
+                {.code = "assets.enrichment_resident_missing",
+                 .message = "resident asset disappeared before capability enrichment"}};
+            entry->deferred_enrichment_task.reset();
+            release_preparation_reservation(entry);
+            release_enrichment_pin(entry);
+            fail_unsatisfied_consumers(*entry, diagnostics);
+            invalidate_unsatisfied_tickets(*entry);
+            reset_enrichment_tracking(entry);
+            return;
+        }
+        if (!entry->enrichment_pin) {
+            if (!residency->retain_pin_on_owner(entry->key)) {
+                const core::Diagnostics diagnostics{
+                    {.code = "assets.enrichment_pin_failed",
+                     .message = "resident asset could not be pinned for capability enrichment"}};
+                entry->deferred_enrichment_task.reset();
+                fail_unsatisfied_consumers(*entry, diagnostics);
+                invalidate_unsatisfied_tickets(*entry);
+                reset_enrichment_tracking(entry);
+                return;
+            }
+            entry->enrichment_pin = true;
+        }
+        entry->admission_reason = effective_reason(*entry);
+        const ResidencyCost temporary{.temporary_bytes =
+                                          entry->enrichment_estimated_cost.temporary_bytes};
+        if (entry->preparation_reservation) {
+            auto resized = residency->resize_preparation_on_owner(
+                *entry->preparation_reservation, temporary, entry->admission_reason);
+            if (resized.admission == ResidencyAdmission::Deferred)
+                return;
+            if (resized.admission == ResidencyAdmission::RejectedPrefetch) {
+                const auto active_prefetch = active_prefetch_ticket(*entry);
+                const auto code =
+                    resized.diagnostics.empty() ? std::string{} : resized.diagnostics.front().code;
+                record(core::AssetTelemetryEventKind::BudgetPressure, entry.get(), nullptr,
+                       AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, code,
+                       active_prefetch.get());
+                entry->deferred_enrichment_task.reset();
+                release_preparation_reservation(entry);
+                release_enrichment_pin(entry);
+                fail_unsatisfied_consumers(*entry, resized.diagnostics);
+                invalidate_unsatisfied_tickets(*entry);
+                reset_enrichment_tracking(entry);
+                return;
+            }
+            entry->deferred_enrichment_task->reservation_update_granted_on_owner();
+            submit_enrichment_reserved(entry);
+            return;
+        }
+        auto reserved = residency->reserve_preparation_on_owner(temporary, entry->admission_reason);
+        if (reserved.admission == ResidencyAdmission::Deferred)
+            return;
+        if (reserved.admission == ResidencyAdmission::RejectedPrefetch) {
+            const auto active_prefetch = active_prefetch_ticket(*entry);
+            const auto code =
+                reserved.diagnostics.empty() ? std::string{} : reserved.diagnostics.front().code;
+            record(core::AssetTelemetryEventKind::BudgetPressure, entry.get(), nullptr,
+                   AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, code,
+                   active_prefetch.get());
+            entry->deferred_enrichment_task.reset();
+            release_enrichment_pin(entry);
+            fail_unsatisfied_consumers(*entry, reserved.diagnostics);
+            invalidate_unsatisfied_tickets(*entry);
+            reset_enrichment_tracking(entry);
+            return;
+        }
+        assert(reserved.reservation.has_value());
+        entry->preparation_reservation = std::move(*reserved.reservation);
+        submit_enrichment_reserved(entry);
+    }
+
+    void complete_enrichment_job(const std::shared_ptr<AsyncAssetEntry<T>>& entry,
+                                 std::unique_ptr<AssetEnrichmentTask<T>> task,
+                                 jobs::JobCompletion completion,
+                                 AssetPreparationTelemetry preparation) noexcept
+    {
+        assert_owner();
+        if (entry->job_id != completion.id || !entry->enrichment_active)
+            return;
+        entry->job_id = {};
+        entry->enrichment_active = false;
+        const auto active_prefetch = active_prefetch_ticket(*entry);
+        merge_preparation_telemetry(entry->accumulated_enrichment, preparation);
+        preparation = entry->accumulated_enrichment;
+
+        if (completion.status == jobs::JobTerminalStatus::Canceled || entry->invalidated ||
+            !has_unsatisfied_capability_interest(*entry)) {
+            release_preparation_reservation(entry);
+            release_enrichment_pin(entry);
+            reset_enrichment_tracking(entry);
+            retire_if_possible(entry);
+            return;
+        }
+        if (completion.status == jobs::JobTerminalStatus::Failed) {
+            release_preparation_reservation(entry);
+            release_enrichment_pin(entry);
+            const auto diagnostics = completion.diagnostics;
+            const auto code = diagnostics.empty() ? std::string{} : diagnostics.front().code;
+            const auto failed_phase = entry->active_job_state.load(std::memory_order_acquire);
+            if (failed_phase == AssetCacheState::Reading) {
+                record(core::AssetTelemetryEventKind::SourceReadFailed, entry.get(), nullptr,
+                       std::nullopt, std::nullopt, code, active_prefetch.get(), preparation,
+                       preparation.source_read_duration);
+            } else {
+                record(core::AssetTelemetryEventKind::PreparationFailed, entry.get(), nullptr,
+                       std::nullopt, std::nullopt, code, active_prefetch.get(), preparation,
+                       preparation.preparation_duration);
+            }
+            fail_unsatisfied_consumers(*entry, diagnostics);
+            invalidate_unsatisfied_tickets(*entry);
+            reset_enrichment_tracking(entry);
+            return;
+        }
+
+        if (task->reservation_update_required_on_owner()) {
+            if (!entry->enrichment_source_read_completed_recorded &&
+                (preparation.source_read_duration.count() > 0 ||
+                 preparation.compressed_bytes != 0 || preparation.uncompressed_bytes != 0)) {
+                record(core::AssetTelemetryEventKind::SourceReadCompleted, entry.get(), nullptr,
+                       std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
+                       preparation.source_read_duration);
+                entry->enrichment_source_read_completed_recorded = true;
+            }
+            entry->enrichment_estimated_cost = task->estimated_cost_on_owner();
+            entry->deferred_enrichment_task = std::move(task);
+            try_start_enrichment(entry);
+            return;
+        }
+
+        if (!entry->enrichment_source_read_completed_recorded &&
+            (preparation.source_read_duration.count() > 0 || preparation.compressed_bytes != 0 ||
+             preparation.uncompressed_bytes != 0)) {
+            record(core::AssetTelemetryEventKind::SourceReadCompleted, entry.get(), nullptr,
+                   std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
+                   preparation.source_read_duration);
+            entry->enrichment_source_read_completed_recorded = true;
+        }
+        record(core::AssetTelemetryEventKind::PreparationCompleted, entry.get(), nullptr,
+               std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
+               preparation.preparation_duration);
+
+        const auto finalization_started_at = std::chrono::steady_clock::now();
+        auto finalized = task->finalize_on_owner();
+        auto finalization_duration = std::chrono::steady_clock::now() - finalization_started_at;
+        if (finalization_duration <= std::chrono::steady_clock::duration::zero())
+            finalization_duration = std::chrono::nanoseconds{1};
+        if (!finalized) {
+            release_preparation_reservation(entry);
+            release_enrichment_pin(entry);
+            const auto diagnostics = finalized.error();
+            const auto code = diagnostics.empty() ? std::string{} : diagnostics.front().code;
+            record(core::AssetTelemetryEventKind::OwnerFinalizationFailed, entry.get(), nullptr,
+                   std::nullopt, std::nullopt, code, active_prefetch.get(), preparation,
+                   finalization_duration);
+            fail_unsatisfied_consumers(*entry, diagnostics);
+            invalidate_unsatisfied_tickets(*entry);
+            reset_enrichment_tracking(entry);
+            return;
+        }
+        record(core::AssetTelemetryEventKind::OwnerFinalizationCompleted, entry.get(), nullptr,
+               std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
+               finalization_duration);
+
+        auto* value = finalized.value_if();
+        assert(value != nullptr);
+        auto enrichment = std::move(*value);
+        auto admission = residency->enrich_resident_on_owner(entry->key, enrichment.additional_cost,
+                                                             effective_reason(*entry));
+        if (admission.admission == ResidencyAdmission::RejectedPrefetch ||
+            admission.admission == ResidencyAdmission::Deferred) {
+            const auto code =
+                admission.diagnostics.empty() ? std::string{} : admission.diagnostics.front().code;
+            if (admission.admission == ResidencyAdmission::RejectedPrefetch) {
+                record(core::AssetTelemetryEventKind::BudgetPressure, entry.get(), nullptr,
+                       AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, code,
+                       active_prefetch.get());
+            }
+            release_preparation_reservation(entry);
+            release_enrichment_pin(entry);
+            fail_unsatisfied_consumers(*entry, admission.diagnostics);
+            invalidate_unsatisfied_tickets(*entry);
+            reset_enrichment_tracking(entry);
+            return;
+        }
+        if (entry->asset == nullptr || entry->invalidated) {
+            release_preparation_reservation(entry);
+            release_enrichment_pin(entry);
+            reset_enrichment_tracking(entry);
+            retire_if_possible(entry);
+            return;
+        }
+        if (enrichment.apply_on_owner)
+            enrichment.apply_on_owner(*entry->asset);
+        entry->capabilities.include(enrichment.capabilities);
+        record(core::AssetTelemetryEventKind::CapabilityEnriched, entry.get());
+        entry->diagnostics.insert(entry->diagnostics.end(), admission.diagnostics.begin(),
+                                  admission.diagnostics.end());
+        release_preparation_reservation(entry);
+        reset_enrichment_tracking(entry);
+        make_consumers_ready(*entry);
+        release_enrichment_pin(entry);
+    }
+
     void complete_job(const std::shared_ptr<AsyncAssetEntry<T>>& entry,
                       std::unique_ptr<AssetPreparationTask<T>> task, jobs::JobCompletion completion,
                       AssetPreparationTelemetry preparation) noexcept
@@ -670,6 +1192,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         if (entry->job_id != completion.id)
             return;
         entry->job_id = {};
+        entry->active_task = nullptr;
         const auto active_prefetch = active_prefetch_ticket(*entry);
         merge_preparation_telemetry(entry->accumulated_preparation, preparation);
         preparation = entry->accumulated_preparation;
@@ -821,6 +1344,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         }
 
         entry->asset = std::make_shared<T>(std::move(prepared.asset));
+        entry->capabilities = task->provided_capabilities_on_owner();
         entry->destroy_on_owner = std::move(prepared.destroy_on_owner);
         release_preparation_reservation(entry);
         entry->state = AssetCacheState::Resident;
@@ -832,6 +1356,19 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->diagnostics.insert(entry->diagnostics.end(), admission.diagnostics.begin(),
                                   admission.diagnostics.end());
         make_consumers_ready(*entry);
+        if (has_unsatisfied_capability_interest(*entry)) {
+            const auto required = required_capabilities(*entry);
+            if (!queue_enrichment_from(entry, *task, required)) {
+                const core::Diagnostics diagnostics{
+                    {.code = "assets.capability_enrichment_unavailable",
+                     .message = "resident asset cannot provide the requested preparation "
+                                "capability"}};
+                fail_unsatisfied_consumers(*entry, diagnostics);
+                invalidate_unsatisfied_tickets(*entry);
+            } else {
+                try_start_enrichment(entry);
+            }
+        }
         if (active_prefetch != nullptr &&
             (!entry->demand_prefetch_classified || entry->prefetch_claimed_by_demand)) {
             entry->completed_prefetch_generation = active_prefetch->generation;
@@ -842,6 +1379,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     {
         assert_owner();
         auto task = std::move(entry->deferred_task);
+        entry->active_task = task.get();
         const bool source_read_expected =
             task->cache_state_for_next_step() == AssetCacheState::Reading;
         auto job = std::make_unique<AsyncAssetLoadJob<T>>(this->shared_from_this(), entry,
@@ -851,6 +1389,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                                   : jobs::JobPriority::Critical;
         auto submitted = executor.submit(priority, std::move(job));
         if (!submitted) {
+            entry->active_task = nullptr;
             release_preparation_reservation(entry);
             entry->state = AssetCacheState::Failed;
             entry->diagnostics = {submitted.error()};
@@ -959,6 +1498,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->demand_prefetch_classified = false;
         entry->prefetch_claimed_by_demand = false;
         entry->completed_prefetch_generation.reset();
+        entry->capabilities = {};
         entry->deferred_task = std::move(task);
         try_start_deferred(entry);
     }
@@ -1039,6 +1579,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         if (entry->asset != nullptr && entry->destroy_on_owner)
             entry->destroy_on_owner(*entry->asset);
         entry->asset.reset();
+        entry->capabilities = {};
         entry->destroy_on_owner = {};
         entry->state = AssetCacheState::Missing;
         entry->policy_evicted = reason == ResidencyEvictionReason::BudgetPressure ||
@@ -1099,8 +1640,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             const auto active_state = entry->active_job_state.load(std::memory_order_acquire);
             const auto normalized_state = entry->job_id.valid() ? active_state : entry->state;
             const bool has_reservation = entry->preparation_reservation.has_value();
-            const bool in_flight =
-                entry->job_id.valid() || entry->deferred_task != nullptr || has_reservation;
+            const bool in_flight = entry->job_id.valid() || entry->deferred_task != nullptr ||
+                                   entry->deferred_enrichment_task != nullptr || has_reservation;
             if (entry->invalidated && normalized_state != AssetCacheState::Resident && !in_flight)
                 continue;
             const bool show = normalized_state == AssetCacheState::Resident ||
@@ -1143,7 +1684,9 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             }
             invalidate_tickets(*entry);
             entry->deferred_task.reset();
+            entry->deferred_enrichment_task.reset();
             release_preparation_reservation(entry);
+            release_enrichment_pin(entry);
             if (entry->job_id.valid())
                 (void)executor.request_cancel(entry->job_id);
             if (entry->state == AssetCacheState::Resident) {
@@ -1239,13 +1782,15 @@ public:
         auto consumer = std::make_shared<detail::AsyncAssetConsumer<T>>();
         consumer->id = *id;
         consumer->reason = reason;
+        consumer->required_capabilities = task->requested_capabilities_on_owner();
         entry->consumers.push_back(consumer);
         m_state->record(core::AssetTelemetryEventKind::AssetRequested, entry.get(), consumer.get(),
                         reason);
         const auto active_prefetch = m_state->active_prefetch_ticket(*entry);
 
-        if (entry->state == AssetCacheState::Resident && entry->asset != nullptr &&
-            m_state->residency->resident_on_owner(key)) {
+        const bool resident = entry->state == AssetCacheState::Resident &&
+                              entry->asset != nullptr && m_state->residency->resident_on_owner(key);
+        if (resident && entry->capabilities.satisfies(consumer->required_capabilities)) {
             if (reason == AssetRequestReason::Demand && !entry->demand_prefetch_classified &&
                 !entry->prefetch_claimed_by_demand && entry->completed_prefetch_generation) {
                 consumer->ready_prefetch_generation = entry->completed_prefetch_generation;
@@ -1259,7 +1804,40 @@ public:
             consumer->state = AssetRequestState::Ready;
             m_state->record(core::AssetTelemetryEventKind::CacheHit, entry.get(), consumer.get(),
                             reason);
+        } else if (resident) {
+            m_state->record(core::AssetTelemetryEventKind::CacheHit, entry.get(), consumer.get(),
+                            reason);
+            if (!m_state->queue_enrichment_from(entry, *task, consumer->required_capabilities)) {
+                consumer->state = AssetRequestState::Failed;
+                consumer->active = false;
+                consumer->diagnostics = {
+                    {.code = "assets.capability_enrichment_unavailable",
+                     .message = "resident asset cannot provide the requested preparation "
+                                "capability"}};
+                m_state->record(core::AssetTelemetryEventKind::RequestFailed, entry.get(),
+                                consumer.get(), reason, std::nullopt,
+                                consumer->diagnostics.front().code);
+            } else {
+                if (reason == AssetRequestReason::Demand && !entry->demand_prefetch_classified &&
+                    active_prefetch != nullptr &&
+                    !entry->capabilities.satisfies(active_prefetch->required_capabilities)) {
+                    entry->demand_prefetch_classified = true;
+                    entry->prefetch_claimed_by_demand = true;
+                    m_state->record(core::AssetTelemetryEventKind::PrefetchLate, entry.get(),
+                                    consumer.get(), reason, jobs::JobPriority::Critical, {},
+                                    active_prefetch.get());
+                }
+                m_state->recompute_interest(entry);
+                m_state->try_start_enrichment(entry);
+            }
         } else if (entry->job_id.valid() || entry->deferred_task != nullptr) {
+            auto* preparation =
+                entry->active_task != nullptr ? entry->active_task : entry->deferred_task.get();
+            if (preparation != nullptr && !consumer->required_capabilities.empty() &&
+                preparation->request_additional_capabilities(consumer->required_capabilities)) {
+                m_state->record(core::AssetTelemetryEventKind::CapabilityJoined, entry.get(),
+                                consumer.get(), reason);
+            }
             if (reason == AssetRequestReason::Demand && !entry->demand_prefetch_classified &&
                 active_prefetch != nullptr) {
                 entry->demand_prefetch_classified = true;
@@ -1330,15 +1908,38 @@ public:
         auto ticket = std::make_shared<detail::AsyncAssetTicket<T>>();
         ticket->request_id = *id;
         ticket->generation = generation;
+        ticket->required_capabilities = task->requested_capabilities_on_owner();
         entry->tickets.push_back(ticket);
         m_state->record(core::AssetTelemetryEventKind::AssetRequested, entry.get(), nullptr,
                         AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, {},
                         ticket.get());
 
-        if (entry->state == AssetCacheState::Resident && entry->asset != nullptr) {
+        const bool resident = entry->state == AssetCacheState::Resident &&
+                              entry->asset != nullptr && m_state->residency->resident_on_owner(key);
+        if (resident && entry->capabilities.satisfies(ticket->required_capabilities)) {
             m_state->record(core::AssetTelemetryEventKind::CacheHit, entry.get(), nullptr,
                             AssetRequestReason::Prefetch, std::nullopt, {}, ticket.get());
+        } else if (resident) {
+            m_state->record(core::AssetTelemetryEventKind::CacheHit, entry.get(), nullptr,
+                            AssetRequestReason::Prefetch, std::nullopt, {}, ticket.get());
+            if (!m_state->queue_enrichment_from(entry, *task, ticket->required_capabilities)) {
+                m_state->residency->release_prefetch_interest_on_owner(key, generation);
+                ticket->active = false;
+                return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+                    {.code = "assets.capability_enrichment_unavailable",
+                     .message = "resident asset cannot provide the requested preparation "
+                                "capability"});
+            }
+            m_state->try_start_enrichment(entry);
         } else if (entry->job_id.valid() || entry->deferred_task != nullptr) {
+            auto* preparation =
+                entry->active_task != nullptr ? entry->active_task : entry->deferred_task.get();
+            if (preparation != nullptr && !ticket->required_capabilities.empty() &&
+                preparation->request_additional_capabilities(ticket->required_capabilities)) {
+                m_state->record(core::AssetTelemetryEventKind::CapabilityJoined, entry.get(),
+                                nullptr, AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch,
+                                {}, ticket.get());
+            }
             m_state->record(core::AssetTelemetryEventKind::RequestCoalesced, entry.get(), nullptr,
                             AssetRequestReason::Prefetch, std::nullopt, {}, ticket.get());
             m_state->recompute_interest(entry);
@@ -1360,11 +1961,13 @@ public:
         m_state->assert_owner();
         std::size_t started = 0;
         for (auto& [_, entry] : m_state->entries) {
-            if (entry->deferred_task == nullptr || entry->job_id.valid())
+            if (entry->job_id.valid())
                 continue;
-            const bool before = entry->job_id.valid();
-            m_state->try_start_deferred(entry);
-            if (!before && entry->job_id.valid())
+            if (entry->deferred_enrichment_task != nullptr)
+                m_state->try_start_enrichment(entry);
+            else if (entry->deferred_task != nullptr)
+                m_state->try_start_deferred(entry);
+            if (entry->job_id.valid())
                 ++started;
         }
         return started;
@@ -1375,7 +1978,8 @@ public:
         m_state->assert_owner();
         std::size_t started = 0;
         for (const auto& [_, entry] : m_state->entries) {
-            if (entry->deferred_task == nullptr || entry->job_id.valid())
+            if (entry->job_id.valid() ||
+                (entry->deferred_task == nullptr && entry->deferred_enrichment_task == nullptr))
                 continue;
             bool mandatory = false;
             for (const auto& weak : entry->consumers) {
@@ -1388,7 +1992,10 @@ public:
             }
             if (!mandatory)
                 continue;
-            m_state->try_start_deferred(entry);
+            if (entry->deferred_enrichment_task != nullptr)
+                m_state->try_start_enrichment(entry);
+            else
+                m_state->try_start_deferred(entry);
             if (entry->job_id.valid())
                 ++started;
         }
@@ -1411,9 +2018,12 @@ public:
             }
             if (mandatory) {
                 result.blocking = true;
-                if (entry->deferred_task != nullptr && !entry->job_id.valid())
+                if ((entry->deferred_task != nullptr ||
+                     entry->deferred_enrichment_task != nullptr) &&
+                    !entry->job_id.valid())
                     result.deferred_mandatory = true;
-            } else if (entry->job_id.valid() || entry->deferred_task != nullptr) {
+            } else if (entry->job_id.valid() || entry->deferred_task != nullptr ||
+                       entry->deferred_enrichment_task != nullptr) {
                 for (const auto& weak : entry->tickets) {
                     const auto ticket = weak.lock();
                     if (ticket != nullptr && ticket->active) {

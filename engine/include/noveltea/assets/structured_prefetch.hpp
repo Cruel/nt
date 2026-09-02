@@ -68,8 +68,6 @@ public:
 
     [[nodiscard]] AssetSourceGeneration source_generation() const noexcept;
     [[nodiscard]] const core::Diagnostics& diagnostics() const noexcept;
-    [[nodiscard]] const TexturePreparationRequirementMap&
-    texture_preparation_requirements() const noexcept;
 
 private:
     explicit StructuredAssetDependencyIndex(std::shared_ptr<const Impl> impl) noexcept;

@@ -39,10 +39,13 @@ Retained changes form one ordered variant log:
 - prefetch-generation upserts;
 - lightweight inventory-revision markers.
 
-The profiler does not retain requested/coalesced/start/pin/generic cache/policy events. It retains
-source-read, preparation, and owner-finalization completion/failure, terminal request failure,
-eviction, reload after removal, the four prefetch outcomes, and generation-correlated occurrences of
-the four defined prefetch memory-rejection diagnostics.
+The profiler does not retain requested/generic-coalesced/start/pin/generic cache/policy events. It
+retains source-read, preparation, and owner-finalization completion/failure, terminal request
+failure, capability joins and resident capability enrichment, eviction, reload after removal, the
+four prefetch outcomes, and generation-correlated occurrences of the five defined prefetch
+memory-rejection diagnostics. The fifth rejection is capability enrichment rejected by the Warm or
+total residency budget; it follows the same retained Budget Pressure contract as ordinary prefetch
+admission/preparation/residency rejection.
 
 ## Prefetch Outcomes
 

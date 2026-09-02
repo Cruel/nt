@@ -194,6 +194,8 @@ export type AssetProfilerRetainedTelemetryEventKind =
   | 'prefetch-late'
   | 'prefetch-miss'
   | 'prefetch-unused'
+  | 'capability-joined'
+  | 'capability-enriched'
   | 'memory-policy-resolved'
   | 'budget-pressure';
 
@@ -650,6 +652,8 @@ function isTelemetry(value: unknown): value is AssetProfilerTelemetryEvent {
       'prefetch-late',
       'prefetch-miss',
       'prefetch-unused',
+      'capability-joined',
+      'capability-enriched',
       'memory-policy-resolved',
       'budget-pressure',
     ]) &&

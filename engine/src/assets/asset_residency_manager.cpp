@@ -415,7 +415,8 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         return result;
     }
 
-    [[nodiscard]] ResidentIterator eviction_candidate(bool warm_only = false)
+    [[nodiscard]] ResidentIterator eviction_candidate(bool warm_only = false,
+                                                      const AssetCacheKey* excluded = nullptr)
     {
         ResidentIterator best = residents.end();
         auto rank = [this](const ResidentRecord& record) {
@@ -430,6 +431,8 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
             return 2;
         };
         for (auto it = residents.begin(); it != residents.end(); ++it) {
+            if (excluded != nullptr && it->first == *excluded)
+                continue;
             if (it->second.pin_count > 0)
                 continue;
             if (warm_only && classification(it->second) != ResidencyClass::Warm)
@@ -789,6 +792,75 @@ AssetResidencyManager::admit_on_owner(ResidencyAdmissionRequest request) noexcep
             "assets.mandatory_residency_over_budget",
             "mandatory resident asset exceeds configured memory budgets after eligible eviction"));
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &request.cache_key,
+                                 diagnostics.front().code);
+    }
+    return {.admission =
+                over_budget ? ResidencyAdmission::AdmittedOverBudget : ResidencyAdmission::Admitted,
+            .committed_cost = committed,
+            .diagnostics = std::move(diagnostics)};
+}
+
+ResidencyAdmissionResult
+AssetResidencyManager::enrich_resident_on_owner(const AssetCacheKey& cache_key,
+                                                ResidencyCost additional_cost,
+                                                AssetRequestReason reason) noexcept
+{
+    m_impl->assert_owner();
+    additional_cost.temporary_bytes = 0;
+    const auto resident = m_impl->residents.find(cache_key);
+    if (resident == m_impl->residents.end()) {
+        return {.admission = ResidencyAdmission::Deferred,
+                .committed_cost = {},
+                .diagnostics = {{.code = "assets.enrichment_resident_missing",
+                                 .message = "resident asset disappeared before enrichment"}}};
+    }
+
+    if (reason == AssetRequestReason::Prefetch) {
+        auto warm = m_impl->warm_cost();
+        if (m_impl->prefetch_interests.contains(cache_key) &&
+            m_impl->classification(resident->second) != ResidencyClass::Warm) {
+            add_cost(warm, resident->second.cost);
+        }
+        if (resident_addition_exceeds(m_impl->accounting.current, additional_cost,
+                                      m_impl->budget) ||
+            warm_addition_exceeds(warm, additional_cost, m_impl->budget)) {
+            m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &cache_key,
+                                     "assets.prefetch_enrichment_rejected");
+            return {.admission = ResidencyAdmission::RejectedPrefetch,
+                    .committed_cost = resident->second.cost,
+                    .diagnostics = {pressure_diagnostic(
+                        "assets.prefetch_enrichment_rejected",
+                        "prefetch enrichment would exceed an asset memory budget or the Warm "
+                        "residency allowance")}};
+        }
+    }
+
+    while (resident_addition_exceeds(m_impl->accounting.current, additional_cost, m_impl->budget)) {
+        auto candidate = m_impl->eviction_candidate(false, &cache_key);
+        if (candidate == m_impl->residents.end())
+            break;
+        (void)m_impl->evict_record(candidate, ResidencyEvictionReason::BudgetPressure);
+    }
+
+    const bool over_budget =
+        resident_addition_exceeds(m_impl->accounting.current, additional_cost, m_impl->budget);
+    const ResidencyCost previous = resident->second.cost;
+    ResidencyCost committed = previous;
+    add_cost(committed, additional_cost);
+    m_impl->subtract_accounting(previous);
+    resident->second.cost = committed;
+    m_impl->add_accounting(committed);
+    m_impl->notify_accounting_change();
+    if (m_impl->telemetry != nullptr)
+        m_impl->telemetry->record_inventory_maybe_changed();
+
+    core::Diagnostics diagnostics;
+    if (over_budget) {
+        diagnostics.push_back(pressure_diagnostic(
+            "assets.mandatory_enrichment_over_budget",
+            "mandatory resident enrichment exceeds configured memory budgets after eligible "
+            "eviction"));
+        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &cache_key,
                                  diagnostics.front().code);
     }
     return {.admission =
