@@ -978,6 +978,8 @@ bool PreviewHost::apply_focused_editor_document(core::editor::FocusedEditorDocum
 
 void PreviewHost::update_focused_preview() { m_focused_presenter->update(); }
 
+void PreviewHost::clear_focused_preview() noexcept { m_focused_presenter->clear(); }
+
 bool PreviewHost::request_screenshot(std::string path)
 {
     if (path.empty() || !m_dependencies.renderer.is_initialized() ||

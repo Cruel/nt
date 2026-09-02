@@ -1051,7 +1051,10 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
 } // namespace
 
 FocusedPreviewPresenter::FocusedPreviewPresenter(Dependencies dependencies) noexcept
-    : m_dependencies(std::move(dependencies)), m_passive_input(*this)
+    : m_dependencies(std::move(dependencies)),
+      m_publication_scope(m_dependencies.assets,
+                          assets::MandatoryPublicationScopeKind::FocusedPreview),
+      m_passive_input(*this)
 {
 }
 
@@ -1086,7 +1089,7 @@ void FocusedPreviewPresenter::clear() noexcept
     m_dependencies.layouts.clear_focused_preview();
     m_dependencies.world.reset();
     m_dependencies.world_resources.clear();
-    m_dependencies.assets.clear_focused_published_leases_on_owner();
+    m_publication_scope.clear_on_owner();
     release_state(m_committed);
     release_state(m_rollback);
     m_project_instance_id.clear();
@@ -1121,10 +1124,9 @@ void FocusedPreviewPresenter::supersede_candidate()
 core::Result<std::vector<assets::StructuredAssetRequestDescriptor>, core::Diagnostics>
 FocusedPreviewPresenter::build_asset_requests(
     const core::editor::FocusedEditorDocumentRequest& request,
-    const ShaderMaterialProject& materials)
+    const ShaderMaterialProject& materials, assets::AssetSourceGeneration generation)
 {
     std::vector<assets::StructuredAssetRequestDescriptor> result;
-    const auto generation = m_dependencies.assets.source_generation_on_owner();
     std::optional<std::string> active_shader_variant;
     for (const auto& resource : request.resources) {
         if (resource.source_kind == "shader-compiled-output" && resource.shader_variant) {
@@ -1273,7 +1275,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         m_dependencies.layouts.clear_focused_preview();
         m_dependencies.world.reset();
         m_dependencies.world_resources.clear();
-        m_dependencies.assets.clear_focused_published_leases_on_owner();
+        m_publication_scope.clear_on_owner();
         release_state(m_committed);
         release_state(m_rollback);
         m_project_instance_id = request.project_instance_id;
@@ -1325,7 +1327,8 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
                 }
             },
             *decoded.value_if());
-        auto requests = build_asset_requests(request, materials);
+        const auto source_generation = m_dependencies.assets.source_generation_on_owner();
+        auto requests = build_asset_requests(request, materials, source_generation);
         if (!requests) {
             auto diagnostics = std::move(requests).error();
             m_dependencies.report(diagnostics);
@@ -1343,6 +1346,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
             .request = std::move(request),
             .document = std::move(*decoded.value_if()),
             .materials = std::move(materials),
+            .source_generation = source_generation,
             .asset_group = std::move(group),
         };
         return true;
@@ -1368,7 +1372,9 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         m_dependencies.complete(request, "failed", diagnostics);
         return false;
     }
-    auto requests = build_asset_requests(request, decoded.value_if()->shader_materials);
+    const auto source_generation = m_dependencies.assets.source_generation_on_owner();
+    auto requests =
+        build_asset_requests(request, decoded.value_if()->shader_materials, source_generation);
     if (!requests) {
         auto diagnostics = std::move(requests).error();
         auto prepared_state = std::move(*prepared.value_if());
@@ -1388,6 +1394,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
                             .document = std::move(*decoded.value_if()),
                             .state = std::move(*prepared.value_if()),
                             .mounted_layouts = std::move(mounted_layouts),
+                            .source_generation = source_generation,
                             .asset_group = std::move(group),
                             .prepared_world_resources = nullptr,
                             .prepared_world = nullptr};
@@ -1423,7 +1430,8 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
         m_dependencies.complete(candidate.request, "superseded", {});
         return;
     }
-    m_dependencies.assets.stage_focused_candidate_leases_on_owner(std::move(leases));
+    auto transaction = m_publication_scope.begin_transaction_on_owner(std::move(leases),
+                                                                      candidate.source_generation);
     FocusedState prepared_state;
     prepared_state.owner = {.kind = owner_kind(candidate.request.kind),
                             .project_instance_id = candidate.request.project_instance_id,
@@ -1434,7 +1442,6 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
 
     const auto fail = [&](core::Diagnostics diagnostics) {
         m_dependencies.layouts.rollback_focused_preview();
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         release_state(prepared_state);
         m_dependencies.report(diagnostics);
         m_dependencies.complete(candidate.request, "failed", diagnostics);
@@ -1561,6 +1568,12 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
         return;
     }
 
+    auto committed = transaction.commit_on_owner(false);
+    if (!committed) {
+        fail({std::move(committed).error()});
+        return;
+    }
+
     environment_commit();
     m_dependencies.apply_materials(candidate.materials);
     m_dependencies.bind_input_sink(&m_passive_input);
@@ -1569,7 +1582,6 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
     m_dependencies.layouts.commit_focused_preview();
     m_dependencies.world.reset();
     m_dependencies.world_resources.clear();
-    m_dependencies.assets.commit_focused_candidate_leases_on_owner();
     release_state(m_rollback);
     m_rollback = std::move(m_committed);
     m_committed = std::move(prepared_state);
@@ -1589,11 +1601,11 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         release_state(candidate.state);
         return;
     }
-    m_dependencies.assets.stage_focused_candidate_leases_on_owner(std::move(leases));
+    auto transaction = m_publication_scope.begin_transaction_on_owner(std::move(leases),
+                                                                      candidate.source_generation);
     const auto generation =
         runtime::CapabilityGeneration::from_number(candidate.request.apply_sequence);
     if (!generation) {
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.focused_layout_capabilities_failed",
                                        "Focused Layout capabilities could not be issued")});
@@ -1604,7 +1616,6 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     const auto layout_capabilities =
         layout_issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent);
     if (!layout_capabilities) {
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.focused_layout_capabilities_failed",
                                        "Focused Layout capabilities could not be issued")});
@@ -1615,7 +1626,6 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         candidate.mounted_layouts, m_dependencies.scripts, candidate.state.script_environment,
         *layout_capabilities);
     if (!layout_result) {
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed", std::move(layout_result).error());
         release_state(candidate.state);
         return;
@@ -1627,7 +1637,6 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         std::make_unique<WorldPresentationBackend>(*candidate.prepared_world_resources);
     if (!candidate.state.snapshot) {
         m_dependencies.layouts.rollback_focused_preview();
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.room_snapshot_missing",
                                        "Focused Room candidate has no prepared snapshot.")});
@@ -1640,7 +1649,6 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
          static_cast<float>(candidate.document.environment.reference_resolution.height)});
     if (!world_result) {
         m_dependencies.layouts.rollback_focused_preview();
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed", std::move(world_result).error());
         release_state(candidate.state);
         return;
@@ -1648,7 +1656,6 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     auto prepared_environment = m_dependencies.prepare_environment(*candidate.state.environment);
     if (!prepared_environment) {
         m_dependencies.layouts.rollback_focused_preview();
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed",
                                 std::move(prepared_environment).error());
         release_state(candidate.state);
@@ -1658,13 +1665,21 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         candidate.request.apply_sequence, candidate.state.static_gameplay_values});
     if (!prepared_ui) {
         m_dependencies.layouts.rollback_focused_preview();
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed", std::move(prepared_ui).error());
         release_state(candidate.state);
         return;
     }
     auto environment_commit = std::move(*prepared_environment.value_if());
     auto ui_commit = std::move(*prepared_ui.value_if());
+    auto committed = transaction.commit_on_owner(false);
+    if (!committed) {
+        m_dependencies.layouts.rollback_focused_preview();
+        auto diagnostics = core::Diagnostics{std::move(committed).error()};
+        m_dependencies.report(diagnostics);
+        m_dependencies.complete(candidate.request, "failed", diagnostics);
+        release_state(candidate.state);
+        return;
+    }
     environment_commit();
     if (candidate.state.materials)
         m_dependencies.apply_materials(*candidate.state.materials);
@@ -1672,9 +1687,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     m_dependencies.bind_input_sink(&m_passive_input);
     if (m_dependencies.retire_legacy_preview)
         m_dependencies.retire_legacy_preview();
-    candidate.state.owns_committed_typed_leases = true;
     m_dependencies.layouts.commit_focused_preview();
-    m_dependencies.assets.commit_focused_candidate_leases_on_owner();
     m_dependencies.world_resources.bind_catalog(candidate.state.world_catalog);
     m_dependencies.world.swap_prepared(*candidate.prepared_world);
     candidate.state.passive_input_baseline = m_passive_input.baseline;

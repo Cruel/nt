@@ -21,6 +21,7 @@ class EditorAssetProfilerService;
 namespace noveltea::assets {
 
 class AssetProgressOrchestrator;
+class MandatoryPublicationScope;
 
 class StructuredAssetLeaseSet;
 
@@ -125,10 +126,6 @@ public:
     // without replacing the runtime package's atomic publication set.
     void set_supplemental_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
     void clear_supplemental_leases_on_owner() noexcept;
-    void stage_focused_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
-    void commit_focused_candidate_leases_on_owner() noexcept;
-    void rollback_focused_candidate_leases_on_owner() noexcept;
-    void clear_focused_published_leases_on_owner() noexcept;
     [[nodiscard]] bool has_candidate_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_published_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_previous_published_leases_on_owner() const noexcept;
@@ -158,6 +155,11 @@ public:
 
 private:
     friend class AssetProgressOrchestrator;
+    friend class MandatoryPublicationScope;
+    void stage_focused_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
+    void commit_focused_candidate_leases_on_owner() noexcept;
+    void rollback_focused_candidate_leases_on_owner() noexcept;
+    void clear_focused_published_leases_on_owner() noexcept;
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     friend class core::EditorAssetProfilerService;
     friend class MandatoryAssetGate;

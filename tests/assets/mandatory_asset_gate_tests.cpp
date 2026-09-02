@@ -959,6 +959,70 @@ TEST_CASE("publication transaction rejects stale source generation without repla
     shutdown(executor);
 }
 
+TEST_CASE("runtime and focused publication scopes retain independent candidates and publications",
+          "[assets][mandatory-assets][transaction][focused-preview]")
+{
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    assets::MandatoryPublicationScope runtime_publication(
+        manager, assets::MandatoryPublicationScopeKind::Runtime);
+    assets::MandatoryPublicationScope focused_publication(
+        manager, assets::MandatoryPublicationScopeKind::FocusedPreview);
+    MatrixState state;
+    MatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+
+    const auto generation = manager.source_generation_on_owner();
+    const assets::TextureAssetRequest runtime_request{.path = "project:/textures/runtime.png"};
+    const assets::TextureAssetRequest focused_request{.path = "project:/textures/focused.png"};
+    const assets::TextureAssetRequest runtime_candidate_request{
+        .path = "project:/textures/runtime-candidate.png"};
+    const assets::TextureAssetRequest focused_candidate_request{
+        .path = "project:/textures/focused-candidate.png"};
+
+    const auto ready_transaction = [&](const assets::TextureAssetRequest& request,
+                                       assets::MandatoryPublicationScope& publication) {
+        assets::MandatoryAssetRequestGroup group(manager, {matrix_descriptor(request, generation)});
+        REQUIRE(drive_until(executor, [&] {
+            group.poll_on_owner();
+            return group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+        }));
+        auto leases = group.take_ready_leases_on_owner();
+        REQUIRE(leases);
+        return publication.begin_transaction_on_owner(std::move(*leases), generation);
+    };
+
+    auto runtime = ready_transaction(runtime_request, runtime_publication);
+    REQUIRE(runtime.commit_on_owner(false));
+    auto focused = ready_transaction(focused_request, focused_publication);
+    REQUIRE(focused.commit_on_owner(false));
+    REQUIRE(manager.leased_texture_on_owner(runtime_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_request));
+
+    auto runtime_candidate = ready_transaction(runtime_candidate_request, runtime_publication);
+    auto focused_candidate = ready_transaction(focused_candidate_request, focused_publication);
+    CHECK(manager.has_candidate_leases_on_owner());
+    CHECK(manager.has_focused_candidate_leases_on_owner());
+    REQUIRE(manager.leased_texture_on_owner(runtime_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_request));
+    REQUIRE(manager.leased_texture_on_owner(runtime_candidate_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_candidate_request));
+
+    focused_candidate.rollback_on_owner();
+    CHECK_FALSE(manager.has_focused_candidate_leases_on_owner());
+    CHECK(manager.has_candidate_leases_on_owner());
+    REQUIRE(manager.leased_texture_on_owner(focused_request));
+    REQUIRE(runtime_candidate.commit_on_owner(false));
+    REQUIRE(manager.leased_texture_on_owner(runtime_candidate_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_request));
+
+    runtime_publication.clear_on_owner();
+    focused_publication.clear_on_owner();
+    shutdown(executor);
+}
+
 TEST_CASE("prefetch outcome matrix passes in cooperative execution",
           "[assets][mandatory-assets][cooperative][prefetch]")
 {

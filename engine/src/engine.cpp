@@ -2638,7 +2638,7 @@ bool Engine::Impl::shutdown()
     // bgfx::shutdown.
     m_game_host.runtime_presentation().bind_mandatory_asset_gate(nullptr);
     m_mandatory_assets.clear_package_on_owner();
-    m_assets.clear_focused_published_leases_on_owner();
+    m_preview_host.clear_focused_preview();
 
     m_running = false;
     if (!m_initialized) {
