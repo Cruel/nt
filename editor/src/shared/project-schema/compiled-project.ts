@@ -652,11 +652,28 @@ const compiledEntrypointSchema = z.discriminatedUnion('kind', [
 
 const flowPredictionDependencySchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('asset'), asset: assetReferenceSchema }),
+  strict({
+    kind: z.literal('audio'),
+    asset: assetReferenceSchema,
+    purpose: z.enum(['music', 'ambience', 'voice', 'sound-effect', 'ui-sound']),
+  }),
+  strict({
+    kind: z.literal('character'),
+    character: characterReferenceSchema,
+    profileId: id.nullable(),
+    poseId: id.nullable(),
+    expressionId: id.nullable(),
+    appearanceId: id.nullable(),
+  }),
+  strict({ kind: z.literal('layout'), layout: layoutReferenceSchema }),
+  strict({ kind: z.literal('material'), material: materialReferenceSchema }),
   strict({ kind: z.literal('room'), room: roomReferenceSchema }),
 ]);
 
 const flowPredictionPointSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('scene-entry'), scene: sceneReferenceSchema }),
+  strict({ kind: z.literal('scene-step'), scene: sceneReferenceSchema, stepId: id }),
+  strict({ kind: z.literal('scene-terminal'), scene: sceneReferenceSchema }),
   strict({ kind: z.literal('dialogue-entry'), dialogue: dialogueReferenceSchema }),
   strict({
     kind: z.literal('room-lifecycle'),
@@ -673,6 +690,7 @@ type FlowPredictionCommand =
     }
   | { kind: 'invalidate-global-property'; property: z.infer<typeof propertyReferenceSchema> }
   | { kind: 'call-scene'; scene: z.infer<typeof sceneReferenceSchema> }
+  | { kind: 'start-detached-scene'; scene: z.infer<typeof sceneReferenceSchema> }
   | { kind: 'call-dialogue'; dialogue: z.infer<typeof dialogueReferenceSchema> }
   | { kind: 'opaque' }
   | {
@@ -691,6 +709,7 @@ const flowPredictionCommandSchema: z.ZodType<FlowPredictionCommand> = z.lazy(() 
     }),
     strict({ kind: z.literal('invalidate-global-property'), property: propertyReferenceSchema }),
     strict({ kind: z.literal('call-scene'), scene: sceneReferenceSchema }),
+    strict({ kind: z.literal('start-detached-scene'), scene: sceneReferenceSchema }),
     strict({ kind: z.literal('call-dialogue'), dialogue: dialogueReferenceSchema }),
     strict({ kind: z.literal('opaque') }),
     strict({
@@ -702,13 +721,38 @@ const flowPredictionCommandSchema: z.ZodType<FlowPredictionCommand> = z.lazy(() 
   ]),
 );
 
+const flowPredictionControlSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('sequential'), successor: z.number().int().nonnegative().nullable() }),
+  strict({
+    kind: z.literal('branch'),
+    branches: z.array(
+      strict({ condition: compiledConditionSchema, target: z.number().int().nonnegative() }),
+    ),
+    fallback: z.number().int().nonnegative(),
+  }),
+  strict({
+    kind: z.literal('choice'),
+    options: z.array(
+      strict({
+        optionId: id,
+        condition: compiledConditionSchema.optional(),
+        programs: z.array(z.array(flowPredictionCommandSchema)),
+        target: z.number().int().nonnegative(),
+      }),
+    ),
+  }),
+]);
+
 const flowPredictionIndexSchema = strict({
   dependencyGroups: z.array(z.array(flowPredictionDependencySchema)),
   slices: z.array(
     strict({
       point: flowPredictionPointSchema,
       dependencyGroups: z.array(z.number().int().nonnegative()),
-      successors: z.array(z.number().int().nonnegative()),
+      condition: compiledConditionSchema.optional(),
+      conditionFalseSuccessor: z.number().int().nonnegative().nullable(),
+      control: flowPredictionControlSchema,
+      frontier: z.enum(['normal', 'short-wait', 'strong-wait', 'decision']),
       program: z.array(flowPredictionCommandSchema),
     }),
   ),

@@ -88,6 +88,71 @@ describe('authoring compiler framework', () => {
     expect('flowPrediction' in project).toBe(false);
   });
 
+  it('lowers Scene execution positions, local dependencies, and wait frontiers into prediction metadata', () => {
+    const project = validProject();
+    project.assets['scene-image'] = {
+      id: 'scene-image',
+      label: 'Scene image',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/scene-image.png',
+        aliases: [],
+        contentHash: 'scene-image-hash',
+        sampling: 'linear',
+        imageMetadata: { width: 1280, height: 720, hasAlpha: false, orientation: 1 },
+      }),
+    };
+    const scene = defaultSceneData('Prediction Scene');
+    scene.events = [
+      {
+        ...defaultSceneStep('set-background'),
+        id: 'near-background',
+        asset: { $ref: { collection: 'assets', id: 'scene-image' } },
+      },
+      {
+        id: 'player-wait',
+        label: 'Player Wait',
+        enabled: true,
+        type: 'wait',
+        timeline: { trackId: 'main', startMs: 0, durationMs: 0 },
+        completionDependencies: [],
+        waitKind: 'input',
+        skippable: false,
+      },
+    ];
+    project.scenes.prediction = { id: 'prediction', label: 'Prediction', data: scene };
+    project.entrypoint = { kind: 'scene', id: 'prediction' };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prediction = result.project.flowPrediction!;
+    const entry = prediction.slices.find(
+      (slice) => slice.point.kind === 'scene-entry' && slice.point.scene.id === 'prediction',
+    );
+    const background = prediction.slices.find(
+      (slice) =>
+        slice.point.kind === 'scene-step' &&
+        slice.point.scene.id === 'prediction' &&
+        slice.point.stepId === 'near-background',
+    );
+    const wait = prediction.slices.find(
+      (slice) =>
+        slice.point.kind === 'scene-step' &&
+        slice.point.scene.id === 'prediction' &&
+        slice.point.stepId === 'player-wait',
+    );
+    expect(entry).toBeDefined();
+    expect(background).toBeDefined();
+    expect(wait?.frontier).toBe('strong-wait');
+    expect(background!.dependencyGroups).toHaveLength(1);
+    expect(prediction.dependencyGroups[background!.dependencyGroups[0]!]).toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'scene-image' },
+    });
+    expect(entry!.dependencyGroups).not.toEqual(background!.dependencyGroups);
+  });
+
   it('lowers prospective Room lifecycle Flow into prediction summaries without rejection programs', () => {
     const project = validProject();
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };

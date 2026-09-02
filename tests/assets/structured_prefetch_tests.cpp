@@ -62,6 +62,164 @@ nlohmann::json read_comprehensive_project()
     return read_compiled_project_golden("comprehensive");
 }
 
+nlohmann::json scene_prediction_test_document()
+{
+    auto document = read_compiled_project_golden("scene-program");
+    const auto asset_ref = [](std::string_view value) {
+        return nlohmann::json{{"kind", "asset"}, {"id", value}};
+    };
+    const auto scene_ref = [](std::string_view value) {
+        return nlohmann::json{{"kind", "scene"}, {"id", value}};
+    };
+    const auto point = [&](std::string_view scene,
+                           std::optional<std::string_view> step = std::nullopt,
+                           bool terminal = false) {
+        if (step)
+            return nlohmann::json{
+                {"kind", "scene-step"}, {"scene", scene_ref(scene)}, {"stepId", *step}};
+        return nlohmann::json{{"kind", terminal ? "scene-terminal" : "scene-entry"},
+                              {"scene", scene_ref(scene)}};
+    };
+    const auto sequential = [](std::optional<std::size_t> successor) {
+        return nlohmann::json{
+            {"kind", "sequential"},
+            {"successor", successor ? nlohmann::json(*successor) : nlohmann::json(nullptr)}};
+    };
+
+    for (const auto scene_id :
+         {"prediction-child", "prediction-detached", "prediction-horizon", "prediction-decision"}) {
+        auto scene = document["definitions"]["scenes"][0];
+        scene["id"] = scene_id;
+        scene["displayName"] = scene_id;
+        scene["program"]["events"] = nlohmann::json::array();
+        scene["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
+        document["definitions"]["scenes"].push_back(std::move(scene));
+    }
+
+    const std::vector<std::string> assets = {
+        "image-prediction-parent-stage",       "image-prediction-child-stage",
+        "image-prediction-child-late",         "image-prediction-caller-after",
+        "image-prediction-after-short",        "image-prediction-detached-stage",
+        "image-prediction-detached-deep",      "image-prediction-foreground",
+        "image-prediction-after-strong",       "image-prediction-branch-expected",
+        "image-prediction-branch-alternative", "image-prediction-choice-a",
+        "image-prediction-choice-b",           "image-prediction-after-lua"};
+    nlohmann::json dependency_groups = nlohmann::json::array();
+    for (const auto& asset : assets) {
+        document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                                   {"id", asset},
+                                                   {"kind", "image"},
+                                                   {"path", "assets/images/" + asset + ".png"},
+                                                   {"sampling", "linear"},
+                                                   {"width", 64},
+                                                   {"height", 64}});
+        dependency_groups.push_back(
+            nlohmann::json::array({{{"kind", "asset"}, {"asset", asset_ref(asset)}}}));
+    }
+    const auto group = [&](std::string_view asset) {
+        return static_cast<std::size_t>(
+            std::distance(assets.begin(), std::find(assets.begin(), assets.end(), asset)));
+    };
+    const auto slice = [&](nlohmann::json prediction_point, std::optional<std::string_view> asset,
+                           nlohmann::json control, std::string_view frontier = "normal",
+                           nlohmann::json program = nlohmann::json::array()) {
+        return nlohmann::json{{"point", std::move(prediction_point)},
+                              {"dependencyGroups", asset ? nlohmann::json::array({group(*asset)})
+                                                         : nlohmann::json::array()},
+                              {"conditionFalseSuccessor", nullptr},
+                              {"control", std::move(control)},
+                              {"frontier", frontier},
+                              {"program", std::move(program)}};
+    };
+
+    nlohmann::json slices = nlohmann::json::array();
+    slices.push_back(
+        slice(point("prediction-child"), "image-prediction-child-stage", sequential(1)));
+    slices.push_back(slice(point("prediction-child", "child-late"), "image-prediction-child-late",
+                           sequential(2)));
+    slices.push_back(slice(point("prediction-child", std::nullopt, true), std::nullopt,
+                           sequential(std::nullopt)));
+    slices.push_back(
+        slice(point("prediction-detached"), "image-prediction-detached-stage", sequential(4)));
+    slices.push_back(slice(point("prediction-detached", "detached-deep"),
+                           "image-prediction-detached-deep", sequential(5)));
+    slices.push_back(slice(point("prediction-detached", std::nullopt, true), std::nullopt,
+                           sequential(std::nullopt)));
+    slices.push_back(
+        slice(point("prediction-horizon"), "image-prediction-parent-stage", sequential(7)));
+    slices.push_back(
+        slice(point("prediction-horizon", "await-child"), std::nullopt, sequential(8), "normal",
+              nlohmann::json::array(
+                  {{{"kind", "call-scene"}, {"scene", scene_ref("prediction-child")}}})));
+    slices.push_back(slice(point("prediction-horizon", "caller-after"),
+                           "image-prediction-caller-after", sequential(9)));
+    slices.push_back(slice(point("prediction-horizon", "short-wait"), std::nullopt, sequential(10),
+                           "short-wait"));
+    slices.push_back(slice(point("prediction-horizon", "after-short"),
+                           "image-prediction-after-short", sequential(11)));
+    slices.push_back(slice(point("prediction-horizon", "start-detached"), std::nullopt,
+                           sequential(12), "normal",
+                           nlohmann::json::array({{{"kind", "start-detached-scene"},
+                                                   {"scene", scene_ref("prediction-detached")}}})));
+    slices.push_back(slice(point("prediction-horizon", "foreground-after-detached"),
+                           "image-prediction-foreground", sequential(13)));
+    slices.push_back(slice(point("prediction-horizon", "strong-wait"), std::nullopt, sequential(14),
+                           "strong-wait"));
+    slices.push_back(slice(point("prediction-horizon", "after-strong"),
+                           "image-prediction-after-strong", sequential(15)));
+    slices.push_back(slice(point("prediction-horizon", std::nullopt, true), std::nullopt,
+                           sequential(std::nullopt)));
+    slices.push_back(slice(point("prediction-decision"), std::nullopt, sequential(17)));
+    const auto count_condition =
+        nlohmann::json{{"kind", "global-property-comparison"},
+                       {"property", {{"kind", "property"}, {"id", "count"}}},
+                       {"operator", "greater-equal"},
+                       {"value", 2}};
+    const auto lua_condition =
+        nlohmann::json{{"kind", "lua-predicate"}, {"source", "prediction_branch()"}};
+    slices.push_back(slice(
+        point("prediction-decision", "decision-branch"), std::nullopt,
+        {{"kind", "branch"},
+         {"branches", nlohmann::json::array({{{"condition", count_condition}, {"target", 19}},
+                                             {{"condition", lua_condition}, {"target", 18}}})},
+         {"fallback", 19}}));
+    slices.push_back(slice(point("prediction-decision", "branch-alternative"),
+                           "image-prediction-branch-alternative", sequential(19)));
+    slices.push_back(slice(point("prediction-decision", "branch-expected"),
+                           "image-prediction-branch-expected", sequential(20)));
+    const auto flag_condition = nlohmann::json{{"kind", "global-property-comparison"},
+                                               {"property", {{"kind", "property"}, {"id", "flag"}}},
+                                               {"operator", "truthy"}};
+    slices.push_back(slice(
+        point("prediction-decision", "decision-choice"), std::nullopt,
+        {{"kind", "choice"},
+         {"options",
+          nlohmann::json::array(
+              {{{"optionId", "choice-a"},
+                {"condition", flag_condition},
+                {"programs", nlohmann::json::array()},
+                {"target", 21}},
+               {{"optionId", "choice-b"},
+                {"condition", {{"kind", "lua-predicate"}, {"source", "prediction_choice_b()"}}},
+                {"programs", nlohmann::json::array()},
+                {"target", 22}}})}},
+        "decision"));
+    slices.push_back(slice(point("prediction-decision", "choice-a-target"),
+                           "image-prediction-choice-a", sequential(23)));
+    slices.push_back(slice(point("prediction-decision", "choice-b-target"),
+                           "image-prediction-choice-b", sequential(23)));
+    slices.push_back(slice(point("prediction-decision", "opaque-lua"), std::nullopt, sequential(24),
+                           "normal", nlohmann::json::array({{{"kind", "opaque"}}})));
+    slices.push_back(slice(point("prediction-decision", "after-lua"), "image-prediction-after-lua",
+                           sequential(25)));
+    slices.push_back(slice(point("prediction-decision", std::nullopt, true), std::nullopt,
+                           sequential(std::nullopt)));
+
+    document["flowPrediction"] = {{"dependencyGroups", std::move(dependency_groups)},
+                                  {"slices", std::move(slices)}};
+    return document;
+}
+
 nlohmann::json shader_material_manifest()
 {
     return nlohmann::json::parse(R"json({
@@ -879,8 +1037,9 @@ TEST_CASE("mandatory package binding submits compiled Scene-entry prediction thr
     auto transaction = gate.take_ready_transaction_on_owner();
     REQUIRE(transaction);
     REQUIRE(transaction->commit_on_owner(false));
-    CHECK(fixture.recorder.calls ==
-          std::vector<std::string>{"texture:project:/assets/images/main.png"});
+    CHECK(std::ranges::find(fixture.recorder.calls, "texture:project:/assets/images/main.png") !=
+          fixture.recorder.calls.end());
+    CHECK(fixture.recorder.calls.size() > 1);
 
     fixture.run_until_idle();
     gate.clear_package_on_owner();
@@ -930,7 +1089,7 @@ TEST_CASE("mandatory publication remains correct when Flow Prediction metadata i
     SECTION("prediction metadata degrades at an invalid successor")
     {
         REQUIRE(document.contains("flowPrediction"));
-        document["flowPrediction"]["slices"][1]["successors"] = nlohmann::json::array({999999});
+        document["flowPrediction"]["slices"][1]["control"]["successor"] = 999999;
     }
 
     auto package = package_from_document(std::move(document), "scene-program-no-prediction.json");
@@ -1178,6 +1337,71 @@ TEST_CASE("direct-next hotspot mask prefetch is ready for the mandatory publicat
     CHECK(leases->find_hotspot_mask(collected.direct_next[*mask].cache_key) != nullptr);
 }
 
+TEST_CASE("mandatory gate advances speculative Scene prediction from the live execution position",
+          "[assets][flow-prediction][mandatory-assets][structured-prefetch][scene]")
+{
+    PlannerFixture fixture;
+    auto document = scene_prediction_test_document();
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    for (auto& scene : document["definitions"]["scenes"]) {
+        if (scene["id"] == "prediction-horizon") {
+            scene["terminal"] = {{"kind", "continue-scene"},
+                                 {"scene", {{"kind", "scene"}, {"id", "closing"}}},
+                                 {"inputs", nlohmann::json::array()}};
+            break;
+        }
+    }
+    document["entrypoint"] = {{"kind", "scene"},
+                              {"scene", {{"kind", "scene"}, {"id", "prediction-horizon"}}}};
+    for (auto& slice : document["flowPrediction"]["slices"]) {
+        if (slice["point"]["kind"] == "scene-entry" &&
+            slice["point"]["scene"]["id"] == "prediction-horizon") {
+            slice["control"]["successor"] = nullptr;
+            break;
+        }
+    }
+    auto package = package_from_document(std::move(document), "scene-prediction-test.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(152);
+    snapshot.mode = core::PresentationRuntimeMode::Flow;
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+    CHECK(std::ranges::find(fixture.recorder.calls,
+                            "texture:project:/assets/images/image-prediction-parent-stage.png") !=
+          fixture.recorder.calls.end());
+    CHECK(std::ranges::find(fixture.recorder.calls,
+                            "texture:project:/assets/images/image-prediction-after-short.png") ==
+          fixture.recorder.calls.end());
+    const auto entry_generation = gate.active_prefetch_generation_on_owner();
+    REQUIRE(entry_generation);
+
+    runtime::ActiveScenePredictionRoot root{
+        .scene = id<core::SceneId>("prediction-horizon"),
+        .position = core::SceneFramePosition{id<core::SceneStepId>("after-short"),
+                                             core::SceneStepReady{}, true}};
+    const auto diagnostics = gate.update_active_scene_prediction_on_owner(&root);
+    CHECK(diagnostics.empty());
+    CHECK(std::ranges::find(fixture.recorder.calls,
+                            "texture:project:/assets/images/image-prediction-after-short.png") !=
+          fixture.recorder.calls.end());
+    REQUIRE(gate.active_prefetch_generation_on_owner());
+    CHECK(*gate.active_prefetch_generation_on_owner() != *entry_generation);
+    const auto live_generation = gate.active_prefetch_generation_on_owner();
+    REQUIRE(live_generation);
+    CHECK(gate.update_active_scene_prediction_on_owner(&root).empty());
+    CHECK(gate.active_prefetch_generation_on_owner() == live_generation);
+
+    gate.clear_package_on_owner();
+}
+
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
 TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
           "[assets][structured-prefetch][mandatory-assets][profiler]")
@@ -1357,29 +1581,35 @@ TEST_CASE("compiled Flow Prediction Index drives semantic prediction into real p
     const auto projection =
         predictor.predict(core::compiled::Entrypoint{id<core::SceneId>("opening")});
     REQUIRE(projection.diagnostics.empty());
-    REQUIRE(projection.entries.size() == 1);
-    CHECK(projection.entries[0].execution_distance == 1);
-    const auto* dependency = std::get_if<core::compiled::FlowPredictionAssetDependency>(
-        &projection.entries[0].dependency);
-    REQUIRE(dependency != nullptr);
-    CHECK(dependency->asset == id<core::AssetId>("image-main"));
+    const auto predicted_main = std::ranges::find_if(projection.entries, [](const auto& entry) {
+        const auto* dependency =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+        return dependency != nullptr && dependency->asset == id<core::AssetId>("image-main");
+    });
+    REQUIRE(predicted_main != projection.entries.end());
+    CHECK(predicted_main->execution_distance == 1);
 
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto dependency_index =
         assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
     const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
     REQUIRE(plan.diagnostics.empty());
-    REQUIRE(plan.candidates.size() == 1);
-    CHECK(plan.candidates[0].execution_distance == 1);
+    const auto planned_main = std::ranges::find_if(plan.candidates, [](const auto& candidate) {
+        const auto* texture =
+            std::get_if<assets::TextureAssetRequest>(&candidate.descriptor.request);
+        return texture != nullptr && texture->path == "project:/assets/images/main.png";
+    });
+    REQUIRE(planned_main != plan.candidates.end());
+    CHECK(planned_main->execution_distance == 0);
 
     assets::PrefetchPlanner planner(fixture.manager);
     const auto submitted = planner.replace_generation_on_owner(plan);
     REQUIRE(submitted);
-    CHECK(submitted.value().direct_next_submitted == 1);
-    CHECK(submitted.value().adjacent_submitted == 0);
+    CHECK(submitted.value().direct_next_submitted >= 1);
+    CHECK(submitted.value().adjacent_submitted >= 1);
     CHECK(submitted.value().failures.empty());
-    CHECK(fixture.recorder.calls ==
-          std::vector<std::string>{"texture:project:/assets/images/main.png"});
+    CHECK(std::ranges::find(fixture.recorder.calls, "texture:project:/assets/images/main.png") !=
+          fixture.recorder.calls.end());
     fixture.run_until_idle();
     planner.clear_on_owner();
 }
@@ -1475,6 +1705,147 @@ TEST_CASE("prospective Room entry predicts successful lifecycle Flow and widens 
         return dependency != nullptr &&
                dependency->asset == id<core::AssetId>("image-arrival-dialogue");
     }));
+}
+
+TEST_CASE("Scene prediction starts at the requested execution slice and ranks semantic horizons",
+          "[assets][structured-prefetch][flow-prediction][scene]")
+{
+    auto package =
+        package_from_document(scene_prediction_test_document(), "scene-prediction-test.json");
+    runtime::FlowPredictor predictor(package.project());
+
+    const auto prospective =
+        predictor.predict(core::compiled::Entrypoint{id<core::SceneId>("prediction-horizon")});
+    REQUIRE(prospective.diagnostics.empty());
+
+    const auto find_asset = [](const runtime::FlowPredictionProjection& projection,
+                               std::string_view asset) {
+        return std::ranges::find_if(projection.entries, [&](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset));
+        });
+    };
+
+    const auto parent_stage = find_asset(prospective, "image-prediction-parent-stage");
+    const auto child_stage = find_asset(prospective, "image-prediction-child-stage");
+    const auto child_late = find_asset(prospective, "image-prediction-child-late");
+    const auto caller_after = find_asset(prospective, "image-prediction-caller-after");
+    const auto after_short = find_asset(prospective, "image-prediction-after-short");
+    const auto detached_stage = find_asset(prospective, "image-prediction-detached-stage");
+    const auto detached_deep = find_asset(prospective, "image-prediction-detached-deep");
+    const auto foreground = find_asset(prospective, "image-prediction-foreground");
+    const auto after_strong = find_asset(prospective, "image-prediction-after-strong");
+    REQUIRE(parent_stage != prospective.entries.end());
+    REQUIRE(child_stage != prospective.entries.end());
+    REQUIRE(child_late != prospective.entries.end());
+    REQUIRE(caller_after != prospective.entries.end());
+    REQUIRE(after_short != prospective.entries.end());
+    REQUIRE(detached_stage != prospective.entries.end());
+    REQUIRE(detached_deep != prospective.entries.end());
+    REQUIRE(foreground != prospective.entries.end());
+    REQUIRE(after_strong != prospective.entries.end());
+
+    CHECK(parent_stage->execution_distance == 0);
+    CHECK(child_stage->execution_distance < caller_after->execution_distance);
+    CHECK(child_late->execution_distance < caller_after->execution_distance);
+    CHECK(caller_after->execution_distance < after_short->execution_distance);
+    CHECK(after_short->confidence == runtime::FlowPredictionConfidence::Expected);
+    // Detached Flow starts immediately alongside the foreground path, but its deeper closure is
+    // demoted so it cannot outrank the caller's own continuation.
+    CHECK(detached_stage->confidence == runtime::FlowPredictionConfidence::Expected);
+    CHECK(detached_stage->execution_distance <= foreground->execution_distance);
+    CHECK(detached_deep->confidence == runtime::FlowPredictionConfidence::Alternative);
+    CHECK(detached_deep->execution_distance > foreground->execution_distance);
+    // Player input is a strong semantic frontier: later deterministic content remains reachable,
+    // but it is no longer treated as the expected immediate path.
+    CHECK(after_strong->confidence == runtime::FlowPredictionConfidence::Alternative);
+
+    const auto active = predictor.predict(runtime::ActiveScenePredictionRoot{
+        .scene = id<core::SceneId>("prediction-horizon"),
+        .position = core::SceneFramePosition{id<core::SceneStepId>("caller-after"),
+                                             core::SceneStepReady{}, true}});
+    REQUIRE(active.diagnostics.empty());
+    CHECK(find_asset(active, "image-prediction-caller-after") != active.entries.end());
+    CHECK(find_asset(active, "image-prediction-parent-stage") == active.entries.end());
+    CHECK(find_asset(active, "image-prediction-child-stage") == active.entries.end());
+}
+
+TEST_CASE("Scene prediction selects known branches, widens choices, and continues past opaque Lua",
+          "[assets][structured-prefetch][flow-prediction][scene][condition]")
+{
+    auto package =
+        package_from_document(scene_prediction_test_document(), "scene-prediction-test.json");
+    runtime::FlowPredictor predictor(package.project());
+    const auto find_asset = [](const runtime::FlowPredictionProjection& projection,
+                               std::string_view asset) {
+        return std::ranges::find_if(projection.entries, [&](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset));
+        });
+    };
+
+    const auto projection = predictor.predict(
+        core::compiled::Entrypoint{id<core::SceneId>("prediction-decision")},
+        runtime::FlowPredictionContext{
+            .global_properties = {
+                {id<core::PropertyId>("count"), core::RuntimeValue{std::int64_t{3}}},
+                {id<core::PropertyId>("flag"), core::RuntimeValue{true}},
+            }});
+    REQUIRE(projection.diagnostics.empty());
+    const auto branch_expected = find_asset(projection, "image-prediction-branch-expected");
+    REQUIRE(branch_expected != projection.entries.end());
+    CHECK(branch_expected->confidence == runtime::FlowPredictionConfidence::Expected);
+    CHECK(find_asset(projection, "image-prediction-branch-alternative") ==
+          projection.entries.end());
+
+    const auto choice_a = find_asset(projection, "image-prediction-choice-a");
+    const auto choice_b = find_asset(projection, "image-prediction-choice-b");
+    REQUIRE(choice_a != projection.entries.end());
+    REQUIRE(choice_b != projection.entries.end());
+    CHECK(choice_a->confidence == runtime::FlowPredictionConfidence::Alternative);
+    CHECK(choice_b->confidence == runtime::FlowPredictionConfidence::Alternative);
+
+    const auto opaque_root = predictor.predict(runtime::ActiveScenePredictionRoot{
+        .scene = id<core::SceneId>("prediction-decision"),
+        .position = core::SceneFramePosition{id<core::SceneStepId>("opaque-lua"),
+                                             core::SceneStepReady{}, true}});
+    REQUIRE(opaque_root.diagnostics.empty());
+    const auto after_lua = find_asset(opaque_root, "image-prediction-after-lua");
+    REQUIRE(after_lua != opaque_root.entries.end());
+    CHECK(after_lua->confidence == runtime::FlowPredictionConfidence::Expected);
+}
+
+TEST_CASE("Scene prediction terminates cyclic generated topology without executing gameplay",
+          "[assets][structured-prefetch][flow-prediction][scene][cycle]")
+{
+    auto document = scene_prediction_test_document();
+    auto& slices = document["flowPrediction"]["slices"];
+    std::optional<std::size_t> entry_index;
+    std::optional<std::size_t> terminal_index;
+    for (std::size_t index = 0; index < slices.size(); ++index) {
+        const auto& point = slices[index]["point"];
+        if (point.value("kind", "") == "scene-entry" &&
+            point["scene"].value("id", "") == "prediction-horizon")
+            entry_index = index;
+        if (point.value("kind", "") == "scene-terminal" &&
+            point["scene"].value("id", "") == "prediction-horizon")
+            terminal_index = index;
+    }
+    REQUIRE(entry_index);
+    REQUIRE(terminal_index);
+    slices[*terminal_index]["control"] =
+        nlohmann::json{{"kind", "sequential"}, {"successor", *entry_index}};
+
+    auto package = package_from_document(std::move(document), "scene-program-cycle.json");
+    runtime::FlowPredictor predictor(package.project());
+    const auto projection =
+        predictor.predict(core::compiled::Entrypoint{id<core::SceneId>("prediction-horizon")});
+    REQUIRE(projection.diagnostics.empty());
+    CHECK(projection.entries.size() < 32);
 }
 
 TEST_CASE("prefetch generation replacement releases stale tickets but preserves shared demand",

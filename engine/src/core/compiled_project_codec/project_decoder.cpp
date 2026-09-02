@@ -39,7 +39,9 @@ std::optional<FlowPredictionDependency>
 decode_flow_prediction_dependency(Decoder& decoder, const nlohmann::json& value,
                                   std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"kind", "asset", "room"}))
+    if (!decoder.object(value, pointer,
+                        {"kind", "asset", "character", "profileId", "poseId", "expressionId",
+                         "appearanceId", "layout", "material", "room", "purpose"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
@@ -54,6 +56,82 @@ decode_flow_prediction_dependency(Decoder& decoder, const nlohmann::json& value,
         if (!room)
             return std::nullopt;
         return FlowPredictionDependency{FlowPredictionRoomDependency{std::move(*room)}};
+    }
+    if (*kind == "layout") {
+        const auto* layout_value = decoder.member(value, "layout", pointer);
+        auto layout = layout_value
+                          ? decode_reference<LayoutId>(decoder, *layout_value,
+                                                       pointer_child(pointer, "layout"), "layout")
+                          : std::nullopt;
+        return layout ? std::optional<FlowPredictionDependency>{FlowPredictionLayoutDependency{
+                            std::move(*layout)}}
+                      : std::nullopt;
+    }
+    if (*kind == "material") {
+        const auto* material_value = decoder.member(value, "material", pointer);
+        auto material =
+            material_value
+                ? decode_reference<MaterialId>(decoder, *material_value,
+                                               pointer_child(pointer, "material"), "material")
+                : std::nullopt;
+        return material ? std::optional<FlowPredictionDependency>{FlowPredictionMaterialDependency{
+                              std::move(*material)}}
+                        : std::nullopt;
+    }
+    if (*kind == "character") {
+        const auto* character_value = decoder.member(value, "character", pointer);
+        const auto* profile_value = decoder.member(value, "profileId", pointer);
+        const auto* pose_value = decoder.member(value, "poseId", pointer);
+        const auto* expression_value = decoder.member(value, "expressionId", pointer);
+        const auto* appearance_value = decoder.member(value, "appearanceId", pointer);
+        auto character =
+            character_value
+                ? decode_reference<CharacterId>(decoder, *character_value,
+                                                pointer_child(pointer, "character"), "character")
+                : std::nullopt;
+        auto optional_id = [&]<typename Id>(const nlohmann::json* item, std::string_view name,
+                                            std::optional<Id>& output) -> bool {
+            if (item == nullptr)
+                return false;
+            if (item->is_null())
+                return true;
+            auto parsed = decoder.id<Id>(*item, pointer_child(pointer, name));
+            if (!parsed)
+                return false;
+            output = std::move(*parsed);
+            return true;
+        };
+        std::optional<CharacterPresentationProfileId> profile;
+        std::optional<CharacterPoseId> pose;
+        std::optional<CharacterExpressionId> expression;
+        std::optional<CharacterAppearanceId> appearance;
+        if (!character || !optional_id(profile_value, "profileId", profile) ||
+            !optional_id(pose_value, "poseId", pose) ||
+            !optional_id(expression_value, "expressionId", expression) ||
+            !optional_id(appearance_value, "appearanceId", appearance))
+            return std::nullopt;
+        return FlowPredictionDependency{FlowPredictionCharacterDependency{
+            std::move(*character), std::move(profile), std::move(pose), std::move(expression),
+            std::move(appearance)}};
+    }
+    if (*kind == "audio") {
+        const auto* asset_value = decoder.member(value, "asset", pointer);
+        const auto* purpose_value = decoder.member(value, "purpose", pointer);
+        auto asset = asset_value
+                         ? decode_reference<AssetId>(decoder, *asset_value,
+                                                     pointer_child(pointer, "asset"), "asset")
+                         : std::nullopt;
+        auto purpose = purpose_value ? decoder.enumeration<AudioPurpose>(
+                                           *purpose_value, pointer_child(pointer, "purpose"),
+                                           {{"music", AudioPurpose::Music},
+                                            {"ambience", AudioPurpose::Ambience},
+                                            {"voice", AudioPurpose::Voice},
+                                            {"sound-effect", AudioPurpose::SoundEffect},
+                                            {"ui-sound", AudioPurpose::UiSound}})
+                                     : std::nullopt;
+        if (!asset || !purpose)
+            return std::nullopt;
+        return FlowPredictionDependency{FlowPredictionAudioDependency{std::move(*asset), *purpose}};
     }
     if (*kind != "asset") {
         decoder.error(k_code_variant, "Unknown Flow Prediction dependency kind '" + *kind + "'.",
@@ -73,7 +151,7 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
                                                                 const nlohmann::json& value,
                                                                 std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"kind", "scene", "dialogue", "room", "stage"}))
+    if (!decoder.object(value, pointer, {"kind", "scene", "stepId", "dialogue", "room", "stage"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
@@ -120,7 +198,7 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
         }
         return FlowPredictionPoint{RoomLifecyclePredictionPoint{std::move(*room), *parsed_stage}};
     }
-    if (*kind != "scene-entry") {
+    if (*kind != "scene-entry" && *kind != "scene-step" && *kind != "scene-terminal") {
         decoder.error(k_code_variant, "Unknown Flow Prediction point kind '" + *kind + "'.",
                       pointer_child(pointer, "kind"));
         return std::nullopt;
@@ -131,6 +209,17 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
                              : std::nullopt;
     if (!scene)
         return std::nullopt;
+    if (*kind == "scene-step") {
+        const auto* step_value = decoder.member(value, "stepId", pointer);
+        auto step = step_value
+                        ? decoder.id<SceneStepId>(*step_value, pointer_child(pointer, "stepId"))
+                        : std::nullopt;
+        return step ? std::optional<FlowPredictionPoint>{SceneStepPredictionPoint{std::move(*scene),
+                                                                                  std::move(*step)}}
+                    : std::nullopt;
+    }
+    if (*kind == "scene-terminal")
+        return FlowPredictionPoint{SceneTerminalPredictionPoint{std::move(*scene)}};
     return FlowPredictionPoint{SceneEntryPredictionPoint{std::move(*scene)}};
 }
 
@@ -171,15 +260,17 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
         return FlowPredictionCommand{
             FlowPredictionSetGlobalProperty{std::move(*property), std::move(*parsed_value)}};
     }
-    if (*kind == "call-scene") {
+    if (*kind == "call-scene" || *kind == "start-detached-scene") {
         const auto* scene_value = decoder.member(value, "scene", pointer);
         auto scene = scene_value
                          ? decode_reference<SceneId>(decoder, *scene_value,
                                                      pointer_child(pointer, "scene"), "scene")
                          : std::nullopt;
-        return scene ? std::optional<FlowPredictionCommand>{FlowPredictionCommand{
-                           FlowPredictionCallScene{std::move(*scene)}}}
-                     : std::nullopt;
+        if (!scene)
+            return std::nullopt;
+        if (*kind == "start-detached-scene")
+            return FlowPredictionCommand{FlowPredictionStartDetachedScene{std::move(*scene)}};
+        return FlowPredictionCommand{FlowPredictionCallScene{std::move(*scene)}};
     }
     if (*kind == "call-dialogue") {
         const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
@@ -234,6 +325,161 @@ std::optional<std::vector<std::size_t>> decode_flow_prediction_indexes(Decoder& 
         });
 }
 
+std::optional<std::size_t> decode_flow_prediction_target(Decoder& decoder,
+                                                         const nlohmann::json& value,
+                                                         std::string_view pointer)
+{
+    return decoder.unsigned_integer<std::size_t>(value, pointer);
+}
+
+std::optional<FlowPredictionControl> decode_flow_prediction_control(Decoder& decoder,
+                                                                    const nlohmann::json& value,
+                                                                    std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"kind", "successor", "branches", "fallback", "options"}))
+        return std::nullopt;
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "sequential") {
+        const auto* successor_value = decoder.member(value, "successor", pointer);
+        if (successor_value == nullptr)
+            return std::nullopt;
+        std::optional<std::size_t> successor;
+        if (!successor_value->is_null()) {
+            successor = decode_flow_prediction_target(decoder, *successor_value,
+                                                      pointer_child(pointer, "successor"));
+            if (!successor)
+                return std::nullopt;
+        }
+        return FlowPredictionControl{FlowPredictionSequentialControl{successor}};
+    }
+    if (*kind == "branch") {
+        const auto* branches_value = decoder.member(value, "branches", pointer);
+        const auto* fallback_value = decoder.member(value, "fallback", pointer);
+        auto branches =
+            branches_value
+                ? decoder.array<FlowPredictionBranchEdge>(
+                      *branches_value, pointer_child(pointer, "branches"),
+                      [&](const nlohmann::json& branch, const std::string& branch_pointer)
+                          -> std::optional<FlowPredictionBranchEdge> {
+                          if (!decoder.object(branch, branch_pointer, {"condition", "target"}))
+                              return std::nullopt;
+                          const auto* condition_value =
+                              decoder.member(branch, "condition", branch_pointer);
+                          const auto* target_value =
+                              decoder.member(branch, "target", branch_pointer);
+                          auto condition = condition_value
+                                               ? decode_condition_impl(
+                                                     decoder, *condition_value,
+                                                     pointer_child(branch_pointer, "condition"))
+                                               : std::nullopt;
+                          auto target = target_value ? decode_flow_prediction_target(
+                                                           decoder, *target_value,
+                                                           pointer_child(branch_pointer, "target"))
+                                                     : std::nullopt;
+                          if (!condition || !target)
+                              return std::nullopt;
+                          return FlowPredictionBranchEdge{std::move(*condition), *target};
+                      })
+                : std::nullopt;
+        auto fallback = fallback_value
+                            ? decode_flow_prediction_target(decoder, *fallback_value,
+                                                            pointer_child(pointer, "fallback"))
+                            : std::nullopt;
+        if (!branches || !fallback)
+            return std::nullopt;
+        return FlowPredictionControl{FlowPredictionBranchControl{std::move(*branches), *fallback}};
+    }
+    if (*kind == "choice") {
+        const auto* options_value = decoder.member(value, "options", pointer);
+        auto options =
+            options_value
+                ? decoder.array<FlowPredictionChoiceEdge>(
+                      *options_value, pointer_child(pointer, "options"),
+                      [&](const nlohmann::json& option, const std::string& option_pointer)
+                          -> std::optional<FlowPredictionChoiceEdge> {
+                          if (!decoder.object(option, option_pointer,
+                                              {"optionId", "condition", "programs", "target"}))
+                              return std::nullopt;
+                          const auto* option_id_value =
+                              decoder.member(option, "optionId", option_pointer);
+                          std::optional<Condition> condition;
+                          if (const auto condition_iter = option.find("condition");
+                              condition_iter != option.end()) {
+                              auto parsed =
+                                  decode_condition_impl(decoder, *condition_iter,
+                                                        pointer_child(option_pointer, "condition"));
+                              if (!parsed)
+                                  return std::nullopt;
+                              condition = std::move(*parsed);
+                          }
+                          const auto* programs_value =
+                              decoder.member(option, "programs", option_pointer);
+                          const auto* target_value =
+                              decoder.member(option, "target", option_pointer);
+                          auto option_id =
+                              option_id_value
+                                  ? decoder.id<SceneChoiceOptionId>(
+                                        *option_id_value, pointer_child(option_pointer, "optionId"))
+                                  : std::nullopt;
+                          auto programs =
+                              programs_value
+                                  ? decoder.array<std::vector<FlowPredictionCommand>>(
+                                        *programs_value, pointer_child(option_pointer, "programs"),
+                                        [&](const nlohmann::json& program,
+                                            const std::string& program_pointer) {
+                                            return decoder.array<FlowPredictionCommand>(
+                                                program, program_pointer,
+                                                [&](const nlohmann::json& command,
+                                                    const std::string& command_pointer) {
+                                                    return decode_flow_prediction_command(
+                                                        decoder, command, command_pointer);
+                                                });
+                                        })
+                                  : std::nullopt;
+                          auto target = target_value ? decode_flow_prediction_target(
+                                                           decoder, *target_value,
+                                                           pointer_child(option_pointer, "target"))
+                                                     : std::nullopt;
+                          if (!option_id || !programs || !target)
+                              return std::nullopt;
+                          return FlowPredictionChoiceEdge{std::move(*option_id),
+                                                          std::move(condition),
+                                                          std::move(*programs), *target};
+                      })
+                : std::nullopt;
+        if (!options)
+            return std::nullopt;
+        return FlowPredictionControl{FlowPredictionChoiceControl{std::move(*options)}};
+    }
+    decoder.error(k_code_variant, "Unknown Flow Prediction control kind '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<FlowPredictionFrontier> decode_flow_prediction_frontier(Decoder& decoder,
+                                                                      const nlohmann::json& value,
+                                                                      std::string_view pointer)
+{
+    auto frontier = decoder.string(value, pointer);
+    if (!frontier)
+        return std::nullopt;
+    if (*frontier == "normal")
+        return FlowPredictionFrontier::Normal;
+    if (*frontier == "short-wait")
+        return FlowPredictionFrontier::ShortWait;
+    if (*frontier == "strong-wait")
+        return FlowPredictionFrontier::StrongWait;
+    if (*frontier == "decision")
+        return FlowPredictionFrontier::Decision;
+    decoder.error(k_code_variant, "Unknown Flow Prediction frontier '" + *frontier + "'.",
+                  std::string(pointer));
+    return std::nullopt;
+}
+
 std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder,
                                                                 const nlohmann::json& value,
                                                                 std::string_view pointer)
@@ -262,13 +508,17 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                   [&](const nlohmann::json& slice,
                       const std::string& slice_pointer) -> std::optional<FlowPredictionSlice> {
                       if (!decoder.object(slice, slice_pointer,
-                                          {"point", "dependencyGroups", "successors", "program"}))
+                                          {"point", "dependencyGroups", "condition",
+                                           "conditionFalseSuccessor", "control", "frontier",
+                                           "program"}))
                           return std::nullopt;
                       const auto* point_value = decoder.member(slice, "point", slice_pointer);
                       const auto* dependency_groups_value =
                           decoder.member(slice, "dependencyGroups", slice_pointer);
-                      const auto* successors_value =
-                          decoder.member(slice, "successors", slice_pointer);
+                      const auto* false_successor_value =
+                          decoder.member(slice, "conditionFalseSuccessor", slice_pointer);
+                      const auto* control_value = decoder.member(slice, "control", slice_pointer);
+                      const auto* frontier_value = decoder.member(slice, "frontier", slice_pointer);
                       const auto* program_value = decoder.member(slice, "program", slice_pointer);
                       auto point =
                           point_value
@@ -281,11 +531,31 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                                     decoder, *dependency_groups_value,
                                     pointer_child(slice_pointer, "dependencyGroups"))
                               : std::nullopt;
-                      auto successors = successors_value
-                                            ? decode_flow_prediction_indexes(
-                                                  decoder, *successors_value,
-                                                  pointer_child(slice_pointer, "successors"))
-                                            : std::nullopt;
+                      std::optional<Condition> condition;
+                      if (const auto condition_iter = slice.find("condition");
+                          condition_iter != slice.end()) {
+                          auto parsed = decode_condition_impl(
+                              decoder, *condition_iter, pointer_child(slice_pointer, "condition"));
+                          if (!parsed)
+                              return std::nullopt;
+                          condition = std::move(*parsed);
+                      }
+                      bool false_successor_ok = false_successor_value != nullptr;
+                      std::optional<std::size_t> false_successor;
+                      if (false_successor_value && !false_successor_value->is_null()) {
+                          false_successor = decode_flow_prediction_target(
+                              decoder, *false_successor_value,
+                              pointer_child(slice_pointer, "conditionFalseSuccessor"));
+                          false_successor_ok = false_successor.has_value();
+                      }
+                      auto control = control_value ? decode_flow_prediction_control(
+                                                         decoder, *control_value,
+                                                         pointer_child(slice_pointer, "control"))
+                                                   : std::nullopt;
+                      auto frontier = frontier_value ? decode_flow_prediction_frontier(
+                                                           decoder, *frontier_value,
+                                                           pointer_child(slice_pointer, "frontier"))
+                                                     : std::nullopt;
                       auto program = program_value ? decoder.array<FlowPredictionCommand>(
                                                          *program_value,
                                                          pointer_child(slice_pointer, "program"),
@@ -295,10 +565,13 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                                                                  decoder, command, command_pointer);
                                                          })
                                                    : std::nullopt;
-                      if (!point || !dependency_groups || !successors || !program)
+                      if (!point || !dependency_groups || !false_successor_ok || !control ||
+                          !frontier || !program)
                           return std::nullopt;
-                      return FlowPredictionSlice{std::move(*point), std::move(*dependency_groups),
-                                                 std::move(*successors), std::move(*program)};
+                      return FlowPredictionSlice{
+                          std::move(*point),  std::move(*dependency_groups), std::move(condition),
+                          false_successor,    std::move(*control),           *frontier,
+                          std::move(*program)};
                   })
             : std::nullopt;
     if (!groups || !slices)

@@ -1128,6 +1128,41 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
     };
 
     for (const auto& projected : projection.entries) {
+        DescriptorAccumulator semantic_descriptors;
+        core::Diagnostics semantic_diagnostics;
+        if (const auto* character_dependency =
+                std::get_if<core::compiled::FlowPredictionCharacterDependency>(
+                    &projected.dependency)) {
+            index.m_impl->append_character(
+                semantic_descriptors, character_dependency->character,
+                character_dependency->profile_id, character_dependency->pose_id,
+                character_dependency->expression_id, character_dependency->appearance_id,
+                semantic_diagnostics, "Flow Prediction Character");
+            core::append_diagnostics(plan.diagnostics, std::move(semantic_diagnostics));
+            for (auto& descriptor : semantic_descriptors.take())
+                append_descriptor(std::move(descriptor), projected);
+            continue;
+        }
+        if (const auto* layout_dependency =
+                std::get_if<core::compiled::FlowPredictionLayoutDependency>(
+                    &projected.dependency)) {
+            index.m_impl->append_layout(semantic_descriptors, layout_dependency->layout,
+                                        semantic_diagnostics, "Flow Prediction Layout");
+            core::append_diagnostics(plan.diagnostics, std::move(semantic_diagnostics));
+            for (auto& descriptor : semantic_descriptors.take())
+                append_descriptor(std::move(descriptor), projected);
+            continue;
+        }
+        if (const auto* material_dependency =
+                std::get_if<core::compiled::FlowPredictionMaterialDependency>(
+                    &projected.dependency)) {
+            index.m_impl->append_material(semantic_descriptors, material_dependency->material,
+                                          semantic_diagnostics, "Flow Prediction Material");
+            core::append_diagnostics(plan.diagnostics, std::move(semantic_diagnostics));
+            for (auto& descriptor : semantic_descriptors.take())
+                append_descriptor(std::move(descriptor), projected);
+            continue;
+        }
         if (const auto* room_dependency =
                 std::get_if<core::compiled::FlowPredictionRoomDependency>(&projected.dependency)) {
             DescriptorAccumulator room_descriptors;
@@ -1137,6 +1172,16 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
                                       traversal);
             core::append_diagnostics(plan.diagnostics, std::move(room_diagnostics));
             for (auto& descriptor : room_descriptors.take())
+                append_descriptor(std::move(descriptor), projected);
+            continue;
+        }
+        if (const auto* audio_dependency =
+                std::get_if<core::compiled::FlowPredictionAudioDependency>(&projected.dependency)) {
+            index.m_impl->append_audio(semantic_descriptors, audio_dependency->asset,
+                                       audio_dependency->purpose, semantic_diagnostics,
+                                       "Flow Prediction Audio");
+            core::append_diagnostics(plan.diagnostics, std::move(semantic_diagnostics));
+            for (auto& descriptor : semantic_descriptors.take())
                 append_descriptor(std::move(descriptor), projected);
             continue;
         }

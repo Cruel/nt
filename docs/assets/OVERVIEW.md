@@ -149,12 +149,24 @@ read-only semantic projection through `StructuredAssetDependencyIndex` into a `P
 machinery. Scene and Dialogue entry slices expose their immediate presentation dependencies, while a
 prospective Room-entry root exposes the target Room presentation plus successful lifecycle Flow. Room
 presentation remains a semantic dependency and is expanded through the existing structured dependency
-index rather than duplicating an asset snapshot in prediction metadata. Prediction confidence maps to
-`ExpectedNext` or `PossibleNext`; unknown typed Conditions and Lua opacity widen alternatives without
-executing gameplay. Production uses the same predictor for the package entrypoint and, once a Room is
-current, for each adjacent exit as a prospective source-to-target Room transition. Adjacent transition
+index rather than duplicating an asset snapshot in prediction metadata. Scene execution slices likewise
+carry semantic Asset, Character-presentation, Layout, and Material dependencies; resolution expands
+those through the same structured dependency index already used by mandatory/prefetch collection.
+Execution distance advances with Scene progress and semantic frontiers, while prediction confidence
+maps to `ExpectedNext` or `PossibleNext`; unknown typed Conditions, Choices, strong waits, detached
+deep continuation, and Lua opacity widen or demote work without assigning probabilities or executing
+gameplay. The later budget-admission layer may rank these candidates further, but this predictor does
+not perform residency budgeting itself. Production uses the same predictor for the package entrypoint,
+for the authoritative foreground Scene position published by the Runtime Session, and, once a Room is
+current, for each adjacent exit as a prospective source-to-target Room transition. Runtime publication
+updates Scene prediction independently of visual snapshot equality, so advancing through a Scene can
+rotate the speculative generation even when rendered presentation has not changed. The first Scene
+publication therefore consumes the entry root once; later publications root prediction at the current
+`SceneFramePosition` and do not replay already-consumed Stage/Event dependencies. Adjacent transition
 candidates are submitted as `PossibleNext` after the normal mandatory publication transaction commits,
 so their lifecycle handoffs can warm before navigation without becoming correctness requirements.
+Repeated runtime publications with the same prediction-relevant Scene position do not rotate the
+speculative generation; only a changed prediction root/frontier refreshes this Scene plan.
 Unsupported Flow shapes may continue to use older speculative paths temporarily. Mandatory
 `current_mandatory` collection remains independent; missing prediction metadata or an empty/unsupported
 projection never blocks publication or changes gameplay correctness.

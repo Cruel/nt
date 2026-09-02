@@ -1169,6 +1169,12 @@ bool GameHost::publish_runtime_publication(const runtime::RuntimePublication& pu
     m_runtime_publication = publication;
     m_runtime_events.assign(events.begin(), events.end());
     m_runtime_observations = publication.observations;
+    auto prediction_diagnostics =
+        m_runtime_presentation.update_active_scene_prediction(publication.active_scene);
+    if (!prediction_diagnostics.empty()) {
+        retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, prediction_diagnostics);
+        core::append_diagnostics(application_diagnostics, std::move(prediction_diagnostics));
+    }
     if (!m_dependencies.runtime_ui.apply_gameplay_ui_values(
             RuntimeUiGameplayValues{publication.revision.number(), publication.gameplay_ui})) {
         auto diagnostics = one({.code = "host.runtime_ui_publication_rejected",
