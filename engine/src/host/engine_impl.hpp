@@ -4,6 +4,7 @@
 #include "noveltea/engine_tooling.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/assets/asset_progress.hpp"
 #include "noveltea/assets/mandatory_asset_gate.hpp"
 #include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/runtime_clock.hpp"
@@ -120,6 +121,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
 #endif
     std::shared_ptr<assets::AssetResidencyManager> m_asset_residency;
     assets::AssetManager m_assets;
+    assets::AssetProgressOrchestrator m_asset_progress{m_assets};
     assets::MandatoryAssetGate m_mandatory_assets{m_assets};
     std::unique_ptr<assets::MandatoryAssetRequestGroup> m_tooling_postprocess_assets;
     std::string m_tooling_postprocess_material_id;

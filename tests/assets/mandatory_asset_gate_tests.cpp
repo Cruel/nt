@@ -2,6 +2,7 @@
 
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/assets/asset_progress.hpp"
 #include "noveltea/assets/mandatory_asset_gate.hpp"
 #include "noveltea/jobs/cooperative_job_executor.hpp"
 #include "noveltea/jobs/sdl_thread_pool_job_executor.hpp"
@@ -136,6 +137,71 @@ public:
         m_state.submissions.push_back("texture:" + request.path);
         return std::make_unique<MatrixPreparationTask<assets::TextureAsset>>(
             assets::TextureAsset{.handle = 11, .path = request.path, .sampler = request.sampler},
+            &m_state.finalized);
+    }
+
+private:
+    MatrixState& m_state;
+};
+
+class TemporaryMatrixTextureLoader final : public assets::TextureAssetLoader {
+public:
+    explicit TemporaryMatrixTextureLoader(MatrixState& state) : m_state(state) {}
+
+    assets::AssetLoadResult<assets::TextureAsset>
+    load_texture(const assets::TextureAssetRequest& request) override
+    {
+        return {assets::TextureAsset{.handle = 15, .path = request.path}, {}};
+    }
+
+    std::unique_ptr<assets::AssetPreparationTask<assets::TextureAsset>>
+    create_texture_preparation_task(const assets::TextureAssetRequest& request) override
+    {
+        class Task final : public assets::AssetPreparationTask<assets::TextureAsset> {
+        public:
+            Task(assets::TextureAsset asset, std::size_t* finalized)
+                : m_asset(std::move(asset)), m_finalized(finalized)
+            {
+            }
+
+            [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+            {
+                return {.prepared_cpu_bytes = 1, .temporary_bytes = 4096};
+            }
+
+            [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
+            {
+                m_ready = !context.cancellation_requested();
+                return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+            }
+
+            [[nodiscard]] core::Result<assets::PreparedAsset<assets::TextureAsset>,
+                                       core::Diagnostics>
+            finalize_on_owner() noexcept override
+            {
+                if (!m_ready) {
+                    return core::Result<
+                        assets::PreparedAsset<assets::TextureAsset>,
+                        core::Diagnostics>::failure({{.code = "test.matrix_canceled",
+                                                      .message = "matrix task was canceled"}});
+                }
+                if (m_finalized != nullptr)
+                    ++*m_finalized;
+                return core::Result<assets::PreparedAsset<assets::TextureAsset>,
+                                    core::Diagnostics>::success({.asset = std::move(m_asset),
+                                                                 .cost = {.prepared_cpu_bytes = 1},
+                                                                 .destroy_on_owner = {}});
+            }
+
+        private:
+            assets::TextureAsset m_asset;
+            std::size_t* m_finalized = nullptr;
+            bool m_ready = false;
+        };
+
+        m_state.submissions.push_back("texture:" + request.path);
+        return std::make_unique<Task>(
+            assets::TextureAsset{.handle = 15, .path = request.path, .sampler = request.sampler},
             &m_state.finalized);
     }
 
@@ -335,6 +401,141 @@ void shutdown(jobs::SdlThreadPoolJobExecutor& executor)
 {
     executor.begin_shutdown();
     REQUIRE(drive_until(executor, [&] { return executor.shutdown_complete(); }));
+}
+
+template<class Executor> void run_owner_frame_asset_progress_matrix(Executor& executor)
+{
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    MatrixState state;
+    TemporaryMatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+    assets::AssetProgressOrchestrator progress(manager);
+
+    auto first =
+        manager.request_texture(assets::TextureAssetRequest{.path = "project:/textures/first.png"},
+                                assets::AssetRequestReason::Demand);
+    auto second =
+        manager.request_texture(assets::TextureAssetRequest{.path = "project:/textures/second.png"},
+                                assets::AssetRequestReason::Demand);
+    REQUIRE(first);
+    REQUIRE(second);
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Blocking);
+
+    auto* first_handle = first.value_if();
+    auto* second_handle = second.value_if();
+    REQUIRE(first_handle != nullptr);
+    REQUIRE(second_handle != nullptr);
+    REQUIRE(drive_until(executor, [&] {
+        progress.service_owner_frame();
+        return first_handle->state() == assets::AssetRequestState::Ready &&
+               second_handle->state() == assets::AssetRequestState::Ready;
+    }));
+
+    CHECK(state.finalized == 2);
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Idle);
+    auto first_lease = std::move(*first_handle).take_ready();
+    auto second_lease = std::move(*second_handle).take_ready();
+    REQUIRE(first_lease);
+    REQUIRE(second_lease);
+    first_lease.reset();
+    second_lease.reset();
+    shutdown(executor);
+}
+
+TEST_CASE("owner-frame asset progress resumes deferred mandatory work without consumer retry",
+          "[assets][progress][mandatory][cooperative]")
+{
+    jobs::CooperativeJobExecutor executor;
+    run_owner_frame_asset_progress_matrix(executor);
+}
+
+TEST_CASE("owner-frame asset progress is executor independent",
+          "[assets][progress][mandatory][threaded]")
+{
+    jobs::SdlThreadPoolJobExecutor executor(2);
+    run_owner_frame_asset_progress_matrix(executor);
+}
+
+TEST_CASE("owner-frame asset progress safety retry survives a missed capacity wake",
+          "[assets][progress][mandatory][safety]")
+{
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    auto external_reservation = residency->reserve_preparation_on_owner(
+        assets::ResidencyCost{.temporary_bytes = 4096}, assets::AssetRequestReason::Demand);
+    REQUIRE(external_reservation.admission == assets::ResidencyAdmission::Admitted);
+    REQUIRE(external_reservation.reservation.has_value());
+
+    assets::AssetManager manager;
+    MatrixState state;
+    TemporaryMatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+    assets::AssetProgressOrchestrator progress(manager);
+
+    auto requested =
+        manager.request_texture(assets::TextureAssetRequest{.path = "project:/textures/safety.png"},
+                                assets::AssetRequestReason::Demand);
+    REQUIRE(requested);
+    REQUIRE(requested.value_if()->state() == assets::AssetRequestState::Pending);
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Blocking);
+
+    // This reservation is not owned by the request orchestrator, so releasing it cannot emit the
+    // shared asset-progress wake signal. The next owner-frame service must still discover and retry
+    // the viable deferred request.
+    external_reservation.reservation.reset();
+    REQUIRE(drive_until(executor, [&] {
+        progress.service_owner_frame();
+        return requested.value_if()->state() == assets::AssetRequestState::Ready;
+    }));
+
+    auto lease = std::move(*requested.value_if()).take_ready();
+    REQUIRE(lease);
+    lease.reset();
+    shutdown(executor);
+}
+
+template<class Executor> void run_background_asset_progress_matrix(Executor& executor)
+{
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    MatrixState state;
+    MatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+    assets::AssetProgressOrchestrator progress(manager);
+
+    auto generation = manager.create_prefetch_generation_on_owner();
+    REQUIRE(generation);
+    auto ticket = manager.prefetch_texture(
+        assets::TextureAssetRequest{.path = "project:/textures/possible-next.png"},
+        *generation.value_if());
+    REQUIRE(ticket);
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Background);
+
+    REQUIRE(drive_until(executor, [&] {
+        progress.service_owner_frame();
+        return state.finalized == 1;
+    }));
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Idle);
+    ticket.value_if()->reset();
+    shutdown(executor);
+}
+
+TEST_CASE("owner-frame asset progress reports speculative work as background",
+          "[assets][progress][prefetch][cooperative]")
+{
+    jobs::CooperativeJobExecutor executor;
+    run_background_asset_progress_matrix(executor);
+}
+
+TEST_CASE("background asset progress is executor independent",
+          "[assets][progress][prefetch][threaded]")
+{
+    jobs::SdlThreadPoolJobExecutor executor(2);
+    run_background_asset_progress_matrix(executor);
 }
 
 template<class Executor> void run_twenty_asset_matrix(Executor& executor)

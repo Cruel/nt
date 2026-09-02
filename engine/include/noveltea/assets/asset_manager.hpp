@@ -20,6 +20,8 @@ class EditorAssetProfilerService;
 
 namespace noveltea::assets {
 
+class AssetProgressOrchestrator;
+
 struct TexturePreparationRequirements {
     bool retain_alpha_coverage = false;
     bool operator==(const TexturePreparationRequirements&) const = default;
@@ -164,6 +166,7 @@ public:
     [[nodiscard]] std::vector<std::string> describe_mounts() const;
 
 private:
+    friend class AssetProgressOrchestrator;
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     friend class core::EditorAssetProfilerService;
     friend class MandatoryAssetGate;

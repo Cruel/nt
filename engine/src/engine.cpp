@@ -1732,14 +1732,13 @@ bool Engine::Impl::tick()
 
     handle_events();
     const bool runtime_mandatory_loading = m_game_host.mandatory_assets_pending();
-    const bool focused_preview_mandatory_loading =
-        m_preview_host.focused_preview_mandatory_assets_pending();
-    if (runtime_mandatory_loading || focused_preview_mandatory_loading) {
+    const auto asset_urgency = m_asset_progress.urgency_on_owner();
+    if (asset_urgency == assets::AssetProgressUrgency::Blocking) {
         service_loading_frame_jobs();
-        (void)m_assets.retry_deferred_asset_requests_on_owner();
     } else {
         service_normal_frame_jobs();
     }
+    m_asset_progress.service_owner_frame();
     apply_pending_debug_ui_commands();
     const bool runtime_input_admitted = m_preview_running && !runtime_mandatory_loading;
     m_game_host_values.runtime_input_admitted = runtime_input_admitted;
