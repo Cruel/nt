@@ -1016,9 +1016,12 @@ TEST_CASE(
     REQUIRE(leases->find_texture(current_key) != nullptr);
     CHECK(leases->find_texture(stale_descriptor.cache_key) == nullptr);
 
-    fixture.manager.stage_candidate_leases_on_owner(std::move(*leases));
+    assets::MandatoryPublicationScope publication(fixture.manager,
+                                                  assets::MandatoryPublicationScopeKind::Runtime);
+    auto transaction =
+        publication.begin_transaction_on_owner(std::move(*leases), request_generation);
     CHECK(fixture.manager.leased_texture_on_owner(request) != nullptr);
-    fixture.manager.rollback_candidate_leases_on_owner();
+    transaction.rollback_on_owner();
 }
 
 TEST_CASE("direct-next hotspot mask prefetch is ready for the mandatory publication gate",

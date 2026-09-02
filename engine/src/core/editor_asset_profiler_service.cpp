@@ -46,6 +46,12 @@ bool retain_in_profiler_history(const AssetTelemetryEvent& event) noexcept
     case AssetTelemetryEventKind::MemoryPolicyResolved:
     case AssetTelemetryEventKind::CapabilityJoined:
     case AssetTelemetryEventKind::CapabilityEnriched:
+    case AssetTelemetryEventKind::MandatoryCandidateStaged:
+    case AssetTelemetryEventKind::MandatoryPublicationCommitted:
+    case AssetTelemetryEventKind::MandatoryPublicationRolledBack:
+    case AssetTelemetryEventKind::MandatoryPredecessorReleased:
+    case AssetTelemetryEventKind::MandatoryPublicationStaleGenerationRejected:
+    case AssetTelemetryEventKind::SourceGenerationAdvanced:
         return true;
     case AssetTelemetryEventKind::BudgetPressure:
         return event.prefetch_generation.valid() &&

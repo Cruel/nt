@@ -48,6 +48,12 @@ enum class AssetTelemetryEventKind : std::uint8_t {
     MemoryPolicyResolved,
     CapabilityJoined,
     CapabilityEnriched,
+    MandatoryCandidateStaged,
+    MandatoryPublicationCommitted,
+    MandatoryPublicationRolledBack,
+    MandatoryPredecessorReleased,
+    MandatoryPublicationStaleGenerationRejected,
+    SourceGenerationAdvanced,
     Count,
 };
 

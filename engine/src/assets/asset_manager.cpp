@@ -1191,11 +1191,6 @@ AssetManager::create_prefetch_generation_on_owner() const noexcept
     return core::Result<PrefetchGenerationId, core::Diagnostic>::success(*generation);
 }
 
-std::size_t AssetManager::retry_deferred_asset_requests_on_owner() noexcept
-{
-    return m_async == nullptr ? 0 : m_async->retry_deferred_on_owner();
-}
-
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
 std::vector<core::AssetProfilerEntry> AssetManager::asset_profiler_inventory_on_owner() const
 {
@@ -1389,9 +1384,26 @@ AssetManager::asset_profiler_memory_on_owner() const
 
 core::AssetTelemetrySink* AssetManager::asset_profiler_sink_on_owner() const noexcept
 {
-    return m_async ? m_async->telemetry : nullptr;
+    return telemetry_sink_on_owner();
 }
 #endif
+
+core::AssetTelemetrySink* AssetManager::telemetry_sink_on_owner() const noexcept
+{
+    return m_async ? m_async->telemetry : nullptr;
+}
+
+void AssetManager::record_lifecycle_telemetry_on_owner(
+    core::AssetTelemetryEventKind kind, std::string_view diagnostic_code) const noexcept
+{
+    if (m_async == nullptr || m_async->telemetry == nullptr)
+        return;
+    core::AssetTelemetryEvent event{};
+    event.kind = kind;
+    event.memory = m_async->residency->accounting_on_owner().current;
+    event.diagnostic_code = std::string(diagnostic_code);
+    m_async->telemetry->record(std::move(event));
+}
 
 void AssetManager::bump_source_generation_on_owner() const noexcept
 {
@@ -1400,6 +1412,8 @@ void AssetManager::bump_source_generation_on_owner() const noexcept
         return;
     const auto previous = m_source_generation;
     m_source_generation = *next;
+    record_lifecycle_telemetry_on_owner(core::AssetTelemetryEventKind::SourceGenerationAdvanced,
+                                        "assets.source_generation_advanced");
     if (m_async != nullptr && previous.valid())
         m_async->invalidate_generation_on_owner(previous);
     m_hotspot_mask_requests.clear();

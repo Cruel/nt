@@ -1339,7 +1339,6 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         auto group = std::make_unique<assets::MandatoryAssetRequestGroup>(
             m_dependencies.assets, std::move(*requests.value_if()),
             assets::MandatoryAssetGroupOptions{.show_overlay_immediately = false,
-                                               .retryable = false,
                                                .presentation_revision = std::nullopt});
         m_dependencies.bind_candidate_materials(nullptr);
         m_non_room_candidate = NonRoomCandidate{
@@ -1387,7 +1386,6 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
     auto group = std::make_unique<assets::MandatoryAssetRequestGroup>(
         m_dependencies.assets, std::move(*requests.value_if()),
         assets::MandatoryAssetGroupOptions{.show_overlay_immediately = false,
-                                           .retryable = false,
                                            .presentation_revision = std::nullopt});
     m_dependencies.bind_candidate_materials(nullptr);
     m_candidate = Candidate{.request = std::move(request),

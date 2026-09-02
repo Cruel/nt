@@ -251,6 +251,18 @@ const char* event_kind_name(AssetTelemetryEventKind value)
         return "capability-joined";
     case AssetTelemetryEventKind::CapabilityEnriched:
         return "capability-enriched";
+    case AssetTelemetryEventKind::MandatoryCandidateStaged:
+        return "mandatory-candidate-staged";
+    case AssetTelemetryEventKind::MandatoryPublicationCommitted:
+        return "mandatory-publication-committed";
+    case AssetTelemetryEventKind::MandatoryPublicationRolledBack:
+        return "mandatory-publication-rolled-back";
+    case AssetTelemetryEventKind::MandatoryPredecessorReleased:
+        return "mandatory-predecessor-released";
+    case AssetTelemetryEventKind::MandatoryPublicationStaleGenerationRejected:
+        return "mandatory-publication-stale-generation-rejected";
+    case AssetTelemetryEventKind::SourceGenerationAdvanced:
+        return "source-generation-advanced";
     case AssetTelemetryEventKind::Count:
         break;
     }

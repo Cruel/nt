@@ -246,6 +246,29 @@ describe('asset profiler protocol', () => {
     }
   });
 
+  it('accepts retained mandatory publication lifecycle telemetry', () => {
+    for (const eventKind of [
+      'mandatory-candidate-staged',
+      'mandatory-publication-committed',
+      'mandatory-publication-rolled-back',
+      'mandatory-predecessor-released',
+      'mandatory-publication-stale-generation-rejected',
+      'source-generation-advanced',
+    ] as const) {
+      expect(
+        isAssetProfilerWirePayload({
+          ...full,
+          retainedChanges: [
+            {
+              ...telemetryChange,
+              event: { ...telemetryChange.event, eventKind },
+            },
+          ],
+        }),
+      ).toBe(true);
+    }
+  });
+
   it('rejects unsupported schemas, enum ordinals, and invalid delta cursor combinations', () => {
     expect(isAssetProfilerWirePayload({ ...full, unexpected: true })).toBe(false);
     expect(

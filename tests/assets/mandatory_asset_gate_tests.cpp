@@ -554,6 +554,8 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
     manager.bind_shader_program_loader(&shaders);
     manager.bind_material_loader(&materials);
     manager.bind_audio_loader(&audio);
+    assets::MandatoryPublicationScope publication(manager,
+                                                  assets::MandatoryPublicationScopeKind::Runtime);
 
     const auto requests = matrix_requests(manager.source_generation_on_owner());
     const auto started = assets::MandatoryAssetRequestGroup::Clock::time_point{};
@@ -561,8 +563,7 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
                                              {.phase = core::LoadingPhase::LoadingRuntimeDemand,
                                               .reason = assets::AssetRequestReason::Demand,
                                               .overlay_grace = 100ms,
-                                              .show_overlay_immediately = false,
-                                              .retryable = true},
+                                              .show_overlay_immediately = false},
                                              started);
 
     REQUIRE(group.progress_on_owner().state == core::LoadingState::Active);
@@ -588,7 +589,8 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
     auto leases = group.take_ready_leases_on_owner();
     REQUIRE(leases);
     CHECK(leases->size() == 20);
-    manager.stage_candidate_leases_on_owner(std::move(*leases));
+    auto transaction = publication.begin_transaction_on_owner(std::move(*leases),
+                                                              manager.source_generation_on_owner());
     CHECK(manager.has_candidate_leases_on_owner());
     CHECK_FALSE(manager.has_published_leases_on_owner());
 
@@ -598,13 +600,13 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
     }
     const auto& first_texture = std::get<assets::TextureAssetRequest>(requests[1].request);
     REQUIRE(manager.leased_texture_on_owner(first_texture));
-    manager.commit_candidate_leases_on_owner();
+    REQUIRE(transaction.commit_on_owner(false));
     CHECK_FALSE(manager.has_candidate_leases_on_owner());
     CHECK(manager.has_published_leases_on_owner());
     CHECK_FALSE(residency->evict_on_owner(requests[1].cache_key,
                                           assets::ResidencyEvictionReason::BudgetPressure));
 
-    manager.clear_published_leases_on_owner();
+    publication.clear_on_owner();
     CHECK_FALSE(manager.has_published_leases_on_owner());
     CHECK(residency->classification_on_owner(requests[1].cache_key) ==
           assets::ResidencyClass::Cold);
@@ -629,7 +631,7 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
           assets::ResidencyClass::Cold);
 }
 
-template<class Executor> void run_retry_and_cancellation_matrix(Executor& executor)
+template<class Executor> void run_failure_and_cancellation_matrix(Executor& executor)
 {
     auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
     assets::AssetManager manager;
@@ -643,23 +645,19 @@ template<class Executor> void run_retry_and_cancellation_matrix(Executor& execut
     group.poll_on_owner();
     REQUIRE(group.state_on_owner() == assets::MandatoryAssetGroupState::Failed);
     REQUIRE(group.progress_on_owner().state == core::LoadingState::Failed);
-    REQUIRE(group.progress_on_owner().retryable);
-    const auto failed_operation = group.progress_on_owner().operation;
+    CHECK_FALSE(group.progress_on_owner().retryable);
 
     state.reject_material = false;
-    REQUIRE(group.retry_on_owner());
-    CHECK(group.progress_on_owner().operation != failed_operation);
-    CHECK(group.progress_on_owner().state == core::LoadingState::Active);
+    assets::MandatoryAssetRequestGroup replacement(manager, {request});
     REQUIRE(drive_until(executor, [&] {
-        group.poll_on_owner();
-        return group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+        replacement.poll_on_owner();
+        return replacement.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
     }));
 
     assets::MandatoryAssetRequestGroup canceled(manager, {request});
     canceled.cancel_on_owner();
     CHECK(canceled.state_on_owner() == assets::MandatoryAssetGroupState::Canceled);
     CHECK(canceled.progress_on_owner().state == core::LoadingState::Canceled);
-    CHECK_FALSE(canceled.retry_on_owner());
 
     state.reject_material = true;
     const auto fatal_request = matrix_descriptor(
@@ -668,14 +666,12 @@ template<class Executor> void run_retry_and_cancellation_matrix(Executor& execut
                                              {.phase = core::LoadingPhase::LoadingRuntimeDemand,
                                               .reason = assets::AssetRequestReason::Demand,
                                               .overlay_grace = 100ms,
-                                              .show_overlay_immediately = false,
-                                              .retryable = false});
+                                              .show_overlay_immediately = false});
     fatal.poll_on_owner();
     CHECK(fatal.state_on_owner() == assets::MandatoryAssetGroupState::Failed);
     CHECK(fatal.progress_on_owner().state == core::LoadingState::Failed);
     CHECK_FALSE(fatal.progress_on_owner().retryable);
     CHECK(fatal.overlay_visible_on_owner());
-    CHECK_FALSE(fatal.retry_on_owner());
 }
 
 template<class Executor> void run_prefetch_outcome_matrix(Executor& executor)
@@ -708,8 +704,7 @@ template<class Executor> void run_prefetch_outcome_matrix(Executor& executor)
                                                  {.phase = core::LoadingPhase::LoadingRuntimeDemand,
                                                   .reason = assets::AssetRequestReason::Demand,
                                                   .overlay_grace = 100ms,
-                                                  .show_overlay_immediately = true,
-                                                  .retryable = true});
+                                                  .show_overlay_immediately = true});
     REQUIRE(drive_until(executor, [&] {
         mandatory.poll_on_owner();
         return mandatory.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
@@ -718,8 +713,11 @@ template<class Executor> void run_prefetch_outcome_matrix(Executor& executor)
 
     auto mandatory_leases = mandatory.take_ready_leases_on_owner();
     REQUIRE(mandatory_leases);
-    manager.stage_candidate_leases_on_owner(std::move(*mandatory_leases));
-    manager.commit_candidate_leases_on_owner();
+    assets::MandatoryPublicationScope publication(manager,
+                                                  assets::MandatoryPublicationScopeKind::Runtime);
+    auto transaction =
+        publication.begin_transaction_on_owner(std::move(*mandatory_leases), generation);
+    REQUIRE(transaction.commit_on_owner(false));
     CHECK(residency->classification_on_owner(used_descriptor.cache_key) ==
           assets::ResidencyClass::Pinned);
     CHECK(residency->classification_on_owner(missed_descriptor.cache_key) ==
@@ -750,7 +748,7 @@ template<class Executor> void run_prefetch_outcome_matrix(Executor& executor)
     CHECK(residency->classification_on_owner(late_descriptor.cache_key) ==
           assets::ResidencyClass::Cold);
 
-    manager.clear_published_leases_on_owner();
+    publication.clear_on_owner();
     planner.clear_on_owner();
 }
 
@@ -772,19 +770,19 @@ TEST_CASE("mandatory 20-asset publication matrix is atomic in threaded execution
     shutdown(executor);
 }
 
-TEST_CASE("mandatory retry and cancellation matrix passes in cooperative execution",
-          "[assets][mandatory-assets][cooperative][retry][cancellation]")
+TEST_CASE("mandatory failure and cancellation matrix passes in cooperative execution",
+          "[assets][mandatory-assets][cooperative][failure][cancellation]")
 {
     jobs::CooperativeJobExecutor executor;
-    run_retry_and_cancellation_matrix(executor);
+    run_failure_and_cancellation_matrix(executor);
     shutdown(executor);
 }
 
-TEST_CASE("mandatory retry and cancellation matrix passes in threaded execution",
-          "[assets][mandatory-assets][threaded][retry][cancellation]")
+TEST_CASE("mandatory failure and cancellation matrix passes in threaded execution",
+          "[assets][mandatory-assets][threaded][failure][cancellation]")
 {
     jobs::SdlThreadPoolJobExecutor executor(2);
-    run_retry_and_cancellation_matrix(executor);
+    run_failure_and_cancellation_matrix(executor);
     shutdown(executor);
 }
 
@@ -1023,6 +1021,89 @@ TEST_CASE("runtime and focused publication scopes retain independent candidates 
     shutdown(executor);
 }
 
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+TEST_CASE("mandatory publication lifecycle remains visible through profiler telemetry",
+          "[assets][mandatory-assets][profiler][publication]")
+{
+    core::EditorAssetProfilerService profiler;
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget(), &profiler,
+                                                                     executor.mode());
+    assets::AssetManager manager;
+    manager.mount("project", std::make_shared<assets::MemoryAssetSource>());
+    assets::MandatoryPublicationScope publication(manager,
+                                                  assets::MandatoryPublicationScopeKind::Runtime);
+    MatrixState state;
+    MatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency, &profiler));
+    manager.bind_texture_loader(&textures);
+
+    const auto ready_transaction = [&](std::string path) {
+        const auto generation = manager.source_generation_on_owner();
+        assets::TextureAssetRequest request{.path = std::move(path)};
+        assets::MandatoryAssetRequestGroup group(manager, {matrix_descriptor(request, generation)});
+        REQUIRE(drive_until(executor, [&] {
+            group.poll_on_owner();
+            return group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+        }));
+        auto leases = group.take_ready_leases_on_owner();
+        REQUIRE(leases);
+        return publication.begin_transaction_on_owner(std::move(*leases), generation);
+    };
+
+    auto first = ready_transaction("project:/textures/publication-first.png");
+    REQUIRE(first.commit_on_owner(false));
+
+    auto abandoned = ready_transaction("project:/textures/publication-abandoned.png");
+    abandoned.rollback_on_owner();
+
+    auto replacement = ready_transaction("project:/textures/publication-replacement.png");
+    REQUIRE(replacement.commit_on_owner(true));
+    REQUIRE(manager.has_previous_published_leases_on_owner());
+    publication.release_predecessor_on_owner();
+    CHECK_FALSE(manager.has_previous_published_leases_on_owner());
+
+    auto stale = ready_transaction("project:/textures/publication-stale.png");
+    auto refreshed = manager.refresh_namespace_on_owner("project");
+    REQUIRE(refreshed);
+    auto stale_commit = stale.commit_on_owner(false);
+    REQUIRE_FALSE(stale_commit);
+    CHECK(stale_commit.error().code == "assets.mandatory_publication_stale_source_generation");
+
+    const auto snapshot = profiler.capture_on_owner();
+    const auto count_event = [&](core::AssetTelemetryEventKind kind,
+                                 std::string_view diagnostic_code = {}) {
+        return std::ranges::count_if(snapshot.retained_changes, [&](const auto& change) {
+            const auto* event = std::get_if<core::AssetTelemetryEvent>(&change.payload);
+            return event != nullptr && event->kind == kind &&
+                   (diagnostic_code.empty() || event->diagnostic_code == diagnostic_code);
+        });
+    };
+
+    CHECK(count_event(core::AssetTelemetryEventKind::MandatoryCandidateStaged,
+                      "assets.mandatory_publication.runtime") == 4);
+    CHECK(count_event(core::AssetTelemetryEventKind::MandatoryPublicationCommitted,
+                      "assets.mandatory_publication.runtime") == 2);
+    CHECK(count_event(core::AssetTelemetryEventKind::MandatoryPublicationRolledBack,
+                      "assets.mandatory_publication.runtime") == 2);
+    CHECK(count_event(core::AssetTelemetryEventKind::MandatoryPredecessorReleased,
+                      "assets.mandatory_publication.runtime") == 1);
+    CHECK(count_event(core::AssetTelemetryEventKind::MandatoryPublicationStaleGenerationRejected,
+                      "assets.mandatory_publication.runtime") == 1);
+    CHECK(count_event(core::AssetTelemetryEventKind::SourceGenerationAdvanced,
+                      "assets.source_generation_advanced") >= 1);
+    for (const auto& change : snapshot.retained_changes) {
+        const auto* event = std::get_if<core::AssetTelemetryEvent>(&change.payload);
+        if (event != nullptr && event->diagnostic_code == "assets.mandatory_publication.runtime") {
+            CHECK(event->memory.prepared_cpu_bytes >= 1);
+        }
+    }
+
+    publication.clear_on_owner();
+    shutdown(executor);
+}
+#endif
+
 TEST_CASE("prefetch outcome matrix passes in cooperative execution",
           "[assets][mandatory-assets][cooperative][prefetch]")
 {
@@ -1064,7 +1145,6 @@ TEST_CASE("mandatory asset groups emit exact profiler wait lifecycle records",
          .reason = assets::AssetRequestReason::Demand,
          .overlay_grace = 100ms,
          .show_overlay_immediately = false,
-         .retryable = true,
          .presentation_revision = core::PresentationSnapshotRevision::from_number(17)},
         now);
     group.poll_on_owner(now);
@@ -1142,8 +1222,8 @@ TEST_CASE("mandatory asset groups emit exact profiler wait lifecycle records",
     shutdown(executor);
 }
 
-TEST_CASE("mandatory asset retry closes and reopens distinct profiler waits",
-          "[assets][mandatory-assets][profiler][wait][retry]")
+TEST_CASE("replacement mandatory groups retain distinct profiler wait operations",
+          "[assets][mandatory-assets][profiler][wait][replacement]")
 {
     auto now = assets::MandatoryAssetRequestGroup::Clock::time_point{};
     core::EditorAssetProfilerService profiler([&] { return now; });
@@ -1183,21 +1263,21 @@ TEST_CASE("mandatory asset retry closes and reopens distinct profiler waits",
     CHECK(snapshot.outcomes.asset_wait_time_ns == 50);
 
     now = assets::MandatoryAssetRequestGroup::Clock::time_point{200ns};
-    REQUIRE(group.retry_on_owner(now));
-    const auto retry_operation = group.progress_on_owner().operation;
-    CHECK(retry_operation != failed_operation);
-    CHECK(group.state_on_owner() == assets::MandatoryAssetGroupState::Pending);
+    assets::MandatoryAssetRequestGroup replacement(manager, {descriptor}, {}, now);
+    const auto replacement_operation = replacement.progress_on_owner().operation;
+    CHECK(replacement_operation != failed_operation);
+    CHECK(replacement.state_on_owner() == assets::MandatoryAssetGroupState::Pending);
     snapshot = profiler.capture_on_owner();
     CHECK(snapshot.outcomes.asset_wait_count == 1);
-    group.poll_on_owner(now);
+    replacement.poll_on_owner(now);
     snapshot = profiler.capture_on_owner();
     CHECK(snapshot.outcomes.asset_wait_count == 1);
 
     executor.pump(10ms);
     (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
     now = assets::MandatoryAssetRequestGroup::Clock::time_point{260ns};
-    group.poll_on_owner(now);
-    REQUIRE(group.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
+    replacement.poll_on_owner(now);
+    REQUIRE(replacement.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
     snapshot = profiler.capture_on_owner();
     waits.clear();
     for (const auto& change : snapshot.retained_changes) {
@@ -1205,7 +1285,7 @@ TEST_CASE("mandatory asset retry closes and reopens distinct profiler waits",
             waits.push_back(*wait);
     }
     REQUIRE(waits.size() == 2);
-    CHECK(waits.back().operation == retry_operation);
+    CHECK(waits.back().operation == replacement_operation);
     CHECK(waits.back().result == core::AssetWaitResult::Completed);
     CHECK(waits.back().duration_ns == 60);
     CHECK(snapshot.outcomes.asset_wait_count == 2);

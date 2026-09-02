@@ -41,6 +41,13 @@ core::Diagnostic group_diagnostic(std::string code, std::string message)
     return {.code = std::move(code), .message = std::move(message)};
 }
 
+std::string_view publication_diagnostic_code(MandatoryPublicationScopeKind scope) noexcept
+{
+    return scope == MandatoryPublicationScopeKind::Runtime
+               ? std::string_view{"assets.mandatory_publication.runtime"}
+               : std::string_view{"assets.mandatory_publication.focused_preview"};
+}
+
 std::string logical_project_path(std::string_view path)
 {
     if (path.starts_with("project:/") || path.starts_with("system:/"))
@@ -388,7 +395,7 @@ struct MandatoryAssetRequestGroup::Impl {
         pending.clear();
         state = MandatoryAssetGroupState::Failed;
         progress.state = core::LoadingState::Failed;
-        progress.retryable = options.retryable;
+        progress.retryable = false;
         if (progress.diagnostics.empty()) {
             progress.diagnostics.push_back(group_diagnostic("assets.mandatory_group_failed",
                                                             "Mandatory asset preparation failed"));
@@ -484,16 +491,6 @@ void MandatoryAssetRequestGroup::poll_on_owner(Clock::time_point now) noexcept
     m_impl->progress.state = core::LoadingState::Completed;
     m_impl->progress.retryable = false;
     m_impl->close_wait(now, core::AssetWaitResult::Completed);
-}
-
-bool MandatoryAssetRequestGroup::retry_on_owner(Clock::time_point now) noexcept
-{
-    if (m_impl == nullptr || m_impl->state != MandatoryAssetGroupState::Failed ||
-        !m_impl->options.retryable)
-        return false;
-    m_impl->leases_taken = false;
-    m_impl->begin_on_owner(now);
-    return true;
 }
 
 void MandatoryAssetRequestGroup::cancel_on_owner() noexcept
@@ -616,6 +613,9 @@ MandatoryPublicationTransaction MandatoryPublicationScope::begin_transaction_on_
     else
         m_assets.stage_focused_candidate_leases_on_owner(std::move(leases));
     m_candidate_active = true;
+    m_assets.record_lifecycle_telemetry_on_owner(
+        core::AssetTelemetryEventKind::MandatoryCandidateStaged,
+        publication_diagnostic_code(m_kind));
     return MandatoryPublicationTransaction(*this, source_generation);
 }
 
@@ -629,6 +629,9 @@ MandatoryPublicationScope::commit_candidate_on_owner(AssetSourceGeneration sourc
              .message = "Mandatory publication candidate is no longer active"});
     }
     if (source_generation != m_assets.source_generation_on_owner()) {
+        m_assets.record_lifecycle_telemetry_on_owner(
+            core::AssetTelemetryEventKind::MandatoryPublicationStaleGenerationRejected,
+            publication_diagnostic_code(m_kind));
         rollback_candidate_on_owner();
         return core::DiagnosticResult<void>::failure(
             {.code = "assets.mandatory_publication_stale_source_generation",
@@ -643,6 +646,9 @@ MandatoryPublicationScope::commit_candidate_on_owner(AssetSourceGeneration sourc
         m_assets.commit_focused_candidate_leases_on_owner();
     }
     m_candidate_active = false;
+    m_assets.record_lifecycle_telemetry_on_owner(
+        core::AssetTelemetryEventKind::MandatoryPublicationCommitted,
+        publication_diagnostic_code(m_kind));
     return core::DiagnosticResult<void>::success();
 }
 
@@ -655,12 +661,20 @@ void MandatoryPublicationScope::rollback_candidate_on_owner() noexcept
     else
         m_assets.rollback_focused_candidate_leases_on_owner();
     m_candidate_active = false;
+    m_assets.record_lifecycle_telemetry_on_owner(
+        core::AssetTelemetryEventKind::MandatoryPublicationRolledBack,
+        publication_diagnostic_code(m_kind));
 }
 
 void MandatoryPublicationScope::release_predecessor_on_owner() noexcept
 {
-    if (m_kind == MandatoryPublicationScopeKind::Runtime)
+    if (m_kind == MandatoryPublicationScopeKind::Runtime &&
+        m_assets.has_previous_published_leases_on_owner()) {
         m_assets.clear_previous_published_leases_on_owner();
+        m_assets.record_lifecycle_telemetry_on_owner(
+            core::AssetTelemetryEventKind::MandatoryPredecessorReleased,
+            publication_diagnostic_code(m_kind));
+    }
 }
 
 void MandatoryPublicationScope::clear_on_owner() noexcept
@@ -915,7 +929,6 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
                                    .reason = AssetRequestReason::Demand,
                                    .overlay_grace = std::chrono::milliseconds{100},
                                    .show_overlay_immediately = false,
-                                   .retryable = true,
                                    .presentation_revision = snapshot.revision},
         now);
     m_impl->group->poll_on_owner(now);
@@ -1014,7 +1027,6 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
                                    .reason = AssetRequestReason::Demand,
                                    .overlay_grace = std::chrono::milliseconds{100},
                                    .show_overlay_immediately = true,
-                                   .retryable = true,
                                    .presentation_revision = m_impl->snapshot_revision},
         now);
     return core::Result<void, core::Diagnostics>::success();
@@ -1102,11 +1114,6 @@ void MandatoryAssetGate::rollback_candidate_on_owner() noexcept
     m_impl->group.reset();
     m_impl->snapshot_revision.reset();
     m_impl->pending_snapshot.reset();
-}
-
-bool MandatoryAssetGate::retry_on_owner(MandatoryAssetRequestGroup::Clock::time_point now) noexcept
-{
-    return m_impl->group && m_impl->group->retry_on_owner(now);
 }
 
 void MandatoryAssetGate::cancel_on_owner() noexcept { rollback_candidate_on_owner(); }
