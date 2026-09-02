@@ -513,16 +513,7 @@ struct MandatoryAssetGate::Impl {
 
         auto index =
             StructuredAssetDependencyIndex::build(*package, active_renderer_variant, generation);
-        const auto& requirements = index.texture_preparation_requirements();
-        auto installed =
-            assets.install_texture_preparation_requirements_on_owner(generation, requirements);
-        if (!installed) {
-            collector.reset();
-            return installed;
-        }
-
-        texture_requirement_generation = generation;
-        texture_requirements = requirements;
+        dependency_generation = generation;
         collector.emplace(std::move(index));
         return core::DiagnosticResult<void>::success();
     }
@@ -555,8 +546,7 @@ struct MandatoryAssetGate::Impl {
     const core::LoadedCompiledPackage* package = nullptr;
     std::string active_renderer_variant;
     std::optional<StructuredAssetDependencyCollector> collector;
-    AssetSourceGeneration texture_requirement_generation;
-    TexturePreparationRequirementMap texture_requirements;
+    AssetSourceGeneration dependency_generation;
     std::optional<MandatoryAssetRequestGroup> group;
     StructuredAssetDependencyBuckets dependencies;
     std::optional<core::PresentationSnapshotRevision> snapshot_revision;
@@ -602,30 +592,17 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
     }
 #endif
     m_impl->active_renderer_variant = std::string(active_renderer_variant);
+    if (generation != m_impl->assets.source_generation_on_owner()) {
+        m_impl->collector.reset();
+        m_impl->package = nullptr;
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.mandatory_gate_stale_source_generation",
+             .message = "Mandatory asset dependency collection targets a stale source generation"});
+    }
     auto index =
         StructuredAssetDependencyIndex::build(package, m_impl->active_renderer_variant, generation);
-    const auto& requirements = index.texture_preparation_requirements();
-    if (m_impl->texture_requirement_generation == generation) {
-        if (m_impl->texture_requirements != requirements) {
-            m_impl->collector.reset();
-            m_impl->package = nullptr;
-            return core::DiagnosticResult<void>::failure(
-                {.code = "assets.texture_preparation_requirements_changed",
-                 .message = "texture preparation requirements changed without a new source "
-                            "generation"});
-        }
-    } else {
-        auto installed = m_impl->assets.install_texture_preparation_requirements_on_owner(
-            generation, requirements);
-        if (!installed) {
-            m_impl->collector.reset();
-            m_impl->package = nullptr;
-            return installed;
-        }
-        m_impl->texture_requirement_generation = generation;
-        m_impl->texture_requirements = requirements;
-    }
     m_impl->package = &package;
+    m_impl->dependency_generation = generation;
     m_impl->collector.emplace(std::move(index));
     return core::DiagnosticResult<void>::success();
 }
@@ -661,7 +638,7 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
     }
 
     const auto current_generation = m_impl->assets.source_generation_on_owner();
-    if (m_impl->texture_requirement_generation != current_generation) {
+    if (m_impl->dependency_generation != current_generation) {
         // Dependency descriptors embed the source generation in their cache keys. Editor preview
         // asset staging can replace the project namespace after the package was indexed, so rebuild
         // before issuing mandatory requests; otherwise Ready request handles can be stored under a
@@ -713,7 +690,7 @@ MandatoryAssetGate::poll_on_owner(MandatoryAssetRequestGroup::Clock::time_point 
     if (!m_impl->group)
         return {};
     const auto current_generation = m_impl->assets.source_generation_on_owner();
-    if (m_impl->texture_requirement_generation != current_generation) {
+    if (m_impl->dependency_generation != current_generation) {
         // A project namespace refresh can happen while a mandatory request group is still loading
         // (notably when editor focused-preview resources advance). Those request handles belong to
         // the retired generation and must never be promoted into the next world publication.

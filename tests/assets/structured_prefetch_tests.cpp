@@ -370,10 +370,13 @@ public:
     std::unique_ptr<assets::AssetPreparationTask<assets::TextureAsset>>
     create_texture_preparation_task(const assets::TextureAssetRequest& request) override
     {
+        requests.push_back(request);
         m_recorder.calls.push_back("texture:" + request.path);
         return std::make_unique<ImmediatePreparationTask<assets::TextureAsset>>(
             assets::TextureAsset{.handle = 1, .path = request.path, .sampler = request.sampler});
     }
+
+    std::vector<assets::TextureAssetRequest> requests;
 
 private:
     DispatchRecorder& m_recorder;
@@ -628,6 +631,64 @@ TEST_CASE("structured collector builds typed ordered closure without dynamic sou
     CHECK(cycle.mandatory_diagnostics.empty());
 }
 
+TEST_CASE("structured texture dependencies carry alpha coverage into mandatory and prefetch work",
+          "[assets][structured-prefetch][texture-alpha]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    const assets::StructuredAssetDependencyCollector collector(index);
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-main"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+    assets::StructuredAssetDependencyContext mandatory_context;
+    mandatory_context.current_presentation = &snapshot;
+    const auto mandatory = collector.collect(mandatory_context);
+    const auto mandatory_texture = find_request<assets::TextureAssetRequest>(
+        mandatory.current_mandatory, [](const auto& request) {
+            return request.path == "project:/assets/images/main.png" &&
+                   request.sampler == MaterialTextureSampler::ClampLinear;
+        });
+    REQUIRE(mandatory_texture);
+    CHECK(std::get<assets::TextureAssetRequest>(
+              mandatory.current_mandatory[*mandatory_texture].request)
+              .retain_alpha_coverage);
+
+    assets::MandatoryAssetRequestGroup mandatory_group(
+        fixture.manager, {mandatory.current_mandatory[*mandatory_texture]},
+        {.reason = assets::AssetRequestReason::Demand, .show_overlay_immediately = true});
+    fixture.run_until_idle();
+    mandatory_group.poll_on_owner();
+    REQUIRE(mandatory_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
+    REQUIRE_FALSE(fixture.textures.requests.empty());
+    CHECK(fixture.textures.requests.back().retain_alpha_coverage);
+
+    fixture.textures.requests.clear();
+    assets::StructuredAssetDependencyContext speculative_context;
+    speculative_context.direct_next = core::compiled::Entrypoint{id<core::SceneId>("opening")};
+    const auto speculative = collector.collect(speculative_context);
+    const auto speculative_texture =
+        find_request<assets::TextureAssetRequest>(speculative.direct_next, [](const auto& request) {
+            return request.path == "project:/assets/images/main.png" &&
+                   request.sampler == MaterialTextureSampler::ClampLinear;
+        });
+    REQUIRE(speculative_texture);
+    CHECK(
+        std::get<assets::TextureAssetRequest>(speculative.direct_next[*speculative_texture].request)
+            .retain_alpha_coverage);
+
+    assets::PrefetchPlanner planner(fixture.manager);
+    REQUIRE(planner.replace_generation_on_owner(speculative));
+    fixture.run_until_idle();
+    REQUIRE_FALSE(fixture.textures.requests.empty());
+    CHECK(fixture.textures.requests.back().retain_alpha_coverage);
+}
+
 TEST_CASE("optional adjacency diagnostics do not block current mandatory publication",
           "[assets][structured-prefetch][mandatory-assets][optional-prefetch]")
 {
@@ -705,7 +766,7 @@ TEST_CASE("built-in contextual Layouts do not block mandatory publication",
     gate.clear_package_on_owner();
 }
 
-TEST_CASE("mandatory package rebinding reuses identical generation-scoped texture requirements",
+TEST_CASE("mandatory package rebinding reuses self-describing texture dependencies",
           "[assets][structured-prefetch][mandatory-assets][texture-alpha]")
 {
     PlannerFixture fixture;
@@ -716,6 +777,21 @@ TEST_CASE("mandatory package rebinding reuses identical generation-scoped textur
     REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
     gate.clear_package_on_owner();
     REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+}
+
+TEST_CASE("mandatory package binding rejects a stale source generation",
+          "[assets][structured-prefetch][mandatory-assets][source-generation]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto stale_generation = fixture.manager.source_generation_on_owner();
+    fixture.manager.mount("project", std::make_shared<assets::MemoryAssetSource>());
+    REQUIRE(fixture.manager.source_generation_on_owner() != stale_generation);
+
+    assets::MandatoryAssetGate gate(fixture.manager);
+    const auto bound = gate.bind_package_on_owner(package, "glsl-120", stale_generation);
+    REQUIRE_FALSE(bound);
+    CHECK(bound.error().code == "assets.mandatory_gate_stale_source_generation");
 }
 
 TEST_CASE("mandatory gate rebuilds generation-scoped dependency keys after project source refresh",
