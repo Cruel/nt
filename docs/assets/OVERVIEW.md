@@ -80,6 +80,16 @@ policy. The runtime enforces both total evictable residency and the configured W
 while preserving mandatory correctness; the player startup log and telemetry snapshots retain the
 fully resolved policy.
 
+`AssetProgressOrchestrator` is the owner-frame progress boundary above `AssetManager`. It derives a
+small `Idle`/`Background`/`Blocking` urgency from live typed request state so the engine can choose its
+own normal-versus-loading job-service budget without knowing which presentation consumer created the
+requests. Temporary-reservation release raises a shared owner-thread wake signal across typed asset
+domains, and owner-frame servicing retries only viable deferred non-prefetch requests; the same
+deferred scan is also the safety fallback if a wake signal is missed. Runtime input suppression
+remains `GameHost` presentation policy and is not implied by generic Blocking asset work. Speculative
+prefetch stays Background work and remains rejectable under memory pressure rather than entering the
+mandatory retry path.
+
 Runtime packages remain one indexed ZIP source. Production never converts a complete `.ntpkg` or all
 of its entries into `MemoryAssetSource`; that source remains available for tests and deliberately
 assembled tooling fixtures. Web transfers the downloaded archive directly to C++ ownership and never

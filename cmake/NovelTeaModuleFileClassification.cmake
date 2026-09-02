@@ -190,6 +190,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/active_text_playback.hpp
     engine/include/noveltea/animation/tween_service.hpp
     engine/include/noveltea/assets/asset_manager.hpp
+    engine/include/noveltea/assets/asset_progress.hpp
     engine/include/noveltea/assets/mandatory_asset_gate.hpp
     engine/include/noveltea/assets/asset_cache_keys.hpp
     engine/include/noveltea/assets/asset_path.hpp

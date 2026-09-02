@@ -1755,14 +1755,4 @@ void FocusedPreviewPresenter::update()
     commit_candidate(std::move(*leases));
 }
 
-bool FocusedPreviewPresenter::mandatory_assets_pending() const noexcept
-{
-    const auto pending = [](const auto& candidate) {
-        return candidate && candidate->asset_group &&
-               candidate->asset_group->state_on_owner() ==
-                   assets::MandatoryAssetGroupState::Pending;
-    };
-    return pending(m_non_room_candidate) || pending(m_candidate);
-}
-
 } // namespace noveltea::host

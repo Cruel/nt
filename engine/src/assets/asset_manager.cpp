@@ -1,5 +1,6 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/asset_cache_keys.hpp"
+#include "noveltea/assets/asset_progress.hpp"
 #include "noveltea/assets/mandatory_asset_gate.hpp"
 
 #include <SDL3/SDL_error.h>
@@ -331,12 +332,16 @@ struct AssetManager::AsyncState {
     AsyncState(jobs::JobExecutor& executor, std::shared_ptr<ResidencyManager> residency,
                core::AssetTelemetrySink* telemetry)
         : residency(std::move(residency)), telemetry(telemetry),
-          fonts(executor, this->residency, telemetry),
-          textures(executor, this->residency, telemetry),
-          hotspot_masks(executor, this->residency, telemetry),
-          shaders(executor, this->residency, telemetry),
-          materials(executor, this->residency, telemetry),
-          audio(executor, this->residency, telemetry)
+          fonts(executor, this->residency, telemetry, [this] { progress_wakeup_requested = true; }),
+          textures(executor, this->residency, telemetry,
+                   [this] { progress_wakeup_requested = true; }),
+          hotspot_masks(executor, this->residency, telemetry,
+                        [this] { progress_wakeup_requested = true; }),
+          shaders(executor, this->residency, telemetry,
+                  [this] { progress_wakeup_requested = true; }),
+          materials(executor, this->residency, telemetry,
+                    [this] { progress_wakeup_requested = true; }),
+          audio(executor, this->residency, telemetry, [this] { progress_wakeup_requested = true; })
     {
     }
 
@@ -357,8 +362,43 @@ struct AssetManager::AsyncState {
                materials.retry_deferred_on_owner() + audio.retry_deferred_on_owner();
     }
 
+    [[nodiscard]] AssetRequestProgress progress_on_owner() const noexcept
+    {
+        AssetRequestProgress result;
+        const auto merge = [&](const AssetRequestProgress& current) {
+            result.blocking = result.blocking || current.blocking;
+            result.background = result.background || current.background;
+            result.deferred_mandatory = result.deferred_mandatory || current.deferred_mandatory;
+        };
+        merge(fonts.progress_on_owner());
+        merge(textures.progress_on_owner());
+        merge(hotspot_masks.progress_on_owner());
+        merge(shaders.progress_on_owner());
+        merge(materials.progress_on_owner());
+        merge(audio.progress_on_owner());
+        return result;
+    }
+
+    std::size_t retry_deferred_mandatory_on_owner() noexcept
+    {
+        return fonts.retry_deferred_mandatory_on_owner() +
+               textures.retry_deferred_mandatory_on_owner() +
+               hotspot_masks.retry_deferred_mandatory_on_owner() +
+               shaders.retry_deferred_mandatory_on_owner() +
+               materials.retry_deferred_mandatory_on_owner() +
+               audio.retry_deferred_mandatory_on_owner();
+    }
+
+    [[nodiscard]] bool consume_progress_wakeup_on_owner() noexcept
+    {
+        const bool requested = progress_wakeup_requested;
+        progress_wakeup_requested = false;
+        return requested;
+    }
+
     std::shared_ptr<ResidencyManager> residency;
     core::AssetTelemetrySink* telemetry = nullptr;
+    bool progress_wakeup_requested = false;
     AssetRequestOrchestrator<FontAsset> fonts;
     AssetRequestOrchestrator<TextureAsset> textures;
     AssetRequestOrchestrator<HotspotMaskAsset> hotspot_masks;
@@ -386,6 +426,36 @@ AssetManager::AssetManager() : m_leases(std::make_unique<LeaseState>())
 AssetManager::~AssetManager() = default;
 AssetManager::AssetManager(AssetManager&&) noexcept = default;
 AssetManager& AssetManager::operator=(AssetManager&&) noexcept = default;
+
+AssetProgressOrchestrator::AssetProgressOrchestrator(AssetManager& assets) noexcept
+    : m_assets(assets)
+{
+}
+
+AssetProgressUrgency AssetProgressOrchestrator::urgency_on_owner() const noexcept
+{
+    if (m_assets.m_async == nullptr)
+        return AssetProgressUrgency::Idle;
+    const auto progress = m_assets.m_async->progress_on_owner();
+    if (progress.blocking)
+        return AssetProgressUrgency::Blocking;
+    if (progress.background)
+        return AssetProgressUrgency::Background;
+    return AssetProgressUrgency::Idle;
+}
+
+void AssetProgressOrchestrator::service_owner_frame() noexcept
+{
+    if (m_assets.m_async == nullptr)
+        return;
+    if (m_assets.m_async->consume_progress_wakeup_on_owner()) {
+        (void)m_assets.m_async->retry_deferred_mandatory_on_owner();
+        return;
+    }
+    if (!m_assets.m_async->progress_on_owner().deferred_mandatory)
+        return;
+    (void)m_assets.m_async->retry_deferred_mandatory_on_owner();
+}
 
 AssetPath::AssetPath(std::string logical)
 {

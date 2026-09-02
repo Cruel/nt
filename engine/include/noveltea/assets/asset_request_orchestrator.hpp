@@ -23,6 +23,12 @@
 
 namespace noveltea::assets {
 
+struct AssetRequestProgress {
+    bool blocking = false;
+    bool background = false;
+    bool deferred_mandatory = false;
+};
+
 class AssetManager;
 
 template<class T> struct PreparedAsset {
@@ -344,9 +350,11 @@ private:
 template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAssetState<T>> {
     AsyncAssetState(jobs::JobExecutor& configured_executor,
                     std::shared_ptr<ResidencyManager> configured_residency,
-                    core::AssetTelemetrySink* configured_telemetry)
+                    core::AssetTelemetrySink* configured_telemetry,
+                    std::function<void()> configured_capacity_released = {})
         : executor(configured_executor), residency(std::move(configured_residency)),
-          telemetry(configured_telemetry)
+          telemetry(configured_telemetry),
+          capacity_released(std::move(configured_capacity_released))
     {
         assert(residency != nullptr);
     }
@@ -534,12 +542,22 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         // The task owns any source/decode buffers covered by the preparation reservation. Destroy
         // those buffers before releasing the charge so accounting never understates live memory.
         entry->deferred_task.reset();
-        entry->preparation_reservation.reset();
+        release_preparation_reservation(entry);
         entry->state = AssetCacheState::Canceled;
         entry->diagnostics.clear();
         entry->estimated_cost = {};
         entry->accumulated_preparation = {};
         entry->source_read_completed_recorded = false;
+    }
+
+    void release_preparation_reservation(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
+    {
+        assert_owner();
+        if (!entry->preparation_reservation)
+            return;
+        entry->preparation_reservation.reset();
+        if (capacity_released)
+            capacity_released();
     }
 
     void recompute_interest(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
@@ -658,7 +676,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
 
         if (completion.status == jobs::JobTerminalStatus::Canceled || entry->invalidated ||
             !has_live_interest(*entry)) {
-            entry->preparation_reservation.reset();
+            release_preparation_reservation(entry);
             entry->state = AssetCacheState::Canceled;
             entry->diagnostics.clear();
             record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled, *entry,
@@ -669,7 +687,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             return;
         }
         if (completion.status == jobs::JobTerminalStatus::Failed) {
-            entry->preparation_reservation.reset();
+            release_preparation_reservation(entry);
             const std::string code = completion.diagnostics.empty()
                                          ? std::string{}
                                          : completion.diagnostics.front().code;
@@ -726,7 +744,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         if (finalization_duration <= std::chrono::steady_clock::duration::zero())
             finalization_duration = std::chrono::nanoseconds{1};
         if (!finalized) {
-            entry->preparation_reservation.reset();
+            release_preparation_reservation(entry);
             entry->state = AssetCacheState::Failed;
             entry->diagnostics = finalized.error();
             const std::string code =
@@ -750,7 +768,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         PreparedAsset<T> prepared = std::move(*finalized_value);
         if (entry->invalidated || !has_live_interest(*entry)) {
             discard_prepared(prepared);
-            entry->preparation_reservation.reset();
+            release_preparation_reservation(entry);
             entry->state = AssetCacheState::Canceled;
             record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled, *entry,
                                           {}, active_prefetch.get());
@@ -774,7 +792,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         auto admission = residency->admit_on_owner(std::move(admission_request));
         if (admission.admission == ResidencyAdmission::RejectedPrefetch) {
             discard_prepared(prepared);
-            entry->preparation_reservation.reset();
+            release_preparation_reservation(entry);
             entry->state = AssetCacheState::Canceled;
             entry->diagnostics = admission.diagnostics;
             const std::string code =
@@ -790,7 +808,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         }
         if (admission.admission == ResidencyAdmission::Deferred) {
             discard_prepared(prepared);
-            entry->preparation_reservation.reset();
+            release_preparation_reservation(entry);
             entry->state = AssetCacheState::Failed;
             entry->diagnostics = admission.diagnostics;
             const std::string code =
@@ -804,7 +822,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
 
         entry->asset = std::make_shared<T>(std::move(prepared.asset));
         entry->destroy_on_owner = std::move(prepared.destroy_on_owner);
-        entry->preparation_reservation.reset();
+        release_preparation_reservation(entry);
         entry->state = AssetCacheState::Resident;
         if (entry->policy_evicted) {
             ++entry->reload_count;
@@ -833,7 +851,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                                   : jobs::JobPriority::Critical;
         auto submitted = executor.submit(priority, std::move(job));
         if (!submitted) {
-            entry->preparation_reservation.reset();
+            release_preparation_reservation(entry);
             entry->state = AssetCacheState::Failed;
             entry->diagnostics = {submitted.error()};
             record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestFailed, *entry,
@@ -878,7 +896,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             }
             if (resized.admission == ResidencyAdmission::RejectedPrefetch) {
                 entry->deferred_task.reset();
-                entry->preparation_reservation.reset();
+                release_preparation_reservation(entry);
                 entry->state = AssetCacheState::Canceled;
                 entry->diagnostics = resized.diagnostics;
                 const std::string code =
@@ -1125,7 +1143,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             }
             invalidate_tickets(*entry);
             entry->deferred_task.reset();
-            entry->preparation_reservation.reset();
+            release_preparation_reservation(entry);
             if (entry->job_id.valid())
                 (void)executor.request_cancel(entry->job_id);
             if (entry->state == AssetCacheState::Resident) {
@@ -1141,6 +1159,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     jobs::JobExecutor& executor;
     std::shared_ptr<ResidencyManager> residency;
     core::AssetTelemetrySink* telemetry = nullptr;
+    std::function<void()> capacity_released;
     std::map<AssetCacheKey, std::shared_ptr<AsyncAssetEntry<T>>> entries;
     bool accepting = true;
 };
@@ -1163,9 +1182,10 @@ template<class T> class AssetRequestOrchestrator {
 public:
     AssetRequestOrchestrator(jobs::JobExecutor& executor,
                              std::shared_ptr<ResidencyManager> residency,
-                             core::AssetTelemetrySink* telemetry = nullptr)
-        : m_state(std::make_shared<detail::AsyncAssetState<T>>(executor, std::move(residency),
-                                                               telemetry))
+                             core::AssetTelemetrySink* telemetry = nullptr,
+                             std::function<void()> capacity_released = {})
+        : m_state(std::make_shared<detail::AsyncAssetState<T>>(
+              executor, std::move(residency), telemetry, std::move(capacity_released)))
     {
     }
 
@@ -1348,6 +1368,64 @@ public:
                 ++started;
         }
         return started;
+    }
+
+    std::size_t retry_deferred_mandatory_on_owner() noexcept
+    {
+        m_state->assert_owner();
+        std::size_t started = 0;
+        for (const auto& [_, entry] : m_state->entries) {
+            if (entry->deferred_task == nullptr || entry->job_id.valid())
+                continue;
+            bool mandatory = false;
+            for (const auto& weak : entry->consumers) {
+                const auto consumer = weak.lock();
+                if (consumer != nullptr && consumer->active &&
+                    consumer->state == AssetRequestState::Pending) {
+                    mandatory = true;
+                    break;
+                }
+            }
+            if (!mandatory)
+                continue;
+            m_state->try_start_deferred(entry);
+            if (entry->job_id.valid())
+                ++started;
+        }
+        return started;
+    }
+
+    [[nodiscard]] AssetRequestProgress progress_on_owner() const noexcept
+    {
+        m_state->assert_owner();
+        AssetRequestProgress result;
+        for (const auto& [_, entry] : m_state->entries) {
+            bool mandatory = false;
+            for (const auto& weak : entry->consumers) {
+                const auto consumer = weak.lock();
+                if (consumer != nullptr && consumer->active &&
+                    consumer->state == AssetRequestState::Pending) {
+                    mandatory = true;
+                    break;
+                }
+            }
+            if (mandatory) {
+                result.blocking = true;
+                if (entry->deferred_task != nullptr && !entry->job_id.valid())
+                    result.deferred_mandatory = true;
+            } else if (entry->job_id.valid() || entry->deferred_task != nullptr) {
+                for (const auto& weak : entry->tickets) {
+                    const auto ticket = weak.lock();
+                    if (ticket != nullptr && ticket->active) {
+                        result.background = true;
+                        break;
+                    }
+                }
+            }
+            if (result.blocking && result.background && result.deferred_mandatory)
+                break;
+        }
+        return result;
     }
 
     void invalidate_generation_on_owner(AssetSourceGeneration generation) noexcept
