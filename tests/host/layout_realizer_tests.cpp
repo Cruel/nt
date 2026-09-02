@@ -4,6 +4,7 @@
 #include "script/lua/script_runtime_internal.hpp"
 
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/jobs/inline_job_executor.hpp"
 #include "fake_script_source.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -12,6 +13,7 @@
 #include <array>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,6 +41,84 @@ static_assert(!std::is_move_constructible_v<PresentationLayoutReconciler>);
 static_assert(!std::is_move_assignable_v<PresentationLayoutReconciler>);
 
 namespace {
+
+class InlineExecutorShutdown final {
+public:
+    explicit InlineExecutorShutdown(jobs::InlineJobExecutor& executor) noexcept
+        : m_executor(executor)
+    {
+    }
+
+    ~InlineExecutorShutdown()
+    {
+        m_executor.begin_shutdown();
+        (void)m_executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    }
+
+private:
+    jobs::InlineJobExecutor& m_executor;
+};
+
+class FocusedTexturePreparationTask final
+    : public assets::AssetPreparationTask<assets::TextureAsset> {
+public:
+    explicit FocusedTexturePreparationTask(assets::TextureAssetRequest request)
+        : m_request(std::move(request))
+    {
+    }
+
+    [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+    {
+        return {.prepared_cpu_bytes = 1};
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
+    {
+        m_ready = !context.cancellation_requested();
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] core::Result<assets::PreparedAsset<assets::TextureAsset>, core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        if (!m_ready) {
+            return core::Result<assets::PreparedAsset<assets::TextureAsset>, core::Diagnostics>::
+                failure({{.code = "test.focused_texture_not_ready",
+                          .message = "focused texture preparation was canceled"}});
+        }
+        return core::Result<assets::PreparedAsset<assets::TextureAsset>,
+                            core::Diagnostics>::success({.asset =
+                                                             assets::TextureAsset{
+                                                                 .handle = 1,
+                                                                 .path = std::move(m_request.path),
+                                                                 .sampler = m_request.sampler},
+                                                         .cost = {.prepared_cpu_bytes = 1},
+                                                         .destroy_on_owner = {}});
+    }
+
+private:
+    assets::TextureAssetRequest m_request;
+    bool m_ready = false;
+};
+
+class FocusedTextureLoader final : public assets::TextureAssetLoader {
+public:
+    assets::AssetLoadResult<assets::TextureAsset>
+    load_texture(const assets::TextureAssetRequest& request) override
+    {
+        return {assets::TextureAsset{.handle = 1, .path = request.path, .sampler = request.sampler},
+                {}};
+    }
+
+    std::unique_ptr<assets::AssetPreparationTask<assets::TextureAsset>>
+    create_texture_preparation_task(const assets::TextureAssetRequest& request) override
+    {
+        requests.push_back(request);
+        return std::make_unique<FocusedTexturePreparationTask>(request);
+    }
+
+    std::vector<assets::TextureAssetRequest> requests;
+};
 
 class FakeLayoutBackend final : public LayoutRealizer::Backend {
 public:
@@ -670,7 +750,19 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
 
 TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candidates")
 {
+    jobs::InlineJobExecutor asset_executor;
+    InlineExecutorShutdown asset_executor_shutdown(asset_executor);
+    auto asset_residency = std::make_shared<assets::AssetResidencyManager>(assets::ResidencyBudget{
+        .source_bytes = 1024 * 1024,
+        .prepared_cpu_bytes = 1024 * 1024,
+        .gpu_bytes = 1024 * 1024,
+        .audio_bytes = 1024 * 1024,
+        .temporary_bytes = 1024 * 1024,
+    });
     assets::AssetManager assets;
+    REQUIRE(assets.configure_async_requests(asset_executor, asset_residency));
+    FocusedTextureLoader focused_textures;
+    assets.bind_texture_loader(&focused_textures);
     FakeLayoutBackend backend;
     LayoutRealizer layouts(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
     AssetWorldPresentationResourceResolver world(assets);
@@ -1109,16 +1201,20 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
 
     auto alpha_layout_two = make_request(core::editor::FocusedEditorDocumentKind::Layout,
                                          "layout-alpha-two", layout, 17);
-    alpha_layout_two.resources = {{.resource_id = "asset:alpha-sprite",
+    alpha_layout_two.resources = {{.resource_id = "asset:alpha-sprite-two",
                                    .source_kind = "authoring-asset",
-                                   .logical_path = "project:/images/alpha-sprite.png",
-                                   .content_hash = "sha256:" + std::string(64, 'c'),
+                                   .logical_path = "project:/images/alpha-sprite-two.png",
+                                   .content_hash = "sha256:" + std::string(64, 'd'),
                                    .byte_size = 4,
                                    .kind = "image",
                                    .sampling = "linear",
                                    .retain_alpha_coverage = true,
-                                   .asset_id = "alpha-sprite"}};
+                                   .asset_id = "alpha-sprite-two"}};
     REQUIRE(presenter.apply(std::move(alpha_layout_two)));
+    REQUIRE(focused_textures.requests.size() >= 2);
+    CHECK(focused_textures.requests[focused_textures.requests.size() - 2].retain_alpha_coverage);
+    CHECK(focused_textures.requests.back().path == "project:/images/alpha-sprite-two.png");
+    CHECK(focused_textures.requests.back().retain_alpha_coverage);
 }
 
 } // namespace noveltea::host

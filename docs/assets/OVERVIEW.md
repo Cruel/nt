@@ -54,9 +54,15 @@ never understates live memory and cannot leak after cancellation.
 preparation tasks. Texture reads, image decode and mip generation, compiled shader-binary reads,
 material setup, and font-source reads now advance as bounded preparation steps; bgfx and text-engine
 resource creation/destruction remains owner-thread work and reports source, prepared-CPU, or GPU
-residency cost. Image preparation parses encoded dimensions before decode, atomically expands its
-temporary reservation for encoded input, decoder output, upload copies, mip storage, and scratch, and
-rejects unsupported or overflowing dimensions before allocating those buffers. Audio requests now
+residency cost. `TextureAssetRequest` carries runtime preparation capabilities such as retained alpha
+coverage directly alongside the runtime path and sampler. Mandatory structured dependencies,
+speculative prefetch, and focused preview all propagate that capability on the typed request, so
+initial image preparation does not depend on a separately installed requirement or caller ordering.
+Texture cache identity remains the resolved runtime path plus sampler and `AssetSourceGeneration`;
+export-time compression, resize, and transcode policy are upstream packaging concerns rather than
+runtime preparation identity. Image preparation parses encoded dimensions before decode, atomically
+expands its temporary reservation for encoded input, decoder output, upload copies, mip storage, and
+scratch, and rejects unsupported or overflowing dimensions before allocating those buffers. Audio requests now
 use concrete preparation tasks as well. SFX source reads and PCM decode advance in bounded 256 KiB
 steps; after decoder initialization, the task calculates the complete 48 kHz stereo float size and
 expands its temporary reservation before allocating PCM. Unknown or overflowing decoded lengths fail

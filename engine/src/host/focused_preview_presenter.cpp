@@ -1092,8 +1092,6 @@ void FocusedPreviewPresenter::clear() noexcept
     m_project_instance_id.clear();
     m_latest_apply_sequence = 0;
     m_resource_generation = 0;
-    m_texture_requirement_source_generation = {};
-    m_texture_requirement_resource_generation.reset();
 }
 
 void FocusedPreviewPresenter::release_state(FocusedState& state) noexcept
@@ -1126,7 +1124,6 @@ FocusedPreviewPresenter::build_asset_requests(
     const ShaderMaterialProject& materials)
 {
     std::vector<assets::StructuredAssetRequestDescriptor> result;
-    assets::TexturePreparationRequirementMap texture_requirements;
     const auto generation = m_dependencies.assets.source_generation_on_owner();
     std::optional<std::string> active_shader_variant;
     for (const auto& resource : request.resources) {
@@ -1148,14 +1145,10 @@ FocusedPreviewPresenter::build_asset_requests(
             const assets::TextureAssetRequest typed{
                 .path = path,
                 .sampler = resource.sampling == "nearest" ? MaterialTextureSampler::ClampNearest
-                                                          : MaterialTextureSampler::ClampLinear};
+                                                          : MaterialTextureSampler::ClampLinear,
+                .retain_alpha_coverage = resource.retain_alpha_coverage};
             result.push_back(
                 {.request = typed, .cache_key = assets::make_texture_cache_key(typed, generation)});
-            if (resource.retain_alpha_coverage) {
-                texture_requirements.emplace(
-                    assets::make_texture_cache_key(typed, generation),
-                    assets::TexturePreparationRequirements{.retain_alpha_coverage = true});
-            }
         } else if (resource.kind == "font") {
             const assets::FontAssetRequest typed{
                 .alias = resource.asset_id.value_or(resource.resource_id),
@@ -1163,19 +1156,6 @@ FocusedPreviewPresenter::build_asset_requests(
             result.push_back(
                 {.request = typed, .cache_key = assets::make_font_cache_key(typed, generation)});
         }
-    }
-    const bool requirements_already_installed =
-        m_texture_requirement_source_generation == generation &&
-        m_texture_requirement_resource_generation == request.resource_stage_generation;
-    if (!texture_requirements.empty() && !requirements_already_installed) {
-        auto installed = m_dependencies.assets.install_texture_preparation_requirements_on_owner(
-            generation, std::move(texture_requirements));
-        if (!installed) {
-            return core::Result<std::vector<assets::StructuredAssetRequestDescriptor>,
-                                core::Diagnostics>::failure({std::move(installed).error()});
-        }
-        m_texture_requirement_source_generation = generation;
-        m_texture_requirement_resource_generation = request.resource_stage_generation;
     }
     std::unordered_set<std::string> shader_program_keys;
     for (const auto& material : materials.materials) {
@@ -1299,8 +1279,6 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         m_project_instance_id = request.project_instance_id;
         m_latest_apply_sequence = 0;
         m_resource_generation = 0;
-        m_texture_requirement_source_generation = {};
-        m_texture_requirement_resource_generation.reset();
     }
     if (request.apply_sequence == 0 || request.apply_sequence <= m_latest_apply_sequence) {
         m_dependencies.report({error("editor_preview.stale_apply_sequence",

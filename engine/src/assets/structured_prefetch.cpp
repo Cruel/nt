@@ -204,6 +204,19 @@ struct StructuredAssetDependencyIndex::Impl {
         return found == assets.end() ? nullptr : found->second;
     }
 
+    [[nodiscard]] StructuredAssetRequestDescriptor
+    complete_texture_request(StructuredAssetRequestDescriptor descriptor) const
+    {
+        auto* request = std::get_if<TextureAssetRequest>(&descriptor.request);
+        if (request == nullptr)
+            return descriptor;
+        if (const auto found = texture_preparation_requirements.find(descriptor.cache_key);
+            found != texture_preparation_requirements.end()) {
+            request->retain_alpha_coverage |= found->second.retain_alpha_coverage;
+        }
+        return descriptor;
+    }
+
     void append_asset(DescriptorAccumulator& output, const core::AssetId& id,
                       core::compiled::AssetKind expected, core::Diagnostics& collection_diagnostics,
                       std::string_view context) const
@@ -221,7 +234,7 @@ struct StructuredAssetDependencyIndex::Impl {
             return;
         }
         if (expected == core::compiled::AssetKind::Image)
-            output.add(texture_descriptor(*asset, source_generation));
+            output.add(complete_texture_request(texture_descriptor(*asset, source_generation)));
         else if (expected == core::compiled::AssetKind::Font)
             output.add(font_descriptor(*asset, source_generation));
     }
@@ -862,8 +875,8 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
             for (const auto& assignment : registered->textures) {
                 if (!static_package_texture(assignment.source))
                     continue;
-                dependencies.add(
-                    texture_descriptor(assignment.source, assignment.filtering, source_generation));
+                dependencies.add(impl->complete_texture_request(texture_descriptor(
+                    assignment.source, assignment.filtering, source_generation)));
             }
             impl->material_dependencies.emplace(
                 registered->id.string(),

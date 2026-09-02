@@ -1485,7 +1485,7 @@ AssetManager::request_texture(const TextureAssetRequest& request,
     const auto key = make_texture_cache_key(request, m_source_generation);
     if (const auto found = m_texture_preparation_requirements.find(key);
         found != m_texture_preparation_requirements.end()) {
-        prepared_request.retain_alpha_coverage = found->second.retain_alpha_coverage;
+        prepared_request.retain_alpha_coverage |= found->second.retain_alpha_coverage;
     }
     auto task = m_texture_loader->create_texture_preparation_task(prepared_request);
     if (task == nullptr) {
@@ -1616,7 +1616,7 @@ AssetManager::prefetch_texture(const TextureAssetRequest& request,
     const auto key = make_texture_cache_key(request, m_source_generation);
     if (const auto found = m_texture_preparation_requirements.find(key);
         found != m_texture_preparation_requirements.end()) {
-        prepared_request.retain_alpha_coverage = found->second.retain_alpha_coverage;
+        prepared_request.retain_alpha_coverage |= found->second.retain_alpha_coverage;
     }
     auto task = m_texture_loader->create_texture_preparation_task(prepared_request);
     if (task == nullptr) {

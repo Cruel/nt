@@ -476,11 +476,8 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
         const assets::TextureAssetRequest request{
             .path = "project:/textures/one.png",
             .sampler = MaterialTextureSampler::ClampLinear,
+            .retain_alpha_coverage = true,
         };
-        REQUIRE(manager.install_texture_preparation_requirements_on_owner(
-            manager.source_generation_on_owner(),
-            {{assets::make_texture_cache_key(request, manager.source_generation_on_owner()),
-              {.retain_alpha_coverage = true}}}));
         auto requested = manager.request_texture(request, assets::AssetRequestReason::Demand);
         REQUIRE(requested);
         auto handle = std::move(requested).value();
@@ -998,8 +995,14 @@ TEST_CASE("Visual asset cache-key builders include options and source generation
                                               .sampler = MaterialTextureSampler::ClampNearest};
     const assets::TextureAssetRequest linear{.path = "project:/textures/a.png",
                                              .sampler = MaterialTextureSampler::ClampLinear};
+    const assets::TextureAssetRequest linear_with_alpha{.path = "project:/textures/a.png",
+                                                        .sampler =
+                                                            MaterialTextureSampler::ClampLinear,
+                                                        .retain_alpha_coverage = true};
     CHECK(assets::make_texture_cache_key(nearest, first) !=
           assets::make_texture_cache_key(linear, first));
+    CHECK(assets::make_texture_cache_key(linear, first) ==
+          assets::make_texture_cache_key(linear_with_alpha, first));
     CHECK(assets::make_texture_cache_key(nearest, first).source_generation == first);
     CHECK(assets::make_texture_cache_key(nearest, first) !=
           assets::make_texture_cache_key(nearest, second));
