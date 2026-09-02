@@ -196,6 +196,12 @@ export type AssetProfilerRetainedTelemetryEventKind =
   | 'prefetch-unused'
   | 'capability-joined'
   | 'capability-enriched'
+  | 'mandatory-candidate-staged'
+  | 'mandatory-publication-committed'
+  | 'mandatory-publication-rolled-back'
+  | 'mandatory-predecessor-released'
+  | 'mandatory-publication-stale-generation-rejected'
+  | 'source-generation-advanced'
   | 'memory-policy-resolved'
   | 'budget-pressure';
 
@@ -654,6 +660,12 @@ function isTelemetry(value: unknown): value is AssetProfilerTelemetryEvent {
       'prefetch-unused',
       'capability-joined',
       'capability-enriched',
+      'mandatory-candidate-staged',
+      'mandatory-publication-committed',
+      'mandatory-publication-rolled-back',
+      'mandatory-predecessor-released',
+      'mandatory-publication-stale-generation-rejected',
+      'source-generation-advanced',
       'memory-policy-resolved',
       'budget-pressure',
     ]) &&

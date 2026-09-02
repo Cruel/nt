@@ -303,6 +303,36 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     require_decimal_wire_fields(payload);
 }
 
+TEST_CASE("Editor asset profiler JSON publishes mandatory lifecycle event names",
+          "[assets][telemetry-matrix][profiler][json][publication]")
+{
+    const std::vector<std::pair<core::AssetTelemetryEventKind, std::string_view>> cases{
+        {core::AssetTelemetryEventKind::MandatoryCandidateStaged, "mandatory-candidate-staged"},
+        {core::AssetTelemetryEventKind::MandatoryPublicationCommitted,
+         "mandatory-publication-committed"},
+        {core::AssetTelemetryEventKind::MandatoryPublicationRolledBack,
+         "mandatory-publication-rolled-back"},
+        {core::AssetTelemetryEventKind::MandatoryPredecessorReleased,
+         "mandatory-predecessor-released"},
+        {core::AssetTelemetryEventKind::MandatoryPublicationStaleGenerationRejected,
+         "mandatory-publication-stale-generation-rejected"},
+        {core::AssetTelemetryEventKind::SourceGenerationAdvanced, "source-generation-advanced"},
+    };
+
+    for (const auto& [kind, name] : cases) {
+        auto snapshot = full_snapshot();
+        core::AssetTelemetryEvent event{};
+        event.kind = kind;
+        snapshot.retained_changes = {
+            {.sequence = {1}, .timestamp_ns = 1, .payload = std::move(event)}};
+        snapshot.latest_sequence = {1};
+        const auto payload =
+            Json::parse(core::serialize_asset_profiler_snapshot(snapshot)).at("payload");
+        REQUIRE(payload.at("retainedChanges").size() == 1);
+        CHECK(payload.at("retainedChanges").at(0).at("event").at("eventKind") == name);
+    }
+}
+
 TEST_CASE("Editor asset profiler delta JSON preserves cursor and replacement semantics",
           "[assets][telemetry-matrix][profiler][json]")
 {

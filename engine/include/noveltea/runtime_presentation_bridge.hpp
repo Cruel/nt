@@ -77,7 +77,6 @@ public:
     [[nodiscard]] bool mandatory_assets_failed() const noexcept;
     [[nodiscard]] bool mandatory_asset_overlay_visible() const noexcept;
     [[nodiscard]] const core::LoadingProgress* mandatory_asset_progress() const noexcept;
-    [[nodiscard]] bool retry_mandatory_assets() noexcept;
 
     [[nodiscard]] const core::PresentationCheckpointStatus&
     checkpoint_status() const noexcept override

@@ -2004,13 +2004,6 @@ void Engine::Impl::handle_events()
     m_platform.poll_events();
 
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
-        if (m_game_host.mandatory_assets_failed() && event.type == SDL_EVENT_KEY_DOWN &&
-            !event.key.repeat &&
-            (event.key.key == SDLK_R || event.key.key == SDLK_RETURN ||
-             event.key.key == SDLK_KP_ENTER)) {
-            (void)m_game_host.runtime_presentation().retry_mandatory_assets();
-            continue;
-        }
         const auto layout_input = m_game_host.runtime_layouts().evaluate_input_policy();
         const auto normalized = host::normalize_host_event(event, m_platform.surface());
         auto routed = m_input_router.route(
@@ -2601,8 +2594,6 @@ void Engine::Impl::render()
                                           ? "Mandatory asset preparation failed"
                                           : progress->diagnostics.front().message.c_str();
                 m_renderer.debug_printf(4, 6, 0x0f, "%s", message);
-                if (progress->retryable)
-                    m_renderer.debug_printf(4, 8, 0x0f, "Press R or Enter to retry");
             }
         }
     }
@@ -2890,7 +2881,6 @@ bool EngineTooling::set_postprocess_material(Engine& engine, std::string materia
                                            .reason = assets::AssetRequestReason::Demand,
                                            .overlay_grace = std::chrono::milliseconds{0},
                                            .show_overlay_immediately = false,
-                                           .retryable = false,
                                            .presentation_revision = std::nullopt});
     impl.m_tooling_postprocess_material_id = material_id;
     impl.m_assets.clear_supplemental_leases_on_owner();

@@ -76,7 +76,6 @@ struct MandatoryAssetGroupOptions {
     AssetRequestReason reason = AssetRequestReason::Demand;
     std::chrono::milliseconds overlay_grace{100};
     bool show_overlay_immediately = false;
-    bool retryable = true;
     std::optional<core::PresentationSnapshotRevision> presentation_revision;
 };
 
@@ -96,7 +95,6 @@ public:
     MandatoryAssetRequestGroup& operator=(MandatoryAssetRequestGroup&&) noexcept;
 
     void poll_on_owner(Clock::time_point now = Clock::now()) noexcept;
-    [[nodiscard]] bool retry_on_owner(Clock::time_point now = Clock::now()) noexcept;
     void cancel_on_owner() noexcept;
     void show_overlay_immediately_on_owner() noexcept;
 
@@ -240,8 +238,6 @@ public:
     take_ready_transaction_on_owner() noexcept;
     void release_previous_publication_on_owner() noexcept;
     void rollback_candidate_on_owner() noexcept;
-    [[nodiscard]] bool retry_on_owner(MandatoryAssetRequestGroup::Clock::time_point now =
-                                          MandatoryAssetRequestGroup::Clock::now()) noexcept;
     void cancel_on_owner() noexcept;
     void show_overlay_immediately_on_owner() noexcept;
 

@@ -410,6 +410,13 @@ add_test(
 set_tests_properties(noveltea_production_asset_path_policy PROPERTIES
     LABELS "assets;production-paths;source-policy;package;audio")
 add_test(
+    NAME noveltea_asset_lifecycle_boundary_policy
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/cmake/asset_lifecycle_boundary_policy.cmake")
+set_tests_properties(noveltea_asset_lifecycle_boundary_policy PROPERTIES
+    LABELS "assets;production-paths;source-policy;mandatory;publication")
+add_test(
     NAME noveltea_editor_asset_profiler_preset_policy
     COMMAND "${CMAKE_COMMAND}"
         "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"

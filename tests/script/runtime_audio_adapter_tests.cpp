@@ -197,7 +197,8 @@ public:
 class PublishedAudioAssets final {
 public:
     explicit PublishedAudioAssets(assets::AssetManager& assets)
-        : m_assets(assets), m_executor(shared_executor())
+        : m_assets(assets), m_executor(shared_executor()),
+          m_publication(m_assets, assets::MandatoryPublicationScopeKind::Runtime)
     {
         m_residency = std::make_shared<assets::AssetResidencyManager>(assets::ResidencyBudget{
             .source_bytes = 64 * 1024 * 1024,
@@ -225,8 +226,9 @@ public:
         REQUIRE(group.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
         auto leases = group.take_ready_leases_on_owner();
         REQUIRE(leases);
-        m_assets.stage_candidate_leases_on_owner(std::move(*leases));
-        m_assets.commit_candidate_leases_on_owner();
+        auto transaction = m_publication.begin_transaction_on_owner(
+            std::move(*leases), m_assets.source_generation_on_owner());
+        REQUIRE(transaction.commit_on_owner(false));
     }
 
 private:
@@ -247,6 +249,7 @@ private:
 
     assets::AssetManager& m_assets;
     jobs::InlineJobExecutor& m_executor;
+    assets::MandatoryPublicationScope m_publication;
     std::shared_ptr<assets::AssetResidencyManager> m_residency;
 };
 

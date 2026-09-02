@@ -641,11 +641,6 @@ const core::LoadingProgress* RuntimePresentationBridge::mandatory_asset_progress
     return m_mandatory_asset_gate ? m_mandatory_asset_gate->progress_on_owner() : nullptr;
 }
 
-bool RuntimePresentationBridge::retry_mandatory_assets() noexcept
-{
-    return m_mandatory_asset_gate && m_mandatory_asset_gate->retry_on_owner();
-}
-
 void RuntimePresentationBridge::terminate(core::PresentationCancellationReason reason)
 {
     m_coordinator.cancel_all(reason);

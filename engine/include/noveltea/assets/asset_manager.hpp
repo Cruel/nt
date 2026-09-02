@@ -79,7 +79,6 @@ public:
     refresh_namespace_on_owner(std::string_view namespace_name) noexcept;
     [[nodiscard]] core::Result<PrefetchGenerationId, core::Diagnostic>
     create_prefetch_generation_on_owner() const noexcept;
-    [[nodiscard]] std::size_t retry_deferred_asset_requests_on_owner() noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>
     request_font(const FontAssetRequest& request, AssetRequestReason reason) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
@@ -111,16 +110,6 @@ public:
     [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
     prefetch_audio(const AudioAssetRequest& request, PrefetchGenerationId generation) noexcept;
 
-    // Mandatory publication candidates are visible to typed consumers only while the owner thread
-    // realizes that candidate. Commit rotates the prior published lease set into one bounded
-    // predecessor slot so finite presentation operations can realize exact source and target
-    // revisions concurrently. Rollback leaves the current publication pinned and releases only
-    // candidate leases.
-    void stage_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
-    void commit_candidate_leases_on_owner() noexcept;
-    void rollback_candidate_leases_on_owner() noexcept;
-    void clear_previous_published_leases_on_owner() noexcept;
-    void clear_published_leases_on_owner() noexcept;
     // Tooling-only demand assets are layered behind candidate/published runtime leases so
     // diagnostics and acceptance fixtures can exercise the same asynchronous preparation path
     // without replacing the runtime package's atomic publication set.
@@ -156,6 +145,14 @@ public:
 private:
     friend class AssetProgressOrchestrator;
     friend class MandatoryPublicationScope;
+    // Raw publication slots are an implementation detail of MandatoryPublicationScope. Production
+    // consumers must use publication transactions instead of staging/committing these slots
+    // directly.
+    void stage_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
+    void commit_candidate_leases_on_owner() noexcept;
+    void rollback_candidate_leases_on_owner() noexcept;
+    void clear_previous_published_leases_on_owner() noexcept;
+    void clear_published_leases_on_owner() noexcept;
     void stage_focused_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
     void commit_focused_candidate_leases_on_owner() noexcept;
     void rollback_focused_candidate_leases_on_owner() noexcept;
@@ -174,6 +171,9 @@ private:
     struct AsyncState;
     struct LeaseState;
 
+    [[nodiscard]] core::AssetTelemetrySink* telemetry_sink_on_owner() const noexcept;
+    void record_lifecycle_telemetry_on_owner(core::AssetTelemetryEventKind kind,
+                                             std::string_view diagnostic_code) const noexcept;
     [[nodiscard]] const std::vector<AssetSourcePtr>* sources_for(const AssetPath& path) const;
     [[nodiscard]] std::string namespace_for(const AssetPath& path) const;
     void bump_source_generation_on_owner() const noexcept;

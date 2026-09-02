@@ -106,7 +106,8 @@ domains, and owner-frame servicing retries only viable deferred non-prefetch req
 deferred scan is also the safety fallback if a wake signal is missed. Runtime input suppression
 remains `GameHost` presentation policy and is not implied by generic Blocking asset work. Speculative
 prefetch stays Background work and remains rejectable under memory pressure rather than entering the
-mandatory retry path.
+shared mandatory progress loop. Presentation consumers do not expose or call deferred-retry APIs;
+they observe request/publication state while `AssetProgressOrchestrator` owns deferred progress.
 
 Runtime packages remain one indexed ZIP source. Production never converts a complete `.ntpkg` or all
 of its entries into `MemoryAssetSource`; that source remains available for tests and deliberately
@@ -159,7 +160,10 @@ source refresh cannot promote a ready-but-stale candidate while the previous com
 remains pinned. Runtime uses its own scope and advances speculative-prefetch generation only after
 that transaction commit succeeds. Focused Room, Layout, and Shader preview owns a separate
 `FocusedPreview` scope; it realizes against that scope's candidate leases and commits independently
-without sharing, replacing, or cancelling runtime publication state.
+without sharing, replacing, or cancelling runtime publication state. Raw runtime/focused candidate,
+published, and predecessor lease slots are private `AssetManager` implementation details reachable
+only by the shared publication scope; production consumers cannot stage, commit, roll back, or clear
+those slots directly.
 
 Runtime commits may retain one bounded predecessor lease set in addition to the current published
 set. Finite world presentation operations can therefore realize their exact source and target
@@ -176,6 +180,13 @@ diagnostic codes, memory snapshots, and exact eviction reasons. Preparation-only
 placeholder source-read events. Prefetch demand is classified once as late or miss at request time,
 used at the first actual Demand lease acquisition, or unused at eviction/invalidation. Completed
 prefetch provenance survives stale-ticket release until that lifecycle is claimed or evicted.
+Publication telemetry retains candidate staging, explicit commit, rollback, predecessor release,
+stale-generation rejection, and source-generation advancement. Runtime and focused-preview
+publication events carry stable scope diagnostic codes, while generation-scoped request/cache-key
+records and the explicit source-generation advancement event preserve invalidation correlation.
+Combined with asset-wait records, budget/rejection events, and capability join/enrichment events,
+deepening the operational boundary does not remove the diagnostics needed to explain
+blocking/background progress or publication lifetime.
 `capture_asset_profiler_snapshot_on_owner()` combines copied asset data
 with `JobExecutorSnapshot`; `EngineTooling::asset_profiler_snapshot()` exposes that owning DTO without
 granting the editor access to live runtime objects.
@@ -184,6 +195,14 @@ The profiler snapshot schema is version `2`. Editor preview/test composition ret
 ring while ordinary player composition retains aggregate data with event capacity zero. The snapshot
 boundary adds no editor IPC, MessageChannel command, renderer store, polling loop, or profiler UI;
 those remain future consumers of the immutable snapshot boundary.
+
+`noveltea_asset_lifecycle_boundary_policy` certifies the production seam. It rejects reintroduction
+of consumer-triggered deferred retry entry points, the removed generation-scoped texture preparation
+requirement registry, or raw publication-slot choreography outside `AssetManager` and
+`MandatoryPublicationScope`, while requiring runtime, focused preview, and the engine owner-frame to
+remain wired to the shared transaction/progress boundaries. Export-time compression, resizing, and
+transcoding remain package-construction concerns upstream of this policy; runtime preparation and
+publication operate only on the resolved runtime resource and its typed consumption capabilities.
 
 Profiler-enabled preview composition also exposes exact session-scoped memory accounting. Residency
 mutations synchronously update per-domain and combined Asset RAM peaks before same-frame releases can
