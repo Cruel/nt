@@ -150,11 +150,22 @@ the new generation before any candidate lease can be promoted.
 remain planning metadata and must not make an actually resident lease invisible after request-time
 generation changes.
 
-Mandatory publication commits retain one bounded predecessor lease set in addition to the current
-published set. Finite world presentation operations can therefore realize their exact source and
-target revisions concurrently even after the target publication has committed. The presentation
-bridge releases that predecessor set once no visual operation remains active; ordinary settled
-publications do not accumulate historical lease sets.
+Mandatory publication lifetime is owned by `MandatoryPublicationScope` and its move-only
+`MandatoryPublicationTransaction`. A complete ready lease set is staged only when a transaction is
+created, remains pinned while the consumer realizes backend state, and replaces the prior committed
+publication only after explicit transaction commit. Destroying or explicitly rolling back an
+uncommitted transaction releases only candidate state. Commit rechecks `AssetSourceGeneration`, so a
+source refresh cannot promote a ready-but-stale candidate while the previous committed publication
+remains pinned. Runtime uses its own scope and advances speculative-prefetch generation only after
+that transaction commit succeeds. The shared scope also defines the independent focused-preview
+kind that the focused-preview consumer migration uses without sharing runtime publication state.
+
+Runtime commits may retain one bounded predecessor lease set in addition to the current published
+set. Finite world presentation operations can therefore realize their exact source and target
+revisions concurrently even though the target snapshot is reconciled before its finite operation is
+accepted. When replacing an existing runtime publication, the bridge retains that predecessor across
+the handoff and explicitly releases it once no visual operation remains active. The slot remains
+bounded to one predecessor, so settled publications do not accumulate historical lease sets.
 
 `asset_telemetry.hpp` and `engine/src/core/asset_telemetry.cpp` define the worker-safe recorder and
 the editor-profiler handoff. Events carry execution mode, cache/request/job/prefetch correlation,

@@ -794,6 +794,8 @@ TEST_CASE("candidate rollback preserves the last valid published lease set",
     jobs::CooperativeJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
     assets::AssetManager manager;
+    assets::MandatoryPublicationScope publication(manager,
+                                                  assets::MandatoryPublicationScopeKind::Runtime);
     MatrixState state;
     MatrixTextureLoader textures(state);
     REQUIRE(manager.configure_async_requests(executor, residency));
@@ -812,8 +814,9 @@ TEST_CASE("candidate rollback preserves the last valid published lease set",
     }));
     auto published_leases = published_group.take_ready_leases_on_owner();
     REQUIRE(published_leases);
-    manager.stage_candidate_leases_on_owner(std::move(*published_leases));
-    manager.commit_candidate_leases_on_owner();
+    auto published =
+        publication.begin_transaction_on_owner(std::move(*published_leases), generation);
+    REQUIRE(published.commit_on_owner(false));
     REQUIRE(manager.leased_texture_on_owner(published_request));
 
     assets::MandatoryAssetRequestGroup candidate_group(manager, {candidate_descriptor});
@@ -823,11 +826,12 @@ TEST_CASE("candidate rollback preserves the last valid published lease set",
     }));
     auto candidate_leases = candidate_group.take_ready_leases_on_owner();
     REQUIRE(candidate_leases);
-    manager.stage_candidate_leases_on_owner(std::move(*candidate_leases));
-    REQUIRE(manager.leased_texture_on_owner(candidate_request));
-    REQUIRE(manager.leased_texture_on_owner(published_request));
-
-    manager.rollback_candidate_leases_on_owner();
+    {
+        auto candidate =
+            publication.begin_transaction_on_owner(std::move(*candidate_leases), generation);
+        REQUIRE(manager.leased_texture_on_owner(candidate_request));
+        REQUIRE(manager.leased_texture_on_owner(published_request));
+    }
     CHECK_FALSE(manager.has_candidate_leases_on_owner());
     CHECK(manager.has_published_leases_on_owner());
     REQUIRE(manager.leased_texture_on_owner(published_request));
@@ -837,7 +841,7 @@ TEST_CASE("candidate rollback preserves the last valid published lease set",
     CHECK(residency->classification_on_owner(candidate_descriptor.cache_key) ==
           assets::ResidencyClass::Cold);
 
-    manager.clear_published_leases_on_owner();
+    publication.clear_on_owner();
     shutdown(executor);
 }
 
@@ -847,6 +851,8 @@ TEST_CASE("publication commit retains exactly one predecessor lease set until ex
     jobs::CooperativeJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
     assets::AssetManager manager;
+    assets::MandatoryPublicationScope publication(manager,
+                                                  assets::MandatoryPublicationScopeKind::Runtime);
     MatrixState state;
     MatrixTextureLoader textures(state);
     REQUIRE(manager.configure_async_requests(executor, residency));
@@ -865,8 +871,8 @@ TEST_CASE("publication commit retains exactly one predecessor lease set until ex
     }));
     auto source_leases = source_group.take_ready_leases_on_owner();
     REQUIRE(source_leases);
-    manager.stage_candidate_leases_on_owner(std::move(*source_leases));
-    manager.commit_candidate_leases_on_owner();
+    auto source = publication.begin_transaction_on_owner(std::move(*source_leases), generation);
+    REQUIRE(source.commit_on_owner(false));
     REQUIRE(manager.leased_texture_on_owner(source_request));
     CHECK_FALSE(manager.has_previous_published_leases_on_owner());
 
@@ -877,8 +883,8 @@ TEST_CASE("publication commit retains exactly one predecessor lease set until ex
     }));
     auto target_leases = target_group.take_ready_leases_on_owner();
     REQUIRE(target_leases);
-    manager.stage_candidate_leases_on_owner(std::move(*target_leases));
-    manager.commit_candidate_leases_on_owner();
+    auto target = publication.begin_transaction_on_owner(std::move(*target_leases), generation);
+    REQUIRE(target.commit_on_owner(true));
 
     CHECK(manager.has_published_leases_on_owner());
     CHECK(manager.has_previous_published_leases_on_owner());
@@ -889,14 +895,67 @@ TEST_CASE("publication commit retains exactly one predecessor lease set until ex
     CHECK(residency->classification_on_owner(target_descriptor.cache_key) ==
           assets::ResidencyClass::Pinned);
 
-    manager.clear_previous_published_leases_on_owner();
+    publication.release_predecessor_on_owner();
     CHECK_FALSE(manager.has_previous_published_leases_on_owner());
     CHECK_FALSE(manager.leased_texture_on_owner(source_request));
     REQUIRE(manager.leased_texture_on_owner(target_request));
     CHECK(residency->classification_on_owner(source_descriptor.cache_key) ==
           assets::ResidencyClass::Cold);
 
-    manager.clear_published_leases_on_owner();
+    publication.clear_on_owner();
+    shutdown(executor);
+}
+
+TEST_CASE("publication transaction rejects stale source generation without replacing publication",
+          "[assets][mandatory-assets][transaction][source-generation]")
+{
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    assets::MandatoryPublicationScope publication(manager,
+                                                  assets::MandatoryPublicationScopeKind::Runtime);
+    MatrixState state;
+    MatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+
+    const auto generation = manager.source_generation_on_owner();
+    const assets::TextureAssetRequest published_request{.path = "project:/textures/published.png"};
+    const assets::TextureAssetRequest stale_request{.path = "project:/textures/stale.png"};
+
+    assets::MandatoryAssetRequestGroup published_group(
+        manager, {matrix_descriptor(published_request, generation)});
+    REQUIRE(drive_until(executor, [&] {
+        published_group.poll_on_owner();
+        return published_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    auto published_leases = published_group.take_ready_leases_on_owner();
+    REQUIRE(published_leases);
+    auto published =
+        publication.begin_transaction_on_owner(std::move(*published_leases), generation);
+    REQUIRE(published.commit_on_owner(false));
+
+    assets::MandatoryAssetRequestGroup stale_group(manager,
+                                                   {matrix_descriptor(stale_request, generation)});
+    REQUIRE(drive_until(executor, [&] {
+        stale_group.poll_on_owner();
+        return stale_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    auto stale_leases = stale_group.take_ready_leases_on_owner();
+    REQUIRE(stale_leases);
+    auto stale = publication.begin_transaction_on_owner(std::move(*stale_leases), generation);
+    REQUIRE(manager.leased_texture_on_owner(stale_request));
+
+    manager.mount("project", std::make_shared<assets::MemoryAssetSource>());
+    auto committed = stale.commit_on_owner(false);
+    REQUIRE_FALSE(committed);
+    CHECK(committed.error().code == "assets.mandatory_publication_stale_source_generation");
+    REQUIRE(manager.leased_texture_on_owner(published_request));
+    CHECK_FALSE(manager.leased_texture_on_owner(stale_request));
+    CHECK(manager.has_published_leases_on_owner());
+    CHECK_FALSE(manager.has_candidate_leases_on_owner());
+
+    publication.clear_on_owner();
     shutdown(executor);
 }
 

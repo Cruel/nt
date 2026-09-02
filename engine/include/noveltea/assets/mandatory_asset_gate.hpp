@@ -37,15 +37,27 @@ public:
     [[nodiscard]] bool empty() const noexcept;
 
     [[nodiscard]] const AssetLease<FontAsset>* find_font(const AssetCacheKey& key) const noexcept;
+    [[nodiscard]] const AssetLease<FontAsset>*
+    find_font_by_identity(std::string_view stable_identity) const noexcept;
     [[nodiscard]] const AssetLease<TextureAsset>*
     find_texture(const AssetCacheKey& key) const noexcept;
+    [[nodiscard]] const AssetLease<TextureAsset>*
+    find_texture_by_identity(std::string_view stable_identity) const noexcept;
     [[nodiscard]] const AssetLease<HotspotMaskAsset>*
     find_hotspot_mask(const AssetCacheKey& key) const noexcept;
+    [[nodiscard]] const AssetLease<HotspotMaskAsset>*
+    find_hotspot_mask_by_identity(std::string_view stable_identity) const noexcept;
     [[nodiscard]] const AssetLease<ShaderProgramAsset>*
     find_shader_program(const AssetCacheKey& key) const noexcept;
+    [[nodiscard]] const AssetLease<ShaderProgramAsset>*
+    find_shader_program_by_identity(std::string_view stable_identity) const noexcept;
     [[nodiscard]] const AssetLease<MaterialAsset>*
     find_material(const AssetCacheKey& key) const noexcept;
+    [[nodiscard]] const AssetLease<MaterialAsset>*
+    find_material_by_identity(std::string_view stable_identity) const noexcept;
     [[nodiscard]] const AssetLease<AudioAsset>* find_audio(const AssetCacheKey& key) const noexcept;
+    [[nodiscard]] const AssetLease<AudioAsset>*
+    find_audio_by_identity(std::string_view stable_identity) const noexcept;
     [[nodiscard]] std::string describe_texture_keys() const;
 
 private:
@@ -111,6 +123,89 @@ struct MandatoryAssetGateResult {
     core::Diagnostics diagnostics;
 };
 
+enum class MandatoryPublicationScopeKind : std::uint8_t {
+    Runtime,
+    FocusedPreview,
+};
+
+class MandatoryPublicationScope;
+class MandatoryAssetGate;
+
+class MandatoryPublicationTransaction {
+public:
+    MandatoryPublicationTransaction() = default;
+    ~MandatoryPublicationTransaction();
+
+    MandatoryPublicationTransaction(const MandatoryPublicationTransaction&) = delete;
+    MandatoryPublicationTransaction& operator=(const MandatoryPublicationTransaction&) = delete;
+    MandatoryPublicationTransaction(MandatoryPublicationTransaction&&) noexcept;
+    MandatoryPublicationTransaction& operator=(MandatoryPublicationTransaction&&) noexcept;
+
+    [[nodiscard]] core::DiagnosticResult<void>
+    commit_on_owner(bool retain_predecessor = false) noexcept;
+    void rollback_on_owner() noexcept;
+    [[nodiscard]] bool active_on_owner() const noexcept;
+
+private:
+    friend class MandatoryPublicationScope;
+    MandatoryPublicationTransaction(MandatoryPublicationScope& scope,
+                                    AssetSourceGeneration source_generation) noexcept;
+
+    MandatoryPublicationScope* m_scope = nullptr;
+    AssetSourceGeneration m_source_generation{};
+};
+
+// Independent owner-thread lease-publication scope. A ready candidate is staged only through a
+// move-only transaction; abandoning that transaction rolls the candidate back automatically.
+class MandatoryPublicationScope {
+public:
+    MandatoryPublicationScope(AssetManager& assets, MandatoryPublicationScopeKind kind) noexcept;
+    ~MandatoryPublicationScope();
+
+    MandatoryPublicationScope(const MandatoryPublicationScope&) = delete;
+    MandatoryPublicationScope& operator=(const MandatoryPublicationScope&) = delete;
+
+    [[nodiscard]] MandatoryPublicationTransaction
+    begin_transaction_on_owner(StructuredAssetLeaseSet leases,
+                               AssetSourceGeneration source_generation) noexcept;
+    void release_predecessor_on_owner() noexcept;
+    void clear_on_owner() noexcept;
+
+private:
+    friend class MandatoryPublicationTransaction;
+    friend class MandatoryAssetGate;
+    [[nodiscard]] core::DiagnosticResult<void>
+    commit_candidate_on_owner(AssetSourceGeneration source_generation,
+                              bool retain_predecessor) noexcept;
+    void rollback_candidate_on_owner() noexcept;
+
+    AssetManager& m_assets;
+    MandatoryPublicationScopeKind m_kind;
+    bool m_candidate_active = false;
+};
+
+class RuntimeMandatoryPublicationTransaction {
+public:
+    RuntimeMandatoryPublicationTransaction() = default;
+    ~RuntimeMandatoryPublicationTransaction();
+    RuntimeMandatoryPublicationTransaction(const RuntimeMandatoryPublicationTransaction&) = delete;
+    RuntimeMandatoryPublicationTransaction&
+    operator=(const RuntimeMandatoryPublicationTransaction&) = delete;
+    RuntimeMandatoryPublicationTransaction(RuntimeMandatoryPublicationTransaction&&) noexcept;
+    RuntimeMandatoryPublicationTransaction&
+    operator=(RuntimeMandatoryPublicationTransaction&&) noexcept;
+
+    [[nodiscard]] core::DiagnosticResult<void> commit_on_owner(bool retain_predecessor) noexcept;
+    void rollback_on_owner() noexcept;
+
+private:
+    friend class MandatoryAssetGate;
+    RuntimeMandatoryPublicationTransaction(MandatoryAssetGate& gate,
+                                           MandatoryPublicationTransaction transaction) noexcept;
+    MandatoryAssetGate* m_gate = nullptr;
+    std::optional<MandatoryPublicationTransaction> m_transaction;
+};
+
 // Owner-thread controller for one loaded package. It collects current mandatory dependencies,
 // retains their typed request handles until every request is Ready, stages the resulting leases
 // for atomic backend realization, and rotates speculative prefetch generations only after commit.
@@ -141,8 +236,8 @@ public:
     include_audio_operation_on_owner(const core::AudioOperation& operation,
                                      MandatoryAssetRequestGroup::Clock::time_point now =
                                          MandatoryAssetRequestGroup::Clock::now()) noexcept;
-    [[nodiscard]] bool activate_candidate_on_owner() noexcept;
-    void commit_candidate_on_owner() noexcept;
+    [[nodiscard]] std::optional<RuntimeMandatoryPublicationTransaction>
+    take_ready_transaction_on_owner() noexcept;
     void release_previous_publication_on_owner() noexcept;
     void rollback_candidate_on_owner() noexcept;
     [[nodiscard]] bool retry_on_owner(MandatoryAssetRequestGroup::Clock::time_point now =
@@ -160,6 +255,9 @@ public:
     active_prefetch_generation_on_owner() const noexcept;
 
 private:
+    friend class RuntimeMandatoryPublicationTransaction;
+    void commit_ready_transaction_on_owner() noexcept;
+    void abandon_ready_transaction_on_owner() noexcept;
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

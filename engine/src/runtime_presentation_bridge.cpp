@@ -569,7 +569,8 @@ core::Result<void, core::Diagnostics> RuntimePresentationBridge::commit_pending_
 {
     if (!m_pending_mandatory_snapshot || !m_mandatory_asset_gate)
         return core::Result<void, core::Diagnostics>::success();
-    if (!m_mandatory_asset_gate->activate_candidate_on_owner()) {
+    auto transaction = m_mandatory_asset_gate->take_ready_transaction_on_owner();
+    if (!transaction) {
         return core::Result<void, core::Diagnostics>::failure(
             one({.code = "assets.mandatory_candidate_not_ready",
                  .message = "Mandatory asset leases were not ready for publication commit"}));
@@ -578,7 +579,6 @@ core::Result<void, core::Diagnostics> RuntimePresentationBridge::commit_pending_
     const auto candidate = *m_pending_mandatory_snapshot;
     auto audio = m_audio.reconcile_desired(candidate.desired_audio);
     if (!audio) {
-        m_mandatory_asset_gate->rollback_candidate_on_owner();
         m_pending_mandatory_snapshot.reset();
         return audio;
     }
@@ -589,12 +589,22 @@ core::Result<void, core::Diagnostics> RuntimePresentationBridge::commit_pending_
             auto diagnostics = std::move(reconciled).error();
             if (!rollback)
                 core::append_diagnostics(diagnostics, std::move(rollback).error());
-            m_mandatory_asset_gate->rollback_candidate_on_owner();
             m_pending_mandatory_snapshot.reset();
             return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
         }
     }
-    m_mandatory_asset_gate->commit_candidate_on_owner();
+    // Finite presentation operations are accepted after their target snapshot is reconciled. Keep
+    // the committed predecessor available across that handoff; flush releases it once no visual
+    // operation can still sample it.
+    auto committed = transaction->commit_on_owner(m_published_snapshot.has_value());
+    if (!committed) {
+        auto rollback = m_audio.reconcile_desired(m_published_desired_audio);
+        auto diagnostics = core::Diagnostics{std::move(committed).error()};
+        if (!rollback)
+            core::append_diagnostics(diagnostics, std::move(rollback).error());
+        m_pending_mandatory_snapshot.reset();
+        return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
+    }
     m_published_desired_audio = candidate.desired_audio;
     m_published_snapshot = candidate;
     m_pending_mandatory_snapshot.reset();
