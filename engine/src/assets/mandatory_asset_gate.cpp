@@ -1,4 +1,5 @@
 #include "noveltea/assets/mandatory_asset_gate.hpp"
+#include "noveltea/runtime/flow_prediction.hpp"
 
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_manager.hpp"
@@ -765,6 +766,7 @@ struct MandatoryAssetGate::Impl {
         auto index =
             StructuredAssetDependencyIndex::build(*package, active_renderer_variant, generation);
         dependency_generation = generation;
+        dependency_index.emplace(index);
         collector.emplace(std::move(index));
         return core::DiagnosticResult<void>::success();
     }
@@ -797,7 +799,9 @@ struct MandatoryAssetGate::Impl {
     PrefetchPlanner prefetch;
     const core::LoadedCompiledPackage* package = nullptr;
     std::string active_renderer_variant;
+    std::optional<StructuredAssetDependencyIndex> dependency_index;
     std::optional<StructuredAssetDependencyCollector> collector;
+    runtime::FlowPredictionProjection entry_prediction;
     AssetSourceGeneration dependency_generation;
     std::optional<MandatoryAssetRequestGroup> group;
     StructuredAssetDependencyBuckets dependencies;
@@ -845,7 +849,9 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
 #endif
     m_impl->active_renderer_variant = std::string(active_renderer_variant);
     if (generation != m_impl->assets.source_generation_on_owner()) {
+        m_impl->dependency_index.reset();
         m_impl->collector.reset();
+        m_impl->entry_prediction = {};
         m_impl->package = nullptr;
         return core::DiagnosticResult<void>::failure(
             {.code = "assets.mandatory_gate_stale_source_generation",
@@ -855,7 +861,13 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
         StructuredAssetDependencyIndex::build(package, m_impl->active_renderer_variant, generation);
     m_impl->package = &package;
     m_impl->dependency_generation = generation;
-    m_impl->collector.emplace(std::move(index));
+    m_impl->dependency_index.emplace(index);
+    m_impl->collector.emplace(index);
+
+    // The tracer uses the package entrypoint as its read-only prediction root. Submission still
+    // waits for the normal mandatory publication commit boundary.
+    runtime::FlowPredictor predictor(package.project());
+    m_impl->entry_prediction = predictor.predict(package.project().entrypoint());
     return core::DiagnosticResult<void>::success();
 }
 
@@ -872,7 +884,9 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
             sink->record_prefetch_generation_released(*released_generation);
     }
 #endif
+    m_impl->dependency_index.reset();
     m_impl->collector.reset();
+    m_impl->entry_prediction = {};
     m_impl->package = nullptr;
     m_impl->active_renderer_variant.clear();
     m_impl->publication.clear_on_owner();
@@ -1051,7 +1065,19 @@ void MandatoryAssetGate::commit_ready_transaction_on_owner() noexcept
     if (!m_impl->transaction_active)
         return;
     m_impl->transaction_active = false;
-    auto submitted = m_impl->prefetch.replace_generation_on_owner(m_impl->dependencies);
+    auto submitted = [&]() {
+        if (m_impl->pending_snapshot &&
+            m_impl->pending_snapshot->mode != core::PresentationRuntimeMode::Ended &&
+            m_impl->dependency_index && !m_impl->entry_prediction.entries.empty() &&
+            m_impl->dependencies.direct_next.empty() &&
+            m_impl->dependencies.adjacent_alternatives.empty()) {
+            auto plan =
+                resolve_flow_prediction(*m_impl->dependency_index, m_impl->entry_prediction);
+            if (!plan.candidates.empty())
+                return m_impl->prefetch.replace_generation_on_owner(plan);
+        }
+        return m_impl->prefetch.replace_generation_on_owner(m_impl->dependencies);
+    }();
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (const auto* report = submitted.value_if()) {
         if (auto* sink = m_impl->assets.asset_profiler_sink_on_owner()) {

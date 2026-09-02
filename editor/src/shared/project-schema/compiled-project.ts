@@ -650,6 +650,25 @@ const compiledEntrypointSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room'), room: roomReferenceSchema }),
 ]);
 
+const flowPredictionDependencySchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('asset'), asset: assetReferenceSchema }),
+]);
+
+const flowPredictionPointSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('scene-entry'), scene: sceneReferenceSchema }),
+]);
+
+const flowPredictionIndexSchema = strict({
+  dependencyGroups: z.array(z.array(flowPredictionDependencySchema)),
+  slices: z.array(
+    strict({
+      point: flowPredictionPointSchema,
+      dependencyGroups: z.array(z.number().int().nonnegative()),
+      successors: z.array(z.number().int().nonnegative()),
+    }),
+  ),
+});
+
 const propertyAssignmentSchema = strict({ propertyId: id, value: runtimeValueSchema });
 const ownerPropertyContractSchema = strict({
   id,
@@ -2130,6 +2149,7 @@ export const compiledProjectWireSchema = strict({
     verbs: z.array(verbDefinitionSchema),
   }),
   entrypoint: compiledEntrypointSchema,
+  flowPrediction: flowPredictionIndexSchema.nullable().optional(),
   localization: strict({
     catalogs: z.array(localizationCatalogSchema),
     defaultLocale: z.string().check(z.trim(), z.minLength(1)),
@@ -2237,6 +2257,7 @@ export type DialogueProgram = z.infer<typeof dialogueProgramSchema>;
 export type CompiledDiagnostic = z.infer<typeof compiledDiagnosticSchema>;
 export type CompiledHotspotRef = z.infer<typeof compiledHotspotRefSchema>;
 export type CompiledProjectWire = z.infer<typeof compiledProjectWireSchema>;
+export type FlowPredictionIndex = z.infer<typeof flowPredictionIndexSchema>;
 
 export function parseCompiledProjectWire(value: unknown): CompiledProjectWire {
   return compiledProjectWireSchema.parse(value);

@@ -14,6 +14,15 @@ material data, are typed discriminated references; generic collection/id
 references, authoring collection maps, legacy Object/Action names, comments, categories, tags, and
 editor state are not legal fields.
 
+The compiler may additionally publish a `flowPrediction` section containing immutable generated
+optimization metadata. It is runtime-blind and non-authoritative: gameplay execution continues to
+use the ordinary compiled Scene/Dialogue/Room definitions, while speculative loading may consume the
+prediction metadata when present. The initial tracer-bullet representation contains normalized
+semantic dependency groups and prediction-relevant Scene-entry slices connected by deterministic
+successor indices. It intentionally does not enumerate gameplay-state combinations or duplicate full
+asset snapshots per execution position. Absence of the section disables this optimization without
+changing gameplay semantics.
+
 The wire contains closed `SceneProgram`, `DialogueProgram`, `InteractionProgram`, and Room hook
 representations. Program and nested IDs remain stable. Definition arrays are compiler-sorted by ID;
 the compiler preserves the authored order of all semantically ordered arrays inside a definition.

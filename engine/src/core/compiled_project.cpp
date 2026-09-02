@@ -598,6 +598,7 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
 CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     : m_identity(std::move(input.identity)), m_settings(std::move(input.settings)),
       m_entrypoint(std::move(input.entrypoint)),
+      m_flow_prediction(std::move(input.flow_prediction)),
       m_bootstrap_module(std::move(input.bootstrap_module)),
       m_save_contract(std::move(input.save_contract)),
       m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),

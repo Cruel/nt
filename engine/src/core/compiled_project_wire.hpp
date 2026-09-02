@@ -200,6 +200,7 @@ struct SharedProject {
     ProjectIdentity identity;
     RuntimeSettings settings;
     Entrypoint entrypoint;
+    std::optional<FlowPredictionIndex> flow_prediction;
     ScriptId bootstrap_module;
     std::string save_contract;
     Localization localization;

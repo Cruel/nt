@@ -1088,6 +1088,53 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
     return result;
 }
 
+PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index,
+                                     const runtime::FlowPredictionProjection& projection)
+{
+    PrefetchPlan plan;
+    plan.diagnostics = projection.diagnostics;
+    std::map<CacheIdentity, SeenDescriptorState> seen;
+    for (const auto& projected : projection.entries) {
+        const auto* asset_dependency =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&projected.dependency);
+        if (!asset_dependency)
+            continue;
+        const auto* asset = index.m_impl->find_asset(asset_dependency->asset);
+        if (!asset) {
+            add_diagnostic(plan.diagnostics, "assets.flow_prediction_missing_asset",
+                           "Flow Prediction dependency references missing Asset '" +
+                               asset_dependency->asset.text() + "'");
+            continue;
+        }
+
+        std::optional<StructuredAssetRequestDescriptor> descriptor;
+        if (asset->kind == core::compiled::AssetKind::Image)
+            descriptor = texture_descriptor(*asset, index.m_impl->source_generation);
+        else if (asset->kind == core::compiled::AssetKind::Font)
+            descriptor = font_descriptor(*asset, index.m_impl->source_generation);
+        else {
+            add_diagnostic(plan.diagnostics, "assets.flow_prediction_unsupported_asset_kind",
+                           "Flow Prediction Asset '" + asset_dependency->asset.text() +
+                               "' does not yet have a tracer-bullet request mapping",
+                           core::ErrorSeverity::Info);
+            continue;
+        }
+
+        const auto identity = identity_of(descriptor->cache_key);
+        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(*descriptor);
+        const auto [existing, inserted] = seen.try_emplace(
+            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
+        if (!inserted) {
+            existing->second.retain_alpha_coverage |= retain_alpha_coverage;
+            continue;
+        }
+        plan.candidates.push_back({.descriptor = std::move(*descriptor),
+                                   .prediction = PrefetchPredictionKind::ExpectedNext,
+                                   .execution_distance = projected.execution_distance});
+    }
+    return plan;
+}
+
 struct PrefetchPlanner::Impl {
     explicit Impl(AssetManager& manager) : assets(&manager) {}
 
@@ -1234,6 +1281,76 @@ PrefetchPlanner::replace_generation_on_owner(
         submit(descriptor, true);
     for (const auto& descriptor : dependencies.adjacent_alternatives)
         submit(descriptor, false);
+
+    m_impl->generation = report.generation;
+    m_impl->tickets = std::move(next_tickets);
+    return core::Result<PrefetchSubmissionReport, core::Diagnostic>::success(std::move(report));
+}
+
+core::Result<PrefetchSubmissionReport, core::Diagnostic>
+PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
+{
+    auto allocated = m_impl->assets->create_prefetch_generation_on_owner();
+    if (!allocated)
+        return core::Result<PrefetchSubmissionReport, core::Diagnostic>::failure(allocated.error());
+
+    PrefetchSubmissionReport report;
+    report.generation = *allocated.value_if();
+    std::vector<PrefetchTicket> next_tickets;
+    std::map<CacheIdentity, SeenDescriptorState> seen;
+    for (const auto& candidate : plan.candidates) {
+        const auto& descriptor = candidate.descriptor;
+        const auto identity = identity_of(descriptor.cache_key);
+        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(descriptor);
+        const auto [found, inserted] = seen.try_emplace(
+            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
+        if (!inserted) {
+            if (!retain_alpha_coverage || found->second.retain_alpha_coverage)
+                continue;
+            found->second.retain_alpha_coverage = true;
+        }
+
+        if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
+            ++report.direct_next_count;
+        else
+            ++report.adjacent_count;
+        const AssetSourceGeneration current_generation =
+            m_impl->assets->source_generation_on_owner();
+        if (descriptor.cache_key.source_generation != current_generation) {
+            report.failures.push_back(
+                {.cache_key = descriptor.cache_key,
+                 .prediction = candidate.prediction,
+                 .diagnostic = {.code = "assets.prefetch_stale_descriptor",
+                                .message = "prefetch descriptor source generation is stale"}});
+            continue;
+        }
+        const AssetCacheKey expected = descriptor_cache_key(descriptor.request, current_generation);
+        if (expected != descriptor.cache_key) {
+            report.failures.push_back(
+                {.cache_key = descriptor.cache_key,
+                 .prediction = candidate.prediction,
+                 .diagnostic = {
+                     .code = "assets.prefetch_descriptor_key_mismatch",
+                     .message = "typed prefetch descriptor does not match its derived cache key"}});
+            continue;
+        }
+
+        auto submitted = dispatch_prefetch(*m_impl->assets, descriptor.request, report.generation);
+        if (!submitted) {
+            report.failures.push_back({.cache_key = descriptor.cache_key,
+                                       .prediction = candidate.prediction,
+                                       .diagnostic = submitted.error()});
+            continue;
+        }
+        next_tickets.push_back(std::move(*submitted.value_if()));
+        report.submitted_entries.push_back(
+            {.cache_key = descriptor.cache_key, .prediction = candidate.prediction});
+        report.submitted_keys.push_back(descriptor.cache_key);
+        if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
+            ++report.direct_next_submitted;
+        else
+            ++report.adjacent_submitted;
+    }
 
     m_impl->generation = report.generation;
     m_impl->tickets = std::move(next_tickets);

@@ -119,6 +119,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
     engine/include/noveltea/core/shared_evaluator.hpp
     engine/include/noveltea/core/typed_save_slot_store.hpp
     engine/include/noveltea/runtime/running_game.hpp
+    engine/include/noveltea/runtime/flow_prediction.hpp
     engine/include/noveltea/runtime/runtime_capabilities.hpp
     engine/include/noveltea/runtime/runtime_checkpoint_service.hpp
     engine/include/noveltea/runtime/runtime_command_gateway.hpp
@@ -131,6 +132,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
     engine/include/noveltea/runtime/runtime_session.hpp
     engine/include/noveltea/runtime/runtime_world.hpp
     engine/src/runtime/flow_executor.cpp
+    engine/src/runtime/flow_prediction.cpp
     engine/src/runtime/flow_executor_blockers.cpp
     engine/src/runtime/flow_executor_dialogue.cpp
     engine/src/runtime/flow_executor_interaction.cpp

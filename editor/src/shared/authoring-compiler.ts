@@ -31,6 +31,7 @@ import { parseVerbData } from './project-schema/authoring-verbs';
 import { lowerSharedAuthoringProject } from './authoring-compiler-shared-lowering';
 import { lowerSceneAndRoomPrograms } from './authoring-compiler-scene-room-lowering';
 import { lowerDialogueAndInteractionPrograms } from './authoring-compiler-dialogue-interaction-lowering';
+import { compileFlowPredictionIndex } from './flow-prediction-index-compiler';
 
 export const compilerStageNames = [
   'normalize',
@@ -676,6 +677,8 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
     addSkippedStages(context, ['assemble', 'validate-wire', 'serialize']);
     return finish(context);
   }
+  const flowPrediction = compileFlowPredictionIndex(lowered.project);
+  if (flowPrediction) lowered.project.flowPrediction = flowPrediction;
   // Lowerers sort definition/resource tables by stable ID and preserve every
   // semantically ordered authored array. Assembly binds the complete value to the
   // compiler-produced persistent Save Contract before publication.

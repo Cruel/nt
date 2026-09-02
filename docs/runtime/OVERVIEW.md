@@ -70,6 +70,20 @@ child frame returns. Dedicated `scene-text` and `scene-choice` System Layout Rol
 narration and Scene choices independently from the Game HUD and Dialogue UI. See
 `docs/engine/SCENE.md` for the current authoring/compiled/Event contract.
 
+## Flow Prediction Boundary
+
+Speculative Flow prediction consumes compiler-generated `Flow Prediction Index` metadata carried by
+the Compiled Project rather than rediscovering supported prediction topology from raw Scene,
+Dialogue, Room Lifecycle, or Gameplay Command definitions at runtime. The metadata is optimization
+only: it never drives canonical Flow execution, and a missing/unused prediction index leaves gameplay
+correctness unchanged because mandatory asset publication remains independent.
+
+`runtime::FlowPredictor` exposes a read-only semantic projection over the generated index. The first
+tracer supports Scene-entry roots connected by deterministic Scene continuation and reports semantic
+dependencies with execution distance. Later Flow-aware work extends this same boundary with live
+execution positions, Conditions, Room lifecycle, Dialogue structure, waits, choices, and other
+prediction frontiers rather than adding parallel raw-definition walkers.
+
 ## Agent Rules
 
 Keep runtime command, Lua API, and preview protocol changes documented together. A protocol change that affects editor preview must update the relevant runtime doc and `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md`.

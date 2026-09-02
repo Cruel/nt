@@ -50,6 +50,44 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('publishes generated Flow Prediction metadata without mutating authoring data', () => {
+    const project = validProject();
+    project.assets['next-background'] = {
+      id: 'next-background',
+      label: 'Next background',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/next-background.png',
+        aliases: [],
+        contentHash: 'next-background-hash',
+        sampling: 'linear',
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
+      }),
+    };
+
+    const opening = defaultSceneData('Opening');
+    opening.terminal = {
+      kind: 'continue-scene',
+      scene: { $ref: { collection: 'scenes', id: 'followup' } },
+      inputs: [],
+    };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: opening };
+
+    const followup = defaultSceneData('Followup');
+    if (followup.stage.kind !== 'blank')
+      throw new Error('Expected the default Scene Stage to be blank.');
+    followup.stage.background.asset = { $ref: { collection: 'assets', id: 'next-background' } };
+    project.scenes.followup = { id: 'followup', label: 'Followup', data: followup };
+    project.entrypoint = { kind: 'scene', id: 'opening' };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.flowPrediction).toBeDefined();
+    expect('flowPrediction' in project).toBe(false);
+  });
+
   it('compiles the implicit Project Inventory and default Inventory Layout', () => {
     const project = validProject();
     project.interactables.coin = {

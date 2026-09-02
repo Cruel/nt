@@ -140,6 +140,20 @@ can stop the mandatory gate, while direct-next and adjacent speculative diagnost
 without blocking otherwise-valid content. Production runtime publication changes use mandatory asset
 gates and loading progress while speculative entries remain evictable.
 
+Flow-aware speculative prediction now has a separate tracer-bullet seam from mandatory dependency
+closure. The compiler can publish a compact `Flow Prediction Index` in the Compiled Project;
+`runtime::FlowPredictor` consumes that metadata and returns semantic dependencies plus execution
+distance without walking the covered raw Scene definitions. `resolve_flow_prediction()` maps that
+read-only semantic projection through `StructuredAssetDependencyIndex` into a `PrefetchPlan`, and
+`PrefetchPlanner` can submit that plan directly through the existing typed prefetch/request/residency
+machinery. The initial production tracer captures a supported Scene entrypoint when the package is
+bound, then submits its speculative plan only after the normal mandatory publication transaction
+commits. It covers deterministic Scene continuation plus blank-Stage image dependencies. Unsupported
+Flow shapes continue to use the older speculative collector temporarily while subsequent
+Flow-prediction tickets deepen the new seam; mandatory `current_mandatory` collection remains
+independent throughout that migration. Missing prediction metadata or an empty/unsupported prediction
+projection never blocks publication or changes gameplay correctness.
+
 Mandatory dependency descriptors are generation-scoped. If the project asset namespace advances to
 a new `AssetSourceGeneration` after a package was indexed, such as during editor-preview asset
 staging or rebinding, the gate rebuilds its structured dependency index before issuing the next
