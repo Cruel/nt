@@ -1038,6 +1038,7 @@ void Renderer::create_2d()
     m_assets->bind_material_loader(m_typed_asset_loader.get());
     m_material_binder = std::make_unique<BgfxMaterialBinder>(
         *m_assets, *m_shader_program_cache, bgfx::TextureHandle{m_checker_texture});
+    m_material_binder->set_asset_lookup_scope(m_asset_lease_lookup_scope);
 }
 
 void Renderer::destroy_2d()

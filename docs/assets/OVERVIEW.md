@@ -101,13 +101,17 @@ fully resolved policy.
 `AssetProgressOrchestrator` is the owner-frame progress boundary above `AssetManager`. It derives a
 small `Idle`/`Background`/`Blocking` urgency from live typed request state so the engine can choose its
 own normal-versus-loading job-service budget without knowing which presentation consumer created the
-requests. Temporary-reservation release raises a shared owner-thread wake signal across typed asset
-domains, and owner-frame servicing retries only viable deferred non-prefetch requests; the same
-deferred scan is also the safety fallback if a wake signal is missed. Runtime input suppression
-remains `GameHost` presentation policy and is not implied by generic Blocking asset work. Speculative
-prefetch stays Background work and remains rejectable under memory pressure rather than entering the
-shared mandatory progress loop. Presentation consumers do not expose or call deferred-retry APIs;
-they observe request/publication state while `AssetProgressOrchestrator` owns deferred progress.
+requests. `AssetRequestReason` remains the preparation/admission priority signal, while
+`AssetRequestUrgency` independently states whether a pending consumer blocks host progress. Mandatory
+publication and causal audio use `Blocking`; disposable cosmetic audio and editor audio preview use
+`Background` even though they retain `Demand` priority. Temporary-reservation release raises a
+shared owner-thread wake signal across typed asset domains, and owner-frame servicing retries viable
+deferred non-prefetch requests of either urgency; the same deferred scan is also the safety fallback
+if a wake signal is missed. Runtime input suppression remains `GameHost` presentation policy and is
+not implied by generic Blocking asset work. Speculative prefetch stays Background work and remains
+rejectable under memory pressure rather than becoming publication-blocking work. Presentation
+consumers do not expose or call deferred-retry APIs; they observe request/publication state while
+`AssetProgressOrchestrator` owns deferred progress.
 
 Runtime packages remain one indexed ZIP source. Production never converts a complete `.ntpkg` or all
 of its entries into `MemoryAssetSource`; that source remains available for tests and deliberately
@@ -163,7 +167,12 @@ that transaction commit succeeds. Focused Room, Layout, and Shader preview owns 
 without sharing, replacing, or cancelling runtime publication state. Raw runtime/focused candidate,
 published, and predecessor lease slots are private `AssetManager` implementation details reachable
 only by the shared publication scope; production consumers cannot stage, commit, roll back, or clear
-those slots directly.
+those slots directly. Lease lookup is scope-aware as well: runtime realization can resolve only the
+runtime candidate/current/predecessor publication, while focused-preview realization can resolve
+only the focused candidate/current publication. Stable-identity fallback therefore preserves an old
+committed publication across source-generation refresh without allowing that retained publication to
+satisfy the other scope's realization request. Explicit supplemental tooling leases remain a shared
+exact-key fallback behind either publication scope.
 
 Runtime commits may retain one bounded predecessor lease set in addition to the current published
 set. Finite world presentation operations can therefore realize their exact source and target

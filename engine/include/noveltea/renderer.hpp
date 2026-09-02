@@ -198,6 +198,7 @@ public:
     }
     void draw_fullscreen_color(Color color);
     void set_shader_material_project(const ShaderMaterialProject* project);
+    void set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope scope) noexcept;
     void set_shader_standard_inputs(const ShaderStandardInputs& inputs);
     void set_bar_color(std::uint32_t bar_color_rgba) { m_bar_color_rgba = bar_color_rgba; }
     FontHandle load_font(const FontDesc& desc);
@@ -283,6 +284,8 @@ private:
 
     const assets::AssetManager* m_assets = nullptr;
     const ShaderMaterialProject* m_shader_materials = nullptr;
+    assets::AssetLeaseLookupScope m_asset_lease_lookup_scope =
+        assets::AssetLeaseLookupScope::Runtime;
     ShaderStandardInputs m_shader_standard_inputs{};
     bool m_initialized = false;
     bool m_vsync = true;

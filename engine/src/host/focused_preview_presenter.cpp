@@ -1628,8 +1628,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         release_state(candidate.state);
         return;
     }
-    candidate.prepared_world_resources =
-        std::make_unique<AssetWorldPresentationResourceResolver>(m_dependencies.assets);
+    candidate.prepared_world_resources = std::make_unique<AssetWorldPresentationResourceResolver>(
+        m_dependencies.assets, assets::AssetLeaseLookupScope::FocusedPreview);
     candidate.prepared_world_resources->bind_catalog(candidate.state.world_catalog);
     candidate.prepared_world =
         std::make_unique<WorldPresentationBackend>(*candidate.prepared_world_resources);

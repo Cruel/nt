@@ -274,8 +274,11 @@ RuntimeAudioAdapter::prepare(const core::AudioOperation& operation)
     if (m_typed_assets.leased_audio_on_owner(*request.value_if()) != nullptr)
         return Result::success();
 
-    auto submitted =
-        m_typed_assets.request_audio(*request.value_if(), assets::AssetRequestReason::Demand);
+    const auto urgency = operation.causality == core::compiled::AudioCausality::Causal
+                             ? assets::AssetRequestUrgency::Blocking
+                             : assets::AssetRequestUrgency::Background;
+    auto submitted = m_typed_assets.request_audio(*request.value_if(),
+                                                  assets::AssetRequestReason::Demand, urgency);
     if (!submitted)
         return Result::failure(std::move(submitted).error());
     m_preparations.push_back(PendingPreparation{.operation = operation,

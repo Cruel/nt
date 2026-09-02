@@ -32,6 +32,30 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 - Full-game preview/debugger/recorder UI lives under editor renderer preview/test editor surfaces.
 - Package/export builders live in editor main/shared services and runtime package code.
 
+## Asset Progress and Presentation Publication
+
+Runtime asset preparation is asynchronous and is serviced through
+`assets::AssetProgressOrchestrator`, owned by the engine owner-frame loop. Request execution priority
+and host-blocking urgency are separate contracts: `AssetRequestReason` controls preparation priority,
+while `AssetRequestUrgency` determines whether pending work selects the engine's loading-frame job
+budget. Mandatory publication and causal audio are Blocking; disposable cosmetic audio and editor
+audio-preview requests remain Background while still using Demand priority. Deferred request
+servicing belongs to the progress orchestrator rather than to presentation consumers.
+
+Mandatory presentation assets publish transactionally through `MandatoryPublicationScope`. A ready
+lease set becomes a candidate, remains pinned while backend state is realized, and becomes current
+only after explicit transaction commit. Commit rechecks the source generation; failure or RAII
+rollback leaves the existing publication intact. Runtime may retain exactly one predecessor
+publication while a finite visual operation still needs the old revision, then explicitly releases
+that predecessor after the operation settles.
+
+Runtime and focused editor preview own independent publication scopes. Runtime realization resolves
+only runtime candidate/current/predecessor leases; focused-preview realization resolves only focused
+candidate/current leases. A source refresh may therefore leave an older focused publication pinned
+without allowing it to satisfy a newer runtime realization, and neither scope can replace or clear
+the other's publication. See `docs/assets/OVERVIEW.md` for request, residency, prefetch, telemetry,
+and lease-lifecycle details.
+
 ## Scene Runtime Boundary
 
 Scene execution is an ordered Event cursor owned by each Flow invocation. A Scene invocation selects

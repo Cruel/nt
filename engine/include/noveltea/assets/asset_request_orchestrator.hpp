@@ -26,7 +26,7 @@ namespace noveltea::assets {
 struct AssetRequestProgress {
     bool blocking = false;
     bool background = false;
-    bool deferred_mandatory = false;
+    bool deferred_request = false;
 };
 
 class AssetManager;
@@ -176,6 +176,7 @@ template<class T> struct AsyncAssetState;
 template<class T> struct AsyncAssetConsumer {
     AssetRequestId id;
     AssetRequestReason reason = AssetRequestReason::Demand;
+    AssetRequestUrgency urgency = AssetRequestUrgency::Blocking;
     AssetRequestState state = AssetRequestState::Pending;
     core::Diagnostics diagnostics;
     std::optional<PrefetchGenerationId> ready_prefetch_generation;
@@ -1747,7 +1748,8 @@ public:
 
     [[nodiscard]] core::Result<AssetRequestHandle<T>, core::Diagnostic>
     request_on_owner(AssetCacheKey key, AssetRequestReason reason,
-                     std::unique_ptr<AssetPreparationTask<T>> task) noexcept
+                     std::unique_ptr<AssetPreparationTask<T>> task,
+                     AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept
     {
         m_state->assert_owner();
         if (!m_state->accepting) {
@@ -1782,6 +1784,7 @@ public:
         auto consumer = std::make_shared<detail::AsyncAssetConsumer<T>>();
         consumer->id = *id;
         consumer->reason = reason;
+        consumer->urgency = urgency;
         consumer->required_capabilities = task->requested_capabilities_on_owner();
         entry->consumers.push_back(consumer);
         m_state->record(core::AssetTelemetryEventKind::AssetRequested, entry.get(), consumer.get(),
@@ -1973,7 +1976,7 @@ public:
         return started;
     }
 
-    std::size_t retry_deferred_mandatory_on_owner() noexcept
+    std::size_t retry_deferred_requests_on_owner() noexcept
     {
         m_state->assert_owner();
         std::size_t started = 0;
@@ -1981,16 +1984,16 @@ public:
             if (entry->job_id.valid() ||
                 (entry->deferred_task == nullptr && entry->deferred_enrichment_task == nullptr))
                 continue;
-            bool mandatory = false;
+            bool pending_request = false;
             for (const auto& weak : entry->consumers) {
                 const auto consumer = weak.lock();
                 if (consumer != nullptr && consumer->active &&
                     consumer->state == AssetRequestState::Pending) {
-                    mandatory = true;
+                    pending_request = true;
                     break;
                 }
             }
-            if (!mandatory)
+            if (!pending_request)
                 continue;
             if (entry->deferred_enrichment_task != nullptr)
                 m_state->try_start_enrichment(entry);
@@ -2007,23 +2010,31 @@ public:
         m_state->assert_owner();
         AssetRequestProgress result;
         for (const auto& [_, entry] : m_state->entries) {
-            bool mandatory = false;
+            bool blocking = false;
+            bool background = false;
+            bool pending_request = false;
             for (const auto& weak : entry->consumers) {
                 const auto consumer = weak.lock();
                 if (consumer != nullptr && consumer->active &&
                     consumer->state == AssetRequestState::Pending) {
-                    mandatory = true;
-                    break;
+                    pending_request = true;
+                    if (consumer->urgency == AssetRequestUrgency::Blocking)
+                        blocking = true;
+                    else
+                        background = true;
                 }
             }
-            if (mandatory) {
+            if (blocking) {
                 result.blocking = true;
-                if ((entry->deferred_task != nullptr ||
-                     entry->deferred_enrichment_task != nullptr) &&
-                    !entry->job_id.valid())
-                    result.deferred_mandatory = true;
-            } else if (entry->job_id.valid() || entry->deferred_task != nullptr ||
-                       entry->deferred_enrichment_task != nullptr) {
+            }
+            if (background)
+                result.background = true;
+            if (pending_request &&
+                (entry->deferred_task != nullptr || entry->deferred_enrichment_task != nullptr) &&
+                !entry->job_id.valid())
+                result.deferred_request = true;
+            if (!pending_request && (entry->job_id.valid() || entry->deferred_task != nullptr ||
+                                     entry->deferred_enrichment_task != nullptr)) {
                 for (const auto& weak : entry->tickets) {
                     const auto ticket = weak.lock();
                     if (ticket != nullptr && ticket->active) {
@@ -2032,7 +2043,7 @@ public:
                     }
                 }
             }
-            if (result.blocking && result.background && result.deferred_mandatory)
+            if (result.blocking && result.background && result.deferred_request)
                 break;
         }
         return result;

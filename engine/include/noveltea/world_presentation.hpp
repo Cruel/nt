@@ -58,8 +58,10 @@ struct WorldPresentationResourceCatalog {
 
 class AssetWorldPresentationResourceResolver final : public WorldPresentationResourceResolver {
 public:
-    explicit AssetWorldPresentationResourceResolver(const assets::AssetManager& assets)
-        : m_assets(assets)
+    explicit AssetWorldPresentationResourceResolver(
+        const assets::AssetManager& assets,
+        assets::AssetLeaseLookupScope lookup_scope = assets::AssetLeaseLookupScope::Runtime)
+        : m_assets(assets), m_lookup_scope(lookup_scope)
     {
     }
 
@@ -82,6 +84,7 @@ public:
 
 private:
     const assets::AssetManager& m_assets;
+    assets::AssetLeaseLookupScope m_lookup_scope = assets::AssetLeaseLookupScope::Runtime;
     std::unordered_map<std::string, WorldPresentationImageResource> m_images;
     std::function<bool(HotspotMaterialInterface)> m_builtin_program_validator;
 };

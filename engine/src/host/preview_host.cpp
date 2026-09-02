@@ -326,11 +326,19 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
           .apply_materials =
               [this](const ShaderMaterialProject& materials) {
                   m_dependencies.shader_materials = materials;
+                  m_dependencies.renderer.set_asset_lease_lookup_scope(
+                      assets::AssetLeaseLookupScope::FocusedPreview);
                   m_dependencies.renderer.set_shader_material_project(
                       &m_dependencies.shader_materials);
               },
           .bind_candidate_materials =
               [this](const ShaderMaterialProject* materials) {
+                  const auto scope =
+                      materials != nullptr ||
+                              m_dependencies.assets.has_focused_published_leases_on_owner()
+                          ? assets::AssetLeaseLookupScope::FocusedPreview
+                          : assets::AssetLeaseLookupScope::Runtime;
+                  m_dependencies.renderer.set_asset_lease_lookup_scope(scope);
                   m_dependencies.renderer.set_shader_material_project(
                       materials != nullptr ? materials : &m_dependencies.shader_materials);
               },
@@ -978,7 +986,11 @@ bool PreviewHost::apply_focused_editor_document(core::editor::FocusedEditorDocum
 
 void PreviewHost::update_focused_preview() { m_focused_presenter->update(); }
 
-void PreviewHost::clear_focused_preview() noexcept { m_focused_presenter->clear(); }
+void PreviewHost::clear_focused_preview() noexcept
+{
+    m_focused_presenter->clear();
+    m_dependencies.renderer.set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope::Runtime);
+}
 
 bool PreviewHost::request_screenshot(std::string path)
 {

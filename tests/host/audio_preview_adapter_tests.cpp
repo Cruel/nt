@@ -1,6 +1,7 @@
 #include "host/audio_preview_adapter.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/assets/asset_progress.hpp"
 #include "noveltea/assets/asset_residency.hpp"
 #include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/jobs/inline_job_executor.hpp"
@@ -181,8 +182,10 @@ TEST_CASE("preview audio track controls cannot replace or stop gameplay track id
     REQUIRE(audio.track_active("bgm"));
 
     AudioPreviewAdapter preview(audio, assets);
+    assets::AssetProgressOrchestrator progress(assets);
     REQUIRE(preview.play_track("bgm", "project:/preview.ogg"));
     REQUIRE(preview.track_active("bgm"));
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Background);
     REQUIRE(executor.run_until_idle(8));
     preview.update();
     REQUIRE(audio.track_active("bgm"));

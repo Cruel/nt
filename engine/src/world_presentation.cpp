@@ -386,12 +386,12 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         }
         const assets::TextureAssetRequest request{.path = found->second.logical_path,
                                                   .sampler = found->second.sampler};
-        const auto* lease = m_assets.leased_texture_on_owner(request);
+        const auto* lease = m_assets.leased_texture_on_owner(request, m_lookup_scope);
         if (lease == nullptr) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_texture_lease_missing",
                 "Mandatory world texture is not resident: " + found->second.logical_path + " (" +
-                    m_assets.describe_texture_lease_lookup_on_owner(request) + ")",
+                    m_assets.describe_texture_lease_lookup_on_owner(request, m_lookup_scope) + ")",
                 context)});
         }
         lease->mark_used_on_owner();
@@ -406,7 +406,7 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
     }
     if (material) {
         const assets::MaterialAssetRequest request{.id = material->text()};
-        const auto* lease = m_assets.leased_material_on_owner(request);
+        const auto* lease = m_assets.leased_material_on_owner(request, m_lookup_scope);
         if (lease == nullptr) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_material_lease_missing",
@@ -440,7 +440,7 @@ AssetWorldPresentationResourceResolver::resolve_hotspot(
     if (const auto* authored =
             std::get_if<core::compiled::MaterialHotspotHighlight>(&hotspot.highlight)) {
         const assets::MaterialAssetRequest request{.id = authored->material.text()};
-        const auto* lease = m_assets.leased_material_on_owner(request);
+        const auto* lease = m_assets.leased_material_on_owner(request, m_lookup_scope);
         if (lease == nullptr || lease->asset().definition == nullptr ||
             lease->asset().definition->role != ShaderRole::HotspotOverlay) {
             return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::failure(
@@ -485,7 +485,7 @@ AssetWorldPresentationResourceResolver::resolve_hotspot(
                     {std::visit([](const auto& ref) { return ref.hotspot_id; }, candidate.ref),
                      *bounds});
         }
-        const auto* lease = m_assets.leased_hotspot_mask_on_owner(request);
+        const auto* lease = m_assets.leased_hotspot_mask_on_owner(request, m_lookup_scope);
         if (lease == nullptr) {
             return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::failure(
                 {diagnostic("presentation.hotspot_mask_lease_missing",

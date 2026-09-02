@@ -3,6 +3,7 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/asset_cache_keys.hpp"
+#include "noveltea/assets/asset_progress.hpp"
 #include "noveltea/assets/asset_residency.hpp"
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/assets/mandatory_asset_gate.hpp"
@@ -549,6 +550,7 @@ TEST_CASE("standalone causal audio waits for an asynchronous demand lease before
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
     RuntimePresentationBridge bridge(adapter);
+    assets::AssetProgressOrchestrator progress(assets);
 
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(901),
                                          .action = core::compiled::AudioAction::Play,
@@ -563,6 +565,7 @@ TEST_CASE("standalone causal audio waits for an asynchronous demand lease before
     CHECK(pending.diagnostics.empty());
     CHECK(backend_ptr->active_voice_count() == 0);
     REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Blocking);
 
     REQUIRE(executor.run_until_idle(32));
     auto delivered = bridge.flush();
@@ -603,6 +606,7 @@ TEST_CASE("standalone cosmetic audio drops asynchronously with a diagnostic on l
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
     RuntimePresentationBridge bridge(adapter);
+    assets::AssetProgressOrchestrator progress(assets);
 
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(902),
                                          .action = core::compiled::AudioAction::Play,
@@ -617,6 +621,7 @@ TEST_CASE("standalone cosmetic audio drops asynchronously with a diagnostic on l
     CHECK(delivered.diagnostics.empty());
     CHECK(backend_ptr->active_voice_count() == 0);
     CHECK(bridge.checkpoint_status().active_barriers.empty());
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Background);
 
     backend_ptr->fail_preparation = true;
     REQUIRE(executor.run_until_idle(32));

@@ -7,6 +7,7 @@
 #include "noveltea/runtime/runtime_ports.hpp"
 
 #include <filesystem>
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -24,6 +25,11 @@ class AssetProgressOrchestrator;
 class MandatoryPublicationScope;
 
 class StructuredAssetLeaseSet;
+
+enum class AssetLeaseLookupScope : std::uint8_t {
+    Runtime,
+    FocusedPreview,
+};
 
 class AssetManager : public runtime::ScriptSourcePort {
 public:
@@ -80,19 +86,23 @@ public:
     [[nodiscard]] core::Result<PrefetchGenerationId, core::Diagnostic>
     create_prefetch_generation_on_owner() const noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>
-    request_font(const FontAssetRequest& request, AssetRequestReason reason) noexcept;
+    request_font(const FontAssetRequest& request, AssetRequestReason reason,
+                 AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
-    request_texture(const TextureAssetRequest& request, AssetRequestReason reason) noexcept;
+    request_texture(const TextureAssetRequest& request, AssetRequestReason reason,
+                    AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>
-    request_hotspot_mask(const HotspotMaskAssetRequest& request,
-                         AssetRequestReason reason) noexcept;
+    request_hotspot_mask(const HotspotMaskAssetRequest& request, AssetRequestReason reason,
+                         AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>
-    request_shader_program(const ShaderProgramAssetRequest& request,
-                           AssetRequestReason reason) noexcept;
+    request_shader_program(const ShaderProgramAssetRequest& request, AssetRequestReason reason,
+                           AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<MaterialAsset>, core::Diagnostic>
-    request_material(const MaterialAssetRequest& request, AssetRequestReason reason) noexcept;
+    request_material(const MaterialAssetRequest& request, AssetRequestReason reason,
+                     AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<AudioAsset>, core::Diagnostic>
-    request_audio(const AudioAssetRequest& request, AssetRequestReason reason) noexcept;
+    request_audio(const AudioAssetRequest& request, AssetRequestReason reason,
+                  AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
 
     [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
     prefetch_font(const FontAssetRequest& request, PrefetchGenerationId generation) noexcept;
@@ -122,20 +132,27 @@ public:
     [[nodiscard]] bool has_focused_candidate_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_focused_published_leases_on_owner() const noexcept;
 
-    [[nodiscard]] const AssetLease<FontAsset>*
-    leased_font_on_owner(const FontAssetRequest& request) const noexcept;
-    [[nodiscard]] const AssetLease<TextureAsset>*
-    leased_texture_on_owner(const TextureAssetRequest& request) const noexcept;
-    [[nodiscard]] const AssetLease<HotspotMaskAsset>*
-    leased_hotspot_mask_on_owner(const HotspotMaskAssetRequest& request) const noexcept;
-    [[nodiscard]] const AssetLease<ShaderProgramAsset>*
-    leased_shader_program_on_owner(const ShaderProgramAssetRequest& request) const noexcept;
-    [[nodiscard]] const AssetLease<MaterialAsset>*
-    leased_material_on_owner(const MaterialAssetRequest& request) const noexcept;
-    [[nodiscard]] const AssetLease<AudioAsset>*
-    leased_audio_on_owner(const AudioAssetRequest& request) const noexcept;
-    [[nodiscard]] std::string
-    describe_texture_lease_lookup_on_owner(const TextureAssetRequest& request) const;
+    [[nodiscard]] const AssetLease<FontAsset>* leased_font_on_owner(
+        const FontAssetRequest& request,
+        AssetLeaseLookupScope scope = AssetLeaseLookupScope::Runtime) const noexcept;
+    [[nodiscard]] const AssetLease<TextureAsset>* leased_texture_on_owner(
+        const TextureAssetRequest& request,
+        AssetLeaseLookupScope scope = AssetLeaseLookupScope::Runtime) const noexcept;
+    [[nodiscard]] const AssetLease<HotspotMaskAsset>* leased_hotspot_mask_on_owner(
+        const HotspotMaskAssetRequest& request,
+        AssetLeaseLookupScope scope = AssetLeaseLookupScope::Runtime) const noexcept;
+    [[nodiscard]] const AssetLease<ShaderProgramAsset>* leased_shader_program_on_owner(
+        const ShaderProgramAssetRequest& request,
+        AssetLeaseLookupScope scope = AssetLeaseLookupScope::Runtime) const noexcept;
+    [[nodiscard]] const AssetLease<MaterialAsset>* leased_material_on_owner(
+        const MaterialAssetRequest& request,
+        AssetLeaseLookupScope scope = AssetLeaseLookupScope::Runtime) const noexcept;
+    [[nodiscard]] const AssetLease<AudioAsset>* leased_audio_on_owner(
+        const AudioAssetRequest& request,
+        AssetLeaseLookupScope scope = AssetLeaseLookupScope::Runtime) const noexcept;
+    [[nodiscard]] std::string describe_texture_lease_lookup_on_owner(
+        const TextureAssetRequest& request,
+        AssetLeaseLookupScope scope = AssetLeaseLookupScope::Runtime) const;
 
     [[nodiscard]] bool exists(std::string_view logical_path) const;
     [[nodiscard]] bool has_namespace(std::string_view namespace_name) const;

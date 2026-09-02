@@ -14,7 +14,7 @@ enum class AssetProgressUrgency : std::uint8_t {
 
 // Owner-frame policy boundary for asynchronous asset progress. Presentation consumers never retry
 // deferred requests directly; they create typed requests and this orchestrator keeps viable
-// mandatory work moving while exposing only semantic urgency to the host scheduler.
+// request work moving while exposing only semantic urgency to the host scheduler.
 class AssetProgressOrchestrator final {
 public:
     explicit AssetProgressOrchestrator(AssetManager& assets) noexcept;
