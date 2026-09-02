@@ -543,6 +543,55 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
     shutdown(executor);
 }
 
+template<class Executor> void run_texture_capability_enrichment_contract(Executor& executor)
+{
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), nullptr,
+                                                                     executor.mode());
+    auto probe = std::make_shared<PreparationProbe>();
+    probe->owner_thread = std::this_thread::get_id();
+
+    {
+        assets::AssetManager manager;
+        auto source =
+            std::make_shared<RecordingAssetSource>("textures/one.png", one_pixel_png(), probe);
+        manager.mount("project", source);
+        TestTextureLoader loader(manager, probe);
+        manager.bind_texture_loader(&loader);
+        REQUIRE(manager.configure_async_requests(executor, residency));
+
+        const assets::TextureAssetRequest weak{.path = "project:/textures/one.png",
+                                               .sampler = MaterialTextureSampler::ClampLinear};
+        auto weak_result = manager.request_texture(weak, assets::AssetRequestReason::Demand);
+        REQUIRE(weak_result);
+        auto weak_handle = std::move(weak_result).value();
+        REQUIRE(drive_until(
+            executor, [&] { return weak_handle.state() == assets::AssetRequestState::Ready; }));
+        auto weak_lease = std::move(weak_handle).take_ready();
+        REQUIRE(weak_lease);
+        REQUIRE_FALSE((*weak_lease)->alpha_coverage);
+
+        auto strong = weak;
+        strong.retain_alpha_coverage = true;
+        auto strong_result = manager.request_texture(strong, assets::AssetRequestReason::Demand);
+        REQUIRE(strong_result);
+        auto strong_handle = std::move(strong_result).value();
+        REQUIRE(drive_until(
+            executor, [&] { return strong_handle.state() == assets::AssetRequestState::Ready; }));
+        auto strong_lease = std::move(strong_handle).take_ready();
+        REQUIRE(strong_lease);
+
+        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
+        CHECK(strong_lease->cache_key() == weak_lease->cache_key());
+        CHECK((*strong_lease)->handle == (*weak_lease)->handle);
+        REQUIRE((*strong_lease)->alpha_coverage);
+        REQUIRE((*weak_lease)->alpha_coverage);
+        const auto accounting = residency->accounting_on_owner().current;
+        CHECK(accounting.gpu_bytes == 4);
+        CHECK(accounting.prepared_cpu_bytes == 1);
+    }
+    shutdown(executor);
+}
+
 TEST_CASE("Texture preparation task obeys inline cooperative and threaded executor contracts",
           "[assets][residency-matrix][telemetry-matrix]")
 {
@@ -561,6 +610,249 @@ TEST_CASE("Texture preparation task obeys inline cooperative and threaded execut
         jobs::SdlThreadPoolJobExecutor executor(1);
         run_texture_executor_contract(executor);
     }
+}
+
+TEST_CASE("Texture capability enrichment is cooperative and threaded executor independent",
+          "[assets][texture-alpha][capabilities][residency-matrix]")
+{
+    SECTION("cooperative")
+    {
+        jobs::CooperativeJobExecutor executor;
+        run_texture_capability_enrichment_contract(executor);
+    }
+    SECTION("SDL thread pool")
+    {
+        jobs::SdlThreadPoolJobExecutor executor(1);
+        run_texture_capability_enrichment_contract(executor);
+    }
+}
+
+TEST_CASE("Stronger texture capability joins compatible preparation before it freezes",
+          "[assets][texture-alpha][capabilities]")
+{
+    jobs::InlineJobExecutor executor;
+    core::AssetTelemetryRecorder telemetry(128);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry,
+                                                                     executor.mode());
+    auto probe = std::make_shared<PreparationProbe>();
+    probe->owner_thread = std::this_thread::get_id();
+
+    {
+        assets::AssetManager manager;
+        auto source =
+            std::make_shared<RecordingAssetSource>("textures/one.png", one_pixel_png(), probe);
+        manager.mount("project", source);
+        TestTextureLoader loader(manager, probe);
+        manager.bind_texture_loader(&loader);
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
+
+        const assets::TextureAssetRequest weak{.path = "project:/textures/one.png",
+                                               .sampler = MaterialTextureSampler::ClampLinear};
+        auto weak_result = manager.request_texture(weak, assets::AssetRequestReason::Demand);
+        REQUIRE(weak_result);
+        auto weak_handle = std::move(weak_result).value();
+
+        REQUIRE(executor.advance_one_step());
+
+        auto strong = weak;
+        strong.retain_alpha_coverage = true;
+        auto strong_result = manager.request_texture(strong, assets::AssetRequestReason::Demand);
+        REQUIRE(strong_result);
+        auto strong_handle = std::move(strong_result).value();
+
+        REQUIRE(drive_until(executor, [&] {
+            return weak_handle.state() == assets::AssetRequestState::Ready &&
+                   strong_handle.state() == assets::AssetRequestState::Ready;
+        }));
+        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
+
+        auto weak_lease = std::move(weak_handle).take_ready();
+        auto strong_lease = std::move(strong_handle).take_ready();
+        REQUIRE(weak_lease);
+        REQUIRE(strong_lease);
+        CHECK(weak_lease->cache_key() == strong_lease->cache_key());
+        CHECK((*weak_lease)->handle == (*strong_lease)->handle);
+        REQUIRE((*strong_lease)->alpha_coverage);
+        CHECK(
+            assets::texture_alpha_coverage_contains(*(*strong_lease)->alpha_coverage, 0.0f, 0.0f));
+        const auto telemetry_snapshot = telemetry.snapshot_on_owner();
+        CHECK(telemetry_snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::CapabilityJoined)] == 1);
+    }
+    shutdown(executor);
+}
+
+TEST_CASE("Resident texture gains stronger alpha capability without another GPU finalization",
+          "[assets][texture-alpha][capabilities]")
+{
+    jobs::InlineJobExecutor executor;
+    core::AssetTelemetryRecorder telemetry(128);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry,
+                                                                     executor.mode());
+    auto probe = std::make_shared<PreparationProbe>();
+    probe->owner_thread = std::this_thread::get_id();
+
+    {
+        assets::AssetManager manager;
+        auto source =
+            std::make_shared<RecordingAssetSource>("textures/one.png", one_pixel_png(), probe);
+        manager.mount("project", source);
+        TestTextureLoader loader(manager, probe);
+        manager.bind_texture_loader(&loader);
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
+
+        const assets::TextureAssetRequest weak{.path = "project:/textures/one.png",
+                                               .sampler = MaterialTextureSampler::ClampLinear};
+        auto weak_result = manager.request_texture(weak, assets::AssetRequestReason::Demand);
+        REQUIRE(weak_result);
+        auto weak_handle = std::move(weak_result).value();
+        REQUIRE(drive_until(
+            executor, [&] { return weak_handle.state() == assets::AssetRequestState::Ready; }));
+        auto weak_lease = std::move(weak_handle).take_ready();
+        REQUIRE(weak_lease);
+        CHECK_FALSE((*weak_lease)->alpha_coverage);
+        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
+
+        auto strong = weak;
+        strong.retain_alpha_coverage = true;
+        auto strong_result = manager.request_texture(strong, assets::AssetRequestReason::Demand);
+        REQUIRE(strong_result);
+        auto strong_handle = std::move(strong_result).value();
+        CHECK(strong_handle.state() == assets::AssetRequestState::Pending);
+        REQUIRE(drive_until(
+            executor, [&] { return strong_handle.state() == assets::AssetRequestState::Ready; }));
+
+        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
+        auto strong_lease = std::move(strong_handle).take_ready();
+        REQUIRE(strong_lease);
+        CHECK(strong_lease->cache_key() == weak_lease->cache_key());
+        CHECK((*strong_lease)->handle == (*weak_lease)->handle);
+        REQUIRE((*strong_lease)->alpha_coverage);
+        REQUIRE((*weak_lease)->alpha_coverage);
+        CHECK(
+            assets::texture_alpha_coverage_contains(*(*strong_lease)->alpha_coverage, 0.0f, 0.0f));
+        const auto accounting = residency->accounting_on_owner().current;
+        CHECK(accounting.gpu_bytes == 4);
+        CHECK(accounting.prepared_cpu_bytes == 1);
+        const auto telemetry_snapshot = telemetry.snapshot_on_owner();
+        CHECK(telemetry_snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::CapabilityEnriched)] == 1);
+    }
+    shutdown(executor);
+}
+
+TEST_CASE("Strong texture prefetch enriches compatible weak residency in place",
+          "[assets][texture-alpha][capabilities][prefetch]")
+{
+    jobs::InlineJobExecutor executor;
+    core::AssetTelemetryRecorder telemetry(128);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry,
+                                                                     executor.mode());
+    auto probe = std::make_shared<PreparationProbe>();
+    probe->owner_thread = std::this_thread::get_id();
+
+    {
+        assets::AssetManager manager;
+        auto source =
+            std::make_shared<RecordingAssetSource>("textures/one.png", one_pixel_png(), probe);
+        manager.mount("project", source);
+        TestTextureLoader loader(manager, probe);
+        manager.bind_texture_loader(&loader);
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
+
+        const assets::TextureAssetRequest weak{.path = "project:/textures/one.png",
+                                               .sampler = MaterialTextureSampler::ClampLinear};
+        auto weak_result = manager.request_texture(weak, assets::AssetRequestReason::Demand);
+        REQUIRE(weak_result);
+        auto weak_handle = std::move(weak_result).value();
+        REQUIRE(drive_until(
+            executor, [&] { return weak_handle.state() == assets::AssetRequestState::Ready; }));
+        auto weak_lease = std::move(weak_handle).take_ready();
+        REQUIRE(weak_lease);
+        REQUIRE_FALSE((*weak_lease)->alpha_coverage);
+
+        auto generation = manager.create_prefetch_generation_on_owner();
+        REQUIRE(generation);
+        auto strong = weak;
+        strong.retain_alpha_coverage = true;
+        auto prefetched = manager.prefetch_texture(strong, *generation.value_if());
+        REQUIRE(prefetched);
+        auto ticket = std::move(prefetched).value();
+        REQUIRE(drive_until(executor, [&] { return (*weak_lease)->alpha_coverage.has_value(); }));
+
+        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
+        REQUIRE((*weak_lease)->alpha_coverage);
+        CHECK(assets::texture_alpha_coverage_contains(*(*weak_lease)->alpha_coverage, 0.0f, 0.0f));
+        const auto accounting = residency->accounting_on_owner().current;
+        CHECK(accounting.gpu_bytes == 4);
+        CHECK(accounting.prepared_cpu_bytes == 1);
+        const auto telemetry_snapshot = telemetry.snapshot_on_owner();
+        CHECK(telemetry_snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::CapabilityEnriched)] == 1);
+        ticket.cancel();
+    }
+    shutdown(executor);
+}
+
+TEST_CASE("Demand promotes an in-flight texture capability prefetch enrichment",
+          "[assets][texture-alpha][capabilities][prefetch][priority]")
+{
+    jobs::InlineJobExecutor executor;
+    core::AssetTelemetryRecorder telemetry(128);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry,
+                                                                     executor.mode());
+    auto probe = std::make_shared<PreparationProbe>();
+    probe->owner_thread = std::this_thread::get_id();
+
+    {
+        assets::AssetManager manager;
+        auto source =
+            std::make_shared<RecordingAssetSource>("textures/one.png", one_pixel_png(), probe);
+        manager.mount("project", source);
+        TestTextureLoader loader(manager, probe);
+        manager.bind_texture_loader(&loader);
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
+
+        const assets::TextureAssetRequest weak{.path = "project:/textures/one.png",
+                                               .sampler = MaterialTextureSampler::ClampLinear};
+        auto weak_result = manager.request_texture(weak, assets::AssetRequestReason::Startup);
+        REQUIRE(weak_result);
+        auto weak_handle = std::move(weak_result).value();
+        REQUIRE(drive_until(
+            executor, [&] { return weak_handle.state() == assets::AssetRequestState::Ready; }));
+        auto weak_lease = std::move(weak_handle).take_ready();
+        REQUIRE(weak_lease);
+        REQUIRE_FALSE((*weak_lease)->alpha_coverage);
+
+        auto strong = weak;
+        strong.retain_alpha_coverage = true;
+        auto generation = manager.create_prefetch_generation_on_owner();
+        REQUIRE(generation);
+        auto prefetched = manager.prefetch_texture(strong, *generation.value_if());
+        REQUIRE(prefetched);
+        auto ticket = std::move(prefetched).value();
+
+        auto demanded = manager.request_texture(strong, assets::AssetRequestReason::Demand);
+        REQUIRE(demanded);
+        auto demand = std::move(demanded).value();
+        CHECK(demand.state() == assets::AssetRequestState::Pending);
+
+        const auto joined = telemetry.snapshot_on_owner();
+        CHECK(joined.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::PriorityPromoted)] == 1);
+        CHECK(joined.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::PrefetchLate)] == 1);
+
+        REQUIRE(drive_until(executor,
+                            [&] { return demand.state() == assets::AssetRequestState::Ready; }));
+        auto strong_lease = std::move(demand).take_ready();
+        REQUIRE(strong_lease);
+        REQUIRE((*strong_lease)->alpha_coverage);
+        CHECK((*strong_lease)->handle == (*weak_lease)->handle);
+        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
+        ticket.cancel();
+    }
+    shutdown(executor);
 }
 
 TEST_CASE("Texture alpha coverage sampling uses exact fixed bit layout and clamped UVs",

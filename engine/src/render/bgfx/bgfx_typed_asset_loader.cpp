@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -267,6 +268,27 @@ preparation_failure(std::string code, std::string message)
         {{.code = std::move(code), .message = std::move(message)}});
 }
 
+[[nodiscard]] assets::TextureAlphaCoverage
+build_alpha_coverage(std::span<const std::uint8_t> rgba8, std::uint16_t width, std::uint16_t height)
+{
+    assets::TextureAlphaCoverage coverage;
+    coverage.width = width;
+    coverage.height = height;
+    coverage.row_stride_bytes = (static_cast<std::uint32_t>(width) + 7u) / 8u;
+    coverage.occupancy_bits.assign(static_cast<std::size_t>(coverage.row_stride_bytes) * height,
+                                   0u);
+    for (std::uint32_t y = 0; y < height; ++y) {
+        for (std::uint32_t x = 0; x < width; ++x) {
+            if (rgba8[(static_cast<std::size_t>(y) * width + x) * 4u + 3u] == 0u)
+                continue;
+            coverage
+                .occupancy_bits[static_cast<std::size_t>(y) * coverage.row_stride_bytes + x / 8u] |=
+                static_cast<std::uint8_t>(1u << (x & 7u));
+        }
+    }
+    return coverage;
+}
+
 } // namespace
 
 bool texture_sampler_uses_linear_filtering(MaterialTextureSampler sampler) noexcept
@@ -302,6 +324,9 @@ Rgba8MipChain build_rgba8_mip_chain(std::span<const std::uint8_t> base_level, st
 }
 
 struct TexturePreparationTask::Impl {
+    static constexpr std::uint8_t AlphaCoverageCapability = 1u << 0u;
+    static constexpr std::uint8_t CapabilitiesFrozen = 1u << 7u;
+
     enum class Stage : std::uint8_t {
         Reading,
         Sizing,
@@ -315,6 +340,8 @@ struct TexturePreparationTask::Impl {
          assets::TextureAssetRequest configured_request)
         : assets(configured_assets), owner(configured_owner), request(std::move(configured_request))
     {
+        if (request.retain_alpha_coverage)
+            capability_state.store(AlphaCoverageCapability, std::memory_order_relaxed);
         if (request.path.empty()) {
             stage = Stage::Ready;
             return;
@@ -344,6 +371,248 @@ struct TexturePreparationTask::Impl {
     std::uint64_t uncompressed_bytes = 0;
     bool finalized = false;
     bool awaiting_reservation_update = false;
+    bool alpha_coverage_prepared = false;
+    std::atomic<std::uint8_t> capability_state{0};
+
+    [[nodiscard]] assets::AssetPreparationCapabilities requested_capabilities() const noexcept
+    {
+        return {.retain_alpha_coverage = request.retain_alpha_coverage};
+    }
+
+    [[nodiscard]] bool
+    request_additional_capabilities(assets::AssetPreparationCapabilities capabilities) noexcept
+    {
+        if (!capabilities.retain_alpha_coverage)
+            return true;
+        auto current = capability_state.load(std::memory_order_acquire);
+        while (true) {
+            if ((current & AlphaCoverageCapability) != 0u)
+                return true;
+            if ((current & CapabilitiesFrozen) != 0u)
+                return false;
+            if (capability_state.compare_exchange_weak(
+                    current, static_cast<std::uint8_t>(current | AlphaCoverageCapability),
+                    std::memory_order_acq_rel, std::memory_order_acquire)) {
+                return true;
+            }
+        }
+    }
+
+    [[nodiscard]] assets::AssetPreparationCapabilities freeze_capabilities() noexcept
+    {
+        auto current = capability_state.load(std::memory_order_acquire);
+        while ((current & CapabilitiesFrozen) == 0u) {
+            if (capability_state.compare_exchange_weak(
+                    current, static_cast<std::uint8_t>(current | CapabilitiesFrozen),
+                    std::memory_order_acq_rel, std::memory_order_acquire)) {
+                current = static_cast<std::uint8_t>(current | CapabilitiesFrozen);
+                break;
+            }
+        }
+        return {.retain_alpha_coverage = (current & AlphaCoverageCapability) != 0u};
+    }
+};
+
+class TextureAlphaCoverageEnrichmentTask final
+    : public assets::AssetEnrichmentTask<assets::TextureAsset> {
+public:
+    TextureAlphaCoverageEnrichmentTask(const assets::AssetManager& assets,
+                                       assets::TextureAssetRequest request)
+        : m_assets(assets), m_request(std::move(request))
+    {
+        m_request.retain_alpha_coverage = true;
+        const std::uint64_t source_size =
+            assets::detail::estimated_source_size(m_assets, m_request.path);
+        const std::uint64_t estimated_pixels = saturating_multiply(source_size, 4u);
+        m_estimate.temporary_bytes =
+            saturating_add(source_size, saturating_multiply(estimated_pixels, 2u));
+        m_read = std::make_unique<assets::detail::IncrementalAssetRead>(
+            m_assets, m_request.path, "assets.texture_alpha_enrichment");
+    }
+
+    [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+    {
+        return m_estimate;
+    }
+
+    [[nodiscard]] bool reservation_update_required_on_owner() const noexcept override
+    {
+        return m_awaiting_reservation_update;
+    }
+
+    void reservation_update_granted_on_owner() noexcept override
+    {
+        if (!m_awaiting_reservation_update)
+            return;
+        m_awaiting_reservation_update = false;
+        m_stage = Stage::Decoding;
+    }
+
+    [[nodiscard]] assets::AssetCacheState cache_state_for_next_step() const noexcept override
+    {
+        return m_stage == Stage::Reading ? assets::AssetCacheState::Reading
+                                         : assets::AssetCacheState::Preparing;
+    }
+
+    [[nodiscard]] assets::AssetPreparationTelemetry telemetry_on_owner() const noexcept override
+    {
+        return {.compressed_bytes = m_compressed_bytes, .uncompressed_bytes = m_uncompressed_bytes};
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
+    {
+        if (context.cancellation_requested())
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+
+        switch (m_stage) {
+        case Stage::Reading: {
+            auto outcome = m_read->step(context);
+            if (outcome.status == jobs::JobStepStatus::Failed)
+                return outcome;
+            if (!m_read->ready())
+                return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+            m_compressed_bytes = m_read->compressed_bytes();
+            m_uncompressed_bytes = m_read->uncompressed_bytes();
+            m_source_bytes = m_read->take_bytes();
+            m_read.reset();
+            m_stage = Stage::Sizing;
+            return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+        }
+        case Stage::Sizing: {
+            const auto dimensions = probe_encoded_image_dimensions(m_source_bytes);
+            if (!dimensions || dimensions->width == 0 || dimensions->height == 0 ||
+                dimensions->width > UINT16_MAX || dimensions->height > UINT16_MAX) {
+                return {.status = jobs::JobStepStatus::Failed,
+                        .diagnostics = {{.code = "assets.texture_enrichment.invalid_dimensions",
+                                         .message = "texture dimensions are unavailable or "
+                                                    "unsupported '" +
+                                                    m_request.path + "'"}}};
+            }
+            const std::uint64_t base_bytes =
+                saturating_multiply(saturating_multiply(dimensions->width, dimensions->height), 4u);
+            const std::uint64_t alpha_bytes =
+                saturating_multiply((dimensions->width + 7u) / 8u, dimensions->height);
+            std::uint64_t peak = m_source_bytes.size();
+            peak = saturating_add(peak, saturating_multiply(base_bytes, 2u));
+            peak = saturating_add(peak, alpha_bytes);
+            if (peak == std::numeric_limits<std::uint64_t>::max()) {
+                return {.status = jobs::JobStepStatus::Failed,
+                        .diagnostics = {{.code = "assets.texture_enrichment.size_overflow",
+                                         .message = "texture alpha enrichment exceeds supported "
+                                                    "limits '" +
+                                                    m_request.path + "'"}}};
+            }
+            m_estimate.prepared_cpu_bytes = alpha_bytes;
+            m_estimate.temporary_bytes = peak;
+            m_awaiting_reservation_update = true;
+            m_stage = Stage::AwaitingReservation;
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        }
+        case Stage::AwaitingReservation:
+            return {.status = jobs::JobStepStatus::Failed,
+                    .diagnostics = {
+                        {.code = "assets.texture_enrichment.reservation_not_updated",
+                         .message = "texture alpha enrichment resumed before memory reservation "
+                                    "update"}}};
+        case Stage::Decoding: {
+            if (m_source_bytes.size() > std::numeric_limits<std::uint32_t>::max()) {
+                return {.status = jobs::JobStepStatus::Failed,
+                        .diagnostics = {{.code = "assets.texture_enrichment.source_too_large",
+                                         .message = "texture source exceeds bimg decode limits '" +
+                                                    m_request.path + "'"}}};
+            }
+            bx::DefaultAllocator allocator;
+            bimg::ImageContainer* image = bimg::imageParse(
+                &allocator, m_source_bytes.data(), static_cast<uint32_t>(m_source_bytes.size()),
+                bimg::TextureFormat::RGBA8);
+            if (!image) {
+                return {.status = jobs::JobStepStatus::Failed,
+                        .diagnostics = {
+                            {.code = "assets.texture_enrichment.decode_failed",
+                             .message = "bimg could not decode texture '" + m_request.path + "'"}}};
+            }
+            bimg::ImageMip base_mip;
+            const bool valid_base =
+                image->m_width > 0 && image->m_height > 0 && image->m_width <= UINT16_MAX &&
+                image->m_height <= UINT16_MAX && image->m_numLayers == 1 && image->m_depth == 1 &&
+                bimg::imageGetRawData(*image, 0, 0, image->m_data, image->m_size, base_mip) &&
+                base_mip.m_format == bimg::TextureFormat::RGBA8;
+            if (!valid_base) {
+                bimg::imageFree(image);
+                return {.status = jobs::JobStepStatus::Failed,
+                        .diagnostics = {{.code = "assets.texture_enrichment.unsupported_image",
+                                         .message = "decoded texture is not a supported RGBA8 2D "
+                                                    "image '" +
+                                                    m_request.path + "'"}}};
+            }
+            const auto base_bytes = std::span<const std::uint8_t>(
+                base_mip.m_data,
+                static_cast<std::size_t>(base_mip.m_width) * base_mip.m_height * 4u);
+            auto coverage =
+                build_alpha_coverage(base_bytes, static_cast<std::uint16_t>(base_mip.m_width),
+                                     static_cast<std::uint16_t>(base_mip.m_height));
+            bimg::imageFree(image);
+            m_source_bytes.clear();
+            m_source_bytes.shrink_to_fit();
+            m_coverage = std::move(coverage);
+            m_stage = Stage::Ready;
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        }
+        case Stage::Ready:
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        }
+        return {.status = jobs::JobStepStatus::Failed,
+                .diagnostics = {{.code = "assets.texture_enrichment.invalid_state",
+                                 .message = "texture alpha enrichment entered an invalid state"}}};
+    }
+
+    [[nodiscard]] core::Result<assets::PreparedAssetEnrichment<assets::TextureAsset>,
+                               core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        if (m_stage != Stage::Ready || m_finalized || !m_coverage) {
+            return core::Result<assets::PreparedAssetEnrichment<assets::TextureAsset>,
+                                core::Diagnostics>::
+                failure(
+                    {{.code = "assets.texture_enrichment.not_ready",
+                      .message = "texture alpha enrichment was finalized before it was ready"}});
+        }
+        m_finalized = true;
+        const std::uint64_t alpha_bytes = m_coverage->occupancy_bits.capacity();
+        auto coverage = std::make_shared<assets::TextureAlphaCoverage>(std::move(*m_coverage));
+        return core::Result<assets::PreparedAssetEnrichment<assets::TextureAsset>,
+                            core::Diagnostics>::success({.additional_cost = {.prepared_cpu_bytes =
+                                                                                 alpha_bytes},
+                                                         .capabilities = {.retain_alpha_coverage =
+                                                                              true},
+                                                         .apply_on_owner =
+                                                             [coverage = std::move(coverage)](
+                                                                 assets::TextureAsset& asset) {
+                                                                 asset.alpha_coverage =
+                                                                     std::move(*coverage);
+                                                             }});
+    }
+
+private:
+    enum class Stage : std::uint8_t {
+        Reading,
+        Sizing,
+        AwaitingReservation,
+        Decoding,
+        Ready,
+    };
+
+    const assets::AssetManager& m_assets;
+    assets::TextureAssetRequest m_request;
+    std::unique_ptr<assets::detail::IncrementalAssetRead> m_read;
+    assets::AssetBytes m_source_bytes;
+    std::optional<assets::TextureAlphaCoverage> m_coverage;
+    assets::ResidencyCost m_estimate;
+    Stage m_stage = Stage::Reading;
+    std::uint64_t m_compressed_bytes = 0;
+    std::uint64_t m_uncompressed_bytes = 0;
+    bool m_finalized = false;
+    bool m_awaiting_reservation_update = false;
 };
 
 TexturePreparationTask::TexturePreparationTask(const assets::AssetManager& assets,
@@ -354,6 +623,33 @@ TexturePreparationTask::TexturePreparationTask(const assets::AssetManager& asset
 }
 
 TexturePreparationTask::~TexturePreparationTask() = default;
+
+assets::AssetPreparationCapabilities
+TexturePreparationTask::requested_capabilities_on_owner() const noexcept
+{
+    return m_impl->requested_capabilities();
+}
+
+bool TexturePreparationTask::request_additional_capabilities(
+    assets::AssetPreparationCapabilities capabilities) noexcept
+{
+    return m_impl->request_additional_capabilities(capabilities);
+}
+
+assets::AssetPreparationCapabilities
+TexturePreparationTask::provided_capabilities_on_owner() const noexcept
+{
+    return {.retain_alpha_coverage = m_impl->finalized && m_impl->alpha_coverage_prepared};
+}
+
+std::unique_ptr<assets::AssetEnrichmentTask<assets::TextureAsset>>
+TexturePreparationTask::create_enrichment_task_on_owner(
+    assets::AssetPreparationCapabilities capabilities) const
+{
+    if (!capabilities.retain_alpha_coverage || m_impl->request.path.empty())
+        return {};
+    return std::make_unique<TextureAlphaCoverageEnrichmentTask>(m_impl->assets, m_impl->request);
+}
 
 assets::ResidencyCost TexturePreparationTask::estimated_cost_on_owner() const noexcept
 {
@@ -405,6 +701,8 @@ jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noe
         return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
     }
     case Impl::Stage::Sizing: {
+        const auto capabilities = m_impl->freeze_capabilities();
+        m_impl->request.retain_alpha_coverage = capabilities.retain_alpha_coverage;
         const auto dimensions = probe_encoded_image_dimensions(m_impl->source_bytes);
         if (!dimensions || dimensions->width == 0 || dimensions->height == 0 ||
             dimensions->width > UINT16_MAX || dimensions->height > UINT16_MAX) {
@@ -496,24 +794,10 @@ jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noe
         m_impl->prepared.mip_count = 1;
         m_impl->prepared.bytes.assign(base_bytes.begin(), base_bytes.end());
         if (m_impl->request.retain_alpha_coverage) {
-            assets::TextureAlphaCoverage coverage;
-            coverage.width = static_cast<std::uint16_t>(base_mip.m_width);
-            coverage.height = static_cast<std::uint16_t>(base_mip.m_height);
-            coverage.row_stride_bytes = (static_cast<std::uint32_t>(coverage.width) + 7u) / 8u;
-            coverage.occupancy_bits.assign(
-                static_cast<std::size_t>(coverage.row_stride_bytes) * coverage.height, 0u);
-            for (std::uint32_t y = 0; y < coverage.height; ++y) {
-                for (std::uint32_t x = 0; x < coverage.width; ++x) {
-                    if (base_bytes[(static_cast<std::size_t>(y) * coverage.width + x) * 4u + 3u] ==
-                        0u) {
-                        continue;
-                    }
-                    coverage
-                        .occupancy_bits[static_cast<std::size_t>(y) * coverage.row_stride_bytes +
-                                        x / 8u] |= static_cast<std::uint8_t>(1u << (x & 7u));
-                }
-            }
-            m_impl->prepared.alpha_coverage = std::move(coverage);
+            m_impl->prepared.alpha_coverage =
+                build_alpha_coverage(base_bytes, static_cast<std::uint16_t>(base_mip.m_width),
+                                     static_cast<std::uint16_t>(base_mip.m_height));
+            m_impl->alpha_coverage_prepared = true;
         }
         m_impl->current_mip.assign(base_bytes.begin(), base_bytes.end());
         m_impl->current_width = m_impl->prepared.width;

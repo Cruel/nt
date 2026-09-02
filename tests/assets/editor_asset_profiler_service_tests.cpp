@@ -92,15 +92,16 @@ TEST_CASE("Editor asset profiler retains only the specified low-level event subs
         core::AssetTelemetryEventKind::PrefetchLate,
         core::AssetTelemetryEventKind::PrefetchMiss,
         core::AssetTelemetryEventKind::PrefetchUnused,
+        core::AssetTelemetryEventKind::CapabilityJoined,
+        core::AssetTelemetryEventKind::CapabilityEnriched,
     };
     for (const auto kind : retained_kinds)
         service.record({.kind = kind});
 
     constexpr std::array retained_prefetch_rejections{
-        "assets.prefetch_allowance_exceeded",
-        "assets.prefetch_preparation_rejected",
-        "assets.prefetch_preparation_resize_rejected",
-        "assets.prefetch_residency_rejected",
+        "assets.prefetch_allowance_exceeded",          "assets.prefetch_preparation_rejected",
+        "assets.prefetch_preparation_resize_rejected", "assets.prefetch_residency_rejected",
+        "assets.prefetch_enrichment_rejected",
     };
     for (const auto* code : retained_prefetch_rejections) {
         service.record({.kind = core::AssetTelemetryEventKind::BudgetPressure,

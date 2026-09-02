@@ -58,11 +58,23 @@ residency cost. `TextureAssetRequest` carries runtime preparation capabilities s
 coverage directly alongside the runtime path and sampler. Mandatory structured dependencies,
 speculative prefetch, and focused preview all propagate that capability on the typed request, so
 initial image preparation does not depend on a separately installed requirement or caller ordering.
-Texture cache identity remains the resolved runtime path plus sampler and `AssetSourceGeneration`;
-export-time compression, resize, and transcode policy are upstream packaging concerns rather than
-runtime preparation identity. Image preparation parses encoded dimensions before decode, atomically
-expands its temporary reservation for encoded input, decoder output, upload copies, mip storage, and
-scratch, and rejects unsupported or overflowing dimensions before allocating those buffers. Audio requests now
+The separate texture-preparation requirement registry has been removed. Compatible weak and strong
+requests use one texture cache identity and one GPU-resident texture: a stronger request can join an
+in-flight preparation until its capability set freezes, while a stronger request arriving afterward
+performs bounded follow-up enrichment for the missing auxiliary data. Retained alpha coverage uses
+that enrichment path to reread/decode source pixels and grow prepared-CPU residency without
+recreating, reuploading, or duplicating the GPU texture. Capability joins and successful enrichment
+are observable through asset telemetry. Structured dependency deduplication preserves a stronger
+speculative capability even when current mandatory content already names the same weaker texture, so
+prefetch can union or enrich that resident ahead of use. If Demand joins an in-flight speculative
+enrichment, the same job is promoted to blocking priority rather than restarting preparation. Texture
+cache identity remains the resolved runtime path plus sampler and `AssetSourceGeneration`; source
+generation is the sole runtime content invalidation generation. Export-time compression, resize, and
+transcode policy are upstream packaging concerns rather than runtime preparation identity. Image
+preparation parses encoded dimensions before decode,
+atomically expands its temporary reservation for encoded input, decoder output, upload copies, mip
+storage, and scratch, and rejects unsupported or overflowing dimensions before allocating those
+buffers. Audio requests now
 use concrete preparation tasks as well. SFX source reads and PCM decode advance in bounded 256 KiB
 steps; after decoder initialization, the task calculates the complete 48 kHz stereo float size and
 expands its temporary reservation before allocating PCM. Unknown or overflowing decoded lengths fail

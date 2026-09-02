@@ -42,9 +42,21 @@ void add_diagnostic(core::Diagnostics& diagnostics, std::string code, std::strin
            id.text() == core::compiled::builtin_verb_menu_layout_id;
 }
 
+struct SeenDescriptorState {
+    bool retain_alpha_coverage = false;
+};
+
+[[nodiscard]] bool
+descriptor_retain_alpha_coverage(const StructuredAssetRequestDescriptor& descriptor) noexcept
+{
+    const auto* texture = std::get_if<TextureAssetRequest>(&descriptor.request);
+    return texture != nullptr && texture->retain_alpha_coverage;
+}
+
 class DescriptorAccumulator {
 public:
-    explicit DescriptorAccumulator(std::set<CacheIdentity>* shared_seen = nullptr)
+    explicit DescriptorAccumulator(
+        std::map<CacheIdentity, SeenDescriptorState>* shared_seen = nullptr)
         : m_seen(shared_seen == nullptr ? &m_owned_seen : shared_seen)
     {
     }
@@ -53,8 +65,30 @@ public:
     {
         if (!descriptor.cache_key.valid())
             return;
-        if (m_seen->insert(identity_of(descriptor.cache_key)).second)
+        const auto identity = identity_of(descriptor.cache_key);
+        const bool incoming_alpha = descriptor_retain_alpha_coverage(descriptor);
+        const auto [seen, inserted] = m_seen->try_emplace(
+            identity, SeenDescriptorState{.retain_alpha_coverage = incoming_alpha});
+        if (inserted) {
+            m_local.emplace(identity, m_descriptors.size());
             m_descriptors.push_back(descriptor);
+            return;
+        }
+        const auto local = m_local.find(identity);
+        if (local == m_local.end()) {
+            if (!incoming_alpha || seen->second.retain_alpha_coverage)
+                return;
+            seen->second.retain_alpha_coverage = true;
+            m_local.emplace(identity, m_descriptors.size());
+            m_descriptors.push_back(descriptor);
+            return;
+        }
+        auto* existing = std::get_if<TextureAssetRequest>(&m_descriptors[local->second].request);
+        const auto* incoming = std::get_if<TextureAssetRequest>(&descriptor.request);
+        if (existing != nullptr && incoming != nullptr) {
+            existing->retain_alpha_coverage |= incoming->retain_alpha_coverage;
+            seen->second.retain_alpha_coverage |= incoming->retain_alpha_coverage;
+        }
     }
 
     void add(const DependencyDescriptorList& descriptors)
@@ -66,8 +100,9 @@ public:
     [[nodiscard]] DependencyDescriptorList take() { return std::move(m_descriptors); }
 
 private:
-    std::set<CacheIdentity> m_owned_seen;
-    std::set<CacheIdentity>* m_seen;
+    std::map<CacheIdentity, SeenDescriptorState> m_owned_seen;
+    std::map<CacheIdentity, SeenDescriptorState>* m_seen;
+    std::map<CacheIdentity, std::size_t> m_local;
     DependencyDescriptorList m_descriptors;
 };
 
@@ -112,6 +147,15 @@ texture_descriptor(const core::compiled::AssetResource& asset, AssetSourceGenera
     TextureAssetRequest request{.path = logical_project_path(asset.path),
                                 .sampler = image_sampler(*asset.sampling)};
     return {.request = request, .cache_key = make_texture_cache_key(request, generation)};
+}
+
+[[nodiscard]] StructuredAssetRequestDescriptor
+texture_descriptor(const core::compiled::AssetResource& asset, AssetSourceGeneration generation,
+                   bool retain_alpha_coverage)
+{
+    auto descriptor = texture_descriptor(asset, generation);
+    std::get<TextureAssetRequest>(descriptor.request).retain_alpha_coverage = retain_alpha_coverage;
+    return descriptor;
 }
 
 [[nodiscard]] StructuredAssetRequestDescriptor
@@ -177,7 +221,6 @@ struct StructuredAssetDependencyIndex::Impl {
     std::string renderer_variant;
     core::Diagnostics configuration_diagnostics;
     core::Diagnostics diagnostics;
-    TexturePreparationRequirementMap texture_preparation_requirements;
 
     std::unordered_map<core::AssetId, const core::compiled::AssetResource*> assets;
     std::unordered_map<core::LayoutId, const core::compiled::LayoutResource*> layouts;
@@ -204,22 +247,9 @@ struct StructuredAssetDependencyIndex::Impl {
         return found == assets.end() ? nullptr : found->second;
     }
 
-    [[nodiscard]] StructuredAssetRequestDescriptor
-    complete_texture_request(StructuredAssetRequestDescriptor descriptor) const
-    {
-        auto* request = std::get_if<TextureAssetRequest>(&descriptor.request);
-        if (request == nullptr)
-            return descriptor;
-        if (const auto found = texture_preparation_requirements.find(descriptor.cache_key);
-            found != texture_preparation_requirements.end()) {
-            request->retain_alpha_coverage |= found->second.retain_alpha_coverage;
-        }
-        return descriptor;
-    }
-
     void append_asset(DescriptorAccumulator& output, const core::AssetId& id,
                       core::compiled::AssetKind expected, core::Diagnostics& collection_diagnostics,
-                      std::string_view context) const
+                      std::string_view context, bool retain_alpha_coverage = false) const
     {
         const auto* asset = find_asset(id);
         if (asset == nullptr) {
@@ -234,7 +264,7 @@ struct StructuredAssetDependencyIndex::Impl {
             return;
         }
         if (expected == core::compiled::AssetKind::Image)
-            output.add(complete_texture_request(texture_descriptor(*asset, source_generation)));
+            output.add(texture_descriptor(*asset, source_generation, retain_alpha_coverage));
         else if (expected == core::compiled::AssetKind::Font)
             output.add(font_descriptor(*asset, source_generation));
     }
@@ -585,10 +615,14 @@ struct StructuredAssetDependencyIndex::Impl {
             initial != initial_interactables_by_room.end()) {
             for (const auto& placed : initial->second) {
                 const auto* interactable = placed.definition;
-                if (interactable->presentation.sprite)
+                if (interactable->presentation.sprite) {
+                    const bool retain_alpha_coverage =
+                        std::holds_alternative<core::compiled::SpriteAlphaHotspots>(
+                            interactable->presentation.hotspots);
                     append_asset(output, *interactable->presentation.sprite,
                                  core::compiled::AssetKind::Image, collection_diagnostics,
-                                 "Room initial interactable");
+                                 "Room initial interactable", retain_alpha_coverage);
+                }
                 if (interactable->presentation.material)
                     append_material(output, *interactable->presentation.material,
                                     collection_diagnostics, "Room initial interactable");
@@ -811,18 +845,6 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
         impl->scenes.emplace(scene.identity.id, &scene);
     for (const auto& dialogue : project.dialogues())
         impl->dialogues.emplace(dialogue.identity.id, &dialogue);
-    for (const auto& interactable : project.interactables()) {
-        if (interactable.presentation.sprite &&
-            std::holds_alternative<core::compiled::SpriteAlphaHotspots>(
-                interactable.presentation.hotspots)) {
-            if (const auto* asset = impl->find_asset(*interactable.presentation.sprite)) {
-                const auto descriptor = texture_descriptor(*asset, source_generation);
-                impl->texture_preparation_requirements.emplace(
-                    descriptor.cache_key,
-                    TexturePreparationRequirements{.retain_alpha_coverage = true});
-            }
-        }
-    }
     for (const auto& instance : project.interactable_instances()) {
         const auto* definition = project.find_interactable_definition(instance.definition);
         if (definition == nullptr)
@@ -875,8 +897,8 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
             for (const auto& assignment : registered->textures) {
                 if (!static_package_texture(assignment.source))
                     continue;
-                dependencies.add(impl->complete_texture_request(texture_descriptor(
-                    assignment.source, assignment.filtering, source_generation)));
+                dependencies.add(
+                    texture_descriptor(assignment.source, assignment.filtering, source_generation));
             }
             impl->material_dependencies.emplace(
                 registered->id.string(),
@@ -921,12 +943,6 @@ const core::Diagnostics& StructuredAssetDependencyIndex::diagnostics() const noe
     return m_impl->diagnostics;
 }
 
-const TexturePreparationRequirementMap&
-StructuredAssetDependencyIndex::texture_preparation_requirements() const noexcept
-{
-    return m_impl->texture_preparation_requirements;
-}
-
 StructuredAssetDependencyCollector::StructuredAssetDependencyCollector(
     StructuredAssetDependencyIndex index) noexcept
     : m_index(std::move(index))
@@ -939,7 +955,7 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
     StructuredAssetDependencyBuckets result;
     result.diagnostics = m_index.m_impl->diagnostics;
     result.mandatory_diagnostics = m_index.m_impl->configuration_diagnostics;
-    std::set<CacheIdentity> seen;
+    std::map<CacheIdentity, SeenDescriptorState> seen;
     core::Diagnostics current_diagnostics;
 
     DescriptorAccumulator current(&seen);
@@ -971,16 +987,19 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
         for (const auto& interactable : snapshot->interactables) {
             if (!interactable.enabled || !interactable.visible)
                 continue;
+            const auto definition = m_index.m_impl->interactables.find(interactable.interactable);
+            const bool retain_alpha_coverage =
+                definition != m_index.m_impl->interactables.end() &&
+                std::holds_alternative<core::compiled::SpriteAlphaHotspots>(
+                    definition->second->presentation.hotspots);
             if (interactable.sprite)
                 m_index.m_impl->append_asset(current, *interactable.sprite,
                                              core::compiled::AssetKind::Image, current_diagnostics,
-                                             "current interactable");
+                                             "current interactable", retain_alpha_coverage);
             if (interactable.material)
                 m_index.m_impl->append_material(current, *interactable.material,
                                                 current_diagnostics, "current interactable");
-            if (const auto definition =
-                    m_index.m_impl->interactables.find(interactable.interactable);
-                definition != m_index.m_impl->interactables.end()) {
+            if (definition != m_index.m_impl->interactables.end()) {
                 m_index.m_impl->append_interactable_hotspots(
                     current, interactable.interactable, *definition->second, current_diagnostics);
             }
@@ -1146,13 +1165,26 @@ PrefetchPlanner::replace_generation_on_owner(
     PrefetchSubmissionReport report;
     report.generation = *allocated.value_if();
     std::vector<PrefetchTicket> next_tickets;
-    std::set<CacheIdentity> seen;
-    for (const auto& current : dependencies.current_mandatory)
-        seen.insert(identity_of(current.cache_key));
+    std::map<CacheIdentity, SeenDescriptorState> seen;
+    for (const auto& current : dependencies.current_mandatory) {
+        const auto identity = identity_of(current.cache_key);
+        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(current);
+        auto [found, inserted] = seen.try_emplace(
+            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
+        if (!inserted)
+            found->second.retain_alpha_coverage |= retain_alpha_coverage;
+    }
 
     auto submit = [&](const StructuredAssetRequestDescriptor& descriptor, bool direct_next) {
-        if (!seen.insert(identity_of(descriptor.cache_key)).second)
-            return;
+        const auto identity = identity_of(descriptor.cache_key);
+        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(descriptor);
+        const auto [found, inserted] = seen.try_emplace(
+            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
+        if (!inserted) {
+            if (!retain_alpha_coverage || found->second.retain_alpha_coverage)
+                return;
+            found->second.retain_alpha_coverage = true;
+        }
 
         if (direct_next)
             ++report.direct_next_count;

@@ -73,6 +73,15 @@ public:
                            assets::TextureAssetRequest request);
     ~TexturePreparationTask() override;
 
+    [[nodiscard]] assets::AssetPreparationCapabilities
+    requested_capabilities_on_owner() const noexcept override;
+    [[nodiscard]] bool request_additional_capabilities(
+        assets::AssetPreparationCapabilities capabilities) noexcept override;
+    [[nodiscard]] assets::AssetPreparationCapabilities
+    provided_capabilities_on_owner() const noexcept override;
+    [[nodiscard]] std::unique_ptr<assets::AssetEnrichmentTask<assets::TextureAsset>>
+    create_enrichment_task_on_owner(
+        assets::AssetPreparationCapabilities capabilities) const override;
     [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override;
     [[nodiscard]] bool reservation_update_required_on_owner() const noexcept override;
     void reservation_update_granted_on_owner() noexcept override;

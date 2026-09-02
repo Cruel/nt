@@ -247,6 +247,10 @@ const char* event_kind_name(AssetTelemetryEventKind value)
         return "budget-pressure";
     case AssetTelemetryEventKind::MemoryPolicyResolved:
         return "memory-policy-resolved";
+    case AssetTelemetryEventKind::CapabilityJoined:
+        return "capability-joined";
+    case AssetTelemetryEventKind::CapabilityEnriched:
+        return "capability-enriched";
     case AssetTelemetryEventKind::Count:
         break;
     }

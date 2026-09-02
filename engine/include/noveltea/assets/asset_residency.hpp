@@ -336,6 +336,18 @@ public:
     }
     [[nodiscard]] virtual ResidencyAdmissionResult
     admit_on_owner(ResidencyAdmissionRequest request) noexcept = 0;
+    [[nodiscard]] virtual ResidencyAdmissionResult
+    enrich_resident_on_owner(const AssetCacheKey& cache_key, ResidencyCost additional_cost,
+                             AssetRequestReason reason) noexcept
+    {
+        (void)cache_key;
+        (void)additional_cost;
+        (void)reason;
+        return {.admission = ResidencyAdmission::Deferred,
+                .committed_cost = {},
+                .diagnostics = {{.code = "assets.resident_enrichment_unsupported",
+                                 .message = "residency manager cannot grow a resident asset"}}};
+    }
     [[nodiscard]] virtual core::Result<ReservationPin, core::Diagnostic>
     pin_resident_on_owner(const AssetCacheKey& cache_key) noexcept = 0;
     [[nodiscard]] virtual bool retain_pin_on_owner(const AssetCacheKey& cache_key) noexcept = 0;
@@ -390,6 +402,9 @@ public:
                                 AssetRequestReason reason) noexcept override;
     [[nodiscard]] ResidencyAdmissionResult
     admit_on_owner(ResidencyAdmissionRequest request) noexcept override;
+    [[nodiscard]] ResidencyAdmissionResult
+    enrich_resident_on_owner(const AssetCacheKey& cache_key, ResidencyCost additional_cost,
+                             AssetRequestReason reason) noexcept override;
     [[nodiscard]] core::Result<ReservationPin, core::Diagnostic>
     pin_resident_on_owner(const AssetCacheKey& cache_key) noexcept override;
     [[nodiscard]] bool retain_pin_on_owner(const AssetCacheKey& cache_key) noexcept override;
