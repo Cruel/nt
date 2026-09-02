@@ -2,6 +2,7 @@
 
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/feature_view.hpp"
+#include "noveltea/core/flow.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/runtime/runtime_identity.hpp"
@@ -36,12 +37,18 @@ struct RuntimeGameplayInstanceSnapshot {
     bool operator==(const RuntimeGameplayInstanceSnapshot&) const = default;
 };
 
+struct RuntimeSceneExecutionSnapshot {
+    core::SceneId scene;
+    core::SceneFramePosition position;
+};
+
 struct RuntimePublication {
     RuntimePublicationRevision revision;
     core::TypedRuntimeUIViewState gameplay_ui;
     core::RuntimePresentationSnapshot presentation;
     RuntimeObservationSnapshot observations;
     std::vector<RuntimeGameplayInstanceSnapshot> gameplay_instances;
+    std::optional<RuntimeSceneExecutionSnapshot> active_scene;
 };
 
 struct NotificationEvent {

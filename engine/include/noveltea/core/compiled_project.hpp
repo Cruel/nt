@@ -1746,16 +1746,48 @@ struct FlowPredictionAssetDependency {
     AssetId asset;
     bool operator==(const FlowPredictionAssetDependency&) const = default;
 };
+struct FlowPredictionAudioDependency {
+    AssetId asset;
+    AudioPurpose purpose = AudioPurpose::SoundEffect;
+    bool operator==(const FlowPredictionAudioDependency&) const = default;
+};
+struct FlowPredictionCharacterDependency {
+    CharacterId character;
+    std::optional<CharacterPresentationProfileId> profile_id;
+    std::optional<CharacterPoseId> pose_id;
+    std::optional<CharacterExpressionId> expression_id;
+    std::optional<CharacterAppearanceId> appearance_id;
+    bool operator==(const FlowPredictionCharacterDependency&) const = default;
+};
+struct FlowPredictionLayoutDependency {
+    LayoutId layout;
+    bool operator==(const FlowPredictionLayoutDependency&) const = default;
+};
+struct FlowPredictionMaterialDependency {
+    MaterialId material;
+    bool operator==(const FlowPredictionMaterialDependency&) const = default;
+};
 struct FlowPredictionRoomDependency {
     RoomId room;
     bool operator==(const FlowPredictionRoomDependency&) const = default;
 };
 using FlowPredictionDependency =
-    std::variant<FlowPredictionAssetDependency, FlowPredictionRoomDependency>;
+    std::variant<FlowPredictionAssetDependency, FlowPredictionAudioDependency,
+                 FlowPredictionCharacterDependency, FlowPredictionLayoutDependency,
+                 FlowPredictionMaterialDependency, FlowPredictionRoomDependency>;
 
 struct SceneEntryPredictionPoint {
     SceneId scene;
     bool operator==(const SceneEntryPredictionPoint&) const = default;
+};
+struct SceneStepPredictionPoint {
+    SceneId scene;
+    SceneStepId step;
+    bool operator==(const SceneStepPredictionPoint&) const = default;
+};
+struct SceneTerminalPredictionPoint {
+    SceneId scene;
+    bool operator==(const SceneTerminalPredictionPoint&) const = default;
 };
 struct DialogueEntryPredictionPoint {
     DialogueId dialogue;
@@ -1773,8 +1805,9 @@ struct RoomLifecyclePredictionPoint {
     RoomLifecyclePredictionStage stage = RoomLifecyclePredictionStage::Presentation;
     bool operator==(const RoomLifecyclePredictionPoint&) const = default;
 };
-using FlowPredictionPoint = std::variant<SceneEntryPredictionPoint, DialogueEntryPredictionPoint,
-                                         RoomLifecyclePredictionPoint>;
+using FlowPredictionPoint =
+    std::variant<SceneEntryPredictionPoint, SceneStepPredictionPoint, SceneTerminalPredictionPoint,
+                 DialogueEntryPredictionPoint, RoomLifecyclePredictionPoint>;
 
 struct FlowPredictionSetGlobalProperty {
     PropertyId property;
@@ -1784,6 +1817,9 @@ struct FlowPredictionInvalidateGlobalProperty {
     PropertyId property;
 };
 struct FlowPredictionCallScene {
+    SceneId scene;
+};
+struct FlowPredictionStartDetachedScene {
     SceneId scene;
 };
 struct FlowPredictionCallDialogue {
@@ -1797,16 +1833,51 @@ struct FlowPredictionIf {
     std::vector<FlowPredictionCommand> else_commands;
 };
 struct FlowPredictionCommand {
-    using Value = std::variant<FlowPredictionSetGlobalProperty,
-                               FlowPredictionInvalidateGlobalProperty, FlowPredictionCallScene,
-                               FlowPredictionCallDialogue, FlowPredictionOpaque, FlowPredictionIf>;
+    using Value =
+        std::variant<FlowPredictionSetGlobalProperty, FlowPredictionInvalidateGlobalProperty,
+                     FlowPredictionCallScene, FlowPredictionStartDetachedScene,
+                     FlowPredictionCallDialogue, FlowPredictionOpaque, FlowPredictionIf>;
     Value value;
+};
+
+struct FlowPredictionSequentialControl {
+    std::optional<std::size_t> successor;
+};
+struct FlowPredictionBranchEdge {
+    Condition condition;
+    std::size_t target = 0;
+};
+struct FlowPredictionBranchControl {
+    std::vector<FlowPredictionBranchEdge> branches;
+    std::size_t fallback = 0;
+};
+struct FlowPredictionChoiceEdge {
+    SceneChoiceOptionId option;
+    std::optional<Condition> condition;
+    std::vector<std::vector<FlowPredictionCommand>> programs;
+    std::size_t target = 0;
+};
+struct FlowPredictionChoiceControl {
+    std::vector<FlowPredictionChoiceEdge> options;
+};
+using FlowPredictionControl =
+    std::variant<FlowPredictionSequentialControl, FlowPredictionBranchControl,
+                 FlowPredictionChoiceControl>;
+
+enum class FlowPredictionFrontier : std::uint8_t {
+    Normal,
+    ShortWait,
+    StrongWait,
+    Decision,
 };
 
 struct FlowPredictionSlice {
     FlowPredictionPoint point;
     std::vector<std::size_t> dependency_groups;
-    std::vector<std::size_t> successors;
+    std::optional<Condition> condition;
+    std::optional<std::size_t> condition_false_successor;
+    FlowPredictionControl control;
+    FlowPredictionFrontier frontier = FlowPredictionFrontier::Normal;
     std::vector<FlowPredictionCommand> program;
 };
 

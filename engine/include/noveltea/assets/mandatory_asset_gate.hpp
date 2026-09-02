@@ -12,6 +12,10 @@
 #include <variant>
 #include <vector>
 
+namespace noveltea::runtime {
+struct ActiveScenePredictionRoot;
+}
+
 namespace noveltea::assets {
 
 using StructuredAssetLease =
@@ -234,6 +238,8 @@ public:
     include_audio_operation_on_owner(const core::AudioOperation& operation,
                                      MandatoryAssetRequestGroup::Clock::time_point now =
                                          MandatoryAssetRequestGroup::Clock::now()) noexcept;
+    [[nodiscard]] core::Diagnostics update_active_scene_prediction_on_owner(
+        const runtime::ActiveScenePredictionRoot* root) noexcept;
     [[nodiscard]] std::optional<RuntimeMandatoryPublicationTransaction>
     take_ready_transaction_on_owner() noexcept;
     void release_previous_publication_on_owner() noexcept;

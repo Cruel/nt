@@ -1984,11 +1984,18 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         gameplay_instances.push_back(runtime::RuntimeGameplayInstanceSnapshot{
             core::GameplayInstanceRef{instance.id}, instance.declared, instance.provenance});
 
+    std::optional<runtime::RuntimeSceneExecutionSnapshot> active_scene;
+    if (!session_state.flow_stack().empty()) {
+        if (const auto* scene = std::get_if<core::SceneFrame>(&session_state.flow_stack().back()))
+            active_scene = runtime::RuntimeSceneExecutionSnapshot{scene->scene, scene->position};
+    }
+
     runtime::RuntimePublication publication{.revision = m_next_publication_revision,
                                             .gameplay_ui = std::move(gameplay_ui),
                                             .presentation = std::move(presentation_value),
                                             .observations = std::move(observations),
-                                            .gameplay_instances = std::move(gameplay_instances)};
+                                            .gameplay_instances = std::move(gameplay_instances),
+                                            .active_scene = std::move(active_scene)};
     m_next_publication_revision = *subsequent;
     m_current_publication = publication;
     result.publication = std::move(publication);

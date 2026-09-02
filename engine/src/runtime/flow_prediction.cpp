@@ -232,34 +232,80 @@ public:
     {
     }
 
-    ProjectedProperties run_slice(std::size_t slice_index, std::size_t distance,
-                                  FlowPredictionConfidence confidence,
-                                  ProjectedProperties properties)
+    struct Result {
+        ProjectedProperties properties;
+        std::size_t max_distance = 0;
+    };
+
+    Result run_slice(std::size_t slice_index, std::size_t distance,
+                     FlowPredictionConfidence confidence, ProjectedProperties properties,
+                     bool detached_root = false)
     {
         if (slice_index >= m_index.slices.size()) {
             add_invalid_index(m_result.diagnostics, "slice", slice_index);
-            return properties;
+            return {std::move(properties), distance};
         }
         if (std::find(m_active_slices.begin(), m_active_slices.end(), slice_index) !=
             m_active_slices.end())
-            return properties;
+            return {std::move(properties), distance};
 
         m_active_slices.push_back(slice_index);
         const auto& slice = m_index.slices[slice_index];
-        append_dependencies(slice, distance, confidence);
-        properties = run_program(slice.program, distance + 1, confidence, std::move(properties));
-        for (const std::size_t successor : slice.successors) {
-            if (successor >= m_index.slices.size()) {
-                add_invalid_index(m_result.diagnostics, "successor", successor);
-                continue;
-            }
-            properties = run_slice(successor, distance + 1, confidence, std::move(properties));
+        const auto condition = slice.condition ? evaluate_condition(*slice.condition, properties)
+                                               : KnownCondition::True;
+        if (condition == KnownCondition::False) {
+            auto result = run_false_successor(slice, distance, confidence, std::move(properties));
+            m_active_slices.pop_back();
+            return result;
+        }
+
+        const auto local_confidence = condition == KnownCondition::Unknown
+                                          ? FlowPredictionConfidence::Alternative
+                                          : confidence;
+        const auto condition_properties = properties;
+        append_dependencies(slice, distance, local_confidence);
+        auto program =
+            run_program(slice.program, distance + 1, local_confidence, std::move(properties));
+        auto followed = run_control(slice, std::move(program), local_confidence, detached_root);
+
+        if (condition == KnownCondition::Unknown && slice.condition_false_successor) {
+            auto skipped = run_target(*slice.condition_false_successor, distance + 1,
+                                      FlowPredictionConfidence::Alternative, condition_properties);
+            followed.max_distance = std::max(followed.max_distance, skipped.max_distance);
+            followed.properties = merge_properties(followed.properties, skipped.properties);
         }
         m_active_slices.pop_back();
-        return properties;
+        return followed;
+    }
+
+    Result run_choice_effect(std::size_t slice_index, const core::SceneChoiceOptionId& option_id,
+                             std::size_t next_effect, std::size_t distance,
+                             FlowPredictionConfidence confidence, ProjectedProperties properties)
+    {
+        if (slice_index >= m_index.slices.size()) {
+            add_invalid_index(m_result.diagnostics, "slice", slice_index);
+            return {std::move(properties), distance};
+        }
+        const auto* choice = std::get_if<core::compiled::FlowPredictionChoiceControl>(
+            &m_index.slices[slice_index].control);
+        if (choice == nullptr)
+            return {std::move(properties), distance};
+        const auto option = std::ranges::find_if(
+            choice->options, [&](const auto& candidate) { return candidate.option == option_id; });
+        if (option == choice->options.end())
+            return {std::move(properties), distance};
+        auto program = run_programs(option->programs, next_effect, distance, confidence,
+                                    std::move(properties));
+        return run_target(option->target, program.next_distance, confidence,
+                          std::move(program.properties));
     }
 
 private:
+    struct ProgramResult {
+        ProjectedProperties properties;
+        std::size_t next_distance = 0;
+    };
+
     void append_dependencies(const core::compiled::FlowPredictionSlice& slice, std::size_t distance,
                              FlowPredictionConfidence confidence)
     {
@@ -276,14 +322,14 @@ private:
         }
     }
 
-    ProjectedProperties
-    run_program(const std::vector<core::compiled::FlowPredictionCommand>& program,
-                std::size_t distance, FlowPredictionConfidence confidence,
-                ProjectedProperties properties)
+    ProgramResult run_program(const std::vector<core::compiled::FlowPredictionCommand>& program,
+                              std::size_t distance, FlowPredictionConfidence confidence,
+                              ProjectedProperties properties)
     {
+        std::size_t next_distance = distance;
         for (const auto& command : program) {
-            properties = std::visit(
-                [&](const auto& value) -> ProjectedProperties {
+            auto command_result = std::visit(
+                [&](const auto& value) -> ProgramResult {
                     using T = std::decay_t<decltype(value)>;
                     if constexpr (std::is_same_v<T,
                                                  core::compiled::FlowPredictionSetGlobalProperty>) {
@@ -297,43 +343,188 @@ private:
                         properties.clear();
                     } else if constexpr (std::is_same_v<T,
                                                         core::compiled::FlowPredictionCallScene>) {
-                        run_child(entry_point(value.scene), distance, confidence, properties);
+                        auto child = run_child(entry_point(value.scene), next_distance, confidence,
+                                               properties, false);
+                        next_distance = std::max(next_distance, child.max_distance + 1);
                         properties.clear();
                     } else if constexpr (std::is_same_v<
+                                             T, core::compiled::FlowPredictionStartDetachedScene>) {
+                        (void)run_child(entry_point(value.scene), next_distance, confidence,
+                                        properties, true);
+                    } else if constexpr (std::is_same_v<
                                              T, core::compiled::FlowPredictionCallDialogue>) {
-                        run_child(entry_point(value.dialogue), distance, confidence, properties);
+                        auto child = run_child(entry_point(value.dialogue), next_distance,
+                                               confidence, properties, false);
+                        next_distance = std::max(next_distance, child.max_distance + 1);
                         properties.clear();
                     } else if constexpr (std::is_same_v<T, core::compiled::FlowPredictionIf>) {
                         const auto evaluated = evaluate_condition(value.condition, properties);
                         if (evaluated == KnownCondition::True) {
-                            return run_program(value.then_commands, distance + 1, confidence,
+                            return run_program(value.then_commands, next_distance + 1, confidence,
                                                std::move(properties));
                         }
                         if (evaluated == KnownCondition::False) {
-                            return run_program(value.else_commands, distance + 1, confidence,
+                            return run_program(value.else_commands, next_distance + 1, confidence,
                                                std::move(properties));
                         }
-                        auto then_properties =
-                            run_program(value.then_commands, distance + 1,
+                        auto then_result =
+                            run_program(value.then_commands, next_distance + 1,
                                         FlowPredictionConfidence::Alternative, properties);
-                        auto else_properties =
-                            run_program(value.else_commands, distance + 1,
+                        auto else_result =
+                            run_program(value.else_commands, next_distance + 1,
                                         FlowPredictionConfidence::Alternative, properties);
-                        return merge_properties(then_properties, else_properties);
+                        return {merge_properties(then_result.properties, else_result.properties),
+                                std::max(then_result.next_distance, else_result.next_distance)};
                     }
-                    return std::move(properties);
+                    return {std::move(properties), next_distance};
                 },
                 command.value);
+            properties = std::move(command_result.properties);
+            next_distance = command_result.next_distance;
         }
-        return properties;
+        return {std::move(properties), next_distance};
     }
 
-    void run_child(const core::compiled::FlowPredictionPoint& point, std::size_t distance,
-                   FlowPredictionConfidence confidence, const ProjectedProperties& properties)
+    ProgramResult
+    run_programs(const std::vector<std::vector<core::compiled::FlowPredictionCommand>>& programs,
+                 std::size_t start, std::size_t distance, FlowPredictionConfidence confidence,
+                 ProjectedProperties properties)
+    {
+        ProgramResult result{std::move(properties), distance};
+        for (std::size_t index = start; index < programs.size(); ++index) {
+            result = run_program(programs[index], result.next_distance, confidence,
+                                 std::move(result.properties));
+        }
+        return result;
+    }
+
+    Result run_child(const core::compiled::FlowPredictionPoint& point, std::size_t distance,
+                     FlowPredictionConfidence confidence, const ProjectedProperties& properties,
+                     bool detached_root)
     {
         const auto child = find_slice(m_index, point);
         if (child)
-            (void)run_slice(*child, distance, confidence, properties);
+            return run_slice(*child, distance, confidence, properties, detached_root);
+        return {properties, distance};
+    }
+
+    Result run_target(std::size_t target, std::size_t distance, FlowPredictionConfidence confidence,
+                      ProjectedProperties properties, bool detached_root = false)
+    {
+        if (target >= m_index.slices.size()) {
+            add_invalid_index(m_result.diagnostics, "successor", target);
+            return {std::move(properties), distance};
+        }
+        return run_slice(target, distance, confidence, std::move(properties), detached_root);
+    }
+
+    Result run_false_successor(const core::compiled::FlowPredictionSlice& slice,
+                               std::size_t distance, FlowPredictionConfidence confidence,
+                               ProjectedProperties properties)
+    {
+        if (!slice.condition_false_successor)
+            return {std::move(properties), distance};
+        return run_target(*slice.condition_false_successor, distance + 1, confidence,
+                          std::move(properties));
+    }
+
+    Result run_control(const core::compiled::FlowPredictionSlice& slice, ProgramResult program,
+                       FlowPredictionConfidence confidence, bool detached_root)
+    {
+        std::size_t distance = program.next_distance;
+        auto continuation_confidence = confidence;
+        switch (slice.frontier) {
+        case core::compiled::FlowPredictionFrontier::Normal:
+            break;
+        case core::compiled::FlowPredictionFrontier::ShortWait:
+            distance += 1;
+            break;
+        case core::compiled::FlowPredictionFrontier::StrongWait:
+        case core::compiled::FlowPredictionFrontier::Decision:
+            distance += 3;
+            continuation_confidence = FlowPredictionConfidence::Alternative;
+            break;
+        }
+        if (detached_root) {
+            distance += 2;
+            continuation_confidence = FlowPredictionConfidence::Alternative;
+        }
+
+        return std::visit(
+            [&](const auto& control) -> Result {
+                using T = std::decay_t<decltype(control)>;
+                if constexpr (std::is_same_v<T, core::compiled::FlowPredictionSequentialControl>) {
+                    if (!control.successor)
+                        return {std::move(program.properties), distance};
+                    return run_target(*control.successor, distance, continuation_confidence,
+                                      std::move(program.properties));
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::FlowPredictionBranchControl>) {
+                    bool widened = false;
+                    std::vector<Result> alternatives;
+                    for (const auto& branch : control.branches) {
+                        const auto evaluated =
+                            evaluate_condition(branch.condition, program.properties);
+                        if (evaluated == KnownCondition::False)
+                            continue;
+                        if (evaluated == KnownCondition::True) {
+                            auto selected =
+                                run_target(branch.target, distance,
+                                           widened ? FlowPredictionConfidence::Alternative
+                                                   : continuation_confidence,
+                                           program.properties);
+                            if (!widened)
+                                return selected;
+                            alternatives.push_back(std::move(selected));
+                            break;
+                        }
+                        widened = true;
+                        alternatives.push_back(run_target(branch.target, distance,
+                                                          FlowPredictionConfidence::Alternative,
+                                                          program.properties));
+                    }
+                    if (alternatives.empty() || widened)
+                        alternatives.push_back(
+                            run_target(control.fallback, distance,
+                                       widened ? FlowPredictionConfidence::Alternative
+                                               : continuation_confidence,
+                                       program.properties));
+                    Result merged = std::move(alternatives.front());
+                    for (std::size_t index = 1; index < alternatives.size(); ++index) {
+                        merged.max_distance =
+                            std::max(merged.max_distance, alternatives[index].max_distance);
+                        merged.properties =
+                            merge_properties(merged.properties, alternatives[index].properties);
+                    }
+                    return merged;
+                } else {
+                    std::vector<Result> alternatives;
+                    for (const auto& option : control.options) {
+                        if (option.condition &&
+                            evaluate_condition(*option.condition, program.properties) ==
+                                KnownCondition::False)
+                            continue;
+                        auto option_program =
+                            run_programs(option.programs, 0, distance,
+                                         FlowPredictionConfidence::Alternative, program.properties);
+                        alternatives.push_back(run_target(option.target,
+                                                          option_program.next_distance,
+                                                          FlowPredictionConfidence::Alternative,
+                                                          std::move(option_program.properties)));
+                    }
+                    if (alternatives.empty())
+                        return {std::move(program.properties), distance};
+                    Result merged = std::move(alternatives.front());
+                    for (std::size_t index = 1; index < alternatives.size(); ++index) {
+                        merged.max_distance =
+                            std::max(merged.max_distance, alternatives[index].max_distance);
+                        merged.properties =
+                            merge_properties(merged.properties, alternatives[index].properties);
+                    }
+                    return merged;
+                }
+            },
+            slice.control);
     }
 
     const core::compiled::FlowPredictionIndex& m_index;
@@ -401,8 +592,10 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     auto run_stage = [&](const core::RoomId& room,
                          core::compiled::RoomLifecyclePredictionStage stage) {
         if (const auto slice = find_room_stage(index, room, stage)) {
-            properties = traversal.run_slice(*slice, distance, FlowPredictionConfidence::Expected,
-                                             std::move(properties));
+            properties = traversal
+                             .run_slice(*slice, distance, FlowPredictionConfidence::Expected,
+                                        std::move(properties))
+                             .properties;
         }
         ++distance;
     };
@@ -416,6 +609,93 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     if (root.source_room)
         run_stage(*root.source_room, core::compiled::RoomLifecyclePredictionStage::AfterLeave);
     run_stage(root.target_room, core::compiled::RoomLifecyclePredictionStage::AfterEnter);
+    return result;
+}
+
+FlowPredictionProjection FlowPredictor::predict(const ActiveScenePredictionRoot& root) const
+{
+    return predict(root, {});
+}
+
+FlowPredictionProjection FlowPredictor::predict(const ActiveScenePredictionRoot& root,
+                                                const FlowPredictionContext& context) const
+{
+    FlowPredictionProjection result;
+    const auto& optional_index = m_project->flow_prediction();
+    if (!optional_index)
+        return result;
+    const auto& index = *optional_index;
+    PredictionTraversal traversal(index, result);
+    auto properties = initial_properties(context);
+
+    if (!root.position.stage_initialized) {
+        if (const auto entry =
+                find_slice(index, core::compiled::SceneEntryPredictionPoint{root.scene}))
+            (void)traversal.run_slice(*entry, 0, FlowPredictionConfidence::Expected,
+                                      std::move(properties));
+        return result;
+    }
+
+    const auto step_slice = [&](const core::SceneStepId& step) {
+        return find_slice(index, core::compiled::SceneStepPredictionPoint{root.scene, step});
+    };
+    const auto run_position = [&](const std::optional<core::SceneStepId>& step,
+                                  std::size_t distance, FlowPredictionConfidence confidence,
+                                  ProjectedProperties projected) {
+        const auto point =
+            step ? core::compiled::FlowPredictionPoint{core::compiled::SceneStepPredictionPoint{
+                       root.scene, *step}}
+                 : core::compiled::FlowPredictionPoint{
+                       core::compiled::SceneTerminalPredictionPoint{root.scene}};
+        if (const auto slice = find_slice(index, point))
+            (void)traversal.run_slice(*slice, distance, confidence, std::move(projected));
+    };
+
+    if (const auto* effects =
+            std::get_if<core::SceneChoiceEffectPosition>(&root.position.substate)) {
+        if (root.position.next_step) {
+            if (const auto slice = step_slice(*root.position.next_step)) {
+                (void)traversal.run_choice_effect(*slice, effects->option, effects->next_effect, 0,
+                                                  FlowPredictionConfidence::Expected,
+                                                  std::move(properties));
+            }
+        }
+        return result;
+    }
+
+    if (const auto* completion =
+            std::get_if<core::SceneInstructionCompletionPosition>(&root.position.substate)) {
+        std::size_t distance = 0;
+        auto confidence = FlowPredictionConfidence::Expected;
+        if (root.position.next_step) {
+            if (const auto current = step_slice(*root.position.next_step)) {
+                switch (index.slices[*current].frontier) {
+                case core::compiled::FlowPredictionFrontier::Normal:
+                    break;
+                case core::compiled::FlowPredictionFrontier::ShortWait:
+                    distance = 1;
+                    break;
+                case core::compiled::FlowPredictionFrontier::StrongWait:
+                case core::compiled::FlowPredictionFrontier::Decision:
+                    distance = 3;
+                    confidence = FlowPredictionConfidence::Alternative;
+                    break;
+                }
+            }
+        }
+        run_position(completion->next_step, distance, confidence, std::move(properties));
+        return result;
+    }
+
+    if (const auto* pending =
+            std::get_if<core::SceneAutosavePendingPosition>(&root.position.substate)) {
+        run_position(pending->next_step, 0, FlowPredictionConfidence::Expected,
+                     std::move(properties));
+        return result;
+    }
+
+    run_position(root.position.next_step, 0, FlowPredictionConfidence::Expected,
+                 std::move(properties));
     return result;
 }
 

@@ -79,15 +79,33 @@ only: it never drives canonical Flow execution, and a missing/unused prediction 
 correctness unchanged because mandatory asset publication remains independent.
 
 `runtime::FlowPredictor` exposes a read-only semantic projection over the generated index. In addition
-to Scene and Dialogue entry roots, prospective Room entry is a first-class prediction root. It composes
-the canonical successful transition order (source `before_leave`, target `before_enter`, target Room
-presentation, source `after_leave`, target `after_enter` where applicable) and deliberately excludes
-rejection programs. Compiler-lowered Gameplay Command summaries can hand off to Scene or Dialogue and
-carry a narrow disposable projection of typed Global Property mutations into later Conditions. Known
-Conditions select an expected branch; unknown or Lua-dependent Conditions widen both branches as
-alternatives. Lua is never executed or analyzed, and an opaque Lua command discards projected state
-while prediction continues through statically known Flow. This remains speculative metadata only; it
-does not clone a Runtime Session or participate in authoritative execution.
+to Scene and Dialogue entry roots, an active Scene can be rooted at its current `SceneFramePosition`,
+and prospective Room entry is a first-class prediction root. Prospective Scene prediction begins at
+Scene entry and sees the invocation Stage once; active Scene prediction begins at the current step (or
+terminal) and does not replay already-consumed Stage/Event dependencies. Scene control follows generated
+sequential, ordered-Condition, and Choice edges rather than walking the raw Scene program. Awaited child
+Scene/Dialogue Flow is traversed before the caller continuation, while a detached Scene contributes an
+immediate parallel root whose deeper continuation is demoted relative to foreground work. Short
+deterministic waits increase execution distance while retaining expected continuation; stronger waits
+and player decisions retain later reachability but demote it to alternatives. This is semantic horizon
+ranking, not a probability model.
+
+The Runtime Session publishes the authoritative foreground Scene identity and `SceneFramePosition`
+alongside each immutable runtime publication. The host forwards that execution snapshot to the
+mandatory-asset gate after publication succeeds, allowing speculative prefetch to rotate from the
+live Scene position even when the rendered presentation snapshot is unchanged. This execution snapshot
+is prediction input only; presentation reconciliation and mandatory correctness remain driven by their
+existing authoritative contracts.
+
+Prospective Room entry composes the canonical successful transition order (source `before_leave`,
+target `before_enter`, target Room presentation, source `after_leave`, target `after_enter` where
+applicable) and deliberately excludes rejection programs. Compiler-lowered Gameplay Command summaries
+can hand off to Scene or Dialogue and carry a narrow disposable projection of typed Global Property
+mutations into later Conditions. Known Conditions select an expected branch; unknown or Lua-dependent
+Conditions widen alternatives. Lua is never executed or analyzed, and an opaque Lua command discards
+projected state while prediction continues through statically known Flow. Traversal detects cyclic
+generated topology and terminates it without changing gameplay. This remains speculative metadata only;
+it does not clone a Runtime Session or participate in authoritative execution.
 
 ## Agent Rules
 

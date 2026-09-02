@@ -2,6 +2,7 @@
 
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/flow.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -43,6 +44,11 @@ struct ProspectiveRoomEntryPredictionRoot {
     core::RoomId target_room;
 };
 
+struct ActiveScenePredictionRoot {
+    core::SceneId scene;
+    core::SceneFramePosition position;
+};
+
 class FlowPredictor {
 public:
     explicit FlowPredictor(const core::CompiledProject& project) noexcept : m_project(&project) {}
@@ -53,6 +59,9 @@ public:
     [[nodiscard]] FlowPredictionProjection
     predict(const ProspectiveRoomEntryPredictionRoot& root) const;
     [[nodiscard]] FlowPredictionProjection predict(const ProspectiveRoomEntryPredictionRoot& root,
+                                                   const FlowPredictionContext& context) const;
+    [[nodiscard]] FlowPredictionProjection predict(const ActiveScenePredictionRoot& root) const;
+    [[nodiscard]] FlowPredictionProjection predict(const ActiveScenePredictionRoot& root,
                                                    const FlowPredictionContext& context) const;
 
 private:

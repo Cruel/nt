@@ -2,6 +2,7 @@
 
 #include "noveltea/presentation/presentation_coordinator.hpp"
 #include "noveltea/assets/mandatory_asset_gate.hpp"
+#include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/runtime/runtime_ports.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
 
@@ -61,6 +62,8 @@ public:
     set_active_text_phase(core::ActiveTextPresentationPhase phase) override;
     [[nodiscard]] core::Diagnostics
     reconcile_publication(const core::RuntimePresentationSnapshot& snapshot) override;
+    [[nodiscard]] core::Diagnostics update_active_scene_prediction(
+        const std::optional<runtime::RuntimeSceneExecutionSnapshot>& active_scene);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();

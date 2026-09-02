@@ -1,4 +1,5 @@
 #include "noveltea/runtime_presentation_bridge.hpp"
+#include "noveltea/runtime/flow_prediction.hpp"
 #include "noveltea/world_transition.hpp"
 
 #include <algorithm>
@@ -510,6 +511,17 @@ RuntimePresentationBridge::reconcile_publication(const core::RuntimePresentation
 {
     auto reconciled = m_coordinator.reconcile_snapshot(snapshot);
     return reconciled ? core::Diagnostics{} : std::move(reconciled).error();
+}
+
+core::Diagnostics RuntimePresentationBridge::update_active_scene_prediction(
+    const std::optional<runtime::RuntimeSceneExecutionSnapshot>& active_scene)
+{
+    if (m_mandatory_asset_gate == nullptr)
+        return {};
+    if (!active_scene)
+        return m_mandatory_asset_gate->update_active_scene_prediction_on_owner(nullptr);
+    const runtime::ActiveScenePredictionRoot root{active_scene->scene, active_scene->position};
+    return m_mandatory_asset_gate->update_active_scene_prediction_on_owner(&root);
 }
 
 core::Result<void, core::Diagnostics>

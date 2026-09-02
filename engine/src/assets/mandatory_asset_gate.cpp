@@ -73,6 +73,37 @@ AudioClipKind audio_kind(core::compiled::AudioPurpose channel) noexcept
     return AudioClipKind::Auto;
 }
 
+bool same_scene_prediction_root(const runtime::ActiveScenePredictionRoot& left,
+                                const runtime::ActiveScenePredictionRoot& right) noexcept
+{
+    if (left.scene != right.scene ||
+        left.position.stage_initialized != right.position.stage_initialized ||
+        left.position.next_step != right.position.next_step ||
+        left.position.substate.index() != right.position.substate.index())
+        return false;
+
+    return std::visit(
+        [&](const auto& left_substate) {
+            using T = std::decay_t<decltype(left_substate)>;
+            const auto* right_substate = std::get_if<T>(&right.position.substate);
+            if (right_substate == nullptr)
+                return false;
+            if constexpr (std::is_same_v<T, core::SceneInstructionCompletionPosition>) {
+                // Only the continuation cursor affects prediction; completion metadata is runtime
+                // bookkeeping and must not churn speculative generations.
+                return left_substate.next_step == right_substate->next_step;
+            } else if constexpr (std::is_same_v<T, core::SceneAutosavePendingPosition>) {
+                return left_substate.next_step == right_substate->next_step;
+            } else if constexpr (std::is_same_v<T, core::SceneChoiceEffectPosition>) {
+                return left_substate.option == right_substate->option &&
+                       left_substate.next_effect == right_substate->next_effect;
+            } else {
+                return true;
+            }
+        },
+        left.position.substate);
+}
+
 template<class T>
 const AssetLease<T>* find_lease(const std::vector<StructuredAssetLeaseRecord>& records,
                                 const AssetCacheKey& key) noexcept
@@ -809,6 +840,32 @@ struct MandatoryAssetGate::Impl {
         }
     }
 
+    StructuredAssetDependencyBuckets speculative_dependencies() const
+    {
+        auto result = dependencies;
+        if (package == nullptr || !dependency_index)
+            return result;
+
+        const runtime::FlowPredictionProjection* projection = nullptr;
+        if (active_scene_prediction)
+            projection = &*active_scene_prediction;
+        else if (!runtime_prediction_observed && result.direct_next.empty() &&
+                 result.adjacent_alternatives.empty() && !entry_prediction.entries.empty())
+            projection = &entry_prediction;
+        if (projection == nullptr)
+            return result;
+
+        auto plan = resolve_flow_prediction(*dependency_index, *projection);
+        core::append_diagnostics(result.diagnostics, std::move(plan.diagnostics));
+        for (auto& candidate : plan.candidates) {
+            if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
+                result.direct_next.push_back(std::move(candidate.descriptor));
+            else
+                result.adjacent_alternatives.push_back(std::move(candidate.descriptor));
+        }
+        return result;
+    }
+
     AssetManager& assets;
     MandatoryPublicationScope publication;
     PrefetchPlanner prefetch;
@@ -817,6 +874,9 @@ struct MandatoryAssetGate::Impl {
     std::optional<StructuredAssetDependencyIndex> dependency_index;
     std::optional<StructuredAssetDependencyCollector> collector;
     runtime::FlowPredictionProjection entry_prediction;
+    std::optional<runtime::ActiveScenePredictionRoot> active_scene_root;
+    std::optional<runtime::FlowPredictionProjection> active_scene_prediction;
+    bool runtime_prediction_observed = false;
     AssetSourceGeneration dependency_generation;
     std::optional<MandatoryAssetRequestGroup> group;
     StructuredAssetDependencyBuckets dependencies;
@@ -867,6 +927,9 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
         m_impl->dependency_index.reset();
         m_impl->collector.reset();
         m_impl->entry_prediction = {};
+        m_impl->active_scene_root.reset();
+        m_impl->active_scene_prediction.reset();
+        m_impl->runtime_prediction_observed = false;
         m_impl->package = nullptr;
         return core::DiagnosticResult<void>::failure(
             {.code = "assets.mandatory_gate_stale_source_generation",
@@ -883,6 +946,9 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
     // waits for the normal mandatory publication commit boundary.
     runtime::FlowPredictor predictor(package.project());
     m_impl->entry_prediction = predictor.predict(package.project().entrypoint());
+    m_impl->active_scene_root.reset();
+    m_impl->active_scene_prediction.reset();
+    m_impl->runtime_prediction_observed = false;
     return core::DiagnosticResult<void>::success();
 }
 
@@ -902,6 +968,9 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
     m_impl->dependency_index.reset();
     m_impl->collector.reset();
     m_impl->entry_prediction = {};
+    m_impl->active_scene_root.reset();
+    m_impl->active_scene_prediction.reset();
+    m_impl->runtime_prediction_observed = false;
     m_impl->package = nullptr;
     m_impl->active_renderer_variant.clear();
     m_impl->publication.clear_on_owner();
@@ -1062,6 +1131,40 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Diagnostics MandatoryAssetGate::update_active_scene_prediction_on_owner(
+    const runtime::ActiveScenePredictionRoot* root) noexcept
+{
+    const bool same_root = root != nullptr && m_impl->active_scene_root &&
+                           same_scene_prediction_root(*m_impl->active_scene_root, *root);
+    const bool same_absence =
+        root == nullptr && m_impl->runtime_prediction_observed && !m_impl->active_scene_root;
+    if (same_root || same_absence)
+        return {};
+
+    m_impl->runtime_prediction_observed = true;
+    m_impl->active_scene_root =
+        root != nullptr ? std::optional<runtime::ActiveScenePredictionRoot>{*root} : std::nullopt;
+    m_impl->active_scene_prediction.reset();
+    if (root != nullptr && m_impl->package != nullptr) {
+        runtime::FlowPredictor predictor(m_impl->package->project());
+        m_impl->active_scene_prediction = predictor.predict(*root);
+    }
+
+    core::Diagnostics diagnostics;
+    if (m_impl->active_scene_prediction)
+        diagnostics = m_impl->active_scene_prediction->diagnostics;
+    if (m_impl->group || m_impl->transaction_active || m_impl->package == nullptr ||
+        !m_impl->dependency_index)
+        return diagnostics;
+
+    auto dependencies = m_impl->speculative_dependencies();
+    core::append_diagnostics(diagnostics, std::move(dependencies.diagnostics));
+    auto submitted = m_impl->prefetch.replace_generation_on_owner(dependencies);
+    if (!submitted)
+        diagnostics.push_back(std::move(submitted).error());
+    return diagnostics;
+}
+
 std::optional<RuntimeMandatoryPublicationTransaction>
 MandatoryAssetGate::take_ready_transaction_on_owner() noexcept
 {
@@ -1081,19 +1184,8 @@ void MandatoryAssetGate::commit_ready_transaction_on_owner() noexcept
     if (!m_impl->transaction_active)
         return;
     m_impl->transaction_active = false;
-    auto submitted = [&]() {
-        if (m_impl->pending_snapshot &&
-            m_impl->pending_snapshot->mode != core::PresentationRuntimeMode::Ended &&
-            m_impl->dependency_index && !m_impl->entry_prediction.entries.empty() &&
-            m_impl->dependencies.direct_next.empty() &&
-            m_impl->dependencies.adjacent_alternatives.empty()) {
-            auto plan =
-                resolve_flow_prediction(*m_impl->dependency_index, m_impl->entry_prediction);
-            if (!plan.candidates.empty())
-                return m_impl->prefetch.replace_generation_on_owner(plan);
-        }
-        return m_impl->prefetch.replace_generation_on_owner(m_impl->dependencies);
-    }();
+    auto speculative_dependencies = m_impl->speculative_dependencies();
+    auto submitted = m_impl->prefetch.replace_generation_on_owner(speculative_dependencies);
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (const auto* report = submitted.value_if()) {
         if (auto* sink = m_impl->assets.asset_profiler_sink_on_owner()) {
