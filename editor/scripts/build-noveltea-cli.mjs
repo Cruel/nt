@@ -152,12 +152,15 @@ async function stagePrebuiltShadercLinkClosure() {
     throw new Error('NOVELTEA_PREBUILT_SHADERC_ROOT is currently a Linux-only release input.');
   const archives = [
     'libnoveltea_bgfx_shaderc_embedded.a',
+    'libnoveltea_bimg_texturec_embedded.a',
     'libfcpp.a',
     'libglslang.a',
     'libglsl-optimizer.a',
     'libspirv-opt.a',
     'libspirv-cross.a',
     'libbimg.a',
+    'libbimg_decode.a',
+    'libbimg_encode.a',
     'libbx.a',
   ];
   const linkDirectory = path.join(repositoryRoot, 'build', releasePreset, 'tools', 'editor_tool');
@@ -259,6 +262,7 @@ const windowsGnuRuntimeLibraries = isWindows
 
 const libraries = [
   staticArchive(editorToolRoot, 'noveltea_tooling_native'),
+  staticArchive(editorToolRoot, 'noveltea_bimg_texturec_embedded'),
   staticArchive(engineRoot, 'noveltea_presentation'),
   staticArchive(engineRoot, 'noveltea_script_lua'),
   staticArchive(engineRoot, 'noveltea_runtime'),
@@ -297,8 +301,18 @@ const libraries = [
     path.join(shadercBgfxRoot, 'spirv-cross.lib'),
     path.join(shadercBgfxRoot, 'libspirv-cross.a'),
   ),
-  staticArchive(vcpkgLibRoot, 'bimg_decode'),
-  staticArchive(vcpkgLibRoot, 'bimg_encode'),
+  archive(
+    ...[editorToolRoot, shadercBimgRoot, vcpkgLibRoot].flatMap((root) => [
+      path.join(root, 'bimg_decode.lib'),
+      path.join(root, 'libbimg_decode.a'),
+    ]),
+  ),
+  archive(
+    ...[editorToolRoot, shadercBimgRoot, vcpkgLibRoot].flatMap((root) => [
+      path.join(root, 'bimg_encode.lib'),
+      path.join(root, 'libbimg_encode.a'),
+    ]),
+  ),
   staticArchive(vcpkgLibRoot, 'lodepng'),
   staticArchive(vcpkgLibRoot, 'tinyexr'),
   staticArchive(vcpkgLibRoot, 'miniz'),
