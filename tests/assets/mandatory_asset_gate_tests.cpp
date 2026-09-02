@@ -538,6 +538,35 @@ TEST_CASE("background asset progress is executor independent",
     run_background_asset_progress_matrix(executor);
 }
 
+TEST_CASE("background demand keeps demand priority without blocking host progress",
+          "[assets][progress][demand][background]")
+{
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    MatrixState state;
+    TemporaryMatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+    assets::AssetProgressOrchestrator progress(manager);
+
+    auto requested = manager.request_texture(
+        assets::TextureAssetRequest{.path = "project:/textures/cosmetic.png"},
+        assets::AssetRequestReason::Demand, assets::AssetRequestUrgency::Background);
+    REQUIRE(requested);
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Background);
+
+    REQUIRE(drive_until(executor, [&] {
+        progress.service_owner_frame();
+        return requested.value_if()->state() == assets::AssetRequestState::Ready;
+    }));
+    CHECK(progress.urgency_on_owner() == assets::AssetProgressUrgency::Idle);
+    auto lease = std::move(*requested.value_if()).take_ready();
+    REQUIRE(lease);
+    lease.reset();
+    shutdown(executor);
+}
+
 template<class Executor> void run_twenty_asset_matrix(Executor& executor)
 {
     auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
@@ -997,24 +1026,97 @@ TEST_CASE("runtime and focused publication scopes retain independent candidates 
     auto focused = ready_transaction(focused_request, focused_publication);
     REQUIRE(focused.commit_on_owner(false));
     REQUIRE(manager.leased_texture_on_owner(runtime_request));
-    REQUIRE(manager.leased_texture_on_owner(focused_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_request,
+                                            assets::AssetLeaseLookupScope::FocusedPreview));
 
     auto runtime_candidate = ready_transaction(runtime_candidate_request, runtime_publication);
     auto focused_candidate = ready_transaction(focused_candidate_request, focused_publication);
     CHECK(manager.has_candidate_leases_on_owner());
     CHECK(manager.has_focused_candidate_leases_on_owner());
     REQUIRE(manager.leased_texture_on_owner(runtime_request));
-    REQUIRE(manager.leased_texture_on_owner(focused_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_request,
+                                            assets::AssetLeaseLookupScope::FocusedPreview));
     REQUIRE(manager.leased_texture_on_owner(runtime_candidate_request));
-    REQUIRE(manager.leased_texture_on_owner(focused_candidate_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_candidate_request,
+                                            assets::AssetLeaseLookupScope::FocusedPreview));
 
     focused_candidate.rollback_on_owner();
     CHECK_FALSE(manager.has_focused_candidate_leases_on_owner());
     CHECK(manager.has_candidate_leases_on_owner());
-    REQUIRE(manager.leased_texture_on_owner(focused_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_request,
+                                            assets::AssetLeaseLookupScope::FocusedPreview));
     REQUIRE(runtime_candidate.commit_on_owner(false));
     REQUIRE(manager.leased_texture_on_owner(runtime_candidate_request));
-    REQUIRE(manager.leased_texture_on_owner(focused_request));
+    REQUIRE(manager.leased_texture_on_owner(focused_request,
+                                            assets::AssetLeaseLookupScope::FocusedPreview));
+
+    runtime_publication.clear_on_owner();
+    focused_publication.clear_on_owner();
+    shutdown(executor);
+}
+
+TEST_CASE("runtime and focused lease lookup never cross publication scopes after refresh",
+          "[assets][mandatory-assets][transaction][focused-preview][source-generation]")
+{
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    manager.mount("project", std::make_shared<assets::MemoryAssetSource>());
+    assets::MandatoryPublicationScope runtime_publication(
+        manager, assets::MandatoryPublicationScopeKind::Runtime);
+    assets::MandatoryPublicationScope focused_publication(
+        manager, assets::MandatoryPublicationScopeKind::FocusedPreview);
+    MatrixState state;
+    MatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+
+    const assets::TextureAssetRequest shared_request{.path = "project:/textures/shared.png"};
+    const auto focused_generation = manager.source_generation_on_owner();
+    assets::MandatoryAssetRequestGroup focused_group(
+        manager, {matrix_descriptor(shared_request, focused_generation)});
+    REQUIRE(drive_until(executor, [&] {
+        focused_group.poll_on_owner();
+        return focused_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    auto focused_leases = focused_group.take_ready_leases_on_owner();
+    REQUIRE(focused_leases);
+    auto focused = focused_publication.begin_transaction_on_owner(std::move(*focused_leases),
+                                                                  focused_generation);
+    REQUIRE(focused.commit_on_owner(false));
+
+    auto refreshed = manager.refresh_namespace_on_owner("project");
+    REQUIRE(refreshed);
+    const auto runtime_generation = *refreshed.value_if();
+    REQUIRE(runtime_generation != focused_generation);
+
+    assets::MandatoryAssetRequestGroup runtime_group(
+        manager, {matrix_descriptor(shared_request, runtime_generation)});
+    REQUIRE(drive_until(executor, [&] {
+        runtime_group.poll_on_owner();
+        return runtime_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    auto runtime_leases = runtime_group.take_ready_leases_on_owner();
+    REQUIRE(runtime_leases);
+    auto runtime = runtime_publication.begin_transaction_on_owner(std::move(*runtime_leases),
+                                                                  runtime_generation);
+
+    const auto* runtime_candidate = manager.leased_texture_on_owner(shared_request);
+    REQUIRE(runtime_candidate);
+    CHECK(runtime_candidate->cache_key().source_generation == runtime_generation);
+    const auto* focused_published = manager.leased_texture_on_owner(
+        shared_request, assets::AssetLeaseLookupScope::FocusedPreview);
+    REQUIRE(focused_published);
+    CHECK(focused_published->cache_key().source_generation == focused_generation);
+
+    REQUIRE(runtime.commit_on_owner(false));
+    const auto* runtime_published = manager.leased_texture_on_owner(shared_request);
+    REQUIRE(runtime_published);
+    CHECK(runtime_published->cache_key().source_generation == runtime_generation);
+    focused_published = manager.leased_texture_on_owner(
+        shared_request, assets::AssetLeaseLookupScope::FocusedPreview);
+    REQUIRE(focused_published);
+    CHECK(focused_published->cache_key().source_generation == focused_generation);
 
     runtime_publication.clear_on_owner();
     focused_publication.clear_on_owner();

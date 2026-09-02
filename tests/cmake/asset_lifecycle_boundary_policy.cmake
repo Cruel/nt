@@ -66,6 +66,14 @@ assert_file_contains(
     "MandatoryPublicationScope"
     "focused preview must own an independent shared mandatory publication scope")
 assert_file_contains(
+    engine/src/host/focused_preview_presenter.cpp
+    "AssetLeaseLookupScope::FocusedPreview"
+    "focused preview realization must use the focused publication lookup scope")
+assert_file_contains(
+    engine/src/assets/asset_manager.cpp
+    "scope == AssetLeaseLookupScope::FocusedPreview"
+    "mandatory lease lookup must remain publication-scope aware")
+assert_file_contains(
     engine/src/engine.cpp
     "m_asset_progress\\.service_owner_frame"
     "engine owner frames must service shared asset progress")

@@ -19,7 +19,7 @@ AudioVoiceHandle AudioPreviewAdapter::play_sfx(const std::string& path, float vo
         return {};
     auto requested = m_assets.request_audio(
         {.path = path, .mode = AudioLoadMode::Auto, .kind = AudioClipKind::Sfx},
-        assets::AssetRequestReason::Demand);
+        assets::AssetRequestReason::Demand, assets::AssetRequestUrgency::Background);
     if (!requested) {
         auto diagnostic = std::move(requested).error();
         diagnostic.message =
@@ -47,7 +47,7 @@ AudioTrackHandle AudioPreviewAdapter::play_track(const AudioTrackId& track_id,
     const AudioTrackId backend_id = preview_track_id(tooling_id);
     auto requested = m_assets.request_audio(
         {.path = path, .mode = AudioLoadMode::Auto, .kind = AudioClipKind::Music},
-        assets::AssetRequestReason::Demand);
+        assets::AssetRequestReason::Demand, assets::AssetRequestUrgency::Background);
     if (!requested) {
         auto diagnostic = std::move(requested).error();
         diagnostic.message =

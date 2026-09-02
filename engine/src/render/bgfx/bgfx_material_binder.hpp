@@ -56,6 +56,11 @@ public:
     BgfxMaterialBinder(const BgfxMaterialBinder&) = delete;
     BgfxMaterialBinder& operator=(const BgfxMaterialBinder&) = delete;
 
+    void set_asset_lookup_scope(assets::AssetLeaseLookupScope scope) noexcept
+    {
+        m_asset_lookup_scope = scope;
+    }
+
     [[nodiscard]] BgfxMaterialBindResult
     bind_material(const ShaderMaterialProject& project, const MaterialId& material_id,
                   const BgfxMaterialBindInputs& inputs,
@@ -95,6 +100,7 @@ private:
                            std::vector<ShaderProgramDiagnostic>* diagnostics);
 
     const assets::AssetManager& m_assets;
+    assets::AssetLeaseLookupScope m_asset_lookup_scope = assets::AssetLeaseLookupScope::Runtime;
     BgfxShaderProgramCache& m_programs;
     bgfx::TextureHandle m_fallback_texture = BGFX_INVALID_HANDLE;
     std::unordered_map<std::string, bgfx::UniformHandle> m_uniforms;

@@ -52,6 +52,11 @@ enum class AssetRequestReason : std::uint8_t {
     Prefetch,
 };
 
+enum class AssetRequestUrgency : std::uint8_t {
+    Background,
+    Blocking,
+};
+
 enum class AssetRequestState : std::uint8_t {
     Pending,
     Ready,

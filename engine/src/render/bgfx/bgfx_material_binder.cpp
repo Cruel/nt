@@ -239,7 +239,7 @@ BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadComman
     }
 
     const assets::TextureAssetRequest request{.path = std::string(source), .sampler = sampler};
-    const auto* lease = m_assets.leased_texture_on_owner(request);
+    const auto* lease = m_assets.leased_texture_on_owner(request, m_asset_lookup_scope);
     if (lease == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant, {},
                        "mandatory material texture lease is not resident for '" +
@@ -383,7 +383,8 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
     }
 
     const assets::MaterialAssetRequest material_request{.id = material_id.string()};
-    const auto* material_lease = m_assets.leased_material_on_owner(material_request);
+    const auto* material_lease =
+        m_assets.leased_material_on_owner(material_request, m_asset_lookup_scope);
     if (material_lease == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::UnknownMaterial,
                        material_context(material_id, inputs.role),
@@ -408,7 +409,8 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
     }
 
     const assets::ShaderProgramAssetRequest program_request{.resolution = *resolved.program};
-    const auto* program_lease = m_assets.leased_shader_program_on_owner(program_request);
+    const auto* program_lease =
+        m_assets.leased_shader_program_on_owner(program_request, m_asset_lookup_scope);
     if (program_lease == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
                        material_context(material_id, inputs.role),

@@ -115,6 +115,13 @@ void Renderer::set_shader_material_project(const ShaderMaterialProject* project)
     }
 }
 
+void Renderer::set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope scope) noexcept
+{
+    m_asset_lease_lookup_scope = scope;
+    if (m_material_binder)
+        m_material_binder->set_asset_lookup_scope(scope);
+}
+
 void Renderer::set_shader_standard_inputs(const ShaderStandardInputs& inputs)
 {
     m_shader_standard_inputs = inputs;

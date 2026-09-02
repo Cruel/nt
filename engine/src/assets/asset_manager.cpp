@@ -368,7 +368,7 @@ struct AssetManager::AsyncState {
         const auto merge = [&](const AssetRequestProgress& current) {
             result.blocking = result.blocking || current.blocking;
             result.background = result.background || current.background;
-            result.deferred_mandatory = result.deferred_mandatory || current.deferred_mandatory;
+            result.deferred_request = result.deferred_request || current.deferred_request;
         };
         merge(fonts.progress_on_owner());
         merge(textures.progress_on_owner());
@@ -379,14 +379,14 @@ struct AssetManager::AsyncState {
         return result;
     }
 
-    std::size_t retry_deferred_mandatory_on_owner() noexcept
+    std::size_t retry_deferred_requests_on_owner() noexcept
     {
-        return fonts.retry_deferred_mandatory_on_owner() +
-               textures.retry_deferred_mandatory_on_owner() +
-               hotspot_masks.retry_deferred_mandatory_on_owner() +
-               shaders.retry_deferred_mandatory_on_owner() +
-               materials.retry_deferred_mandatory_on_owner() +
-               audio.retry_deferred_mandatory_on_owner();
+        return fonts.retry_deferred_requests_on_owner() +
+               textures.retry_deferred_requests_on_owner() +
+               hotspot_masks.retry_deferred_requests_on_owner() +
+               shaders.retry_deferred_requests_on_owner() +
+               materials.retry_deferred_requests_on_owner() +
+               audio.retry_deferred_requests_on_owner();
     }
 
     [[nodiscard]] bool consume_progress_wakeup_on_owner() noexcept
@@ -449,12 +449,12 @@ void AssetProgressOrchestrator::service_owner_frame() noexcept
     if (m_assets.m_async == nullptr)
         return;
     if (m_assets.m_async->consume_progress_wakeup_on_owner()) {
-        (void)m_assets.m_async->retry_deferred_mandatory_on_owner();
+        (void)m_assets.m_async->retry_deferred_requests_on_owner();
         return;
     }
-    if (!m_assets.m_async->progress_on_owner().deferred_mandatory)
+    if (!m_assets.m_async->progress_on_owner().deferred_request)
         return;
-    (void)m_assets.m_async->retry_deferred_mandatory_on_owner();
+    (void)m_assets.m_async->retry_deferred_requests_on_owner();
 }
 
 AssetPath::AssetPath(std::string logical)
@@ -1433,7 +1433,8 @@ AssetManager::refresh_namespace_on_owner(std::string_view namespace_name) noexce
 }
 
 core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>
-AssetManager::request_font(const FontAssetRequest& request, AssetRequestReason reason) noexcept
+AssetManager::request_font(const FontAssetRequest& request, AssetRequestReason reason,
+                           AssetRequestUrgency urgency) noexcept
 {
     if (m_async == nullptr || m_font_loader == nullptr) {
         return core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>::failure(
@@ -1449,12 +1450,12 @@ AssetManager::request_font(const FontAssetRequest& request, AssetRequestReason r
              .message = "bound font loader cannot create asynchronous preparation tasks"});
     }
     return m_async->fonts.request_on_owner(make_font_cache_key(resolved, m_source_generation),
-                                           reason, std::move(task));
+                                           reason, std::move(task), urgency);
 }
 
 core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
-AssetManager::request_texture(const TextureAssetRequest& request,
-                              AssetRequestReason reason) noexcept
+AssetManager::request_texture(const TextureAssetRequest& request, AssetRequestReason reason,
+                              AssetRequestUrgency urgency) noexcept
 {
     if (m_async == nullptr || m_texture_loader == nullptr) {
         return core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>::failure(
@@ -1469,12 +1470,12 @@ AssetManager::request_texture(const TextureAssetRequest& request,
             {.code = "assets.texture_preparation_unavailable",
              .message = "bound texture loader cannot create asynchronous preparation tasks"});
     }
-    return m_async->textures.request_on_owner(key, reason, std::move(task));
+    return m_async->textures.request_on_owner(key, reason, std::move(task), urgency);
 }
 
 core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>
 AssetManager::request_hotspot_mask(const HotspotMaskAssetRequest& request,
-                                   AssetRequestReason reason) noexcept
+                                   AssetRequestReason reason, AssetRequestUrgency urgency) noexcept
 {
     if (m_async == nullptr || m_hotspot_mask_loader == nullptr) {
         return core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>::failure(
@@ -1495,12 +1496,13 @@ AssetManager::request_hotspot_mask(const HotspotMaskAssetRequest& request,
             {.code = "assets.hotspot_mask.preparation_unavailable",
              .message = "bound hotspot mask loader cannot create a preparation task"});
     }
-    return m_async->hotspot_masks.request_on_owner(key, reason, std::move(task));
+    return m_async->hotspot_masks.request_on_owner(key, reason, std::move(task), urgency);
 }
 
 core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>
 AssetManager::request_shader_program(const ShaderProgramAssetRequest& request,
-                                     AssetRequestReason reason) noexcept
+                                     AssetRequestReason reason,
+                                     AssetRequestUrgency urgency) noexcept
 {
     if (m_async == nullptr || m_shader_program_loader == nullptr) {
         return core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>::failure(
@@ -1515,12 +1517,13 @@ AssetManager::request_shader_program(const ShaderProgramAssetRequest& request,
              .message = "bound shader loader cannot create asynchronous preparation tasks"});
     }
     return m_async->shaders.request_on_owner(
-        make_shader_program_cache_key(request, m_source_generation), reason, std::move(task));
+        make_shader_program_cache_key(request, m_source_generation), reason, std::move(task),
+        urgency);
 }
 
 core::Result<AssetRequestHandle<MaterialAsset>, core::Diagnostic>
-AssetManager::request_material(const MaterialAssetRequest& request,
-                               AssetRequestReason reason) noexcept
+AssetManager::request_material(const MaterialAssetRequest& request, AssetRequestReason reason,
+                               AssetRequestUrgency urgency) noexcept
 {
     if (m_async == nullptr || m_material_loader == nullptr) {
         return core::Result<AssetRequestHandle<MaterialAsset>, core::Diagnostic>::failure(
@@ -1535,11 +1538,12 @@ AssetManager::request_material(const MaterialAssetRequest& request,
              .message = "bound material loader cannot create asynchronous preparation tasks"});
     }
     return m_async->materials.request_on_owner(
-        make_material_cache_key(request, m_source_generation), reason, std::move(task));
+        make_material_cache_key(request, m_source_generation), reason, std::move(task), urgency);
 }
 
 core::Result<AssetRequestHandle<AudioAsset>, core::Diagnostic>
-AssetManager::request_audio(const AudioAssetRequest& request, AssetRequestReason reason) noexcept
+AssetManager::request_audio(const AudioAssetRequest& request, AssetRequestReason reason,
+                            AssetRequestUrgency urgency) noexcept
 {
     if (m_async == nullptr || m_audio_loader == nullptr) {
         return core::Result<AssetRequestHandle<AudioAsset>, core::Diagnostic>::failure(
@@ -1554,7 +1558,7 @@ AssetManager::request_audio(const AudioAssetRequest& request, AssetRequestReason
              .message = "bound audio loader cannot create asynchronous preparation tasks"});
     }
     return m_async->audio.request_on_owner(make_audio_cache_key(request, m_source_generation),
-                                           reason, std::move(task));
+                                           reason, std::move(task), urgency);
 }
 
 core::Result<PrefetchTicket, core::Diagnostic>
@@ -1796,7 +1800,8 @@ bool AssetManager::has_focused_published_leases_on_owner() const noexcept
 namespace {
 
 template<class Lease, class ExactLookup, class CommittedLookup>
-const Lease* find_leased_asset(const std::optional<StructuredAssetLeaseSet>& candidate,
+const Lease* find_leased_asset(AssetLeaseLookupScope scope,
+                               const std::optional<StructuredAssetLeaseSet>& candidate,
                                const std::optional<StructuredAssetLeaseSet>& published,
                                const std::optional<StructuredAssetLeaseSet>& previous_published,
                                const std::optional<StructuredAssetLeaseSet>& supplemental,
@@ -1805,25 +1810,28 @@ const Lease* find_leased_asset(const std::optional<StructuredAssetLeaseSet>& can
                                ExactLookup&& exact_lookup,
                                CommittedLookup&& committed_lookup) noexcept
 {
-    if (focused_candidate) {
-        if (const auto* lease = exact_lookup(*focused_candidate))
-            return lease;
-    }
-    if (focused_published) {
-        if (const auto* lease = committed_lookup(*focused_published))
-            return lease;
-    }
-    if (candidate) {
-        if (const auto* lease = exact_lookup(*candidate))
-            return lease;
-    }
-    if (published) {
-        if (const auto* lease = committed_lookup(*published))
-            return lease;
-    }
-    if (previous_published) {
-        if (const auto* lease = committed_lookup(*previous_published))
-            return lease;
+    if (scope == AssetLeaseLookupScope::FocusedPreview) {
+        if (focused_candidate) {
+            if (const auto* lease = exact_lookup(*focused_candidate))
+                return lease;
+        }
+        if (focused_published) {
+            if (const auto* lease = committed_lookup(*focused_published))
+                return lease;
+        }
+    } else {
+        if (candidate) {
+            if (const auto* lease = exact_lookup(*candidate))
+                return lease;
+        }
+        if (published) {
+            if (const auto* lease = committed_lookup(*published))
+                return lease;
+        }
+        if (previous_published) {
+            if (const auto* lease = committed_lookup(*previous_published))
+                return lease;
+        }
     }
     return supplemental ? exact_lookup(*supplemental) : nullptr;
 }
@@ -1831,90 +1839,98 @@ const Lease* find_leased_asset(const std::optional<StructuredAssetLeaseSet>& can
 } // namespace
 
 const AssetLease<FontAsset>*
-AssetManager::leased_font_on_owner(const FontAssetRequest& request) const noexcept
+AssetManager::leased_font_on_owner(const FontAssetRequest& request,
+                                   AssetLeaseLookupScope scope) const noexcept
 {
     const auto resolved = canonical_font_source_request(request, m_font_config);
     const auto key = make_font_cache_key(resolved, m_source_generation);
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<FontAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        scope, m_leases->candidate, m_leases->published, m_leases->previous_published,
         m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_font(key); },
         [&](const auto& set) { return set.find_font_by_identity(key.stable_identity); });
 }
 
 const AssetLease<TextureAsset>*
-AssetManager::leased_texture_on_owner(const TextureAssetRequest& request) const noexcept
+AssetManager::leased_texture_on_owner(const TextureAssetRequest& request,
+                                      AssetLeaseLookupScope scope) const noexcept
 {
     const auto key = make_texture_cache_key(request, m_source_generation);
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<TextureAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        scope, m_leases->candidate, m_leases->published, m_leases->previous_published,
         m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_texture(key); },
         [&](const auto& set) { return set.find_texture_by_identity(key.stable_identity); });
 }
 
 const AssetLease<HotspotMaskAsset>*
-AssetManager::leased_hotspot_mask_on_owner(const HotspotMaskAssetRequest& request) const noexcept
+AssetManager::leased_hotspot_mask_on_owner(const HotspotMaskAssetRequest& request,
+                                           AssetLeaseLookupScope scope) const noexcept
 {
     const auto key = make_hotspot_mask_cache_key(request, m_source_generation);
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<HotspotMaskAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        scope, m_leases->candidate, m_leases->published, m_leases->previous_published,
         m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_hotspot_mask(key); },
         [&](const auto& set) { return set.find_hotspot_mask_by_identity(key.stable_identity); });
 }
 
-const AssetLease<ShaderProgramAsset>* AssetManager::leased_shader_program_on_owner(
-    const ShaderProgramAssetRequest& request) const noexcept
+const AssetLease<ShaderProgramAsset>*
+AssetManager::leased_shader_program_on_owner(const ShaderProgramAssetRequest& request,
+                                             AssetLeaseLookupScope scope) const noexcept
 {
     const auto key = make_shader_program_cache_key(request, m_source_generation);
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<ShaderProgramAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        scope, m_leases->candidate, m_leases->published, m_leases->previous_published,
         m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_shader_program(key); },
         [&](const auto& set) { return set.find_shader_program_by_identity(key.stable_identity); });
 }
 
 const AssetLease<MaterialAsset>*
-AssetManager::leased_material_on_owner(const MaterialAssetRequest& request) const noexcept
+AssetManager::leased_material_on_owner(const MaterialAssetRequest& request,
+                                       AssetLeaseLookupScope scope) const noexcept
 {
     const auto key = make_material_cache_key(request, m_source_generation);
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<MaterialAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        scope, m_leases->candidate, m_leases->published, m_leases->previous_published,
         m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_material(key); },
         [&](const auto& set) { return set.find_material_by_identity(key.stable_identity); });
 }
 
 const AssetLease<AudioAsset>*
-AssetManager::leased_audio_on_owner(const AudioAssetRequest& request) const noexcept
+AssetManager::leased_audio_on_owner(const AudioAssetRequest& request,
+                                    AssetLeaseLookupScope scope) const noexcept
 {
     const auto key = make_audio_cache_key(request, m_source_generation);
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<AudioAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        scope, m_leases->candidate, m_leases->published, m_leases->previous_published,
         m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_audio(key); },
         [&](const auto& set) { return set.find_audio_by_identity(key.stable_identity); });
 }
 
-std::string
-AssetManager::describe_texture_lease_lookup_on_owner(const TextureAssetRequest& request) const
+std::string AssetManager::describe_texture_lease_lookup_on_owner(const TextureAssetRequest& request,
+                                                                 AssetLeaseLookupScope scope) const
 {
     const auto key = make_texture_cache_key(request, m_source_generation);
     std::string result =
-        "lookup=" + key.stable_identity + "@" + std::to_string(key.source_generation.value);
+        "scope=" +
+        std::string(scope == AssetLeaseLookupScope::Runtime ? "runtime" : "focused-preview") +
+        " lookup=" + key.stable_identity + "@" + std::to_string(key.source_generation.value);
     if (m_leases == nullptr) {
         return result + " candidate=<none> published=<none> focused-candidate=<none> "
                         "focused-published=<none> supplemental=<none>";
