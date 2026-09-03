@@ -228,6 +228,7 @@ describe('asset profiler issue derivation', () => {
       presentationRevision: null,
       expectedNextCount: '1',
       possibleNextCount: '0',
+      predictionPlan: [],
       submittedEntries: [],
       submissionFailures: [
         {

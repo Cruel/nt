@@ -1660,6 +1660,9 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
     report.generation = *allocated.value_if();
     auto normalized = normalize_plan(plan);
     auto& candidates = normalized.candidates;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    report.ranked_candidates = candidates;
+#endif
     for (const auto& candidate : candidates) {
         if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
             ++report.direct_next_count;

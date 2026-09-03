@@ -56,6 +56,99 @@ std::string logical_project_path(std::string_view path)
     return "project:/" + std::string(path);
 }
 
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+core::AssetProfilerPredictionRoot prediction_root(runtime::FlowPredictionRootKind kind) noexcept
+{
+    switch (kind) {
+    case runtime::FlowPredictionRootKind::FlowExecution:
+        return core::AssetProfilerPredictionRoot::FlowExecution;
+    case runtime::FlowPredictionRootKind::ProspectiveRoomEntry:
+        return core::AssetProfilerPredictionRoot::ProspectiveRoomEntry;
+    case runtime::FlowPredictionRootKind::ResidentRoomContext:
+        return core::AssetProfilerPredictionRoot::ResidentRoomContext;
+    }
+    return core::AssetProfilerPredictionRoot::FlowExecution;
+}
+
+std::string prediction_point_name(const core::compiled::FlowPredictionPoint& point)
+{
+    return std::visit(
+        [](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::SceneEntryPredictionPoint>) {
+                return "scene:" + value.scene.text() + ":entry";
+            } else if constexpr (std::is_same_v<T, core::compiled::SceneStepPredictionPoint>) {
+                return "scene:" + value.scene.text() + ":step:" + value.step.text();
+            } else if constexpr (std::is_same_v<T, core::compiled::SceneTerminalPredictionPoint>) {
+                return "scene:" + value.scene.text() + ":terminal";
+            } else if constexpr (std::is_same_v<T, core::compiled::DialogueEntryPredictionPoint>) {
+                return "dialogue:" + value.dialogue.text() + ":entry";
+            } else if constexpr (std::is_same_v<T,
+                                                core::compiled::DialoguePositionPredictionPoint>) {
+                std::string_view stage = "enter-block";
+                switch (value.stage) {
+                case core::compiled::DialoguePredictionStage::EnterBlock:
+                    break;
+                case core::compiled::DialoguePredictionStage::PresentSegment:
+                    stage = "present-segment";
+                    break;
+                case core::compiled::DialoguePredictionStage::ApplySegmentEffects:
+                    stage = "apply-segment-effects";
+                    break;
+                case core::compiled::DialoguePredictionStage::PresentChoices:
+                    stage = "present-choices";
+                    break;
+                case core::compiled::DialoguePredictionStage::ApplyChoiceEffects:
+                    stage = "apply-choice-effects";
+                    break;
+                case core::compiled::DialoguePredictionStage::FollowEdge:
+                    stage = "follow-edge";
+                    break;
+                }
+                auto result = "dialogue:" + value.dialogue.text() + ":block:" + value.block.text() +
+                              ":" + std::string(stage) + ":cursor:" + std::to_string(value.cursor);
+                if (value.segment)
+                    result += ":segment:" + value.segment->text();
+                if (value.edge)
+                    result += ":edge:" + value.edge->text();
+                return result;
+            } else if constexpr (std::is_same_v<T,
+                                                core::compiled::DialogueTerminalPredictionPoint>) {
+                return "dialogue:" + value.dialogue.text() + ":terminal";
+            } else if constexpr (std::is_same_v<T, core::compiled::RoomLifecyclePredictionPoint>) {
+                std::string_view stage = "presentation";
+                switch (value.stage) {
+                case core::compiled::RoomLifecyclePredictionStage::BeforeLeave:
+                    stage = "before-leave";
+                    break;
+                case core::compiled::RoomLifecyclePredictionStage::BeforeEnter:
+                    stage = "before-enter";
+                    break;
+                case core::compiled::RoomLifecyclePredictionStage::Presentation:
+                    break;
+                case core::compiled::RoomLifecyclePredictionStage::AfterLeave:
+                    stage = "after-leave";
+                    break;
+                case core::compiled::RoomLifecyclePredictionStage::AfterEnter:
+                    stage = "after-enter";
+                    break;
+                }
+                return "room:" + value.room.text() + ":" + std::string(stage);
+            } else if constexpr (std::is_same_v<T,
+                                                core::compiled::InteractionRulePredictionPoint>) {
+                return "interaction:" + value.interaction.text() + ":rule:" + value.rule.text();
+            } else if constexpr (std::is_same_v<T, core::compiled::VerbDefaultPredictionPoint>) {
+                return "verb:" + value.verb.text() + ":default";
+            } else if constexpr (std::is_same_v<T, core::compiled::ResidentLayoutPredictionPoint>) {
+                return "layout:" + value.layout.text() + ":resident";
+            } else {
+                return "interaction:undefined";
+            }
+        },
+        point);
+}
+#endif
+
 AudioClipKind audio_kind(core::compiled::AudioPurpose channel) noexcept
 {
     switch (channel) {
@@ -923,6 +1016,33 @@ struct MandatoryAssetGate::Impl {
         record.presentation_revision = presentation_revision;
         record.expected_next_count = report.direct_next_count;
         record.possible_next_count = report.adjacent_count;
+        record.prediction_plan.reserve(report.ranked_candidates.size());
+        for (const auto& candidate : report.ranked_candidates) {
+            core::AssetProfilerPrefetchPlanEntry plan_entry;
+            plan_entry.cache_key = candidate.descriptor.cache_key;
+            plan_entry.prediction = candidate.prediction == PrefetchPredictionKind::ExpectedNext
+                                        ? core::PrefetchPredictionKind::ExpectedNext
+                                        : core::PrefetchPredictionKind::PossibleNext;
+            plan_entry.execution_distance = candidate.execution_distance;
+            plan_entry.execution_order = candidate.execution_order;
+            plan_entry.dependency_priority = candidate.dependency_priority;
+            plan_entry.estimated_cost = candidate.estimated_cost;
+            plan_entry.cost_estimate =
+                candidate.cost_estimate == PrefetchCostEstimateKind::Metadata
+                    ? core::AssetProfilerPredictionCostEstimateKind::Metadata
+                    : core::AssetProfilerPredictionCostEstimateKind::Conservative;
+            for (const auto& provenance : candidate.provenance) {
+                core::AssetProfilerPredictionProvenance flattened;
+                flattened.root = prediction_root(provenance.root_kind);
+                if (provenance.room)
+                    flattened.room = provenance.room->text();
+                flattened.reason_chain.reserve(provenance.points.size());
+                for (const auto& point : provenance.points)
+                    flattened.reason_chain.push_back(prediction_point_name(point));
+                plan_entry.provenance.push_back(std::move(flattened));
+            }
+            record.prediction_plan.push_back(std::move(plan_entry));
+        }
         const auto append_entry = [&](const PrefetchSubmissionEntry& entry) {
             record.submitted_entries.push_back(
                 {.cache_key = entry.cache_key,

@@ -98,6 +98,74 @@ describe('AssetPerformancePanel', () => {
     expect(screen.queryByText('Cold')).not.toBeInTheDocument();
   });
 
+  it('displays the exact live runtime prediction plan from profiler generations', () => {
+    const payload = assetProfilerFullPayload({ latestSequence: '2' });
+    payload.retainedChanges = [
+      {
+        kind: 'prefetch-generation-upsert',
+        sequence: '2',
+        timestampNs: '20',
+        generation: {
+          generation: '7',
+          timestampNs: '20',
+          presentationRevision: '3',
+          expectedNextCount: '1',
+          possibleNextCount: '0',
+          predictionPlan: [
+            {
+              cacheKey: {
+                stableIdentity: 'texture|project:/intro.png|0',
+                sourceGeneration: '1',
+              },
+              prediction: 'expected-next',
+              executionDistance: '2',
+              executionOrder: '4',
+              dependencyPriority: '0',
+              estimatedCost: {
+                sourceBytes: '10',
+                preparedCpuBytes: '20',
+                gpuBytes: '30',
+                audioBytes: '0',
+                temporaryBytes: '0',
+              },
+              costEstimate: 'metadata',
+              provenance: [
+                {
+                  root: 'flow-execution',
+                  room: null,
+                  reasonChain: ['scene:opening:entry', 'scene:opening:step:show-intro'],
+                },
+              ],
+            },
+          ],
+          submittedEntries: [
+            {
+              cacheKey: {
+                stableIdentity: 'texture|project:/intro.png|0',
+                sourceGeneration: '1',
+              },
+              prediction: 'expected-next',
+            },
+          ],
+          submissionFailures: [],
+          usedCount: '0',
+          lateCount: '0',
+          unusedCount: '0',
+        },
+      },
+    ];
+    useAssetProfilerStore.getState().applyPayload(payload);
+    useAssetProfilerStore.getState().setSelectedView('prediction');
+
+    render(<AssetPerformancePanel />);
+
+    expect(screen.getByText('texture|project:/intro.png|0')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(
+      screen.getByText('flow-execution → scene:opening:entry → scene:opening:step:show-intro'),
+    ).toBeInTheDocument();
+  });
+
   it('filters issues through profiler-local controls and reveals technical details on expansion', () => {
     const project = createAuthoringProject();
     project.assets.broken = {

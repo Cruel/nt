@@ -39,6 +39,18 @@ Retained changes form one ordered variant log:
 - prefetch-generation upserts;
 - lightweight inventory-revision markers.
 
+Each prefetch-generation upsert also carries `predictionPlan`, the exact normalized candidate list
+the runtime planner consumed for that logical generation. Entries include Expected/Possible
+confidence, semantic execution distance/order, dependency priority, estimated residency cost and
+estimate kind, plus compact provenance chains rooted in foreground Flow, prospective Room entry, or
+resident Room context. This is derived, read-only runtime tooling data. The renderer may display it
+but must not recompute a competing live prediction plan from Project data.
+
+Static authoring inspection is separate: it projects the compiler-generated Flow Prediction Index
+to expose potential slices, expanded semantic dependency groups, deterministic/alternative edges,
+frontiers, and opacity without evaluating live Conditions. The generated index remains an internal
+compiled representation rather than editable Project data.
+
 The profiler does not retain requested/generic-coalesced/start/pin/generic cache/policy events. It
 retains source-read, preparation, and owner-finalization completion/failure, terminal request
 failure, capability joins and resident capability enrichment, eviction, reload after removal, the

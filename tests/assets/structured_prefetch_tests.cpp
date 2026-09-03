@@ -1675,6 +1675,7 @@ TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
     CHECK(record.expected_next_count + record.possible_next_count ==
           record.submitted_entries.size() + record.submission_failures.size());
     CHECK(record.possible_next_count > 0);
+    CHECK(record.prediction_plan.size() == record.expected_next_count + record.possible_next_count);
     CHECK(std::ranges::all_of(record.submitted_entries, [](const auto& entry) {
         return entry.prediction == core::PrefetchPredictionKind::ExpectedNext ||
                entry.prediction == core::PrefetchPredictionKind::PossibleNext;
@@ -1764,6 +1765,11 @@ TEST_CASE("mandatory gate profiler advances logical Flow generations while retai
     CHECK(sink.released.front() == entry_generation);
     const auto& replacement = sink.generations.back();
     CHECK(replacement.generation != entry_generation);
+    REQUIRE_FALSE(replacement.prediction_plan.empty());
+    CHECK(std::ranges::any_of(replacement.prediction_plan, [&](const auto& entry) {
+        return entry.cache_key == shared_key && !entry.provenance.empty() &&
+               !entry.provenance.front().reason_chain.empty();
+    }));
     CHECK(std::ranges::find_if(replacement.submitted_entries, [&](const auto& entry) {
               return entry.cache_key == shared_key;
           }) != replacement.submitted_entries.end());
@@ -1814,6 +1820,7 @@ TEST_CASE("mandatory gate profiler reports planner Warm admission rejection",
     REQUIRE(sink.generations.size() == 1);
     const auto& record = sink.generations.front();
     CHECK(record.expected_next_count + record.possible_next_count > 0);
+    CHECK_FALSE(record.prediction_plan.empty());
     CHECK(record.submitted_entries.empty());
     REQUIRE_FALSE(record.submission_failures.empty());
     CHECK(std::ranges::any_of(record.submission_failures, [](const auto& failure) {

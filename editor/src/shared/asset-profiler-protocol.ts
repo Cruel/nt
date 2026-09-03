@@ -143,12 +143,35 @@ export interface AssetProfilerPrefetchSubmissionFailure {
   diagnostic: AssetProfilerDiagnostic;
 }
 
+export type AssetProfilerPredictionRoot =
+  | 'flow-execution'
+  | 'prospective-room-entry'
+  | 'resident-room-context';
+
+export interface AssetProfilerPredictionProvenance {
+  root: AssetProfilerPredictionRoot;
+  room: string | null;
+  reasonChain: string[];
+}
+
+export interface AssetProfilerPrefetchPlanEntry {
+  cacheKey: AssetProfilerCacheKey;
+  prediction: AssetProfilerPredictionKind;
+  executionDistance: CanonicalDecimal;
+  executionOrder: CanonicalDecimal;
+  dependencyPriority: CanonicalDecimal;
+  estimatedCost: AssetProfilerResidencyCost;
+  costEstimate: 'metadata' | 'conservative';
+  provenance: AssetProfilerPredictionProvenance[];
+}
+
 export interface AssetProfilerPrefetchGenerationRecord {
   generation: CanonicalDecimal;
   timestampNs: CanonicalDecimal;
   presentationRevision: CanonicalDecimal | null;
   expectedNextCount: CanonicalDecimal;
   possibleNextCount: CanonicalDecimal;
+  predictionPlan: AssetProfilerPrefetchPlanEntry[];
   submittedEntries: AssetProfilerPrefetchSubmissionEntry[];
   submissionFailures: AssetProfilerPrefetchSubmissionFailure[];
   usedCount: CanonicalDecimal;
@@ -553,6 +576,42 @@ function isSubmissionFailure(value: unknown): value is AssetProfilerPrefetchSubm
   );
 }
 
+function isPredictionProvenance(value: unknown): value is AssetProfilerPredictionProvenance {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ['root', 'room', 'reasonChain']) &&
+    isEnum(value.root, ['flow-execution', 'prospective-room-entry', 'resident-room-context']) &&
+    (value.room === null || typeof value.room === 'string') &&
+    Array.isArray(value.reasonChain) &&
+    value.reasonChain.every((reason) => typeof reason === 'string')
+  );
+}
+
+function isPredictionPlanEntry(value: unknown): value is AssetProfilerPrefetchPlanEntry {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      'cacheKey',
+      'prediction',
+      'executionDistance',
+      'executionOrder',
+      'dependencyPriority',
+      'estimatedCost',
+      'costEstimate',
+      'provenance',
+    ]) &&
+    isCacheKey(value.cacheKey) &&
+    isEnum(value.prediction, ['expected-next', 'possible-next']) &&
+    isCanonicalUnsignedDecimal(value.executionDistance) &&
+    isCanonicalUnsignedDecimal(value.executionOrder) &&
+    isCanonicalUnsignedDecimal(value.dependencyPriority) &&
+    isCost(value.estimatedCost) &&
+    isEnum(value.costEstimate, ['metadata', 'conservative']) &&
+    Array.isArray(value.provenance) &&
+    value.provenance.every(isPredictionProvenance)
+  );
+}
+
 function isGeneration(value: unknown): value is AssetProfilerPrefetchGenerationRecord {
   return (
     isRecord(value) &&
@@ -562,6 +621,7 @@ function isGeneration(value: unknown): value is AssetProfilerPrefetchGenerationR
       'presentationRevision',
       'expectedNextCount',
       'possibleNextCount',
+      'predictionPlan',
       'submittedEntries',
       'submissionFailures',
       'usedCount',
@@ -573,6 +633,8 @@ function isGeneration(value: unknown): value is AssetProfilerPrefetchGenerationR
     isNullableDecimal(value.presentationRevision) &&
     isCanonicalUnsignedDecimal(value.expectedNextCount) &&
     isCanonicalUnsignedDecimal(value.possibleNextCount) &&
+    Array.isArray(value.predictionPlan) &&
+    value.predictionPlan.every(isPredictionPlanEntry) &&
     Array.isArray(value.submittedEntries) &&
     value.submittedEntries.every(isSubmissionEntry) &&
     Array.isArray(value.submissionFailures) &&

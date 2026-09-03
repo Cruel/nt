@@ -78,6 +78,30 @@ const generationChange = {
     presentationRevision: '4',
     expectedNextCount: '1',
     possibleNextCount: '1',
+    predictionPlan: [
+      {
+        cacheKey: key,
+        prediction: 'expected-next',
+        executionDistance: '2',
+        executionOrder: '3',
+        dependencyPriority: '0',
+        estimatedCost: {
+          sourceBytes: '1',
+          preparedCpuBytes: '2',
+          gpuBytes: '3',
+          audioBytes: '0',
+          temporaryBytes: '0',
+        },
+        costEstimate: 'metadata',
+        provenance: [
+          {
+            root: 'prospective-room-entry',
+            room: 'hall',
+            reasonChain: ['room:hall:after-enter', 'scene:opening:entry'],
+          },
+        ],
+      },
+    ],
     submittedEntries: [{ cacheKey: key, prediction: 'expected-next' }],
     submissionFailures: [{ cacheKey: key, prediction: 'possible-next', diagnostic }],
     usedCount: '1',

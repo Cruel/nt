@@ -96,6 +96,17 @@ core::AssetProfilerPrefetchGenerationRecord generation_record()
         .timestamp_ns = beyond_javascript_safe_integer,
         .expected_next_count = beyond_javascript_safe_integer,
         .possible_next_count = 2,
+        .prediction_plan =
+            {{.cache_key = key,
+              .prediction = core::PrefetchPredictionKind::ExpectedNext,
+              .execution_distance = beyond_javascript_safe_integer,
+              .execution_order = 7,
+              .dependency_priority = 2,
+              .estimated_cost = cost(70),
+              .cost_estimate = core::AssetProfilerPredictionCostEstimateKind::Metadata,
+              .provenance = {{.root = core::AssetProfilerPredictionRoot::ProspectiveRoomEntry,
+                              .room = "hall",
+                              .reason_chain = {"room:start:after-enter", "scene:opening:entry"}}}}},
         .submitted_entries = {{.cache_key = key,
                                .prediction = core::PrefetchPredictionKind::ExpectedNext},
                               {.cache_key = key,
@@ -215,6 +226,9 @@ void require_decimal_wire_fields(const Json& value)
         "presentationRevision",
         "expectedNextCount",
         "possibleNextCount",
+        "executionDistance",
+        "executionOrder",
+        "dependencyPriority",
         "usedCount",
         "lateCount",
         "unusedCount",
@@ -280,6 +294,28 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     CHECK(payload.at("capturedAtNs") == "9007199254740993");
     CHECK(payload.at("assets").at(0).at("jobId") == "9007199254740993");
     CHECK(payload.at("retainedChanges").at(1).at("kind") == "prefetch-generation-upsert");
+    CHECK(payload.at("retainedChanges")
+              .at(1)
+              .at("generation")
+              .at("predictionPlan")
+              .at(0)
+              .at("provenance")
+              .at(0)
+              .at("root") == "prospective-room-entry");
+    CHECK(payload.at("retainedChanges")
+              .at(1)
+              .at("generation")
+              .at("predictionPlan")
+              .at(0)
+              .at("provenance")
+              .at(0)
+              .at("reasonChain") == Json::array({"room:start:after-enter", "scene:opening:entry"}));
+    CHECK(payload.at("retainedChanges")
+              .at(1)
+              .at("generation")
+              .at("predictionPlan")
+              .at(0)
+              .at("costEstimate") == "metadata");
     CHECK(payload.at("retainedChanges")
               .at(1)
               .at("generation")

@@ -348,12 +348,42 @@ struct AssetProfilerPrefetchSubmissionFailure {
     core::Diagnostic diagnostic;
 };
 
+enum class AssetProfilerPredictionRoot : std::uint8_t {
+    FlowExecution,
+    ProspectiveRoomEntry,
+    ResidentRoomContext,
+};
+
+struct AssetProfilerPredictionProvenance {
+    AssetProfilerPredictionRoot root = AssetProfilerPredictionRoot::FlowExecution;
+    std::optional<std::string> room;
+    std::vector<std::string> reason_chain;
+};
+
+enum class AssetProfilerPredictionCostEstimateKind : std::uint8_t {
+    Metadata,
+    Conservative,
+};
+
+struct AssetProfilerPrefetchPlanEntry {
+    assets::AssetCacheKey cache_key;
+    PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
+    std::uint64_t execution_distance = 0;
+    std::uint64_t execution_order = 0;
+    std::uint64_t dependency_priority = 0;
+    assets::ResidencyCost estimated_cost;
+    AssetProfilerPredictionCostEstimateKind cost_estimate =
+        AssetProfilerPredictionCostEstimateKind::Conservative;
+    std::vector<AssetProfilerPredictionProvenance> provenance;
+};
+
 struct AssetProfilerPrefetchGenerationRecord {
     assets::PrefetchGenerationId generation;
     std::uint64_t timestamp_ns = 0;
     std::optional<core::PresentationSnapshotRevision> presentation_revision;
     std::uint64_t expected_next_count = 0;
     std::uint64_t possible_next_count = 0;
+    std::vector<AssetProfilerPrefetchPlanEntry> prediction_plan;
     std::vector<AssetProfilerPrefetchSubmissionEntry> submitted_entries;
     std::vector<AssetProfilerPrefetchSubmissionFailure> submission_failures;
     std::uint64_t used_count = 0;
