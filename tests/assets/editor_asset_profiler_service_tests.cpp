@@ -580,6 +580,65 @@ TEST_CASE("Editor asset profiler counts exactly the defined prefetch outcomes an
     CHECK(snapshot.outcomes.not_prefetched == 0);
 }
 
+TEST_CASE(
+    "Editor asset profiler turns a unique uncovered opaque frontier into optimization guidance",
+    "[assets][telemetry-matrix][profiler][prefetch][opaque-miss]")
+{
+    core::EditorAssetProfilerService service;
+    const assets::AssetCacheKey missed{.stable_identity = "texture|project:/dynamic.png|0",
+                                       .source_generation = {4}};
+    service.record_prefetch_generation(
+        {.generation = {21},
+         .opaque_frontiers = {
+             {.root = core::AssetProfilerPredictionRoot::FlowExecution,
+              .attachment_point = "scene:opening:step:lua",
+              .reason_chain = {"scene:opening:entry", "scene:opening:step:lua"}}}});
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchMiss,
+                    .cache_key = missed,
+                    .request_id = {77},
+                    .request_reason = assets::AssetRequestReason::Demand});
+
+    const auto snapshot = service.capture_on_owner();
+    const auto guidance = std::ranges::find_if(snapshot.retained_changes, [](const auto& change) {
+        return std::holds_alternative<core::AssetProfilerOpaquePredictionMiss>(change.payload);
+    });
+    REQUIRE(guidance != snapshot.retained_changes.end());
+    const auto& miss = std::get<core::AssetProfilerOpaquePredictionMiss>(guidance->payload);
+    CHECK(miss.cache_key == missed);
+    CHECK(miss.request_id == assets::AssetRequestId{77});
+    CHECK(miss.generation == assets::PrefetchGenerationId{21});
+    CHECK(miss.frontier.attachment_point == "scene:opening:step:lua");
+    CHECK(snapshot.outcomes.not_prefetched == 1);
+
+    core::EditorAssetProfilerService ambiguous;
+    ambiguous.record_prefetch_generation(
+        {.generation = {22},
+         .opaque_frontiers = {{.attachment_point = "scene:a:step:lua"},
+                              {.attachment_point = "scene:b:step:lua"}}});
+    ambiguous.record({.kind = core::AssetTelemetryEventKind::PrefetchMiss,
+                      .cache_key = missed,
+                      .request_id = {78},
+                      .request_reason = assets::AssetRequestReason::Demand});
+    const auto ambiguous_snapshot = ambiguous.capture_on_owner();
+    CHECK_FALSE(std::ranges::any_of(ambiguous_snapshot.retained_changes, [](const auto& change) {
+        return std::holds_alternative<core::AssetProfilerOpaquePredictionMiss>(change.payload);
+    }));
+
+    core::EditorAssetProfilerService already_planned;
+    already_planned.record_prefetch_generation(
+        {.generation = {23},
+         .prediction_plan = {{.cache_key = missed}},
+         .opaque_frontiers = {{.attachment_point = "scene:opening:step:lua"}}});
+    already_planned.record({.kind = core::AssetTelemetryEventKind::PrefetchMiss,
+                            .cache_key = missed,
+                            .request_id = {79},
+                            .request_reason = assets::AssetRequestReason::Demand});
+    const auto planned_snapshot = already_planned.capture_on_owner();
+    CHECK_FALSE(std::ranges::any_of(planned_snapshot.retained_changes, [](const auto& change) {
+        return std::holds_alternative<core::AssetProfilerOpaquePredictionMiss>(change.payload);
+    }));
+}
+
 TEST_CASE("Editor asset profiler bounds detailed prefetch generation retention",
           "[assets][telemetry-matrix][profiler][prefetch]")
 {

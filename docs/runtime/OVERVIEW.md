@@ -142,6 +142,13 @@ structural caps, and deduplication remain authoritative. When automatic and auth
 to one effective candidate, the planner keeps one operational request while retaining both provenance
 paths for tooling.
 
+Opaque Flow points also expose profiler-only frontier context for the logical prediction generation.
+The request/orchestrator layer still reports an ordinary Demand `PrefetchMiss` without knowing about
+Flow. In an editor-profiler build, the profiler may correlate that miss with the active generation
+only when the missed request was not already present in the prediction plan and exactly one opaque
+semantic frontier is available. The resulting opaque-prediction miss is optimization guidance only:
+it does not affect Project validity, mandatory publication, gameplay execution, or residency policy.
+
 Prospective Room entry composes the canonical successful transition order (source `before_leave`,
 target `before_enter`, target Room presentation, source `after_leave`, target `after_enter` where
 applicable) and deliberately excludes rejection programs. Compiler-lowered Gameplay Command summaries

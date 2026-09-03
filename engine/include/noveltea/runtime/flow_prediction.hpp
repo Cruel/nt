@@ -47,10 +47,18 @@ struct FlowPredictionProjectionEntry {
     FlowPredictionProvenance provenance;
 };
 
+struct FlowPredictionOpaqueFrontier {
+    core::compiled::FlowPredictionPoint attachment_point;
+    FlowPredictionProvenance provenance;
+
+    bool operator==(const FlowPredictionOpaqueFrontier&) const = default;
+};
+
 // Read-only tooling/runtime view over one prediction root. It intentionally exposes semantic
 // dependencies and distance, not the generated index's serialized storage representation.
 struct FlowPredictionProjection {
     std::vector<FlowPredictionProjectionEntry> entries;
+    std::vector<FlowPredictionOpaqueFrontier> opaque_frontiers;
     core::Diagnostics diagnostics;
 };
 

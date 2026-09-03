@@ -958,6 +958,12 @@ struct MandatoryAssetGate::Impl {
                 candidate.prediction = PrefetchPredictionKind::PossibleNext;
                 adjacent_prediction_plan.candidates.push_back(std::move(candidate));
             }
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+            adjacent_prediction_plan.opaque_frontiers.insert(
+                adjacent_prediction_plan.opaque_frontiers.end(),
+                std::make_move_iterator(plan.opaque_frontiers.begin()),
+                std::make_move_iterator(plan.opaque_frontiers.end()));
+#endif
         }
     }
 
@@ -975,6 +981,12 @@ struct MandatoryAssetGate::Impl {
             result.candidates.insert(result.candidates.end(),
                                      std::make_move_iterator(resident_plan.candidates.begin()),
                                      std::make_move_iterator(resident_plan.candidates.end()));
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+            result.opaque_frontiers.insert(
+                result.opaque_frontiers.end(),
+                std::make_move_iterator(resident_plan.opaque_frontiers.begin()),
+                std::make_move_iterator(resident_plan.opaque_frontiers.end()));
+#endif
         }
 
         const runtime::FlowPredictionProjection* projection = nullptr;
@@ -991,6 +1003,11 @@ struct MandatoryAssetGate::Impl {
             result.candidates.insert(result.candidates.end(),
                                      std::make_move_iterator(plan.candidates.begin()),
                                      std::make_move_iterator(plan.candidates.end()));
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+            result.opaque_frontiers.insert(result.opaque_frontiers.end(),
+                                           std::make_move_iterator(plan.opaque_frontiers.begin()),
+                                           std::make_move_iterator(plan.opaque_frontiers.end()));
+#endif
         }
         return result;
     }
@@ -1043,6 +1060,24 @@ struct MandatoryAssetGate::Impl {
                 plan_entry.provenance.push_back(std::move(flattened));
             }
             record.prediction_plan.push_back(std::move(plan_entry));
+        }
+        for (const auto& frontier : report.opaque_frontiers) {
+            core::AssetProfilerOpaquePredictionFrontier flattened;
+            flattened.root = prediction_root(frontier.provenance.root_kind);
+            if (frontier.provenance.room)
+                flattened.room = frontier.provenance.room->text();
+            flattened.attachment_point = prediction_point_name(frontier.attachment_point);
+            flattened.reason_chain.reserve(frontier.provenance.points.size());
+            for (const auto& point : frontier.provenance.points)
+                flattened.reason_chain.push_back(prediction_point_name(point));
+            const auto duplicate =
+                std::ranges::find_if(record.opaque_frontiers, [&](const auto& existing) {
+                    return existing.root == flattened.root && existing.room == flattened.room &&
+                           existing.attachment_point == flattened.attachment_point &&
+                           existing.reason_chain == flattened.reason_chain;
+                });
+            if (duplicate == record.opaque_frontiers.end())
+                record.opaque_frontiers.push_back(std::move(flattened));
         }
         const auto append_entry = [&](const PrefetchSubmissionEntry& entry) {
             record.submitted_entries.push_back(

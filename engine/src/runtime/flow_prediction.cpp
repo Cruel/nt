@@ -422,6 +422,25 @@ private:
                             .supplemental_hint_id = m_supplemental_hint_id}});
     }
 
+    void append_opaque_frontier()
+    {
+        if (m_active_slices.empty())
+            return;
+        const auto slice_index = m_active_slices.back();
+        if (slice_index >= m_index.slices.size())
+            return;
+        FlowPredictionOpaqueFrontier frontier{
+            .attachment_point = m_index.slices[slice_index].point,
+            .provenance = {.points = provenance_points(),
+                           .root_kind = m_root_kind,
+                           .room = m_root_room,
+                           .supplemental_hint_id = m_supplemental_hint_id},
+        };
+        if (std::ranges::find(m_result.opaque_frontiers, frontier) ==
+            m_result.opaque_frontiers.end())
+            m_result.opaque_frontiers.push_back(std::move(frontier));
+    }
+
     bool hint_active(const core::compiled::FlowPredictionSupplementalHint& hint) const noexcept
     {
         return std::find(m_active_hints.begin(), m_active_hints.end(), &hint) !=
@@ -511,6 +530,7 @@ private:
                     } else if constexpr (std::is_same_v<T, core::compiled::FlowPredictionOpaque>) {
                         // Arbitrary Lua can mutate any gameplay fact. Do not execute or analyze it;
                         // discard knowledge and continue through statically known Flow.
+                        append_opaque_frontier();
                         properties.clear();
                     } else if constexpr (std::is_same_v<T,
                                                         core::compiled::FlowPredictionCallScene>) {

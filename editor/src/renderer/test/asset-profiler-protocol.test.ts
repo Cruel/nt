@@ -103,6 +103,14 @@ const generationChange = {
         ],
       },
     ],
+    opaqueFrontiers: [
+      {
+        root: 'prospective-room-entry',
+        room: 'hall',
+        attachmentPoint: 'room:hall:after-enter',
+        reasonChain: ['room:start:after-leave', 'room:hall:after-enter'],
+      },
+    ],
     submittedEntries: [{ cacheKey: key, prediction: 'expected-next' }],
     submissionFailures: [{ cacheKey: key, prediction: 'possible-next', diagnostic }],
     usedCount: '1',
@@ -150,10 +158,27 @@ const telemetryChange = {
   },
 };
 
+const opaqueMissChange = {
+  sequence: '7',
+  timestampNs: '32',
+  kind: 'opaque-prediction-miss',
+  miss: {
+    cacheKey: key,
+    requestId: '14',
+    generation: '8',
+    frontier: {
+      root: 'flow-execution',
+      room: null,
+      attachmentPoint: 'scene:opening:step:lua',
+      reasonChain: ['scene:opening:entry', 'scene:opening:step:lua'],
+    },
+  },
+};
+
 const full = {
   kind: 'full',
   sessionId: '18446744073709551615',
-  latestSequence: '6',
+  latestSequence: '7',
   capturedAtNs: '40',
   memory,
   outcomes,
@@ -169,6 +194,7 @@ const full = {
     waitChange('failed'),
     waitChange('canceled'),
     telemetryChange,
+    opaqueMissChange,
   ],
   earliestRetainedSequence: '1',
   lostChangeCount: '0',
@@ -201,7 +227,7 @@ describe('asset profiler protocol', () => {
       kind: 'delta',
       sessionId: full.sessionId,
       afterSequence: '0',
-      latestSequence: '6',
+      latestSequence: '7',
       capturedAtNs: '41',
       memory: {
         ...memory,
@@ -220,6 +246,7 @@ describe('asset profiler protocol', () => {
         waitChange('failed'),
         waitChange('canceled'),
         telemetryChange,
+        opaqueMissChange,
       ],
       earliestRetainedSequence: '1',
       lostChangeCount: '0',

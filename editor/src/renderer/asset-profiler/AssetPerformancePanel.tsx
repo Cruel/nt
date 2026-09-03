@@ -18,11 +18,15 @@ import { createEditorFormatters } from '@/i18n/formatting';
 import { useProjectStore } from '@/project/project-store';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   projectFlowPredictionIndexForTooling,
   type FlowPredictionToolingPoint,
 } from '../../shared/flow-prediction-tooling';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  isAuthoringProject,
+  type AuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import type {
   PrefetchHintAttachment,
   PrefetchHintPoint,
@@ -116,8 +120,12 @@ function predictionPointLabel(point: FlowPredictionToolingPoint) {
       return `scene:${point.scene.id}:terminal`;
     case 'dialogue-entry':
       return `dialogue:${point.dialogue.id}:entry`;
-    case 'dialogue-position':
-      return `dialogue:${point.dialogue.id}:${point.stage}:${point.cursor}`;
+    case 'dialogue-position': {
+      let result = `dialogue:${point.dialogue.id}:block:${point.blockId}:${point.stage}:cursor:${point.cursor}`;
+      if (point.segmentId) result += `:segment:${point.segmentId}`;
+      if (point.edgeId) result += `:edge:${point.edgeId}`;
+      return result;
+    }
     case 'dialogue-terminal':
       return `dialogue:${point.dialogue.id}:terminal`;
     case 'room-lifecycle':
@@ -204,8 +212,12 @@ function authoringPredictionPointLabel(point: PrefetchHintPoint) {
       return `scene:${point.scene.$ref.id}:terminal`;
     case 'dialogue-entry':
       return `dialogue:${point.dialogue.$ref.id}:entry`;
-    case 'dialogue-position':
-      return `dialogue:${point.dialogue.$ref.id}:${point.blockId}:${point.stage}:${point.cursor}`;
+    case 'dialogue-position': {
+      let result = `dialogue:${point.dialogue.$ref.id}:block:${point.blockId}:${point.stage}:cursor:${point.cursor}`;
+      if (point.segmentId) result += `:segment:${point.segmentId}`;
+      if (point.edgeId) result += `:edge:${point.edgeId}`;
+      return result;
+    }
     case 'dialogue-terminal':
       return `dialogue:${point.dialogue.$ref.id}:terminal`;
     case 'room-lifecycle':
@@ -260,6 +272,36 @@ function compiledHintTargetLabel(target: { kind: string; [key: string]: unknown 
   return reference?.id ? `${target.kind}:${reference.id}` : target.kind;
 }
 
+function missedAssetId(project: AuthoringProject, stableIdentity: string) {
+  let path: string | null = null;
+  if (stableIdentity.startsWith('texture|')) {
+    const value = stableIdentity.slice('texture|'.length);
+    const separator = value.lastIndexOf('|');
+    path = separator < 0 ? value : value.slice(0, separator);
+  } else if (stableIdentity.startsWith('audio|')) {
+    const value = stableIdentity.slice('audio|'.length);
+    const last = value.lastIndexOf('|');
+    const previous = last < 0 ? -1 : value.lastIndexOf('|', last - 1);
+    path = previous < 0 ? value : value.slice(0, previous);
+  } else if (stableIdentity.startsWith('font-source|')) {
+    const alias = stableIdentity.slice('font-source|'.length).split('|')[0] ?? '';
+    return project.assets[alias] ? alias : null;
+  }
+  if (!path) return null;
+  const normalized = path.startsWith('project:/') ? path.slice('project:/'.length) : path;
+  const matches = Object.entries(project.assets)
+    .filter(([, record]) => {
+      const data = parseAssetData(record.data);
+      if (!data || !('source' in data)) return false;
+      const source = data.source.path.startsWith('project:/')
+        ? data.source.path.slice('project:/'.length)
+        : data.source.path;
+      return source === normalized;
+    })
+    .map(([id]) => id);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 function PredictionView() {
   const { t, i18n } = useTranslation('workspace');
   const format = createEditorFormatters(i18n.language);
@@ -312,8 +354,32 @@ function PredictionView() {
     [project],
   );
 
-  const addHint = () => {
-    if (!project || !targetId || !draftAttachment) return;
+  const opaqueMisses = useMemo(() => {
+    if (!project || !staticProjection) return [];
+    return changes
+      .filter((change) => change.kind === 'opaque-prediction-miss')
+      .map((change) => {
+        const assetId = missedAssetId(project, change.miss.cacheKey.stableIdentity);
+        const slice = staticProjection.slices.find(
+          (candidate) =>
+            predictionPointLabel(candidate.point) === change.miss.frontier.attachmentPoint,
+        );
+        if (!assetId || !slice) return null;
+        const alreadyCovered = Object.values(project.prefetchHints).some(
+          (hint) =>
+            hint.target.kind === 'asset' &&
+            hint.target.asset.$ref.id === assetId &&
+            hint.attachment.kind === 'point' &&
+            authoringPredictionPointLabel(hint.attachment.point) ===
+              change.miss.frontier.attachmentPoint,
+        );
+        return alreadyCovered ? null : { change, assetId, slice };
+      })
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+  }, [changes, project, staticProjection]);
+
+  const createHint = (target: PrefetchHintTarget, attachment: PrefetchHintAttachment) => {
+    if (!project) return;
     let ordinal = 1;
     let id = 'prefetch-hint';
     while (project.prefetchHints[id]) {
@@ -323,13 +389,15 @@ function PredictionView() {
     executeCommand({
       type: 'project.addAtPath',
       label: t('assetProfiler.prediction.addHint'),
-      payload: {
-        path: `/prefetchHints/${id}`,
-        value: { id, target: prefetchTarget(targetKind, targetId), attachment: draftAttachment },
-      },
+      payload: { path: `/prefetchHints/${id}`, value: { id, target, attachment } },
       originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
       persistencePolicy: 'manual-save',
     });
+  };
+
+  const addHint = () => {
+    if (!project || !targetId || !draftAttachment) return;
+    createHint(prefetchTarget(targetKind, targetId), draftAttachment);
     setDraftAttachment(null);
   };
 
@@ -431,6 +499,47 @@ function PredictionView() {
           </div>
         )}
       </section>
+
+      {opaqueMisses.length ? (
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="font-medium">{t('assetProfiler.prediction.opaqueMissesTitle')}</h3>
+            <span className="text-[10px] text-muted-foreground">
+              {t('assetProfiler.prediction.optimizationGuidance')}
+            </span>
+          </div>
+          <div className="space-y-1">
+            {opaqueMisses.map(({ change, assetId, slice }) => (
+              <div
+                key={`${change.sequence}:${change.miss.cacheKey.stableIdentity}`}
+                className="flex items-center justify-between gap-3 rounded border p-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{assetId}</div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {[change.miss.frontier.root, ...change.miss.frontier.reasonChain].join(' → ')}
+                  </div>
+                  <div className="truncate font-mono text-[10px] text-muted-foreground">
+                    {change.miss.frontier.attachmentPoint}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    createHint(prefetchTarget('asset', assetId), {
+                      kind: 'point',
+                      point: authoringPredictionPoint(slice.point),
+                    })
+                  }
+                >
+                  {t('assetProfiler.prediction.addHintHere')}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <div className="mb-2 flex items-center justify-between gap-2">
