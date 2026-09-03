@@ -120,6 +120,15 @@ Resident dependencies are alternatives (`PossibleNext`) and provenance identifie
 and Current Room. Re-publishing an identical resident root is a no-op for speculative generation
 replacement, while a semantic change refreshes the one shared prefetch plan.
 
+Editor/tooling inspection has two deliberately different read-only views over this same machinery.
+Outside a live Runtime Session, the editor may project the compiler-generated Flow Prediction Index
+to show potential semantic slices, deterministic edges, alternatives, effective dependency groups,
+wait/decision frontiers, and opaque commands; it must not evaluate Conditions or implement a second
+prediction traversal in TypeScript. During Play/debug, asset-profiler generations expose the exact
+normalized candidate plan consumed by the runtime prefetch planner, including ranking inputs,
+estimated cost, confidence, and compact semantic provenance. These automatic entries are derived
+tooling data only and are not editable Project data or a stable serialization contract for the index.
+
 Prospective Room entry composes the canonical successful transition order (source `before_leave`,
 target `before_enter`, target Room presentation, source `after_leave`, target `after_enter` where
 applicable) and deliberately excludes rejection programs. Compiler-lowered Gameplay Command summaries

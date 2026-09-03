@@ -28,7 +28,12 @@
     "keepMine": "Keep Mine"
   },
   "assetProfiler": {
-    "tabs": { "overview": "Overview", "issues": "Issues", "assets": "Assets" },
+    "tabs": {
+      "overview": "Overview",
+      "prediction": "Prediction",
+      "issues": "Issues",
+      "assets": "Assets"
+    },
     "states": {
       "disconnected": "Open the Play tab to connect the asset profiler.",
       "unsupported": "This preview build does not include the asset profiler.",
@@ -37,6 +42,33 @@
       "error": "Asset profiler data is unavailable."
     },
     "actions": { "openPlay": "Open Play" },
+    "prediction": {
+      "liveTitle": "Live runtime plan",
+      "staticTitle": "Static prediction structure",
+      "derivedReadOnly": "Derived · read-only",
+      "staticNotice": "Potential compiled structure only. Conditions are not evaluated without a live Runtime Session.",
+      "runtimeRoot": "Runtime prediction root",
+      "noLiveGeneration": "No live prediction generation has been published yet.",
+      "openPlayForLive": "Open Play to inspect the concrete prediction plan from the Runtime Session.",
+      "noDependencies": "No semantic dependencies introduced",
+      "noEdges": "No outgoing prediction edges",
+      "noStaticIndex": "No compiled Flow Prediction Index is available for the current project.",
+      "costSummary": "CPU {{cpu}} · GPU {{gpu}} · Audio {{audio}} · {{kind}} estimate",
+      "columns": {
+        "prediction": "Prediction",
+        "distance": "Distance",
+        "order": "Order",
+        "priority": "Priority",
+        "cost": "Estimated cost",
+        "asset": "Asset",
+        "reason": "Reason"
+      },
+      "states": {
+        "opaque": "Opaque",
+        "alternatives": "Alternatives",
+        "deterministic": "Deterministic"
+      }
+    },
     "simulation": {
       "label": "Simulated memory policy",
       "peakEpoch": "Peaks are measured since the last policy change.",

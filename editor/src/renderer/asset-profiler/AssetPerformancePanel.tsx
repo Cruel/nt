@@ -15,6 +15,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { createEditorFormatters } from '@/i18n/formatting';
 import { useProjectStore } from '@/project/project-store';
+import { compileAuthoringProject } from '../../shared/authoring-compiler';
+import {
+  projectFlowPredictionIndexForTooling,
+  type FlowPredictionToolingPoint,
+} from '../../shared/flow-prediction-tooling';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { buildFullGamePreviewTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
@@ -90,6 +95,200 @@ function EmptyState({
           {actionLabel}
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+function predictionPointLabel(point: FlowPredictionToolingPoint) {
+  switch (point.kind) {
+    case 'scene-entry':
+      return `scene:${point.scene.id}:entry`;
+    case 'scene-step':
+      return `scene:${point.scene.id}:step:${point.stepId}`;
+    case 'scene-terminal':
+      return `scene:${point.scene.id}:terminal`;
+    case 'dialogue-entry':
+      return `dialogue:${point.dialogue.id}:entry`;
+    case 'dialogue-position':
+      return `dialogue:${point.dialogue.id}:${point.stage}:${point.cursor}`;
+    case 'dialogue-terminal':
+      return `dialogue:${point.dialogue.id}:terminal`;
+    case 'room-lifecycle':
+      return `room:${point.room.id}:${point.stage}`;
+    case 'interaction-rule':
+      return `interaction:${point.interaction.id}:rule:${point.ruleId}`;
+    case 'verb-default':
+      return `verb:${point.verb.id}:default`;
+    case 'resident-layout':
+      return `layout:${point.layout.id}:resident`;
+    case 'undefined-interaction':
+      return 'interaction:undefined';
+  }
+}
+
+function predictionDependencyLabel(dependency: { kind: string; [key: string]: unknown }) {
+  const reference = Object.values(dependency).find(
+    (value) => typeof value === 'object' && value !== null && 'id' in value,
+  ) as { id?: string } | undefined;
+  return reference?.id ? `${dependency.kind}:${reference.id}` : dependency.kind;
+}
+
+function PredictionView() {
+  const { t, i18n } = useTranslation('workspace');
+  const format = createEditorFormatters(i18n.language);
+  const projectDocument = useProjectStore((state) => state.document);
+  const changes = useAssetProfilerStore((state) => state.changes);
+  const status = useAssetProfilerStore((state) => state.status);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const staticProjection = useMemo(() => {
+    if (!project) return null;
+    const compiled = compileAuthoringProject(project);
+    if (!compiled.ok) return null;
+    return projectFlowPredictionIndexForTooling(compiled.project.flowPrediction);
+  }, [project]);
+  const liveGeneration = useMemo(() => {
+    for (let index = changes.length - 1; index >= 0; --index) {
+      const change = changes[index];
+      if (change.kind === 'prefetch-generation-upsert') return change.generation;
+    }
+    return null;
+  }, [changes]);
+
+  return (
+    <div className="space-y-4 p-3">
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="font-medium">{t('assetProfiler.prediction.liveTitle')}</h3>
+          <span className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {t('assetProfiler.prediction.derivedReadOnly')}
+          </span>
+        </div>
+        {liveGeneration ? (
+          <div className="overflow-x-auto rounded border">
+            <table className="w-full min-w-[980px] text-left">
+              <thead className="bg-muted/40 text-[10px] text-muted-foreground">
+                <tr>
+                  <th className="px-2 py-1.5 font-medium">
+                    {t('assetProfiler.prediction.columns.prediction')}
+                  </th>
+                  <th className="px-2 py-1.5 font-medium">
+                    {t('assetProfiler.prediction.columns.distance')}
+                  </th>
+                  <th className="px-2 py-1.5 font-medium">
+                    {t('assetProfiler.prediction.columns.order')}
+                  </th>
+                  <th className="px-2 py-1.5 font-medium">
+                    {t('assetProfiler.prediction.columns.priority')}
+                  </th>
+                  <th className="px-2 py-1.5 font-medium">
+                    {t('assetProfiler.prediction.columns.cost')}
+                  </th>
+                  <th className="px-2 py-1.5 font-medium">
+                    {t('assetProfiler.prediction.columns.asset')}
+                  </th>
+                  <th className="px-2 py-1.5 font-medium">
+                    {t('assetProfiler.prediction.columns.reason')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {liveGeneration.predictionPlan.map((entry, index) => (
+                  <tr key={`${entry.cacheKey.stableIdentity}:${index}`} className="border-t">
+                    <td className="px-2 py-1.5">{entry.prediction}</td>
+                    <td className="px-2 py-1.5 tabular-nums">
+                      {entry.executionDistance.toString()}
+                    </td>
+                    <td className="px-2 py-1.5 tabular-nums">{entry.executionOrder.toString()}</td>
+                    <td className="px-2 py-1.5 tabular-nums">
+                      {entry.dependencyPriority.toString()}
+                    </td>
+                    <td className="px-2 py-1.5 text-[10px] text-muted-foreground">
+                      {t('assetProfiler.prediction.costSummary', {
+                        cpu: format.fileSize(BigInt(entry.estimatedCost.preparedCpuBytes)),
+                        gpu: format.fileSize(BigInt(entry.estimatedCost.gpuBytes)),
+                        audio: format.fileSize(BigInt(entry.estimatedCost.audioBytes)),
+                        kind: entry.costEstimate,
+                      })}
+                    </td>
+                    <td className="px-2 py-1.5 font-mono text-[10px]">
+                      {entry.cacheKey.stableIdentity}
+                    </td>
+                    <td className="px-2 py-1.5 text-[10px] text-muted-foreground">
+                      {entry.provenance
+                        .map((path) =>
+                          [path.root, path.room ? `room:${path.room}` : null, ...path.reasonChain]
+                            .filter(Boolean)
+                            .join(' → '),
+                        )
+                        .join(' · ') || t('assetProfiler.prediction.runtimeRoot')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="rounded border p-3 text-muted-foreground">
+            {status === 'ready'
+              ? t('assetProfiler.prediction.noLiveGeneration')
+              : t('assetProfiler.prediction.openPlayForLive')}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="font-medium">{t('assetProfiler.prediction.staticTitle')}</h3>
+          <span className="text-[10px] text-muted-foreground">
+            {t('assetProfiler.prediction.derivedReadOnly')}
+          </span>
+        </div>
+        <p className="mb-2 text-[10px] text-muted-foreground">
+          {t('assetProfiler.prediction.staticNotice')}
+        </p>
+        {staticProjection ? (
+          <div className="space-y-1">
+            {staticProjection.slices.map((slice) => {
+              const hasAlternatives = slice.edges.some((edge) => edge.kind === 'alternative');
+              const state = slice.opaque
+                ? t('assetProfiler.prediction.states.opaque')
+                : hasAlternatives
+                  ? t('assetProfiler.prediction.states.alternatives')
+                  : t('assetProfiler.prediction.states.deterministic');
+              return (
+                <div
+                  key={slice.index}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded border p-2"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{predictionPointLabel(slice.point)}</div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {slice.dependencies.length
+                        ? slice.dependencies.map(predictionDependencyLabel).join(', ')
+                        : t('assetProfiler.prediction.noDependencies')}
+                    </div>
+                    <div className="truncate font-mono text-[10px] text-muted-foreground">
+                      {slice.edges.length
+                        ? slice.edges
+                            .map((edge) => `${edge.kind}:${edge.reason}→#${edge.target}`)
+                            .join(' · ')
+                        : t('assetProfiler.prediction.noEdges')}
+                    </div>
+                  </div>
+                  <div className="text-right text-[10px] text-muted-foreground">
+                    <div>{state}</div>
+                    <div>{slice.frontier}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded border p-3 text-muted-foreground">
+            {t('assetProfiler.prediction.noStaticIndex')}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -666,7 +865,7 @@ export function AssetPerformancePanel() {
     <TooltipProvider>
       <div className="flex h-full min-h-0 flex-col text-xs">
         <div className="flex h-9 shrink-0 items-center gap-1 border-b px-2">
-          {(['overview', 'issues', 'assets'] as AssetProfilerViewId[]).map((id) => (
+          {(['overview', 'prediction', 'issues', 'assets'] as AssetProfilerViewId[]).map((id) => (
             <button
               key={id}
               type="button"
@@ -688,7 +887,9 @@ export function AssetPerformancePanel() {
         <div
           className={`min-h-0 flex-1 ${view === 'assets' ? 'overflow-hidden' : 'overflow-auto'}`}
         >
-          {!payload ? (
+          {view === 'prediction' ? (
+            <PredictionView />
+          ) : !payload ? (
             <EmptyState
               message={stateMessage ?? t('assetProfiler.states.loading')}
               actionLabel={

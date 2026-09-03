@@ -51,6 +51,9 @@ type AssetProfilerDecimalField =
   | 'presentationRevision'
   | 'expectedNextCount'
   | 'possibleNextCount'
+  | 'executionDistance'
+  | 'executionOrder'
+  | 'dependencyPriority'
   | 'usedCount'
   | 'lateCount'
   | 'unusedCount'
@@ -105,6 +108,9 @@ const DECIMAL_KEYS = new Set<AssetProfilerDecimalField>([
   'presentationRevision',
   'expectedNextCount',
   'possibleNextCount',
+  'executionDistance',
+  'executionOrder',
+  'dependencyPriority',
   'usedCount',
   'lateCount',
   'unusedCount',
@@ -165,7 +171,7 @@ function inventoryByKey(entries: NormalizedAssetProfilerEntry[]) {
 
 export type AssetProfilerStatus = 'disconnected' | 'unsupported' | 'loading' | 'ready' | 'error';
 
-export type AssetProfilerViewId = 'overview' | 'issues' | 'assets';
+export type AssetProfilerViewId = 'overview' | 'prediction' | 'issues' | 'assets';
 export type AssetProfilerApplyResult =
   | 'accepted'
   | 'history-gap'

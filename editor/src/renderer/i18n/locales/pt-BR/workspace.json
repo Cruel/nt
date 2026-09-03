@@ -28,7 +28,12 @@
     "keepMine": "Manter minhas alterações"
   },
   "assetProfiler": {
-    "tabs": { "overview": "Visão geral", "issues": "Problemas", "assets": "Recursos" },
+    "tabs": {
+      "overview": "Visão geral",
+      "prediction": "Predição",
+      "issues": "Problemas",
+      "assets": "Recursos"
+    },
     "states": {
       "disconnected": "Abra a aba Jogar para conectar o analisador de recursos.",
       "unsupported": "Esta compilação de prévia não inclui o analisador de recursos.",
@@ -37,6 +42,33 @@
       "error": "Os dados do analisador de recursos não estão disponíveis."
     },
     "actions": { "openPlay": "Abrir Jogar" },
+    "prediction": {
+      "liveTitle": "Plano de runtime ao vivo",
+      "staticTitle": "Estrutura estática de predição",
+      "derivedReadOnly": "Derivado · somente leitura",
+      "staticNotice": "Somente estrutura compilada potencial. As Condições não são avaliadas sem uma Sessão de Runtime ativa.",
+      "runtimeRoot": "Raiz de predição do runtime",
+      "noLiveGeneration": "Nenhuma geração de predição ao vivo foi publicada ainda.",
+      "openPlayForLive": "Abra Jogar para inspecionar o plano de predição concreto da Sessão de Runtime.",
+      "noDependencies": "Nenhuma dependência semântica introduzida",
+      "noEdges": "Nenhuma aresta de predição de saída",
+      "noStaticIndex": "Nenhum Índice de Predição de Fluxo compilado está disponível para o projeto atual.",
+      "costSummary": "CPU {{cpu}} · GPU {{gpu}} · Áudio {{audio}} · estimativa {{kind}}",
+      "columns": {
+        "prediction": "Predição",
+        "distance": "Distância",
+        "order": "Ordem",
+        "priority": "Prioridade",
+        "cost": "Custo estimado",
+        "asset": "Recurso",
+        "reason": "Motivo"
+      },
+      "states": {
+        "opaque": "Opaco",
+        "alternatives": "Alternativas",
+        "deterministic": "Determinístico"
+      }
+    },
     "simulation": {
       "label": "Política de memória simulada",
       "peakEpoch": "Os picos são medidos desde a última mudança de política.",

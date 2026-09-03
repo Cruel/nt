@@ -409,6 +409,13 @@ validation before data can reach editor profiler state. All `uint64_t` values re
 through this boundary, including values larger than JavaScript's safe-integer range. The complete
 wire DTO and retained-event rules are documented in `ASSET_PROFILER_HANDOFF.md`.
 
+Prefetch-generation changes include the runtime planner's exact normalized `predictionPlan` for that
+generation. The renderer displays this live plan as received; it does not recompute prediction from
+the Project. Static authoring inspection instead projects the generated Compiled Project Flow
+Prediction Index and treats Condition branches as potential alternatives rather than live results.
+Both surfaces are derived/read-only and remain separate from focused-preview mandatory asset
+collection.
+
 The renderer controller owns request cadence and permits only one profiler request in flight. Opening
 or revealing Asset Performance requests a full snapshot when no cursor exists, then polls deltas from
 the last accepted sequence. Hiding the panel stops polling but leaves the engine session intact.

@@ -419,8 +419,45 @@ Json entries_json(const std::vector<AssetProfilerEntry>& values)
     return result;
 }
 
+std::string_view prediction_root_name(AssetProfilerPredictionRoot value) noexcept
+{
+    switch (value) {
+    case AssetProfilerPredictionRoot::FlowExecution:
+        return "flow-execution";
+    case AssetProfilerPredictionRoot::ProspectiveRoomEntry:
+        return "prospective-room-entry";
+    case AssetProfilerPredictionRoot::ResidentRoomContext:
+        return "resident-room-context";
+    }
+    return "flow-execution";
+}
+
 Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
 {
+    Json prediction_plan = array_with_capacity(value.prediction_plan.size());
+    for (const auto& entry : value.prediction_plan) {
+        Json provenance = array_with_capacity(entry.provenance.size());
+        for (const auto& path : entry.provenance) {
+            Json reason_chain = array_with_capacity(path.reason_chain.size());
+            for (const auto& reason : path.reason_chain)
+                reason_chain.push_back(reason);
+            provenance.push_back(Json{{"root", prediction_root_name(path.root)},
+                                      {"room", path.room ? Json(*path.room) : Json(nullptr)},
+                                      {"reasonChain", std::move(reason_chain)}});
+        }
+        prediction_plan.push_back(
+            Json{{"cacheKey", cache_key_json(entry.cache_key)},
+                 {"prediction", prediction_name(entry.prediction)},
+                 {"executionDistance", decimal(entry.execution_distance)},
+                 {"executionOrder", decimal(entry.execution_order)},
+                 {"dependencyPriority", decimal(entry.dependency_priority)},
+                 {"estimatedCost", cost_json(entry.estimated_cost)},
+                 {"costEstimate",
+                  entry.cost_estimate == AssetProfilerPredictionCostEstimateKind::Metadata
+                      ? "metadata"
+                      : "conservative"},
+                 {"provenance", std::move(provenance)}});
+    }
     Json submitted = array_with_capacity(value.submitted_entries.size());
     for (const auto& entry : value.submitted_entries)
         submitted.push_back(Json{{"cacheKey", cache_key_json(entry.cache_key)},
@@ -437,6 +474,7 @@ Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
                                              : Json(nullptr)},
                 {"expectedNextCount", decimal(value.expected_next_count)},
                 {"possibleNextCount", decimal(value.possible_next_count)},
+                {"predictionPlan", std::move(prediction_plan)},
                 {"submittedEntries", std::move(submitted)},
                 {"submissionFailures", std::move(failures)},
                 {"usedCount", decimal(value.used_count)},
