@@ -180,6 +180,16 @@ public:
         return m_generation;
     }
 
+    [[nodiscard]] bool
+    replace_generation_on_owner(assets::PrefetchGenerationId generation) noexcept override
+    {
+        assert_owner_thread();
+        if (m_canceled || !generation.valid())
+            return false;
+        m_generation = generation;
+        return true;
+    }
+
     void cancel_on_owner() noexcept override
     {
         assert_owner_thread();

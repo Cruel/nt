@@ -1191,6 +1191,23 @@ AssetManager::create_prefetch_generation_on_owner() const noexcept
     return core::Result<PrefetchGenerationId, core::Diagnostic>::success(*generation);
 }
 
+PrefetchPlanningResidencySnapshot
+AssetManager::prefetch_planning_residency_on_owner() const noexcept
+{
+    if (m_async == nullptr)
+        return {};
+    return {.warm = m_async->residency->warm_cost_on_owner(),
+            .policy = m_async->residency->policy_on_owner()};
+}
+
+std::optional<ResidencyClass>
+AssetManager::prefetch_residency_class_on_owner(const AssetCacheKey& cache_key) const noexcept
+{
+    if (m_async == nullptr)
+        return std::nullopt;
+    return m_async->residency->classification_on_owner(cache_key);
+}
+
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
 std::vector<core::AssetProfilerEntry> AssetManager::asset_profiler_inventory_on_owner() const
 {

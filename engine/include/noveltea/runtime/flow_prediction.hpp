@@ -15,10 +15,23 @@ enum class FlowPredictionConfidence : std::uint8_t {
     Alternative,
 };
 
+struct FlowPredictionProvenance {
+    // Semantic execution points traversed to reach the dependency. Keep this projection in domain
+    // terms rather than leaking generated slice indexes to runtime/tooling consumers.
+    std::vector<core::compiled::FlowPredictionPoint> points;
+
+    bool operator==(const FlowPredictionProvenance&) const = default;
+};
+
 struct FlowPredictionProjectionEntry {
     core::compiled::FlowPredictionDependency dependency;
     std::size_t execution_distance = 0;
     FlowPredictionConfidence confidence = FlowPredictionConfidence::Expected;
+    // Dependencies emitted by one execution slice share an order. This preserves semantic slice
+    // order while still allowing the planner to sub-rank dependencies within that slice.
+    std::size_t execution_order = 0;
+    std::size_t dependency_priority = 0;
+    FlowPredictionProvenance provenance;
 };
 
 // Read-only tooling/runtime view over one prediction root. It intentionally exposes semantic

@@ -31,6 +31,11 @@ enum class AssetLeaseLookupScope : std::uint8_t {
     FocusedPreview,
 };
 
+struct PrefetchPlanningResidencySnapshot {
+    ResidencyCost warm;
+    ResolvedAssetMemoryPolicy policy;
+};
+
 class AssetManager : public runtime::ScriptSourcePort {
 public:
     using NamespaceMounts = std::vector<AssetSourcePtr>;
@@ -85,6 +90,10 @@ public:
     refresh_namespace_on_owner(std::string_view namespace_name) noexcept;
     [[nodiscard]] core::Result<PrefetchGenerationId, core::Diagnostic>
     create_prefetch_generation_on_owner() const noexcept;
+    [[nodiscard]] PrefetchPlanningResidencySnapshot
+    prefetch_planning_residency_on_owner() const noexcept;
+    [[nodiscard]] std::optional<ResidencyClass>
+    prefetch_residency_class_on_owner(const AssetCacheKey& cache_key) const noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>
     request_font(const FontAssetRequest& request, AssetRequestReason reason,
                  AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;

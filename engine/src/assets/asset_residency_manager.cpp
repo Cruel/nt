@@ -170,18 +170,6 @@ std::uint64_t allowance_bytes(std::uint64_t budget, std::uint32_t percent) noexc
     return budget / 100u * percent + budget % 100u * percent / 100u;
 }
 
-bool warm_addition_exceeds(const ResidencyCost& current, const ResidencyCost& added,
-                           const ResidencyBudget& budget) noexcept
-{
-    const auto percent = budget.prefetch_allowance_percent;
-    return addition_exceeds(current.prepared_cpu_bytes, added.prepared_cpu_bytes,
-                            allowance_bytes(budget.prepared_cpu_bytes, percent)) ||
-           addition_exceeds(current.gpu_bytes, added.gpu_bytes,
-                            allowance_bytes(budget.gpu_bytes, percent)) ||
-           addition_exceeds(current.audio_bytes, added.audio_bytes,
-                            allowance_bytes(budget.audio_bytes, percent));
-}
-
 bool warm_over_budget(const ResidencyCost& current, const ResidencyBudget& budget) noexcept
 {
     return current.prepared_cpu_bytes >
@@ -200,6 +188,24 @@ core::Diagnostic pressure_diagnostic(std::string code, std::string message)
 }
 
 } // namespace
+
+ResidencyCost prefetch_allowance_cost(const ResidencyBudget& budget) noexcept
+{
+    const auto percent = budget.prefetch_allowance_percent;
+    return {.prepared_cpu_bytes = allowance_bytes(budget.prepared_cpu_bytes, percent),
+            .gpu_bytes = allowance_bytes(budget.gpu_bytes, percent),
+            .audio_bytes = allowance_bytes(budget.audio_bytes, percent)};
+}
+
+bool prefetch_fits_warm_budget(const ResidencyCost& current_warm, const ResidencyCost& added,
+                               const ResidencyBudget& budget) noexcept
+{
+    const auto allowance = prefetch_allowance_cost(budget);
+    return !addition_exceeds(current_warm.prepared_cpu_bytes, added.prepared_cpu_bytes,
+                             allowance.prepared_cpu_bytes) &&
+           !addition_exceeds(current_warm.gpu_bytes, added.gpu_bytes, allowance.gpu_bytes) &&
+           !addition_exceeds(current_warm.audio_bytes, added.audio_bytes, allowance.audio_bytes);
+}
 
 core::Result<ResolvedAssetMemoryPolicy, core::Diagnostics>
 resolve_asset_memory_policy(AssetMemoryTarget target, AssetMemoryPreset preset,
@@ -749,7 +755,7 @@ AssetResidencyManager::admit_on_owner(ResidencyAdmissionRequest request) noexcep
 
     if (request.reason == AssetRequestReason::Prefetch &&
         (resident_addition_exceeds(m_impl->accounting.current, committed, m_impl->budget) ||
-         warm_addition_exceeds(m_impl->warm_cost(), committed, m_impl->budget))) {
+         !prefetch_fits_warm_budget(m_impl->warm_cost(), committed, m_impl->budget))) {
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &request.cache_key,
                                  "assets.prefetch_residency_rejected");
         return {.admission = ResidencyAdmission::RejectedPrefetch,
@@ -823,7 +829,7 @@ AssetResidencyManager::enrich_resident_on_owner(const AssetCacheKey& cache_key,
         }
         if (resident_addition_exceeds(m_impl->accounting.current, additional_cost,
                                       m_impl->budget) ||
-            warm_addition_exceeds(warm, additional_cost, m_impl->budget)) {
+            !prefetch_fits_warm_budget(warm, additional_cost, m_impl->budget)) {
             m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &cache_key,
                                      "assets.prefetch_enrichment_rejected");
             return {.admission = ResidencyAdmission::RejectedPrefetch,
@@ -940,7 +946,7 @@ bool AssetResidencyManager::attach_prefetch_interest_on_owner(
     const auto resident = m_impl->residents.find(cache_key);
     if (resident != m_impl->residents.end() &&
         m_impl->classification(resident->second) == ResidencyClass::Cold &&
-        warm_addition_exceeds(m_impl->warm_cost(), resident->second.cost, m_impl->budget)) {
+        !prefetch_fits_warm_budget(m_impl->warm_cost(), resident->second.cost, m_impl->budget)) {
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &cache_key,
                                  "assets.prefetch_allowance_exceeded");
         return false;
@@ -989,6 +995,12 @@ ResidencyAccountingSnapshot AssetResidencyManager::accounting_on_owner() const n
 {
     m_impl->assert_owner();
     return m_impl->accounting;
+}
+
+ResidencyCost AssetResidencyManager::warm_cost_on_owner() const noexcept
+{
+    m_impl->assert_owner();
+    return m_impl->warm_cost();
 }
 
 ResolvedAssetMemoryPolicy AssetResidencyManager::policy_on_owner() const noexcept

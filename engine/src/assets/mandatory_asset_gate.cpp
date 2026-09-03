@@ -844,6 +844,7 @@ struct MandatoryAssetGate::Impl {
 
     void append_adjacent_room_predictions(const core::RuntimePresentationSnapshot& snapshot)
     {
+        adjacent_prediction_plan = {};
         if (package == nullptr || !dependency_index || !snapshot.current_room)
             return;
         const auto* room = package->project().find_room(*snapshot.current_room);
@@ -855,18 +856,22 @@ struct MandatoryAssetGate::Impl {
             auto projection = predictor.predict(runtime::ProspectiveRoomEntryPredictionRoot{
                 .source_room = *snapshot.current_room, .target_room = exit.target});
             auto plan = resolve_flow_prediction(*dependency_index, projection);
-            core::append_diagnostics(dependencies.diagnostics, std::move(plan.diagnostics));
+            core::append_diagnostics(adjacent_prediction_plan.diagnostics,
+                                     std::move(plan.diagnostics));
+            adjacent_prediction_plan.structural_limit_reached |= plan.structural_limit_reached;
             for (auto& candidate : plan.candidates) {
                 // Choosing this exit is itself speculative, so even deterministic work inside the
                 // prospective successful transition remains PossibleNext from the current Room.
-                dependencies.adjacent_alternatives.push_back(std::move(candidate.descriptor));
+                candidate.prediction = PrefetchPredictionKind::PossibleNext;
+                adjacent_prediction_plan.candidates.push_back(std::move(candidate));
             }
         }
     }
 
-    StructuredAssetDependencyBuckets speculative_dependencies() const
+    PrefetchPlan speculative_plan() const
     {
-        auto result = dependencies;
+        auto result = adjacent_prediction_plan;
+        core::append_diagnostics(result.diagnostics, dependencies.diagnostics);
         if (package == nullptr || !dependency_index)
             return result;
 
@@ -875,22 +880,73 @@ struct MandatoryAssetGate::Impl {
             projection = &*active_scene_prediction;
         else if (active_dialogue_prediction)
             projection = &*active_dialogue_prediction;
-        else if (!runtime_prediction_observed && result.direct_next.empty() &&
-                 result.adjacent_alternatives.empty() && !entry_prediction.entries.empty())
+        else if (!runtime_prediction_observed && !entry_prediction.entries.empty())
             projection = &entry_prediction;
         if (projection == nullptr)
             return result;
 
         auto plan = resolve_flow_prediction(*dependency_index, *projection);
         core::append_diagnostics(result.diagnostics, std::move(plan.diagnostics));
-        for (auto& candidate : plan.candidates) {
-            if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
-                result.direct_next.push_back(std::move(candidate.descriptor));
-            else
-                result.adjacent_alternatives.push_back(std::move(candidate.descriptor));
-        }
+        result.structural_limit_reached |= plan.structural_limit_reached;
+        result.candidates.insert(result.candidates.end(),
+                                 std::make_move_iterator(plan.candidates.begin()),
+                                 std::make_move_iterator(plan.candidates.end()));
         return result;
     }
+
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    void record_prefetch_replacement_on_owner(
+        std::optional<PrefetchGenerationId> previous_generation,
+        const PrefetchSubmissionReport& report,
+        std::optional<core::PresentationSnapshotRevision> presentation_revision) noexcept
+    {
+        auto* sink = assets.asset_profiler_sink_on_owner();
+        if (sink == nullptr)
+            return;
+
+        // The planner has already attached/retagged the new interests before this telemetry
+        // handoff. Retire the prior logical generation first so the profiler's active-generation
+        // view advances atomically to the replacement record below.
+        if (previous_generation && *previous_generation != report.generation)
+            sink->record_prefetch_generation_released(*previous_generation);
+
+        core::AssetProfilerPrefetchGenerationRecord record;
+        record.generation = report.generation;
+        record.presentation_revision = presentation_revision;
+        record.expected_next_count = report.direct_next_count;
+        record.possible_next_count = report.adjacent_count;
+        const auto append_entry = [&](const PrefetchSubmissionEntry& entry) {
+            record.submitted_entries.push_back(
+                {.cache_key = entry.cache_key,
+                 .prediction = entry.prediction == PrefetchPredictionKind::ExpectedNext
+                                   ? core::PrefetchPredictionKind::ExpectedNext
+                                   : core::PrefetchPredictionKind::PossibleNext});
+        };
+        for (const auto& entry : report.submitted_entries)
+            append_entry(entry);
+        // The profiler generation record predates planner reconciliation and models the interests
+        // active in one logical generation. Retained tickets therefore belong in this existing
+        // collection even though the planner report distinguishes them from newly submitted work.
+        for (const auto& entry : report.retained_entries)
+            append_entry(entry);
+
+        const auto append_failure = [&](const AssetCacheKey& cache_key,
+                                        PrefetchPredictionKind prediction,
+                                        const core::Diagnostic& diagnostic) {
+            record.submission_failures.push_back(
+                {.cache_key = cache_key,
+                 .prediction = prediction == PrefetchPredictionKind::ExpectedNext
+                                   ? core::PrefetchPredictionKind::ExpectedNext
+                                   : core::PrefetchPredictionKind::PossibleNext,
+                 .diagnostic = diagnostic});
+        };
+        for (const auto& failure : report.failures)
+            append_failure(failure.cache_key, failure.prediction, failure.diagnostic);
+        for (const auto& rejection : report.admission_rejections)
+            append_failure(rejection.cache_key, rejection.prediction, rejection.diagnostic);
+        sink->record_prefetch_generation(std::move(record));
+    }
+#endif
 
     AssetManager& assets;
     MandatoryPublicationScope publication;
@@ -908,6 +964,7 @@ struct MandatoryAssetGate::Impl {
     AssetSourceGeneration dependency_generation;
     std::optional<MandatoryAssetRequestGroup> group;
     StructuredAssetDependencyBuckets dependencies;
+    PrefetchPlan adjacent_prediction_plan;
     std::optional<core::PresentationSnapshotRevision> snapshot_revision;
     std::optional<core::RuntimePresentationSnapshot> pending_snapshot;
     bool transaction_active = false;
@@ -955,6 +1012,7 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
         m_impl->dependency_index.reset();
         m_impl->collector.reset();
         m_impl->entry_prediction = {};
+        m_impl->adjacent_prediction_plan = {};
         m_impl->active_scene_root.reset();
         m_impl->active_scene_prediction.reset();
         m_impl->active_dialogue_root.reset();
@@ -976,6 +1034,7 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
     // waits for the normal mandatory publication commit boundary.
     runtime::FlowPredictor predictor(package.project());
     m_impl->entry_prediction = predictor.predict(package.project().entrypoint());
+    m_impl->adjacent_prediction_plan = {};
     m_impl->active_scene_root.reset();
     m_impl->active_scene_prediction.reset();
     m_impl->active_dialogue_root.reset();
@@ -1000,6 +1059,7 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
     m_impl->dependency_index.reset();
     m_impl->collector.reset();
     m_impl->entry_prediction = {};
+    m_impl->adjacent_prediction_plan = {};
     m_impl->active_scene_root.reset();
     m_impl->active_scene_prediction.reset();
     m_impl->active_dialogue_root.reset();
@@ -1049,6 +1109,11 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
 
     rollback_candidate_on_owner();
     m_impl->dependencies = m_impl->collector->collect(m_impl->context_for(snapshot));
+    // Mandatory publication continues to use the structured collector, but production
+    // speculation is sourced from the Flow predictor. Keep the compatibility buckets available
+    // to their standalone callers without flattening them back into this runtime planner path.
+    m_impl->dependencies.direct_next.clear();
+    m_impl->dependencies.adjacent_alternatives.clear();
     m_impl->append_adjacent_room_predictions(snapshot);
     if (!m_impl->dependencies.mandatory_diagnostics.empty()) {
         return {.disposition = MandatoryAssetGateDisposition::Failed,
@@ -1193,11 +1258,20 @@ core::Diagnostics MandatoryAssetGate::update_active_scene_prediction_on_owner(
         !m_impl->dependency_index)
         return diagnostics;
 
-    auto dependencies = m_impl->speculative_dependencies();
-    core::append_diagnostics(diagnostics, std::move(dependencies.diagnostics));
-    auto submitted = m_impl->prefetch.replace_generation_on_owner(dependencies);
-    if (!submitted)
+    auto plan = m_impl->speculative_plan();
+    core::append_diagnostics(diagnostics, std::move(plan.diagnostics));
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    const auto previous_generation = m_impl->prefetch.active_generation_on_owner();
+#endif
+    auto submitted = m_impl->prefetch.replace_generation_on_owner(plan);
+    if (!submitted) {
         diagnostics.push_back(std::move(submitted).error());
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    } else {
+        m_impl->record_prefetch_replacement_on_owner(previous_generation, submitted.value(),
+                                                     std::nullopt);
+#endif
+    }
     return diagnostics;
 }
 
@@ -1230,11 +1304,20 @@ core::Diagnostics MandatoryAssetGate::update_active_dialogue_prediction_on_owner
         !m_impl->dependency_index)
         return diagnostics;
 
-    auto dependencies = m_impl->speculative_dependencies();
-    core::append_diagnostics(diagnostics, std::move(dependencies.diagnostics));
-    auto submitted = m_impl->prefetch.replace_generation_on_owner(dependencies);
-    if (!submitted)
+    auto plan = m_impl->speculative_plan();
+    core::append_diagnostics(diagnostics, std::move(plan.diagnostics));
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    const auto previous_generation = m_impl->prefetch.active_generation_on_owner();
+#endif
+    auto submitted = m_impl->prefetch.replace_generation_on_owner(plan);
+    if (!submitted) {
         diagnostics.push_back(std::move(submitted).error());
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    } else {
+        m_impl->record_prefetch_replacement_on_owner(previous_generation, submitted.value(),
+                                                     std::nullopt);
+#endif
+    }
     return diagnostics;
 }
 
@@ -1257,34 +1340,15 @@ void MandatoryAssetGate::commit_ready_transaction_on_owner() noexcept
     if (!m_impl->transaction_active)
         return;
     m_impl->transaction_active = false;
-    auto speculative_dependencies = m_impl->speculative_dependencies();
-    auto submitted = m_impl->prefetch.replace_generation_on_owner(speculative_dependencies);
+    auto speculative_plan = m_impl->speculative_plan();
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
-    if (const auto* report = submitted.value_if()) {
-        if (auto* sink = m_impl->assets.asset_profiler_sink_on_owner()) {
-            core::AssetProfilerPrefetchGenerationRecord record;
-            record.generation = report->generation;
-            record.presentation_revision = m_impl->snapshot_revision;
-            record.expected_next_count = report->direct_next_count;
-            record.possible_next_count = report->adjacent_count;
-            for (const auto& entry : report->submitted_entries) {
-                record.submitted_entries.push_back(
-                    {.cache_key = entry.cache_key,
-                     .prediction = entry.prediction == PrefetchPredictionKind::ExpectedNext
-                                       ? core::PrefetchPredictionKind::ExpectedNext
-                                       : core::PrefetchPredictionKind::PossibleNext});
-            }
-            for (const auto& failure : report->failures) {
-                record.submission_failures.push_back(
-                    {.cache_key = failure.cache_key,
-                     .prediction = failure.prediction == PrefetchPredictionKind::ExpectedNext
-                                       ? core::PrefetchPredictionKind::ExpectedNext
-                                       : core::PrefetchPredictionKind::PossibleNext,
-                     .diagnostic = failure.diagnostic});
-            }
-            sink->record_prefetch_generation(std::move(record));
-        }
-    }
+    const auto previous_generation = m_impl->prefetch.active_generation_on_owner();
+#endif
+    auto submitted = m_impl->prefetch.replace_generation_on_owner(speculative_plan);
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (const auto* report = submitted.value_if())
+        m_impl->record_prefetch_replacement_on_owner(previous_generation, *report,
+                                                     m_impl->snapshot_revision);
 #else
     (void)submitted;
 #endif

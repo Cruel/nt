@@ -124,21 +124,38 @@ renamed onto the same pathname. The permanent
 copies, synchronous prepared facades, raw/path-based `AudioSystem` playback, stale thread-option
 symbols, and synchronous fallbacks in the audited production consumers.
 
-`structured_prefetch.hpp` and `engine/src/assets/structured_prefetch.cpp` add the structured
-dependency and speculative-generation boundary. `StructuredAssetDependencyIndex` builds immutable
-asset, Layout, material, and gameplay lookup data from one `LoadedCompiledPackage` and its prepared
-resource registries for the active renderer shader variant. The collector emits typed request
-descriptors plus semantic cache keys in current-mandatory, direct-next, and adjacent-alternative
-buckets. Material closure includes the material, its resolved shader program, and package-backed
-static texture assignments while excluding renderer-generated sources such as `$draw.texture`.
-Traversal is deterministic, preserves direct-next precedence, deduplicates across buckets, and stops
-cycles without reading assets, decoding media, or evaluating Lua. `PrefetchPlanner` allocates a new
-process-unique generation, submits only typed `AssetManager::prefetch_*()` requests, retains the
-move-only tickets for that generation, and releases stale tickets only after replacement interests
-have been attached. Collector diagnostics retain their semantic bucket: current-publication failures
-can stop the mandatory gate, while direct-next and adjacent speculative diagnostics remain observable
-without blocking otherwise-valid content. Production runtime publication changes use mandatory asset
-gates and loading progress while speculative entries remain evictable.
+`structured_prefetch.hpp` and `engine/src/assets/structured_prefetch.cpp` own structured dependency
+resolution plus the speculative planner boundary. `StructuredAssetDependencyIndex` builds immutable
+asset, Layout, material, gameplay, package-size, and image-dimension lookup data from one
+`LoadedCompiledPackage` and its prepared resource registries for the active renderer shader variant.
+Mandatory collection still emits typed current-publication descriptors independently of prediction;
+the older direct-next/adjacent buckets remain available only for callers not yet migrated off that
+compatibility seam. Material closure includes the material, its resolved shader program, and
+package-backed static texture assignments while excluding renderer-generated sources such as
+`$draw.texture`.
+
+Production Flow speculation resolves semantic predictor output into ranked `PrefetchCandidate`s that
+retain execution distance/order, confidence, dependency sub-priority, provenance, and an advisory
+`ResidencyCost` estimate. Estimates use package/compiler metadata where available and conservative
+type-specific values otherwise; the planner never prepares an asset merely to discover prediction
+cost. `PrefetchPlanner` ranks semantic usefulness before cost, admits candidates against the same
+configured Warm allowance calculation used by `AssetResidencyManager`, and leaves final residency
+admission to that manager. Candidate normalization and semantic expansion are bounded by a generous
+4,096-entry structural safety ceiling rather than an author-facing tuning value. Alternative branches
+at the same semantic distance do not gain priority from traversal/authored order.
+
+Each meaningful prediction refresh receives a new logical process-unique generation. Reconciliation
+keeps equivalent move-only prefetch tickets and migrates their generation/residency interest in place,
+attaches new work before obsolete interests are released, and reports retained provenance without
+restarting unchanged preparation. Stronger compatible texture capability can still join/enrich through
+the ordinary request substrate. If speculative work becomes Demand, the existing orchestrator promotes
+or coalesces that same in-flight/resident work. Collector/prediction diagnostics remain
+optimization-only: current-publication failures can stop the mandatory gate, while speculative
+diagnostics or Warm admission rejection never invalidate otherwise-correct gameplay.
+The existing editor-profiler generation handoff advances on those same meaningful Flow-frontier
+replacements, treats retained interests as active entries in the replacement logical generation, and
+classifies planner-side Warm rejection as a memory-blocked speculative outcome. Rich prediction-index
+and provenance visualization remains a tooling concern rather than a second prediction implementation.
 
 Flow-aware speculative prediction now has a separate tracer-bullet seam from mandatory dependency
 closure. The compiler can publish a compact `Flow Prediction Index` in the Compiled Project;
@@ -160,8 +177,8 @@ already-consumed work.
 Execution distance advances with Scene progress and semantic frontiers, while prediction confidence
 maps to `ExpectedNext` or `PossibleNext`; unknown typed Conditions, Choices, strong waits, detached
 deep continuation, and Lua opacity widen or demote work without assigning probabilities or executing
-gameplay. The later budget-admission layer may rank these candidates further, but this predictor does
-not perform residency budgeting itself. Production uses the same predictor for the package entrypoint,
+gameplay. The predictor also publishes semantic execution order, dependency sub-priority, and compact
+execution-point provenance; it still performs no residency budgeting itself. Production uses the same predictor for the package entrypoint,
 for the authoritative foreground Scene or Dialogue position published by the Runtime Session, and,
 once a Room is current, for each adjacent exit as a prospective source-to-target Room transition.
 Runtime publication updates foreground Flow prediction independently of visual snapshot equality, so
