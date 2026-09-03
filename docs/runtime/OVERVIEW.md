@@ -129,6 +129,19 @@ normalized candidate plan consumed by the runtime prefetch planner, including ra
 estimated cost, confidence, and compact semantic provenance. These automatic entries are derived
 tooling data only and are not editable Project data or a stable serialization contract for the index.
 
+Projects may additionally author supplemental prefetch hints. Only the authored intent is persisted;
+its effective expansion remains derived compiler/runtime data. Precise hints bind to a semantic Flow
+Prediction point and inherit that point's prediction distance/confidence. The initial direct target
+vocabulary is Asset, Scene, Dialogue, Room, and Layout. Asset/Layout targets introduce ordinary
+semantic dependencies at the attachment distance, while Scene/Dialogue/Room targets enter the same
+Flow predictor as synthetic roots at that distance rather than requesting a transitive eager-load
+closure. Room convenience attachments provide two broader scopes: `entry-path`, evaluated for a
+prospective successful Room entry, and `resident`, evaluated while the Room is current. Supplemental
+hints have no numeric priority or private Condition language; ordinary planner ranking, Warm budget,
+structural caps, and deduplication remain authoritative. When automatic and authored intent resolve
+to one effective candidate, the planner keeps one operational request while retaining both provenance
+paths for tooling.
+
 Prospective Room entry composes the canonical successful transition order (source `before_leave`,
 target `before_enter`, target Room presentation, source `after_leave`, target `after_enter` where
 applicable) and deliberately excludes rejection programs. Compiler-lowered Gameplay Command summaries

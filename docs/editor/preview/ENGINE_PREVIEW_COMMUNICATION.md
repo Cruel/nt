@@ -416,6 +416,12 @@ Prediction Index and treats Condition branches as potential alternatives rather 
 Both surfaces are derived/read-only and remain separate from focused-preview mandatory asset
 collection.
 
+Authored supplemental prefetch intent is stored in Project source and compiled into the same Flow
+Prediction Index. Static tooling may show the lowered attachment/target beside the derived slice, but
+only the authored hint is editable. During Play, authored paths are visible through
+`supplementalHintId` on runtime prediction provenance; the renderer must not independently expand the
+hint or issue eager asset requests.
+
 The renderer controller owns request cadence and permits only one profiler request in flight. Opening
 or revealing Asset Performance requests a full snapshot when no cursor exists, then polls deltas from
 the last accepted sequence. Hiding the panel stops polling but leaves the engine session intact.

@@ -1846,6 +1846,7 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
     },
     { path: '/bootstrapModule', value: project.bootstrapModule, label: 'Bootstrap Module' },
     { path: '/entrypoint', value: project.entrypoint, label: 'Entrypoint' },
+    { path: '/prefetchHints', value: project.prefetchHints, label: 'Prefetch hints' },
     {
       path: '/undefinedInteractionProgram',
       value: project.undefinedInteractionProgram,
@@ -1975,7 +1976,8 @@ function deriveStructuralContributionByKey(
       );
     } else if (
       field.path.startsWith('/settings/') ||
-      field.path === '/undefinedInteractionProgram'
+      field.path === '/undefinedInteractionProgram' ||
+      field.path === '/prefetchHints'
     ) {
       scanStructuralReferences(field.value, field.path, key, edges, project);
     } else if (field.path.startsWith('/interactableInstances/')) {

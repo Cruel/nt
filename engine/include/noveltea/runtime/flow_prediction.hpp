@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace noveltea::runtime {
@@ -27,6 +28,10 @@ struct FlowPredictionProvenance {
     std::vector<core::compiled::FlowPredictionPoint> points;
     FlowPredictionRootKind root_kind = FlowPredictionRootKind::FlowExecution;
     std::optional<core::RoomId> room;
+    // Present only when this path was introduced by authored supplemental intent. Automatic and
+    // authored paths may coexist for the same effective dependency and are deduplicated later by
+    // the speculative planner while retaining both provenance records.
+    std::optional<std::string> supplemental_hint_id;
 
     bool operator==(const FlowPredictionProvenance&) const = default;
 };

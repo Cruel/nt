@@ -18,6 +18,35 @@ import {
 } from '../../shared/project-schema/authoring-validation';
 
 describe('authoring validation', () => {
+  it('diagnoses dangling supplemental prefetch hint references without requiring any hints', () => {
+    const empty = createAuthoringProject();
+    expect(
+      validateAuthoringProject(empty).filter((item) => item.code?.includes('prefetch-hint')),
+    ).toEqual([]);
+
+    empty.prefetchHints.missing = {
+      id: 'missing',
+      target: { kind: 'scene', scene: { $ref: { collection: 'scenes', id: 'missing-scene' } } },
+      attachment: {
+        kind: 'room',
+        room: { $ref: { collection: 'rooms', id: 'missing-room' } },
+        scope: 'entry-path',
+      },
+    };
+    expect(validateAuthoringProject(empty)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.prefetch-hint.reference.missing',
+          path: '/prefetchHints/missing/target/scene/$ref',
+        }),
+        expect.objectContaining({
+          code: 'authoring.prefetch-hint.reference.missing',
+          path: '/prefetchHints/missing/attachment/room/$ref',
+        }),
+      ]),
+    );
+  });
+
   it('preserves incompatible Interactable quantities and stack limits as blocking diagnostics', () => {
     const project = createAuthoringProject();
     const data = defaultInteractableData('Coins');

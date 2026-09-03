@@ -1997,6 +1997,102 @@ TEST_CASE("compiled Flow Prediction Index drives semantic prediction into real p
     planner.clear_on_owner();
 }
 
+TEST_CASE(
+    "supplemental prefetch hints enter ordinary Flow prediction and preserve authored provenance",
+    "[assets][structured-prefetch][flow-prediction][prefetch-hint]")
+{
+    PlannerFixture fixture;
+    auto document = read_compiled_project_golden("scene-program");
+    document["flowPrediction"]["supplementalHints"] = nlohmann::json::array(
+        {{{"id", "opening-image"},
+          {"target", {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "image-main"}}}}},
+          {"attachment", {{"kind", "point"}, {"slice", 3}}}},
+         {{"id", "opening-closing-scene"},
+          {"target", {{"kind", "scene"}, {"scene", {{"kind", "scene"}, {"id", "closing"}}}}},
+          {"attachment", {{"kind", "point"}, {"slice", 3}}}}});
+    auto package = package_from_document(document, "scene-program-with-hints.json");
+
+    runtime::FlowPredictor predictor(package.project());
+    const auto projection =
+        predictor.predict(core::compiled::Entrypoint{id<core::SceneId>("opening")});
+    REQUIRE(projection.diagnostics.empty());
+
+    const auto direct = std::ranges::find_if(projection.entries, [](const auto& entry) {
+        const auto* dependency =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+        return dependency != nullptr && dependency->asset == id<core::AssetId>("image-main") &&
+               entry.provenance.supplemental_hint_id == "opening-image";
+    });
+    REQUIRE(direct != projection.entries.end());
+    CHECK(direct->execution_distance == 0);
+    CHECK(direct->confidence == runtime::FlowPredictionConfidence::Expected);
+
+    const auto semantic = std::ranges::find_if(projection.entries, [](const auto& entry) {
+        const auto* dependency =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+        return dependency != nullptr && dependency->asset == id<core::AssetId>("image-main") &&
+               entry.provenance.supplemental_hint_id == "opening-closing-scene";
+    });
+    REQUIRE(semantic != projection.entries.end());
+    CHECK(semantic->execution_distance == 0);
+    CHECK_FALSE(semantic->provenance.points.empty());
+
+    const auto dependency_index = assets::StructuredAssetDependencyIndex::build(
+        package, "glsl-120", fixture.manager.source_generation_on_owner());
+    const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
+    REQUIRE(plan.diagnostics.empty());
+    const auto merged = std::ranges::find_if(plan.candidates, [](const auto& candidate) {
+        const auto* texture =
+            std::get_if<assets::TextureAssetRequest>(&candidate.descriptor.request);
+        return texture != nullptr && texture->path == "project:/assets/images/main.png";
+    });
+    REQUIRE(merged != plan.candidates.end());
+    CHECK(std::ranges::any_of(merged->provenance, [](const auto& path) {
+        return path.supplemental_hint_id == "opening-image";
+    }));
+    CHECK(std::ranges::any_of(merged->provenance,
+                              [](const auto& path) { return !path.supplemental_hint_id; }));
+}
+
+TEST_CASE("broad Room supplemental hints honor entry and resident scopes",
+          "[assets][structured-prefetch][flow-prediction][prefetch-hint][room]")
+{
+    auto document = read_compiled_project_golden("scene-program");
+    document["flowPrediction"]["supplementalHints"] = nlohmann::json::array(
+        {{{"id", "tower-entry-image"},
+          {"target", {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "image-main"}}}}},
+          {"attachment",
+           {{"kind", "room"},
+            {"room", {{"kind", "room"}, {"id", "tower"}}},
+            {"scope", "entry-path"}}}},
+         {{"id", "tower-resident-image"},
+          {"target", {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "image-main"}}}}},
+          {"attachment",
+           {{"kind", "room"},
+            {"room", {{"kind", "room"}, {"id", "tower"}}},
+            {"scope", "resident"}}}}});
+    auto package = package_from_document(document, "scene-program-with-room-hints.json");
+    runtime::FlowPredictor predictor(package.project());
+
+    const auto entry = predictor.predict(runtime::ProspectiveRoomEntryPredictionRoot{
+        .source_room = id<core::RoomId>("hall"), .target_room = id<core::RoomId>("tower")});
+    CHECK(std::ranges::any_of(entry.entries, [](const auto& item) {
+        return item.provenance.supplemental_hint_id == "tower-entry-image";
+    }));
+    CHECK_FALSE(std::ranges::any_of(entry.entries, [](const auto& item) {
+        return item.provenance.supplemental_hint_id == "tower-resident-image";
+    }));
+
+    const runtime::ResidentRoomPredictionRoot resident{.room = id<core::RoomId>("tower")};
+    const auto current = predictor.predict(resident);
+    CHECK(std::ranges::any_of(current.entries, [](const auto& item) {
+        return item.provenance.supplemental_hint_id == "tower-resident-image";
+    }));
+    CHECK_FALSE(std::ranges::any_of(current.entries, [](const auto& item) {
+        return item.provenance.supplemental_hint_id == "tower-entry-image";
+    }));
+}
+
 TEST_CASE("prospective Room entry predicts successful lifecycle Flow and widens opaque branches",
           "[assets][structured-prefetch][flow-prediction][room-lifecycle]")
 {

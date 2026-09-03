@@ -612,13 +612,117 @@ std::optional<FlowPredictionFrontier> decode_flow_prediction_frontier(Decoder& d
     return std::nullopt;
 }
 
+std::optional<FlowPredictionHintTarget>
+decode_flow_prediction_hint_target(Decoder& decoder, const nlohmann::json& value,
+                                   std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"kind", "asset", "scene", "dialogue", "room", "layout"}))
+        return std::nullopt;
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "asset") {
+        const auto* member = decoder.member(value, "asset", pointer);
+        auto parsed = member ? decode_reference<AssetId>(decoder, *member,
+                                                         pointer_child(pointer, "asset"), "asset")
+                             : std::nullopt;
+        return parsed ? std::optional<FlowPredictionHintTarget>{FlowPredictionHintAssetTarget{
+                            std::move(*parsed)}}
+                      : std::nullopt;
+    }
+    if (*kind == "scene") {
+        const auto* member = decoder.member(value, "scene", pointer);
+        auto parsed = member ? decode_reference<SceneId>(decoder, *member,
+                                                         pointer_child(pointer, "scene"), "scene")
+                             : std::nullopt;
+        return parsed ? std::optional<FlowPredictionHintTarget>{FlowPredictionHintSceneTarget{
+                            std::move(*parsed)}}
+                      : std::nullopt;
+    }
+    if (*kind == "dialogue") {
+        const auto* member = decoder.member(value, "dialogue", pointer);
+        auto parsed = member ? decode_reference<DialogueId>(
+                                   decoder, *member, pointer_child(pointer, "dialogue"), "dialogue")
+                             : std::nullopt;
+        return parsed ? std::optional<FlowPredictionHintTarget>{FlowPredictionHintDialogueTarget{
+                            std::move(*parsed)}}
+                      : std::nullopt;
+    }
+    if (*kind == "room") {
+        const auto* member = decoder.member(value, "room", pointer);
+        auto parsed = member ? decode_reference<RoomId>(decoder, *member,
+                                                        pointer_child(pointer, "room"), "room")
+                             : std::nullopt;
+        return parsed ? std::optional<FlowPredictionHintTarget>{FlowPredictionHintRoomTarget{
+                            std::move(*parsed)}}
+                      : std::nullopt;
+    }
+    if (*kind == "layout") {
+        const auto* member = decoder.member(value, "layout", pointer);
+        auto parsed = member ? decode_reference<LayoutId>(
+                                   decoder, *member, pointer_child(pointer, "layout"), "layout")
+                             : std::nullopt;
+        return parsed ? std::optional<FlowPredictionHintTarget>{FlowPredictionHintLayoutTarget{
+                            std::move(*parsed)}}
+                      : std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Flow Prediction hint target kind '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<FlowPredictionHintAttachment>
+decode_flow_prediction_hint_attachment(Decoder& decoder, const nlohmann::json& value,
+                                       std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"kind", "slice", "room", "scope"}))
+        return std::nullopt;
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "point") {
+        const auto* slice_value = decoder.member(value, "slice", pointer);
+        auto slice = slice_value ? decode_flow_prediction_target(decoder, *slice_value,
+                                                                 pointer_child(pointer, "slice"))
+                                 : std::nullopt;
+        return slice
+                   ? std::optional<FlowPredictionHintAttachment>{FlowPredictionHintPointAttachment{
+                         *slice}}
+                   : std::nullopt;
+    }
+    if (*kind == "room") {
+        const auto* room_value = decoder.member(value, "room", pointer);
+        const auto* scope_value = decoder.member(value, "scope", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        auto scope = scope_value ? decoder.enumeration<FlowPredictionRoomHintScope>(
+                                       *scope_value, pointer_child(pointer, "scope"),
+                                       {{"entry-path", FlowPredictionRoomHintScope::EntryPath},
+                                        {"resident", FlowPredictionRoomHintScope::Resident}})
+                                 : std::nullopt;
+        if (!room || !scope)
+            return std::nullopt;
+        return FlowPredictionHintAttachment{
+            FlowPredictionHintRoomAttachment{std::move(*room), *scope}};
+    }
+    decoder.error(k_code_variant, "Unknown Flow Prediction hint attachment kind '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
 std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder,
                                                                 const nlohmann::json& value,
                                                                 std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"dependencyGroups", "slices"}))
+    if (!decoder.object(value, pointer, {"dependencyGroups", "supplementalHints", "slices"}))
         return std::nullopt;
     const auto* groups_value = decoder.member(value, "dependencyGroups", pointer);
+    const auto hints_iter = value.find("supplementalHints");
     const auto* slices_value = decoder.member(value, "slices", pointer);
     auto groups =
         groups_value ? decoder.array<std::vector<FlowPredictionDependency>>(
@@ -633,6 +737,35 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                                    });
                            })
                      : std::nullopt;
+    std::optional<std::vector<FlowPredictionSupplementalHint>> hints =
+        std::vector<FlowPredictionSupplementalHint>{};
+    if (hints_iter != value.end()) {
+        hints = decoder.array<FlowPredictionSupplementalHint>(
+            *hints_iter, pointer_child(pointer, "supplementalHints"),
+            [&](const nlohmann::json& hint,
+                const std::string& hint_pointer) -> std::optional<FlowPredictionSupplementalHint> {
+                if (!decoder.object(hint, hint_pointer, {"id", "target", "attachment"}))
+                    return std::nullopt;
+                const auto* id_value = decoder.member(hint, "id", hint_pointer);
+                const auto* target_value = decoder.member(hint, "target", hint_pointer);
+                const auto* attachment_value = decoder.member(hint, "attachment", hint_pointer);
+                auto id = id_value ? decoder.string(*id_value, pointer_child(hint_pointer, "id"))
+                                   : std::nullopt;
+                auto target =
+                    target_value
+                        ? decode_flow_prediction_hint_target(decoder, *target_value,
+                                                             pointer_child(hint_pointer, "target"))
+                        : std::nullopt;
+                auto attachment = attachment_value ? decode_flow_prediction_hint_attachment(
+                                                         decoder, *attachment_value,
+                                                         pointer_child(hint_pointer, "attachment"))
+                                                   : std::nullopt;
+                if (!id || !target || !attachment)
+                    return std::nullopt;
+                return FlowPredictionSupplementalHint{std::move(*id), std::move(*target),
+                                                      std::move(*attachment)};
+            });
+    }
     auto slices =
         slices_value
             ? decoder.array<FlowPredictionSlice>(
@@ -706,9 +839,9 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                           std::move(*program)};
                   })
             : std::nullopt;
-    if (!groups || !slices)
+    if (!groups || !hints || !slices)
         return std::nullopt;
-    return FlowPredictionIndex{std::move(*groups), std::move(*slices)};
+    return FlowPredictionIndex{std::move(*groups), std::move(*hints), std::move(*slices)};
 }
 
 } // namespace

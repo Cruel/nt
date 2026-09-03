@@ -133,6 +133,7 @@ describe('AssetPerformancePanel', () => {
                 {
                   root: 'flow-execution',
                   room: null,
+                  supplementalHintId: null,
                   reasonChain: ['scene:opening:entry', 'scene:opening:step:show-intro'],
                 },
               ],
@@ -162,7 +163,9 @@ describe('AssetPerformancePanel', () => {
     expect(screen.getByText('texture|project:/intro.png|0')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(
-      screen.getByText('flow-execution → scene:opening:entry → scene:opening:step:show-intro'),
+      screen.getByText(
+        'automatic → flow-execution → scene:opening:entry → scene:opening:step:show-intro',
+      ),
     ).toBeInTheDocument();
   });
 

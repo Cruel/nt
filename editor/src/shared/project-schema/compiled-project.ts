@@ -708,6 +708,27 @@ const flowPredictionPointSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('resident-layout'), layout: layoutReferenceSchema }),
 ]);
 
+const flowPredictionHintTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('asset'), asset: assetReferenceSchema }),
+  strict({ kind: z.literal('scene'), scene: sceneReferenceSchema }),
+  strict({ kind: z.literal('dialogue'), dialogue: dialogueReferenceSchema }),
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
+  strict({ kind: z.literal('layout'), layout: layoutReferenceSchema }),
+]);
+
+const flowPredictionSupplementalHintSchema = strict({
+  id,
+  target: flowPredictionHintTargetSchema,
+  attachment: z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('point'), slice: z.number().int().nonnegative() }),
+    strict({
+      kind: z.literal('room'),
+      room: roomReferenceSchema,
+      scope: z.enum(['entry-path', 'resident']),
+    }),
+  ]),
+});
+
 type FlowPredictionCommand =
   | {
       commandId?: string;
@@ -801,6 +822,7 @@ const flowPredictionControlSchema = z.discriminatedUnion('kind', [
 
 const flowPredictionIndexSchema = strict({
   dependencyGroups: z.array(z.array(flowPredictionDependencySchema)),
+  supplementalHints: z.array(flowPredictionSupplementalHintSchema).optional(),
   slices: z.array(
     strict({
       point: flowPredictionPointSchema,

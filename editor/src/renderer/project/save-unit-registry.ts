@@ -15,6 +15,7 @@ export const PROJECT_SETTINGS_OWNED_PATHS: JsonPointer[] = [
   '/settings',
   '/bootstrapModule',
   '/entrypoint',
+  '/prefetchHints',
   '/export/assetMemoryPolicies',
 ];
 

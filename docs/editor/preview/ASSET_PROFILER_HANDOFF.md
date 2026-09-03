@@ -46,10 +46,16 @@ estimate kind, plus compact provenance chains rooted in foreground Flow, prospec
 resident Room context. This is derived, read-only runtime tooling data. The renderer may display it
 but must not recompute a competing live prediction plan from Project data.
 
+Prediction provenance additionally carries nullable `supplementalHintId`. `null` means the path came
+from automatic prediction; a string identifies persisted authored supplemental intent. One effective
+candidate may contain both automatic and authored provenance after planner deduplication. This field
+is explanatory only and does not alter ranking or residency policy.
+
 Static authoring inspection is separate: it projects the compiler-generated Flow Prediction Index
 to expose potential slices, expanded semantic dependency groups, deterministic/alternative edges,
-frontiers, and opacity without evaluating live Conditions. The generated index remains an internal
-compiled representation rather than editable Project data.
+frontiers, opacity, and compiler-lowered supplemental hint attachments without evaluating live
+Conditions. Authors edit only Project `prefetchHints`; generated slice indexes and effective
+expansions remain internal compiled data and are never written back into Project source.
 
 The profiler does not retain requested/generic-coalesced/start/pin/generic cache/policy events. It
 retains source-read, preparation, and owner-finalization completion/failure, terminal request

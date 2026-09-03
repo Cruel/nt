@@ -140,6 +140,9 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'oonnsssssssssovssnoonoonnnnnnoyop';
 
 const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
+  // #157 adds persisted supplemental prefetch intent. Every hint leaf changes the generated Flow
+  // Prediction Index and therefore the owning Project tooling/runtime optimization projection.
+  [/^\/prefetchHints(?:\/|$)/, OWNER],
   // #122 replaces the Interaction-only instruction union and Dialogue-only effect union with the
   // shared recursive Gameplay Command vocabulary. Legacy-equivalent leaves are path-mapped below;
   // genuinely new typed operands, result bindings, quantity/configuration forms, and recursive
@@ -945,6 +948,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     localization: '3f6d0d11',
     maps: '9d711bea',
     materials: '546711ca',
+    prefetchHints: 'b985056c',
     project: 'da3be83d',
     rooms: '4bfeca2e',
     scenes: '9d060243',

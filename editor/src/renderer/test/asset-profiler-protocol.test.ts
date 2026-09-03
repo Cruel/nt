@@ -97,6 +97,7 @@ const generationChange = {
           {
             root: 'prospective-room-entry',
             room: 'hall',
+            supplementalHintId: null,
             reasonChain: ['room:hall:after-enter', 'scene:opening:entry'],
           },
         ],

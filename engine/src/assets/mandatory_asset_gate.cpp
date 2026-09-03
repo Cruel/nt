@@ -1036,6 +1036,7 @@ struct MandatoryAssetGate::Impl {
                 flattened.root = prediction_root(provenance.root_kind);
                 if (provenance.room)
                     flattened.room = provenance.room->text();
+                flattened.supplemental_hint_id = provenance.supplemental_hint_id;
                 flattened.reason_chain.reserve(provenance.points.size());
                 for (const auto& point : provenance.points)
                     flattened.reason_chain.push_back(prediction_point_name(point));

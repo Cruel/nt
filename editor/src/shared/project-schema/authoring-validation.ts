@@ -15,7 +15,7 @@ import {
   resolveGameplayInstanceRecord,
 } from './authoring-archetypes';
 import { validateCharacterData } from './authoring-characters';
-import { validateDialogueData } from './authoring-dialogues';
+import { parseDialogueData, validateDialogueData } from './authoring-dialogues';
 import { parseInteractableData, validateInteractableData } from './authoring-interactables';
 import {
   effectiveInteractableFeatureProperties,
@@ -24,6 +24,7 @@ import {
   effectiveInteractableInstanceTraits,
 } from './authoring-interactable-properties';
 import {
+  parseInteractionData,
   validateInteractionData,
   validateInteractionProgram,
   validateInteractionResolverProject,
@@ -47,7 +48,7 @@ import {
 } from './authoring-hotspot-validation';
 import { validateAuthoringInventories } from './authoring-inventory-validation';
 import { validateTypedProjectSettings } from './authoring-project-settings';
-import { validateSceneData } from './authoring-scenes';
+import { parseSceneData, validateSceneData } from './authoring-scenes';
 import { validateScriptModuleData } from './authoring-script-modules';
 import { validateShaderData } from './authoring-shaders';
 import { validateTestData } from './authoring-tests';
@@ -106,6 +107,172 @@ function recordsFor(
   collection: AuthoringCollectionKey,
 ): Record<string, AuthoringRecordBase> {
   return project[collection] as Record<string, AuthoringRecordBase>;
+}
+
+function validatePrefetchHints(
+  project: AuthoringProject,
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
+  const requireRecord = (
+    collection: 'assets' | 'scenes' | 'dialogues' | 'rooms' | 'layouts' | 'interactions' | 'verbs',
+    id: string,
+    path: string,
+  ) => {
+    if (project[collection][id]) return true;
+    diagnostics.push(
+      diagnostic(
+        'error',
+        path,
+        `Prefetch hint references missing ${collection.slice(0, -1)} '${id}'.`,
+        'Prefetch hints',
+        'authoring.prefetch-hint.reference.missing',
+      ),
+    );
+    return false;
+  };
+
+  for (const [key, hint] of Object.entries(project.prefetchHints)) {
+    const base = `/prefetchHints/${escapePathSegment(key)}`;
+    if (hint.id !== key)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${base}/id`,
+          `Prefetch hint ID '${hint.id}' must match registry key '${key}'.`,
+          'Prefetch hints',
+          'authoring.prefetch-hint.id.key-mismatch',
+        ),
+      );
+
+    switch (hint.target.kind) {
+      case 'asset':
+        requireRecord('assets', hint.target.asset.$ref.id, `${base}/target/asset/$ref`);
+        break;
+      case 'scene':
+        requireRecord('scenes', hint.target.scene.$ref.id, `${base}/target/scene/$ref`);
+        break;
+      case 'dialogue':
+        requireRecord('dialogues', hint.target.dialogue.$ref.id, `${base}/target/dialogue/$ref`);
+        break;
+      case 'room':
+        requireRecord('rooms', hint.target.room.$ref.id, `${base}/target/room/$ref`);
+        break;
+      case 'layout':
+        requireRecord('layouts', hint.target.layout.$ref.id, `${base}/target/layout/$ref`);
+        break;
+    }
+
+    if (hint.attachment.kind === 'room') {
+      requireRecord('rooms', hint.attachment.room.$ref.id, `${base}/attachment/room/$ref`);
+      continue;
+    }
+
+    const point = hint.attachment.point;
+    switch (point.kind) {
+      case 'scene-entry':
+      case 'scene-terminal':
+        requireRecord('scenes', point.scene.$ref.id, `${base}/attachment/point/scene/$ref`);
+        break;
+      case 'scene-step': {
+        if (!requireRecord('scenes', point.scene.$ref.id, `${base}/attachment/point/scene/$ref`))
+          break;
+        const scene = parseSceneData(project.scenes[point.scene.$ref.id]!.data);
+        if (scene && !scene.events.some((event) => event.id === point.stepId))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${base}/attachment/point/stepId`,
+              `Prefetch hint references missing Scene step '${point.stepId}'.`,
+              'Prefetch hints',
+              'authoring.prefetch-hint.point.missing',
+            ),
+          );
+        break;
+      }
+      case 'dialogue-entry':
+      case 'dialogue-terminal':
+        requireRecord(
+          'dialogues',
+          point.dialogue.$ref.id,
+          `${base}/attachment/point/dialogue/$ref`,
+        );
+        break;
+      case 'dialogue-position': {
+        if (
+          !requireRecord(
+            'dialogues',
+            point.dialogue.$ref.id,
+            `${base}/attachment/point/dialogue/$ref`,
+          )
+        )
+          break;
+        const dialogue = parseDialogueData(project.dialogues[point.dialogue.$ref.id]!.data);
+        const block = dialogue?.blocks.find((candidate) => candidate.id === point.blockId);
+        const segmentExists =
+          point.segmentId === undefined ||
+          (block?.type === 'sequence' &&
+            block.segments.some((segment) => segment.id === point.segmentId));
+        const edgeExists =
+          point.edgeId === undefined || dialogue?.edges.some((edge) => edge.id === point.edgeId);
+        if (!block || !segmentExists || !edgeExists)
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${base}/attachment/point`,
+              'Prefetch hint references a Dialogue prediction point that does not exist.',
+              'Prefetch hints',
+              'authoring.prefetch-hint.point.missing',
+            ),
+          );
+        break;
+      }
+      case 'room-lifecycle':
+        requireRecord('rooms', point.room.$ref.id, `${base}/attachment/point/room/$ref`);
+        break;
+      case 'interaction-rule': {
+        if (
+          !requireRecord(
+            'interactions',
+            point.interaction.$ref.id,
+            `${base}/attachment/point/interaction/$ref`,
+          )
+        )
+          break;
+        const interaction = parseInteractionData(
+          project.interactions[point.interaction.$ref.id]!.data,
+        );
+        if (interaction && !interaction.rules.some((rule) => rule.id === point.ruleId))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${base}/attachment/point/ruleId`,
+              `Prefetch hint references missing Interaction rule '${point.ruleId}'.`,
+              'Prefetch hints',
+              'authoring.prefetch-hint.point.missing',
+            ),
+          );
+        break;
+      }
+      case 'verb-default':
+        requireRecord('verbs', point.verb.$ref.id, `${base}/attachment/point/verb/$ref`);
+        break;
+      case 'resident-layout':
+        requireRecord('layouts', point.layout.$ref.id, `${base}/attachment/point/layout/$ref`);
+        break;
+      case 'undefined-interaction':
+        if (!project.undefinedInteractionProgram)
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${base}/attachment/point`,
+              'Prefetch hint references the undefined Interaction point, but no fallback program exists.',
+              'Prefetch hints',
+              'authoring.prefetch-hint.point.missing',
+            ),
+          );
+        break;
+    }
+  }
 }
 
 function validateArchetypePropertyConfiguration(
@@ -1280,6 +1447,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   validateFeatures(effectiveProject, diagnostics);
   diagnostics.push(...validateAuthoringInventories(project));
   validateAssets(effectiveProject, diagnostics);
+  validatePrefetchHints(project, diagnostics);
   validateAssetMemoryPolicies(project, diagnostics);
   diagnostics.push(...validateTypedProjectSettings(effectiveProject));
   diagnostics.push(...validateSystemLayoutSettings(effectiveProject));

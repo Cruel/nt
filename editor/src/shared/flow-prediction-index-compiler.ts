@@ -3,6 +3,11 @@ import type {
   CompiledProjectWire,
   FlowPredictionIndex,
 } from './project-schema/compiled-project';
+import type {
+  PrefetchHint,
+  PrefetchHintPoint,
+  PrefetchHintTarget,
+} from './project-schema/authoring-prefetch-hints';
 
 type PredictionDependency = FlowPredictionIndex['dependencyGroups'][number][number];
 type PredictionProgram = FlowPredictionIndex['slices'][number]['program'];
@@ -17,6 +22,68 @@ type DialogueSegment = DialogueSequenceBlock['segments'][number];
 type DialogueLineSegment = Extract<DialogueSegment, { kind: 'line' }>;
 type DialogueCue = DialogueLineSegment['cues'][number];
 type InteractionProgram = CompiledProjectWire['definitions']['verbs'][number]['defaultProgram'];
+
+function compiledHintTarget(
+  target: PrefetchHintTarget,
+): NonNullable<FlowPredictionIndex['supplementalHints']>[number]['target'] {
+  switch (target.kind) {
+    case 'asset':
+      return { kind: 'asset', asset: { kind: 'asset', id: target.asset.$ref.id } };
+    case 'scene':
+      return { kind: 'scene', scene: { kind: 'scene', id: target.scene.$ref.id } };
+    case 'dialogue':
+      return { kind: 'dialogue', dialogue: { kind: 'dialogue', id: target.dialogue.$ref.id } };
+    case 'room':
+      return { kind: 'room', room: { kind: 'room', id: target.room.$ref.id } };
+    case 'layout':
+      return { kind: 'layout', layout: { kind: 'layout', id: target.layout.$ref.id } };
+  }
+}
+
+function compiledHintPoint(point: PrefetchHintPoint): PredictionPoint {
+  switch (point.kind) {
+    case 'scene-entry':
+    case 'scene-terminal':
+      return { kind: point.kind, scene: { kind: 'scene', id: point.scene.$ref.id } };
+    case 'scene-step':
+      return {
+        kind: 'scene-step',
+        scene: { kind: 'scene', id: point.scene.$ref.id },
+        stepId: point.stepId,
+      };
+    case 'dialogue-entry':
+    case 'dialogue-terminal':
+      return { kind: point.kind, dialogue: { kind: 'dialogue', id: point.dialogue.$ref.id } };
+    case 'dialogue-position':
+      return {
+        kind: 'dialogue-position',
+        dialogue: { kind: 'dialogue', id: point.dialogue.$ref.id },
+        blockId: point.blockId,
+        ...(point.segmentId ? { segmentId: point.segmentId } : {}),
+        ...(point.edgeId ? { edgeId: point.edgeId } : {}),
+        stage: point.stage,
+        cursor: point.cursor,
+      };
+    case 'room-lifecycle':
+      return {
+        kind: 'room-lifecycle',
+        room: { kind: 'room', id: point.room.$ref.id },
+        stage: point.stage,
+      };
+    case 'interaction-rule':
+      return {
+        kind: 'interaction-rule',
+        interaction: { kind: 'interaction', id: point.interaction.$ref.id },
+        ruleId: point.ruleId,
+      };
+    case 'verb-default':
+      return { kind: 'verb-default', verb: { kind: 'verb', id: point.verb.$ref.id } };
+    case 'resident-layout':
+      return { kind: 'resident-layout', layout: { kind: 'layout', id: point.layout.$ref.id } };
+    case 'undefined-interaction':
+      return { kind: 'undefined-interaction' };
+  }
+}
 
 function summarizeGameplayCommands(
   commands: readonly CompiledGameplayCommand[],
@@ -387,6 +454,7 @@ function dialogueCueFrontier(cue: DialogueCue): PredictionSlice['frontier'] {
  */
 export function compileFlowPredictionIndex(
   project: CompiledProjectWire,
+  authoredHints: Readonly<Record<string, PrefetchHint>> = {},
 ): FlowPredictionIndex | undefined {
   if (
     project.definitions.scenes.length === 0 &&
@@ -933,5 +1001,30 @@ export function compileFlowPredictionIndex(
     }
   }
 
-  return { dependencyGroups, slices };
+  const supplementalHints: NonNullable<FlowPredictionIndex['supplementalHints']> = [];
+  for (const hint of Object.values(authoredHints).sort((left, right) =>
+    left.id.localeCompare(right.id),
+  )) {
+    if (hint.attachment.kind === 'point') {
+      const slice = findSlice(compiledHintPoint(hint.attachment.point));
+      if (slice === undefined) continue;
+      supplementalHints.push({
+        id: hint.id,
+        target: compiledHintTarget(hint.target),
+        attachment: { kind: 'point', slice },
+      });
+      continue;
+    }
+    supplementalHints.push({
+      id: hint.id,
+      target: compiledHintTarget(hint.target),
+      attachment: {
+        kind: 'room',
+        room: { kind: 'room', id: hint.attachment.room.$ref.id },
+        scope: hint.attachment.scope,
+      },
+    });
+  }
+
+  return { dependencyGroups, supplementalHints, slices };
 }

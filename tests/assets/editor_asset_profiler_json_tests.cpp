@@ -106,6 +106,7 @@ core::AssetProfilerPrefetchGenerationRecord generation_record()
               .cost_estimate = core::AssetProfilerPredictionCostEstimateKind::Metadata,
               .provenance = {{.root = core::AssetProfilerPredictionRoot::ProspectiveRoomEntry,
                               .room = "hall",
+                              .supplemental_hint_id = "hall-opening",
                               .reason_chain = {"room:start:after-enter", "scene:opening:entry"}}}}},
         .submitted_entries = {{.cache_key = key,
                                .prediction = core::PrefetchPredictionKind::ExpectedNext},
@@ -302,6 +303,14 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
               .at("provenance")
               .at(0)
               .at("root") == "prospective-room-entry");
+    CHECK(payload.at("retainedChanges")
+              .at(1)
+              .at("generation")
+              .at("predictionPlan")
+              .at(0)
+              .at("provenance")
+              .at(0)
+              .at("supplementalHintId") == "hall-opening");
     CHECK(payload.at("retainedChanges")
               .at(1)
               .at("generation")

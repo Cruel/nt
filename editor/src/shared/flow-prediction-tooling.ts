@@ -24,10 +24,20 @@ export interface FlowPredictionToolingSlice {
   dependencies: Dependency[];
 }
 
+export interface FlowPredictionToolingSupplementalHint {
+  id: string;
+  target: NonNullable<FlowPredictionIndex['supplementalHints']>[number]['target'];
+  attachment:
+    | { kind: 'point'; slice: number; point: FlowPredictionToolingPoint | null }
+    | { kind: 'room'; roomId: string; scope: 'entry-path' | 'resident' };
+  derived: true;
+}
+
 export interface FlowPredictionToolingProjection {
   derived: true;
   readOnly: true;
   slices: FlowPredictionToolingSlice[];
+  supplementalHints: FlowPredictionToolingSupplementalHint[];
 }
 
 function programIsOpaque(program: Slice['program']): boolean {
@@ -86,6 +96,23 @@ export function projectFlowPredictionIndexForTooling(
   return {
     derived: true,
     readOnly: true,
+    supplementalHints: (index.supplementalHints ?? []).map((hint) => ({
+      id: hint.id,
+      target: hint.target,
+      attachment:
+        hint.attachment.kind === 'point'
+          ? {
+              kind: 'point' as const,
+              slice: hint.attachment.slice,
+              point: index.slices[hint.attachment.slice]?.point ?? null,
+            }
+          : {
+              kind: 'room' as const,
+              roomId: hint.attachment.room.id,
+              scope: hint.attachment.scope,
+            },
+      derived: true as const,
+    })),
     slices: index.slices.map((slice, sliceIndex) => ({
       index: sliceIndex,
       point: slice.point,

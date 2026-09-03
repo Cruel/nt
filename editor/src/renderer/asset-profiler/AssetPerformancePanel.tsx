@@ -1,7 +1,8 @@
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
+import { useCommandStore } from '@/commands/command-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -15,12 +16,18 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { createEditorFormatters } from '@/i18n/formatting';
 import { useProjectStore } from '@/project/project-store';
+import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import {
   projectFlowPredictionIndexForTooling,
   type FlowPredictionToolingPoint,
 } from '../../shared/flow-prediction-tooling';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import type {
+  PrefetchHintAttachment,
+  PrefetchHintPoint,
+  PrefetchHintTarget,
+} from '../../shared/project-schema/authoring-prefetch-hints';
 import { buildFullGamePreviewTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -133,13 +140,139 @@ function predictionDependencyLabel(dependency: { kind: string; [key: string]: un
   return reference?.id ? `${dependency.kind}:${reference.id}` : dependency.kind;
 }
 
+function authoringPredictionPoint(point: FlowPredictionToolingPoint): PrefetchHintPoint {
+  switch (point.kind) {
+    case 'scene-entry':
+    case 'scene-terminal':
+      return {
+        kind: point.kind,
+        scene: { $ref: { collection: 'scenes', id: point.scene.id } },
+      };
+    case 'scene-step':
+      return {
+        kind: 'scene-step',
+        scene: { $ref: { collection: 'scenes', id: point.scene.id } },
+        stepId: point.stepId,
+      };
+    case 'dialogue-entry':
+    case 'dialogue-terminal':
+      return {
+        kind: point.kind,
+        dialogue: { $ref: { collection: 'dialogues', id: point.dialogue.id } },
+      };
+    case 'dialogue-position':
+      return {
+        kind: 'dialogue-position',
+        dialogue: { $ref: { collection: 'dialogues', id: point.dialogue.id } },
+        blockId: point.blockId,
+        ...(point.segmentId ? { segmentId: point.segmentId } : {}),
+        ...(point.edgeId ? { edgeId: point.edgeId } : {}),
+        stage: point.stage,
+        cursor: point.cursor,
+      };
+    case 'room-lifecycle':
+      return {
+        kind: 'room-lifecycle',
+        room: { $ref: { collection: 'rooms', id: point.room.id } },
+        stage: point.stage,
+      };
+    case 'interaction-rule':
+      return {
+        kind: 'interaction-rule',
+        interaction: { $ref: { collection: 'interactions', id: point.interaction.id } },
+        ruleId: point.ruleId,
+      };
+    case 'verb-default':
+      return { kind: 'verb-default', verb: { $ref: { collection: 'verbs', id: point.verb.id } } };
+    case 'resident-layout':
+      return {
+        kind: 'resident-layout',
+        layout: { $ref: { collection: 'layouts', id: point.layout.id } },
+      };
+    case 'undefined-interaction':
+      return { kind: 'undefined-interaction' };
+  }
+}
+
+function authoringPredictionPointLabel(point: PrefetchHintPoint) {
+  switch (point.kind) {
+    case 'scene-entry':
+      return `scene:${point.scene.$ref.id}:entry`;
+    case 'scene-step':
+      return `scene:${point.scene.$ref.id}:step:${point.stepId}`;
+    case 'scene-terminal':
+      return `scene:${point.scene.$ref.id}:terminal`;
+    case 'dialogue-entry':
+      return `dialogue:${point.dialogue.$ref.id}:entry`;
+    case 'dialogue-position':
+      return `dialogue:${point.dialogue.$ref.id}:${point.blockId}:${point.stage}:${point.cursor}`;
+    case 'dialogue-terminal':
+      return `dialogue:${point.dialogue.$ref.id}:terminal`;
+    case 'room-lifecycle':
+      return `room:${point.room.$ref.id}:${point.stage}`;
+    case 'interaction-rule':
+      return `interaction:${point.interaction.$ref.id}:rule:${point.ruleId}`;
+    case 'verb-default':
+      return `verb:${point.verb.$ref.id}:default`;
+    case 'resident-layout':
+      return `layout:${point.layout.$ref.id}:resident`;
+    case 'undefined-interaction':
+      return 'interaction:undefined';
+  }
+}
+
+type PrefetchTargetKind = PrefetchHintTarget['kind'];
+
+function prefetchTarget(kind: PrefetchTargetKind, id: string): PrefetchHintTarget {
+  switch (kind) {
+    case 'asset':
+      return { kind, asset: { $ref: { collection: 'assets', id } } };
+    case 'scene':
+      return { kind, scene: { $ref: { collection: 'scenes', id } } };
+    case 'dialogue':
+      return { kind, dialogue: { $ref: { collection: 'dialogues', id } } };
+    case 'room':
+      return { kind, room: { $ref: { collection: 'rooms', id } } };
+    case 'layout':
+      return { kind, layout: { $ref: { collection: 'layouts', id } } };
+  }
+}
+
+function prefetchTargetId(target: PrefetchHintTarget) {
+  switch (target.kind) {
+    case 'asset':
+      return target.asset.$ref.id;
+    case 'scene':
+      return target.scene.$ref.id;
+    case 'dialogue':
+      return target.dialogue.$ref.id;
+    case 'room':
+      return target.room.$ref.id;
+    case 'layout':
+      return target.layout.$ref.id;
+  }
+}
+
+function compiledHintTargetLabel(target: { kind: string; [key: string]: unknown }) {
+  const reference = Object.values(target).find(
+    (value) => typeof value === 'object' && value !== null && 'id' in value,
+  ) as { id?: string } | undefined;
+  return reference?.id ? `${target.kind}:${reference.id}` : target.kind;
+}
+
 function PredictionView() {
   const { t, i18n } = useTranslation('workspace');
   const format = createEditorFormatters(i18n.language);
   const projectDocument = useProjectStore((state) => state.document);
   const changes = useAssetProfilerStore((state) => state.changes);
   const status = useAssetProfilerStore((state) => state.status);
+  const executeCommand = useCommandStore((state) => state.executeCommand);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const [targetKind, setTargetKind] = useState<PrefetchTargetKind>('scene');
+  const [targetId, setTargetId] = useState('');
+  const [draftAttachment, setDraftAttachment] = useState<PrefetchHintAttachment | null>(null);
+  const [roomId, setRoomId] = useState('');
+  const [roomScope, setRoomScope] = useState<'entry-path' | 'resident'>('entry-path');
   const staticProjection = useMemo(() => {
     if (!project) return null;
     const compiled = compileAuthoringProject(project);
@@ -153,6 +286,62 @@ function PredictionView() {
     }
     return null;
   }, [changes]);
+  const targetRecords = useMemo(() => {
+    if (!project) return [];
+    const records =
+      targetKind === 'asset'
+        ? project.assets
+        : targetKind === 'scene'
+          ? project.scenes
+          : targetKind === 'dialogue'
+            ? project.dialogues
+            : targetKind === 'room'
+              ? project.rooms
+              : project.layouts;
+    return Object.values(records)
+      .map((record) => ({ id: record.id, label: record.label }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [project, targetKind]);
+  const rooms = useMemo(
+    () =>
+      project
+        ? Object.values(project.rooms)
+            .map((record) => ({ id: record.id, label: record.label }))
+            .sort((left, right) => left.label.localeCompare(right.label))
+        : [],
+    [project],
+  );
+
+  const addHint = () => {
+    if (!project || !targetId || !draftAttachment) return;
+    let ordinal = 1;
+    let id = 'prefetch-hint';
+    while (project.prefetchHints[id]) {
+      ordinal += 1;
+      id = `prefetch-hint-${ordinal}`;
+    }
+    executeCommand({
+      type: 'project.addAtPath',
+      label: t('assetProfiler.prediction.addHint'),
+      payload: {
+        path: `/prefetchHints/${id}`,
+        value: { id, target: prefetchTarget(targetKind, targetId), attachment: draftAttachment },
+      },
+      originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+      persistencePolicy: 'manual-save',
+    });
+    setDraftAttachment(null);
+  };
+
+  const removeHint = (id: string) => {
+    executeCommand({
+      type: 'project.removeAtPath',
+      label: t('assetProfiler.prediction.removeHint'),
+      payload: { path: `/prefetchHints/${id}` },
+      originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+      persistencePolicy: 'manual-save',
+    });
+  };
 
   return (
     <div className="space-y-4 p-3">
@@ -216,7 +405,14 @@ function PredictionView() {
                     <td className="px-2 py-1.5 text-[10px] text-muted-foreground">
                       {entry.provenance
                         .map((path) =>
-                          [path.root, path.room ? `room:${path.room}` : null, ...path.reasonChain]
+                          [
+                            path.supplementalHintId
+                              ? `authored:${path.supplementalHintId}`
+                              : 'automatic',
+                            path.root,
+                            path.room ? `room:${path.room}` : null,
+                            ...path.reasonChain,
+                          ]
                             .filter(Boolean)
                             .join(' → '),
                         )
@@ -234,6 +430,138 @@ function PredictionView() {
               : t('assetProfiler.prediction.openPlayForLive')}
           </div>
         )}
+      </section>
+
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="font-medium">{t('assetProfiler.prediction.authoredTitle')}</h3>
+          <span className="text-[10px] text-muted-foreground">
+            {t('assetProfiler.prediction.authoredPersisted')}
+          </span>
+        </div>
+        {project ? (
+          <div className="space-y-2">
+            {Object.values(project.prefetchHints).map((hint) => (
+              <div
+                key={hint.id}
+                className="flex items-center justify-between gap-2 rounded border p-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium">
+                    {hint.id} → {hint.target.kind}:{prefetchTargetId(hint.target)}
+                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {hint.attachment.kind === 'point'
+                      ? authoringPredictionPointLabel(hint.attachment.point)
+                      : `room:${hint.attachment.room.$ref.id}:${hint.attachment.scope}`}
+                  </div>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => removeHint(hint.id)}>
+                  {t('assetProfiler.prediction.removeHint')}
+                </Button>
+              </div>
+            ))}
+
+            <div className="space-y-2 rounded border p-2">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Select
+                  value={targetKind}
+                  onValueChange={(value) => {
+                    setTargetKind(String(value) as PrefetchTargetKind);
+                    setTargetId('');
+                  }}
+                >
+                  <SelectTrigger aria-label={t('assetProfiler.prediction.targetType')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['asset', 'scene', 'dialogue', 'room', 'layout'] as const).map((kind) => (
+                      <SelectItem key={kind} value={kind}>
+                        {kind}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={targetId} onValueChange={(value) => setTargetId(String(value))}>
+                  <SelectTrigger aria-label={t('assetProfiler.prediction.targetRecord')}>
+                    <SelectValue placeholder={t('assetProfiler.prediction.selectTarget')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targetRecords.map((record) => (
+                      <SelectItem key={record.id} value={record.id}>
+                        {record.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={roomId} onValueChange={(value) => setRoomId(String(value))}>
+                  <SelectTrigger
+                    className="min-w-44"
+                    aria-label={t('assetProfiler.prediction.room')}
+                  >
+                    <SelectValue placeholder={t('assetProfiler.prediction.selectRoom')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rooms.map((room) => (
+                      <SelectItem key={room.id} value={room.id}>
+                        {room.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={roomScope}
+                  onValueChange={(value) => setRoomScope(String(value) as typeof roomScope)}
+                >
+                  <SelectTrigger
+                    className="min-w-36"
+                    aria-label={t('assetProfiler.prediction.roomScope')}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="entry-path">
+                      {t('assetProfiler.prediction.entryPath')}
+                    </SelectItem>
+                    <SelectItem value="resident">
+                      {t('assetProfiler.prediction.whileInRoom')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!roomId}
+                  onClick={() =>
+                    setDraftAttachment({
+                      kind: 'room',
+                      room: { $ref: { collection: 'rooms', id: roomId } },
+                      scope: roomScope,
+                    })
+                  }
+                >
+                  {t('assetProfiler.prediction.useRoomScope')}
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                <span>
+                  {draftAttachment
+                    ? draftAttachment.kind === 'room'
+                      ? `room:${draftAttachment.room.$ref.id}:${draftAttachment.scope}`
+                      : authoringPredictionPointLabel(draftAttachment.point)
+                    : t('assetProfiler.prediction.chooseAttachment')}
+                </span>
+                <Button size="sm" disabled={!targetId || !draftAttachment} onClick={addHint}>
+                  {t('assetProfiler.prediction.addHint')}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section>
@@ -278,6 +606,29 @@ function PredictionView() {
                   <div className="text-right text-[10px] text-muted-foreground">
                     <div>{state}</div>
                     <div>{slice.frontier}</div>
+                    {(staticProjection.supplementalHints ?? [])
+                      .filter(
+                        (hint) =>
+                          hint.attachment.kind === 'point' && hint.attachment.slice === slice.index,
+                      )
+                      .map((hint) => (
+                        <div key={hint.id} className="font-mono">
+                          {hint.id}→{compiledHintTargetLabel(hint.target)}
+                        </div>
+                      ))}
+                    <Button
+                      className="mt-1 h-6 px-2 text-[10px]"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setDraftAttachment({
+                          kind: 'point',
+                          point: authoringPredictionPoint(slice.point),
+                        })
+                      }
+                    >
+                      {t('assetProfiler.prediction.hintHere')}
+                    </Button>
                   </div>
                 </div>
               );

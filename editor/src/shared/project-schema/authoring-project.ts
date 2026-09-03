@@ -28,6 +28,7 @@ import { DEFAULT_PROJECT_INVENTORY } from './authoring-inventories';
 import { interactableInstanceDataSchema } from './authoring-interactables';
 import { scriptRefSchema } from './authoring-flow';
 import { interactionProgramSchema } from './authoring-interaction-programs';
+import { prefetchHintSchema } from './authoring-prefetch-hints';
 
 export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
 export type { EntityId } from './authoring-common';
@@ -74,6 +75,7 @@ export const authoringProjectSchema = z
     bootstrapModule: scriptRefSchema,
     undefinedInteractionProgram: interactionProgramSchema.nullable().default(null),
     entrypoint: projectEntrypointSchema.nullable().default(null),
+    prefetchHints: z.record(entityIdSchema, prefetchHintSchema).default({}),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
     inventories: z
       .tuple([inventoryDefinitionSchema])
@@ -169,6 +171,7 @@ export function createAuthoringProject(
     bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
     undefinedInteractionProgram: null,
     entrypoint: null,
+    prefetchHints: {},
     traits: {},
     inventories: [{ ...DEFAULT_PROJECT_INVENTORY }],
     interactableInstances: {},
