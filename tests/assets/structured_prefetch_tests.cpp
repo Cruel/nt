@@ -1180,6 +1180,104 @@ TEST_CASE(
     gate.clear_package_on_owner();
 }
 
+TEST_CASE("resident Room actions are excluded prospectively and admitted only after Room commit",
+          "[assets][flow-prediction][mandatory-assets][structured-prefetch][resident-room]")
+{
+    PlannerFixture fixture;
+    auto document = read_compiled_project_golden("scene-program");
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                               {"height", 64},
+                                               {"id", "resident-image"},
+                                               {"kind", "image"},
+                                               {"path", "assets/images/resident.png"},
+                                               {"sampling", "linear"},
+                                               {"width", 64}});
+    const auto dependency_group = document["flowPrediction"]["dependencyGroups"].size();
+    document["flowPrediction"]["dependencyGroups"].push_back(nlohmann::json::array(
+        {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "resident-image"}}}}}));
+    document["flowPrediction"]["slices"].push_back(
+        {{"conditionFalseSuccessor", nullptr},
+         {"control", {{"kind", "sequential"}, {"successor", nullptr}}},
+         {"dependencyGroups", nlohmann::json::array({dependency_group})},
+         {"frontier", "normal"},
+         {"point",
+          {{"kind", "interaction-rule"},
+           {"interaction", {{"kind", "interaction"}, {"id", "look"}}},
+           {"ruleId", "resident-click"}}},
+         {"program", nlohmann::json::array()}});
+    auto package = package_from_document(std::move(document), "resident-room-prediction.json");
+
+    runtime::FlowPredictor predictor(package.project());
+    const auto prospective = predictor.predict(runtime::ProspectiveRoomEntryPredictionRoot{
+        .source_room = id<core::RoomId>("hall"), .target_room = id<core::RoomId>("tower")});
+    CHECK_FALSE(std::ranges::any_of(prospective.entries, [](const auto& entry) {
+        const auto* asset =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+        return asset != nullptr && asset->asset == id<core::AssetId>("resident-image");
+    }));
+
+    const runtime::ResidentRoomPredictionRoot resident_root{
+        .room = id<core::RoomId>("hall"),
+        .programs = {core::InteractionRuleProgramRef{
+            id<core::InteractionId>("look"), id<core::InteractionRuleId>("resident-click")}},
+        .layouts = {}};
+    const auto resident = predictor.predict(resident_root);
+    const auto resident_entry = std::ranges::find_if(resident.entries, [](const auto& entry) {
+        const auto* asset =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+        return asset != nullptr && asset->asset == id<core::AssetId>("resident-image");
+    });
+    REQUIRE(resident_entry != resident.entries.end());
+    CHECK(resident_entry->confidence == runtime::FlowPredictionConfidence::Alternative);
+    CHECK(resident_entry->provenance.root_kind ==
+          runtime::FlowPredictionRootKind::ResidentRoomContext);
+    CHECK(resident_entry->provenance.room == id<core::RoomId>("hall"));
+
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto dependency_index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    const auto resident_plan = assets::resolve_flow_prediction(dependency_index, resident);
+    const auto resident_candidate =
+        std::ranges::find_if(resident_plan.candidates, [](const auto& candidate) {
+            const auto* texture =
+                std::get_if<assets::TextureAssetRequest>(&candidate.descriptor.request);
+            return texture != nullptr && texture->path == "project:/assets/images/resident.png";
+        });
+    REQUIRE(resident_candidate != resident_plan.candidates.end());
+    CHECK(resident_candidate->prediction == assets::PrefetchPredictionKind::PossibleNext);
+
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(155);
+    snapshot.mode = core::PresentationRuntimeMode::Room;
+    snapshot.current_room = id<core::RoomId>("hall");
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+    CHECK(
+        std::ranges::find(fixture.recorder.calls, "texture:project:/assets/images/resident.png") ==
+        fixture.recorder.calls.end());
+
+    const auto before_resident = gate.active_prefetch_generation_on_owner();
+    CHECK(gate.update_resident_room_prediction_on_owner(&resident_root).empty());
+    const auto after_resident = gate.active_prefetch_generation_on_owner();
+    REQUIRE(after_resident);
+    CHECK(after_resident != before_resident);
+    CHECK(
+        std::ranges::find(fixture.recorder.calls, "texture:project:/assets/images/resident.png") !=
+        fixture.recorder.calls.end());
+    CHECK(gate.update_resident_room_prediction_on_owner(&resident_root).empty());
+    CHECK(gate.active_prefetch_generation_on_owner() == after_resident);
+
+    fixture.run_until_idle();
+    gate.clear_package_on_owner();
+}
+
 TEST_CASE("mandatory publication remains correct when Flow Prediction metadata is unavailable",
           "[assets][flow-prediction][mandatory-assets][structured-prefetch]")
 {

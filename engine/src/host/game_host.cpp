@@ -1174,6 +1174,9 @@ bool GameHost::publish_runtime_publication(const runtime::RuntimePublication& pu
             ? m_runtime_presentation.update_active_scene_prediction(publication.active_scene)
         : publication.active_dialogue
             ? m_runtime_presentation.update_active_dialogue_prediction(publication.active_dialogue)
+        : publication.resident_room_prediction
+            ? m_runtime_presentation.update_resident_room_prediction(
+                  publication.resident_room_prediction)
             : m_runtime_presentation.update_active_scene_prediction(std::nullopt);
     if (!prediction_diagnostics.empty()) {
         retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, prediction_diagnostics);

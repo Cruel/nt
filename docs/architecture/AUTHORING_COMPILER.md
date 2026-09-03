@@ -66,6 +66,13 @@ Redirect blocks; Line and RunLua segments; Next and Choice edges; stable IDs; co
 logging, show-once, safe-point, speaker, text, redirect, entry, and completion data lower directly.
 Comment blocks and segments are omitted. Interaction rules retain stable IDs, named slot selector unions, pure Guards, explicit priorities, nullable Offers, and the same shared Gameplay Command vocabulary used by Dialogue and Scene mutation surfaces; authored list order is not a runtime resolver tie-break. Verb definitions retain named slots, locale-neutral `bindingOrder`, localized slot label/prompt and completed-command text, availability, and default program, but carry no Property assignments or Trait attachments. Runtime evaluates the selected Verb's local availability and resolves matching Interaction Rules by structural selector containment, Guard result, and priority. An empty unhandled result falls through to that Verb's default program, then the optional Project undefined-Interaction behavior, then the localized engine response.
 
+Assembly also generates resident-action prediction slices from those already-lowered programs rather
+than asking runtime prediction to traverse Interaction definitions. Each Interaction Rule, Verb
+default, and optional Project undefined-Interaction program receives a semantic prediction point; its
+program summary includes any terminal Scene, Dialogue, or Room handoff. Compiled Layouts receive
+resident Layout points that carry their Layout dependency. These slices do not imply adjacency:
+runtime admits them only from a Current-Room resident prediction root.
+
 Gameplay Commands have authoritative stable authoring IDs matching the compiled contract.
 The editor allocates collision-free IDs on creation and preserves them during editing and reordering;
 validation rejects duplicates within each program.

@@ -66,6 +66,8 @@ public:
         const std::optional<runtime::RuntimeSceneExecutionSnapshot>& active_scene);
     [[nodiscard]] core::Diagnostics update_active_dialogue_prediction(
         const std::optional<runtime::RuntimeDialogueExecutionSnapshot>& active_dialogue);
+    [[nodiscard]] core::Diagnostics update_resident_room_prediction(
+        const std::optional<runtime::ResidentRoomPredictionRoot>& resident_room);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();

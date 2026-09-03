@@ -153,7 +153,7 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
 {
     if (!decoder.object(value, pointer,
                         {"kind", "scene", "stepId", "dialogue", "blockId", "segmentId", "edgeId",
-                         "stage", "cursor", "room"}))
+                         "stage", "cursor", "room", "interaction", "ruleId", "verb", "layout"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
@@ -272,6 +272,43 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
             return std::nullopt;
         }
         return FlowPredictionPoint{RoomLifecyclePredictionPoint{std::move(*room), *parsed_stage}};
+    }
+    if (*kind == "interaction-rule") {
+        const auto* interaction_value = decoder.member(value, "interaction", pointer);
+        const auto* rule_value = decoder.member(value, "ruleId", pointer);
+        auto interaction = interaction_value
+                               ? decode_reference<InteractionId>(
+                                     decoder, *interaction_value,
+                                     pointer_child(pointer, "interaction"), "interaction")
+                               : std::nullopt;
+        auto rule = rule_value ? decoder.id<InteractionRuleId>(*rule_value,
+                                                               pointer_child(pointer, "ruleId"))
+                               : std::nullopt;
+        if (!interaction || !rule)
+            return std::nullopt;
+        return FlowPredictionPoint{
+            InteractionRulePredictionPoint{std::move(*interaction), std::move(*rule)}};
+    }
+    if (*kind == "verb-default") {
+        const auto* verb_value = decoder.member(value, "verb", pointer);
+        auto verb = verb_value ? decode_reference<VerbId>(decoder, *verb_value,
+                                                          pointer_child(pointer, "verb"), "verb")
+                               : std::nullopt;
+        if (!verb)
+            return std::nullopt;
+        return FlowPredictionPoint{VerbDefaultPredictionPoint{std::move(*verb)}};
+    }
+    if (*kind == "undefined-interaction")
+        return FlowPredictionPoint{UndefinedInteractionPredictionPoint{}};
+    if (*kind == "resident-layout") {
+        const auto* layout_value = decoder.member(value, "layout", pointer);
+        auto layout = layout_value
+                          ? decode_reference<LayoutId>(decoder, *layout_value,
+                                                       pointer_child(pointer, "layout"), "layout")
+                          : std::nullopt;
+        if (!layout)
+            return std::nullopt;
+        return FlowPredictionPoint{ResidentLayoutPredictionPoint{std::move(*layout)}};
     }
     if (*kind != "scene-entry" && *kind != "scene-step" && *kind != "scene-terminal") {
         decoder.error(k_code_variant, "Unknown Flow Prediction point kind '" + *kind + "'.",

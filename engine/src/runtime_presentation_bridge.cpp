@@ -536,6 +536,15 @@ core::Diagnostics RuntimePresentationBridge::update_active_dialogue_prediction(
     return m_mandatory_asset_gate->update_active_dialogue_prediction_on_owner(&root);
 }
 
+core::Diagnostics RuntimePresentationBridge::update_resident_room_prediction(
+    const std::optional<runtime::ResidentRoomPredictionRoot>& resident_room)
+{
+    if (m_mandatory_asset_gate == nullptr)
+        return {};
+    return m_mandatory_asset_gate->update_resident_room_prediction_on_owner(
+        resident_room ? &*resident_room : nullptr);
+}
+
 core::Result<void, core::Diagnostics>
 RuntimePresentationBridge::prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot)
 {

@@ -81,7 +81,9 @@ correctness unchanged because mandatory asset publication remains independent.
 `runtime::FlowPredictor` exposes a read-only semantic projection over the generated index. In addition
 to Scene and Dialogue entry roots, active Scene and Dialogue Flow can be rooted at their current
 `SceneFramePosition` / `DialogueFramePosition`, and prospective Room entry is a first-class prediction
-root. Prospective Scene prediction begins at
+root. A separate resident-Room root is admitted only after a Room is Current; it names the currently
+plausible Interaction/default/fallback programs and action Layouts without changing the memory pool or
+making those paths part of adjacent-Room entry prediction. Prospective Scene prediction begins at
 Scene entry and sees the invocation Stage once; active Scene prediction begins at the current step (or
 terminal) and does not replay already-consumed Stage/Event dependencies. Scene control follows generated
 sequential, ordered-Condition, and Choice edges rather than walking the raw Scene program. Awaited child
@@ -105,6 +107,18 @@ the mandatory-asset gate after publication succeeds, allowing speculative prefet
 live Flow position even when the rendered presentation snapshot is unchanged. These execution snapshots
 are prediction input only; presentation reconciliation and mandatory correctness remain driven by their
 existing authoritative contracts.
+
+Completed Room-mode publications similarly carry an optional resident-Room prediction root derived
+from already-resolved runtime UI state. Runtime reuses the Verb availability already resolved for the
+publication and admits only Interaction/Verb programs whose slots have eligible Current-Room subjects;
+it does not evaluate Interaction Guards merely to improve speculation. The predictor does not
+re-evaluate Verb availability, execute Lua, or clone the Runtime Session: runtime supplies the
+semantic program/Layout identities after the normal publication has resolved them. The host activates
+exactly one foreground-Flow or resident root for each publication, and activates the resident root
+only after publication succeeds.
+Resident dependencies are alternatives (`PossibleNext`) and provenance identifies the resident root
+and Current Room. Re-publishing an identical resident root is a no-op for speculative generation
+replacement, while a semantic change refreshes the one shared prefetch plan.
 
 Prospective Room entry composes the canonical successful transition order (source `before_leave`,
 target `before_enter`, target Room presentation, source `after_leave`, target `after_enter` where

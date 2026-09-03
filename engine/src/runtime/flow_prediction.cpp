@@ -227,8 +227,11 @@ ProjectedProperties initial_properties(const FlowPredictionContext& context)
 class PredictionTraversal {
 public:
     PredictionTraversal(const core::compiled::FlowPredictionIndex& index,
-                        FlowPredictionProjection& result)
-        : m_index(index), m_result(result)
+                        FlowPredictionProjection& result,
+                        FlowPredictionRootKind root_kind = FlowPredictionRootKind::FlowExecution,
+                        std::optional<core::RoomId> root_room = std::nullopt)
+        : m_index(index), m_result(result), m_root_kind(root_kind),
+          m_root_room(std::move(root_room))
     {
     }
 
@@ -383,7 +386,9 @@ private:
                                             .confidence = confidence,
                                             .execution_order = execution_order,
                                             .dependency_priority = dependency_priority++,
-                                            .provenance = {provenance_points}});
+                                            .provenance = {.points = provenance_points,
+                                                           .root_kind = m_root_kind,
+                                                           .room = m_root_room}});
             }
         }
     }
@@ -637,6 +642,8 @@ private:
 
     const core::compiled::FlowPredictionIndex& m_index;
     FlowPredictionProjection& m_result;
+    FlowPredictionRootKind m_root_kind = FlowPredictionRootKind::FlowExecution;
+    std::optional<core::RoomId> m_root_room;
     std::vector<std::size_t> m_active_slices;
     std::size_t m_next_execution_order = 0;
 };
@@ -694,7 +701,8 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     if (!optional_index)
         return result;
     const auto& index = *optional_index;
-    PredictionTraversal traversal(index, result);
+    PredictionTraversal traversal(index, result, FlowPredictionRootKind::ProspectiveRoomEntry,
+                                  root.target_room);
     auto properties = initial_properties(context);
     std::size_t distance = 0;
 
@@ -718,6 +726,49 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     if (root.source_room)
         run_stage(*root.source_room, core::compiled::RoomLifecyclePredictionStage::AfterLeave);
     run_stage(root.target_room, core::compiled::RoomLifecyclePredictionStage::AfterEnter);
+    return result;
+}
+
+FlowPredictionProjection FlowPredictor::predict(const ResidentRoomPredictionRoot& root) const
+{
+    return predict(root, {});
+}
+
+FlowPredictionProjection FlowPredictor::predict(const ResidentRoomPredictionRoot& root,
+                                                const FlowPredictionContext& context) const
+{
+    FlowPredictionProjection result;
+    const auto& optional_index = m_project->flow_prediction();
+    if (!optional_index)
+        return result;
+    const auto& index = *optional_index;
+    PredictionTraversal traversal(index, result, FlowPredictionRootKind::ResidentRoomContext,
+                                  root.room);
+    const auto properties = initial_properties(context);
+    for (const auto& program : root.programs) {
+        const auto point = std::visit(
+            [](const auto& value) -> core::compiled::FlowPredictionPoint {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::InteractionRuleProgramRef>) {
+                    return core::compiled::InteractionRulePredictionPoint{value.interaction,
+                                                                          value.rule};
+                } else if constexpr (std::is_same_v<T, core::VerbDefaultProgramRef>) {
+                    return core::compiled::VerbDefaultPredictionPoint{value.verb};
+                } else {
+                    return core::compiled::UndefinedInteractionPredictionPoint{};
+                }
+            },
+            program);
+        if (const auto slice = find_slice(index, point)) {
+            (void)traversal.run_slice(*slice, 0, FlowPredictionConfidence::Alternative, properties);
+        }
+    }
+    for (const auto& layout : root.layouts) {
+        if (const auto slice =
+                find_slice(index, core::compiled::ResidentLayoutPredictionPoint{layout})) {
+            (void)traversal.run_slice(*slice, 0, FlowPredictionConfidence::Alternative, properties);
+        }
+    }
     return result;
 }
 

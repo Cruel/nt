@@ -371,6 +371,185 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
         std::move(resolved));
 }
 
+std::vector<core::InteractionProgramRef>
+RuntimeExecutor::resident_interaction_programs(std::span<const core::VerbId> enabled_verbs) const
+{
+    if (!m_room_presentation || m_room_presentation_dirty || !m_state.flow_stack().empty())
+        return {};
+
+    // Resident prediction is a conservative structural plausibility pass over the already-resolved
+    // Current Room. `enabled_verbs` comes from normal RuntimeUI publication, so do not re-evaluate
+    // availability or Interaction Guards here: in particular, prediction must not invoke Lua merely
+    // to decide whether speculative work is worth warming.
+    const auto enabled = [&](const core::VerbId& verb) {
+        return std::find(enabled_verbs.begin(), enabled_verbs.end(), verb) != enabled_verbs.end();
+    };
+    const auto subject_family = [](const core::compiled::InteractionSubject& value) {
+        if (std::holds_alternative<core::compiled::CharacterInteractionSubject>(value))
+            return core::compiled::SubjectFamily::Character;
+        if (std::holds_alternative<core::compiled::InteractableInteractionSubject>(value))
+            return core::compiled::SubjectFamily::Interactable;
+        return core::compiled::SubjectFamily::Feature;
+    };
+    const auto subject_identity = [](const core::compiled::InteractionSubject& value) {
+        return std::visit(
+            [](const auto& typed) -> std::string {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
+                    return std::string("character:") + typed.character.text();
+                else if constexpr (std::is_same_v<T,
+                                                  core::compiled::InteractableInteractionSubject>)
+                    return std::string("interactable:") + typed.interactable.text();
+                else
+                    return std::visit(
+                        [](const auto& feature) {
+                            using F = std::decay_t<decltype(feature)>;
+                            if constexpr (std::is_same_v<F, core::RoomFeatureRef>)
+                                return std::string("room:") + feature.room.text() + "#" +
+                                       feature.feature_id.text();
+                            else
+                                return std::string("interactable:") + feature.interactable.text() +
+                                       "#" + feature.feature_id.text();
+                        },
+                        typed.feature);
+            },
+            value);
+    };
+    const auto has_trait = [&](const core::compiled::InteractionSubject& value,
+                               const core::TraitId& trait) {
+        const auto* traits = std::visit(
+            [&](const auto& typed) -> const std::vector<core::TraitId>* {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>) {
+                    const auto* config = m_world.resolved_configuration(typed.character);
+                    return config ? &config->identity.traits : nullptr;
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::InteractableInteractionSubject>) {
+                    const auto* config = m_world.resolved_configuration(typed.interactable);
+                    return config ? &config->identity.traits : nullptr;
+                } else {
+                    return std::visit(
+                        [&](const auto& feature) -> const std::vector<core::TraitId>* {
+                            const auto* owner = m_world.resolved_configuration([&]() {
+                                if constexpr (std::is_same_v<std::decay_t<decltype(feature)>,
+                                                             core::RoomFeatureRef>)
+                                    return feature.room;
+                                else
+                                    return feature.interactable;
+                            }());
+                            if (!owner)
+                                return nullptr;
+                            const auto found =
+                                std::find_if(owner->features.begin(), owner->features.end(),
+                                             [&](const auto& item) {
+                                                 return item.identity.id == feature.feature_id;
+                                             });
+                            return found == owner->features.end() ? nullptr
+                                                                  : &found->identity.traits;
+                        },
+                        typed.feature);
+                }
+            },
+            value);
+        return traits && std::find(traits->begin(), traits->end(), trait) != traits->end();
+    };
+    const auto selector_matches = [&](const core::compiled::SubjectSelector& selector,
+                                      const core::compiled::InteractionSubject& subject) {
+        return std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::compiled::AnySubjectSelector>)
+                    return true;
+                else if constexpr (std::is_same_v<T, core::compiled::FamilySubjectSelector>)
+                    return value.family == subject_family(subject);
+                else if constexpr (std::is_same_v<T, core::compiled::TraitSubjectSelector>)
+                    return has_trait(subject, value.trait);
+                else if constexpr (std::is_same_v<
+                                       T, core::compiled::InteractableDefinitionSubjectSelector>) {
+                    const auto* interactable =
+                        std::get_if<core::compiled::InteractableInteractionSubject>(&subject);
+                    return interactable && m_world.matches_interactable(
+                                               interactable->interactable,
+                                               InteractableMatcher{value.interactable_definition});
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::InteractableFeatureSubjectSelector>) {
+                    const auto* feature =
+                        std::get_if<core::compiled::FeatureInteractionSubject>(&subject);
+                    const auto* interactable =
+                        feature ? std::get_if<core::InteractableFeatureRef>(&feature->feature)
+                                : nullptr;
+                    return interactable && interactable->feature_id == value.feature_id &&
+                           m_world.matches_interactable(
+                               interactable->interactable,
+                               InteractableMatcher{value.interactable_definition});
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::QualifiedPatternSubjectSelector>) {
+                    if (value.family != subject_family(subject))
+                        return false;
+                    const auto identity = subject_identity(subject);
+                    const auto prefix = value.pattern.substr(0, value.pattern.size() - 1);
+                    return identity.starts_with(prefix);
+                } else
+                    return value.subject == subject;
+            },
+            selector);
+    };
+    const auto union_matches = [&](const std::vector<core::compiled::SubjectSelector>& selectors,
+                                   const core::compiled::InteractionSubject& subject) {
+        return std::any_of(selectors.begin(), selectors.end(), [&](const auto& selector) {
+            return selector_matches(selector, subject);
+        });
+    };
+    const auto slot_has_candidate = [&](const core::compiled::InteractionSlotSelector& slot) {
+        return std::any_of(m_room_presentation->eligible_subjects.begin(),
+                           m_room_presentation->eligible_subjects.end(), [&](const auto& subject) {
+                               return union_matches(slot.selectors, subject);
+                           });
+    };
+    const auto verb_slot_has_candidate = [&](const core::compiled::VerbSlot& slot) {
+        return std::any_of(m_room_presentation->eligible_subjects.begin(),
+                           m_room_presentation->eligible_subjects.end(), [&](const auto& subject) {
+                               return union_matches(slot.selectors, subject);
+                           });
+    };
+
+    std::vector<core::InteractionProgramRef> result;
+    std::vector<core::VerbId> plausible_verbs;
+    for (const auto& verb : m_project.verbs()) {
+        if (!enabled(verb.identity.id) ||
+            !std::all_of(verb.slots.begin(), verb.slots.end(), verb_slot_has_candidate))
+            continue;
+        plausible_verbs.push_back(verb.identity.id);
+    }
+    const auto plausible_verb = [&](const core::VerbId& verb) {
+        return std::find(plausible_verbs.begin(), plausible_verbs.end(), verb) !=
+               plausible_verbs.end();
+    };
+
+    for (const auto& interaction : m_project.interactions()) {
+        for (const auto& rule : interaction.rules) {
+            const auto* verb = m_project.find_verb(rule.verb);
+            if (verb == nullptr || !plausible_verb(rule.verb) ||
+                rule.slots.size() != verb->slots.size() ||
+                !std::all_of(rule.slots.begin(), rule.slots.end(), slot_has_candidate))
+                continue;
+            result.emplace_back(core::InteractionRuleProgramRef{interaction.identity.id, rule.id});
+        }
+    }
+
+    bool undefined_possible = false;
+    for (const auto& verb : m_project.verbs()) {
+        if (!plausible_verb(verb.identity.id))
+            continue;
+        result.emplace_back(core::VerbDefaultProgramRef{verb.identity.id});
+        undefined_possible |=
+            verb.default_program.outcome == core::compiled::InteractionOutcome::Unhandled;
+    }
+    if (undefined_possible && m_project.undefined_interaction_program())
+        result.emplace_back(core::ProjectUndefinedProgramRef{});
+    return result;
+}
+
 core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>
 RuntimeExecutor::command_builder_reference(const core::compiled::InteractionSubject& subject,
                                            std::string_view runtime_locale)

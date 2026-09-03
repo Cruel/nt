@@ -1995,13 +1995,35 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                 runtime::RuntimeDialogueExecutionSnapshot{dialogue->dialogue, dialogue->position};
     }
 
+    std::optional<runtime::ResidentRoomPredictionRoot> resident_room_prediction;
+    if (session_state.flow_stack().empty() && gameplay_ui.room) {
+        runtime::ResidentRoomPredictionRoot resident{
+            .room = gameplay_ui.room->room, .programs = {}, .layouts = {}};
+        std::vector<core::VerbId> enabled_verbs;
+        for (const auto& control : gameplay_ui.room->controls) {
+            if (control.enabled)
+                enabled_verbs.push_back(control.verb);
+        }
+        resident.programs = m_kernel->resident_interaction_programs(enabled_verbs);
+        if (!resident.programs.empty() && m_project.settings().interaction.default_verb_menu_layout)
+            resident.layouts.push_back(*m_project.settings().interaction.default_verb_menu_layout);
+        if (gameplay_ui.inventory.player_inventory_available &&
+            m_project.settings().inventory.default_layout &&
+            std::find(resident.layouts.begin(), resident.layouts.end(),
+                      *m_project.settings().inventory.default_layout) == resident.layouts.end())
+            resident.layouts.push_back(*m_project.settings().inventory.default_layout);
+        resident_room_prediction = std::move(resident);
+    }
+
     runtime::RuntimePublication publication{.revision = m_next_publication_revision,
                                             .gameplay_ui = std::move(gameplay_ui),
                                             .presentation = std::move(presentation_value),
                                             .observations = std::move(observations),
                                             .gameplay_instances = std::move(gameplay_instances),
                                             .active_scene = std::move(active_scene),
-                                            .active_dialogue = std::move(active_dialogue)};
+                                            .active_dialogue = std::move(active_dialogue),
+                                            .resident_room_prediction =
+                                                std::move(resident_room_prediction)};
     m_next_publication_revision = *subsequent;
     m_current_publication = publication;
     result.publication = std::move(publication);

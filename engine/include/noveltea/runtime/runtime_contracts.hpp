@@ -5,6 +5,7 @@
 #include "noveltea/core/flow.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_presentation_contracts.hpp"
+#include "noveltea/runtime/flow_prediction.hpp"
 #include "noveltea/runtime/runtime_identity.hpp"
 
 #include <compare>
@@ -55,6 +56,7 @@ struct RuntimePublication {
     std::vector<RuntimeGameplayInstanceSnapshot> gameplay_instances;
     std::optional<RuntimeSceneExecutionSnapshot> active_scene;
     std::optional<RuntimeDialogueExecutionSnapshot> active_dialogue;
+    std::optional<ResidentRoomPredictionRoot> resident_room_prediction;
 };
 
 struct NotificationEvent {

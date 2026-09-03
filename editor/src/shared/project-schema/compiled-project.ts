@@ -29,6 +29,7 @@ const characterReferenceSchema = typedReference('character');
 const dialogueReferenceSchema = typedReference('dialogue');
 const interactableDefinitionReferenceSchema = typedReference('interactable-definition');
 const interactableReferenceSchema = typedReference('interactable');
+const interactionReferenceSchema = typedReference('interaction');
 const layoutReferenceSchema = typedReference('layout');
 const materialReferenceSchema = typedReference('material');
 const compiledMaterialRoleSchema = z.enum([
@@ -697,6 +698,14 @@ const flowPredictionPointSchema = z.discriminatedUnion('kind', [
     room: roomReferenceSchema,
     stage: z.enum(['before-leave', 'before-enter', 'presentation', 'after-leave', 'after-enter']),
   }),
+  strict({
+    kind: z.literal('interaction-rule'),
+    interaction: interactionReferenceSchema,
+    ruleId: id,
+  }),
+  strict({ kind: z.literal('verb-default'), verb: verbReferenceSchema }),
+  strict({ kind: z.literal('undefined-interaction') }),
+  strict({ kind: z.literal('resident-layout'), layout: layoutReferenceSchema }),
 ]);
 
 type FlowPredictionCommand =
