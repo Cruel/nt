@@ -101,28 +101,54 @@ struct PrefetchSubmissionFailure {
 struct PrefetchSubmissionEntry {
     AssetCacheKey cache_key;
     PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
+    std::vector<runtime::FlowPredictionProvenance> provenance;
+};
+
+struct PrefetchAdmissionRejection {
+    AssetCacheKey cache_key;
+    PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
+    ResidencyCost estimated_cost;
+    std::vector<runtime::FlowPredictionProvenance> provenance;
+    core::Diagnostic diagnostic;
 };
 
 struct PrefetchSubmissionReport {
     PrefetchGenerationId generation;
     std::size_t direct_next_submitted = 0;
     std::size_t adjacent_submitted = 0;
+    std::size_t direct_next_retained = 0;
+    std::size_t adjacent_retained = 0;
     std::size_t direct_next_count = 0;
     std::size_t adjacent_count = 0;
     std::vector<PrefetchSubmissionEntry> submitted_entries;
+    std::vector<PrefetchSubmissionEntry> retained_entries;
     std::vector<AssetCacheKey> submitted_keys;
     std::vector<PrefetchSubmissionFailure> failures;
+    std::vector<PrefetchAdmissionRejection> admission_rejections;
+    bool budget_exhausted = false;
+    bool structural_limit_reached = false;
+};
+
+enum class PrefetchCostEstimateKind : std::uint8_t {
+    Metadata,
+    Conservative,
 };
 
 struct PrefetchCandidate {
     StructuredAssetRequestDescriptor descriptor;
     PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
     std::size_t execution_distance = 0;
+    std::size_t execution_order = 0;
+    std::size_t dependency_priority = 0;
+    ResidencyCost estimated_cost;
+    PrefetchCostEstimateKind cost_estimate = PrefetchCostEstimateKind::Conservative;
+    std::vector<runtime::FlowPredictionProvenance> provenance;
 };
 
 struct PrefetchPlan {
     std::vector<PrefetchCandidate> candidates;
     core::Diagnostics diagnostics;
+    bool structural_limit_reached = false;
 };
 
 [[nodiscard]] PrefetchPlan

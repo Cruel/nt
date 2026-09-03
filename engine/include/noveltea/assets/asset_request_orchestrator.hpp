@@ -328,6 +328,12 @@ public:
         assert_owner_thread();
         return m_ticket->generation;
     }
+    [[nodiscard]] bool
+    replace_generation_on_owner(PrefetchGenerationId generation) noexcept override
+    {
+        assert_owner_thread();
+        return m_state->replace_ticket_generation(m_entry, m_ticket, generation);
+    }
     void cancel_on_owner() noexcept override
     {
         assert_owner_thread();
@@ -1534,6 +1540,31 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         ticket->active = false;
         residency->release_prefetch_interest_on_owner(entry->key, ticket->generation);
         recompute_interest(entry);
+    }
+
+    [[nodiscard]] bool replace_ticket_generation(const std::shared_ptr<AsyncAssetEntry<T>>& entry,
+                                                 const std::shared_ptr<AsyncAssetTicket<T>>& ticket,
+                                                 PrefetchGenerationId generation) noexcept
+    {
+        assert_owner();
+        if (!ticket->active || !generation.valid())
+            return false;
+        if (ticket->generation == generation)
+            return true;
+        if (!residency->attach_prefetch_interest_on_owner(entry->key, generation))
+            return false;
+
+        const auto previous = ticket->generation;
+        ticket->generation = generation;
+        residency->release_prefetch_interest_on_owner(entry->key, previous);
+        if (entry->completed_prefetch_generation == previous && !entry->prefetch_claimed_by_demand)
+            entry->completed_prefetch_generation = generation;
+        for (const auto& weak_consumer : entry->consumers) {
+            const auto consumer = weak_consumer.lock();
+            if (consumer != nullptr && consumer->ready_prefetch_generation == previous)
+                consumer->ready_prefetch_generation = generation;
+        }
+        return true;
     }
 
     void retain_lease_pin(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept

@@ -72,6 +72,14 @@ struct ResidencyBudget {
     auto operator<=>(const ResidencyBudget&) const = default;
 };
 
+// Warm/speculative capacity is a projection of the configured residency budget, not an
+// independent planner policy. Both the planner and AssetResidencyManager use these helpers so
+// admission advice and final residency enforcement cannot drift in their allowance semantics.
+[[nodiscard]] ResidencyCost prefetch_allowance_cost(const ResidencyBudget& budget) noexcept;
+[[nodiscard]] bool prefetch_fits_warm_budget(const ResidencyCost& current_warm,
+                                             const ResidencyCost& added,
+                                             const ResidencyBudget& budget) noexcept;
+
 enum class AssetMemoryTarget : std::uint8_t {
     Desktop,
     Android,
@@ -365,6 +373,7 @@ public:
     [[nodiscard]] virtual bool evict_on_owner(const AssetCacheKey& cache_key,
                                               ResidencyEvictionReason reason) noexcept = 0;
     [[nodiscard]] virtual ResidencyAccountingSnapshot accounting_on_owner() const noexcept = 0;
+    [[nodiscard]] virtual ResidencyCost warm_cost_on_owner() const noexcept = 0;
     [[nodiscard]] virtual ResolvedAssetMemoryPolicy policy_on_owner() const noexcept = 0;
 
 private:
@@ -422,6 +431,7 @@ public:
     [[nodiscard]] bool evict_on_owner(const AssetCacheKey& cache_key,
                                       ResidencyEvictionReason reason) noexcept override;
     [[nodiscard]] ResidencyAccountingSnapshot accounting_on_owner() const noexcept override;
+    [[nodiscard]] ResidencyCost warm_cost_on_owner() const noexcept override;
     [[nodiscard]] ResolvedAssetMemoryPolicy policy_on_owner() const noexcept override;
     [[nodiscard]] ResidencyEvictionResult
     reconfigure_policy_on_owner(ResolvedAssetMemoryPolicy policy) noexcept;

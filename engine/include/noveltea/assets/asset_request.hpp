@@ -287,6 +287,8 @@ public:
     virtual void assert_owner_thread() const noexcept = 0;
     [[nodiscard]] virtual AssetRequestId request_id_on_owner() const noexcept = 0;
     [[nodiscard]] virtual PrefetchGenerationId generation_on_owner() const noexcept = 0;
+    [[nodiscard]] virtual bool
+    replace_generation_on_owner(PrefetchGenerationId generation) noexcept = 0;
     virtual void cancel_on_owner() noexcept = 0;
 };
 
@@ -332,6 +334,13 @@ public:
         assert(m_control != nullptr);
         m_control->assert_owner_thread();
         return m_control->generation_on_owner();
+    }
+
+    [[nodiscard]] bool replace_generation_on_owner(PrefetchGenerationId generation) noexcept
+    {
+        assert(m_control != nullptr);
+        m_control->assert_owner_thread();
+        return m_control->replace_generation_on_owner(generation);
     }
 
     void cancel() noexcept

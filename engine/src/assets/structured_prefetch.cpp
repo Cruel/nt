@@ -4,9 +4,11 @@
 #include "noveltea/assets/asset_manager.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <set>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
@@ -17,6 +19,35 @@ namespace {
 
 using DependencyDescriptorList = std::vector<StructuredAssetRequestDescriptor>;
 using CacheIdentity = std::pair<std::string, std::uint64_t>;
+constexpr std::size_t prefetch_plan_structural_ceiling = 4096;
+
+struct PrefetchCostEstimate {
+    ResidencyCost cost;
+    PrefetchCostEstimateKind kind = PrefetchCostEstimateKind::Conservative;
+};
+
+[[nodiscard]] std::uint64_t saturating_multiply(std::uint64_t left, std::uint64_t right) noexcept
+{
+    if (left == 0 || right == 0)
+        return 0;
+    if (left > std::numeric_limits<std::uint64_t>::max() / right)
+        return std::numeric_limits<std::uint64_t>::max();
+    return left * right;
+}
+
+[[nodiscard]] std::uint64_t saturating_add(std::uint64_t left, std::uint64_t right) noexcept
+{
+    if (left > std::numeric_limits<std::uint64_t>::max() - right)
+        return std::numeric_limits<std::uint64_t>::max();
+    return left + right;
+}
+
+[[nodiscard]] std::string package_relative_path(std::string_view path)
+{
+    if (path.starts_with("project:/"))
+        return std::string(path.substr(9));
+    return std::string(path);
+}
 
 [[nodiscard]] CacheIdentity identity_of(const AssetCacheKey& key)
 {
@@ -221,6 +252,8 @@ struct StructuredAssetDependencyIndex::Impl {
     std::string renderer_variant;
     core::Diagnostics configuration_diagnostics;
     core::Diagnostics diagnostics;
+    std::unordered_map<std::string, std::uint64_t> package_entry_sizes;
+    std::unordered_map<std::string, const core::compiled::AssetResource*> assets_by_logical_path;
 
     std::unordered_map<core::AssetId, const core::compiled::AssetResource*> assets;
     std::unordered_map<core::LayoutId, const core::compiled::LayoutResource*> layouts;
@@ -245,6 +278,79 @@ struct StructuredAssetDependencyIndex::Impl {
     {
         const auto found = assets.find(id);
         return found == assets.end() ? nullptr : found->second;
+    }
+
+    [[nodiscard]] std::optional<std::uint64_t> package_entry_size(std::string_view path) const
+    {
+        const auto found = package_entry_sizes.find(package_relative_path(path));
+        return found == package_entry_sizes.end() ? std::nullopt
+                                                  : std::optional<std::uint64_t>{found->second};
+    }
+
+    [[nodiscard]] PrefetchCostEstimate
+    estimate_cost(const StructuredAssetRequestDescriptor& descriptor) const
+    {
+        PrefetchCostEstimate estimate;
+        std::visit(
+            [&](const auto& request) {
+                using T = std::decay_t<decltype(request)>;
+                if constexpr (std::is_same_v<T, TextureAssetRequest>) {
+                    if (const auto size = package_entry_size(request.path))
+                        estimate.cost.source_bytes = *size;
+                    const auto asset = assets_by_logical_path.find(request.path);
+                    if (asset != assets_by_logical_path.end() && asset->second->width &&
+                        asset->second->height) {
+                        const auto pixels =
+                            saturating_multiply(*asset->second->width, *asset->second->height);
+                        estimate.cost.gpu_bytes = saturating_multiply(pixels, 4);
+                        if (request.retain_alpha_coverage)
+                            estimate.cost.prepared_cpu_bytes = pixels;
+                        estimate.kind = PrefetchCostEstimateKind::Metadata;
+                    } else {
+                        // Unknown image dimensions must not force decode merely to price
+                        // speculation. A 2048x2048 RGBA surface is deliberately conservative.
+                        estimate.cost.gpu_bytes = 16u * 1024u * 1024u;
+                        if (request.retain_alpha_coverage)
+                            estimate.cost.prepared_cpu_bytes = 4u * 1024u * 1024u;
+                    }
+                } else if constexpr (std::is_same_v<T, HotspotMaskAssetRequest>) {
+                    if (request.width != 0 && request.height != 0) {
+                        estimate.cost.prepared_cpu_bytes =
+                            saturating_multiply(request.width, request.height);
+                        estimate.kind = PrefetchCostEstimateKind::Metadata;
+                    } else {
+                        estimate.cost.prepared_cpu_bytes = 1024u * 1024u;
+                    }
+                } else if constexpr (std::is_same_v<T, AudioAssetRequest>) {
+                    if (const auto size = package_entry_size(request.path))
+                        estimate.cost.source_bytes = *size;
+                    if (request.mode == AudioLoadMode::Stream ||
+                        request.kind == AudioClipKind::Music ||
+                        request.kind == AudioClipKind::Ambience) {
+                        estimate.cost.audio_bytes = 768'000;
+                        estimate.kind = PrefetchCostEstimateKind::Metadata;
+                    } else if (const auto size = package_entry_size(request.path)) {
+                        estimate.cost.audio_bytes =
+                            std::max<std::uint64_t>(1024u * 1024u, saturating_multiply(*size, 8));
+                    } else {
+                        estimate.cost.audio_bytes = 8u * 1024u * 1024u;
+                    }
+                } else if constexpr (std::is_same_v<T, FontAssetRequest>) {
+                    estimate.cost.prepared_cpu_bytes = 2u * 1024u * 1024u;
+                } else if constexpr (std::is_same_v<T, ShaderProgramAssetRequest>) {
+                    estimate.cost.prepared_cpu_bytes = 512u * 1024u;
+                    if (const auto vertex = package_entry_size(request.resolution.key.vertex_path))
+                        estimate.cost.source_bytes = *vertex;
+                    if (const auto fragment =
+                            package_entry_size(request.resolution.key.fragment_path))
+                        estimate.cost.source_bytes =
+                            saturating_add(estimate.cost.source_bytes, *fragment);
+                } else if constexpr (std::is_same_v<T, MaterialAssetRequest>) {
+                    estimate.cost.prepared_cpu_bytes = 64u * 1024u;
+                }
+            },
+            descriptor.request);
+        return estimate;
     }
 
     void append_asset(DescriptorAccumulator& output, const core::AssetId& id,
@@ -811,10 +917,14 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
     }
 
     const auto& project = package.project();
+    for (const auto& entry : package.manifest().entries)
+        impl->package_entry_sizes.emplace(entry.path, entry.size);
     for (const auto& asset : project.assets()) {
         const auto* registered = package.resources().find_asset(asset.id);
         if (registered != nullptr) {
             impl->assets.emplace(asset.id, registered);
+            impl->assets_by_logical_path.emplace(logical_project_path(registered->path),
+                                                 registered);
         } else {
             add_diagnostic(impl->diagnostics, "assets.prefetch_asset_registry_miss",
                            "prepared resource registry is missing asset '" + asset.id.text() + "'",
@@ -1096,10 +1206,19 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
     std::map<CacheIdentity, SeenDescriptorState> seen;
     auto append_descriptor = [&](StructuredAssetRequestDescriptor descriptor,
                                  const runtime::FlowPredictionProjectionEntry& projected) {
+        const auto incoming_prediction =
+            projected.confidence == runtime::FlowPredictionConfidence::Expected
+                ? PrefetchPredictionKind::ExpectedNext
+                : PrefetchPredictionKind::PossibleNext;
         const auto identity = identity_of(descriptor.cache_key);
         const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(descriptor);
         const auto [existing, inserted] = seen.try_emplace(
             identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
+        if (inserted && plan.candidates.size() >= prefetch_plan_structural_ceiling) {
+            seen.erase(identity);
+            plan.structural_limit_reached = true;
+            return;
+        }
         if (!inserted) {
             existing->second.retain_alpha_coverage |= retain_alpha_coverage;
             const auto candidate = std::find_if(
@@ -1107,27 +1226,49 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
                     return identity_of(value.descriptor.cache_key) == identity;
                 });
             if (candidate != plan.candidates.end()) {
-                candidate->execution_distance =
-                    std::min(candidate->execution_distance, projected.execution_distance);
-                if (projected.confidence == runtime::FlowPredictionConfidence::Expected)
-                    candidate->prediction = PrefetchPredictionKind::ExpectedNext;
+                const auto rank = [](std::size_t distance, PrefetchPredictionKind prediction,
+                                     std::size_t order, std::size_t priority) {
+                    return std::tuple{
+                        distance, prediction == PrefetchPredictionKind::ExpectedNext ? 0u : 1u,
+                        prediction == PrefetchPredictionKind::ExpectedNext ? order : 0u, priority};
+                };
+                if (rank(projected.execution_distance, incoming_prediction,
+                         projected.execution_order, projected.dependency_priority) <
+                    rank(candidate->execution_distance, candidate->prediction,
+                         candidate->execution_order, candidate->dependency_priority)) {
+                    candidate->prediction = incoming_prediction;
+                    candidate->execution_distance = projected.execution_distance;
+                    candidate->execution_order = projected.execution_order;
+                    candidate->dependency_priority = projected.dependency_priority;
+                }
                 if (retain_alpha_coverage) {
                     if (auto* texture =
                             std::get_if<TextureAssetRequest>(&candidate->descriptor.request))
                         texture->retain_alpha_coverage = true;
                 }
+                if (std::find(candidate->provenance.begin(), candidate->provenance.end(),
+                              projected.provenance) == candidate->provenance.end())
+                    candidate->provenance.push_back(projected.provenance);
+                const auto estimated = index.m_impl->estimate_cost(candidate->descriptor);
+                candidate->estimated_cost = estimated.cost;
+                candidate->cost_estimate = estimated.kind;
             }
             return;
         }
-        plan.candidates.push_back(
-            {.descriptor = std::move(descriptor),
-             .prediction = projected.confidence == runtime::FlowPredictionConfidence::Expected
-                               ? PrefetchPredictionKind::ExpectedNext
-                               : PrefetchPredictionKind::PossibleNext,
-             .execution_distance = projected.execution_distance});
+        const auto estimated = index.m_impl->estimate_cost(descriptor);
+        plan.candidates.push_back({.descriptor = std::move(descriptor),
+                                   .prediction = incoming_prediction,
+                                   .execution_distance = projected.execution_distance,
+                                   .execution_order = projected.execution_order,
+                                   .dependency_priority = projected.dependency_priority,
+                                   .estimated_cost = estimated.cost,
+                                   .cost_estimate = estimated.kind,
+                                   .provenance = {projected.provenance}});
     };
 
     for (const auto& projected : projection.entries) {
+        if (plan.structural_limit_reached)
+            break;
         DescriptorAccumulator semantic_descriptors;
         core::Diagnostics semantic_diagnostics;
         if (const auto* character_dependency =
@@ -1219,9 +1360,15 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
 struct PrefetchPlanner::Impl {
     explicit Impl(AssetManager& manager) : assets(&manager) {}
 
+    struct Interest {
+        PrefetchCandidate candidate;
+        PrefetchTicket ticket;
+    };
+
     AssetManager* assets;
     std::optional<PrefetchGenerationId> generation;
-    std::vector<PrefetchTicket> tickets;
+    std::vector<PrefetchTicket> legacy_tickets;
+    std::vector<Interest> plan_interests;
 };
 
 namespace {
@@ -1269,6 +1416,139 @@ dispatch_prefetch(AssetManager& assets, const StructuredAssetRequest& request,
                 return assets.prefetch_audio(value, generation);
         },
         request);
+}
+
+[[nodiscard]] unsigned prediction_rank(PrefetchPredictionKind prediction) noexcept
+{
+    return prediction == PrefetchPredictionKind::ExpectedNext ? 0u : 1u;
+}
+
+[[nodiscard]] std::size_t execution_order_rank(const PrefetchCandidate& candidate) noexcept
+{
+    // Alternative branches at the same semantic distance are peers. Their traversal order is an
+    // implementation detail and must not turn authored/DFS branch order into a prediction score.
+    return candidate.prediction == PrefetchPredictionKind::ExpectedNext ? candidate.execution_order
+                                                                        : 0u;
+}
+
+[[nodiscard]] std::uint64_t planning_cost_score(const ResidencyCost& cost) noexcept
+{
+    return saturating_add(saturating_add(cost.prepared_cpu_bytes, cost.gpu_bytes),
+                          cost.audio_bytes);
+}
+
+[[nodiscard]] bool candidate_rank_less(const PrefetchCandidate& left,
+                                       const PrefetchCandidate& right) noexcept
+{
+    return std::tuple{left.execution_distance,
+                      prediction_rank(left.prediction),
+                      execution_order_rank(left),
+                      left.dependency_priority,
+                      planning_cost_score(left.estimated_cost),
+                      left.descriptor.cache_key.stable_identity} <
+           std::tuple{right.execution_distance,
+                      prediction_rank(right.prediction),
+                      execution_order_rank(right),
+                      right.dependency_priority,
+                      planning_cost_score(right.estimated_cost),
+                      right.descriptor.cache_key.stable_identity};
+}
+
+void add_planning_cost(ResidencyCost& current, const ResidencyCost& added) noexcept
+{
+    current.source_bytes = saturating_add(current.source_bytes, added.source_bytes);
+    current.prepared_cpu_bytes =
+        saturating_add(current.prepared_cpu_bytes, added.prepared_cpu_bytes);
+    current.gpu_bytes = saturating_add(current.gpu_bytes, added.gpu_bytes);
+    current.audio_bytes = saturating_add(current.audio_bytes, added.audio_bytes);
+    current.temporary_bytes = saturating_add(current.temporary_bytes, added.temporary_bytes);
+}
+
+[[nodiscard]] ResidencyCost positive_cost_difference(const ResidencyCost& newer,
+                                                     const ResidencyCost& older) noexcept
+{
+    const auto difference = [](std::uint64_t next, std::uint64_t previous) {
+        return next > previous ? next - previous : 0;
+    };
+    return {.source_bytes = difference(newer.source_bytes, older.source_bytes),
+            .prepared_cpu_bytes = difference(newer.prepared_cpu_bytes, older.prepared_cpu_bytes),
+            .gpu_bytes = difference(newer.gpu_bytes, older.gpu_bytes),
+            .audio_bytes = difference(newer.audio_bytes, older.audio_bytes),
+            .temporary_bytes = difference(newer.temporary_bytes, older.temporary_bytes)};
+}
+
+void merge_cost_upper_bound(ResidencyCost& target, const ResidencyCost& value) noexcept
+{
+    target.source_bytes = std::max(target.source_bytes, value.source_bytes);
+    target.prepared_cpu_bytes = std::max(target.prepared_cpu_bytes, value.prepared_cpu_bytes);
+    target.gpu_bytes = std::max(target.gpu_bytes, value.gpu_bytes);
+    target.audio_bytes = std::max(target.audio_bytes, value.audio_bytes);
+    target.temporary_bytes = std::max(target.temporary_bytes, value.temporary_bytes);
+}
+
+[[nodiscard]] bool descriptor_satisfies(const StructuredAssetRequestDescriptor& retained,
+                                        const StructuredAssetRequestDescriptor& requested) noexcept
+{
+    if (retained.cache_key != requested.cache_key)
+        return false;
+    const auto* retained_texture = std::get_if<TextureAssetRequest>(&retained.request);
+    const auto* requested_texture = std::get_if<TextureAssetRequest>(&requested.request);
+    if (retained_texture != nullptr && requested_texture != nullptr)
+        return !requested_texture->retain_alpha_coverage || retained_texture->retain_alpha_coverage;
+    return retained.request.index() == requested.request.index();
+}
+
+void merge_descriptor_capability(StructuredAssetRequestDescriptor& target,
+                                 const StructuredAssetRequestDescriptor& source) noexcept
+{
+    auto* target_texture = std::get_if<TextureAssetRequest>(&target.request);
+    const auto* source_texture = std::get_if<TextureAssetRequest>(&source.request);
+    if (target_texture != nullptr && source_texture != nullptr)
+        target_texture->retain_alpha_coverage |= source_texture->retain_alpha_coverage;
+}
+
+struct NormalizedPlan {
+    std::vector<PrefetchCandidate> candidates;
+    bool structural_limit_reached = false;
+};
+
+[[nodiscard]] NormalizedPlan normalize_plan(const PrefetchPlan& plan)
+{
+    NormalizedPlan result;
+    std::map<CacheIdentity, std::size_t> positions;
+    for (const auto& candidate : plan.candidates) {
+        const auto identity = identity_of(candidate.descriptor.cache_key);
+        const auto [found, inserted] = positions.try_emplace(identity, result.candidates.size());
+        if (inserted) {
+            if (result.candidates.size() >= prefetch_plan_structural_ceiling) {
+                positions.erase(found);
+                result.structural_limit_reached = true;
+                break;
+            }
+            result.candidates.push_back(candidate);
+            continue;
+        }
+
+        auto& current = result.candidates[found->second];
+        const bool incoming_better = candidate_rank_less(candidate, current);
+        merge_descriptor_capability(current.descriptor, candidate.descriptor);
+        if (incoming_better) {
+            current.prediction = candidate.prediction;
+            current.execution_distance = candidate.execution_distance;
+            current.execution_order = candidate.execution_order;
+            current.dependency_priority = candidate.dependency_priority;
+        }
+        merge_cost_upper_bound(current.estimated_cost, candidate.estimated_cost);
+        if (candidate.cost_estimate == PrefetchCostEstimateKind::Conservative)
+            current.cost_estimate = PrefetchCostEstimateKind::Conservative;
+        for (const auto& provenance : candidate.provenance) {
+            if (std::find(current.provenance.begin(), current.provenance.end(), provenance) ==
+                current.provenance.end())
+                current.provenance.push_back(provenance);
+        }
+    }
+    std::stable_sort(result.candidates.begin(), result.candidates.end(), candidate_rank_less);
+    return result;
 }
 
 } // namespace
@@ -1350,7 +1630,7 @@ PrefetchPlanner::replace_generation_on_owner(
         }
         next_tickets.push_back(std::move(*submitted.value_if()));
         report.submitted_entries.push_back(
-            {.cache_key = descriptor.cache_key, .prediction = prediction});
+            {.cache_key = descriptor.cache_key, .prediction = prediction, .provenance = {}});
         report.submitted_keys.push_back(descriptor.cache_key);
         if (direct_next)
             ++report.direct_next_submitted;
@@ -1364,7 +1644,8 @@ PrefetchPlanner::replace_generation_on_owner(
         submit(descriptor, false);
 
     m_impl->generation = report.generation;
-    m_impl->tickets = std::move(next_tickets);
+    m_impl->plan_interests.clear();
+    m_impl->legacy_tickets = std::move(next_tickets);
     return core::Result<PrefetchSubmissionReport, core::Diagnostic>::success(std::move(report));
 }
 
@@ -1377,24 +1658,71 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
 
     PrefetchSubmissionReport report;
     report.generation = *allocated.value_if();
-    std::vector<PrefetchTicket> next_tickets;
-    std::map<CacheIdentity, SeenDescriptorState> seen;
-    for (const auto& candidate : plan.candidates) {
-        const auto& descriptor = candidate.descriptor;
-        const auto identity = identity_of(descriptor.cache_key);
-        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(descriptor);
-        const auto [found, inserted] = seen.try_emplace(
-            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
-        if (!inserted) {
-            if (!retain_alpha_coverage || found->second.retain_alpha_coverage)
-                continue;
-            found->second.retain_alpha_coverage = true;
-        }
-
+    auto normalized = normalize_plan(plan);
+    auto& candidates = normalized.candidates;
+    for (const auto& candidate : candidates) {
         if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
             ++report.direct_next_count;
         else
             ++report.adjacent_count;
+    }
+
+    std::map<CacheIdentity, std::size_t> previous_by_identity;
+    for (std::size_t index = 0; index < m_impl->plan_interests.size(); ++index)
+        previous_by_identity.emplace(
+            identity_of(m_impl->plan_interests[index].candidate.descriptor.cache_key), index);
+
+    const auto residency = m_impl->assets->prefetch_planning_residency_on_owner();
+    ResidencyCost planned_warm = residency.warm;
+    for (const auto& interest : m_impl->plan_interests) {
+        if (m_impl->assets->prefetch_residency_class_on_owner(
+                interest.candidate.descriptor.cache_key) != ResidencyClass::Warm)
+            add_planning_cost(planned_warm, interest.candidate.estimated_cost);
+    }
+
+    std::vector<Impl::Interest> next_interests;
+    next_interests.reserve(std::min(candidates.size(), prefetch_plan_structural_ceiling));
+
+    const auto previous_for = [&](const PrefetchCandidate& candidate) -> Impl::Interest* {
+        const auto found = previous_by_identity.find(identity_of(candidate.descriptor.cache_key));
+        if (found == previous_by_identity.end())
+            return nullptr;
+        return &m_impl->plan_interests[found->second];
+    };
+
+    const auto additional_cost = [&](const PrefetchCandidate& candidate) {
+        const auto classification =
+            m_impl->assets->prefetch_residency_class_on_owner(candidate.descriptor.cache_key);
+        if (auto* previous = previous_for(candidate))
+            return positive_cost_difference(candidate.estimated_cost,
+                                            previous->candidate.estimated_cost);
+        if (classification == ResidencyClass::Warm)
+            return ResidencyCost{};
+        return candidate.estimated_cost;
+    };
+
+    const auto remaining_plausibly_fits = [&](std::size_t start) {
+        const std::size_t end = std::min(candidates.size(), prefetch_plan_structural_ceiling);
+        for (std::size_t index = start; index < end; ++index) {
+            const auto& candidate = candidates[index];
+            if (auto* previous = previous_for(candidate);
+                previous != nullptr &&
+                descriptor_satisfies(previous->candidate.descriptor, candidate.descriptor))
+                return true;
+            if (prefetch_fits_warm_budget(planned_warm, additional_cost(candidate),
+                                          residency.policy.budget))
+                return true;
+        }
+        return false;
+    };
+
+    const std::size_t candidate_limit = candidates.size();
+    report.structural_limit_reached =
+        plan.structural_limit_reached || normalized.structural_limit_reached;
+    for (std::size_t candidate_index = 0; candidate_index < candidate_limit; ++candidate_index) {
+        auto candidate = candidates[candidate_index];
+        const auto& descriptor = candidate.descriptor;
+
         const AssetSourceGeneration current_generation =
             m_impl->assets->source_generation_on_owner();
         if (descriptor.cache_key.source_generation != current_generation) {
@@ -1416,6 +1744,44 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
             continue;
         }
 
+        if (auto* previous = previous_for(candidate);
+            previous != nullptr &&
+            descriptor_satisfies(previous->candidate.descriptor, candidate.descriptor) &&
+            previous->ticket.replace_generation_on_owner(report.generation)) {
+            merge_descriptor_capability(candidate.descriptor, previous->candidate.descriptor);
+            merge_cost_upper_bound(candidate.estimated_cost, previous->candidate.estimated_cost);
+            const auto retained_entry =
+                PrefetchSubmissionEntry{.cache_key = candidate.descriptor.cache_key,
+                                        .prediction = candidate.prediction,
+                                        .provenance = candidate.provenance};
+            next_interests.push_back(
+                {.candidate = std::move(candidate), .ticket = std::move(previous->ticket)});
+            report.retained_entries.push_back(retained_entry);
+            if (retained_entry.prediction == PrefetchPredictionKind::ExpectedNext)
+                ++report.direct_next_retained;
+            else
+                ++report.adjacent_retained;
+            continue;
+        }
+
+        const auto added_cost = additional_cost(candidate);
+        if (!prefetch_fits_warm_budget(planned_warm, added_cost, residency.policy.budget)) {
+            report.admission_rejections.push_back(
+                {.cache_key = descriptor.cache_key,
+                 .prediction = candidate.prediction,
+                 .estimated_cost = candidate.estimated_cost,
+                 .provenance = candidate.provenance,
+                 .diagnostic = {.code = "assets.prefetch_plan_warm_budget",
+                                .message = "ranked prefetch candidate does not fit the configured "
+                                           "Warm residency allowance",
+                                .severity = core::ErrorSeverity::Warning}});
+            if (!remaining_plausibly_fits(candidate_index + 1)) {
+                report.budget_exhausted = true;
+                break;
+            }
+            continue;
+        }
+
         auto submitted = dispatch_prefetch(*m_impl->assets, descriptor.request, report.generation);
         if (!submitted) {
             report.failures.push_back({.cache_key = descriptor.cache_key,
@@ -1423,9 +1789,12 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
                                        .diagnostic = submitted.error()});
             continue;
         }
-        next_tickets.push_back(std::move(*submitted.value_if()));
-        report.submitted_entries.push_back(
-            {.cache_key = descriptor.cache_key, .prediction = candidate.prediction});
+        add_planning_cost(planned_warm, added_cost);
+        next_interests.push_back(
+            {.candidate = candidate, .ticket = std::move(*submitted.value_if())});
+        report.submitted_entries.push_back({.cache_key = descriptor.cache_key,
+                                            .prediction = candidate.prediction,
+                                            .provenance = candidate.provenance});
         report.submitted_keys.push_back(descriptor.cache_key);
         if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
             ++report.direct_next_submitted;
@@ -1434,13 +1803,18 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
     }
 
     m_impl->generation = report.generation;
-    m_impl->tickets = std::move(next_tickets);
+    // All newly admitted interests are attached before either legacy speculative tickets or
+    // obsolete Flow interests are released. Equivalent Flow interests above retain their original
+    // ticket while the logical generation advances for observability.
+    m_impl->legacy_tickets.clear();
+    m_impl->plan_interests = std::move(next_interests);
     return core::Result<PrefetchSubmissionReport, core::Diagnostic>::success(std::move(report));
 }
 
 void PrefetchPlanner::clear_on_owner() noexcept
 {
-    m_impl->tickets.clear();
+    m_impl->legacy_tickets.clear();
+    m_impl->plan_interests.clear();
     m_impl->generation.reset();
 }
 
@@ -1451,7 +1825,7 @@ std::optional<PrefetchGenerationId> PrefetchPlanner::active_generation_on_owner(
 
 std::size_t PrefetchPlanner::retained_ticket_count_on_owner() const noexcept
 {
-    return m_impl->tickets.size();
+    return m_impl->legacy_tickets.size() + m_impl->plan_interests.size();
 }
 
 } // namespace noveltea::assets

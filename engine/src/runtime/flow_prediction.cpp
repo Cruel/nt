@@ -364,6 +364,14 @@ private:
     void append_dependencies(const core::compiled::FlowPredictionSlice& slice, std::size_t distance,
                              FlowPredictionConfidence confidence)
     {
+        const std::size_t execution_order = m_next_execution_order++;
+        std::vector<core::compiled::FlowPredictionPoint> provenance_points;
+        provenance_points.reserve(m_active_slices.size());
+        for (const auto active : m_active_slices) {
+            if (active < m_index.slices.size())
+                provenance_points.push_back(m_index.slices[active].point);
+        }
+        std::size_t dependency_priority = 0;
         for (const std::size_t group_index : slice.dependency_groups) {
             if (group_index >= m_index.dependency_groups.size()) {
                 add_invalid_index(m_result.diagnostics, "dependency-group", group_index);
@@ -372,7 +380,10 @@ private:
             for (const auto& dependency : m_index.dependency_groups[group_index]) {
                 m_result.entries.push_back({.dependency = dependency,
                                             .execution_distance = distance,
-                                            .confidence = confidence});
+                                            .confidence = confidence,
+                                            .execution_order = execution_order,
+                                            .dependency_priority = dependency_priority++,
+                                            .provenance = {provenance_points}});
             }
         }
     }
@@ -627,6 +638,7 @@ private:
     const core::compiled::FlowPredictionIndex& m_index;
     FlowPredictionProjection& m_result;
     std::vector<std::size_t> m_active_slices;
+    std::size_t m_next_execution_order = 0;
 };
 
 std::optional<std::size_t> find_room_stage(const core::compiled::FlowPredictionIndex& index,

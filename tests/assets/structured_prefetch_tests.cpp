@@ -521,16 +521,20 @@ assets::StructuredAssetRequestDescriptor descriptor(Request request,
 
 assets::ResidencyBudget generous_budget()
 {
-    return {.source_bytes = 1024 * 1024,
-            .prepared_cpu_bytes = 1024 * 1024,
-            .gpu_bytes = 1024 * 1024,
-            .audio_bytes = 1024 * 1024,
-            .temporary_bytes = 1024 * 1024};
+    constexpr std::uint64_t generous = 64u * 1024u * 1024u;
+    return {.source_bytes = generous,
+            .prepared_cpu_bytes = generous,
+            .gpu_bytes = generous,
+            .audio_bytes = generous,
+            .temporary_bytes = generous};
 }
 
 template<class T> class ImmediatePreparationTask final : public assets::AssetPreparationTask<T> {
 public:
-    explicit ImmediatePreparationTask(T asset) : m_asset(std::move(asset)) {}
+    explicit ImmediatePreparationTask(T asset, std::size_t* steps = nullptr)
+        : m_asset(std::move(asset)), m_steps(steps)
+    {
+    }
 
     [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
     {
@@ -539,6 +543,8 @@ public:
 
     [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
     {
+        if (m_steps != nullptr)
+            ++*m_steps;
         m_ready = !context.cancellation_requested();
         return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
     }
@@ -558,17 +564,22 @@ public:
 
 private:
     T m_asset;
+    std::size_t* m_steps = nullptr;
     bool m_ready = false;
 };
 
 struct DispatchRecorder {
     std::vector<std::string> calls;
+    std::size_t preparation_steps = 0;
     bool reject_material = false;
 };
 
 class PrefetchGenerationCaptureSink final : public core::AssetTelemetrySink {
 public:
-    void record(core::AssetTelemetryEvent) noexcept override {}
+    void record(core::AssetTelemetryEvent event) noexcept override
+    {
+        events.push_back(std::move(event));
+    }
 
     [[nodiscard]] core::AssetTelemetrySnapshot snapshot_on_owner() const override { return {}; }
 
@@ -598,6 +609,7 @@ public:
     std::vector<assets::PrefetchGenerationId> released;
     std::vector<core::AssetWaitStart> wait_starts;
     std::vector<core::AssetWaitFinish> wait_finishes;
+    std::vector<core::AssetTelemetryEvent> events;
 };
 
 class RecordingFontLoader final : public assets::FontAssetLoader {
@@ -613,7 +625,7 @@ public:
     {
         m_recorder.calls.push_back("font:" + request.alias);
         return std::make_unique<ImmediatePreparationTask<assets::FontAsset>>(
-            assets::FontAsset{.resolved_alias = request.alias});
+            assets::FontAsset{.resolved_alias = request.alias}, &m_recorder.preparation_steps);
     }
 
 private:
@@ -634,7 +646,8 @@ public:
         requests.push_back(request);
         m_recorder.calls.push_back("texture:" + request.path);
         return std::make_unique<ImmediatePreparationTask<assets::TextureAsset>>(
-            assets::TextureAsset{.handle = 1, .path = request.path, .sampler = request.sampler});
+            assets::TextureAsset{.handle = 1, .path = request.path, .sampler = request.sampler},
+            &m_recorder.preparation_steps);
     }
 
     std::vector<assets::TextureAssetRequest> requests;
@@ -654,7 +667,8 @@ public:
             assets::HotspotMaskAsset{.owner = request.owner,
                                      .handle = 3,
                                      .width = request.width,
-                                     .height = request.height});
+                                     .height = request.height},
+            &m_recorder.preparation_steps);
     }
 
 private:
@@ -675,7 +689,8 @@ public:
     {
         m_recorder.calls.push_back("shader:" + request.resolution.key.material_id);
         return std::make_unique<ImmediatePreparationTask<assets::ShaderProgramAsset>>(
-            assets::ShaderProgramAsset{.handle = 2, .key = request.resolution.key});
+            assets::ShaderProgramAsset{.handle = 2, .key = request.resolution.key},
+            &m_recorder.preparation_steps);
     }
 
 private:
@@ -697,7 +712,7 @@ public:
         if (m_recorder.reject_material)
             return {};
         return std::make_unique<ImmediatePreparationTask<assets::MaterialAsset>>(
-            assets::MaterialAsset{.id = request.id});
+            assets::MaterialAsset{.id = request.id}, &m_recorder.preparation_steps);
     }
 
 private:
@@ -724,7 +739,8 @@ public:
             assets::AudioAsset{.clip = AudioClipHandle{1},
                                .path = request.path,
                                .mode = request.mode,
-                               .kind = request.kind});
+                               .kind = request.kind},
+            &m_recorder.preparation_steps);
     }
 
 private:
@@ -733,8 +749,7 @@ private:
 
 struct PlannerFixture {
     jobs::InlineJobExecutor executor;
-    std::shared_ptr<assets::AssetResidencyManager> residency =
-        std::make_shared<assets::AssetResidencyManager>(generous_budget());
+    std::shared_ptr<assets::AssetResidencyManager> residency;
     assets::AssetManager manager;
     DispatchRecorder recorder;
     RecordingFontLoader fonts{recorder};
@@ -744,7 +759,9 @@ struct PlannerFixture {
     RecordingMaterialLoader materials{recorder};
     RecordingAudioLoader audio{recorder};
 
-    explicit PlannerFixture(core::AssetTelemetrySink* telemetry = nullptr)
+    explicit PlannerFixture(core::AssetTelemetrySink* telemetry = nullptr,
+                            assets::ResidencyBudget budget = generous_budget())
+        : residency(std::make_shared<assets::AssetResidencyManager>(budget))
     {
         REQUIRE(manager.configure_async_requests(executor, residency, telemetry));
         manager.bind_font_loader(&fonts);
@@ -1571,6 +1588,144 @@ TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
     CHECK(sink.released.front() == record.generation);
 }
 
+TEST_CASE("mandatory gate profiler advances logical Flow generations while retaining shared work",
+          "[assets][structured-prefetch][flow-prediction][mandatory-assets][profiler][reconcile]")
+{
+    PrefetchGenerationCaptureSink sink;
+    PlannerFixture fixture(&sink);
+    auto document = scene_prediction_test_document();
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    for (auto& scene : document["definitions"]["scenes"]) {
+        if (scene["id"] == "prediction-horizon") {
+            scene["terminal"] = {{"kind", "continue-scene"},
+                                 {"scene", {{"kind", "scene"}, {"id", "closing"}}},
+                                 {"inputs", nlohmann::json::array()}};
+            break;
+        }
+    }
+    document["entrypoint"] = {{"kind", "scene"},
+                              {"scene", {{"kind", "scene"}, {"id", "prediction-horizon"}}}};
+
+    std::optional<std::size_t> shared_group;
+    for (const auto& slice : document["flowPrediction"]["slices"]) {
+        const auto& point = slice["point"];
+        if (point.value("kind", "") == "scene-entry" &&
+            point["scene"].value("id", "") == "prediction-horizon") {
+            REQUIRE(slice["dependencyGroups"].size() == 1);
+            shared_group = slice["dependencyGroups"][0].get<std::size_t>();
+            break;
+        }
+    }
+    REQUIRE(shared_group);
+    for (auto& slice : document["flowPrediction"]["slices"]) {
+        const auto& point = slice["point"];
+        if (point.value("kind", "") == "scene-step" &&
+            point["scene"].value("id", "") == "prediction-horizon" &&
+            point.value("stepId", "") == "after-short") {
+            slice["dependencyGroups"].push_back(*shared_group);
+            break;
+        }
+    }
+
+    auto package = package_from_document(std::move(document), "profiler-reconcile.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(154);
+    snapshot.mode = core::PresentationRuntimeMode::Flow;
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+    REQUIRE(sink.generations.size() == 1);
+    const auto entry_generation = sink.generations.front().generation;
+
+    const assets::TextureAssetRequest shared_request{
+        .path = "project:/assets/images/image-prediction-parent-stage.png",
+        .sampler = MaterialTextureSampler::ClampLinear,
+    };
+    const auto shared_key = assets::make_texture_cache_key(shared_request, generation);
+    REQUIRE(
+        std::ranges::find_if(sink.generations.front().submitted_entries, [&](const auto& entry) {
+            return entry.cache_key == shared_key;
+        }) != sink.generations.front().submitted_entries.end());
+    CHECK(std::count(fixture.recorder.calls.begin(), fixture.recorder.calls.end(),
+                     "texture:project:/assets/images/image-prediction-parent-stage.png") == 1);
+
+    runtime::ActiveScenePredictionRoot root{
+        .scene = id<core::SceneId>("prediction-horizon"),
+        .position = core::SceneFramePosition{id<core::SceneStepId>("after-short"),
+                                             core::SceneStepReady{}, true}};
+    CHECK(gate.update_active_scene_prediction_on_owner(&root).empty());
+    REQUIRE(sink.generations.size() == 2);
+    REQUIRE(sink.released.size() == 1);
+    CHECK(sink.released.front() == entry_generation);
+    const auto& replacement = sink.generations.back();
+    CHECK(replacement.generation != entry_generation);
+    CHECK(std::ranges::find_if(replacement.submitted_entries, [&](const auto& entry) {
+              return entry.cache_key == shared_key;
+          }) != replacement.submitted_entries.end());
+    CHECK(std::count(fixture.recorder.calls.begin(), fixture.recorder.calls.end(),
+                     "texture:project:/assets/images/image-prediction-parent-stage.png") == 1);
+    CHECK(gate.active_prefetch_generation_on_owner() == replacement.generation);
+
+    gate.clear_package_on_owner();
+    REQUIRE(sink.released.size() == 2);
+    CHECK(sink.released.back() == replacement.generation);
+}
+
+TEST_CASE("mandatory gate profiler reports planner Warm admission rejection",
+          "[assets][structured-prefetch][flow-prediction][mandatory-assets][profiler][budget]")
+{
+    PrefetchGenerationCaptureSink sink;
+    auto budget = generous_budget();
+    budget.gpu_bytes = 1;
+    budget.prefetch_allowance_percent = 100;
+    PlannerFixture fixture(&sink, budget);
+    auto document = scene_prediction_test_document();
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    for (auto& scene : document["definitions"]["scenes"]) {
+        if (scene["id"] == "prediction-horizon") {
+            scene["terminal"] = {{"kind", "continue-scene"},
+                                 {"scene", {{"kind", "scene"}, {"id", "closing"}}},
+                                 {"inputs", nlohmann::json::array()}};
+            break;
+        }
+    }
+    document["entrypoint"] = {{"kind", "scene"},
+                              {"scene", {{"kind", "scene"}, {"id", "prediction-horizon"}}}};
+    auto package = package_from_document(std::move(document), "profiler-budget.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(155);
+    snapshot.mode = core::PresentationRuntimeMode::Flow;
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+
+    REQUIRE(sink.generations.size() == 1);
+    const auto& record = sink.generations.front();
+    CHECK(record.expected_next_count + record.possible_next_count > 0);
+    CHECK(record.submitted_entries.empty());
+    REQUIRE_FALSE(record.submission_failures.empty());
+    CHECK(std::ranges::any_of(record.submission_failures, [](const auto& failure) {
+        return failure.diagnostic.code == "assets.prefetch_plan_warm_budget";
+    }));
+    CHECK(fixture.recorder.calls.empty());
+
+    gate.clear_package_on_owner();
+}
+
 TEST_CASE("mandatory wait ownership closes once across rollback replacement and destruction",
           "[assets][structured-prefetch][mandatory-assets][profiler][wait]")
 {
@@ -2220,6 +2375,258 @@ TEST_CASE("prefetch generation replacement releases stale tickets but preserves 
     CHECK(fixture.residency->classification_on_owner(second_key) == assets::ResidencyClass::Warm);
     planner.clear_on_owner();
     CHECK(fixture.residency->classification_on_owner(second_key) == assets::ResidencyClass::Cold);
+}
+
+TEST_CASE("Flow prefetch planner ranks usefulness before cost and admits only the Warm fit",
+          "[assets][structured-prefetch][flow-prediction][budget]")
+{
+    auto budget = generous_budget();
+    budget.gpu_bytes = 100;
+    budget.prefetch_allowance_percent = 50;
+    PlannerFixture fixture(nullptr, budget);
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto generation = fixture.manager.source_generation_on_owner();
+
+    const auto candidate = [&](std::string path, std::size_t distance, std::size_t execution_order,
+                               std::size_t dependency_priority, std::uint64_t gpu_bytes) {
+        return assets::PrefetchCandidate{
+            .descriptor =
+                descriptor(assets::TextureAssetRequest{.path = std::move(path)}, generation),
+            .prediction = assets::PrefetchPredictionKind::ExpectedNext,
+            .execution_distance = distance,
+            .execution_order = execution_order,
+            .dependency_priority = dependency_priority,
+            .estimated_cost = {.gpu_bytes = gpu_bytes},
+            .cost_estimate = assets::PrefetchCostEstimateKind::Metadata,
+        };
+    };
+
+    assets::PrefetchPlan plan;
+    plan.candidates = {
+        candidate("project:/textures/far-cheap.png", 3, 2, 0, 1),
+        candidate("project:/textures/near-expensive.png", 0, 0, 0, 30),
+        candidate("project:/textures/near-cheap.png", 0, 0, 0, 10),
+        candidate("project:/textures/near-too-large.png", 0, 0, 0, 20),
+    };
+
+    const auto report = planner.replace_generation_on_owner(plan);
+    REQUIRE(report);
+    CHECK(fixture.recorder.calls ==
+          std::vector<std::string>{"texture:project:/textures/near-cheap.png",
+                                   "texture:project:/textures/near-too-large.png",
+                                   "texture:project:/textures/far-cheap.png"});
+    REQUIRE(report.value().admission_rejections.size() == 1);
+    CHECK(report.value().admission_rejections.front().cache_key ==
+          assets::make_texture_cache_key(
+              assets::TextureAssetRequest{.path = "project:/textures/near-expensive.png"},
+              generation));
+    CHECK(report.value().budget_exhausted == false);
+    planner.clear_on_owner();
+}
+
+TEST_CASE("Flow prefetch planner uses conservative prediction cost without preparing rejected work",
+          "[assets][structured-prefetch][flow-prediction][budget]")
+{
+    auto constrained = generous_budget();
+    constrained.prepared_cpu_bytes = 64u * 1024u - 1u;
+    constrained.prefetch_allowance_percent = 100;
+    PlannerFixture fixture(nullptr, constrained);
+    auto package =
+        package_from_document(scene_prediction_test_document(), "unknown-prediction-cost.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto dependency_index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    runtime::FlowPredictionProjection projection;
+    projection.entries.push_back({.dependency =
+                                      core::compiled::FlowPredictionMaterialDependency{
+                                          id<core::MaterialId>("sprite-material")},
+                                  .execution_distance = 0,
+                                  .confidence = runtime::FlowPredictionConfidence::Expected,
+                                  .execution_order = 0,
+                                  .dependency_priority = 0,
+                                  .provenance = {{core::compiled::SceneEntryPredictionPoint{
+                                      id<core::SceneId>("prediction-horizon")}}}});
+    const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
+    const auto unknown = std::ranges::find_if(plan.candidates, [](const auto& candidate) {
+        const auto* material =
+            std::get_if<assets::MaterialAssetRequest>(&candidate.descriptor.request);
+        return material != nullptr && material->id == "sprite-material";
+    });
+    REQUIRE(unknown != plan.candidates.end());
+    CHECK(unknown->cost_estimate == assets::PrefetchCostEstimateKind::Conservative);
+    CHECK(unknown->estimated_cost.prepared_cpu_bytes > 0);
+    CHECK_FALSE(unknown->provenance.empty());
+
+    REQUIRE(unknown->estimated_cost.prepared_cpu_bytes > constrained.prepared_cpu_bytes);
+    assets::PrefetchPlanner planner(fixture.manager);
+    assets::PrefetchPlan one_candidate;
+    one_candidate.candidates.push_back(*unknown);
+    const auto report = planner.replace_generation_on_owner(one_candidate);
+    REQUIRE(report);
+    CHECK(report.value().submitted_entries.empty());
+    REQUIRE(report.value().admission_rejections.size() == 1);
+    CHECK(fixture.recorder.calls.empty());
+}
+
+TEST_CASE("Flow prefetch plan replacement retains equivalent work across logical generations",
+          "[assets][structured-prefetch][flow-prediction][reconcile]")
+{
+    PrefetchGenerationCaptureSink sink;
+    PlannerFixture fixture(&sink);
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const assets::TextureAssetRequest request{.path = "project:/textures/retained.png"};
+
+    assets::PrefetchPlan plan;
+    plan.candidates.push_back({
+        .descriptor = descriptor(request, generation),
+        .prediction = assets::PrefetchPredictionKind::ExpectedNext,
+        .execution_distance = 0,
+        .execution_order = 0,
+        .dependency_priority = 0,
+        .estimated_cost = {.gpu_bytes = 1},
+        .cost_estimate = assets::PrefetchCostEstimateKind::Metadata,
+        .provenance = {{.points = {core::compiled::SceneEntryPredictionPoint{
+                            id<core::SceneId>("prediction-horizon")}}}},
+    });
+    const auto first = planner.replace_generation_on_owner(plan);
+    REQUIRE(first);
+    REQUIRE(first.value().submitted_entries.size() == 1);
+    REQUIRE(fixture.recorder.calls.size() == 1);
+
+    const auto second = planner.replace_generation_on_owner(plan);
+    REQUIRE(second);
+    CHECK(second.value().generation != first.value().generation);
+    CHECK(second.value().submitted_entries.empty());
+    REQUIRE(second.value().retained_entries.size() == 1);
+    CHECK(second.value().retained_entries.front().provenance == plan.candidates.front().provenance);
+    CHECK(fixture.recorder.calls.size() == 1);
+    CHECK(planner.retained_ticket_count_on_owner() == 1);
+
+    auto demand = fixture.manager.request_texture(request, assets::AssetRequestReason::Demand);
+    REQUIRE(demand);
+    fixture.run_until_idle();
+    CHECK(demand.value().state() == assets::AssetRequestState::Ready);
+    CHECK(fixture.recorder.preparation_steps == 1);
+    auto lease = std::move(demand).value().take_ready();
+    REQUIRE(lease);
+    const auto late = std::ranges::find_if(sink.events, [](const auto& event) {
+        return event.kind == core::AssetTelemetryEventKind::PrefetchLate;
+    });
+    REQUIRE(late != sink.events.end());
+    CHECK(late->prefetch_generation == second.value().generation);
+    planner.clear_on_owner();
+}
+
+TEST_CASE("Flow prefetch plan replacement retags completed work for later Demand attribution",
+          "[assets][structured-prefetch][flow-prediction][reconcile]")
+{
+    PrefetchGenerationCaptureSink sink;
+    PlannerFixture fixture(&sink);
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const assets::TextureAssetRequest request{.path = "project:/textures/retained-ready.png"};
+
+    assets::PrefetchPlan plan;
+    plan.candidates.push_back({
+        .descriptor = descriptor(request, generation),
+        .prediction = assets::PrefetchPredictionKind::ExpectedNext,
+        .execution_distance = 0,
+        .estimated_cost = {.gpu_bytes = 1},
+        .cost_estimate = assets::PrefetchCostEstimateKind::Metadata,
+    });
+    const auto first = planner.replace_generation_on_owner(plan);
+    REQUIRE(first);
+    fixture.run_until_idle();
+    CHECK(fixture.recorder.preparation_steps == 1);
+
+    const auto second = planner.replace_generation_on_owner(plan);
+    REQUIRE(second);
+    CHECK(second.value().generation != first.value().generation);
+    REQUIRE(second.value().retained_entries.size() == 1);
+    CHECK(fixture.recorder.calls.size() == 1);
+
+    auto demand = fixture.manager.request_texture(request, assets::AssetRequestReason::Demand);
+    REQUIRE(demand);
+    CHECK(demand.value().state() == assets::AssetRequestState::Ready);
+    auto lease = std::move(demand).value().take_ready();
+    REQUIRE(lease);
+    const auto used = std::ranges::find_if(sink.events, [](const auto& event) {
+        return event.kind == core::AssetTelemetryEventKind::PrefetchUsed;
+    });
+    REQUIRE(used != sink.events.end());
+    CHECK(used->prefetch_generation == second.value().generation);
+    CHECK(fixture.recorder.preparation_steps == 1);
+    planner.clear_on_owner();
+}
+
+TEST_CASE("Flow prefetch alternative peers do not inherit traversal-order priority",
+          "[assets][structured-prefetch][flow-prediction][budget][alternative]")
+{
+    auto budget = generous_budget();
+    budget.gpu_bytes = 10;
+    PlannerFixture fixture(nullptr, budget);
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto generation = fixture.manager.source_generation_on_owner();
+
+    assets::PrefetchPlan plan;
+    plan.candidates = {
+        {.descriptor = descriptor(
+             assets::TextureAssetRequest{.path = "project:/textures/first-branch.png"}, generation),
+         .prediction = assets::PrefetchPredictionKind::PossibleNext,
+         .execution_distance = 1,
+         .execution_order = 1,
+         .estimated_cost = {.gpu_bytes = 10},
+         .cost_estimate = assets::PrefetchCostEstimateKind::Metadata},
+        {.descriptor =
+             descriptor(assets::TextureAssetRequest{.path = "project:/textures/second-branch.png"},
+                        generation),
+         .prediction = assets::PrefetchPredictionKind::PossibleNext,
+         .execution_distance = 1,
+         .execution_order = 999,
+         .estimated_cost = {.gpu_bytes = 1},
+         .cost_estimate = assets::PrefetchCostEstimateKind::Metadata},
+    };
+
+    const auto report = planner.replace_generation_on_owner(plan);
+    REQUIRE(report);
+    REQUIRE(report.value().submitted_entries.size() == 1);
+    CHECK(report.value().submitted_entries.front().cache_key ==
+          plan.candidates[1].descriptor.cache_key);
+    REQUIRE(report.value().admission_rejections.size() == 1);
+    CHECK(report.value().admission_rejections.front().cache_key ==
+          plan.candidates[0].descriptor.cache_key);
+    planner.clear_on_owner();
+}
+
+TEST_CASE("Flow prefetch planner caps pathological candidate sets before dispatch",
+          "[assets][structured-prefetch][flow-prediction][budget][ceiling]")
+{
+    auto budget = generous_budget();
+    budget.gpu_bytes = 0;
+    PlannerFixture fixture(nullptr, budget);
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto generation = fixture.manager.source_generation_on_owner();
+
+    assets::PrefetchPlan plan;
+    for (std::size_t index = 0; index < 4100; ++index) {
+        const auto path = "project:/textures/pathological-" + std::to_string(index) + ".png";
+        plan.candidates.push_back(
+            {.descriptor = descriptor(assets::TextureAssetRequest{.path = path}, generation),
+             .prediction = assets::PrefetchPredictionKind::PossibleNext,
+             .execution_distance = 1,
+             .execution_order = index,
+             .estimated_cost = {.gpu_bytes = 1},
+             .cost_estimate = assets::PrefetchCostEstimateKind::Metadata});
+    }
+
+    const auto report = planner.replace_generation_on_owner(plan);
+    REQUIRE(report);
+    CHECK(report.value().structural_limit_reached);
+    CHECK(report.value().budget_exhausted);
+    CHECK(report.value().submitted_entries.empty());
+    CHECK(fixture.recorder.calls.empty());
+    planner.clear_on_owner();
 }
 
 TEST_CASE("prefetch planner reports rejected typed submissions without retaining tickets",

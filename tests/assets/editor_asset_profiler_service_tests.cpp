@@ -99,9 +99,9 @@ TEST_CASE("Editor asset profiler retains only the specified low-level event subs
         service.record({.kind = kind});
 
     constexpr std::array retained_prefetch_rejections{
-        "assets.prefetch_allowance_exceeded",          "assets.prefetch_preparation_rejected",
-        "assets.prefetch_preparation_resize_rejected", "assets.prefetch_residency_rejected",
-        "assets.prefetch_enrichment_rejected",
+        "assets.prefetch_plan_warm_budget",     "assets.prefetch_allowance_exceeded",
+        "assets.prefetch_preparation_rejected", "assets.prefetch_preparation_resize_rejected",
+        "assets.prefetch_residency_rejected",   "assets.prefetch_enrichment_rejected",
     };
     for (const auto* code : retained_prefetch_rejections) {
         service.record({.kind = core::AssetTelemetryEventKind::BudgetPressure,
@@ -538,8 +538,12 @@ TEST_CASE("Editor asset profiler counts exactly the defined prefetch outcomes an
     core::EditorAssetProfilerService service;
     const core::AssetProfilerPrefetchGenerationRecord generation{
         .generation = {14},
-        .expected_next_count = 2,
+        .expected_next_count = 3,
         .submission_failures = {
+            {.cache_key = {.stable_identity = "texture|project:/planned-out.png|0",
+                           .source_generation = {3}},
+             .prediction = core::PrefetchPredictionKind::ExpectedNext,
+             .diagnostic = {.code = "assets.prefetch_plan_warm_budget", .message = "planned out"}},
             {.cache_key = {.stable_identity = "texture|project:/blocked.png|0",
                            .source_generation = {3}},
              .prediction = core::PrefetchPredictionKind::ExpectedNext,
@@ -570,7 +574,7 @@ TEST_CASE("Editor asset profiler counts exactly the defined prefetch outcomes an
                     .request_reason = assets::AssetRequestReason::Startup});
 
     const auto snapshot = service.capture_on_owner();
-    CHECK(snapshot.outcomes.blocked_by_memory_limit == 4);
+    CHECK(snapshot.outcomes.blocked_by_memory_limit == 5);
     CHECK(snapshot.outcomes.ready_before_use == 0);
     CHECK(snapshot.outcomes.loaded_too_late == 0);
     CHECK(snapshot.outcomes.not_prefetched == 0);
