@@ -35,20 +35,13 @@ struct StructuredAssetRequestDescriptor {
     AssetCacheKey cache_key;
 };
 
-struct StructuredAssetDependencyBuckets {
-    std::vector<StructuredAssetRequestDescriptor> current_mandatory;
-    std::vector<StructuredAssetRequestDescriptor> direct_next;
-    std::vector<StructuredAssetRequestDescriptor> adjacent_alternatives;
-    // Diagnostics that make the current publication unsafe. Speculative direct-next and adjacent
-    // diagnostics remain observable through diagnostics, but cannot block otherwise-valid content.
-    core::Diagnostics mandatory_diagnostics;
+struct MandatoryAssetDependencyClosure {
+    std::vector<StructuredAssetRequestDescriptor> requests;
     core::Diagnostics diagnostics;
 };
 
-struct StructuredAssetDependencyContext {
+struct MandatoryAssetDependencyContext {
     const core::RuntimePresentationSnapshot* current_presentation = nullptr;
-    std::optional<core::compiled::Entrypoint> direct_next;
-    std::vector<core::compiled::Entrypoint> adjacent_alternatives;
     std::vector<core::compiled::SystemLayoutRole> required_system_layouts;
 };
 
@@ -76,17 +69,17 @@ private:
 
     std::shared_ptr<const Impl> m_impl;
 
-    friend class StructuredAssetDependencyCollector;
+    friend class MandatoryAssetDependencyCollector;
     friend PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex&,
                                                 const runtime::FlowPredictionProjection&);
 };
 
-class StructuredAssetDependencyCollector {
+class MandatoryAssetDependencyCollector {
 public:
-    explicit StructuredAssetDependencyCollector(StructuredAssetDependencyIndex index) noexcept;
+    explicit MandatoryAssetDependencyCollector(StructuredAssetDependencyIndex index) noexcept;
 
-    [[nodiscard]] StructuredAssetDependencyBuckets
-    collect(const StructuredAssetDependencyContext& context) const;
+    [[nodiscard]] MandatoryAssetDependencyClosure
+    collect(const MandatoryAssetDependencyContext& context) const;
 
 private:
     StructuredAssetDependencyIndex m_index;
@@ -130,12 +123,12 @@ struct PrefetchCandidate {
 
 struct PrefetchSubmissionReport {
     PrefetchGenerationId generation;
-    std::size_t direct_next_submitted = 0;
-    std::size_t adjacent_submitted = 0;
-    std::size_t direct_next_retained = 0;
-    std::size_t adjacent_retained = 0;
-    std::size_t direct_next_count = 0;
-    std::size_t adjacent_count = 0;
+    std::size_t expected_submitted = 0;
+    std::size_t possible_submitted = 0;
+    std::size_t expected_retained = 0;
+    std::size_t possible_retained = 0;
+    std::size_t expected_count = 0;
+    std::size_t possible_count = 0;
     std::vector<PrefetchSubmissionEntry> submitted_entries;
     std::vector<PrefetchSubmissionEntry> retained_entries;
     std::vector<AssetCacheKey> submitted_keys;
@@ -173,9 +166,6 @@ public:
     PrefetchPlanner& operator=(const PrefetchPlanner&) = delete;
     PrefetchPlanner(PrefetchPlanner&&) noexcept;
     PrefetchPlanner& operator=(PrefetchPlanner&&) noexcept;
-
-    [[nodiscard]] core::Result<PrefetchSubmissionReport, core::Diagnostic>
-    replace_generation_on_owner(const StructuredAssetDependencyBuckets& dependencies) noexcept;
 
     [[nodiscard]] core::Result<PrefetchSubmissionReport, core::Diagnostic>
     replace_generation_on_owner(const PrefetchPlan& plan) noexcept;

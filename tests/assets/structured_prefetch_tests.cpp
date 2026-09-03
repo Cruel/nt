@@ -803,8 +803,8 @@ assets::ShaderProgramAssetRequest shader_request(std::string material)
 
 } // namespace
 
-TEST_CASE("structured collector builds typed ordered closure without dynamic sources",
-          "[assets][structured-prefetch]")
+TEST_CASE("mandatory collector builds typed publication closure without speculative traversal",
+          "[assets][structured-prefetch][mandatory-assets]")
 {
     auto package = collector_package();
     const assets::AssetSourceGeneration generation{41};
@@ -825,79 +825,26 @@ TEST_CASE("structured collector builds typed ordered closure without dynamic sou
         .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
         .asset = id<core::AssetId>("audio-voice")});
 
-    assets::StructuredAssetDependencyContext context;
+    assets::MandatoryAssetDependencyContext context;
     context.current_presentation = &snapshot;
-    context.direct_next = core::compiled::Entrypoint{id<core::RoomId>("hall")};
-    context.adjacent_alternatives = {core::compiled::Entrypoint{id<core::RoomId>("tower")},
-                                     core::compiled::Entrypoint{id<core::RoomId>("tower")}};
 
-    const assets::StructuredAssetDependencyCollector collector(index);
+    const assets::MandatoryAssetDependencyCollector collector(index);
     const auto collected = collector.collect(context);
 
-    REQUIRE(find_request<assets::TextureAssetRequest>(
-        collected.current_mandatory,
-        [](const auto& request) { return request.path == "project:/assets/images/current.png"; }));
-    REQUIRE(find_request<assets::AudioAssetRequest>(
-        collected.current_mandatory, [](const auto& request) {
-            return request.path == "project:/assets/audio/voice.ogg" &&
-                   request.kind == AudioClipKind::Voice;
-        }));
-
-    const auto material = find_request<assets::MaterialAssetRequest>(
-        collected.direct_next, [](const auto& request) { return request.id == "sprite-material"; });
-    const auto shader = find_request<assets::ShaderProgramAssetRequest>(
-        collected.direct_next, [](const auto& request) {
-            return request.resolution.key.material_id == "sprite-material" &&
-                   request.resolution.key.variant == "glsl-120";
-        });
-    const auto static_texture =
-        find_request<assets::TextureAssetRequest>(collected.direct_next, [](const auto& request) {
-            return request.path == "project:/assets/images/main.png" &&
-                   request.sampler == MaterialTextureSampler::RepeatNearest;
-        });
-    REQUIRE(material);
-    REQUIRE(shader);
-    REQUIRE(static_texture);
-    CHECK(*material < *shader);
-    CHECK(*shader < *static_texture);
-    CHECK_FALSE(
-        find_request<assets::TextureAssetRequest>(collected.direct_next, [](const auto& request) {
-            return request.path == "$draw.texture";
-        }));
-    const auto room_mask = find_request<assets::HotspotMaskAssetRequest>(
-        collected.direct_next, [](const auto& request) {
-            const auto* owner = std::get_if<core::compiled::RoomHotspotOwnerRef>(&request.owner);
-            return owner != nullptr && owner->room.text() == "hall" && request.width == 1920 &&
-                   request.height == 1080 && request.regions.size() == 1;
-        });
-    REQUIRE(room_mask);
-    CHECK_FALSE(find_request<assets::HotspotMaskAssetRequest>(
-        collected.direct_next, [](const auto& request) {
-            return std::holds_alternative<core::compiled::InteractableHotspotOwnerRef>(
-                request.owner);
-        }));
-
-    REQUIRE(find_request<assets::TextureAssetRequest>(
-        collected.adjacent_alternatives, [](const auto& request) {
-            return request.path == "project:/assets/images/alt.png" &&
-                   request.sampler == MaterialTextureSampler::ClampNearest;
-        }));
+    REQUIRE(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+        return request.path == "project:/assets/images/current.png";
+    }));
+    REQUIRE(find_request<assets::AudioAssetRequest>(collected.requests, [](const auto& request) {
+        return request.path == "project:/assets/audio/voice.ogg" &&
+               request.kind == AudioClipKind::Voice;
+    }));
 
     std::vector<assets::AssetCacheKey> keys;
-    for (const auto* bucket :
-         {&collected.current_mandatory, &collected.direct_next, &collected.adjacent_alternatives}) {
-        for (const auto& item : *bucket) {
-            CHECK(item.cache_key.source_generation == generation);
-            CHECK(std::find(keys.begin(), keys.end(), item.cache_key) == keys.end());
-            keys.push_back(item.cache_key);
-        }
+    for (const auto& item : collected.requests) {
+        CHECK(item.cache_key.source_generation == generation);
+        CHECK(std::find(keys.begin(), keys.end(), item.cache_key) == keys.end());
+        keys.push_back(item.cache_key);
     }
-
-    assets::StructuredAssetDependencyContext cyclic;
-    cyclic.direct_next = core::compiled::Entrypoint{id<core::SceneId>("opening")};
-    const auto cycle = collector.collect(cyclic);
-    CHECK(has_code(cycle.diagnostics, "assets.prefetch_dependency_cycle"));
-    CHECK(cycle.mandatory_diagnostics.empty());
 }
 
 TEST_CASE("structured texture dependencies carry alpha coverage into mandatory and prefetch work",
@@ -908,7 +855,7 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto index =
         assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
-    const assets::StructuredAssetDependencyCollector collector(index);
+    const assets::MandatoryAssetDependencyCollector collector(index);
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-main"),
@@ -922,21 +869,20 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
          .bounds = {.x = 0.0, .y = 0.0, .width = 1.0, .height = 1.0},
          .sprite = id<core::AssetId>("image-main"),
          .material = std::nullopt});
-    assets::StructuredAssetDependencyContext mandatory_context;
+    assets::MandatoryAssetDependencyContext mandatory_context;
     mandatory_context.current_presentation = &snapshot;
     const auto mandatory = collector.collect(mandatory_context);
-    const auto mandatory_texture = find_request<assets::TextureAssetRequest>(
-        mandatory.current_mandatory, [](const auto& request) {
+    const auto mandatory_texture =
+        find_request<assets::TextureAssetRequest>(mandatory.requests, [](const auto& request) {
             return request.path == "project:/assets/images/main.png" &&
                    request.sampler == MaterialTextureSampler::ClampLinear;
         });
     REQUIRE(mandatory_texture);
-    CHECK(std::get<assets::TextureAssetRequest>(
-              mandatory.current_mandatory[*mandatory_texture].request)
+    CHECK(std::get<assets::TextureAssetRequest>(mandatory.requests[*mandatory_texture].request)
               .retain_alpha_coverage);
 
     assets::MandatoryAssetRequestGroup mandatory_group(
-        fixture.manager, {mandatory.current_mandatory[*mandatory_texture]},
+        fixture.manager, {mandatory.requests[*mandatory_texture]},
         {.reason = assets::AssetRequestReason::Demand, .show_overlay_immediately = true});
     fixture.run_until_idle();
     mandatory_group.poll_on_owner();
@@ -945,18 +891,22 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
     CHECK(fixture.textures.requests.back().retain_alpha_coverage);
 
     fixture.textures.requests.clear();
-    assets::StructuredAssetDependencyContext speculative_context;
-    speculative_context.direct_next = core::compiled::Entrypoint{id<core::RoomId>("start")};
-    const auto speculative = collector.collect(speculative_context);
-    const auto speculative_texture =
-        find_request<assets::TextureAssetRequest>(speculative.direct_next, [](const auto& request) {
-            return request.path == "project:/assets/images/main.png" &&
-                   request.sampler == MaterialTextureSampler::ClampLinear;
+    runtime::FlowPredictionProjection projection;
+    projection.entries.push_back(
+        {.dependency =
+             core::compiled::FlowPredictionRoomDependency{.room = id<core::RoomId>("start")},
+         .provenance = {.root_kind = runtime::FlowPredictionRootKind::FlowExecution}});
+    const auto speculative = assets::resolve_flow_prediction(index, projection);
+    const auto speculative_texture = std::find_if(
+        speculative.candidates.begin(), speculative.candidates.end(), [](const auto& candidate) {
+            const auto* request =
+                std::get_if<assets::TextureAssetRequest>(&candidate.descriptor.request);
+            return request != nullptr && request->path == "project:/assets/images/main.png" &&
+                   request->sampler == MaterialTextureSampler::ClampLinear;
         });
-    REQUIRE(speculative_texture);
-    CHECK(
-        std::get<assets::TextureAssetRequest>(speculative.direct_next[*speculative_texture].request)
-            .retain_alpha_coverage);
+    REQUIRE(speculative_texture != speculative.candidates.end());
+    CHECK(std::get<assets::TextureAssetRequest>(speculative_texture->descriptor.request)
+              .retain_alpha_coverage);
 
     assets::PrefetchPlanner planner(fixture.manager);
     REQUIRE(planner.replace_generation_on_owner(speculative));
@@ -971,62 +921,8 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
     CHECK(submitted->retain_alpha_coverage);
 }
 
-TEST_CASE("strong speculative texture capability survives weaker current dependency dedupe",
-          "[assets][structured-prefetch][texture-alpha][capabilities]")
-{
-    PlannerFixture fixture;
-    auto package = collector_package();
-    const auto generation = fixture.manager.source_generation_on_owner();
-    const auto index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
-    const assets::StructuredAssetDependencyCollector collector(index);
-
-    core::RuntimePresentationSnapshot snapshot;
-    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-main"),
-                                                       .color = std::nullopt,
-                                                       .fit = core::compiled::BackgroundFit::Cover,
-                                                       .material = std::nullopt};
-    assets::StructuredAssetDependencyContext context;
-    context.current_presentation = &snapshot;
-    context.direct_next = core::compiled::Entrypoint{id<core::RoomId>("start")};
-
-    const auto collected = collector.collect(context);
-    const auto current_texture = find_request<assets::TextureAssetRequest>(
-        collected.current_mandatory, [](const auto& request) {
-            return request.path == "project:/assets/images/main.png" &&
-                   request.sampler == MaterialTextureSampler::ClampLinear;
-        });
-    REQUIRE(current_texture);
-    CHECK_FALSE(
-        std::get<assets::TextureAssetRequest>(collected.current_mandatory[*current_texture].request)
-            .retain_alpha_coverage);
-
-    const auto speculative_texture =
-        find_request<assets::TextureAssetRequest>(collected.direct_next, [](const auto& request) {
-            return request.path == "project:/assets/images/main.png" &&
-                   request.sampler == MaterialTextureSampler::ClampLinear;
-        });
-    REQUIRE(speculative_texture);
-    CHECK(std::get<assets::TextureAssetRequest>(collected.direct_next[*speculative_texture].request)
-              .retain_alpha_coverage);
-
-    fixture.textures.requests.clear();
-    assets::PrefetchPlanner planner(fixture.manager);
-    auto replaced = planner.replace_generation_on_owner(collected);
-    REQUIRE(replaced);
-    fixture.run_until_idle();
-    const auto submitted =
-        std::find_if(fixture.textures.requests.begin(), fixture.textures.requests.end(),
-                     [](const auto& request) {
-                         return request.path == "project:/assets/images/main.png" &&
-                                request.sampler == MaterialTextureSampler::ClampLinear;
-                     });
-    REQUIRE(submitted != fixture.textures.requests.end());
-    CHECK(submitted->retain_alpha_coverage);
-}
-
-TEST_CASE("optional adjacency diagnostics do not block current mandatory publication",
-          "[assets][structured-prefetch][mandatory-assets][optional-prefetch]")
+TEST_CASE("speculative index diagnostics do not become mandatory publication failures",
+          "[assets][structured-prefetch][mandatory-assets][flow-prediction]")
 {
     PlannerFixture fixture;
     auto package = collector_package();
@@ -1043,13 +939,19 @@ TEST_CASE("optional adjacency diagnostics do not block current mandatory publica
                                                        .fit = core::compiled::BackgroundFit::Cover,
                                                        .material = std::nullopt};
 
-    assets::StructuredAssetDependencyContext context;
+    assets::MandatoryAssetDependencyContext context;
     context.current_presentation = &snapshot;
-    const assets::StructuredAssetDependencyCollector collector(index);
+    const assets::MandatoryAssetDependencyCollector collector(index);
     const auto collected = collector.collect(context);
-    CHECK(has_code(collected.diagnostics, "assets.prefetch_shader_resolution_failed"));
-    CHECK_FALSE(
-        has_code(collected.mandatory_diagnostics, "assets.prefetch_shader_resolution_failed"));
+    CHECK_FALSE(has_code(collected.diagnostics, "assets.prefetch_shader_resolution_failed"));
+
+    runtime::FlowPredictionProjection projection;
+    projection.entries.push_back(
+        {.dependency =
+             core::compiled::FlowPredictionRoomDependency{.room = id<core::RoomId>("hall")},
+         .provenance = {.root_kind = runtime::FlowPredictionRootKind::FlowExecution}});
+    const auto speculative = assets::resolve_flow_prediction(index, projection);
+    CHECK(has_code(speculative.diagnostics, "assets.prefetch_shader_resolution_failed"));
 
     assets::MandatoryAssetGate gate(fixture.manager);
     REQUIRE(gate.bind_package_on_owner(package, "missing-variant", generation));
@@ -1073,7 +975,7 @@ TEST_CASE("built-in contextual Layouts do not block mandatory publication",
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto index =
         assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
-    const assets::StructuredAssetDependencyCollector collector(index);
+    const assets::MandatoryAssetDependencyCollector collector(index);
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(10);
@@ -1089,11 +991,10 @@ TEST_CASE("built-in contextual Layouts do not block mandatory publication",
         .layout = id<core::LayoutId>(std::string(core::compiled::builtin_verb_menu_layout_id)),
     });
 
-    assets::StructuredAssetDependencyContext context;
+    assets::MandatoryAssetDependencyContext context;
     context.current_presentation = &snapshot;
     const auto collected = collector.collect(context);
 
-    CHECK_FALSE(has_code(collected.mandatory_diagnostics, "assets.prefetch_missing_layout"));
     CHECK_FALSE(has_code(collected.diagnostics, "assets.prefetch_missing_layout"));
 
     assets::MandatoryAssetGate gate(fixture.manager);
@@ -1503,37 +1404,42 @@ TEST_CASE(
     transaction.rollback_on_owner();
 }
 
-TEST_CASE("direct-next hotspot mask prefetch is ready for the mandatory publication gate",
-          "[assets][structured-prefetch][hotspot-mask]")
+TEST_CASE("Flow-predicted Room hotspot mask is ready for later mandatory Demand",
+          "[assets][structured-prefetch][flow-prediction][hotspot-mask]")
 {
     PlannerFixture fixture;
     auto package = collector_package();
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto index =
         assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
-    assets::StructuredAssetDependencyContext context;
-    context.direct_next = core::compiled::Entrypoint{id<core::RoomId>("hall")};
-    const assets::StructuredAssetDependencyCollector collector(index);
-    const auto collected = collector.collect(context);
-    const auto mask = find_request<assets::HotspotMaskAssetRequest>(
-        collected.direct_next, [](const auto&) { return true; });
-    REQUIRE(mask);
+    runtime::FlowPredictionProjection projection;
+    projection.entries.push_back(
+        {.dependency =
+             core::compiled::FlowPredictionRoomDependency{.room = id<core::RoomId>("hall")},
+         .provenance = {.root_kind = runtime::FlowPredictionRootKind::FlowExecution}});
+    const auto plan = assets::resolve_flow_prediction(index, projection);
+    const auto mask =
+        std::find_if(plan.candidates.begin(), plan.candidates.end(), [](const auto& candidate) {
+            return std::holds_alternative<assets::HotspotMaskAssetRequest>(
+                candidate.descriptor.request);
+        });
+    REQUIRE(mask != plan.candidates.end());
 
     assets::PrefetchPlanner planner(fixture.manager);
-    const auto report = planner.replace_generation_on_owner(collected);
+    const auto report = planner.replace_generation_on_owner(plan);
     REQUIRE(report);
     fixture.run_until_idle();
     CHECK(std::count(fixture.recorder.calls.begin(), fixture.recorder.calls.end(),
                      "hotspot-mask") == 1);
 
     assets::MandatoryAssetRequestGroup mandatory(
-        fixture.manager, {collected.direct_next[*mask]},
+        fixture.manager, {mask->descriptor},
         {.reason = assets::AssetRequestReason::Demand, .show_overlay_immediately = true});
     mandatory.poll_on_owner();
     CHECK(mandatory.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
     auto leases = mandatory.take_ready_leases_on_owner();
     REQUIRE(leases);
-    CHECK(leases->find_hotspot_mask(collected.direct_next[*mask].cache_key) != nullptr);
+    CHECK(leases->find_hotspot_mask(mask->descriptor.cache_key) != nullptr);
 }
 
 TEST_CASE("mandatory gate advances speculative Scene prediction from the live execution position",
@@ -1916,8 +1822,8 @@ TEST_CASE("mandatory wait ownership closes once across rollback replacement and 
 }
 #endif
 
-TEST_CASE("prefetch planner dispatches typed requests in deterministic bucket order",
-          "[assets][structured-prefetch]")
+TEST_CASE("prefetch planner dispatches ranked Flow candidates deterministically",
+          "[assets][structured-prefetch][flow-prediction]")
 {
     PlannerFixture fixture;
     assets::PrefetchPlanner planner(fixture.manager);
@@ -1935,19 +1841,29 @@ TEST_CASE("prefetch planner dispatches typed requests in deterministic bucket or
                                                             .kind = AudioClipKind::Music},
                                   generation);
 
-    assets::StructuredAssetDependencyBuckets dependencies;
-    dependencies.direct_next = {font, texture, texture, shader};
-    dependencies.adjacent_alternatives = {material, font, audio};
-    auto submitted = planner.replace_generation_on_owner(dependencies);
+    assets::PrefetchPlan plan;
+    const auto add = [&](const assets::StructuredAssetRequestDescriptor& descriptor,
+                         assets::PrefetchPredictionKind prediction, std::size_t order) {
+        plan.candidates.push_back(
+            {.descriptor = descriptor, .prediction = prediction, .execution_order = order});
+    };
+    add(font, assets::PrefetchPredictionKind::ExpectedNext, 0);
+    add(texture, assets::PrefetchPredictionKind::ExpectedNext, 1);
+    add(texture, assets::PrefetchPredictionKind::ExpectedNext, 1);
+    add(shader, assets::PrefetchPredictionKind::ExpectedNext, 2);
+    add(material, assets::PrefetchPredictionKind::PossibleNext, 3);
+    add(font, assets::PrefetchPredictionKind::PossibleNext, 4);
+    add(audio, assets::PrefetchPredictionKind::PossibleNext, 5);
+    auto submitted = planner.replace_generation_on_owner(plan);
     REQUIRE(submitted);
-    CHECK(submitted.value().direct_next_submitted == 3);
-    CHECK(submitted.value().adjacent_submitted == 2);
+    CHECK(submitted.value().expected_submitted == 3);
+    CHECK(submitted.value().possible_submitted == 2);
     CHECK(submitted.value().failures.empty());
     CHECK(planner.retained_ticket_count_on_owner() == 5);
     CHECK(fixture.recorder.calls ==
           std::vector<std::string>{"font:body", "texture:project:/textures/direct.png",
-                                   "shader:direct-material", "material:adjacent-material",
-                                   "audio:project:/audio/adjacent.ogg"});
+                                   "shader:direct-material", "audio:project:/audio/adjacent.ogg",
+                                   "material:adjacent-material"});
     fixture.run_until_idle();
     planner.clear_on_owner();
 }
@@ -1988,8 +1904,8 @@ TEST_CASE("compiled Flow Prediction Index drives semantic prediction into real p
     assets::PrefetchPlanner planner(fixture.manager);
     const auto submitted = planner.replace_generation_on_owner(plan);
     REQUIRE(submitted);
-    CHECK(submitted.value().direct_next_submitted >= 1);
-    CHECK(submitted.value().adjacent_submitted >= 1);
+    CHECK(submitted.value().expected_submitted >= 1);
+    CHECK(submitted.value().possible_submitted >= 1);
     CHECK(submitted.value().failures.empty());
     CHECK(std::ranges::find(fixture.recorder.calls, "texture:project:/assets/images/main.png") !=
           fixture.recorder.calls.end());
@@ -2160,7 +2076,7 @@ TEST_CASE("prospective Room entry predicts successful lifecycle Flow and widens 
     assets::PrefetchPlanner planner(fixture.manager);
     const auto submitted = planner.replace_generation_on_owner(plan);
     REQUIRE(submitted);
-    CHECK(submitted.value().adjacent_submitted >= 1);
+    CHECK(submitted.value().possible_submitted >= 1);
     fixture.run_until_idle();
     planner.clear_on_owner();
 
@@ -2577,18 +2493,20 @@ TEST_CASE("prefetch generation replacement releases stale tickets but preserves 
     const assets::TextureAssetRequest first{.path = "project:/textures/first.png"};
     const assets::TextureAssetRequest second{.path = "project:/textures/second.png"};
 
-    assets::StructuredAssetDependencyBuckets first_dependencies;
-    first_dependencies.direct_next = {descriptor(first, source_generation)};
-    auto first_report = planner.replace_generation_on_owner(first_dependencies);
+    assets::PrefetchPlan first_plan;
+    first_plan.candidates.push_back({.descriptor = descriptor(first, source_generation),
+                                     .prediction = assets::PrefetchPredictionKind::ExpectedNext});
+    auto first_report = planner.replace_generation_on_owner(first_plan);
     REQUIRE(first_report);
     const auto first_generation = first_report.value().generation;
 
     auto demand = fixture.manager.request_texture(first, assets::AssetRequestReason::Demand);
     REQUIRE(demand);
 
-    assets::StructuredAssetDependencyBuckets second_dependencies;
-    second_dependencies.direct_next = {descriptor(second, source_generation)};
-    auto second_report = planner.replace_generation_on_owner(second_dependencies);
+    assets::PrefetchPlan second_plan;
+    second_plan.candidates.push_back({.descriptor = descriptor(second, source_generation),
+                                      .prediction = assets::PrefetchPredictionKind::ExpectedNext});
+    auto second_report = planner.replace_generation_on_owner(second_plan);
     REQUIRE(second_report);
     CHECK(second_report.value().generation.valid());
     CHECK(second_report.value().generation != first_generation);
@@ -2866,45 +2784,49 @@ TEST_CASE("prefetch planner reports rejected typed submissions without retaining
     assets::PrefetchPlanner planner(fixture.manager);
     const auto source_generation = fixture.manager.source_generation_on_owner();
 
-    assets::StructuredAssetDependencyBuckets dependencies;
-    dependencies.direct_next.push_back(
-        descriptor(assets::MaterialAssetRequest{.id = "rejected"}, source_generation));
-    auto report = planner.replace_generation_on_owner(dependencies);
+    assets::PrefetchPlan plan;
+    plan.candidates.push_back(
+        {.descriptor =
+             descriptor(assets::MaterialAssetRequest{.id = "rejected"}, source_generation),
+         .prediction = assets::PrefetchPredictionKind::ExpectedNext});
+    auto report = planner.replace_generation_on_owner(plan);
     REQUIRE(report);
     REQUIRE(report.value().failures.size() == 1);
     CHECK(report.value().failures[0].diagnostic.code == "assets.material_preparation_unavailable");
-    CHECK(report.value().direct_next_count == 1);
-    CHECK(report.value().adjacent_count == 0);
+    CHECK(report.value().expected_count == 1);
+    CHECK(report.value().possible_count == 0);
     CHECK(report.value().submitted_keys.empty());
-    CHECK(report.value().direct_next_count + report.value().adjacent_count ==
+    CHECK(report.value().expected_count + report.value().possible_count ==
           report.value().submitted_entries.size() + report.value().failures.size());
     CHECK(planner.retained_ticket_count_on_owner() == 0);
 }
 
-TEST_CASE("prefetch planner counts deduplicated prediction buckets before submission",
-          "[assets][structured-prefetch]")
+TEST_CASE("prefetch planner counts deduplicated prediction confidence before submission",
+          "[assets][structured-prefetch][flow-prediction]")
 {
     PlannerFixture fixture;
     assets::PrefetchPlanner planner(fixture.manager);
     const auto generation = fixture.manager.source_generation_on_owner();
-    const auto mandatory = descriptor(
-        assets::TextureAssetRequest{.path = "project:/textures/current.png"}, generation);
     const auto expected = descriptor(
         assets::TextureAssetRequest{.path = "project:/textures/expected.png"}, generation);
     const auto possible = descriptor(
         assets::TextureAssetRequest{.path = "project:/textures/possible.png"}, generation);
 
-    assets::StructuredAssetDependencyBuckets dependencies;
-    dependencies.current_mandatory = {mandatory};
-    dependencies.direct_next = {mandatory, expected, expected};
-    dependencies.adjacent_alternatives = {expected, possible, possible};
-    auto report = planner.replace_generation_on_owner(dependencies);
+    assets::PrefetchPlan plan;
+    plan.candidates = {
+        {.descriptor = expected, .prediction = assets::PrefetchPredictionKind::ExpectedNext},
+        {.descriptor = expected, .prediction = assets::PrefetchPredictionKind::ExpectedNext},
+        {.descriptor = expected, .prediction = assets::PrefetchPredictionKind::PossibleNext},
+        {.descriptor = possible, .prediction = assets::PrefetchPredictionKind::PossibleNext},
+        {.descriptor = possible, .prediction = assets::PrefetchPredictionKind::PossibleNext},
+    };
+    auto report = planner.replace_generation_on_owner(plan);
     REQUIRE(report);
-    CHECK(report.value().direct_next_count == 1);
-    CHECK(report.value().adjacent_count == 1);
+    CHECK(report.value().expected_count == 1);
+    CHECK(report.value().possible_count == 1);
     CHECK(report.value().submitted_entries.size() == 2);
     CHECK(report.value().failures.empty());
-    CHECK(report.value().direct_next_count + report.value().adjacent_count ==
+    CHECK(report.value().expected_count + report.value().possible_count ==
           report.value().submitted_entries.size() + report.value().failures.size());
     CHECK(report.value().submitted_entries[0].prediction ==
           assets::PrefetchPredictionKind::ExpectedNext);

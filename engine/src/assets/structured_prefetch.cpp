@@ -11,7 +11,6 @@
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 
 namespace noveltea::assets {
@@ -219,21 +218,6 @@ audio_descriptor(const core::compiled::AssetResource& asset, core::compiled::Aud
     return source.starts_with("project:/") || source.starts_with("system:/");
 }
 
-[[nodiscard]] std::string target_identity(const core::compiled::Entrypoint& target)
-{
-    return std::visit(
-        [](const auto& value) {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, core::RoomId>)
-                return "room:" + value.text();
-            else if constexpr (std::is_same_v<T, core::SceneId>)
-                return "scene:" + value.text();
-            else
-                return "dialogue:" + value.text();
-        },
-        target);
-}
-
 } // namespace
 
 struct StructuredAssetDependencyIndex::Impl {
@@ -261,8 +245,6 @@ struct StructuredAssetDependencyIndex::Impl {
     std::unordered_map<core::RoomId, const core::compiled::RoomDefinition*> rooms;
     std::unordered_map<core::InteractableInstanceId, const core::compiled::InteractableDefinition*>
         interactables;
-    std::unordered_map<core::SceneId, const core::compiled::SceneDefinition*> scenes;
-    std::unordered_map<core::DialogueId, const core::compiled::DialogueDefinition*> dialogues;
     std::unordered_map<std::string, MaterialDependencies> material_dependencies;
     std::unordered_map<core::LayoutId, LayoutDependencies> layout_dependencies;
     std::unordered_map<core::RoomId, std::vector<const core::compiled::CharacterDefinition*>>
@@ -654,27 +636,9 @@ struct StructuredAssetDependencyIndex::Impl {
         }
     }
 
-    void append_flow_target(DescriptorAccumulator& output, const core::FlowTarget& target,
-                            core::Diagnostics& collection_diagnostics,
-                            std::unordered_set<std::string>& traversal) const
-    {
-        std::visit(
-            [&](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::RoomId> || std::is_same_v<T, core::SceneId> ||
-                              std::is_same_v<T, core::DialogueId>) {
-                    append_target(output, core::compiled::Entrypoint{value}, collection_diagnostics,
-                                  traversal);
-                }
-            },
-            target);
-    }
-
     void append_room(DescriptorAccumulator& output, const core::RoomId& id,
-                     core::Diagnostics& collection_diagnostics,
-                     std::unordered_set<std::string>& traversal) const
+                     core::Diagnostics& collection_diagnostics) const
     {
-        (void)traversal;
         const auto found = rooms.find(id);
         if (found == rooms.end()) {
             add_diagnostic(collection_diagnostics, "assets.prefetch_missing_room",
@@ -736,154 +700,6 @@ struct StructuredAssetDependencyIndex::Impl {
                                              collection_diagnostics);
             }
         }
-    }
-
-    void append_scene(DescriptorAccumulator& output, const core::SceneId& id,
-                      core::Diagnostics& collection_diagnostics,
-                      std::unordered_set<std::string>& traversal) const
-    {
-        const auto found = scenes.find(id);
-        if (found == scenes.end()) {
-            add_diagnostic(collection_diagnostics, "assets.prefetch_missing_scene",
-                           "prefetch target references missing Scene '" + id.text() + "'");
-            return;
-        }
-        const auto& scene = *found->second;
-        std::visit(
-            [&](const auto& stage) {
-                using Stage = std::decay_t<decltype(stage)>;
-                if constexpr (std::is_same_v<Stage, core::compiled::StagedRoomSceneStage>) {
-                    append_room(output, stage.room, collection_diagnostics, traversal);
-                } else if constexpr (std::is_same_v<Stage, core::compiled::BlankSceneStage>) {
-                    append_background(output, stage.background, collection_diagnostics,
-                                      "Scene blank Stage background");
-                    if (stage.layout)
-                        append_layout(output, *stage.layout, collection_diagnostics,
-                                      "Scene blank Stage Layout");
-                }
-            },
-            scene.stage);
-
-        for (const auto& instruction : scene.program.instructions) {
-            std::visit(
-                [&](const auto& value) {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, core::compiled::SetBackgroundInstruction>) {
-                        append_background(output, value.background, collection_diagnostics,
-                                          "Scene background instruction");
-                    } else if constexpr (std::is_same_v<T, core::compiled::ActorCueInstruction>) {
-                        if (value.action != core::compiled::ActorCueAction::Hide) {
-                            append_character(output, value.character, value.profile_id,
-                                             value.pose_id, value.expression_id,
-                                             value.appearance_id, collection_diagnostics,
-                                             "Scene actor cue");
-                        }
-                    } else if constexpr (std::is_same_v<
-                                             T, core::compiled::CallSceneSceneInstruction> ||
-                                         std::is_same_v<
-                                             T, core::compiled::StartDetachedSceneInstruction>) {
-                        append_target(output, core::compiled::Entrypoint{value.scene},
-                                      collection_diagnostics, traversal);
-                    } else if constexpr (std::is_same_v<
-                                             T, core::compiled::CallDialogueSceneInstruction>) {
-                        append_target(output, core::compiled::Entrypoint{value.dialogue},
-                                      collection_diagnostics, traversal);
-                    } else if constexpr (std::is_same_v<T, core::compiled::AudioCueInstruction>) {
-                        if (value.asset)
-                            append_audio(output, *value.asset, value.purpose,
-                                         collection_diagnostics, "Scene audio cue");
-                    } else if constexpr (std::is_same_v<T, core::compiled::SetLayoutInstruction>) {
-                        if (value.layout)
-                            append_layout(output, *value.layout, collection_diagnostics,
-                                          "Scene Layout instruction");
-                    } else if constexpr (std::is_same_v<
-                                             T, core::compiled::TransitionGroupInstruction>) {
-                        for (const auto& child : value.children) {
-                            std::visit(
-                                [&](const auto& mutation) {
-                                    using M = std::decay_t<decltype(mutation)>;
-                                    if constexpr (std::is_same_v<
-                                                      M,
-                                                      core::compiled::
-                                                          TransitionGroupSetBackgroundMutation>) {
-                                        append_background(output, mutation.background,
-                                                          collection_diagnostics,
-                                                          "Scene transition background");
-                                    } else if constexpr (std::is_same_v<
-                                                             M, core::compiled::
-                                                                    TransitionGroupActorMutation>) {
-                                        if (mutation.action !=
-                                            core::compiled::ActorCueAction::Hide) {
-                                            append_character(
-                                                output, mutation.character, mutation.profile_id,
-                                                mutation.pose_id, mutation.expression_id,
-                                                mutation.appearance_id, collection_diagnostics,
-                                                "Scene transition actor");
-                                        }
-                                    } else if constexpr (
-                                        std::is_same_v<
-                                            M, core::compiled::TransitionGroupLayoutMutation>) {
-                                        if (mutation.layout)
-                                            append_layout(output, *mutation.layout,
-                                                          collection_diagnostics,
-                                                          "Scene transition Layout");
-                                    }
-                                },
-                                child);
-                        }
-                    }
-                },
-                instruction);
-        }
-        std::visit(
-            [&](const auto& terminal) {
-                using T = std::decay_t<decltype(terminal)>;
-                if constexpr (std::is_same_v<T, core::compiled::ContinueSceneTerminal>)
-                    append_target(output, core::compiled::Entrypoint{terminal.scene},
-                                  collection_diagnostics, traversal);
-                else if constexpr (std::is_same_v<T, core::compiled::ContinueDialogueSceneTerminal>)
-                    append_target(output, core::compiled::Entrypoint{terminal.dialogue},
-                                  collection_diagnostics, traversal);
-            },
-            scene.terminal);
-    }
-
-    void append_dialogue(DescriptorAccumulator& output, const core::DialogueId& id,
-                         core::Diagnostics& collection_diagnostics,
-                         std::unordered_set<std::string>& traversal) const
-    {
-        const auto found = dialogues.find(id);
-        if (found == dialogues.end()) {
-            add_diagnostic(collection_diagnostics, "assets.prefetch_missing_dialogue",
-                           "prefetch target references missing Dialogue '" + id.text() + "'");
-            return;
-        }
-        append_flow_target(output, found->second->completion, collection_diagnostics, traversal);
-    }
-
-    void append_target(DescriptorAccumulator& output, const core::compiled::Entrypoint& target,
-                       core::Diagnostics& collection_diagnostics,
-                       std::unordered_set<std::string>& traversal) const
-    {
-        const std::string identity = target_identity(target);
-        if (!traversal.insert(identity).second) {
-            add_diagnostic(collection_diagnostics, "assets.prefetch_dependency_cycle",
-                           "prefetch dependency traversal stopped at cycle '" + identity + "'",
-                           core::ErrorSeverity::Info);
-            return;
-        }
-        std::visit(
-            [&](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::RoomId>)
-                    append_room(output, value, collection_diagnostics, traversal);
-                else if constexpr (std::is_same_v<T, core::SceneId>)
-                    append_scene(output, value, collection_diagnostics, traversal);
-                else
-                    append_dialogue(output, value, collection_diagnostics, traversal);
-            },
-            target);
-        traversal.erase(identity);
     }
 };
 
@@ -951,10 +767,6 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
     }
     for (const auto& room : project.rooms())
         impl->rooms.emplace(room.identity.id, &room);
-    for (const auto& scene : project.scenes())
-        impl->scenes.emplace(scene.identity.id, &scene);
-    for (const auto& dialogue : project.dialogues())
-        impl->dialogues.emplace(dialogue.identity.id, &dialogue);
     for (const auto& instance : project.interactable_instances()) {
         const auto* definition = project.find_interactable_definition(instance.definition);
         if (definition == nullptr)
@@ -1053,18 +865,17 @@ const core::Diagnostics& StructuredAssetDependencyIndex::diagnostics() const noe
     return m_impl->diagnostics;
 }
 
-StructuredAssetDependencyCollector::StructuredAssetDependencyCollector(
+MandatoryAssetDependencyCollector::MandatoryAssetDependencyCollector(
     StructuredAssetDependencyIndex index) noexcept
     : m_index(std::move(index))
 {
 }
 
-StructuredAssetDependencyBuckets
-StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyContext& context) const
+MandatoryAssetDependencyClosure
+MandatoryAssetDependencyCollector::collect(const MandatoryAssetDependencyContext& context) const
 {
-    StructuredAssetDependencyBuckets result;
-    result.diagnostics = m_index.m_impl->diagnostics;
-    result.mandatory_diagnostics = m_index.m_impl->configuration_diagnostics;
+    MandatoryAssetDependencyClosure result;
+    result.diagnostics = m_index.m_impl->configuration_diagnostics;
     std::map<CacheIdentity, SeenDescriptorState> seen;
     core::Diagnostics current_diagnostics;
 
@@ -1164,37 +975,8 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
                                           "required system Layout");
         }
     }
-    result.current_mandatory = current.take();
-    core::append_diagnostics(result.mandatory_diagnostics, current_diagnostics);
+    result.requests = current.take();
     core::append_diagnostics(result.diagnostics, std::move(current_diagnostics));
-
-    DescriptorAccumulator direct(&seen);
-    core::Diagnostics direct_diagnostics;
-    if (context.direct_next) {
-        std::unordered_set<std::string> traversal;
-        m_index.m_impl->append_target(direct, *context.direct_next, direct_diagnostics, traversal);
-    }
-    result.direct_next = direct.take();
-    core::append_diagnostics(result.diagnostics, std::move(direct_diagnostics));
-
-    DescriptorAccumulator adjacent(&seen);
-    core::Diagnostics adjacent_diagnostics;
-    for (const auto& target : context.adjacent_alternatives) {
-        std::unordered_set<std::string> traversal;
-        m_index.m_impl->append_target(adjacent, target, adjacent_diagnostics, traversal);
-    }
-    if (context.current_presentation && context.current_presentation->current_room) {
-        const auto room = m_index.m_impl->rooms.find(*context.current_presentation->current_room);
-        if (room != m_index.m_impl->rooms.end()) {
-            for (const auto& exit : room->second->exits) {
-                std::unordered_set<std::string> traversal;
-                m_index.m_impl->append_target(adjacent, core::compiled::Entrypoint{exit.target},
-                                              adjacent_diagnostics, traversal);
-            }
-        }
-    }
-    result.adjacent_alternatives = adjacent.take();
-    core::append_diagnostics(result.diagnostics, std::move(adjacent_diagnostics));
     return result;
 }
 
@@ -1311,9 +1093,7 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
                 std::get_if<core::compiled::FlowPredictionRoomDependency>(&projected.dependency)) {
             DescriptorAccumulator room_descriptors;
             core::Diagnostics room_diagnostics;
-            std::unordered_set<std::string> traversal;
-            index.m_impl->append_room(room_descriptors, room_dependency->room, room_diagnostics,
-                                      traversal);
+            index.m_impl->append_room(room_descriptors, room_dependency->room, room_diagnostics);
             core::append_diagnostics(plan.diagnostics, std::move(room_diagnostics));
             for (auto& descriptor : room_descriptors.take())
                 append_descriptor(std::move(descriptor), projected);
@@ -1370,7 +1150,6 @@ struct PrefetchPlanner::Impl {
 
     AssetManager* assets;
     std::optional<PrefetchGenerationId> generation;
-    std::vector<PrefetchTicket> legacy_tickets;
     std::vector<Interest> plan_interests;
 };
 
@@ -1566,93 +1345,6 @@ PrefetchPlanner::PrefetchPlanner(PrefetchPlanner&&) noexcept = default;
 PrefetchPlanner& PrefetchPlanner::operator=(PrefetchPlanner&&) noexcept = default;
 
 core::Result<PrefetchSubmissionReport, core::Diagnostic>
-PrefetchPlanner::replace_generation_on_owner(
-    const StructuredAssetDependencyBuckets& dependencies) noexcept
-{
-    auto allocated = m_impl->assets->create_prefetch_generation_on_owner();
-    if (!allocated)
-        return core::Result<PrefetchSubmissionReport, core::Diagnostic>::failure(allocated.error());
-
-    PrefetchSubmissionReport report;
-    report.generation = *allocated.value_if();
-    std::vector<PrefetchTicket> next_tickets;
-    std::map<CacheIdentity, SeenDescriptorState> seen;
-    for (const auto& current : dependencies.current_mandatory) {
-        const auto identity = identity_of(current.cache_key);
-        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(current);
-        auto [found, inserted] = seen.try_emplace(
-            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
-        if (!inserted)
-            found->second.retain_alpha_coverage |= retain_alpha_coverage;
-    }
-
-    auto submit = [&](const StructuredAssetRequestDescriptor& descriptor, bool direct_next) {
-        const auto identity = identity_of(descriptor.cache_key);
-        const bool retain_alpha_coverage = descriptor_retain_alpha_coverage(descriptor);
-        const auto [found, inserted] = seen.try_emplace(
-            identity, SeenDescriptorState{.retain_alpha_coverage = retain_alpha_coverage});
-        if (!inserted) {
-            if (!retain_alpha_coverage || found->second.retain_alpha_coverage)
-                return;
-            found->second.retain_alpha_coverage = true;
-        }
-
-        if (direct_next)
-            ++report.direct_next_count;
-        else
-            ++report.adjacent_count;
-        const AssetSourceGeneration current_generation =
-            m_impl->assets->source_generation_on_owner();
-        const auto prediction = direct_next ? PrefetchPredictionKind::ExpectedNext
-                                            : PrefetchPredictionKind::PossibleNext;
-        if (descriptor.cache_key.source_generation != current_generation) {
-            report.failures.push_back(
-                {.cache_key = descriptor.cache_key,
-                 .prediction = prediction,
-                 .diagnostic = {.code = "assets.prefetch_stale_descriptor",
-                                .message = "prefetch descriptor source generation is stale"}});
-            return;
-        }
-        const AssetCacheKey expected = descriptor_cache_key(descriptor.request, current_generation);
-        if (expected != descriptor.cache_key) {
-            report.failures.push_back(
-                {.cache_key = descriptor.cache_key,
-                 .prediction = prediction,
-                 .diagnostic = {
-                     .code = "assets.prefetch_descriptor_key_mismatch",
-                     .message = "typed prefetch descriptor does not match its derived cache key"}});
-            return;
-        }
-
-        auto submitted = dispatch_prefetch(*m_impl->assets, descriptor.request, report.generation);
-        if (!submitted) {
-            report.failures.push_back({.cache_key = descriptor.cache_key,
-                                       .prediction = prediction,
-                                       .diagnostic = submitted.error()});
-            return;
-        }
-        next_tickets.push_back(std::move(*submitted.value_if()));
-        report.submitted_entries.push_back(
-            {.cache_key = descriptor.cache_key, .prediction = prediction, .provenance = {}});
-        report.submitted_keys.push_back(descriptor.cache_key);
-        if (direct_next)
-            ++report.direct_next_submitted;
-        else
-            ++report.adjacent_submitted;
-    };
-
-    for (const auto& descriptor : dependencies.direct_next)
-        submit(descriptor, true);
-    for (const auto& descriptor : dependencies.adjacent_alternatives)
-        submit(descriptor, false);
-
-    m_impl->generation = report.generation;
-    m_impl->plan_interests.clear();
-    m_impl->legacy_tickets = std::move(next_tickets);
-    return core::Result<PrefetchSubmissionReport, core::Diagnostic>::success(std::move(report));
-}
-
-core::Result<PrefetchSubmissionReport, core::Diagnostic>
 PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
 {
     auto allocated = m_impl->assets->create_prefetch_generation_on_owner();
@@ -1669,9 +1361,9 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
 #endif
     for (const auto& candidate : candidates) {
         if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
-            ++report.direct_next_count;
+            ++report.expected_count;
         else
-            ++report.adjacent_count;
+            ++report.possible_count;
     }
 
     std::map<CacheIdentity, std::size_t> previous_by_identity;
@@ -1765,9 +1457,9 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
                 {.candidate = std::move(candidate), .ticket = std::move(previous->ticket)});
             report.retained_entries.push_back(retained_entry);
             if (retained_entry.prediction == PrefetchPredictionKind::ExpectedNext)
-                ++report.direct_next_retained;
+                ++report.expected_retained;
             else
-                ++report.adjacent_retained;
+                ++report.possible_retained;
             continue;
         }
 
@@ -1804,23 +1496,21 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
                                             .provenance = candidate.provenance});
         report.submitted_keys.push_back(descriptor.cache_key);
         if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)
-            ++report.direct_next_submitted;
+            ++report.expected_submitted;
         else
-            ++report.adjacent_submitted;
+            ++report.possible_submitted;
     }
 
     m_impl->generation = report.generation;
-    // All newly admitted interests are attached before either legacy speculative tickets or
-    // obsolete Flow interests are released. Equivalent Flow interests above retain their original
-    // ticket while the logical generation advances for observability.
-    m_impl->legacy_tickets.clear();
+    // All newly admitted interests are attached before obsolete Flow interests are released.
+    // Equivalent interests above retain their original ticket while the logical generation
+    // advances for observability.
     m_impl->plan_interests = std::move(next_interests);
     return core::Result<PrefetchSubmissionReport, core::Diagnostic>::success(std::move(report));
 }
 
 void PrefetchPlanner::clear_on_owner() noexcept
 {
-    m_impl->legacy_tickets.clear();
     m_impl->plan_interests.clear();
     m_impl->generation.reset();
 }
@@ -1832,7 +1522,7 @@ std::optional<PrefetchGenerationId> PrefetchPlanner::active_generation_on_owner(
 
 std::size_t PrefetchPlanner::retained_ticket_count_on_owner() const noexcept
 {
-    return m_impl->legacy_tickets.size() + m_impl->plan_interests.size();
+    return m_impl->plan_interests.size();
 }
 
 } // namespace noveltea::assets
