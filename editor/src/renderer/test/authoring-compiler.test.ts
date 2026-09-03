@@ -390,6 +390,84 @@ describe('authoring compiler framework', () => {
     ).toBe(false);
   });
 
+  it('lowers resident Interaction programs into distinct prediction points', () => {
+    const project = validProject();
+    project.layouts.actions = {
+      id: 'actions',
+      label: 'Actions',
+      data: defaultLayoutData('Actions'),
+    };
+    project.settings.interaction = {
+      defaultVerbMenuLayout: { $ref: { collection: 'layouts', id: 'actions' } },
+    };
+    project.scenes.inspect = {
+      id: 'inspect',
+      label: 'Inspect',
+      data: defaultSceneData('Inspect'),
+    };
+    const verb = defaultVerbData('Inspect');
+    verb.defaultProgram = {
+      instructions: [],
+      completion: { kind: 'scene', id: 'inspect' },
+      outcome: 'handled',
+    };
+    project.verbs.inspect = { id: 'inspect', label: 'Inspect', data: verb };
+    const interaction = defaultInteractionData();
+    interaction.rules = [
+      {
+        id: 'inspect-room',
+        verb: { $ref: { collection: 'verbs', id: 'inspect' } },
+        slots: [],
+        offer: null,
+        guard: { kind: 'always' },
+        priority: 0,
+        program: {
+          instructions: [
+            {
+              id: 'inspect-scene',
+              kind: 'call-scene',
+              scene: { $ref: { collection: 'scenes', id: 'inspect' } },
+            },
+          ],
+          completion: { kind: 'return' },
+          outcome: 'handled',
+        },
+      },
+    ];
+    project.interactions.inspect = { id: 'inspect', label: 'Inspect', data: interaction };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prediction = result.project.flowPrediction;
+    expect(prediction).toBeDefined();
+    expect(
+      prediction!.slices.find(
+        (slice) =>
+          slice.point.kind === 'interaction-rule' &&
+          slice.point.interaction.id === 'inspect' &&
+          slice.point.ruleId === 'inspect-room',
+      )?.program,
+    ).toEqual([
+      {
+        commandId: 'inspect-scene',
+        kind: 'call-scene',
+        scene: { kind: 'scene', id: 'inspect' },
+      },
+    ]);
+    expect(
+      prediction!.slices.find(
+        (slice) => slice.point.kind === 'verb-default' && slice.point.verb.id === 'inspect',
+      )?.program,
+    ).toEqual([{ kind: 'call-scene', scene: { kind: 'scene', id: 'inspect' } }]);
+    expect(
+      prediction!.slices.some(
+        (slice) => slice.point.kind === 'resident-layout' && slice.point.layout.id === 'actions',
+      ),
+    ).toBe(true);
+  });
+
   it('compiles the implicit Project Inventory and default Inventory Layout', () => {
     const project = validProject();
     project.interactables.coin = {

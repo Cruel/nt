@@ -1826,10 +1826,28 @@ struct RoomLifecyclePredictionPoint {
     RoomLifecyclePredictionStage stage = RoomLifecyclePredictionStage::Presentation;
     bool operator==(const RoomLifecyclePredictionPoint&) const = default;
 };
+struct InteractionRulePredictionPoint {
+    InteractionId interaction;
+    InteractionRuleId rule;
+    bool operator==(const InteractionRulePredictionPoint&) const = default;
+};
+struct VerbDefaultPredictionPoint {
+    VerbId verb;
+    bool operator==(const VerbDefaultPredictionPoint&) const = default;
+};
+struct UndefinedInteractionPredictionPoint {
+    bool operator==(const UndefinedInteractionPredictionPoint&) const = default;
+};
+struct ResidentLayoutPredictionPoint {
+    LayoutId layout;
+    bool operator==(const ResidentLayoutPredictionPoint&) const = default;
+};
 using FlowPredictionPoint =
     std::variant<SceneEntryPredictionPoint, SceneStepPredictionPoint, SceneTerminalPredictionPoint,
                  DialogueEntryPredictionPoint, DialoguePositionPredictionPoint,
-                 DialogueTerminalPredictionPoint, RoomLifecyclePredictionPoint>;
+                 DialogueTerminalPredictionPoint, RoomLifecyclePredictionPoint,
+                 InteractionRulePredictionPoint, VerbDefaultPredictionPoint,
+                 UndefinedInteractionPredictionPoint, ResidentLayoutPredictionPoint>;
 
 struct FlowPredictionSetGlobalProperty {
     PropertyId property;

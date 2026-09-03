@@ -19,6 +19,7 @@ optimization metadata. It is runtime-blind and non-authoritative: gameplay execu
 use the ordinary compiled Scene/Dialogue/Room definitions, while speculative loading may consume the
 prediction metadata when present. The representation contains normalized semantic dependency groups,
 Scene entry/step/terminal slices, Dialogue entry/execution/terminal slices, reusable Room lifecycle/presentation slices,
+resident Interaction-rule, Verb-default, undefined-Interaction, and Layout slices,
 typed control edges, semantic frontier markers, and compact compiler-lowered prediction command
 summaries. Scene Stage dependencies live only on the Scene-entry slice; later Scene slices contain only
 execution-local dependencies such as Asset, purpose-qualified Audio, Character presentation, Layout,
@@ -36,7 +37,10 @@ frontiers distinguish ordinary progress from short waits, stronger waits, and pl
 Prediction command summaries admit only typed mutations, awaited/detached Flow handoffs, Conditions,
 and explicit opacity markers needed by the predictor; they are not executable Gameplay Commands. Room
 presentation remains represented semantically by Room identity rather than a duplicated asset
-snapshot. The index intentionally does not enumerate gameplay-state combinations. Absence of the
+snapshot. Resident slices remain inert until runtime supplies a Current-Room resident root; merely
+predicting prospective Room entry does not traverse them. Interaction and Verb resident slices
+summarize their compiled programs, including terminal Flow handoffs, while resident Layout slices name
+the Layout dependency directly. The index intentionally does not enumerate gameplay-state combinations. Absence of the
 section disables this optimization without changing gameplay semantics.
 
 The wire contains closed `SceneProgram`, `DialogueProgram`, `InteractionProgram`, and Room hook

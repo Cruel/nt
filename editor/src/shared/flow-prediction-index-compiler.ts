@@ -16,6 +16,7 @@ type DialogueSequenceBlock = Extract<DialogueBlock, { kind: 'sequence' }>;
 type DialogueSegment = DialogueSequenceBlock['segments'][number];
 type DialogueLineSegment = Extract<DialogueSegment, { kind: 'line' }>;
 type DialogueCue = DialogueLineSegment['cues'][number];
+type InteractionProgram = CompiledProjectWire['definitions']['verbs'][number]['defaultProgram'];
 
 function summarizeGameplayCommands(
   commands: readonly CompiledGameplayCommand[],
@@ -63,6 +64,26 @@ function summarizeGameplayCommands(
     }
   }
   return result;
+}
+
+function summarizeFlowTarget(target: InteractionProgram['completion']): PredictionProgram {
+  switch (target.kind) {
+    case 'scene':
+      return [{ kind: 'call-scene', scene: target.scene }];
+    case 'dialogue':
+      return [{ kind: 'call-dialogue', dialogue: target.dialogue }];
+    case 'room':
+      return [{ kind: 'enter-room', room: target.room }];
+    default:
+      return [];
+  }
+}
+
+function summarizeInteractionProgram(program: InteractionProgram): PredictionProgram {
+  return [
+    ...summarizeGameplayCommands(program.instructions),
+    ...summarizeFlowTarget(program.completion),
+  ];
 }
 
 function appendBackgroundDependencies(
@@ -587,6 +608,42 @@ export function compileFlowPredictionIndex(
         program,
       );
     }
+  }
+
+  for (const interaction of project.definitions.interactions) {
+    const interactionRef = { kind: 'interaction' as const, id: interaction.id };
+    for (const rule of interaction.rules) {
+      addSlice(
+        { kind: 'interaction-rule', interaction: interactionRef, ruleId: rule.id },
+        [],
+        summarizeInteractionProgram(rule.program),
+        { condition: rule.guard, frontier: 'normal' },
+      );
+    }
+  }
+  for (const verb of project.definitions.verbs) {
+    addSlice(
+      { kind: 'verb-default', verb: { kind: 'verb', id: verb.id } },
+      [],
+      summarizeInteractionProgram(verb.defaultProgram),
+      { condition: verb.availability, frontier: 'normal' },
+    );
+  }
+  if (project.undefinedInteractionProgram) {
+    addSlice(
+      { kind: 'undefined-interaction' },
+      [],
+      summarizeInteractionProgram(project.undefinedInteractionProgram),
+    );
+  }
+  const residentLayoutIds = new Set<string>();
+  for (const layout of [
+    project.settings.interaction.defaultVerbMenuLayout,
+    project.settings.inventory.defaultLayout,
+  ]) {
+    if (!layout || residentLayoutIds.has(layout.id)) continue;
+    residentLayoutIds.add(layout.id);
+    addSlice({ kind: 'resident-layout', layout }, [{ kind: 'layout', layout }]);
   }
 
   for (const scene of project.definitions.scenes) {

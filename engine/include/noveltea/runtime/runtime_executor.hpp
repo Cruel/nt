@@ -237,6 +237,8 @@ public:
     [[nodiscard]] core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>
     command_builder_reference(const core::compiled::InteractionSubject& subject,
                               std::string_view runtime_locale);
+    [[nodiscard]] std::vector<core::InteractionProgramRef>
+    resident_interaction_programs(std::span<const core::VerbId> enabled_verbs) const;
     [[nodiscard]] core::Result<core::MapView, RuntimeExecutionError>
     map_view(const core::MapId& map, std::string_view runtime_locale);
     [[nodiscard]] core::Result<void, RuntimeExecutionError>

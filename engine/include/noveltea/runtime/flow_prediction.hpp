@@ -15,10 +15,18 @@ enum class FlowPredictionConfidence : std::uint8_t {
     Alternative,
 };
 
+enum class FlowPredictionRootKind : std::uint8_t {
+    FlowExecution,
+    ProspectiveRoomEntry,
+    ResidentRoomContext,
+};
+
 struct FlowPredictionProvenance {
     // Semantic execution points traversed to reach the dependency. Keep this projection in domain
     // terms rather than leaking generated slice indexes to runtime/tooling consumers.
     std::vector<core::compiled::FlowPredictionPoint> points;
+    FlowPredictionRootKind root_kind = FlowPredictionRootKind::FlowExecution;
+    std::optional<core::RoomId> room;
 
     bool operator==(const FlowPredictionProvenance&) const = default;
 };
@@ -55,6 +63,14 @@ struct FlowPredictionContext {
 struct ProspectiveRoomEntryPredictionRoot {
     std::optional<core::RoomId> source_room;
     core::RoomId target_room;
+    bool operator==(const ProspectiveRoomEntryPredictionRoot&) const = default;
+};
+
+struct ResidentRoomPredictionRoot {
+    core::RoomId room;
+    std::vector<core::InteractionProgramRef> programs;
+    std::vector<core::LayoutId> layouts;
+    bool operator==(const ResidentRoomPredictionRoot&) const = default;
 };
 
 struct ActiveScenePredictionRoot {
@@ -77,6 +93,9 @@ public:
     [[nodiscard]] FlowPredictionProjection
     predict(const ProspectiveRoomEntryPredictionRoot& root) const;
     [[nodiscard]] FlowPredictionProjection predict(const ProspectiveRoomEntryPredictionRoot& root,
+                                                   const FlowPredictionContext& context) const;
+    [[nodiscard]] FlowPredictionProjection predict(const ResidentRoomPredictionRoot& root) const;
+    [[nodiscard]] FlowPredictionProjection predict(const ResidentRoomPredictionRoot& root,
                                                    const FlowPredictionContext& context) const;
     [[nodiscard]] FlowPredictionProjection predict(const ActiveScenePredictionRoot& root) const;
     [[nodiscard]] FlowPredictionProjection predict(const ActiveScenePredictionRoot& root,

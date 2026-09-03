@@ -138,11 +138,15 @@ struct InteractionInvocationContext {
 struct InteractionRuleProgramRef {
     InteractionId interaction;
     InteractionRuleId rule;
+    bool operator==(const InteractionRuleProgramRef&) const = default;
 };
 struct VerbDefaultProgramRef {
     VerbId verb;
+    bool operator==(const VerbDefaultProgramRef&) const = default;
 };
-struct ProjectUndefinedProgramRef {};
+struct ProjectUndefinedProgramRef {
+    bool operator==(const ProjectUndefinedProgramRef&) const = default;
+};
 using InteractionProgramRef =
     std::variant<InteractionRuleProgramRef, VerbDefaultProgramRef, ProjectUndefinedProgramRef>;
 enum class InteractionFallbackStage : std::uint8_t {

@@ -875,6 +875,15 @@ struct MandatoryAssetGate::Impl {
         if (package == nullptr || !dependency_index)
             return result;
 
+        if (resident_prediction) {
+            auto resident_plan = resolve_flow_prediction(*dependency_index, *resident_prediction);
+            core::append_diagnostics(result.diagnostics, std::move(resident_plan.diagnostics));
+            result.structural_limit_reached |= resident_plan.structural_limit_reached;
+            result.candidates.insert(result.candidates.end(),
+                                     std::make_move_iterator(resident_plan.candidates.begin()),
+                                     std::make_move_iterator(resident_plan.candidates.end()));
+        }
+
         const runtime::FlowPredictionProjection* projection = nullptr;
         if (active_scene_prediction)
             projection = &*active_scene_prediction;
@@ -882,15 +891,14 @@ struct MandatoryAssetGate::Impl {
             projection = &*active_dialogue_prediction;
         else if (!runtime_prediction_observed && !entry_prediction.entries.empty())
             projection = &entry_prediction;
-        if (projection == nullptr)
-            return result;
-
-        auto plan = resolve_flow_prediction(*dependency_index, *projection);
-        core::append_diagnostics(result.diagnostics, std::move(plan.diagnostics));
-        result.structural_limit_reached |= plan.structural_limit_reached;
-        result.candidates.insert(result.candidates.end(),
-                                 std::make_move_iterator(plan.candidates.begin()),
-                                 std::make_move_iterator(plan.candidates.end()));
+        if (projection != nullptr) {
+            auto plan = resolve_flow_prediction(*dependency_index, *projection);
+            core::append_diagnostics(result.diagnostics, std::move(plan.diagnostics));
+            result.structural_limit_reached |= plan.structural_limit_reached;
+            result.candidates.insert(result.candidates.end(),
+                                     std::make_move_iterator(plan.candidates.begin()),
+                                     std::make_move_iterator(plan.candidates.end()));
+        }
         return result;
     }
 
@@ -960,6 +968,8 @@ struct MandatoryAssetGate::Impl {
     std::optional<runtime::FlowPredictionProjection> active_scene_prediction;
     std::optional<runtime::ActiveDialoguePredictionRoot> active_dialogue_root;
     std::optional<runtime::FlowPredictionProjection> active_dialogue_prediction;
+    std::optional<runtime::ResidentRoomPredictionRoot> resident_root;
+    std::optional<runtime::FlowPredictionProjection> resident_prediction;
     bool runtime_prediction_observed = false;
     AssetSourceGeneration dependency_generation;
     std::optional<MandatoryAssetRequestGroup> group;
@@ -1017,6 +1027,8 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
         m_impl->active_scene_prediction.reset();
         m_impl->active_dialogue_root.reset();
         m_impl->active_dialogue_prediction.reset();
+        m_impl->resident_root.reset();
+        m_impl->resident_prediction.reset();
         m_impl->runtime_prediction_observed = false;
         m_impl->package = nullptr;
         return core::DiagnosticResult<void>::failure(
@@ -1039,6 +1051,8 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
     m_impl->active_scene_prediction.reset();
     m_impl->active_dialogue_root.reset();
     m_impl->active_dialogue_prediction.reset();
+    m_impl->resident_root.reset();
+    m_impl->resident_prediction.reset();
     m_impl->runtime_prediction_observed = false;
     return core::DiagnosticResult<void>::success();
 }
@@ -1064,6 +1078,8 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
     m_impl->active_scene_prediction.reset();
     m_impl->active_dialogue_root.reset();
     m_impl->active_dialogue_prediction.reset();
+    m_impl->resident_root.reset();
+    m_impl->resident_prediction.reset();
     m_impl->runtime_prediction_observed = false;
     m_impl->package = nullptr;
     m_impl->active_renderer_variant.clear();
@@ -1114,6 +1130,11 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
     // to their standalone callers without flattening them back into this runtime planner path.
     m_impl->dependencies.direct_next.clear();
     m_impl->dependencies.adjacent_alternatives.clear();
+    if (snapshot.mode != core::PresentationRuntimeMode::Room || !snapshot.current_room ||
+        !m_impl->resident_root || m_impl->resident_root->room != *snapshot.current_room) {
+        m_impl->resident_root.reset();
+        m_impl->resident_prediction.reset();
+    }
     m_impl->append_adjacent_room_predictions(snapshot);
     if (!m_impl->dependencies.mandatory_diagnostics.empty()) {
         return {.disposition = MandatoryAssetGateDisposition::Failed,
@@ -1234,13 +1255,17 @@ core::Diagnostics MandatoryAssetGate::update_active_scene_prediction_on_owner(
     const runtime::ActiveScenePredictionRoot* root) noexcept
 {
     const bool same_root = root != nullptr && m_impl->active_scene_root &&
-                           same_scene_prediction_root(*m_impl->active_scene_root, *root);
+                           same_scene_prediction_root(*m_impl->active_scene_root, *root) &&
+                           !m_impl->resident_root;
     const bool same_absence = root == nullptr && m_impl->runtime_prediction_observed &&
-                              !m_impl->active_scene_root && !m_impl->active_dialogue_root;
+                              !m_impl->active_scene_root && !m_impl->active_dialogue_root &&
+                              !m_impl->resident_root;
     if (same_root || same_absence)
         return {};
 
     m_impl->runtime_prediction_observed = true;
+    m_impl->resident_root.reset();
+    m_impl->resident_prediction.reset();
     m_impl->active_dialogue_root.reset();
     m_impl->active_dialogue_prediction.reset();
     m_impl->active_scene_root =
@@ -1279,13 +1304,17 @@ core::Diagnostics MandatoryAssetGate::update_active_dialogue_prediction_on_owner
     const runtime::ActiveDialoguePredictionRoot* root) noexcept
 {
     const bool same_root = root != nullptr && m_impl->active_dialogue_root &&
-                           same_dialogue_prediction_root(*m_impl->active_dialogue_root, *root);
+                           same_dialogue_prediction_root(*m_impl->active_dialogue_root, *root) &&
+                           !m_impl->resident_root;
     const bool same_absence = root == nullptr && m_impl->runtime_prediction_observed &&
-                              !m_impl->active_scene_root && !m_impl->active_dialogue_root;
+                              !m_impl->active_scene_root && !m_impl->active_dialogue_root &&
+                              !m_impl->resident_root;
     if (same_root || same_absence)
         return {};
 
     m_impl->runtime_prediction_observed = true;
+    m_impl->resident_root.reset();
+    m_impl->resident_prediction.reset();
     m_impl->active_scene_root.reset();
     m_impl->active_scene_prediction.reset();
     m_impl->active_dialogue_root = root != nullptr
@@ -1300,6 +1329,54 @@ core::Diagnostics MandatoryAssetGate::update_active_dialogue_prediction_on_owner
     core::Diagnostics diagnostics;
     if (m_impl->active_dialogue_prediction)
         diagnostics = m_impl->active_dialogue_prediction->diagnostics;
+    if (m_impl->group || m_impl->transaction_active || m_impl->package == nullptr ||
+        !m_impl->dependency_index)
+        return diagnostics;
+
+    auto plan = m_impl->speculative_plan();
+    core::append_diagnostics(diagnostics, std::move(plan.diagnostics));
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    const auto previous_generation = m_impl->prefetch.active_generation_on_owner();
+#endif
+    auto submitted = m_impl->prefetch.replace_generation_on_owner(plan);
+    if (!submitted) {
+        diagnostics.push_back(std::move(submitted).error());
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    } else {
+        m_impl->record_prefetch_replacement_on_owner(previous_generation, submitted.value(),
+                                                     std::nullopt);
+#endif
+    }
+    return diagnostics;
+}
+
+core::Diagnostics MandatoryAssetGate::update_resident_room_prediction_on_owner(
+    const runtime::ResidentRoomPredictionRoot* root) noexcept
+{
+    const bool same_root = root != nullptr && m_impl->resident_root &&
+                           *m_impl->resident_root == *root && !m_impl->active_scene_root &&
+                           !m_impl->active_dialogue_root;
+    const bool same_absence = root == nullptr && !m_impl->resident_root &&
+                              !m_impl->active_scene_root && !m_impl->active_dialogue_root;
+    if (same_root || same_absence)
+        return {};
+
+    m_impl->runtime_prediction_observed = true;
+    m_impl->active_scene_root.reset();
+    m_impl->active_scene_prediction.reset();
+    m_impl->active_dialogue_root.reset();
+    m_impl->active_dialogue_prediction.reset();
+    m_impl->resident_root =
+        root != nullptr ? std::optional<runtime::ResidentRoomPredictionRoot>{*root} : std::nullopt;
+    m_impl->resident_prediction.reset();
+    if (root != nullptr && m_impl->package != nullptr) {
+        runtime::FlowPredictor predictor(m_impl->package->project());
+        m_impl->resident_prediction = predictor.predict(*root);
+    }
+
+    core::Diagnostics diagnostics;
+    if (m_impl->resident_prediction)
+        diagnostics = m_impl->resident_prediction->diagnostics;
     if (m_impl->group || m_impl->transaction_active || m_impl->package == nullptr ||
         !m_impl->dependency_index)
         return diagnostics;

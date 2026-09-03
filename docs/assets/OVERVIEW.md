@@ -181,6 +181,14 @@ gameplay. The predictor also publishes semantic execution order, dependency sub-
 execution-point provenance; it still performs no residency budgeting itself. Production uses the same predictor for the package entrypoint,
 for the authoritative foreground Scene or Dialogue position published by the Runtime Session, and,
 once a Room is current, for each adjacent exit as a prospective source-to-target Room transition.
+After a completed Room publication commits, production also admits a distinct resident-Room root
+containing Interaction/default/fallback programs whose enabled Verb slots can be satisfied by eligible
+subjects in that Current Room, plus the relevant action Layouts. Interaction Guards are not executed
+just to refine speculation; a guard that cannot be known without actual invocation remains a plausible
+alternative. Resident work is resolved through the same dependency index, ranked as `PossibleNext`,
+and submitted to the same `PrefetchPlanner`/residency pool as every other speculative candidate. It is
+deliberately absent from an adjacent Room's prospective-entry root, so clicking or opening content that
+only becomes meaningful after entry does not inflate adjacency prefetch.
 Runtime publication updates foreground Flow prediction independently of visual snapshot equality, so
 advancing through a Scene or Dialogue can rotate the speculative generation even when rendered
 presentation has not changed. The first Scene
@@ -190,7 +198,8 @@ candidates are submitted as `PossibleNext` after the normal mandatory publicatio
 so their lifecycle handoffs can warm before navigation without becoming correctness requirements.
 Repeated runtime publications with the same prediction-relevant Scene or Dialogue position do not
 rotate the speculative generation; only a changed prediction root/frontier refreshes the active Flow
-plan.
+plan. Resident Room roots follow the same semantic replacement rule: exact root equality causes no
+generation churn, while a changed set of plausible programs or Layouts replaces the shared plan.
 Unsupported Flow shapes may continue to use older speculative paths temporarily. Mandatory
 `current_mandatory` collection remains independent; missing prediction metadata or an empty/unsupported
 projection never blocks publication or changes gameplay correctness.

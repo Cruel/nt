@@ -7,6 +7,7 @@
 #include "runtime_test_services.hpp"
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -636,6 +637,44 @@ TEST_CASE("Verb Offers resolve exact rule-derived declarations before broader Ve
     CHECK(use->slot == id<core::VerbSlotId>("target"));
     CHECK(use->rank == 5);
     CHECK(use->primary);
+}
+
+TEST_CASE("resident Interaction prediction keeps only programs plausible for Current Room subjects")
+{
+    auto document = load_document();
+    auto& use = definition(document, "verbs", "use");
+    use["availability"] = {{"kind", "always"}};
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    const auto source = std::find_if(rules.begin(), rules.end(),
+                                     [](const auto& rule) { return rule["id"] == "any-context"; });
+    REQUIRE(source != rules.end());
+    auto absent = *source;
+    absent["id"] = "absent-coin";
+    absent["offer"] = nullptr;
+    absent["slots"][0]["selectors"][0]["subject"]["interactable"]["id"] = "coin";
+    rules.push_back(std::move(absent));
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const std::array enabled{id<core::VerbId>("use")};
+    const auto resident = kernel->resident_interaction_programs(enabled);
+    CHECK(std::any_of(resident.begin(), resident.end(), [](const auto& program) {
+        const auto* rule = std::get_if<core::InteractionRuleProgramRef>(&program);
+        return rule != nullptr && rule->rule == id<core::InteractionRuleId>("any-context");
+    }));
+    CHECK_FALSE(std::any_of(resident.begin(), resident.end(), [](const auto& program) {
+        const auto* rule = std::get_if<core::InteractionRuleProgramRef>(&program);
+        return rule != nullptr && rule->rule == id<core::InteractionRuleId>("absent-coin");
+    }));
+    CHECK(std::any_of(resident.begin(), resident.end(), [](const auto& program) {
+        const auto* fallback = std::get_if<core::VerbDefaultProgramRef>(&program);
+        return fallback != nullptr && fallback->verb == id<core::VerbId>("use");
+    }));
 }
 
 TEST_CASE("a false most-specific Verb Offer suppresses the Verb without broader fallback")
