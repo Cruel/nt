@@ -357,6 +357,7 @@ enum class AssetProfilerPredictionRoot : std::uint8_t {
 struct AssetProfilerPredictionProvenance {
     AssetProfilerPredictionRoot root = AssetProfilerPredictionRoot::FlowExecution;
     std::optional<std::string> room;
+    std::optional<std::string> supplemental_hint_id;
     std::vector<std::string> reason_chain;
 };
 

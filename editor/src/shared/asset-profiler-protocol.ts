@@ -151,6 +151,7 @@ export type AssetProfilerPredictionRoot =
 export interface AssetProfilerPredictionProvenance {
   root: AssetProfilerPredictionRoot;
   room: string | null;
+  supplementalHintId: string | null;
   reasonChain: string[];
 }
 
@@ -579,9 +580,10 @@ function isSubmissionFailure(value: unknown): value is AssetProfilerPrefetchSubm
 function isPredictionProvenance(value: unknown): value is AssetProfilerPredictionProvenance {
   return (
     isRecord(value) &&
-    hasExactKeys(value, ['root', 'room', 'reasonChain']) &&
+    hasExactKeys(value, ['root', 'room', 'supplementalHintId', 'reasonChain']) &&
     isEnum(value.root, ['flow-execution', 'prospective-room-entry', 'resident-room-context']) &&
     (value.room === null || typeof value.room === 'string') &&
+    (value.supplementalHintId === null || typeof value.supplementalHintId === 'string') &&
     Array.isArray(value.reasonChain) &&
     value.reasonChain.every((reason) => typeof reason === 'string')
   );

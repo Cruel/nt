@@ -441,9 +441,12 @@ Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
             Json reason_chain = array_with_capacity(path.reason_chain.size());
             for (const auto& reason : path.reason_chain)
                 reason_chain.push_back(reason);
-            provenance.push_back(Json{{"root", prediction_root_name(path.root)},
-                                      {"room", path.room ? Json(*path.room) : Json(nullptr)},
-                                      {"reasonChain", std::move(reason_chain)}});
+            provenance.push_back(
+                Json{{"root", prediction_root_name(path.root)},
+                     {"room", path.room ? Json(*path.room) : Json(nullptr)},
+                     {"supplementalHintId",
+                      path.supplemental_hint_id ? Json(*path.supplemental_hint_id) : Json(nullptr)},
+                     {"reasonChain", std::move(reason_chain)}});
         }
         prediction_plan.push_back(
             Json{{"cacheKey", cache_key_json(entry.cache_key)},

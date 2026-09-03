@@ -150,6 +150,7 @@ describe('workbench dirty state', () => {
         '/bootstrapModule',
         '/entrypoint',
         '/export/assetMemoryPolicies',
+        '/prefetchHints',
         '/project',
         '/settings',
       ],

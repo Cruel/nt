@@ -677,7 +677,10 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
     addSkippedStages(context, ['assemble', 'validate-wire', 'serialize']);
     return finish(context);
   }
-  const flowPrediction = compileFlowPredictionIndex(lowered.project);
+  const flowPrediction = compileFlowPredictionIndex(
+    lowered.project,
+    context.normalizedProject.prefetchHints,
+  );
   if (flowPrediction) lowered.project.flowPrediction = flowPrediction;
   // Lowerers sort definition/resource tables by stable ID and preserve every
   // semantically ordered authored array. Assembly binds the complete value to the

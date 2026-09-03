@@ -1925,8 +1925,49 @@ struct FlowPredictionSlice {
     std::vector<FlowPredictionCommand> program;
 };
 
+struct FlowPredictionHintAssetTarget {
+    AssetId asset;
+};
+struct FlowPredictionHintSceneTarget {
+    SceneId scene;
+};
+struct FlowPredictionHintDialogueTarget {
+    DialogueId dialogue;
+};
+struct FlowPredictionHintRoomTarget {
+    RoomId room;
+};
+struct FlowPredictionHintLayoutTarget {
+    LayoutId layout;
+};
+using FlowPredictionHintTarget =
+    std::variant<FlowPredictionHintAssetTarget, FlowPredictionHintSceneTarget,
+                 FlowPredictionHintDialogueTarget, FlowPredictionHintRoomTarget,
+                 FlowPredictionHintLayoutTarget>;
+
+struct FlowPredictionHintPointAttachment {
+    std::size_t slice = 0;
+};
+enum class FlowPredictionRoomHintScope : std::uint8_t {
+    EntryPath,
+    Resident,
+};
+struct FlowPredictionHintRoomAttachment {
+    RoomId room;
+    FlowPredictionRoomHintScope scope = FlowPredictionRoomHintScope::EntryPath;
+};
+using FlowPredictionHintAttachment =
+    std::variant<FlowPredictionHintPointAttachment, FlowPredictionHintRoomAttachment>;
+
+struct FlowPredictionSupplementalHint {
+    std::string id;
+    FlowPredictionHintTarget target;
+    FlowPredictionHintAttachment attachment;
+};
+
 struct FlowPredictionIndex {
     std::vector<std::vector<FlowPredictionDependency>> dependency_groups;
+    std::vector<FlowPredictionSupplementalHint> supplemental_hints;
     std::vector<FlowPredictionSlice> slices;
 };
 

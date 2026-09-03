@@ -50,6 +50,70 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('lowers persisted supplemental prefetch intent into the generated prediction index', () => {
+    const project = validProject();
+    project.assets['hinted-image'] = {
+      id: 'hinted-image',
+      label: 'Hinted image',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/hinted.png',
+        aliases: [],
+        contentHash: 'hinted-hash',
+        sampling: 'linear',
+        imageMetadata: { width: 64, height: 64, hasAlpha: false, orientation: 1 },
+      }),
+    };
+    project.prefetchHints['foyer-image'] = {
+      id: 'foyer-image',
+      target: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'hinted-image' } } },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'room-lifecycle',
+          room: { $ref: { collection: 'rooms', id: 'foyer' } },
+          stage: 'after-enter',
+        },
+      },
+    };
+    project.prefetchHints['hall-resident'] = {
+      id: 'hall-resident',
+      target: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+      attachment: {
+        kind: 'room',
+        room: { $ref: { collection: 'rooms', id: 'hall' } },
+        scope: 'resident',
+      },
+    };
+
+    const compiled = compileAuthoringProject(project);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect(compiled.project.flowPrediction?.supplementalHints).toHaveLength(2);
+    const precise = compiled.project.flowPrediction?.supplementalHints?.find(
+      (hint) => hint.id === 'foyer-image',
+    );
+    expect(precise?.attachment.kind).toBe('point');
+    if (precise?.attachment.kind === 'point') {
+      expect(
+        compiled.project.flowPrediction?.slices[precise.attachment.slice]?.point,
+      ).toMatchObject({
+        kind: 'room-lifecycle',
+        room: { id: 'foyer' },
+        stage: 'after-enter',
+      });
+    }
+    expect(
+      compiled.project.flowPrediction?.supplementalHints?.find(
+        (hint) => hint.id === 'hall-resident',
+      ),
+    ).toMatchObject({
+      target: { kind: 'room', room: { id: 'foyer' } },
+      attachment: { kind: 'room', room: { id: 'hall' }, scope: 'resident' },
+    });
+    expect(project.prefetchHints['foyer-image']).toBeDefined();
+  });
+
   it('publishes generated Flow Prediction metadata without mutating authoring data', () => {
     const project = validProject();
     project.assets['next-background'] = {

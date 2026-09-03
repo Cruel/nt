@@ -267,6 +267,7 @@ public:
                                           : confidence;
         const auto condition_properties = properties;
         append_dependencies(slice, distance, local_confidence);
+        run_point_hints(slice_index, distance, local_confidence, properties);
         auto program =
             run_program(slice.program, distance + 1, local_confidence, std::move(properties));
         auto followed = run_control(slice, std::move(program), local_confidence, detached_root);
@@ -381,18 +382,115 @@ private:
                 continue;
             }
             for (const auto& dependency : m_index.dependency_groups[group_index]) {
-                m_result.entries.push_back({.dependency = dependency,
-                                            .execution_distance = distance,
-                                            .confidence = confidence,
-                                            .execution_order = execution_order,
-                                            .dependency_priority = dependency_priority++,
-                                            .provenance = {.points = provenance_points,
-                                                           .root_kind = m_root_kind,
-                                                           .room = m_root_room}});
+                m_result.entries.push_back(
+                    {.dependency = dependency,
+                     .execution_distance = distance,
+                     .confidence = confidence,
+                     .execution_order = execution_order,
+                     .dependency_priority = dependency_priority++,
+                     .provenance = {.points = provenance_points,
+                                    .root_kind = m_root_kind,
+                                    .room = m_root_room,
+                                    .supplemental_hint_id = m_supplemental_hint_id}});
             }
         }
     }
 
+    std::vector<core::compiled::FlowPredictionPoint> provenance_points() const
+    {
+        std::vector<core::compiled::FlowPredictionPoint> points;
+        points.reserve(m_active_slices.size());
+        for (const auto active : m_active_slices) {
+            if (active < m_index.slices.size())
+                points.push_back(m_index.slices[active].point);
+        }
+        return points;
+    }
+
+    void append_hint_dependency(core::compiled::FlowPredictionDependency dependency,
+                                std::size_t distance, FlowPredictionConfidence confidence)
+    {
+        m_result.entries.push_back(
+            {.dependency = std::move(dependency),
+             .execution_distance = distance,
+             .confidence = confidence,
+             .execution_order = m_next_execution_order++,
+             .dependency_priority = 0,
+             .provenance = {.points = provenance_points(),
+                            .root_kind = m_root_kind,
+                            .room = m_root_room,
+                            .supplemental_hint_id = m_supplemental_hint_id}});
+    }
+
+    bool hint_active(const core::compiled::FlowPredictionSupplementalHint& hint) const noexcept
+    {
+        return std::find(m_active_hints.begin(), m_active_hints.end(), &hint) !=
+               m_active_hints.end();
+    }
+
+    void run_hint(const core::compiled::FlowPredictionSupplementalHint& hint, std::size_t distance,
+                  FlowPredictionConfidence confidence, const ProjectedProperties& properties)
+    {
+        if (hint_active(hint))
+            return;
+        m_active_hints.push_back(&hint);
+        const auto previous_hint = m_supplemental_hint_id;
+        m_supplemental_hint_id = hint.id;
+        std::visit(
+            [&](const auto& target) {
+                using T = std::decay_t<decltype(target)>;
+                if constexpr (std::is_same_v<T, core::compiled::FlowPredictionHintAssetTarget>) {
+                    append_hint_dependency(
+                        core::compiled::FlowPredictionAssetDependency{target.asset}, distance,
+                        confidence);
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::FlowPredictionHintLayoutTarget>) {
+                    append_hint_dependency(
+                        core::compiled::FlowPredictionLayoutDependency{target.layout}, distance,
+                        confidence);
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::FlowPredictionHintSceneTarget>) {
+                    (void)run_child(entry_point(target.scene), distance, confidence, properties,
+                                    false);
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::FlowPredictionHintDialogueTarget>) {
+                    (void)run_child(entry_point(target.dialogue), distance, confidence, properties,
+                                    false);
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::FlowPredictionHintRoomTarget>) {
+                    (void)run_room_entry(target.room, distance, confidence, properties);
+                }
+            },
+            hint.target);
+        m_supplemental_hint_id = previous_hint;
+        m_active_hints.pop_back();
+    }
+
+    void run_point_hints(std::size_t slice_index, std::size_t distance,
+                         FlowPredictionConfidence confidence, const ProjectedProperties& properties)
+    {
+        for (const auto& hint : m_index.supplemental_hints) {
+            const auto* attachment =
+                std::get_if<core::compiled::FlowPredictionHintPointAttachment>(&hint.attachment);
+            if (attachment != nullptr && attachment->slice == slice_index)
+                run_hint(hint, distance, confidence, properties);
+        }
+    }
+
+public:
+    void run_room_hints(const core::RoomId& room, core::compiled::FlowPredictionRoomHintScope scope,
+                        std::size_t distance, FlowPredictionConfidence confidence,
+                        const ProjectedProperties& properties)
+    {
+        for (const auto& hint : m_index.supplemental_hints) {
+            const auto* attachment =
+                std::get_if<core::compiled::FlowPredictionHintRoomAttachment>(&hint.attachment);
+            if (attachment != nullptr && attachment->room == room && attachment->scope == scope)
+                run_hint(hint, distance, confidence, properties);
+        }
+    }
+
+private:
     ProgramResult
     run_program_from(const std::vector<core::compiled::FlowPredictionCommand>& program,
                      std::size_t start, std::size_t distance, FlowPredictionConfidence confidence,
@@ -645,6 +743,8 @@ private:
     FlowPredictionRootKind m_root_kind = FlowPredictionRootKind::FlowExecution;
     std::optional<core::RoomId> m_root_room;
     std::vector<std::size_t> m_active_slices;
+    std::vector<const core::compiled::FlowPredictionSupplementalHint*> m_active_hints;
+    std::optional<std::string> m_supplemental_hint_id;
     std::size_t m_next_execution_order = 0;
 };
 
@@ -705,6 +805,9 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
                                   root.target_room);
     auto properties = initial_properties(context);
     std::size_t distance = 0;
+    traversal.run_room_hints(root.target_room,
+                             core::compiled::FlowPredictionRoomHintScope::EntryPath, distance,
+                             FlowPredictionConfidence::Expected, properties);
 
     auto run_stage = [&](const core::RoomId& room,
                          core::compiled::RoomLifecyclePredictionStage stage) {
@@ -745,6 +848,8 @@ FlowPredictionProjection FlowPredictor::predict(const ResidentRoomPredictionRoot
     PredictionTraversal traversal(index, result, FlowPredictionRootKind::ResidentRoomContext,
                                   root.room);
     const auto properties = initial_properties(context);
+    traversal.run_room_hints(root.room, core::compiled::FlowPredictionRoomHintScope::Resident, 0,
+                             FlowPredictionConfidence::Alternative, properties);
     for (const auto& program : root.programs) {
         const auto point = std::visit(
             [](const auto& value) -> core::compiled::FlowPredictionPoint {
