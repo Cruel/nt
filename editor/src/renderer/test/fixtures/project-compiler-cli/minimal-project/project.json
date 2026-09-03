@@ -114,7 +114,8 @@
       "includeTests": false,
       "previewAfterExport": false
     },
-    "profiles": []
+    "profiles": [],
+    "assetMemoryPolicies": []
   },
   "bootstrapModule": {
     "$ref": {

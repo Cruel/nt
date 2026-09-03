@@ -10,6 +10,12 @@ type PredictionPoint = FlowPredictionIndex['slices'][number]['point'];
 type PredictionSlice = FlowPredictionIndex['slices'][number];
 type SceneInstruction =
   CompiledProjectWire['definitions']['scenes'][number]['program']['events'][number]['instruction'];
+type DialogueDefinition = CompiledProjectWire['definitions']['dialogues'][number];
+type DialogueBlock = DialogueDefinition['program']['blocks'][number];
+type DialogueSequenceBlock = Extract<DialogueBlock, { kind: 'sequence' }>;
+type DialogueSegment = DialogueSequenceBlock['segments'][number];
+type DialogueLineSegment = Extract<DialogueSegment, { kind: 'line' }>;
+type DialogueCue = DialogueLineSegment['cues'][number];
 
 function summarizeGameplayCommands(
   commands: readonly CompiledGameplayCommand[],
@@ -19,25 +25,31 @@ function summarizeGameplayCommands(
     switch (command.kind) {
       case 'set-global-property':
         result.push({
+          commandId: command.id,
           kind: 'set-global-property',
           property: command.property,
           value: command.value,
         });
         break;
       case 'unset-global-property':
-        result.push({ kind: 'invalidate-global-property', property: command.property });
+        result.push({
+          commandId: command.id,
+          kind: 'invalidate-global-property',
+          property: command.property,
+        });
         break;
       case 'call-scene':
-        result.push({ kind: 'call-scene', scene: command.scene });
+        result.push({ commandId: command.id, kind: 'call-scene', scene: command.scene });
         break;
       case 'call-dialogue':
-        result.push({ kind: 'call-dialogue', dialogue: command.dialogue });
+        result.push({ commandId: command.id, kind: 'call-dialogue', dialogue: command.dialogue });
         break;
       case 'run-lua':
-        result.push({ kind: 'opaque' });
+        result.push({ commandId: command.id, kind: 'opaque' });
         break;
       case 'if':
         result.push({
+          commandId: command.id,
           kind: 'if',
           condition: command.condition,
           thenCommands: summarizeGameplayCommands(command.then),
@@ -171,6 +183,182 @@ function sceneInstructionFrontier(instruction: SceneInstruction): PredictionSlic
   }
 }
 
+function characterDependency(
+  character: { kind: 'character'; id: string },
+  options: {
+    profileId?: string | null;
+    poseId?: string | null;
+    expressionId?: string | null;
+    appearanceId?: string | null;
+  } = {},
+): PredictionDependency {
+  return {
+    kind: 'character',
+    character,
+    profileId: options.profileId ?? null,
+    poseId: options.poseId ?? null,
+    expressionId: options.expressionId ?? null,
+    appearanceId: options.appearanceId ?? null,
+  };
+}
+
+function dialogueInitialDependencies(dialogue: DialogueDefinition): PredictionDependency[] {
+  const dependencies: PredictionDependency[] = [];
+  for (const slot of dialogue.stageSlots) {
+    if (slot.initial?.visible)
+      dependencies.push(
+        characterDependency(slot.initial.character, {
+          profileId: slot.initial.profileId,
+          poseId: slot.initial.poseId,
+          expressionId: slot.initial.expressionId,
+          appearanceId: slot.initial.appearanceId,
+        }),
+      );
+  }
+  for (const slot of dialogue.mediaSlots) {
+    if (!slot.visible || !slot.initial) continue;
+    if (slot.initial.kind === 'image')
+      dependencies.push({ kind: 'asset', asset: slot.initial.asset });
+    else
+      dependencies.push(
+        characterDependency(slot.initial.character, {
+          profileId: slot.initial.profileId,
+          poseId: slot.initial.poseId,
+          expressionId: slot.initial.expressionId,
+          appearanceId: slot.initial.appearanceId,
+        }),
+      );
+  }
+  return dependencies;
+}
+
+function dialogueSpeaker(
+  dialogue: DialogueDefinition,
+  block: DialogueSequenceBlock,
+  line: DialogueLineSegment,
+) {
+  return line.speaker ?? block.defaultSpeaker ?? dialogue.defaultSpeaker;
+}
+
+function dialogueStageCharacters(dialogue: DialogueDefinition, slotId: string) {
+  const characters = new Map<string, { kind: 'character'; id: string }>();
+  const initial = dialogue.stageSlots.find((slot) => slot.id === slotId)?.initial;
+  if (initial) characters.set(initial.character.id, initial.character);
+  for (const block of dialogue.program.blocks) {
+    if (block.kind !== 'sequence') continue;
+    for (const segment of block.segments) {
+      if (segment.kind !== 'line') continue;
+      for (const cue of segment.cues) {
+        if (cue.kind === 'stage' && cue.mutation.slotId === slotId && cue.mutation.character)
+          characters.set(cue.mutation.character.id, cue.mutation.character);
+      }
+    }
+  }
+  return [...characters.values()];
+}
+
+function dialogueMediaContents(dialogue: DialogueDefinition, slotId: string) {
+  const contents: Array<DialogueDefinition['mediaSlots'][number]['initial']> = [];
+  const append = (content: DialogueDefinition['mediaSlots'][number]['initial']) => {
+    if (!content) return;
+    const key = JSON.stringify(content);
+    if (!contents.some((candidate) => JSON.stringify(candidate) === key)) contents.push(content);
+  };
+  append(dialogue.mediaSlots.find((slot) => slot.id === slotId)?.initial ?? null);
+  for (const block of dialogue.program.blocks) {
+    if (block.kind !== 'sequence') continue;
+    for (const segment of block.segments) {
+      if (segment.kind !== 'line') continue;
+      for (const cue of segment.cues) {
+        if (cue.kind === 'media' && cue.mutation.slotId === slotId && cue.mutation.content)
+          append(cue.mutation.content);
+      }
+    }
+  }
+  return contents;
+}
+
+function dialogueCueDependencies(
+  dialogue: DialogueDefinition,
+  block: DialogueSequenceBlock,
+  line: DialogueLineSegment,
+  cue: DialogueCue,
+): PredictionDependency[] {
+  const dependencies: PredictionDependency[] = [];
+  switch (cue.kind) {
+    case 'speaker-expression': {
+      const speaker = dialogueSpeaker(dialogue, block, line);
+      if (speaker)
+        dependencies.push(characterDependency(speaker, { expressionId: cue.expressionId }));
+      break;
+    }
+    case 'stage': {
+      if (cue.mutation.action === 'hide' || cue.mutation.action === 'clear') break;
+      const characters = cue.mutation.character
+        ? [cue.mutation.character]
+        : dialogueStageCharacters(dialogue, cue.mutation.slotId);
+      for (const character of characters)
+        dependencies.push(
+          characterDependency(character, {
+            profileId: cue.mutation.profileId,
+            poseId: cue.mutation.poseId,
+            expressionId: cue.mutation.expressionId,
+            appearanceId: cue.mutation.appearanceId,
+          }),
+        );
+      break;
+    }
+    case 'media': {
+      if (cue.mutation.action === 'hide' || cue.mutation.action === 'clear') break;
+      const contents = cue.mutation.content
+        ? [cue.mutation.content]
+        : dialogueMediaContents(dialogue, cue.mutation.slotId);
+      for (const content of contents) {
+        if (!content) continue;
+        if (content.kind === 'image') dependencies.push({ kind: 'asset', asset: content.asset });
+        else
+          dependencies.push(
+            characterDependency(content.character, {
+              profileId: content.profileId,
+              poseId: content.poseId,
+              expressionId: content.expressionId,
+              appearanceId: content.appearanceId,
+            }),
+          );
+      }
+      break;
+    }
+    case 'gesture': {
+      for (const character of dialogueStageCharacters(dialogue, cue.slotId))
+        dependencies.push(characterDependency(character));
+      break;
+    }
+    case 'voice':
+      dependencies.push({ kind: 'audio', asset: cue.asset, purpose: 'voice' });
+      break;
+    case 'sound-effect':
+      dependencies.push({ kind: 'audio', asset: cue.asset, purpose: 'sound-effect' });
+      break;
+    default:
+      break;
+  }
+  return dependencies;
+}
+
+function dialogueCueFrontier(cue: DialogueCue): PredictionSlice['frontier'] {
+  switch (cue.kind) {
+    case 'voice':
+    case 'sound-effect':
+    case 'gesture':
+      return cue.waitForCompletion ? 'strong-wait' : 'normal';
+    case 'camera':
+      if (!cue.emphasis.waitForCompletion) return 'normal';
+      return cue.emphasis.durationMs <= 2_000 ? 'short-wait' : 'strong-wait';
+    default:
+      return 'normal';
+  }
+}
+
 /**
  * Compiles runtime-blind speculative prediction metadata from already-lowered Flow definitions.
  * Runtime consumes only this projection for the covered Flow semantics; mandatory dependency
@@ -254,16 +442,121 @@ export function compileFlowPredictionIndex(
     addSlice({ kind: 'scene-terminal', scene: sceneRef });
   }
 
+  const dialoguePoint = (
+    dialogueId: string,
+    blockId: string,
+    stage: Extract<PredictionPoint, { kind: 'dialogue-position' }>['stage'],
+    options: { segmentId?: string; edgeId?: string; cursor?: number } = {},
+  ): PredictionPoint => ({
+    kind: 'dialogue-position',
+    dialogue: { kind: 'dialogue', id: dialogueId },
+    blockId,
+    stage,
+    cursor: options.cursor ?? 0,
+    ...(options.segmentId ? { segmentId: options.segmentId } : {}),
+    ...(options.edgeId ? { edgeId: options.edgeId } : {}),
+  });
+
+  const dialogueTerminalPoint = (dialogueId: string): PredictionPoint => ({
+    kind: 'dialogue-terminal',
+    dialogue: { kind: 'dialogue', id: dialogueId },
+  });
+
   for (const dialogue of project.definitions.dialogues) {
-    const dependencies: FlowPredictionIndex['dependencyGroups'][number] = [];
-    for (const media of dialogue.mediaSlots) {
-      if (media.visible && media.initial?.kind === 'image')
-        dependencies.push({ kind: 'asset', asset: media.initial.asset });
-    }
+    const dialogueRef = { kind: 'dialogue' as const, id: dialogue.id };
     addSlice(
-      { kind: 'dialogue-entry', dialogue: { kind: 'dialogue', id: dialogue.id } },
-      dependencies,
+      { kind: 'dialogue-entry', dialogue: dialogueRef },
+      dialogueInitialDependencies(dialogue),
     );
+
+    for (const block of dialogue.program.blocks) {
+      addSlice(dialoguePoint(dialogue.id, block.id, 'enter-block'));
+      if (block.kind === 'choice') {
+        addSlice(dialoguePoint(dialogue.id, block.id, 'present-choices'), [], [], {
+          frontier: 'decision',
+        });
+        continue;
+      }
+      if (block.kind !== 'sequence') continue;
+
+      for (const segment of block.segments) {
+        if (segment.kind === 'line') {
+          const speaker = dialogueSpeaker(dialogue, block, segment);
+          for (let cursor = 0; cursor <= segment.cues.length; cursor += 1) {
+            const dependencies: PredictionDependency[] = [];
+            if (cursor === 0 && speaker) dependencies.push(characterDependency(speaker));
+            const cue = segment.cues[cursor];
+            if (cue) dependencies.push(...dialogueCueDependencies(dialogue, block, segment, cue));
+            addSlice(
+              dialoguePoint(dialogue.id, block.id, 'present-segment', {
+                segmentId: segment.id,
+                cursor,
+              }),
+              dependencies,
+              [],
+              {
+                condition: cursor === 0 ? segment.condition : undefined,
+                frontier:
+                  cursor === segment.cues.length
+                    ? 'strong-wait'
+                    : dialogueCueFrontier(segment.cues[cursor]!),
+              },
+            );
+          }
+          for (let cursor = 0; cursor <= segment.effects.length; cursor += 1) {
+            addSlice(
+              dialoguePoint(dialogue.id, block.id, 'apply-segment-effects', {
+                segmentId: segment.id,
+                cursor,
+              }),
+              [],
+              cursor < segment.effects.length
+                ? summarizeGameplayCommands([segment.effects[cursor]!])
+                : [],
+            );
+          }
+          continue;
+        }
+
+        let program: PredictionProgram = [];
+        let frontier: PredictionSlice['frontier'] = 'normal';
+        if (segment.kind === 'call-scene') program = [{ kind: 'call-scene', scene: segment.scene }];
+        else if (segment.kind === 'run-lua') {
+          program = [{ kind: 'opaque' }];
+          if (segment.mayYield) frontier = 'strong-wait';
+        } else if (segment.kind === 'handoff') {
+          // A Handoff may resume an awaiting Scene before this Dialogue continues, or may have no
+          // awaiting Scene and continue immediately. Keep the retained Dialogue continuation
+          // reachable but behind a strong semantic frontier; the next runtime publication will
+          // replace this plan with the resumed Scene root when a direct handoff exists.
+          frontier = 'strong-wait';
+        }
+        addSlice(
+          dialoguePoint(dialogue.id, block.id, 'present-segment', {
+            segmentId: segment.id,
+          }),
+          [],
+          program,
+          { condition: segment.condition, frontier },
+        );
+      }
+    }
+
+    for (const edge of dialogue.program.edges) {
+      addSlice(dialoguePoint(dialogue.id, edge.fromBlockId, 'follow-edge', { edgeId: edge.id }));
+      if (edge.kind !== 'choice') continue;
+      for (let cursor = 0; cursor <= edge.effects.length; cursor += 1) {
+        addSlice(
+          dialoguePoint(dialogue.id, edge.fromBlockId, 'apply-choice-effects', {
+            edgeId: edge.id,
+            cursor,
+          }),
+          [],
+          cursor < edge.effects.length ? summarizeGameplayCommands([edge.effects[cursor]!]) : [],
+        );
+      }
+    }
+    addSlice(dialogueTerminalPoint(dialogue.id));
   }
 
   const lifecycleStages = [
@@ -375,6 +668,211 @@ export function compileFlowPredictionIndex(
         kind: 'sequential',
         successor: findSlice({ kind: 'dialogue-entry', dialogue: scene.terminal.dialogue }) ?? null,
       };
+    }
+  }
+
+  for (const dialogue of project.definitions.dialogues) {
+    const entry = findSlice({
+      kind: 'dialogue-entry',
+      dialogue: { kind: 'dialogue', id: dialogue.id },
+    });
+    const terminal = findSlice(dialogueTerminalPoint(dialogue.id));
+    const entryBlock = findSlice(
+      dialoguePoint(dialogue.id, dialogue.program.entryBlockId, 'enter-block'),
+    );
+    if (entry !== undefined)
+      slices[entry]!.control = { kind: 'sequential', successor: entryBlock ?? terminal ?? null };
+
+    const findBlock = (blockId: string) =>
+      dialogue.program.blocks.find((candidate) => candidate.id === blockId);
+    const nextAfterSequence = (
+      block: DialogueSequenceBlock,
+      segmentIndex: number,
+    ): number | null => {
+      const next = block.segments[segmentIndex + 1];
+      if (next)
+        return (
+          findSlice(
+            dialoguePoint(dialogue.id, block.id, 'present-segment', {
+              segmentId: next.id,
+            }),
+          ) ?? null
+        );
+      const edge = dialogue.program.edges.find(
+        (candidate) => candidate.kind === 'next' && candidate.fromBlockId === block.id,
+      );
+      if (edge)
+        return (
+          findSlice(dialoguePoint(dialogue.id, block.id, 'follow-edge', { edgeId: edge.id })) ??
+          null
+        );
+      return terminal ?? null;
+    };
+
+    for (const block of dialogue.program.blocks) {
+      const blockEntry = findSlice(dialoguePoint(dialogue.id, block.id, 'enter-block'));
+      if (blockEntry === undefined) continue;
+      if (block.kind === 'redirect') {
+        slices[blockEntry]!.control = {
+          kind: 'sequential',
+          successor:
+            findSlice(dialoguePoint(dialogue.id, block.targetBlockId, 'enter-block')) ?? null,
+        };
+        continue;
+      }
+      if (block.kind === 'choice') {
+        const choice = findSlice(dialoguePoint(dialogue.id, block.id, 'present-choices'));
+        slices[blockEntry]!.control = { kind: 'sequential', successor: choice ?? null };
+        if (choice !== undefined) {
+          slices[choice]!.control = {
+            kind: 'choice',
+            options: dialogue.program.edges.flatMap((edge) => {
+              if (edge.kind !== 'choice' || edge.fromBlockId !== block.id) return [];
+              const target = findSlice(
+                dialoguePoint(dialogue.id, block.id, 'apply-choice-effects', {
+                  edgeId: edge.id,
+                }),
+              );
+              return target === undefined
+                ? []
+                : [
+                    {
+                      optionId: edge.id,
+                      ...(edge.condition ? { condition: edge.condition } : {}),
+                      programs: [],
+                      target,
+                    },
+                  ];
+            }),
+          };
+        }
+        continue;
+      }
+
+      const first = block.segments[0];
+      slices[blockEntry]!.control = {
+        kind: 'sequential',
+        successor: first
+          ? (findSlice(
+              dialoguePoint(dialogue.id, block.id, 'present-segment', {
+                segmentId: first.id,
+              }),
+            ) ?? null)
+          : nextAfterSequence(block, -1),
+      };
+
+      for (let segmentIndex = 0; segmentIndex < block.segments.length; segmentIndex += 1) {
+        const segment = block.segments[segmentIndex]!;
+        const next = nextAfterSequence(block, segmentIndex);
+        if (segment.kind === 'line') {
+          for (let cursor = 0; cursor <= segment.cues.length; cursor += 1) {
+            const sliceIndex = findSlice(
+              dialoguePoint(dialogue.id, block.id, 'present-segment', {
+                segmentId: segment.id,
+                cursor,
+              }),
+            );
+            if (sliceIndex === undefined) continue;
+            slices[sliceIndex]!.conditionFalseSuccessor = cursor === 0 ? next : null;
+            slices[sliceIndex]!.control = {
+              kind: 'sequential',
+              successor:
+                cursor < segment.cues.length
+                  ? (findSlice(
+                      dialoguePoint(dialogue.id, block.id, 'present-segment', {
+                        segmentId: segment.id,
+                        cursor: cursor + 1,
+                      }),
+                    ) ?? null)
+                  : (findSlice(
+                      dialoguePoint(dialogue.id, block.id, 'apply-segment-effects', {
+                        segmentId: segment.id,
+                      }),
+                    ) ?? null),
+            };
+          }
+          for (let cursor = 0; cursor <= segment.effects.length; cursor += 1) {
+            const sliceIndex = findSlice(
+              dialoguePoint(dialogue.id, block.id, 'apply-segment-effects', {
+                segmentId: segment.id,
+                cursor,
+              }),
+            );
+            if (sliceIndex !== undefined)
+              slices[sliceIndex]!.control = {
+                kind: 'sequential',
+                successor:
+                  cursor < segment.effects.length
+                    ? (findSlice(
+                        dialoguePoint(dialogue.id, block.id, 'apply-segment-effects', {
+                          segmentId: segment.id,
+                          cursor: cursor + 1,
+                        }),
+                      ) ?? null)
+                    : next,
+              };
+          }
+          continue;
+        }
+
+        const sliceIndex = findSlice(
+          dialoguePoint(dialogue.id, block.id, 'present-segment', { segmentId: segment.id }),
+        );
+        if (sliceIndex === undefined) continue;
+        slices[sliceIndex]!.conditionFalseSuccessor = next;
+        slices[sliceIndex]!.control = { kind: 'sequential', successor: next };
+      }
+    }
+
+    for (const edge of dialogue.program.edges) {
+      if (edge.kind === 'choice') {
+        for (let cursor = 0; cursor <= edge.effects.length; cursor += 1) {
+          const sliceIndex = findSlice(
+            dialoguePoint(dialogue.id, edge.fromBlockId, 'apply-choice-effects', {
+              edgeId: edge.id,
+              cursor,
+            }),
+          );
+          if (sliceIndex !== undefined)
+            slices[sliceIndex]!.control = {
+              kind: 'sequential',
+              successor:
+                cursor < edge.effects.length
+                  ? (findSlice(
+                      dialoguePoint(dialogue.id, edge.fromBlockId, 'apply-choice-effects', {
+                        edgeId: edge.id,
+                        cursor: cursor + 1,
+                      }),
+                    ) ?? null)
+                  : (findSlice(
+                      dialoguePoint(dialogue.id, edge.fromBlockId, 'follow-edge', {
+                        edgeId: edge.id,
+                      }),
+                    ) ?? null),
+            };
+        }
+      }
+      const follow = findSlice(
+        dialoguePoint(dialogue.id, edge.fromBlockId, 'follow-edge', { edgeId: edge.id }),
+      );
+      if (follow !== undefined)
+        slices[follow]!.control = {
+          kind: 'sequential',
+          successor: findBlock(edge.toBlockId)
+            ? (findSlice(dialoguePoint(dialogue.id, edge.toBlockId, 'enter-block')) ?? null)
+            : null,
+        };
+    }
+
+    if (terminal !== undefined) {
+      if (dialogue.completion.kind === 'scene')
+        slices[terminal]!.program = [{ kind: 'call-scene', scene: dialogue.completion.scene }];
+      else if (dialogue.completion.kind === 'dialogue')
+        slices[terminal]!.program = [
+          { kind: 'call-dialogue', dialogue: dialogue.completion.dialogue },
+        ];
+      else if (dialogue.completion.kind === 'room')
+        slices[terminal]!.program = [{ kind: 'enter-room', room: dialogue.completion.room }];
     }
   }
 

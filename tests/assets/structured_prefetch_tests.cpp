@@ -220,6 +220,90 @@ nlohmann::json scene_prediction_test_document()
     return document;
 }
 
+nlohmann::json dialogue_prediction_test_document()
+{
+    auto document = read_compiled_project_golden("dialogue-program");
+    auto& groups = document["flowPrediction"]["dependencyGroups"];
+    auto& slices = document["flowPrediction"]["slices"];
+
+    const auto add_marker = [&](std::string_view name) {
+        const std::string asset{name};
+        document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                                   {"id", asset},
+                                                   {"kind", "image"},
+                                                   {"path", "assets/images/" + asset + ".png"},
+                                                   {"sampling", "linear"},
+                                                   {"width", 64},
+                                                   {"height", 64}});
+        const auto index = groups.size();
+        groups.push_back(nlohmann::json::array(
+            {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", asset}}}}}));
+        return index;
+    };
+    const auto attach = [&](std::string_view stage, std::optional<std::string_view> segment,
+                            std::optional<std::string_view> edge, std::size_t cursor,
+                            std::string_view marker) {
+        const auto group = add_marker(marker);
+        for (auto& slice : slices) {
+            const auto& point = slice["point"];
+            if (point.value("kind", "") != "dialogue-position" ||
+                point["dialogue"].value("id", "") != "intro" || point.value("stage", "") != stage ||
+                point.value("cursor", 0U) != cursor)
+                continue;
+            if (segment && point.value("segmentId", "") != *segment)
+                continue;
+            if (edge && point.value("edgeId", "") != *edge)
+                continue;
+            slice["dependencyGroups"].push_back(group);
+            return;
+        }
+        FAIL("Dialogue prediction fixture point not found for marker " << marker);
+    };
+
+    attach("present-segment", "inline-line", std::nullopt, 0, "image-dialogue-before");
+    attach("present-segment", "localized-line", std::nullopt, 0, "image-dialogue-current");
+    attach("present-segment", "lua-line", std::nullopt, 0, "image-dialogue-after");
+    attach("apply-segment-effects", "inline-line", std::nullopt, 0, "image-dialogue-effect-zero");
+    attach("apply-segment-effects", "inline-line", std::nullopt, 1, "image-dialogue-effect-one");
+    attach("apply-choice-effects", std::nullopt, "choice-redirect", 0,
+           "image-dialogue-choice-redirect");
+    attach("apply-choice-effects", std::nullopt, "choice-final", 0, "image-dialogue-choice-final");
+    attach("follow-edge", std::nullopt, "start-choice", 0, "image-dialogue-continuation");
+
+    const auto child_group = add_marker("image-dialogue-child");
+    for (auto& slice : slices) {
+        const auto& point = slice["point"];
+        if (point.value("kind", "") == "scene-entry" &&
+            point["scene"].value("id", "") == "opening") {
+            slice["dependencyGroups"].push_back(child_group);
+            break;
+        }
+    }
+    const auto room_completion_group = add_marker("image-dialogue-room-completion");
+    for (auto& slice : slices) {
+        const auto& point = slice["point"];
+        if (point.value("kind", "") == "room-lifecycle" &&
+            point["room"].value("id", "") == "start" &&
+            point.value("stage", "") == "presentation") {
+            slice["dependencyGroups"].push_back(room_completion_group);
+            break;
+        }
+    }
+    for (auto& slice : slices) {
+        const auto& point = slice["point"];
+        if (point.value("kind", "") == "dialogue-position" &&
+            point["dialogue"].value("id", "") == "intro" &&
+            point.value("stage", "") == "present-segment" &&
+            point.value("segmentId", "") == "dialogue-lua") {
+            slice["program"] = nlohmann::json::array(
+                {{{"kind", "call-scene"}, {"scene", {{"kind", "scene"}, {"id", "opening"}}}}});
+            slice["frontier"] = "normal";
+            break;
+        }
+    }
+    return document;
+}
+
 nlohmann::json shader_material_manifest()
 {
     return nlohmann::json::parse(R"json({
@@ -1402,6 +1486,45 @@ TEST_CASE("mandatory gate advances speculative Scene prediction from the live ex
     gate.clear_package_on_owner();
 }
 
+TEST_CASE("mandatory gate ignores Dialogue reveal microstate when reconciling prediction",
+          "[assets][flow-prediction][mandatory-assets][structured-prefetch][dialogue]")
+{
+    PlannerFixture fixture;
+    auto document = dialogue_prediction_test_document();
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    document["entrypoint"] = {{"kind", "dialogue"},
+                              {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}};
+    auto package = package_from_document(std::move(document), "dialogue-prediction-gate.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(153);
+    snapshot.mode = core::PresentationRuntimeMode::Flow;
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+
+    runtime::ActiveDialoguePredictionRoot root{
+        .dialogue = id<core::DialogueId>("intro"),
+        .position = core::DialogueFramePosition{
+            id<core::DialogueBlockId>("start"), id<core::DialogueSegmentId>("localized-line"),
+            std::nullopt, core::DialogueFramePosition::Stage::PresentSegment, 0, false, 0, 1}};
+    CHECK(gate.update_active_dialogue_prediction_on_owner(&root).empty());
+    const auto live_generation = gate.active_prefetch_generation_on_owner();
+    REQUIRE(live_generation);
+
+    root.position.reveal_offset = 2;
+    CHECK(gate.update_active_dialogue_prediction_on_owner(&root).empty());
+    CHECK(gate.active_prefetch_generation_on_owner() == live_generation);
+
+    gate.clear_package_on_owner();
+}
+
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
 TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
           "[assets][structured-prefetch][mandatory-assets][profiler]")
@@ -1817,6 +1940,219 @@ TEST_CASE("Scene prediction selects known branches, widens choices, and continue
     const auto after_lua = find_asset(opaque_root, "image-prediction-after-lua");
     REQUIRE(after_lua != opaque_root.entries.end());
     CHECK(after_lua->confidence == runtime::FlowPredictionConfidence::Expected);
+}
+
+TEST_CASE("Dialogue prediction starts at the live execution slice and preserves semantic horizons",
+          "[assets][structured-prefetch][flow-prediction][dialogue]")
+{
+    auto package =
+        package_from_document(dialogue_prediction_test_document(), "dialogue-prediction-test.json");
+    runtime::FlowPredictor predictor(package.project());
+    const auto find_asset = [](const runtime::FlowPredictionProjection& projection,
+                               std::string_view asset) {
+        return std::ranges::find_if(projection.entries, [&](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset));
+        });
+    };
+
+    const auto prospective =
+        predictor.predict(core::compiled::Entrypoint{id<core::DialogueId>("intro")});
+    REQUIRE(prospective.diagnostics.empty());
+    CHECK(find_asset(prospective, "image-dialogue-before") != prospective.entries.end());
+
+    const auto active = predictor.predict(
+        runtime::ActiveDialoguePredictionRoot{
+            .dialogue = id<core::DialogueId>("intro"),
+            .position =
+                core::DialogueFramePosition{id<core::DialogueBlockId>("start"),
+                                            id<core::DialogueSegmentId>("localized-line"),
+                                            std::nullopt,
+                                            core::DialogueFramePosition::Stage::PresentSegment}},
+        runtime::FlowPredictionContext{
+            .global_properties = {
+                {id<core::PropertyId>("count"), core::RuntimeValue{std::int64_t{0}}}}});
+    REQUIRE(active.diagnostics.empty());
+    const auto current = find_asset(active, "image-dialogue-current");
+    const auto after = find_asset(active, "image-dialogue-after");
+    REQUIRE(current != active.entries.end());
+    REQUIRE(after != active.entries.end());
+    CHECK(current->execution_distance == 0);
+    CHECK(current->confidence == runtime::FlowPredictionConfidence::Expected);
+    CHECK(after->execution_distance > current->execution_distance);
+    CHECK(after->confidence == runtime::FlowPredictionConfidence::Alternative);
+    CHECK(find_asset(active, "image-dialogue-before") == active.entries.end());
+
+    const auto active_effect = predictor.predict(runtime::ActiveDialoguePredictionRoot{
+        .dialogue = id<core::DialogueId>("intro"),
+        .position = core::DialogueFramePosition{
+            id<core::DialogueBlockId>("start"), id<core::DialogueSegmentId>("inline-line"),
+            std::nullopt, core::DialogueFramePosition::Stage::ApplySegmentEffects, 1}});
+    REQUIRE(active_effect.diagnostics.empty());
+    CHECK(find_asset(active_effect, "image-dialogue-effect-zero") == active_effect.entries.end());
+    const auto effect_one = find_asset(active_effect, "image-dialogue-effect-one");
+    REQUIRE(effect_one != active_effect.entries.end());
+    CHECK(effect_one->execution_distance == 0);
+}
+
+TEST_CASE("Dialogue nested effect prediction resumes from the exact generated command cursor",
+          "[assets][structured-prefetch][flow-prediction][dialogue][effects]")
+{
+    auto document = dialogue_prediction_test_document();
+    for (auto& slice : document["flowPrediction"]["slices"]) {
+        const auto& point = slice["point"];
+        if (point.value("kind", "") != "dialogue-position" ||
+            point["dialogue"].value("id", "") != "intro" ||
+            point.value("stage", "") != "apply-segment-effects" ||
+            point.value("segmentId", "") != "inline-line" || point.value("cursor", 0U) != 0U)
+            continue;
+        slice["program"] = nlohmann::json::array({
+            {{"commandId", "outer-if"},
+             {"kind", "if"},
+             {"condition", {{"kind", "lua-predicate"}, {"source", "unknown_branch()"}}},
+             {"thenCommands",
+              nlohmann::json::array({{{"commandId", "nested-call"},
+                                      {"kind", "call-scene"},
+                                      {"scene", {{"kind", "scene"}, {"id", "opening"}}}}})},
+             {"elseCommands", nlohmann::json::array()}},
+        });
+        break;
+    }
+    auto package = package_from_document(std::move(document), "dialogue-nested-effect.json");
+    runtime::FlowPredictor predictor(package.project());
+    const auto projection = predictor.predict(runtime::ActiveDialoguePredictionRoot{
+        .dialogue = id<core::DialogueId>("intro"),
+        .position = core::DialogueFramePosition{
+            id<core::DialogueBlockId>("start"), id<core::DialogueSegmentId>("inline-line"),
+            std::nullopt, core::DialogueFramePosition::Stage::ApplySegmentEffects, 0, false, 0, 0,
+            id<core::InteractionInstructionId>("nested-call")}});
+    REQUIRE(projection.diagnostics.empty());
+    const auto child = std::ranges::find_if(projection.entries, [](const auto& entry) {
+        const auto* dependency =
+            std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+        return dependency != nullptr &&
+               dependency->asset == id<core::AssetId>("image-dialogue-child");
+    });
+    REQUIRE(child != projection.entries.end());
+    CHECK(child->confidence == runtime::FlowPredictionConfidence::Expected);
+}
+
+TEST_CASE("Dialogue choices expose enabled outcomes as alternatives without guessing selection",
+          "[assets][structured-prefetch][flow-prediction][dialogue][choice]")
+{
+    auto package = package_from_document(dialogue_prediction_test_document(),
+                                         "dialogue-choice-prediction.json");
+    runtime::FlowPredictor predictor(package.project());
+    const auto has_asset = [](const runtime::FlowPredictionProjection& projection,
+                              std::string_view asset) {
+        return std::ranges::find_if(projection.entries, [&](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset));
+        });
+    };
+    const runtime::ActiveDialoguePredictionRoot choice_root{
+        .dialogue = id<core::DialogueId>("intro"),
+        .position = core::DialogueFramePosition{
+            id<core::DialogueBlockId>("choice"), std::nullopt, std::nullopt,
+            core::DialogueFramePosition::Stage::PresentChoices}};
+
+    const auto enabled = predictor.predict(
+        choice_root,
+        runtime::FlowPredictionContext{
+            .global_properties = {{id<core::PropertyId>("flag"), core::RuntimeValue{true}}}});
+    REQUIRE(enabled.diagnostics.empty());
+    const auto redirect = has_asset(enabled, "image-dialogue-choice-redirect");
+    const auto opaque = has_asset(enabled, "image-dialogue-choice-final");
+    REQUIRE(redirect != enabled.entries.end());
+    REQUIRE(opaque != enabled.entries.end());
+    CHECK(redirect->confidence == runtime::FlowPredictionConfidence::Alternative);
+    CHECK(opaque->confidence == runtime::FlowPredictionConfidence::Alternative);
+
+    const auto disabled = predictor.predict(
+        choice_root,
+        runtime::FlowPredictionContext{
+            .global_properties = {{id<core::PropertyId>("flag"), core::RuntimeValue{false}}}});
+    REQUIRE(disabled.diagnostics.empty());
+    CHECK(has_asset(disabled, "image-dialogue-choice-redirect") == disabled.entries.end());
+    CHECK(has_asset(disabled, "image-dialogue-choice-final") != disabled.entries.end());
+}
+
+TEST_CASE(
+    "Dialogue child Flow runs before retained continuation and cyclic child topology terminates",
+    "[assets][structured-prefetch][flow-prediction][dialogue][cycle]")
+{
+    auto document = dialogue_prediction_test_document();
+    for (auto& slice : document["flowPrediction"]["slices"]) {
+        const auto& point = slice["point"];
+        if (point.value("kind", "") == "scene-terminal" &&
+            point["scene"].value("id", "") == "opening") {
+            slice["program"] =
+                nlohmann::json::array({{{"kind", "call-dialogue"},
+                                        {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}}});
+            break;
+        }
+    }
+    auto package = package_from_document(std::move(document), "dialogue-child-cycle.json");
+    runtime::FlowPredictor predictor(package.project());
+    const auto projection = predictor.predict(runtime::ActiveDialoguePredictionRoot{
+        .dialogue = id<core::DialogueId>("intro"),
+        .position = core::DialogueFramePosition{
+            id<core::DialogueBlockId>("start"), id<core::DialogueSegmentId>("dialogue-lua"),
+            std::nullopt, core::DialogueFramePosition::Stage::PresentSegment}});
+    REQUIRE(projection.diagnostics.empty());
+    const auto find_asset = [&](std::string_view asset) {
+        return std::ranges::find_if(projection.entries, [&](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset));
+        });
+    };
+    const auto child = find_asset("image-dialogue-child");
+    const auto continuation = find_asset("image-dialogue-continuation");
+    REQUIRE(child != projection.entries.end());
+    REQUIRE(continuation != projection.entries.end());
+    CHECK(child->execution_distance < continuation->execution_distance);
+    CHECK(projection.entries.size() < 128);
+}
+
+TEST_CASE("Dialogue completion follows Dialogue and Room targets through the generated index",
+          "[assets][structured-prefetch][flow-prediction][dialogue][completion]")
+{
+    auto package =
+        package_from_document(dialogue_prediction_test_document(), "dialogue-completion.json");
+    runtime::FlowPredictor predictor(package.project());
+    const auto direct = predictor.predict(runtime::ActiveDialoguePredictionRoot{
+        .dialogue = id<core::DialogueId>("epilogue"),
+        .position = core::DialogueFramePosition{id<core::DialogueBlockId>("epilogue-block"),
+                                                std::nullopt, std::nullopt,
+                                                core::DialogueFramePosition::Stage::Complete}});
+    REQUIRE(direct.diagnostics.empty());
+    const auto find_room = [](const runtime::FlowPredictionProjection& projection) {
+        return std::ranges::find_if(projection.entries, [](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>("image-dialogue-room-completion");
+        });
+    };
+    const auto direct_room = find_room(direct);
+    REQUIRE(direct_room != direct.entries.end());
+    CHECK(direct_room->confidence == runtime::FlowPredictionConfidence::Expected);
+
+    const auto transitive = predictor.predict(runtime::ActiveDialoguePredictionRoot{
+        .dialogue = id<core::DialogueId>("intro"),
+        .position = core::DialogueFramePosition{id<core::DialogueBlockId>("choice"), std::nullopt,
+                                                std::nullopt,
+                                                core::DialogueFramePosition::Stage::Complete}});
+    REQUIRE(transitive.diagnostics.empty());
+    const auto transitive_room = find_room(transitive);
+    REQUIRE(transitive_room != transitive.entries.end());
+    CHECK(transitive_room->confidence == runtime::FlowPredictionConfidence::Alternative);
 }
 
 TEST_CASE("Scene prediction terminates cyclic generated topology without executing gameplay",

@@ -153,6 +153,124 @@ describe('authoring compiler framework', () => {
     expect(entry!.dependencyGroups).not.toEqual(background!.dependencyGroups);
   });
 
+  it('lowers Dialogue execution positions, cue dependencies, effects, choices, and child Flow into prediction metadata', () => {
+    const project = validProject();
+    project.assets.voice = {
+      id: 'voice',
+      label: 'Voice',
+      data: assetDataFromImportMetadata({
+        kind: 'audio',
+        projectRelativePath: 'assets/audio/voice.ogg',
+        extension: '.ogg',
+        byteSize: 10,
+        contentHash: 'voice-hash',
+        importedAt: '2026-01-01T00:00:00.000Z',
+        originalName: 'voice.ogg',
+        originalPath: '/tmp/voice.ogg',
+        imageMetadata: null,
+      }),
+    };
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+    project.scenes.child = { id: 'child', label: 'Child', data: defaultSceneData('Child') };
+    const dialogue = defaultDialogueData('Prediction Dialogue');
+    dialogue.blocks = [
+      {
+        ...defaultDialogueBlock('sequence', 'start'),
+        segments: [
+          {
+            ...defaultDialogueSegment('line', 'line'),
+            cues: [
+              {
+                id: 'voice',
+                kind: 'voice',
+                position: { offset: 0, order: 0 },
+                asset: { $ref: { collection: 'assets', id: 'voice' } },
+                pausePolicy: 'gameplay',
+                gain: 1,
+                pan: 0,
+                waitForCompletion: false,
+                skipBehavior: 'stop',
+              },
+            ],
+            effects: [
+              {
+                id: 'set-flag',
+                kind: 'set-global-property',
+                variable: { $ref: { collection: 'variables', id: 'flag' } },
+                value: true,
+              },
+            ],
+          },
+          {
+            ...defaultDialogueSegment('call-scene', 'child'),
+            scene: { $ref: { collection: 'scenes', id: 'child' } },
+            inputs: [],
+            uiPolicy: 'preserve',
+          },
+        ],
+      },
+      defaultDialogueBlock('choice', 'choice'),
+    ];
+    dialogue.edges = [
+      { id: 'next', kind: 'next', fromBlockId: 'start', toBlockId: 'choice' },
+      {
+        id: 'choose',
+        kind: 'choice',
+        fromBlockId: 'choice',
+        toBlockId: 'start',
+        label: { source: { kind: 'inline', text: 'Again' }, markup: 'plain' },
+        condition: { kind: 'always' },
+        effects: [],
+        logged: true,
+        autosaveSafePoint: false,
+      },
+    ];
+    project.dialogues.prediction = { id: 'prediction', label: 'Prediction', data: dialogue };
+    project.entrypoint = { kind: 'dialogue', id: 'prediction' };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prediction = result.project.flowPrediction!;
+    const position = (
+      stage: string,
+      options: { segmentId?: string; edgeId?: string; cursor?: number } = {},
+    ) =>
+      prediction.slices.find(
+        (slice) =>
+          slice.point.kind === 'dialogue-position' &&
+          slice.point.dialogue.id === 'prediction' &&
+          slice.point.stage === stage &&
+          slice.point.segmentId === options.segmentId &&
+          slice.point.edgeId === options.edgeId &&
+          slice.point.cursor === (options.cursor ?? 0),
+      );
+    const cue = position('present-segment', { segmentId: 'line' });
+    expect(cue).toBeDefined();
+    expect(prediction.dependencyGroups[cue!.dependencyGroups[0]!]).toContainEqual({
+      kind: 'audio',
+      asset: { kind: 'asset', id: 'voice' },
+      purpose: 'voice',
+    });
+    expect(position('apply-segment-effects', { segmentId: 'line' })?.program).toEqual([
+      {
+        commandId: 'set-flag',
+        kind: 'set-global-property',
+        property: { kind: 'property', id: 'flag' },
+        value: true,
+      },
+    ]);
+    expect(position('present-segment', { segmentId: 'child' })?.program).toEqual([
+      { kind: 'call-scene', scene: { kind: 'scene', id: 'child' } },
+    ]);
+    const choice = position('present-choices');
+    expect(choice?.frontier).toBe('decision');
+    expect(choice?.control).toMatchObject({
+      kind: 'choice',
+      options: [{ optionId: 'choose' }],
+    });
+  });
+
   it('lowers prospective Room lifecycle Flow into prediction summaries without rejection programs', () => {
     const project = validProject();
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
@@ -231,19 +349,33 @@ describe('authoring compiler framework', () => {
     );
     expect(afterEnter?.program).toEqual([
       {
+        commandId: 'project-flag',
         kind: 'set-global-property',
         property: { kind: 'property', id: 'flag' },
         value: true,
       },
       {
+        commandId: 'branch',
         kind: 'if',
         condition: {
           kind: 'global-property-comparison',
           property: { kind: 'property', id: 'flag' },
           operator: 'truthy',
         },
-        thenCommands: [{ kind: 'call-scene', scene: { kind: 'scene', id: 'arrival' } }],
-        elseCommands: [{ kind: 'call-dialogue', dialogue: { kind: 'dialogue', id: 'greeting' } }],
+        thenCommands: [
+          {
+            commandId: 'arrival-scene',
+            kind: 'call-scene',
+            scene: { kind: 'scene', id: 'arrival' },
+          },
+        ],
+        elseCommands: [
+          {
+            commandId: 'greeting-dialogue',
+            kind: 'call-dialogue',
+            dialogue: { kind: 'dialogue', id: 'greeting' },
+          },
+        ],
       },
       { kind: 'opaque' },
     ]);

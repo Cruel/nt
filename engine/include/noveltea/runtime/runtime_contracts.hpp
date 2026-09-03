@@ -42,6 +42,11 @@ struct RuntimeSceneExecutionSnapshot {
     core::SceneFramePosition position;
 };
 
+struct RuntimeDialogueExecutionSnapshot {
+    core::DialogueId dialogue;
+    core::DialogueFramePosition position;
+};
+
 struct RuntimePublication {
     RuntimePublicationRevision revision;
     core::TypedRuntimeUIViewState gameplay_ui;
@@ -49,6 +54,7 @@ struct RuntimePublication {
     RuntimeObservationSnapshot observations;
     std::vector<RuntimeGameplayInstanceSnapshot> gameplay_instances;
     std::optional<RuntimeSceneExecutionSnapshot> active_scene;
+    std::optional<RuntimeDialogueExecutionSnapshot> active_dialogue;
 };
 
 struct NotificationEvent {

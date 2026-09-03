@@ -1985,9 +1985,14 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
             core::GameplayInstanceRef{instance.id}, instance.declared, instance.provenance});
 
     std::optional<runtime::RuntimeSceneExecutionSnapshot> active_scene;
+    std::optional<runtime::RuntimeDialogueExecutionSnapshot> active_dialogue;
     if (!session_state.flow_stack().empty()) {
         if (const auto* scene = std::get_if<core::SceneFrame>(&session_state.flow_stack().back()))
             active_scene = runtime::RuntimeSceneExecutionSnapshot{scene->scene, scene->position};
+        else if (const auto* dialogue =
+                     std::get_if<core::DialogueFrame>(&session_state.flow_stack().back()))
+            active_dialogue =
+                runtime::RuntimeDialogueExecutionSnapshot{dialogue->dialogue, dialogue->position};
     }
 
     runtime::RuntimePublication publication{.revision = m_next_publication_revision,
@@ -1995,7 +2000,8 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                                             .presentation = std::move(presentation_value),
                                             .observations = std::move(observations),
                                             .gameplay_instances = std::move(gameplay_instances),
-                                            .active_scene = std::move(active_scene)};
+                                            .active_scene = std::move(active_scene),
+                                            .active_dialogue = std::move(active_dialogue)};
     m_next_publication_revision = *subsequent;
     m_current_publication = publication;
     result.publication = std::move(publication);

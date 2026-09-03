@@ -64,6 +64,8 @@ public:
     reconcile_publication(const core::RuntimePresentationSnapshot& snapshot) override;
     [[nodiscard]] core::Diagnostics update_active_scene_prediction(
         const std::optional<runtime::RuntimeSceneExecutionSnapshot>& active_scene);
+    [[nodiscard]] core::Diagnostics update_active_dialogue_prediction(
+        const std::optional<runtime::RuntimeDialogueExecutionSnapshot>& active_dialogue);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();
