@@ -57,6 +57,17 @@ frontiers, opacity, and compiler-lowered supplemental hint attachments without e
 Conditions. Authors edit only Project `prefetchHints`; generated slice indexes and effective
 expansions remain internal compiled data and are never written back into Project source.
 
+Profiler-enabled prefetch-generation upserts additionally carry `opaqueFrontiers`. Each frontier has
+the prediction root, optional Room, a stable semantic `attachmentPoint`, and the compact reason chain
+that reached an opaque Flow point. If a later Demand miss was not already represented in that
+generation's `predictionPlan`, the profiler may emit a separate `opaque-prediction-miss` change when
+exactly one opaque frontier can be identified safely. Multiple possible frontiers intentionally
+produce no actionable attachment instead of guessed provenance.
+
+An `opaque-prediction-miss` is optimization guidance, not a Project diagnostic and not a runtime
+error. The editor may use its semantic attachment point to offer an explicit supplemental-hint
+authoring action, but it must never create or mutate Project hints automatically.
+
 The profiler does not retain requested/generic-coalesced/start/pin/generic cache/policy events. It
 retains source-read, preparation, and owner-finalization completion/failure, terminal request
 failure, capability joins and resident capability enrichment, eviction, reload after removal, the

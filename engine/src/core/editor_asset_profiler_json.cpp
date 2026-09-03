@@ -470,6 +470,17 @@ Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
         failures.push_back(Json{{"cacheKey", cache_key_json(failure.cache_key)},
                                 {"prediction", prediction_name(failure.prediction)},
                                 {"diagnostic", diagnostic_json(failure.diagnostic)}});
+    Json opaque_frontiers = array_with_capacity(value.opaque_frontiers.size());
+    for (const auto& frontier : value.opaque_frontiers) {
+        Json reason_chain = array_with_capacity(frontier.reason_chain.size());
+        for (const auto& reason : frontier.reason_chain)
+            reason_chain.push_back(reason);
+        opaque_frontiers.push_back(
+            Json{{"root", prediction_root_name(frontier.root)},
+                 {"room", frontier.room ? Json(*frontier.room) : Json(nullptr)},
+                 {"attachmentPoint", frontier.attachment_point},
+                 {"reasonChain", std::move(reason_chain)}});
+    }
     return Json{{"generation", decimal(value.generation.value)},
                 {"timestampNs", decimal(value.timestamp_ns)},
                 {"presentationRevision", value.presentation_revision
@@ -478,11 +489,27 @@ Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
                 {"expectedNextCount", decimal(value.expected_next_count)},
                 {"possibleNextCount", decimal(value.possible_next_count)},
                 {"predictionPlan", std::move(prediction_plan)},
+                {"opaqueFrontiers", std::move(opaque_frontiers)},
                 {"submittedEntries", std::move(submitted)},
                 {"submissionFailures", std::move(failures)},
                 {"usedCount", decimal(value.used_count)},
                 {"lateCount", decimal(value.late_count)},
                 {"unusedCount", decimal(value.unused_count)}};
+}
+
+Json opaque_prediction_miss_json(const AssetProfilerOpaquePredictionMiss& value)
+{
+    Json reason_chain = array_with_capacity(value.frontier.reason_chain.size());
+    for (const auto& reason : value.frontier.reason_chain)
+        reason_chain.push_back(reason);
+    return Json{{"cacheKey", cache_key_json(value.cache_key)},
+                {"requestId", decimal(value.request_id.value)},
+                {"generation", decimal(value.generation.value)},
+                {"frontier",
+                 Json{{"root", prediction_root_name(value.frontier.root)},
+                      {"room", value.frontier.room ? Json(*value.frontier.room) : Json(nullptr)},
+                      {"attachmentPoint", value.frontier.attachment_point},
+                      {"reasonChain", std::move(reason_chain)}}}};
 }
 
 Json wait_json(const AssetWaitRecord& value)
@@ -549,6 +576,9 @@ Json change_json(const AssetProfilerChange& value)
             } else if constexpr (std::is_same_v<T, AssetProfilerPrefetchGenerationRecord>) {
                 result["kind"] = "prefetch-generation-upsert";
                 result["generation"] = generation_json(payload);
+            } else if constexpr (std::is_same_v<T, AssetProfilerOpaquePredictionMiss>) {
+                result["kind"] = "opaque-prediction-miss";
+                result["miss"] = opaque_prediction_miss_json(payload);
             } else {
                 result["kind"] = "inventory-changed";
                 result["inventoryRevision"] = decimal(payload.revision);

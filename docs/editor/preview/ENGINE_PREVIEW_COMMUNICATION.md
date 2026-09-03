@@ -422,6 +422,14 @@ only the authored hint is editable. During Play, authored paths are visible thro
 `supplementalHintId` on runtime prediction provenance; the renderer must not independently expand the
 hint or issue eager asset requests.
 
+Opaque-miss guidance follows the same authority boundary. The runtime/profiler side correlates a
+Demand miss with an unambiguous opaque frontier from the active prediction generation and sends that
+semantic attachment point over the profiler protocol. The editor may match the point against the
+current compiler-generated static projection and, when the missed request safely resolves to a
+supported authored target, offer `Add prefetch hint here`. Activating that control is an explicit
+author command using the ordinary persisted supplemental-hint model. No miss automatically changes
+Project data, and the renderer does not run a second predictor to infer where the miss originated.
+
 The renderer controller owns request cadence and permits only one profiler request in flight. Opening
 or revealing Asset Performance requests a full snapshot when no cursor exists, then polls deltas from
 the last accepted sequence. Hiding the panel stops polling but leaves the engine session intact.

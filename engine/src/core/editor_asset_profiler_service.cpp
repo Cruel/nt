@@ -354,11 +354,37 @@ void EditorAssetProfilerService::record(AssetTelemetryEvent event) noexcept
         }
     }
 
-    if (!retain_in_profiler_history(event))
+    std::optional<AssetProfilerOpaquePredictionMiss> opaque_prediction_miss;
+    if (event.kind == AssetTelemetryEventKind::PrefetchMiss && demand_outcome && event.cache_key &&
+        m_impl->active_prefetch_generation) {
+        const auto generation =
+            m_impl->prefetch_generations.find(m_impl->active_prefetch_generation->value);
+        if (generation != m_impl->prefetch_generations.end()) {
+            const bool was_planned =
+                std::ranges::any_of(generation->second.prediction_plan, [&](const auto& entry) {
+                    return entry.cache_key == *event.cache_key;
+                });
+            if (!was_planned && generation->second.opaque_frontiers.size() == 1) {
+                opaque_prediction_miss = AssetProfilerOpaquePredictionMiss{
+                    .cache_key = *event.cache_key,
+                    .request_id = event.request_id,
+                    .generation = generation->second.generation,
+                    .frontier = generation->second.opaque_frontiers.front(),
+                };
+            }
+        }
+    }
+
+    if (!retain_in_profiler_history(event)) {
+        if (opaque_prediction_miss)
+            m_impl->append_change_unlocked(std::move(*opaque_prediction_miss));
         return;
+    }
 
     event.timestamp = m_impl->clock_now();
     m_impl->append_change_unlocked(std::move(event));
+    if (opaque_prediction_miss)
+        m_impl->append_change_unlocked(std::move(*opaque_prediction_miss));
 }
 
 void EditorAssetProfilerService::record_prefetch_generation(

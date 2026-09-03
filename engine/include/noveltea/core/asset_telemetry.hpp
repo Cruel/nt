@@ -378,6 +378,13 @@ struct AssetProfilerPrefetchPlanEntry {
     std::vector<AssetProfilerPredictionProvenance> provenance;
 };
 
+struct AssetProfilerOpaquePredictionFrontier {
+    AssetProfilerPredictionRoot root = AssetProfilerPredictionRoot::FlowExecution;
+    std::optional<std::string> room;
+    std::string attachment_point;
+    std::vector<std::string> reason_chain;
+};
+
 struct AssetProfilerPrefetchGenerationRecord {
     assets::PrefetchGenerationId generation;
     std::uint64_t timestamp_ns = 0;
@@ -385,11 +392,19 @@ struct AssetProfilerPrefetchGenerationRecord {
     std::uint64_t expected_next_count = 0;
     std::uint64_t possible_next_count = 0;
     std::vector<AssetProfilerPrefetchPlanEntry> prediction_plan;
+    std::vector<AssetProfilerOpaquePredictionFrontier> opaque_frontiers;
     std::vector<AssetProfilerPrefetchSubmissionEntry> submitted_entries;
     std::vector<AssetProfilerPrefetchSubmissionFailure> submission_failures;
     std::uint64_t used_count = 0;
     std::uint64_t late_count = 0;
     std::uint64_t unused_count = 0;
+};
+
+struct AssetProfilerOpaquePredictionMiss {
+    assets::AssetCacheKey cache_key;
+    assets::AssetRequestId request_id;
+    assets::PrefetchGenerationId generation;
+    AssetProfilerOpaquePredictionFrontier frontier;
 };
 struct AssetProfilerInventoryChanged {
     std::uint64_t revision = 0;
@@ -397,7 +412,8 @@ struct AssetProfilerInventoryChanged {
 
 using AssetProfilerChangePayload =
     std::variant<AssetTelemetryEvent, AssetProfilerMemoryPoint, AssetWaitRecord,
-                 AssetProfilerPrefetchGenerationRecord, AssetProfilerInventoryChanged>;
+                 AssetProfilerPrefetchGenerationRecord, AssetProfilerOpaquePredictionMiss,
+                 AssetProfilerInventoryChanged>;
 
 struct AssetProfilerChange {
     AssetProfilerSequence sequence;

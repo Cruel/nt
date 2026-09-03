@@ -2296,6 +2296,34 @@ TEST_CASE("Scene prediction selects known branches, widens choices, and continue
     const auto after_lua = find_asset(opaque_root, "image-prediction-after-lua");
     REQUIRE(after_lua != opaque_root.entries.end());
     CHECK(after_lua->confidence == runtime::FlowPredictionConfidence::Expected);
+    REQUIRE(opaque_root.opaque_frontiers.size() == 1);
+    const auto* opaque_point = std::get_if<core::compiled::SceneStepPredictionPoint>(
+        &opaque_root.opaque_frontiers.front().attachment_point);
+    REQUIRE(opaque_point != nullptr);
+    CHECK(opaque_point->scene == id<core::SceneId>("prediction-decision"));
+    CHECK(opaque_point->step == id<core::SceneStepId>("opaque-lua"));
+    CHECK(opaque_root.opaque_frontiers.front().provenance.supplemental_hint_id == std::nullopt);
+    CHECK(find_asset(opaque_root, "image-prediction-branch-alternative") ==
+          opaque_root.entries.end());
+
+    auto hinted_document = scene_prediction_test_document();
+    hinted_document["flowPrediction"]["supplementalHints"] = nlohmann::json::array(
+        {{{"id", "opaque-dynamic-image"},
+          {"target",
+           {{"kind", "asset"},
+            {"asset", {{"kind", "asset"}, {"id", "image-prediction-branch-alternative"}}}}},
+          {"attachment", {{"kind", "point"}, {"slice", 23}}}}});
+    auto hinted_package =
+        package_from_document(hinted_document, "scene-prediction-test-with-opaque-hint.json");
+    runtime::FlowPredictor hinted_predictor(hinted_package.project());
+    const auto hinted = hinted_predictor.predict(runtime::ActiveScenePredictionRoot{
+        .scene = id<core::SceneId>("prediction-decision"),
+        .position = core::SceneFramePosition{id<core::SceneStepId>("opaque-lua"),
+                                             core::SceneStepReady{}, true}});
+    REQUIRE(hinted.diagnostics.empty());
+    const auto dynamic = find_asset(hinted, "image-prediction-branch-alternative");
+    REQUIRE(dynamic != hinted.entries.end());
+    CHECK(dynamic->provenance.supplemental_hint_id == "opaque-dynamic-image");
 }
 
 TEST_CASE("Dialogue prediction starts at the live execution slice and preserves semantic horizons",

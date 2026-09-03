@@ -108,6 +108,10 @@ core::AssetProfilerPrefetchGenerationRecord generation_record()
                               .room = "hall",
                               .supplemental_hint_id = "hall-opening",
                               .reason_chain = {"room:start:after-enter", "scene:opening:entry"}}}}},
+        .opaque_frontiers = {{.root = core::AssetProfilerPredictionRoot::ProspectiveRoomEntry,
+                              .room = "hall",
+                              .attachment_point = "room:hall:after-enter",
+                              .reason_chain = {"room:start:after-leave", "room:hall:after-enter"}}},
         .submitted_entries = {{.cache_key = key,
                                .prediction = core::PrefetchPredictionKind::ExpectedNext},
                               {.cache_key = key,
@@ -178,6 +182,17 @@ std::vector<core::AssetProfilerChange> changes()
          .payload = wait_record(core::AssetWaitResult::Canceled, 33)},
         {.sequence = {7},
          .timestamp_ns = 70,
+         .payload =
+             core::AssetProfilerOpaquePredictionMiss{
+                 .cache_key = {.stable_identity = "texture|project:/dynamic.png|0",
+                               .source_generation = {beyond_javascript_safe_integer}},
+                 .request_id = {beyond_javascript_safe_integer},
+                 .generation = {beyond_javascript_safe_integer},
+                 .frontier = {.root = core::AssetProfilerPredictionRoot::FlowExecution,
+                              .attachment_point = "scene:opening:step:lua",
+                              .reason_chain = {"scene:opening:entry", "scene:opening:step:lua"}}}},
+        {.sequence = {8},
+         .timestamp_ns = 80,
          .payload = core::AssetProfilerInventoryChanged{beyond_javascript_safe_integer}},
     };
 }
@@ -261,7 +276,7 @@ core::AssetProfilerSnapshot full_snapshot()
 {
     return {
         .session_id = {std::numeric_limits<std::uint64_t>::max()},
-        .latest_sequence = {7},
+        .latest_sequence = {8},
         .captured_at_ns = beyond_javascript_safe_integer,
         .memory = memory_snapshot(),
         .outcomes = {.ready_before_use = beyond_javascript_safe_integer,
@@ -328,6 +343,12 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     CHECK(payload.at("retainedChanges")
               .at(1)
               .at("generation")
+              .at("opaqueFrontiers")
+              .at(0)
+              .at("attachmentPoint") == "room:hall:after-enter");
+    CHECK(payload.at("retainedChanges")
+              .at(1)
+              .at("generation")
               .at("submittedEntries")
               .at(0)
               .at("prediction") == "expected-next");
@@ -344,6 +365,9 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     CHECK(payload.at("retainedChanges").at(3).at("wait").at("result") == "completed");
     CHECK(payload.at("retainedChanges").at(4).at("wait").at("result") == "failed");
     CHECK(payload.at("retainedChanges").at(5).at("wait").at("result") == "canceled");
+    CHECK(payload.at("retainedChanges").at(6).at("kind") == "opaque-prediction-miss");
+    CHECK(payload.at("retainedChanges").at(6).at("miss").at("frontier").at("attachmentPoint") ==
+          "scene:opening:step:lua");
     CHECK(payload.at("retainedChanges").at(0).at("event").at("eventKind") == "source-read-failed");
     require_decimal_wire_fields(payload);
 }

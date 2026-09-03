@@ -4,7 +4,11 @@ import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
 import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import type { AssetProfilerWireChange } from '../../shared/asset-profiler-protocol';
 import { assetProfilerEntry, assetProfilerFullPayload } from './fixtures/asset-profiler';
 
@@ -139,6 +143,7 @@ describe('AssetPerformancePanel', () => {
               ],
             },
           ],
+          opaqueFrontiers: [],
           submittedEntries: [
             {
               cacheKey: {
@@ -167,6 +172,77 @@ describe('AssetPerformancePanel', () => {
         'automatic → flow-execution → scene:opening:entry → scene:opening:step:show-intro',
       ),
     ).toBeInTheDocument();
+  });
+
+  it('offers an explicit prefetch-hint action for a safely resolved opaque prediction miss', () => {
+    const project = createAuthoringProject();
+    project.assets.dynamic = {
+      id: 'dynamic',
+      label: 'Dynamic image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'dynamic.png' },
+        aliases: [],
+        sampling: 'linear',
+        imageMetadata: { width: 64, height: 64, hasAlpha: false, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Hall');
+    room.lifecycle.afterEnter.push({
+      id: 'dynamic-lua',
+      kind: 'run-lua',
+      source: 'choose_dynamic()',
+    });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: room };
+    project.entrypoint = { kind: 'room', id: 'hall' };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const payload = assetProfilerFullPayload({ latestSequence: '1' });
+    payload.retainedChanges = [
+      {
+        kind: 'opaque-prediction-miss',
+        sequence: '1',
+        timestampNs: '20',
+        miss: {
+          cacheKey: {
+            stableIdentity: 'texture|project:/dynamic.png|0',
+            sourceGeneration: '1',
+          },
+          requestId: '7',
+          generation: '3',
+          frontier: {
+            root: 'flow-execution',
+            room: 'hall',
+            attachmentPoint: 'room:hall:after-enter',
+            reasonChain: ['room:hall:after-enter'],
+          },
+        },
+      },
+    ];
+    useAssetProfilerStore.getState().applyPayload(payload);
+    useAssetProfilerStore.getState().setSelectedView('prediction');
+
+    render(<AssetPerformancePanel />);
+
+    expect(screen.getByText('Opaque prediction misses')).toBeInTheDocument();
+    expect(screen.getByText('dynamic')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add prefetch hint here' }));
+
+    const updated = useProjectStore.getState().document;
+    expect(isAuthoringProject(updated)).toBe(true);
+    if (!isAuthoringProject(updated)) return;
+    expect(Object.values(updated.prefetchHints)).toContainEqual({
+      id: 'prefetch-hint',
+      target: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'dynamic' } } },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'room-lifecycle',
+          room: { $ref: { collection: 'rooms', id: 'hall' } },
+          stage: 'after-enter',
+        },
+      },
+    });
   });
 
   it('filters issues through profiler-local controls and reveals technical details on expansion', () => {

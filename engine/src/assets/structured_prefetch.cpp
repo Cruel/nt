@@ -1202,6 +1202,9 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
                                      const runtime::FlowPredictionProjection& projection)
 {
     PrefetchPlan plan;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    plan.opaque_frontiers = projection.opaque_frontiers;
+#endif
     plan.diagnostics = projection.diagnostics;
     std::map<CacheIdentity, SeenDescriptorState> seen;
     auto append_descriptor = [&](StructuredAssetRequestDescriptor descriptor,
@@ -1662,6 +1665,7 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
     auto& candidates = normalized.candidates;
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     report.ranked_candidates = candidates;
+    report.opaque_frontiers = plan.opaque_frontiers;
 #endif
     for (const auto& candidate : candidates) {
         if (candidate.prediction == PrefetchPredictionKind::ExpectedNext)

@@ -145,6 +145,7 @@ struct PrefetchSubmissionReport {
     // Exact normalized ranking consumed by the planner for this logical generation. Tooling may
     // inspect this read-only projection, but it is not an authoring or persistence contract.
     std::vector<PrefetchCandidate> ranked_candidates;
+    std::vector<runtime::FlowPredictionOpaqueFrontier> opaque_frontiers;
 #endif
     bool budget_exhausted = false;
     bool structural_limit_reached = false;
@@ -152,6 +153,9 @@ struct PrefetchSubmissionReport {
 
 struct PrefetchPlan {
     std::vector<PrefetchCandidate> candidates;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    std::vector<runtime::FlowPredictionOpaqueFrontier> opaque_frontiers;
+#endif
     core::Diagnostics diagnostics;
     bool structural_limit_reached = false;
 };

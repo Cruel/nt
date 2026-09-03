@@ -166,6 +166,13 @@ export interface AssetProfilerPrefetchPlanEntry {
   provenance: AssetProfilerPredictionProvenance[];
 }
 
+export interface AssetProfilerOpaquePredictionFrontier {
+  root: AssetProfilerPredictionRoot;
+  room: string | null;
+  attachmentPoint: string;
+  reasonChain: string[];
+}
+
 export interface AssetProfilerPrefetchGenerationRecord {
   generation: CanonicalDecimal;
   timestampNs: CanonicalDecimal;
@@ -173,11 +180,19 @@ export interface AssetProfilerPrefetchGenerationRecord {
   expectedNextCount: CanonicalDecimal;
   possibleNextCount: CanonicalDecimal;
   predictionPlan: AssetProfilerPrefetchPlanEntry[];
+  opaqueFrontiers: AssetProfilerOpaquePredictionFrontier[];
   submittedEntries: AssetProfilerPrefetchSubmissionEntry[];
   submissionFailures: AssetProfilerPrefetchSubmissionFailure[];
   usedCount: CanonicalDecimal;
   lateCount: CanonicalDecimal;
   unusedCount: CanonicalDecimal;
+}
+
+export interface AssetProfilerOpaquePredictionMiss {
+  cacheKey: AssetProfilerCacheKey;
+  requestId: CanonicalDecimal;
+  generation: CanonicalDecimal;
+  frontier: AssetProfilerOpaquePredictionFrontier;
 }
 
 export type AssetProfilerWaitPhase =
@@ -276,6 +291,10 @@ export type AssetProfilerWireChange =
   | (AssetProfilerWireChangeBase & {
       kind: 'prefetch-generation-upsert';
       generation: AssetProfilerPrefetchGenerationRecord;
+    })
+  | (AssetProfilerWireChangeBase & {
+      kind: 'opaque-prediction-miss';
+      miss: AssetProfilerOpaquePredictionMiss;
     })
   | (AssetProfilerWireChangeBase & {
       kind: 'inventory-changed';
@@ -614,6 +633,18 @@ function isPredictionPlanEntry(value: unknown): value is AssetProfilerPrefetchPl
   );
 }
 
+function isOpaqueFrontier(value: unknown): value is AssetProfilerOpaquePredictionFrontier {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ['root', 'room', 'attachmentPoint', 'reasonChain']) &&
+    isEnum(value.root, ['flow-execution', 'prospective-room-entry', 'resident-room-context']) &&
+    (value.room === null || typeof value.room === 'string') &&
+    typeof value.attachmentPoint === 'string' &&
+    Array.isArray(value.reasonChain) &&
+    value.reasonChain.every((reason) => typeof reason === 'string')
+  );
+}
+
 function isGeneration(value: unknown): value is AssetProfilerPrefetchGenerationRecord {
   return (
     isRecord(value) &&
@@ -624,6 +655,7 @@ function isGeneration(value: unknown): value is AssetProfilerPrefetchGenerationR
       'expectedNextCount',
       'possibleNextCount',
       'predictionPlan',
+      'opaqueFrontiers',
       'submittedEntries',
       'submissionFailures',
       'usedCount',
@@ -637,6 +669,8 @@ function isGeneration(value: unknown): value is AssetProfilerPrefetchGenerationR
     isCanonicalUnsignedDecimal(value.possibleNextCount) &&
     Array.isArray(value.predictionPlan) &&
     value.predictionPlan.every(isPredictionPlanEntry) &&
+    Array.isArray(value.opaqueFrontiers) &&
+    value.opaqueFrontiers.every(isOpaqueFrontier) &&
     Array.isArray(value.submittedEntries) &&
     value.submittedEntries.every(isSubmissionEntry) &&
     Array.isArray(value.submissionFailures) &&
@@ -786,6 +820,16 @@ function isChange(value: unknown): value is AssetProfilerWireChange {
       return (
         hasExactKeys(value, ['sequence', 'timestampNs', 'kind', 'generation']) &&
         isGeneration(value.generation)
+      );
+    case 'opaque-prediction-miss':
+      return (
+        hasExactKeys(value, ['sequence', 'timestampNs', 'kind', 'miss']) &&
+        isRecord(value.miss) &&
+        hasExactKeys(value.miss, ['cacheKey', 'requestId', 'generation', 'frontier']) &&
+        isCacheKey(value.miss.cacheKey) &&
+        isCanonicalUnsignedDecimal(value.miss.requestId) &&
+        isCanonicalUnsignedDecimal(value.miss.generation) &&
+        isOpaqueFrontier(value.miss.frontier)
       );
     case 'inventory-changed':
       return (
