@@ -919,10 +919,10 @@ struct MandatoryAssetGate::Impl {
         return core::DiagnosticResult<void>::success();
     }
 
-    StructuredAssetDependencyContext
+    MandatoryAssetDependencyContext
     context_for(const core::RuntimePresentationSnapshot& snapshot) const
     {
-        StructuredAssetDependencyContext context;
+        MandatoryAssetDependencyContext context;
         context.current_presentation = &snapshot;
         if (snapshot.mode != core::PresentationRuntimeMode::Ended) {
             context.required_system_layouts.push_back(core::compiled::SystemLayoutRole::GameHud);
@@ -1031,8 +1031,8 @@ struct MandatoryAssetGate::Impl {
         core::AssetProfilerPrefetchGenerationRecord record;
         record.generation = report.generation;
         record.presentation_revision = presentation_revision;
-        record.expected_next_count = report.direct_next_count;
-        record.possible_next_count = report.adjacent_count;
+        record.expected_next_count = report.expected_count;
+        record.possible_next_count = report.possible_count;
         record.prediction_plan.reserve(report.ranked_candidates.size());
         for (const auto& candidate : report.ranked_candidates) {
             core::AssetProfilerPrefetchPlanEntry plan_entry;
@@ -1118,7 +1118,7 @@ struct MandatoryAssetGate::Impl {
     const core::LoadedCompiledPackage* package = nullptr;
     std::string active_renderer_variant;
     std::optional<StructuredAssetDependencyIndex> dependency_index;
-    std::optional<StructuredAssetDependencyCollector> collector;
+    std::optional<MandatoryAssetDependencyCollector> collector;
     runtime::FlowPredictionProjection entry_prediction;
     std::optional<runtime::ActiveScenePredictionRoot> active_scene_root;
     std::optional<runtime::FlowPredictionProjection> active_scene_prediction;
@@ -1129,7 +1129,7 @@ struct MandatoryAssetGate::Impl {
     bool runtime_prediction_observed = false;
     AssetSourceGeneration dependency_generation;
     std::optional<MandatoryAssetRequestGroup> group;
-    StructuredAssetDependencyBuckets dependencies;
+    MandatoryAssetDependencyClosure dependencies;
     PrefetchPlan adjacent_prediction_plan;
     std::optional<core::PresentationSnapshotRevision> snapshot_revision;
     std::optional<core::RuntimePresentationSnapshot> pending_snapshot;
@@ -1281,25 +1281,20 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
 
     rollback_candidate_on_owner();
     m_impl->dependencies = m_impl->collector->collect(m_impl->context_for(snapshot));
-    // Mandatory publication continues to use the structured collector, but production
-    // speculation is sourced from the Flow predictor. Keep the compatibility buckets available
-    // to their standalone callers without flattening them back into this runtime planner path.
-    m_impl->dependencies.direct_next.clear();
-    m_impl->dependencies.adjacent_alternatives.clear();
     if (snapshot.mode != core::PresentationRuntimeMode::Room || !snapshot.current_room ||
         !m_impl->resident_root || m_impl->resident_root->room != *snapshot.current_room) {
         m_impl->resident_root.reset();
         m_impl->resident_prediction.reset();
     }
     m_impl->append_adjacent_room_predictions(snapshot);
-    if (!m_impl->dependencies.mandatory_diagnostics.empty()) {
+    if (!m_impl->dependencies.diagnostics.empty()) {
         return {.disposition = MandatoryAssetGateDisposition::Failed,
-                .diagnostics = m_impl->dependencies.mandatory_diagnostics};
+                .diagnostics = m_impl->dependencies.diagnostics};
     }
     m_impl->snapshot_revision = snapshot.revision;
     m_impl->pending_snapshot = snapshot;
     m_impl->group.emplace(
-        m_impl->assets, m_impl->dependencies.current_mandatory,
+        m_impl->assets, m_impl->dependencies.requests,
         MandatoryAssetGroupOptions{.phase = core::LoadingPhase::LoadingRuntimeDemand,
                                    .reason = AssetRequestReason::Demand,
                                    .overlay_grace = std::chrono::milliseconds{100},
@@ -1384,20 +1379,18 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
     StructuredAssetRequestDescriptor descriptor{
         .request = request,
         .cache_key = make_audio_cache_key(request, m_impl->assets.source_generation_on_owner())};
-    const auto duplicate =
-        std::find_if(m_impl->dependencies.current_mandatory.begin(),
-                     m_impl->dependencies.current_mandatory.end(), [&](const auto& current) {
-                         return current.cache_key == descriptor.cache_key;
-                     });
-    if (duplicate != m_impl->dependencies.current_mandatory.end()) {
+    const auto duplicate = std::find_if(
+        m_impl->dependencies.requests.begin(), m_impl->dependencies.requests.end(),
+        [&](const auto& current) { return current.cache_key == descriptor.cache_key; });
+    if (duplicate != m_impl->dependencies.requests.end()) {
         m_impl->group->show_overlay_immediately_on_owner();
         return core::Result<void, core::Diagnostics>::success();
     }
 
-    m_impl->dependencies.current_mandatory.push_back(std::move(descriptor));
+    m_impl->dependencies.requests.push_back(std::move(descriptor));
     m_impl->group->cancel_on_owner();
     m_impl->group.emplace(
-        m_impl->assets, m_impl->dependencies.current_mandatory,
+        m_impl->assets, m_impl->dependencies.requests,
         MandatoryAssetGroupOptions{.phase = core::LoadingPhase::LoadingRuntimeDemand,
                                    .reason = AssetRequestReason::Demand,
                                    .overlay_grace = std::chrono::milliseconds{100},

@@ -77,6 +77,8 @@ the Compiled Project rather than rediscovering supported prediction topology fro
 Dialogue, Room Lifecycle, or Gameplay Command definitions at runtime. The metadata is optimization
 only: it never drives canonical Flow execution, and a missing/unused prediction index leaves gameplay
 correctness unchanged because mandatory asset publication remains independent.
+This is the sole production speculative traversal boundary: there is no raw-definition
+direct-next/adjacent fallback or compatibility bucket path alongside `runtime::FlowPredictor`.
 
 `runtime::FlowPredictor` exposes a read-only semantic projection over the generated index. In addition
 to Scene and Dialogue entry roots, active Scene and Dialogue Flow can be rooted at their current

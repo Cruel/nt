@@ -723,11 +723,16 @@ template<class Executor> void run_prefetch_outcome_matrix(Executor& executor)
     const auto missed_descriptor = matrix_descriptor(missed, generation);
 
     assets::PrefetchPlanner planner(manager);
-    assets::StructuredAssetDependencyBuckets speculative;
-    speculative.direct_next = {used_descriptor, late_descriptor, unused_descriptor};
+    assets::PrefetchPlan speculative;
+    for (const auto& descriptor : {used_descriptor, late_descriptor, unused_descriptor}) {
+        speculative.candidates.push_back(
+            {.descriptor = descriptor,
+             .prediction = assets::PrefetchPredictionKind::ExpectedNext,
+             .estimated_cost = {.gpu_bytes = 4}});
+    }
     auto prefetched = planner.replace_generation_on_owner(speculative);
     REQUIRE(prefetched);
-    CHECK(prefetched.value().direct_next_submitted == 3);
+    CHECK(prefetched.value().expected_submitted == 3);
 
     assets::MandatoryAssetRequestGroup mandatory(manager, {used_descriptor, missed_descriptor},
                                                  {.phase = core::LoadingPhase::LoadingRuntimeDemand,
@@ -765,7 +770,7 @@ template<class Executor> void run_prefetch_outcome_matrix(Executor& executor)
     CHECK(residency->classification_on_owner(late_descriptor.cache_key) ==
           assets::ResidencyClass::Pinned);
 
-    assets::StructuredAssetDependencyBuckets replacement;
+    assets::PrefetchPlan replacement;
     auto replaced = planner.replace_generation_on_owner(replacement);
     REQUIRE(replaced);
     CHECK(replaced.value().generation != prefetched.value().generation);

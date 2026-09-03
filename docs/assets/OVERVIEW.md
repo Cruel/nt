@@ -128,9 +128,9 @@ symbols, and synchronous fallbacks in the audited production consumers.
 resolution plus the speculative planner boundary. `StructuredAssetDependencyIndex` builds immutable
 asset, Layout, material, gameplay, package-size, and image-dimension lookup data from one
 `LoadedCompiledPackage` and its prepared resource registries for the active renderer shader variant.
-Mandatory collection still emits typed current-publication descriptors independently of prediction;
-the older direct-next/adjacent buckets remain available only for callers not yet migrated off that
-compatibility seam. Material closure includes the material, its resolved shader program, and
+`MandatoryAssetDependencyCollector` emits only the typed dependency closure required by the current
+presentation and required system Layouts. It has no Scene/Dialogue/Room speculative traversal and no
+prediction buckets. Material closure includes the material, its resolved shader program, and
 package-backed static texture assignments while excluding renderer-generated sources such as
 `$draw.texture`.
 
@@ -150,8 +150,8 @@ attaches new work before obsolete interests are released, and reports retained p
 restarting unchanged preparation. Stronger compatible texture capability can still join/enrich through
 the ordinary request substrate. If speculative work becomes Demand, the existing orchestrator promotes
 or coalesces that same in-flight/resident work. Collector/prediction diagnostics remain
-optimization-only: current-publication failures can stop the mandatory gate, while speculative
-diagnostics or Warm admission rejection never invalidate otherwise-correct gameplay.
+separate: mandatory-closure failures can stop the mandatory gate, while Flow prediction diagnostics
+or Warm admission rejection are optimization-only and never invalidate otherwise-correct gameplay.
 The existing editor-profiler generation handoff advances on those same meaningful Flow-frontier
 replacements, treats retained interests as active entries in the replacement logical generation, and
 classifies planner-side Warm rejection as a memory-blocked speculative outcome. Rich prediction-index
@@ -200,9 +200,14 @@ Repeated runtime publications with the same prediction-relevant Scene or Dialogu
 rotate the speculative generation; only a changed prediction root/frontier refreshes the active Flow
 plan. Resident Room roots follow the same semantic replacement rule: exact root equality causes no
 generation churn, while a changed set of plausible programs or Layouts replaces the shared plan.
-Unsupported Flow shapes may continue to use older speculative paths temporarily. Mandatory
-`current_mandatory` collection remains independent; missing prediction metadata or an empty/unsupported
-projection never blocks publication or changes gameplay correctness.
+This is the sole production speculative path. There is no raw-definition direct-next/adjacent walker
+or compatibility bucket fallback: Scene, Dialogue, Room lifecycle, resident Room actions, and authored
+supplemental hints all enter through the compiled Flow Prediction Index, `FlowPredictor`,
+`resolve_flow_prediction()`, and `PrefetchPlanner`. Mandatory publication remains independently driven
+by `MandatoryAssetDependencyCollector`; missing prediction metadata or an empty/unsupported projection
+therefore disables or degrades prefetch only and never blocks publication or changes gameplay
+correctness. The `noveltea_speculative_prefetch_boundary_policy` source-policy test rejects
+reintroduction of the retired mixed speculative collector/bucket seam.
 
 Mandatory dependency descriptors are generation-scoped. If the project asset namespace advances to
 a new `AssetSourceGeneration` after a package was indexed, such as during editor-preview asset

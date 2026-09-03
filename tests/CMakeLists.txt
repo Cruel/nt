@@ -417,6 +417,13 @@ add_test(
 set_tests_properties(noveltea_asset_lifecycle_boundary_policy PROPERTIES
     LABELS "assets;production-paths;source-policy;mandatory;publication")
 add_test(
+    NAME noveltea_speculative_prefetch_boundary_policy
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/cmake/speculative_prefetch_boundary_policy.cmake")
+set_tests_properties(noveltea_speculative_prefetch_boundary_policy PROPERTIES
+    LABELS "assets;prefetch;source-policy;flow-prediction")
+add_test(
     NAME noveltea_editor_asset_profiler_preset_policy
     COMMAND "${CMAKE_COMMAND}"
         "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
