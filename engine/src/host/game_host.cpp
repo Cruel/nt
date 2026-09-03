@@ -1170,7 +1170,11 @@ bool GameHost::publish_runtime_publication(const runtime::RuntimePublication& pu
     m_runtime_events.assign(events.begin(), events.end());
     m_runtime_observations = publication.observations;
     auto prediction_diagnostics =
-        m_runtime_presentation.update_active_scene_prediction(publication.active_scene);
+        publication.active_scene
+            ? m_runtime_presentation.update_active_scene_prediction(publication.active_scene)
+        : publication.active_dialogue
+            ? m_runtime_presentation.update_active_dialogue_prediction(publication.active_dialogue)
+            : m_runtime_presentation.update_active_scene_prediction(std::nullopt);
     if (!prediction_diagnostics.empty()) {
         retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, prediction_diagnostics);
         core::append_diagnostics(application_diagnostics, std::move(prediction_diagnostics));

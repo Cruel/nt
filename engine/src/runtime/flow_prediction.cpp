@@ -300,6 +300,61 @@ public:
                           std::move(program.properties));
     }
 
+    Result run_dialogue_effect(std::size_t slice_index,
+                               const std::optional<core::InteractionInstructionId>& command_id,
+                               bool awaiting_completion, std::size_t distance,
+                               FlowPredictionConfidence confidence, ProjectedProperties properties)
+    {
+        if (slice_index >= m_index.slices.size()) {
+            add_invalid_index(m_result.diagnostics, "slice", slice_index);
+            return {std::move(properties), distance};
+        }
+        const auto& slice = m_index.slices[slice_index];
+        if (!command_id) {
+            if (!awaiting_completion)
+                return run_slice(slice_index, distance, confidence, std::move(properties));
+            if (slice.frontier == core::compiled::FlowPredictionFrontier::Normal)
+                distance += 3;
+            return run_control(slice, {std::move(properties), distance},
+                               FlowPredictionConfidence::Alternative, false);
+        }
+
+        auto resumed = run_program_from_command(slice.program, *command_id, awaiting_completion,
+                                                distance, confidence, properties);
+        if (!resumed) {
+            m_result.diagnostics.push_back(
+                {.code = "assets.flow_prediction_missing_dialogue_command",
+                 .message = "Flow Prediction Index cannot resume Dialogue effect command '" +
+                            command_id->text() + "' from the active execution position",
+                 .severity = core::ErrorSeverity::Warning});
+            return {std::move(properties), distance};
+        }
+        if (awaiting_completion) {
+            if (slice.frontier == core::compiled::FlowPredictionFrontier::Normal)
+                resumed->next_distance += 3;
+            confidence = FlowPredictionConfidence::Alternative;
+        }
+        return run_control(slice, std::move(*resumed), confidence, false);
+    }
+
+    Result run_room_entry(const core::RoomId& room, std::size_t distance,
+                          FlowPredictionConfidence confidence, ProjectedProperties properties)
+    {
+        Result result{std::move(properties), distance};
+        for (const auto stage : {core::compiled::RoomLifecyclePredictionStage::BeforeEnter,
+                                 core::compiled::RoomLifecyclePredictionStage::Presentation,
+                                 core::compiled::RoomLifecyclePredictionStage::AfterEnter}) {
+            const auto slice =
+                find_slice(m_index, core::compiled::RoomLifecyclePredictionPoint{room, stage});
+            if (slice) {
+                result = run_slice(*slice, result.max_distance, confidence,
+                                   std::move(result.properties));
+            }
+            ++result.max_distance;
+        }
+        return result;
+    }
+
 private:
     struct ProgramResult {
         ProjectedProperties properties;
@@ -322,12 +377,14 @@ private:
         }
     }
 
-    ProgramResult run_program(const std::vector<core::compiled::FlowPredictionCommand>& program,
-                              std::size_t distance, FlowPredictionConfidence confidence,
-                              ProjectedProperties properties)
+    ProgramResult
+    run_program_from(const std::vector<core::compiled::FlowPredictionCommand>& program,
+                     std::size_t start, std::size_t distance, FlowPredictionConfidence confidence,
+                     ProjectedProperties properties)
     {
         std::size_t next_distance = distance;
-        for (const auto& command : program) {
+        for (std::size_t index = start; index < program.size(); ++index) {
+            const auto& command = program[index];
             auto command_result = std::visit(
                 [&](const auto& value) -> ProgramResult {
                     using T = std::decay_t<decltype(value)>;
@@ -357,6 +414,12 @@ private:
                                                confidence, properties, false);
                         next_distance = std::max(next_distance, child.max_distance + 1);
                         properties.clear();
+                    } else if constexpr (std::is_same_v<T,
+                                                        core::compiled::FlowPredictionEnterRoom>) {
+                        auto room =
+                            run_room_entry(value.room, next_distance, confidence, properties);
+                        next_distance = std::max(next_distance, room.max_distance);
+                        properties.clear();
                     } else if constexpr (std::is_same_v<T, core::compiled::FlowPredictionIf>) {
                         const auto evaluated = evaluate_condition(value.condition, properties);
                         if (evaluated == KnownCondition::True) {
@@ -383,6 +446,40 @@ private:
             next_distance = command_result.next_distance;
         }
         return {std::move(properties), next_distance};
+    }
+
+    ProgramResult run_program(const std::vector<core::compiled::FlowPredictionCommand>& program,
+                              std::size_t distance, FlowPredictionConfidence confidence,
+                              ProjectedProperties properties)
+    {
+        return run_program_from(program, 0, distance, confidence, std::move(properties));
+    }
+
+    std::optional<ProgramResult>
+    run_program_from_command(const std::vector<core::compiled::FlowPredictionCommand>& program,
+                             const core::InteractionInstructionId& command_id, bool completed,
+                             std::size_t distance, FlowPredictionConfidence confidence,
+                             const ProjectedProperties& properties)
+    {
+        for (std::size_t index = 0; index < program.size(); ++index) {
+            const auto& command = program[index];
+            if (command.command_id && *command.command_id == command_id)
+                return run_program_from(program, index + (completed ? 1U : 0U), distance,
+                                        confidence, properties);
+
+            const auto* branch = std::get_if<core::compiled::FlowPredictionIf>(&command.value);
+            if (branch == nullptr)
+                continue;
+            if (auto nested = run_program_from_command(branch->then_commands, command_id, completed,
+                                                       distance, confidence, properties))
+                return run_program_from(program, index + 1, nested->next_distance, confidence,
+                                        std::move(nested->properties));
+            if (auto nested = run_program_from_command(branch->else_commands, command_id, completed,
+                                                       distance, confidence, properties))
+                return run_program_from(program, index + 1, nested->next_distance, confidence,
+                                        std::move(nested->properties));
+        }
+        return std::nullopt;
     }
 
     ProgramResult
@@ -696,6 +793,76 @@ FlowPredictionProjection FlowPredictor::predict(const ActiveScenePredictionRoot&
 
     run_position(root.position.next_step, 0, FlowPredictionConfidence::Expected,
                  std::move(properties));
+    return result;
+}
+
+FlowPredictionProjection FlowPredictor::predict(const ActiveDialoguePredictionRoot& root) const
+{
+    return predict(root, {});
+}
+
+FlowPredictionProjection FlowPredictor::predict(const ActiveDialoguePredictionRoot& root,
+                                                const FlowPredictionContext& context) const
+{
+    FlowPredictionProjection result;
+    const auto& optional_index = m_project->flow_prediction();
+    if (!optional_index)
+        return result;
+    const auto& index = *optional_index;
+    PredictionTraversal traversal(index, result);
+
+    core::compiled::FlowPredictionPoint point =
+        core::compiled::DialogueTerminalPredictionPoint{root.dialogue};
+    if (root.position.stage != core::DialogueFramePosition::Stage::Complete) {
+        core::compiled::DialoguePredictionStage stage =
+            core::compiled::DialoguePredictionStage::EnterBlock;
+        std::size_t cursor = 0;
+        switch (root.position.stage) {
+        case core::DialogueFramePosition::Stage::EnterBlock:
+            stage = core::compiled::DialoguePredictionStage::EnterBlock;
+            break;
+        case core::DialogueFramePosition::Stage::PresentSegment:
+            stage = core::compiled::DialoguePredictionStage::PresentSegment;
+            cursor = root.position.next_cue;
+            break;
+        case core::DialogueFramePosition::Stage::ApplySegmentEffects:
+            stage = core::compiled::DialoguePredictionStage::ApplySegmentEffects;
+            cursor = root.position.next_effect;
+            break;
+        case core::DialogueFramePosition::Stage::PresentChoices:
+            stage = core::compiled::DialoguePredictionStage::PresentChoices;
+            break;
+        case core::DialogueFramePosition::Stage::ApplyChoiceEffects:
+            stage = core::compiled::DialoguePredictionStage::ApplyChoiceEffects;
+            cursor = root.position.next_effect;
+            break;
+        case core::DialogueFramePosition::Stage::FollowEdge:
+            stage = core::compiled::DialoguePredictionStage::FollowEdge;
+            break;
+        case core::DialogueFramePosition::Stage::Complete:
+            break;
+        }
+        point = core::compiled::DialoguePositionPredictionPoint{
+            root.dialogue, root.position.block, root.position.segment, root.position.edge, stage,
+            cursor};
+    }
+    if (const auto slice = find_slice(index, point)) {
+        auto properties = initial_properties(context);
+        if (root.position.stage == core::DialogueFramePosition::Stage::ApplySegmentEffects ||
+            root.position.stage == core::DialogueFramePosition::Stage::ApplyChoiceEffects) {
+            (void)traversal.run_dialogue_effect(
+                *slice, root.position.effect_command, root.position.awaiting_completion, 0,
+                FlowPredictionConfidence::Expected, std::move(properties));
+        } else if (root.position.stage == core::DialogueFramePosition::Stage::PresentSegment &&
+                   root.position.awaiting_completion) {
+            (void)traversal.run_dialogue_effect(*slice, std::nullopt, true, 0,
+                                                FlowPredictionConfidence::Expected,
+                                                std::move(properties));
+        } else {
+            (void)traversal.run_slice(*slice, 0, FlowPredictionConfidence::Expected,
+                                      std::move(properties));
+        }
+    }
     return result;
 }
 

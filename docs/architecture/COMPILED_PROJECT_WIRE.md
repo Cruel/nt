@@ -18,12 +18,19 @@ The compiler may additionally publish a `flowPrediction` section containing immu
 optimization metadata. It is runtime-blind and non-authoritative: gameplay execution continues to
 use the ordinary compiled Scene/Dialogue/Room definitions, while speculative loading may consume the
 prediction metadata when present. The representation contains normalized semantic dependency groups,
-Scene entry/step/terminal slices, Dialogue entry slices, reusable Room lifecycle/presentation slices,
+Scene entry/step/terminal slices, Dialogue entry/execution/terminal slices, reusable Room lifecycle/presentation slices,
 typed control edges, semantic frontier markers, and compact compiler-lowered prediction command
 summaries. Scene Stage dependencies live only on the Scene-entry slice; later Scene slices contain only
 execution-local dependencies such as Asset, purpose-qualified Audio, Character presentation, Layout,
 or Material references. Purpose-qualified Audio dependencies preserve the authored semantic audio
 purpose so speculative loading can resolve the same typed request class as ordinary asset collection.
+Dialogue entry slices introduce initial visible Stage/media dependencies once. Dialogue execution
+slices then track the runtime block/segment/edge stage plus the cue/effect cursor so active prediction
+can resume from the exact live `DialogueFramePosition` without replaying earlier cues or effects.
+Dialogue line slices may introduce speaker/Stage/media Character presentation and purpose-qualified
+voice/SFX dependencies; effect slices reuse the same narrow Gameplay Command summaries as other Flow
+hosts. Choice presentation is a decision frontier whose enabled outcomes remain alternative control
+edges rather than a fabricated selected branch.
 Control metadata distinguishes sequential continuation, ordered Conditions, and Choices, while
 frontiers distinguish ordinary progress from short waits, stronger waits, and player decisions.
 Prediction command summaries admit only typed mutations, awaited/detached Flow handoffs, Conditions,

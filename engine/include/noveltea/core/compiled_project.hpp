@@ -1793,6 +1793,27 @@ struct DialogueEntryPredictionPoint {
     DialogueId dialogue;
     bool operator==(const DialogueEntryPredictionPoint&) const = default;
 };
+enum class DialoguePredictionStage : std::uint8_t {
+    EnterBlock,
+    PresentSegment,
+    ApplySegmentEffects,
+    PresentChoices,
+    ApplyChoiceEffects,
+    FollowEdge,
+};
+struct DialoguePositionPredictionPoint {
+    DialogueId dialogue;
+    DialogueBlockId block;
+    std::optional<DialogueSegmentId> segment;
+    std::optional<DialogueEdgeId> edge;
+    DialoguePredictionStage stage = DialoguePredictionStage::EnterBlock;
+    std::size_t cursor = 0;
+    bool operator==(const DialoguePositionPredictionPoint&) const = default;
+};
+struct DialogueTerminalPredictionPoint {
+    DialogueId dialogue;
+    bool operator==(const DialogueTerminalPredictionPoint&) const = default;
+};
 enum class RoomLifecyclePredictionStage : std::uint8_t {
     BeforeLeave,
     BeforeEnter,
@@ -1807,7 +1828,8 @@ struct RoomLifecyclePredictionPoint {
 };
 using FlowPredictionPoint =
     std::variant<SceneEntryPredictionPoint, SceneStepPredictionPoint, SceneTerminalPredictionPoint,
-                 DialogueEntryPredictionPoint, RoomLifecyclePredictionPoint>;
+                 DialogueEntryPredictionPoint, DialoguePositionPredictionPoint,
+                 DialogueTerminalPredictionPoint, RoomLifecyclePredictionPoint>;
 
 struct FlowPredictionSetGlobalProperty {
     PropertyId property;
@@ -1825,6 +1847,9 @@ struct FlowPredictionStartDetachedScene {
 struct FlowPredictionCallDialogue {
     DialogueId dialogue;
 };
+struct FlowPredictionEnterRoom {
+    RoomId room;
+};
 struct FlowPredictionOpaque {};
 struct FlowPredictionCommand;
 struct FlowPredictionIf {
@@ -1833,10 +1858,11 @@ struct FlowPredictionIf {
     std::vector<FlowPredictionCommand> else_commands;
 };
 struct FlowPredictionCommand {
-    using Value =
-        std::variant<FlowPredictionSetGlobalProperty, FlowPredictionInvalidateGlobalProperty,
-                     FlowPredictionCallScene, FlowPredictionStartDetachedScene,
-                     FlowPredictionCallDialogue, FlowPredictionOpaque, FlowPredictionIf>;
+    using Value = std::variant<FlowPredictionSetGlobalProperty,
+                               FlowPredictionInvalidateGlobalProperty, FlowPredictionCallScene,
+                               FlowPredictionStartDetachedScene, FlowPredictionCallDialogue,
+                               FlowPredictionEnterRoom, FlowPredictionOpaque, FlowPredictionIf>;
+    std::optional<InteractionInstructionId> command_id;
     Value value;
 };
 

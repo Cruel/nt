@@ -151,7 +151,9 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
                                                                 const nlohmann::json& value,
                                                                 std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"kind", "scene", "stepId", "dialogue", "room", "stage"}))
+    if (!decoder.object(value, pointer,
+                        {"kind", "scene", "stepId", "dialogue", "blockId", "segmentId", "edgeId",
+                         "stage", "cursor", "room"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
@@ -168,6 +170,79 @@ std::optional<FlowPredictionPoint> decode_flow_prediction_point(Decoder& decoder
         if (!dialogue)
             return std::nullopt;
         return FlowPredictionPoint{DialogueEntryPredictionPoint{std::move(*dialogue)}};
+    }
+    if (*kind == "dialogue-terminal") {
+        const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
+        auto dialogue =
+            dialogue_value
+                ? decode_reference<DialogueId>(decoder, *dialogue_value,
+                                               pointer_child(pointer, "dialogue"), "dialogue")
+                : std::nullopt;
+        if (!dialogue)
+            return std::nullopt;
+        return FlowPredictionPoint{DialogueTerminalPredictionPoint{std::move(*dialogue)}};
+    }
+    if (*kind == "dialogue-position") {
+        const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
+        const auto* block_value = decoder.member(value, "blockId", pointer);
+        const auto segment_it = value.find("segmentId");
+        const auto edge_it = value.find("edgeId");
+        const auto* segment_value = segment_it == value.end() ? nullptr : &*segment_it;
+        const auto* edge_value = edge_it == value.end() ? nullptr : &*edge_it;
+        const auto* stage_value = decoder.member(value, "stage", pointer);
+        const auto* cursor_value = decoder.member(value, "cursor", pointer);
+        auto dialogue =
+            dialogue_value
+                ? decode_reference<DialogueId>(decoder, *dialogue_value,
+                                               pointer_child(pointer, "dialogue"), "dialogue")
+                : std::nullopt;
+        auto block = block_value ? decoder.id<DialogueBlockId>(*block_value,
+                                                               pointer_child(pointer, "blockId"))
+                                 : std::nullopt;
+        auto stage = stage_value ? decoder.string(*stage_value, pointer_child(pointer, "stage"))
+                                 : std::nullopt;
+        auto cursor = cursor_value ? decoder.unsigned_integer<std::size_t>(
+                                         *cursor_value, pointer_child(pointer, "cursor"))
+                                   : std::nullopt;
+        std::optional<DialogueSegmentId> segment;
+        if (segment_value) {
+            auto parsed =
+                decoder.id<DialogueSegmentId>(*segment_value, pointer_child(pointer, "segmentId"));
+            if (!parsed)
+                return std::nullopt;
+            segment = std::move(*parsed);
+        }
+        std::optional<DialogueEdgeId> edge;
+        if (edge_value) {
+            auto parsed = decoder.id<DialogueEdgeId>(*edge_value, pointer_child(pointer, "edgeId"));
+            if (!parsed)
+                return std::nullopt;
+            edge = std::move(*parsed);
+        }
+        if (!dialogue || !block || !stage || !cursor)
+            return std::nullopt;
+        std::optional<DialoguePredictionStage> parsed_stage;
+        if (*stage == "enter-block")
+            parsed_stage = DialoguePredictionStage::EnterBlock;
+        else if (*stage == "present-segment")
+            parsed_stage = DialoguePredictionStage::PresentSegment;
+        else if (*stage == "apply-segment-effects")
+            parsed_stage = DialoguePredictionStage::ApplySegmentEffects;
+        else if (*stage == "present-choices")
+            parsed_stage = DialoguePredictionStage::PresentChoices;
+        else if (*stage == "apply-choice-effects")
+            parsed_stage = DialoguePredictionStage::ApplyChoiceEffects;
+        else if (*stage == "follow-edge")
+            parsed_stage = DialoguePredictionStage::FollowEdge;
+        else {
+            decoder.error(k_code_variant,
+                          "Unknown Flow Prediction Dialogue stage '" + *stage + "'.",
+                          pointer_child(pointer, "stage"));
+            return std::nullopt;
+        }
+        return FlowPredictionPoint{DialoguePositionPredictionPoint{
+            std::move(*dialogue), std::move(*block), std::move(segment), std::move(edge),
+            *parsed_stage, *cursor}};
     }
     if (*kind == "room-lifecycle") {
         const auto* room_value = decoder.member(value, "room", pointer);
@@ -228,8 +303,8 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
                                                                     std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"kind", "property", "value", "scene", "dialogue", "condition",
-                         "thenCommands", "elseCommands"}))
+                        {"commandId", "kind", "property", "value", "scene", "dialogue", "room",
+                         "condition", "thenCommands", "elseCommands"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
@@ -237,8 +312,20 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
     if (!kind)
         return std::nullopt;
 
+    std::optional<InteractionInstructionId> command_id;
+    if (const auto found = value.find("commandId"); found != value.end()) {
+        auto parsed =
+            decoder.id<InteractionInstructionId>(*found, pointer_child(pointer, "commandId"));
+        if (!parsed)
+            return std::nullopt;
+        command_id = std::move(*parsed);
+    }
+    const auto make_command = [&command_id](auto command) {
+        return FlowPredictionCommand{command_id, std::move(command)};
+    };
+
     if (*kind == "opaque")
-        return FlowPredictionCommand{FlowPredictionOpaque{}};
+        return make_command(FlowPredictionOpaque{});
     if (*kind == "set-global-property" || *kind == "invalidate-global-property") {
         const auto* property_value = decoder.member(value, "property", pointer);
         auto property =
@@ -249,16 +336,15 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
         if (!property)
             return std::nullopt;
         if (*kind == "invalidate-global-property")
-            return FlowPredictionCommand{
-                FlowPredictionInvalidateGlobalProperty{std::move(*property)}};
+            return make_command(FlowPredictionInvalidateGlobalProperty{std::move(*property)});
         const auto* runtime_value = decoder.member(value, "value", pointer);
         auto parsed_value = runtime_value ? decode_runtime_value(decoder, *runtime_value,
                                                                  pointer_child(pointer, "value"))
                                           : std::nullopt;
         if (!parsed_value)
             return std::nullopt;
-        return FlowPredictionCommand{
-            FlowPredictionSetGlobalProperty{std::move(*property), std::move(*parsed_value)}};
+        return make_command(
+            FlowPredictionSetGlobalProperty{std::move(*property), std::move(*parsed_value)});
     }
     if (*kind == "call-scene" || *kind == "start-detached-scene") {
         const auto* scene_value = decoder.member(value, "scene", pointer);
@@ -269,8 +355,8 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
         if (!scene)
             return std::nullopt;
         if (*kind == "start-detached-scene")
-            return FlowPredictionCommand{FlowPredictionStartDetachedScene{std::move(*scene)}};
-        return FlowPredictionCommand{FlowPredictionCallScene{std::move(*scene)}};
+            return make_command(FlowPredictionStartDetachedScene{std::move(*scene)});
+        return make_command(FlowPredictionCallScene{std::move(*scene)});
     }
     if (*kind == "call-dialogue") {
         const auto* dialogue_value = decoder.member(value, "dialogue", pointer);
@@ -279,9 +365,18 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
                 ? decode_reference<DialogueId>(decoder, *dialogue_value,
                                                pointer_child(pointer, "dialogue"), "dialogue")
                 : std::nullopt;
-        return dialogue ? std::optional<FlowPredictionCommand>{FlowPredictionCommand{
-                              FlowPredictionCallDialogue{std::move(*dialogue)}}}
+        return dialogue ? std::optional<FlowPredictionCommand>{make_command(
+                              FlowPredictionCallDialogue{std::move(*dialogue)})}
                         : std::nullopt;
+    }
+    if (*kind == "enter-room") {
+        const auto* room_value = decoder.member(value, "room", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        return room ? std::optional<FlowPredictionCommand>{make_command(
+                          FlowPredictionEnterRoom{std::move(*room)})}
+                    : std::nullopt;
     }
     if (*kind == "if") {
         const auto* condition_value = decoder.member(value, "condition", pointer);
@@ -306,8 +401,8 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
         auto else_commands = decode_commands(else_value, "elseCommands");
         if (!condition || !then_commands || !else_commands)
             return std::nullopt;
-        return FlowPredictionCommand{FlowPredictionIf{
-            std::move(*condition), std::move(*then_commands), std::move(*else_commands)}};
+        return make_command(FlowPredictionIf{std::move(*condition), std::move(*then_commands),
+                                             std::move(*else_commands)});
     }
 
     decoder.error(k_code_variant, "Unknown Flow Prediction command kind '" + *kind + "'.",

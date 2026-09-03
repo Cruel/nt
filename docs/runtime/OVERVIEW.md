@@ -79,8 +79,9 @@ only: it never drives canonical Flow execution, and a missing/unused prediction 
 correctness unchanged because mandatory asset publication remains independent.
 
 `runtime::FlowPredictor` exposes a read-only semantic projection over the generated index. In addition
-to Scene and Dialogue entry roots, an active Scene can be rooted at its current `SceneFramePosition`,
-and prospective Room entry is a first-class prediction root. Prospective Scene prediction begins at
+to Scene and Dialogue entry roots, active Scene and Dialogue Flow can be rooted at their current
+`SceneFramePosition` / `DialogueFramePosition`, and prospective Room entry is a first-class prediction
+root. Prospective Scene prediction begins at
 Scene entry and sees the invocation Stage once; active Scene prediction begins at the current step (or
 terminal) and does not replay already-consumed Stage/Event dependencies. Scene control follows generated
 sequential, ordered-Condition, and Choice edges rather than walking the raw Scene program. Awaited child
@@ -90,11 +91,19 @@ deterministic waits increase execution distance while retaining expected continu
 and player decisions retain later reachability but demote it to alternatives. This is semantic horizon
 ranking, not a probability model.
 
-The Runtime Session publishes the authoritative foreground Scene identity and `SceneFramePosition`
-alongside each immutable runtime publication. The host forwards that execution snapshot to the
-mandatory-asset gate after publication succeeds, allowing speculative prefetch to rotate from the
-live Scene position even when the rendered presentation snapshot is unchanged. This execution snapshot
-is prediction input only; presentation reconciliation and mandatory correctness remain driven by their
+Dialogue prediction uses the same horizon and projection semantics. Entry prediction introduces the
+Dialogue's initially visible Stage/media state once. Execution-local slices cover the current line/cue
+cursor, speaker and Stage/media Character presentation, voice/SFX/media dependencies, Gameplay Command
+effect cursors, Call-Scene ordering, redirects, Choices, and completion Flow. A live effect cursor does
+not replay effects that runtime has already consumed; a command that is currently awaiting completion is
+treated as consumed before prediction resumes. Choice presentation is the expected frontier and viable
+outcomes are alternatives. Lua remains opaque and may invalidate projected facts without executing.
+
+The Runtime Session publishes the authoritative foreground Scene or Dialogue identity and execution
+position alongside each immutable runtime publication. The host forwards that execution snapshot to
+the mandatory-asset gate after publication succeeds, allowing speculative prefetch to rotate from the
+live Flow position even when the rendered presentation snapshot is unchanged. These execution snapshots
+are prediction input only; presentation reconciliation and mandatory correctness remain driven by their
 existing authoritative contracts.
 
 Prospective Room entry composes the canonical successful transition order (source `before_leave`,

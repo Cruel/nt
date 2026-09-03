@@ -14,7 +14,8 @@
 
 namespace noveltea::runtime {
 struct ActiveScenePredictionRoot;
-}
+struct ActiveDialoguePredictionRoot;
+} // namespace noveltea::runtime
 
 namespace noveltea::assets {
 
@@ -240,6 +241,8 @@ public:
                                          MandatoryAssetRequestGroup::Clock::now()) noexcept;
     [[nodiscard]] core::Diagnostics update_active_scene_prediction_on_owner(
         const runtime::ActiveScenePredictionRoot* root) noexcept;
+    [[nodiscard]] core::Diagnostics update_active_dialogue_prediction_on_owner(
+        const runtime::ActiveDialoguePredictionRoot* root) noexcept;
     [[nodiscard]] std::optional<RuntimeMandatoryPublicationTransaction>
     take_ready_transaction_on_owner() noexcept;
     void release_previous_publication_on_owner() noexcept;

@@ -676,6 +676,23 @@ const flowPredictionPointSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('scene-terminal'), scene: sceneReferenceSchema }),
   strict({ kind: z.literal('dialogue-entry'), dialogue: dialogueReferenceSchema }),
   strict({
+    kind: z.literal('dialogue-position'),
+    dialogue: dialogueReferenceSchema,
+    blockId: id,
+    segmentId: id.optional(),
+    edgeId: id.optional(),
+    stage: z.enum([
+      'enter-block',
+      'present-segment',
+      'apply-segment-effects',
+      'present-choices',
+      'apply-choice-effects',
+      'follow-edge',
+    ]),
+    cursor: z.number().int().nonnegative(),
+  }),
+  strict({ kind: z.literal('dialogue-terminal'), dialogue: dialogueReferenceSchema }),
+  strict({
     kind: z.literal('room-lifecycle'),
     room: roomReferenceSchema,
     stage: z.enum(['before-leave', 'before-enter', 'presentation', 'after-leave', 'after-enter']),
@@ -684,16 +701,27 @@ const flowPredictionPointSchema = z.discriminatedUnion('kind', [
 
 type FlowPredictionCommand =
   | {
+      commandId?: string;
       kind: 'set-global-property';
       property: z.infer<typeof propertyReferenceSchema>;
       value: z.infer<typeof runtimeValueSchema>;
     }
-  | { kind: 'invalidate-global-property'; property: z.infer<typeof propertyReferenceSchema> }
-  | { kind: 'call-scene'; scene: z.infer<typeof sceneReferenceSchema> }
-  | { kind: 'start-detached-scene'; scene: z.infer<typeof sceneReferenceSchema> }
-  | { kind: 'call-dialogue'; dialogue: z.infer<typeof dialogueReferenceSchema> }
-  | { kind: 'opaque' }
   | {
+      commandId?: string;
+      kind: 'invalidate-global-property';
+      property: z.infer<typeof propertyReferenceSchema>;
+    }
+  | { commandId?: string; kind: 'call-scene'; scene: z.infer<typeof sceneReferenceSchema> }
+  | {
+      commandId?: string;
+      kind: 'start-detached-scene';
+      scene: z.infer<typeof sceneReferenceSchema>;
+    }
+  | { commandId?: string; kind: 'call-dialogue'; dialogue: z.infer<typeof dialogueReferenceSchema> }
+  | { commandId?: string; kind: 'enter-room'; room: z.infer<typeof roomReferenceSchema> }
+  | { commandId?: string; kind: 'opaque' }
+  | {
+      commandId?: string;
       kind: 'if';
       condition: CompiledCondition;
       thenCommands: FlowPredictionCommand[];
@@ -703,16 +731,35 @@ type FlowPredictionCommand =
 const flowPredictionCommandSchema: z.ZodType<FlowPredictionCommand> = z.lazy(() =>
   z.discriminatedUnion('kind', [
     strict({
+      commandId: id.optional(),
       kind: z.literal('set-global-property'),
       property: propertyReferenceSchema,
       value: runtimeValueSchema,
     }),
-    strict({ kind: z.literal('invalidate-global-property'), property: propertyReferenceSchema }),
-    strict({ kind: z.literal('call-scene'), scene: sceneReferenceSchema }),
-    strict({ kind: z.literal('start-detached-scene'), scene: sceneReferenceSchema }),
-    strict({ kind: z.literal('call-dialogue'), dialogue: dialogueReferenceSchema }),
-    strict({ kind: z.literal('opaque') }),
     strict({
+      commandId: id.optional(),
+      kind: z.literal('invalidate-global-property'),
+      property: propertyReferenceSchema,
+    }),
+    strict({
+      commandId: id.optional(),
+      kind: z.literal('call-scene'),
+      scene: sceneReferenceSchema,
+    }),
+    strict({
+      commandId: id.optional(),
+      kind: z.literal('start-detached-scene'),
+      scene: sceneReferenceSchema,
+    }),
+    strict({
+      commandId: id.optional(),
+      kind: z.literal('call-dialogue'),
+      dialogue: dialogueReferenceSchema,
+    }),
+    strict({ commandId: id.optional(), kind: z.literal('enter-room'), room: roomReferenceSchema }),
+    strict({ commandId: id.optional(), kind: z.literal('opaque') }),
+    strict({
+      commandId: id.optional(),
       kind: z.literal('if'),
       condition: compiledConditionSchema,
       thenCommands: z.array(flowPredictionCommandSchema),

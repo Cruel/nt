@@ -524,6 +524,18 @@ core::Diagnostics RuntimePresentationBridge::update_active_scene_prediction(
     return m_mandatory_asset_gate->update_active_scene_prediction_on_owner(&root);
 }
 
+core::Diagnostics RuntimePresentationBridge::update_active_dialogue_prediction(
+    const std::optional<runtime::RuntimeDialogueExecutionSnapshot>& active_dialogue)
+{
+    if (m_mandatory_asset_gate == nullptr)
+        return {};
+    if (!active_dialogue)
+        return m_mandatory_asset_gate->update_active_dialogue_prediction_on_owner(nullptr);
+    const runtime::ActiveDialoguePredictionRoot root{active_dialogue->dialogue,
+                                                     active_dialogue->position};
+    return m_mandatory_asset_gate->update_active_dialogue_prediction_on_owner(&root);
+}
+
 core::Result<void, core::Diagnostics>
 RuntimePresentationBridge::prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot)
 {
