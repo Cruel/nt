@@ -79,6 +79,11 @@ function(noveltea_configure_embedded_shaderc)
             "-DNOVELTEA_PATCH_SOURCE_DIR=<SOURCE_DIR>"
             "-DNOVELTEA_PATCH_FILE=${CMAKE_SOURCE_DIR}/cmake/patches/bgfx-shaderc-fcpp-value-stack.patch"
             -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatchOnce.cmake"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DNOVELTEA_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
+            "-DNOVELTEA_PATCH_SOURCE_DIR=<SOURCE_DIR>"
+            "-DNOVELTEA_PATCH_FILE=${CMAKE_SOURCE_DIR}/cmake/patches/bimg-texturec-embedded-entry.patch"
+            -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatchOnce.cmake"
     )
     FetchContent_MakeAvailable(noveltea_bgfx_shaderc_source)
 
@@ -119,7 +124,7 @@ function(noveltea_configure_embedded_shaderc)
     add_library(noveltea_bimg_texturec_embedded STATIC ${_texturec_sources})
     set_target_properties(noveltea_bimg_texturec_embedded PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_compile_definitions(noveltea_bimg_texturec_embedded PRIVATE
-        main=noveltea_bimg_texturec_main)
+        NOVELTEA_BIMG_TEXTUREC_EMBEDDED=1)
     target_link_libraries(noveltea_bimg_texturec_embedded PRIVATE ${_texturec_links})
 
     foreach(_link IN LISTS _shaderc_links _texturec_links)
