@@ -5,6 +5,7 @@
     "empty": "Nenhum metadado incorporado encontrado.",
     "unsupported": "A inspeção de metadados incorporados não é compatível com este Asset.",
     "failure": "Não foi possível inspecionar os metadados incorporados.",
+    "workflowMetadata": "Metadados de workflow do {{tool}}",
     "provenance": {
       "generated": "Gerado com {{source}}",
       "edited": "Editado com {{source}}",

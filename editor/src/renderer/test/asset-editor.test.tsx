@@ -126,6 +126,70 @@ describe('AssetEditor', () => {
     expect(screen.getByText('Original name')).toBeInTheDocument();
   });
 
+  it('renders audio metadata through the same embedded metadata viewer', async () => {
+    const audioProject = project();
+    audioProject.assets.logo!.data = {
+      ...audioProject.assets.logo!.data,
+      kind: 'audio',
+      source: { type: 'project-file', path: 'assets/audio/ambience.mp3' },
+      extension: '.mp3',
+      mimeType: 'audio/mpeg',
+      imageMetadata: null,
+    };
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: true,
+      status: 'ready',
+      kind: 'audio',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      workflowMetadata: [{ tool: { id: 'comfyui', label: 'ComfyUI' }, kind: 'workflow' }],
+      warnings: ['Some embedded audio metadata could not be decoded.'],
+      groups: [
+        {
+          id: 'ID3v2.4',
+          namespace: 'ID3v2.4',
+          items: [
+            {
+              id: 'ID3v2.4/TXXX%3Aworkflow/0',
+              key: 'TXXX:workflow',
+              value: '{"nodes":[]}',
+              valueKind: 'json',
+            },
+          ],
+        },
+        {
+          id: 'MPEG',
+          namespace: 'MPEG',
+          items: [
+            {
+              id: 'MPEG/SampleRateHz/0',
+              key: 'SampleRateHz',
+              value: 44100,
+              valueKind: 'number',
+            },
+          ],
+        },
+      ],
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: audioProject,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    render(<AssetEditor tab={tab} />);
+
+    expect(await screen.findByText('ComfyUI workflow metadata')).toBeInTheDocument();
+    expect(
+      screen.getByText('Some embedded audio metadata could not be decoded.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('ID3v2.4')).toBeInTheDocument();
+    expect(screen.getByText('TXXX:workflow')).toBeInTheDocument();
+    expect(screen.getByText('MPEG')).toBeInTheDocument();
+    expect(screen.getByText('SampleRateHz')).toBeInTheDocument();
+    expect(screen.queryByText(/Generated with/u)).not.toBeInTheDocument();
+  });
+
   it('renders recognized unverified C2PA provenance above the exhaustive raw metadata', async () => {
     vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
       ok: true,

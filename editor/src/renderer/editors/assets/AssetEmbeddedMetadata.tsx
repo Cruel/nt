@@ -85,10 +85,28 @@ export function AssetEmbeddedMetadata({ assetId, data }: AssetEmbeddedMetadataPr
       ) : response?.status === 'ready' &&
         response.groups.length === 0 &&
         !response.provenance &&
-        !response.generation ? (
+        !response.generation &&
+        !response.workflowMetadata?.length &&
+        !response.warnings?.length ? (
         <p className="mt-2 text-xs text-muted-foreground">{t('assetMetadata.empty')}</p>
       ) : response?.status === 'ready' ? (
         <div className="mt-3 space-y-3">
+          {response.workflowMetadata?.map((workflow) => (
+            <div
+              key={`${workflow.tool.id}:${workflow.kind}`}
+              className="rounded border bg-muted/20 p-2 text-xs font-medium text-foreground"
+            >
+              {t('assetMetadata.workflowMetadata', { tool: workflow.tool.label })}
+            </div>
+          ))}
+          {response.warnings?.map((warning, index) => (
+            <div
+              key={`${warning}:${index}`}
+              className="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-foreground"
+            >
+              {warning}
+            </div>
+          ))}
           {response.provenance ? (
             <div className="rounded border bg-muted/20 p-2">
               <div className="space-y-1">
