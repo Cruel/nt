@@ -1,17 +1,19 @@
 import type {
   AssetMetadataInspectionGroup,
   AssetMetadataInspectionItem,
+  AssetMetadataInspectionWarning,
   AssetMetadataValueKind,
   AssetWorkflowMetadata,
 } from '../../shared/asset-metadata-inspection';
 
 const MAX_TEXT_VALUE_BYTES = 8 * 1024 * 1024;
+const MAX_AGGREGATE_TEXT_BYTES = 16 * 1024 * 1024;
 const MAX_ID3_FRAMES = 4096;
 const COMFYUI_ENTITY = { id: 'comfyui', label: 'ComfyUI' } as const;
 
 export interface AudioMetadataInspection {
   groups: AssetMetadataInspectionGroup[];
-  warnings: string[];
+  warnings: AssetMetadataInspectionWarning[];
   workflowMetadata?: AssetWorkflowMetadata[];
 }
 
@@ -52,6 +54,32 @@ function item(
           ? 'number'
           : 'boolean',
   };
+}
+
+function limitedItem(
+  namespace: string,
+  key: string,
+  byteSize: number,
+  occurrence = 0,
+): AssetMetadataInspectionItem {
+  return {
+    id: `${namespace}/${encodeURIComponent(key)}/${occurrence}`,
+    key,
+    value: '',
+    valueKind: 'limited',
+    byteSize,
+    limitReason: 'value-too-large',
+  };
+}
+
+function limitedTextFrameKey(frameId: string, data: Buffer): string {
+  if (frameId !== 'TXXX' || data.byteLength < 2) return frameId;
+  const encoding = data[0]!;
+  const prefix = data.subarray(1, Math.min(data.byteLength, 4097));
+  const separator = findTextTerminator(prefix, encoding);
+  if (separator < 0) return frameId;
+  const description = decodeText(prefix.subarray(0, separator), encoding);
+  return description ? `TXXX:${description}` : frameId;
 }
 
 function synchsafe(bytes: Buffer, offset: number): number | null {
@@ -127,7 +155,7 @@ function parseTextFrame(frameId: string, data: Buffer): { key: string; value: st
 function parseId3v2(bytes: Buffer): {
   group?: AssetMetadataInspectionGroup;
   audioStart: number;
-  warnings: string[];
+  warnings: AssetMetadataInspectionWarning[];
   hasComfyUiWorkflow: boolean;
 } {
   if (bytes.byteLength < 10 || bytes.toString('ascii', 0, 3) !== 'ID3')
@@ -139,28 +167,29 @@ function parseId3v2(bytes: Buffer): {
   if ((major !== 3 && major !== 4) || size === null) {
     return {
       audioStart: 10,
-      warnings: ['Some embedded audio metadata could not be decoded.'],
+      warnings: ['partial-decode'],
       hasComfyUiWorkflow: false,
     };
   }
 
   const declaredEnd = 10 + size;
   const tagEnd = Math.min(declaredEnd, bytes.byteLength);
-  const warnings =
-    declaredEnd > bytes.byteLength ? ['Some embedded audio metadata could not be decoded.'] : [];
+  const warnings: AssetMetadataInspectionWarning[] =
+    declaredEnd > bytes.byteLength ? ['partial-decode'] : [];
   const namespace = `ID3v2.${major}`;
   const items: AssetMetadataInspectionItem[] = [
     item(namespace, 'Version', `2.${major}.${revision}`),
   ];
   const occurrences = new Map<string, number>();
   let hasComfyUiWorkflow = false;
+  let decodedTextBytes = 0;
   let offset = 10;
   let frameCount = 0;
 
   // Extended-header parsing can be added when a real supported fixture requires it. Treat it as a
   // partial decode today rather than attempting to interpret frame bytes at the wrong offset.
   if ((bytes[5]! & 0x40) !== 0) {
-    warnings.push('Some embedded audio metadata could not be decoded.');
+    warnings.push('partial-decode');
     return {
       group: { id: namespace, namespace, items },
       audioStart: declaredEnd <= bytes.byteLength ? declaredEnd : tagEnd,
@@ -173,40 +202,63 @@ function parseId3v2(bytes: Buffer): {
     const frameId = bytes.toString('ascii', offset, offset + 4);
     if (frameId === '\u0000\u0000\u0000\u0000') break;
     if (!/^[A-Z0-9]{4}$/u.test(frameId)) {
-      warnings.push('Some embedded audio metadata could not be decoded.');
+      warnings.push('partial-decode');
       break;
     }
     const frameSize = major === 4 ? synchsafe(bytes, offset + 4) : bytes.readUInt32BE(offset + 4);
     if (frameSize === null || frameSize < 0 || offset + 10 + frameSize > tagEnd) {
-      warnings.push('Some embedded audio metadata could not be decoded.');
+      warnings.push('partial-decode');
       break;
     }
     const frameStatusFlags = bytes[offset + 8]!;
     const frameFormatFlags = bytes[offset + 9]!;
     const data = bytes.subarray(offset + 10, offset + 10 + frameSize);
     if (frameStatusFlags !== 0 || frameFormatFlags !== 0) {
-      warnings.push('Some embedded audio metadata could not be decoded.');
+      warnings.push('partial-decode');
       offset += 10 + frameSize;
       frameCount += 1;
       continue;
     }
     if (frameId.startsWith('T')) {
-      const parsed = parseTextFrame(frameId, data);
-      if (parsed) {
-        const occurrence = occurrences.get(parsed.key) ?? 0;
-        items.push(item(namespace, parsed.key, parsed.value, occurrence));
-        occurrences.set(parsed.key, occurrence + 1);
-        if (parsed.key.toLowerCase() === 'txxx:workflow' && valueKind(parsed.value) === 'json')
-          hasComfyUiWorkflow = true;
+      const key = limitedTextFrameKey(frameId, data);
+      const occurrence = occurrences.get(key) ?? 0;
+      if (data.byteLength > MAX_TEXT_VALUE_BYTES) {
+        items.push(limitedItem(namespace, key, data.byteLength, occurrence));
+        occurrences.set(key, occurrence + 1);
+      } else if (decodedTextBytes + data.byteLength > MAX_AGGREGATE_TEXT_BYTES) {
+        items.push({
+          ...limitedItem(namespace, key, data.byteLength, occurrence),
+          limitReason: 'aggregate-limit',
+        });
+        occurrences.set(key, occurrence + 1);
       } else {
-        warnings.push('Some embedded audio metadata could not be decoded.');
+        const parsed = parseTextFrame(frameId, data);
+        if (parsed) {
+          const parsedOccurrence = occurrences.get(parsed.key) ?? 0;
+          items.push(item(namespace, parsed.key, parsed.value, parsedOccurrence));
+          occurrences.set(parsed.key, parsedOccurrence + 1);
+          decodedTextBytes += data.byteLength;
+          if (parsed.key.toLowerCase() === 'txxx:workflow' && valueKind(parsed.value) === 'json')
+            hasComfyUiWorkflow = true;
+        } else {
+          warnings.push('partial-decode');
+        }
       }
     }
     offset += 10 + frameSize;
     frameCount += 1;
   }
-  if (frameCount >= MAX_ID3_FRAMES)
-    warnings.push('Some embedded audio metadata could not be decoded.');
+  if (frameCount >= MAX_ID3_FRAMES) {
+    items.push({
+      id: `${namespace}/aggregate-limit`,
+      key: 'AdditionalFrames',
+      value: '',
+      valueKind: 'limited',
+      byteSize: Math.max(0, tagEnd - offset),
+      limitReason: 'aggregate-limit',
+    });
+    warnings.push('aggregate-limit-reached');
+  }
 
   return {
     group: { id: namespace, namespace, items },
@@ -331,8 +383,7 @@ export function inspectAudioMetadata(bytes: Buffer): AudioMetadataInspection {
   const mpeg = inspectMpeg(bytes, id3.audioStart);
   if (mpeg) groups.push(mpeg);
   const warnings = [...id3.warnings];
-  if (!mpeg && bytes.byteLength > 0)
-    warnings.push('Some embedded audio metadata could not be decoded.');
+  if (!mpeg && bytes.byteLength > 0) warnings.push('partial-decode');
   return {
     groups,
     warnings: [...new Set(warnings)],

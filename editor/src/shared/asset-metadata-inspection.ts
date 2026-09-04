@@ -4,7 +4,7 @@ import type {
   ProjectOriginalAssetFailureCode,
 } from './project-original-asset';
 
-export type AssetMetadataValueKind = 'text' | 'number' | 'boolean' | 'json';
+export type AssetMetadataValueKind = 'text' | 'number' | 'boolean' | 'json' | 'binary' | 'limited';
 export type AssetMetadataValue = string | number | boolean;
 
 export interface AssetMetadataInspectionItem {
@@ -12,6 +12,8 @@ export interface AssetMetadataInspectionItem {
   key: string;
   value: AssetMetadataValue;
   valueKind: AssetMetadataValueKind;
+  byteSize?: number;
+  limitReason?: 'value-too-large' | 'aggregate-limit';
 }
 
 export interface AssetMetadataInspectionGroup {
@@ -61,6 +63,8 @@ export interface AssetWorkflowMetadata {
   kind: 'workflow';
 }
 
+export type AssetMetadataInspectionWarning = 'partial-decode' | 'aggregate-limit-reached';
+
 export interface AssetMetadataInspectionReadyResponse {
   ok: true;
   status: 'ready';
@@ -71,7 +75,7 @@ export interface AssetMetadataInspectionReadyResponse {
   provenance?: AssetRecognizedProvenance;
   generation?: AssetRecognizedGeneration;
   workflowMetadata?: AssetWorkflowMetadata[];
-  warnings?: string[];
+  warnings?: AssetMetadataInspectionWarning[];
 }
 
 export interface AssetMetadataInspectionUnsupportedResponse {

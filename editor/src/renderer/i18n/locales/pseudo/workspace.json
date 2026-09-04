@@ -6,6 +6,15 @@
     "unsupported": "⟦Embedded metadata inspection is not supported for this Asset.⟧",
     "failure": "⟦Embedded metadata could not be inspected.⟧",
     "workflowMetadata": "⟦{{tool}} workflow metadata⟧",
+    "filter": "⟦Filter metadata⟧",
+    "copy": "⟦Copy⟧",
+    "binary": "⟦Binary data ({{bytes}} bytes)⟧",
+    "limited": "⟦Not loaded ({{bytes}} bytes) — inspection limit reached⟧",
+    "limitedUnknown": "⟦Not loaded — inspection limit reached⟧",
+    "warnings": {
+      "partial-decode": "⟦Some embedded metadata could not be decoded.⟧",
+      "aggregate-limit-reached": "⟦Some metadata values were not loaded because the inspection limit was reached.⟧"
+    },
     "provenance": {
       "generated": "⟦Generated with {{source}}⟧",
       "edited": "⟦Edited with {{source}}⟧",

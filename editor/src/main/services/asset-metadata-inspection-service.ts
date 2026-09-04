@@ -15,6 +15,7 @@ import type {
   AssetMetadataInspectionItem,
   AssetMetadataInspectionReadyResponse,
   AssetMetadataInspectionResponse,
+  AssetMetadataInspectionWarning,
   AssetMetadataValueKind,
 } from '../../shared/asset-metadata-inspection';
 import { inspectC2paMetadata } from './c2pa-metadata-inspection';
@@ -23,6 +24,8 @@ import { inspectAudioMetadata } from './audio-metadata-inspection';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_TEXT_METADATA_VALUE_BYTES = 8 * 1024 * 1024;
+const MAX_AGGREGATE_METADATA_TEXT_BYTES = 16 * 1024 * 1024;
+const MAX_RECOGNIZED_SUMMARY_TEXT_BYTES = 256 * 1024;
 const MAX_CACHED_METADATA_RESULTS = 128;
 
 function sourceFailure(
@@ -68,6 +71,62 @@ function item(
   };
 }
 
+function limitedItem(
+  namespace: string,
+  key: string,
+  byteSize: number | undefined,
+  occurrence = 0,
+  source = 'field',
+  limitReason: 'value-too-large' | 'aggregate-limit' = 'value-too-large',
+): AssetMetadataInspectionItem {
+  return {
+    id: `${namespace}/${source}/${encodeURIComponent(key)}/${occurrence}`,
+    key,
+    value: '',
+    valueKind: 'limited',
+    ...(byteSize !== undefined ? { byteSize } : {}),
+    limitReason,
+  };
+}
+
+function recognizedSummaryText(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return Buffer.byteLength(value, 'utf8') <= MAX_RECOGNIZED_SUMMARY_TEXT_BYTES ? value : undefined;
+}
+
+function applyAggregateMetadataLimit(groups: AssetMetadataInspectionGroup[]): {
+  groups: AssetMetadataInspectionGroup[];
+  limited: boolean;
+} {
+  let decodedTextBytes = 0;
+  let limited = false;
+  const nextGroups = groups.map((group) => ({
+    ...group,
+    items: group.items.map((metadataItem) => {
+      if (metadataItem.valueKind === 'limited') {
+        if (metadataItem.limitReason === 'aggregate-limit') limited = true;
+        return metadataItem;
+      }
+      if (typeof metadataItem.value !== 'string' || metadataItem.valueKind === 'binary')
+        return metadataItem;
+      const byteSize = Buffer.byteLength(metadataItem.value, 'utf8');
+      if (decodedTextBytes + byteSize <= MAX_AGGREGATE_METADATA_TEXT_BYTES) {
+        decodedTextBytes += byteSize;
+        return metadataItem;
+      }
+      limited = true;
+      return {
+        ...metadataItem,
+        value: '',
+        valueKind: 'limited' as const,
+        byteSize,
+        limitReason: 'aggregate-limit' as const,
+      };
+    }),
+  }));
+  return { groups: nextGroups, limited };
+}
+
 function jpegCommentItems(bytes: Buffer): AssetMetadataInspectionItem[] {
   if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return [];
   const items: AssetMetadataInspectionItem[] = [];
@@ -97,11 +156,16 @@ function jpegCommentItems(bytes: Buffer): AssetMetadataInspectionItem[] {
   return items;
 }
 
-function pngTextItems(bytes: Buffer): AssetMetadataInspectionItem[] {
+function pngTextItems(bytes: Buffer): {
+  items: AssetMetadataInspectionItem[];
+  warnings: AssetMetadataInspectionWarning[];
+} {
   if (bytes.byteLength < PNG_SIGNATURE.byteLength || !bytes.subarray(0, 8).equals(PNG_SIGNATURE))
-    return [];
+    return { items: [], warnings: [] };
   const items: AssetMetadataInspectionItem[] = [];
+  const warnings: AssetMetadataInspectionWarning[] = [];
   const occurrences = new Map<string, number>();
+  let decodedTextBytes = 0;
   let offset = 8;
   while (offset + 12 <= bytes.byteLength) {
     const length = bytes.readUInt32BE(offset);
@@ -118,17 +182,47 @@ function pngTextItems(bytes: Buffer): AssetMetadataInspectionItem[] {
       if (separator > 0) {
         key = data.toString('latin1', 0, separator);
         const textBytes = data.subarray(separator + 1);
-        if (textBytes.byteLength > MAX_TEXT_METADATA_VALUE_BYTES)
-          throw new Error('PNG textual metadata exceeds the inspection value limit.');
-        value = textBytes.toString('latin1');
+        const occurrence = occurrences.get(key) ?? 0;
+        if (textBytes.byteLength > MAX_TEXT_METADATA_VALUE_BYTES) {
+          items.push(limitedItem('PNG', key, textBytes.byteLength, occurrence, type));
+          occurrences.set(key, occurrence + 1);
+        } else if (decodedTextBytes + textBytes.byteLength > MAX_AGGREGATE_METADATA_TEXT_BYTES) {
+          items.push(
+            limitedItem('PNG', key, textBytes.byteLength, occurrence, type, 'aggregate-limit'),
+          );
+          occurrences.set(key, occurrence + 1);
+        } else {
+          value = textBytes.toString('latin1');
+          decodedTextBytes += textBytes.byteLength;
+        }
       }
     } else if (type === 'zTXt') {
       const separator = data.indexOf(0);
       if (separator > 0 && separator + 2 <= data.byteLength && data[separator + 1] === 0) {
         key = data.toString('latin1', 0, separator);
-        value = inflateSync(data.subarray(separator + 2), {
-          maxOutputLength: MAX_TEXT_METADATA_VALUE_BYTES,
-        }).toString('latin1');
+        const occurrence = occurrences.get(key) ?? 0;
+        const remainingAggregate = MAX_AGGREGATE_METADATA_TEXT_BYTES - decodedTextBytes;
+        if (remainingAggregate <= 0) {
+          items.push(limitedItem('PNG', key, data.byteLength, occurrence, type, 'aggregate-limit'));
+          occurrences.set(key, occurrence + 1);
+        } else {
+          try {
+            const inflated = inflateSync(data.subarray(separator + 2), {
+              maxOutputLength: Math.min(MAX_TEXT_METADATA_VALUE_BYTES, remainingAggregate),
+            });
+            value = inflated.toString('latin1');
+            decodedTextBytes += inflated.byteLength;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
+              const reason =
+                remainingAggregate < MAX_TEXT_METADATA_VALUE_BYTES
+                  ? 'aggregate-limit'
+                  : 'value-too-large';
+              items.push(limitedItem('PNG', key, undefined, occurrence, type, reason));
+              occurrences.set(key, occurrence + 1);
+            } else warnings.push('partial-decode');
+          }
+        }
       }
     } else if (type === 'iTXt') {
       const keywordEnd = data.indexOf(0);
@@ -144,14 +238,62 @@ function pngTextItems(bytes: Buffer): AssetMetadataInspectionItem[] {
             cursor = translatedEnd + 1;
             key = data.toString('latin1', 0, keywordEnd);
             const textBytes = data.subarray(cursor);
+            const occurrence = occurrences.get(key) ?? 0;
             if (compressionFlag === 1 && compressionMethod === 0) {
-              value = inflateSync(textBytes, {
-                maxOutputLength: MAX_TEXT_METADATA_VALUE_BYTES,
-              }).toString('utf8');
+              const remainingAggregate = MAX_AGGREGATE_METADATA_TEXT_BYTES - decodedTextBytes;
+              if (remainingAggregate <= 0) {
+                items.push(
+                  limitedItem(
+                    'PNG',
+                    key,
+                    textBytes.byteLength,
+                    occurrence,
+                    type,
+                    'aggregate-limit',
+                  ),
+                );
+                occurrences.set(key, occurrence + 1);
+              } else {
+                try {
+                  const inflated = inflateSync(textBytes, {
+                    maxOutputLength: Math.min(MAX_TEXT_METADATA_VALUE_BYTES, remainingAggregate),
+                  });
+                  value = inflated.toString('utf8');
+                  decodedTextBytes += inflated.byteLength;
+                } catch (error) {
+                  if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
+                    const reason =
+                      remainingAggregate < MAX_TEXT_METADATA_VALUE_BYTES
+                        ? 'aggregate-limit'
+                        : 'value-too-large';
+                    items.push(limitedItem('PNG', key, undefined, occurrence, type, reason));
+                    occurrences.set(key, occurrence + 1);
+                  } else warnings.push('partial-decode');
+                }
+              }
             } else if (compressionFlag === 0) {
-              if (textBytes.byteLength > MAX_TEXT_METADATA_VALUE_BYTES)
-                throw new Error('PNG textual metadata exceeds the inspection value limit.');
-              value = textBytes.toString('utf8');
+              if (textBytes.byteLength > MAX_TEXT_METADATA_VALUE_BYTES) {
+                items.push(limitedItem('PNG', key, textBytes.byteLength, occurrence, type));
+                occurrences.set(key, occurrence + 1);
+              } else if (
+                decodedTextBytes + textBytes.byteLength >
+                MAX_AGGREGATE_METADATA_TEXT_BYTES
+              ) {
+                items.push(
+                  limitedItem(
+                    'PNG',
+                    key,
+                    textBytes.byteLength,
+                    occurrence,
+                    type,
+                    'aggregate-limit',
+                  ),
+                );
+                occurrences.set(key, occurrence + 1);
+              } else {
+                value = textBytes.toString('utf8');
+                decodedTextBytes += textBytes.byteLength;
+              }
             }
           }
         }
@@ -165,7 +307,7 @@ function pngTextItems(bytes: Buffer): AssetMetadataInspectionItem[] {
     offset = chunkEnd;
     if (type === 'IEND') break;
   }
-  return items;
+  return { items, warnings: [...new Set(warnings)] };
 }
 
 async function readValidatedBytes(resolved: ResolvedOriginalAsset): Promise<Buffer | null> {
@@ -182,7 +324,10 @@ async function readValidatedBytes(resolved: ResolvedOriginalAsset): Promise<Buff
   return hash === resolved.contentHash ? bytes : null;
 }
 
-async function inspectImage(bytes: Buffer): Promise<AssetMetadataInspectionGroup[]> {
+async function inspectImage(bytes: Buffer): Promise<{
+  groups: AssetMetadataInspectionGroup[];
+  warnings: AssetMetadataInspectionWarning[];
+}> {
   const metadata = await sharp(bytes, { failOn: 'error' }).metadata();
   const namespace = (metadata.format ?? 'image').toUpperCase();
   const items: AssetMetadataInspectionItem[] = [];
@@ -200,9 +345,17 @@ async function inspectImage(bytes: Buffer): Promise<AssetMetadataInspectionGroup
   if (metadata.isProgressive !== undefined)
     items.push(item(namespace, 'IsProgressive', metadata.isProgressive));
 
-  if (namespace === 'PNG') items.push(...pngTextItems(bytes));
+  const warnings: AssetMetadataInspectionWarning[] = [];
+  if (namespace === 'PNG') {
+    const png = pngTextItems(bytes);
+    items.push(...png.items);
+    warnings.push(...png.warnings);
+  }
   if (namespace === 'JPEG') items.push(...jpegCommentItems(bytes));
-  return items.length > 0 ? [{ id: namespace, namespace, items }] : [];
+  return {
+    groups: items.length > 0 ? [{ id: namespace, namespace, items }] : [],
+    warnings: [...new Set(warnings)],
+  };
 }
 
 export class AssetMetadataInspectionService {
@@ -263,39 +416,51 @@ export class AssetMetadataInspectionService {
       let result: AssetMetadataInspectionReadyResponse;
       if (authorized.asset.kind === 'audio') {
         const audio = inspectAudioMetadata(bytes);
+        const bounded = applyAggregateMetadataLimit(audio.groups);
+        const warnings = [
+          ...audio.warnings,
+          ...(bounded.limited ? (['aggregate-limit-reached'] as const) : []),
+        ];
         result = {
           ok: true,
           status: 'ready',
           kind: 'audio',
           contentHash: resolved.contentHash,
-          groups: audio.groups,
+          groups: bounded.groups,
           ...(audio.workflowMetadata ? { workflowMetadata: audio.workflowMetadata } : {}),
-          ...(audio.warnings.length > 0 ? { warnings: audio.warnings } : {}),
+          ...(warnings.length > 0 ? { warnings: [...new Set(warnings)] } : {}),
         };
       } else {
-        const groups = await inspectImage(bytes);
+        const image = await inspectImage(bytes);
+        const groups = [...image.groups];
         const c2pa = inspectC2paMetadata(bytes);
         if (c2pa.group) groups.push(c2pa.group);
-        const comfyUi = recognizeComfyUiMetadata(groups);
+        const bounded = applyAggregateMetadataLimit(groups);
+        const comfyUi = recognizeComfyUiMetadata(bounded.groups);
         const provenanceStages = [
           ...(c2pa.provenance?.stages ?? []),
           ...(comfyUi?.provenance?.stages ?? []),
         ];
+        const warnings = [
+          ...image.warnings,
+          ...(bounded.limited ? (['aggregate-limit-reached'] as const) : []),
+        ];
+        const prompt = recognizedSummaryText(comfyUi?.prompt);
+        const negativePrompt = recognizedSummaryText(comfyUi?.negativePrompt);
         result = {
           ok: true,
           status: 'ready',
           kind: 'image',
           contentHash: resolved.contentHash,
-          groups,
+          groups: bounded.groups,
           ...(c2pa.c2pa ? { c2pa: c2pa.c2pa } : {}),
           ...(provenanceStages.length > 0 ? { provenance: { stages: provenanceStages } } : {}),
+          ...(warnings.length > 0 ? { warnings: [...new Set(warnings)] } : {}),
           ...(comfyUi
             ? {
                 generation: {
-                  ...(comfyUi.prompt !== undefined ? { prompt: comfyUi.prompt } : {}),
-                  ...(comfyUi.negativePrompt !== undefined
-                    ? { negativePrompt: comfyUi.negativePrompt }
-                    : {}),
+                  ...(prompt !== undefined ? { prompt } : {}),
+                  ...(negativePrompt !== undefined ? { negativePrompt } : {}),
                   facts: comfyUi.facts,
                 },
               }

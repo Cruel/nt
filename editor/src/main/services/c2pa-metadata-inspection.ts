@@ -240,7 +240,18 @@ function flattenC2paValue(
   path: string,
   items: AssetMetadataInspectionItem[],
 ): void {
-  if (items.length >= MAX_C2PA_METADATA_ITEMS) return;
+  if (items.length >= MAX_C2PA_METADATA_ITEMS - 1) {
+    if (!items.some((metadataItem) => metadataItem.id === 'C2PA/aggregate-limit')) {
+      items.push({
+        id: 'C2PA/aggregate-limit',
+        key: 'AdditionalMetadata',
+        value: '',
+        valueKind: 'limited',
+        limitReason: 'aggregate-limit',
+      });
+    }
+    return;
+  }
   const scalar = scalarMetadataItem(path, value, items.length);
   if (scalar) {
     items.push(scalar);
@@ -250,7 +261,17 @@ function flattenC2paValue(
     value.forEach((entry, index) => flattenC2paValue(entry, `${path}[${index}]`, items));
     return;
   }
-  if (typeof value !== 'object' || value === null || Buffer.isBuffer(value)) return;
+  if (Buffer.isBuffer(value)) {
+    items.push({
+      id: `C2PA/${encodeURIComponent(path)}/${items.length}`,
+      key: path,
+      value: '',
+      valueKind: 'binary',
+      byteSize: value.byteLength,
+    });
+    return;
+  }
+  if (typeof value !== 'object' || value === null) return;
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     const childPath = path ? `${path}.${key}` : key;
     flattenC2paValue(entry, childPath, items);

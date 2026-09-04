@@ -126,6 +126,105 @@ describe('AssetEditor', () => {
     expect(screen.getByText('Original name')).toBeInTheDocument();
   });
 
+  it('filters, expands, and safely describes exhaustive metadata values', async () => {
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      warnings: ['aggregate-limit-reached'],
+      generation: {
+        prompt: 'Recognized summary remains visible',
+        facts: [],
+      },
+      groups: [
+        {
+          id: 'PNG',
+          namespace: 'PNG',
+          items: [
+            {
+              id: 'PNG/prompt/0',
+              key: 'prompt',
+              value: '{"prompt":"Moonlit room","steps":20}',
+              valueKind: 'json',
+            },
+            {
+              id: 'PNG/comment/0',
+              key: 'Comment',
+              value:
+                'A long ordinary metadata value that should expand inline when selected by the user because it exceeds the compact row threshold.',
+              valueKind: 'text',
+            },
+            {
+              id: 'PNG/signature/0',
+              key: 'Signature',
+              value: '',
+              valueKind: 'binary',
+              byteSize: 1578,
+            },
+            {
+              id: 'PNG/workflow/0',
+              key: 'workflow',
+              value: '',
+              valueKind: 'limited',
+              byteSize: 9000000,
+              limitReason: 'value-too-large',
+            },
+          ],
+        },
+      ],
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    render(<AssetEditor tab={tab} />);
+
+    expect(
+      await screen.findByText(
+        'Some metadata values were not loaded because the inspection limit was reached.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Binary data (1578 bytes)')).toBeInTheDocument();
+    expect(
+      screen.getByText('Not loaded (9000000 bytes) — inspection limit reached'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('{"prompt":"Moonlit room","steps":20}'));
+    const jsonViewer = screen.getByLabelText('prompt JSON');
+    expect(jsonViewer).toHaveAttribute('readonly');
+    expect(jsonViewer).toHaveClass('resize-y');
+    expect(jsonViewer).toHaveValue('{\n  "prompt": "Moonlit room",\n  "steps": 20\n}');
+    expect(screen.getAllByRole('button', { name: 'Copy' }).length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(
+      screen.getByText(
+        'A long ordinary metadata value that should expand inline when selected by the user because it exceeds the compact row threshold.',
+      ),
+    );
+    expect(
+      screen.getAllByText(
+        'A long ordinary metadata value that should expand inline when selected by the user because it exceeds the compact row threshold.',
+      )[1],
+    ).toHaveClass('max-h-40', 'overflow-auto');
+
+    fireEvent.change(screen.getByLabelText('Filter metadata'), { target: { value: 'moonlit' } });
+    expect(screen.getByText('prompt')).toBeInTheDocument();
+    expect(screen.queryByText('Signature')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Filter metadata'), { target: { value: 'png' } });
+    expect(screen.getByText('Signature')).toBeInTheDocument();
+    expect(screen.getByText('workflow')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Filter metadata'), { target: { value: 'signature' } });
+    expect(screen.getByText('Signature')).toBeInTheDocument();
+    expect(screen.queryByText('prompt')).not.toBeInTheDocument();
+    expect(screen.getByText('Recognized summary remains visible')).toBeInTheDocument();
+  });
+
   it('renders audio metadata through the same embedded metadata viewer', async () => {
     const audioProject = project();
     audioProject.assets.logo!.data = {
@@ -142,7 +241,7 @@ describe('AssetEditor', () => {
       kind: 'audio',
       contentHash: `sha256:${'a'.repeat(64)}`,
       workflowMetadata: [{ tool: { id: 'comfyui', label: 'ComfyUI' }, kind: 'workflow' }],
-      warnings: ['Some embedded audio metadata could not be decoded.'],
+      warnings: ['partial-decode'],
       groups: [
         {
           id: 'ID3v2.4',
@@ -180,9 +279,7 @@ describe('AssetEditor', () => {
     render(<AssetEditor tab={tab} />);
 
     expect(await screen.findByText('ComfyUI workflow metadata')).toBeInTheDocument();
-    expect(
-      screen.getByText('Some embedded audio metadata could not be decoded.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Some embedded metadata could not be decoded.')).toBeInTheDocument();
     expect(screen.getByText('ID3v2.4')).toBeInTheDocument();
     expect(screen.getByText('TXXX:workflow')).toBeInTheDocument();
     expect(screen.getByText('MPEG')).toBeInTheDocument();

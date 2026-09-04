@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useProjectStore } from '@/project/project-store';
 import type {
+  AssetMetadataInspectionItem,
   AssetMetadataInspectionResponse,
   AssetProvenanceStage,
 } from '../../../shared/asset-metadata-inspection';
@@ -15,6 +17,18 @@ interface AssetEmbeddedMetadataProps {
 
 function displayedValue(value: string | number | boolean): string {
   return typeof value === 'string' ? value : String(value);
+}
+
+function formattedJson(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function metadataSearchText(namespace: string, metadataItem: AssetMetadataInspectionItem): string {
+  return `${namespace}\n${metadataItem.key}\n${displayedValue(metadataItem.value)}`.toLocaleLowerCase();
 }
 
 function provenanceSource(stage: AssetProvenanceStage): string | null {
@@ -38,6 +52,8 @@ export function AssetEmbeddedMetadata({ assetId, data }: AssetEmbeddedMetadataPr
   const [requestError, setRequestError] = useState<string | null>(null);
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [negativePromptExpanded, setNegativePromptExpanded] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     let canceled = false;
@@ -45,6 +61,8 @@ export function AssetEmbeddedMetadata({ assetId, data }: AssetEmbeddedMetadataPr
     setRequestError(null);
     setPromptExpanded(false);
     setNegativePromptExpanded(false);
+    setFilter('');
+    setExpandedItemIds(new Set());
     setLoading(Boolean(projectSessionId));
     if (!projectSessionId) return;
     void window.noveltea
@@ -99,12 +117,12 @@ export function AssetEmbeddedMetadata({ assetId, data }: AssetEmbeddedMetadataPr
               {t('assetMetadata.workflowMetadata', { tool: workflow.tool.label })}
             </div>
           ))}
-          {response.warnings?.map((warning, index) => (
+          {response.warnings?.map((warning) => (
             <div
-              key={`${warning}:${index}`}
+              key={warning}
               className="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-foreground"
             >
-              {warning}
+              {t(`assetMetadata.warnings.${warning}`)}
             </div>
           ))}
           {response.provenance ? (
@@ -218,29 +236,104 @@ export function AssetEmbeddedMetadata({ assetId, data }: AssetEmbeddedMetadataPr
               ) : null}
             </div>
           ) : null}
-          {response.groups.map((group) => (
-            <div key={group.id} className="space-y-1">
-              <div className="text-[11px] font-semibold text-foreground">{group.namespace}</div>
-              <div className="divide-y rounded border">
-                {group.items.map((metadataItem) => (
-                  <div
-                    key={metadataItem.id}
-                    className="grid min-w-0 grid-cols-[minmax(5rem,auto)_minmax(0,1fr)] gap-3 px-2 py-1 text-[11px]"
-                  >
-                    <span className="truncate font-mono font-medium text-foreground">
-                      {metadataItem.key}
-                    </span>
-                    <span
-                      className="truncate font-mono text-muted-foreground"
-                      title={displayedValue(metadataItem.value)}
-                    >
-                      {displayedValue(metadataItem.value)}
-                    </span>
-                  </div>
-                ))}
+          {response.groups.length > 0 ? (
+            <Input
+              value={filter}
+              onChange={(event) => setFilter(event.currentTarget.value)}
+              placeholder={t('assetMetadata.filter')}
+              aria-label={t('assetMetadata.filter')}
+              className="h-8 text-xs"
+            />
+          ) : null}
+          {response.groups.map((group) => {
+            const normalizedFilter = filter.trim().toLocaleLowerCase();
+            const visibleItems = normalizedFilter
+              ? group.items.filter((metadataItem) =>
+                  metadataSearchText(group.namespace, metadataItem).includes(normalizedFilter),
+                )
+              : group.items;
+            if (visibleItems.length === 0) return null;
+            return (
+              <div key={group.id} className="space-y-1">
+                <div className="text-[11px] font-semibold text-foreground">{group.namespace}</div>
+                <div className="divide-y rounded border">
+                  {visibleItems.map((metadataItem) => {
+                    const expanded = expandedItemIds.has(metadataItem.id);
+                    const rawValue = displayedValue(metadataItem.value);
+                    const canExpand =
+                      typeof metadataItem.value === 'string' &&
+                      metadataItem.valueKind !== 'binary' &&
+                      metadataItem.valueKind !== 'limited' &&
+                      (metadataItem.valueKind === 'json' ||
+                        rawValue.length > 80 ||
+                        rawValue.includes('\n'));
+                    const collapsedValue =
+                      metadataItem.valueKind === 'binary'
+                        ? t('assetMetadata.binary', { bytes: metadataItem.byteSize ?? 0 })
+                        : metadataItem.valueKind === 'limited'
+                          ? metadataItem.byteSize !== undefined
+                            ? t('assetMetadata.limited', { bytes: metadataItem.byteSize })
+                            : t('assetMetadata.limitedUnknown')
+                          : rawValue;
+                    return (
+                      <div key={metadataItem.id} className="min-w-0 px-2 py-1 text-[11px]">
+                        <div className="grid min-w-0 grid-cols-[minmax(5rem,auto)_minmax(0,1fr)] gap-3">
+                          <span className="truncate font-mono font-medium text-foreground">
+                            {metadataItem.key}
+                          </span>
+                          <button
+                            type="button"
+                            aria-disabled={!canExpand}
+                            className={`min-w-0 select-text truncate text-left font-mono text-muted-foreground ${canExpand ? 'cursor-pointer' : 'cursor-text'}`}
+                            title={collapsedValue}
+                            aria-expanded={canExpand ? expanded : undefined}
+                            onClick={() => {
+                              if (!canExpand) return;
+                              setExpandedItemIds((current) => {
+                                const next = new Set(current);
+                                if (next.has(metadataItem.id)) next.delete(metadataItem.id);
+                                else next.add(metadataItem.id);
+                                return next;
+                              });
+                            }}
+                          >
+                            {collapsedValue}
+                          </button>
+                        </div>
+                        {expanded && canExpand ? (
+                          <div className="mt-2 space-y-1">
+                            <div className="flex justify-end">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2 text-[10px]"
+                                onClick={() => copyText(rawValue)}
+                              >
+                                {t('assetMetadata.copy')}
+                              </Button>
+                            </div>
+                            {metadataItem.valueKind === 'json' ? (
+                              <textarea
+                                readOnly
+                                value={formattedJson(rawValue)}
+                                aria-label={`${metadataItem.key} JSON`}
+                                className="h-40 min-h-24 w-full resize-y overflow-auto rounded border bg-background p-2 font-mono text-[11px] text-foreground"
+                              />
+                            ) : (
+                              <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded border bg-background p-2 font-mono text-[11px] text-foreground">
+                                {rawValue}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : !projectSessionId ? (
         <p className="mt-2 text-xs text-muted-foreground">{t('assetMetadata.failure')}</p>
