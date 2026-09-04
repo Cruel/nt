@@ -4,6 +4,12 @@ import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import {
+  captureWorkbenchTabState,
+  clearWorkbenchTabStates,
+  restoreSerializedWorkbenchTabStates,
+  serializeWorkbenchTabStates,
+} from '@/workbench/workbench-tab-state';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const tab: WorkbenchTab = {
@@ -37,6 +43,7 @@ function project() {
 }
 
 beforeEach(() => {
+  clearWorkbenchTabStates();
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
@@ -223,6 +230,169 @@ describe('AssetEditor', () => {
     expect(screen.getByText('Signature')).toBeInTheDocument();
     expect(screen.queryByText('prompt')).not.toBeInTheDocument();
     expect(screen.getByText('Recognized summary remains visible')).toBeInTheDocument();
+  });
+
+  it('captures and restores exhaustive metadata viewer state through serialized Asset tab state', async () => {
+    const longPrompt = 'Moonlit bedroom '.repeat(30);
+    const longNegativePrompt = 'people '.repeat(50);
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      generation: {
+        prompt: longPrompt,
+        negativePrompt: longNegativePrompt,
+        facts: [],
+      },
+      groups: [
+        {
+          id: 'PNG',
+          namespace: 'PNG',
+          items: [
+            {
+              id: 'PNG/tEXt/workflow/0',
+              key: 'workflow',
+              value: '{"nodes":[1,2,3]}',
+              valueKind: 'json',
+            },
+            {
+              id: 'PNG/tEXt/comment/0',
+              key: 'comment',
+              value: 'ordinary metadata '.repeat(10),
+              valueKind: 'text',
+            },
+          ],
+        },
+      ],
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    const firstView = render(<AssetEditor tab={tab} />);
+    await screen.findByText('workflow');
+    fireEvent.change(screen.getByLabelText('Filter metadata'), {
+      target: { value: 'PNG' },
+    });
+    for (const button of screen.getAllByRole('button', { name: 'Show more' }))
+      fireEvent.click(button);
+    fireEvent.click(screen.getByText('{"nodes":[1,2,3]}'));
+    const commentRow = screen.getByText('comment').parentElement;
+    const commentValueButton = commentRow?.querySelector('button');
+    if (!(commentValueButton instanceof HTMLButtonElement))
+      throw new Error('Expected comment row value button.');
+    fireEvent.click(commentValueButton);
+
+    const textarea = await screen.findByLabelText('workflow JSON');
+    Object.defineProperty(textarea, 'offsetHeight', { configurable: true, value: 286 });
+    textarea.scrollTop = 37;
+    textarea.scrollLeft = 4;
+    const ordinaryViewer = screen.getByLabelText('comment value');
+    ordinaryViewer.scrollTop = 22;
+    ordinaryViewer.scrollLeft = 2;
+    const outer = screen.getByTestId('asset-editor-scroll');
+    outer.scrollTop = 180;
+    outer.scrollLeft = 7;
+
+    captureWorkbenchTabState(tab.id);
+    const serialized = serializeWorkbenchTabStates([tab.id]);
+    expect(serialized[tab.id]?.payload).toMatchObject({
+      scroll: { scrollTop: 180, scrollLeft: 7 },
+      metadata: {
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        filter: 'PNG',
+        expandedItemIds: ['PNG/tEXt/workflow/0', 'PNG/tEXt/comment/0'],
+        promptExpanded: true,
+        negativePromptExpanded: true,
+        itemScroll: {
+          'PNG/tEXt/workflow/0': { scrollTop: 37, scrollLeft: 4 },
+          'PNG/tEXt/comment/0': { scrollTop: 22, scrollLeft: 2 },
+        },
+        jsonHeights: { 'PNG/tEXt/workflow/0': 286 },
+      },
+    });
+
+    firstView.unmount();
+    clearWorkbenchTabStates();
+    restoreSerializedWorkbenchTabStates(serialized);
+    render(<AssetEditor tab={tab} />);
+
+    expect(await screen.findByDisplayValue('PNG')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Show less' })).toHaveLength(2),
+    );
+    const restoredTextarea = await screen.findByLabelText('workflow JSON');
+    await waitFor(() => {
+      expect(restoredTextarea.style.height).toBe('286px');
+      expect(restoredTextarea.scrollTop).toBe(37);
+      expect(restoredTextarea.scrollLeft).toBe(4);
+      expect(screen.getByLabelText('comment value').scrollTop).toBe(22);
+      expect(screen.getByLabelText('comment value').scrollLeft).toBe(2);
+      expect(screen.getByTestId('asset-editor-scroll').scrollTop).toBe(180);
+      expect(screen.getByTestId('asset-editor-scroll').scrollLeft).toBe(7);
+    });
+  });
+
+  it('discards metadata-specific tab state after a content-hash change while restoring outer scroll', async () => {
+    restoreSerializedWorkbenchTabStates({
+      [tab.id]: {
+        schema: 'noveltea.editor.asset-detail-tab-state',
+        payload: {
+          scroll: { scrollTop: 140, scrollLeft: 3 },
+          metadata: {
+            contentHash: `sha256:${'a'.repeat(64)}`,
+            filter: 'workflow',
+            expandedItemIds: ['PNG/tEXt/workflow/0'],
+            promptExpanded: true,
+            negativePromptExpanded: true,
+            itemScroll: { 'PNG/tEXt/workflow/0': { scrollTop: 25, scrollLeft: 0 } },
+            jsonHeights: { 'PNG/tEXt/workflow/0': 300 },
+          },
+        },
+      },
+    });
+    const changedProject = project();
+    changedProject.assets.logo!.data = {
+      ...changedProject.assets.logo!.data,
+      contentHash: `sha256:${'b'.repeat(64)}`,
+    };
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: `sha256:${'b'.repeat(64)}`,
+      groups: [
+        {
+          id: 'PNG',
+          namespace: 'PNG',
+          items: [
+            {
+              id: 'PNG/tEXt/workflow/0',
+              key: 'workflow',
+              value: '{"nodes":[4,5,6]}',
+              valueKind: 'json',
+            },
+          ],
+        },
+      ],
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: changedProject,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    render(<AssetEditor tab={tab} />);
+
+    await screen.findByText('workflow');
+    await waitFor(() => expect(screen.getByTestId('asset-editor-scroll').scrollTop).toBe(140));
+    expect(screen.getByLabelText('Filter metadata')).toHaveValue('');
+    expect(screen.queryByLabelText('workflow JSON')).not.toBeInTheDocument();
   });
 
   it('renders audio metadata through the same embedded metadata viewer', async () => {
