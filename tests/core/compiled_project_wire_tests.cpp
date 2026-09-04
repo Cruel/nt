@@ -261,6 +261,42 @@ TEST_CASE("compiled Scene boundary rejects detached targets that await foregroun
     auto result = noveltea::core::decode_compiled_project(document, "unsafe-detached-scene.json");
     REQUIRE_FALSE(result);
     CHECK(has_code(result.error(), "compiled_project.detached_scene_not_background_safe"));
+
+    SECTION("directed Room changes are also foreground-only")
+    {
+        auto directed = fixture("scene-program");
+        auto& directed_closing = directed["definitions"]["scenes"][0];
+        auto& directed_opening = directed["definitions"]["scenes"][1];
+        REQUIRE(directed_closing["id"] == "closing");
+        REQUIRE(directed_opening["id"] == "opening");
+        directed_closing["program"]["events"] = nlohmann::json::array(
+            {{{"id", "change-room"},
+              {"timeline", {{"trackId", "main"}, {"startMs", 0}, {"durationMs", 0}}},
+              {"completionDependencies", nlohmann::json::array()},
+              {"instruction",
+               {{"id", "change-room"},
+                {"kind", "directed-room-change"},
+                {"room", {{"kind", "room"}, {"id", "hall"}}}}}}});
+        directed_closing["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
+        directed_opening["program"]["events"] = nlohmann::json::array(
+            {{{"id", "detached"},
+              {"timeline", {{"trackId", "main"}, {"startMs", 0}, {"durationMs", 0}}},
+              {"completionDependencies", nlohmann::json::array()},
+              {"instruction",
+               {{"id", "detached"},
+                {"kind", "start-detached-scene"},
+                {"autosaveSafePoint", false},
+                {"scene", {{"kind", "scene"}, {"id", "closing"}}},
+                {"inputs", nlohmann::json::array()},
+                {"owner", "flow"}}}}});
+        directed_opening["terminal"] = {{"kind", "complete-game"}};
+
+        auto directed_result =
+            noveltea::core::decode_compiled_project(directed, "unsafe-detached-room-change.json");
+        REQUIRE_FALSE(directed_result);
+        CHECK(has_code(directed_result.error(),
+                       "compiled_project.detached_scene_not_background_safe"));
+    }
 }
 
 TEST_CASE("compiled Layout scale policy retains explicit resolved wire values")

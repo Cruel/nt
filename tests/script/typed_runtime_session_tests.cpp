@@ -683,6 +683,51 @@ void prepare_project_scripts(ScriptRuntime& runtime, const core::CompiledProject
     REQUIRE(runtime.freeze_project_hooks());
 }
 
+TEST_CASE("runtime publication carries authoritative non-global prediction condition facts")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        auto& slice = document["flowPrediction"]["slices"][0];
+        slice["condition"] = {
+            {"kind", "trait-presence"},
+            {"owner",
+             {{"kind", "interactable"},
+              {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
+            {"trait", {{"kind", "trait"}, {"id", "currency"}}},
+            {"present", true},
+        };
+        // This resident-only Condition is structurally valid prediction metadata but is unrelated
+        // to the active Scene root. Prediction Context construction must not scan the whole index
+        // and publish its authoritative value merely because some other Flow could need it later.
+        auto& resident = document["flowPrediction"]["slices"].back();
+        REQUIRE(resident["point"]["kind"] == "verb-default");
+        resident["condition"] = {
+            {"kind", "global-property-comparison"},
+            {"property", {{"kind", "property"}, {"id", "ratio"}}},
+            {"operator", "greater"},
+            {"value", 0.0},
+        };
+    });
+
+    auto initial = fixture.session->publish_initial_state();
+    REQUIRE(initial.diagnostics.empty());
+    REQUIRE(initial.publication);
+    const auto& facts = initial.publication->prediction_context.condition_facts;
+    const auto found = std::ranges::find_if(facts, [](const auto& fact) {
+        const auto* trait = std::get_if<core::TraitPresenceCondition>(&fact.condition.value);
+        return trait != nullptr && trait->trait == make_id<core::TraitIdTag>("currency");
+    });
+    REQUIRE(found != facts.end());
+    CHECK(found->value);
+
+    const auto& globals = initial.publication->prediction_context.global_properties;
+    CHECK(std::ranges::any_of(globals, [](const auto& property) {
+        return property.property == make_id<core::PropertyIdTag>("count");
+    }));
+    CHECK_FALSE(std::ranges::any_of(globals, [](const auto& property) {
+        return property.property == make_id<core::PropertyIdTag>("ratio");
+    }));
+}
+
 core::Result<void, ScriptError> execute_session_lua(Fixture& fixture, std::string source,
                                                     std::string chunk_name)
 {
@@ -997,6 +1042,25 @@ TEST_CASE("typed Room navigation input commits the default Cut transition")
     REQUIRE(started.publication);
     REQUIRE(started.publication->gameplay_ui.room);
     CHECK(started.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("start"));
+    REQUIRE(started.publication->prediction_context.current_room);
+    CHECK(*started.publication->prediction_context.current_room ==
+          make_id<core::RoomIdTag>("start"));
+    REQUIRE(started.publication->resident_room_prediction);
+    CHECK(std::ranges::find(started.publication->resident_room_prediction->layouts,
+                            make_id<core::LayoutIdTag>("hud-assets")) !=
+          started.publication->resident_room_prediction->layouts.end());
+    const auto prospective = std::ranges::find_if(
+        started.publication->prediction_context.prospective_room_entries, [](const auto& root) {
+            return root.source_room == make_id<core::RoomIdTag>("start") &&
+                   root.target_room == make_id<core::RoomIdTag>("hall");
+        });
+    REQUIRE(prospective !=
+            started.publication->prediction_context.prospective_room_entries.end());
+    REQUIRE(prospective->source_exit);
+    CHECK(*prospective->source_exit == make_id<core::RoomExitIdTag>("north-exit"));
+    REQUIRE(prospective->source_can_leave);
+    REQUIRE(prospective->exit_condition);
+    REQUIRE(prospective->target_can_enter);
 
     auto navigated = fixture.session->dispatch(core::RuntimeInputMessage{
         core::NavigateRoomInput{make_id<core::RoomExitIdTag>("north-exit")}});
@@ -1005,6 +1069,9 @@ TEST_CASE("typed Room navigation input commits the default Cut transition")
     REQUIRE(navigated.publication);
     REQUIRE(navigated.publication->gameplay_ui.room);
     CHECK(navigated.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("hall"));
+    REQUIRE(navigated.publication->prediction_context.current_room);
+    CHECK(*navigated.publication->prediction_context.current_room ==
+          make_id<core::RoomIdTag>("hall"));
     CHECK(navigated.publication->presentation.current_room == make_id<core::RoomIdTag>("hall"));
     CHECK(fixture.presentation.presentation_operations.empty());
 }
@@ -1152,6 +1219,143 @@ TEST_CASE("internal runtime commands settle before checkpoint evaluation")
     CHECK(std::none_of(issues.begin(), issues.end(), [](const auto& issue) {
         return issue.reason == core::CheckpointReadinessReason::RuntimeQueueUnsettled;
     }));
+}
+
+TEST_CASE("runtime publication retains suspended Interaction continuation while awaited Dialogue runs")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+
+    const auto unlock = make_id<core::VerbIdTag>("unlock");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
+    auto invoked = dispatch_settled(
+        *fixture.session,
+        core::RuntimeInputMessage{core::InvokeInteractionInput{
+            unlock,
+            {{make_id<core::VerbSlotIdTag>("target"),
+              core::compiled::InteractableInteractionSubject{key}}}}});
+    REQUIRE(invoked.diagnostics.empty());
+    REQUIRE(invoked.publication);
+    REQUIRE(invoked.publication->active_dialogue);
+    CHECK(invoked.publication->active_dialogue->dialogue == make_id<core::DialogueIdTag>("intro"));
+
+    const auto& suspended = invoked.publication->prediction_context.suspended_interactions;
+    REQUIRE(suspended.size() == 1);
+    const auto* rule =
+        std::get_if<core::InteractionRuleProgramRef>(&suspended.front().program);
+    REQUIRE(rule != nullptr);
+    CHECK(rule->interaction == make_id<core::InteractionIdTag>("actions"));
+    CHECK(rule->rule == make_id<core::InteractionRuleIdTag>("placement-context"));
+    CHECK_FALSE(suspended.front().position.next_instruction.has_value());
+    CHECK_FALSE(suspended.front().position.awaiting_completion);
+}
+
+TEST_CASE("runtime publication retains suspended Room transition continuation while awaited "
+          "Dialogue runs")
+{
+    Fixture fixture("comprehensive.json", {}, [](nlohmann::json& document) {
+        for (auto& room : document["definitions"]["rooms"]) {
+            if (room["id"] != "hall")
+                continue;
+            room["lifecycle"]["afterEnter"] =
+                nlohmann::json::array({{{"id", "after-enter-dialogue"},
+                                        {"kind", "call-dialogue"},
+                                        {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}},
+                                       {{"id", "after-dialogue-count"},
+                                        {"kind", "set-global-property"},
+                                        {"property", {{"kind", "property"}, {"id", "count"}}},
+                                        {"value", 11}}});
+        }
+    });
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+
+    auto navigated =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::NavigateRoomInput{
+                                               make_id<core::RoomExitIdTag>("north-exit")}});
+    REQUIRE(navigated.diagnostics.empty());
+    REQUIRE(navigated.publication);
+    REQUIRE(navigated.publication->active_dialogue);
+    CHECK(navigated.publication->active_dialogue->dialogue ==
+          make_id<core::DialogueIdTag>("intro"));
+
+    const auto& suspended = navigated.publication->prediction_context.suspended_room_transitions;
+    REQUIRE(suspended.size() == 1);
+    const auto& transition = suspended.front();
+    REQUIRE(transition.source_room);
+    CHECK(*transition.source_room == make_id<core::RoomIdTag>("start"));
+    CHECK(transition.target_room == make_id<core::RoomIdTag>("hall"));
+    REQUIRE(transition.source_exit);
+    CHECK(*transition.source_exit == make_id<core::RoomExitIdTag>("north-exit"));
+    CHECK(transition.stage == core::RoomTransitionStage::AfterEnter);
+    REQUIRE(transition.command_id);
+    CHECK(transition.command_id->text() == "after-dialogue-count");
+    CHECK_FALSE(transition.awaiting_completion);
+}
+
+TEST_CASE("active Interaction prediction scopes authoritative slot-bound Condition facts")
+{
+    const nlohmann::json slot_condition = {
+        {"kind", "property-comparison"},
+        {"owner", {{"kind", "interaction-slot"}, {"slotId", "target"}}},
+        {"propertyId", "enabled"},
+        {"operator", "truthy"}};
+    Fixture fixture("interaction-program.json", {}, [&](nlohmann::json& document) {
+        for (auto& interaction : document["definitions"]["interactions"]) {
+            if (interaction["id"] != "actions")
+                continue;
+            for (auto& rule : interaction["rules"]) {
+                if (rule["id"] != "placement-context")
+                    continue;
+                rule["program"]["instructions"] = nlohmann::json::array(
+                    {{{"id", "wait"},
+                      {"kind", "run-lua"},
+                      {"source", "local ok, err = audio.play_and_wait('audio-voice', 'voice'); "
+                                 "assert(ok and err == nil)"}},
+                     {{"id", "slot-branch"},
+                      {"kind", "if"},
+                      {"condition", slot_condition},
+                      {"then", nlohmann::json::array()},
+                      {"else", nlohmann::json::array()}}});
+            }
+        }
+        for (auto& slice : document["flowPrediction"]["slices"]) {
+            const auto& point = slice["point"];
+            if (point["kind"] != "interaction-rule" || point["ruleId"] != "placement-context")
+                continue;
+            slice["program"] = nlohmann::json::array(
+                {{{"commandId", "wait"}, {"kind", "opaque"}},
+                 {{"commandId", "slot-branch"},
+                  {"kind", "if"},
+                  {"condition", slot_condition},
+                  {"thenCommands", nlohmann::json::array()},
+                  {"elseCommands", nlohmann::json::array()}}});
+        }
+    });
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+
+    const auto unlock = make_id<core::VerbIdTag>("unlock");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
+    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{core::InvokeInteractionInput{
+        unlock,
+        {{make_id<core::VerbSlotIdTag>("target"),
+          core::compiled::InteractableInteractionSubject{key}}}}});
+    REQUIRE(invoked.diagnostics.empty());
+    REQUIRE(invoked.publication);
+    REQUIRE(invoked.publication->prediction_context.active_interaction);
+    const auto& root = *invoked.publication->prediction_context.active_interaction;
+    CHECK(root.position.awaiting_completion);
+    REQUIRE(root.position.next_instruction);
+    CHECK(root.position.next_instruction->text() == "wait");
+    REQUIRE(root.condition_facts.size() == 1);
+    CHECK(root.condition_facts.front().value);
+    CHECK(invoked.publication->prediction_context.condition_facts.empty());
+
+    const auto projection =
+        runtime::FlowPredictor(fixture.project).predict(root, invoked.publication->prediction_context);
+    CHECK(projection.context_requirements.condition_facts.empty());
 }
 
 TEST_CASE("semantic Verb menu publication never auto-selects a primary Offer")
@@ -1702,6 +1906,10 @@ TEST_CASE("detached Scene duration work is non-awaited and advances beside foreg
 
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->prediction_context.detached_scenes.size() == 1);
+    CHECK(started.publication->prediction_context.detached_scenes.front().scene ==
+          make_id<core::SceneIdTag>("closing"));
     REQUIRE(fixture.session->gateway().global_property(count));
     CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{7}});
@@ -1742,12 +1950,73 @@ TEST_CASE("detached Scene duration work is non-awaited and advances beside foreg
     auto advanced = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{1000}}});
     REQUIRE(advanced.diagnostics.empty());
+    REQUIRE(advanced.publication);
+    CHECK(advanced.publication->prediction_context.detached_scenes.empty());
     REQUIRE(fixture.session->gateway().global_property(count));
     CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{9}});
     REQUIRE(fixture.session->presentation_state().blocker());
     CHECK(std::holds_alternative<core::InputFlowBlocker>(
         *fixture.session->presentation_state().blocker()));
+}
+
+TEST_CASE("detached awaited child publication retains its caller continuation")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        auto& closing = document["definitions"]["scenes"][0];
+        auto& opening = document["definitions"]["scenes"][1];
+        REQUIRE(closing["id"] == "closing");
+        REQUIRE(opening["id"] == "opening");
+
+        auto child = closing;
+        child["id"] = "detached-child";
+        child["displayName"] = "Detached Child";
+        child["program"]["events"] = scene_events(nlohmann::json::array(
+            {{{"id", "child-delay"},
+              {"kind", "wait-duration"},
+              {"durationMs", 1000},
+              {"skippable", true}}}));
+        child["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
+
+        closing["program"]["events"] = scene_events(nlohmann::json::array(
+            {{{"id", "await-child"},
+              {"kind", "call-scene"},
+              {"autosaveSafePoint", false},
+              {"scene", {{"kind", "scene"}, {"id", "detached-child"}}},
+              {"inputs", nlohmann::json::array()}},
+             {{"id", "parent-delay"},
+              {"kind", "wait-duration"},
+              {"durationMs", 1000},
+              {"skippable", true}}}));
+        closing["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
+
+        opening["program"]["events"] = scene_events(nlohmann::json::array(
+            {{{"id", "start-detached"},
+              {"kind", "start-detached-scene"},
+              {"autosaveSafePoint", false},
+              {"scene", {{"kind", "scene"}, {"id", "closing"}}},
+              {"inputs", nlohmann::json::array()},
+              {"owner", "flow"}},
+             {{"id", "foreground-input"}, {"kind", "wait-input"}, {"skippable", false}}}));
+        opening["terminal"] = {{"kind", "complete-game"}};
+        document["definitions"]["scenes"].push_back(std::move(child));
+
+        // This regression is about canonical Runtime Session Flow positions, not prediction-index
+        // lowering. Avoid carrying stale golden optimization metadata after changing the Scene graph.
+        document["flowPrediction"] = nullptr;
+    });
+
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->prediction_context.detached_scenes.size() == 1);
+    CHECK(started.publication->prediction_context.detached_scenes.front().scene ==
+          make_id<core::SceneIdTag>("detached-child"));
+    REQUIRE(started.publication->prediction_context.detached_suspended_scenes.size() == 1);
+    const auto& caller = started.publication->prediction_context.detached_suspended_scenes.front();
+    CHECK(caller.scene == make_id<core::SceneIdTag>("closing"));
+    REQUIRE(caller.position.next_step);
+    CHECK(caller.position.next_step->text() == "parent-delay");
 }
 
 TEST_CASE(
@@ -2345,6 +2614,17 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     CHECK(*navigation->target.source_room == make_id<core::RoomIdTag>("start"));
     CHECK(navigation->target.target_room == make_id<core::RoomIdTag>("hall"));
     CHECK(navigated.publication->presentation.current_room == make_id<core::RoomIdTag>("hall"));
+    REQUIRE(navigated.publication->prediction_context.active_room_transition);
+    const auto& transition_prediction =
+        *navigated.publication->prediction_context.active_room_transition;
+    REQUIRE(transition_prediction.source_room);
+    CHECK(*transition_prediction.source_room == make_id<core::RoomIdTag>("start"));
+    CHECK(transition_prediction.target_room == make_id<core::RoomIdTag>("hall"));
+    REQUIRE(transition_prediction.source_exit);
+    CHECK(*transition_prediction.source_exit == make_id<core::RoomExitIdTag>("north-exit"));
+    CHECK(transition_prediction.stage == core::RoomTransitionStage::CommitRoomSwitch);
+    CHECK_FALSE(transition_prediction.command_id);
+    CHECK(transition_prediction.awaiting_completion);
     REQUIRE(navigated.publication->gameplay_ui.room);
     CHECK(navigated.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("hall"));
     CHECK(navigated.publication->gameplay_ui.room->description.empty());

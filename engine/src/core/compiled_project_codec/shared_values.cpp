@@ -1570,6 +1570,27 @@ decode_condition_interactable_matcher(Decoder& decoder, const nlohmann::json& va
 }
 } // namespace
 
+std::optional<GameplayIdentityOperand>
+decode_prediction_identity_operand(Decoder& decoder, const nlohmann::json& value,
+                                   std::string_view pointer)
+{
+    return decode_gameplay_identity_operand(decoder, value, pointer);
+}
+
+std::optional<LocationSubjectOperand>
+decode_prediction_location_subject_operand(Decoder& decoder, const nlohmann::json& value,
+                                           std::string_view pointer)
+{
+    return decode_location_subject_operand(decoder, value, pointer);
+}
+
+std::optional<LocationOperand>
+decode_prediction_location_operand(Decoder& decoder, const nlohmann::json& value,
+                                   std::string_view pointer)
+{
+    return decode_location_operand(decoder, value, pointer);
+}
+
 std::optional<InteractableLocation> decode_location(Decoder& decoder, const nlohmann::json& value,
                                                     std::string_view pointer)
 {

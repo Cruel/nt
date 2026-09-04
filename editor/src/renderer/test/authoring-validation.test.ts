@@ -9,6 +9,7 @@ import { validateHotspotAuthoringSemantics } from '../../shared/project-schema/a
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
+import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { effectiveInteractableInstanceProperties } from '../../shared/project-schema/authoring-interactable-properties';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
@@ -44,6 +45,47 @@ describe('authoring validation', () => {
           path: '/prefetchHints/missing/attachment/room/$ref',
         }),
       ]),
+    );
+  });
+
+  it('diagnoses precise Dialogue prefetch points that do not map to a generated prediction position', () => {
+    const project = createAuthoringProject();
+    project.dialogues.intro = {
+      id: 'intro',
+      label: 'Intro',
+      data: defaultDialogueData('Intro'),
+    };
+    project.assets.dynamic = {
+      id: 'dynamic',
+      label: 'Dynamic',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/dynamic.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    project.prefetchHints['bad-dialogue-point'] = {
+      id: 'bad-dialogue-point',
+      target: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'dynamic' } } },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'dialogue-position',
+          dialogue: { $ref: { collection: 'dialogues', id: 'intro' } },
+          blockId: 'start',
+          segmentId: 'line-1',
+          stage: 'apply-segment-effects',
+          cursor: 1,
+        },
+      },
+    };
+
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.prefetch-hint.point.missing',
+        path: '/prefetchHints/bad-dialogue-point/attachment/point',
+      }),
     );
   });
 

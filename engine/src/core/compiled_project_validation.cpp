@@ -3037,6 +3037,9 @@ private:
                                using T = std::decay_t<decltype(value)>;
                                if constexpr (std::is_same_v<T, CallDialogueSceneInstruction> ||
                                              std::is_same_v<T, ChoiceSceneInstruction> ||
+                                             std::is_same_v<T, CallInteractionSceneInstruction> ||
+                                             std::is_same_v<T, DirectedRoomChangeSceneInstruction> ||
+                                             std::is_same_v<T, NavigationAttemptSceneInstruction> ||
                                              std::is_same_v<T, WaitInputInstruction> ||
                                              std::is_same_v<T, WaitOperationInstruction> ||
                                              std::is_same_v<T, WaitAudioInstruction> ||

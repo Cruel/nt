@@ -107,9 +107,13 @@ core::AssetProfilerPrefetchGenerationRecord generation_record()
               .provenance = {{.root = core::AssetProfilerPredictionRoot::ProspectiveRoomEntry,
                               .room = "hall",
                               .supplemental_hint_id = "hall-opening",
-                              .reason_chain = {"room:start:after-enter", "scene:opening:entry"}}}}},
+                              .reason_chain = {"room:start:after-enter", "scene:opening:entry"}},
+                             {.root = core::AssetProfilerPredictionRoot::DetachedFlowExecution,
+                              .reason_chain = {"scene:background:step:ambient"}}}}},
         .opaque_frontiers = {{.root = core::AssetProfilerPredictionRoot::ProspectiveRoomEntry,
                               .room = "hall",
+                              .exit = "north-exit",
+                              .supplemental_hint_id = "hall-opening",
                               .attachment_point = "room:hall:after-enter",
                               .reason_chain = {"room:start:after-leave", "room:hall:after-enter"}}},
         .submitted_entries = {{.cache_key = key,
@@ -189,6 +193,8 @@ std::vector<core::AssetProfilerChange> changes()
                  .request_id = {beyond_javascript_safe_integer},
                  .generation = {beyond_javascript_safe_integer},
                  .frontier = {.root = core::AssetProfilerPredictionRoot::FlowExecution,
+                              .exit = "north-exit",
+                              .supplemental_hint_id = "dynamic-hint",
                               .attachment_point = "scene:opening:step:lua",
                               .reason_chain = {"scene:opening:entry", "scene:opening:step:lua"}}}},
         {.sequence = {8},
@@ -288,6 +294,7 @@ core::AssetProfilerSnapshot full_snapshot()
                      .asset_wait_count = 7,
                      .asset_wait_time_ns = beyond_javascript_safe_integer},
         .assets = {asset_entry()},
+        .active_prefetch_generation = generation_record(),
         .inventory_revision = beyond_javascript_safe_integer,
         .retained_changes = changes(),
         .earliest_retained_sequence = {1},
@@ -309,6 +316,8 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     CHECK(payload.at("sessionId") == "18446744073709551615");
     CHECK(payload.at("capturedAtNs") == "9007199254740993");
     CHECK(payload.at("assets").at(0).at("jobId") == "9007199254740993");
+    CHECK(payload.at("activePrefetchGeneration").at("generation") == "9007199254740993");
+    CHECK(payload.at("activePrefetchGeneration").at("predictionPlan").size() == 1);
     CHECK(payload.at("retainedChanges").at(1).at("kind") == "prefetch-generation-upsert");
     CHECK(payload.at("retainedChanges")
               .at(1)
@@ -318,6 +327,14 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
               .at("provenance")
               .at(0)
               .at("root") == "prospective-room-entry");
+    CHECK(payload.at("retainedChanges")
+              .at(1)
+              .at("generation")
+              .at("predictionPlan")
+              .at(0)
+              .at("provenance")
+              .at(1)
+              .at("root") == "detached-flow-execution");
     CHECK(payload.at("retainedChanges")
               .at(1)
               .at("generation")
@@ -349,6 +366,12 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     CHECK(payload.at("retainedChanges")
               .at(1)
               .at("generation")
+              .at("opaqueFrontiers")
+              .at(0)
+              .at("supplementalHintId") == "hall-opening");
+    CHECK(payload.at("retainedChanges")
+              .at(1)
+              .at("generation")
               .at("submittedEntries")
               .at(0)
               .at("prediction") == "expected-next");
@@ -368,8 +391,30 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     CHECK(payload.at("retainedChanges").at(6).at("kind") == "opaque-prediction-miss");
     CHECK(payload.at("retainedChanges").at(6).at("miss").at("frontier").at("attachmentPoint") ==
           "scene:opening:step:lua");
+    CHECK(payload.at("retainedChanges").at(6).at("miss").at("frontier").at("exit") == "north-exit");
+    CHECK(payload.at("retainedChanges").at(6).at("miss").at("frontier").at("supplementalHintId") ==
+          "dynamic-hint");
     CHECK(payload.at("retainedChanges").at(0).at("event").at("eventKind") == "source-read-failed");
     require_decimal_wire_fields(payload);
+}
+
+TEST_CASE("Editor asset profiler JSON publishes logical prefetch generation release",
+          "[assets][telemetry-matrix][profiler][json][prefetch]")
+{
+    auto snapshot = full_snapshot();
+    snapshot.latest_sequence = {1};
+    snapshot.retained_changes = {
+        {.sequence = {1},
+         .timestamp_ns = 10,
+         .payload = core::AssetProfilerPrefetchGenerationReleased{{9}}},
+    };
+    snapshot.earliest_retained_sequence = {1};
+    snapshot.lost_change_count = 0;
+
+    const auto root = Json::parse(core::serialize_asset_profiler_snapshot(snapshot));
+    const auto& change = root.at("payload").at("retainedChanges").at(0);
+    CHECK(change.at("kind") == "prefetch-generation-released");
+    CHECK(change.at("generation") == "9");
 }
 
 TEST_CASE("Editor asset profiler JSON publishes mandatory lifecycle event names",

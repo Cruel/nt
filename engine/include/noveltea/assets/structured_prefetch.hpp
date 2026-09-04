@@ -157,6 +157,12 @@ struct PrefetchPlan {
 resolve_flow_prediction(const StructuredAssetDependencyIndex& index,
                         const runtime::FlowPredictionProjection& projection);
 
+// Compares the normalized planner-visible meaning of two plans. This is intentionally narrower
+// than persistence/wire equality: callers use it to avoid replacing a logical prediction
+// generation when a re-evaluated root produces the same ranked speculative work.
+[[nodiscard]] bool equivalent_prefetch_plans(const PrefetchPlan& left,
+                                             const PrefetchPlan& right) noexcept;
+
 class PrefetchPlanner {
 public:
     explicit PrefetchPlanner(AssetManager& assets) noexcept;
@@ -169,6 +175,10 @@ public:
 
     [[nodiscard]] core::Result<PrefetchSubmissionReport, core::Diagnostic>
     replace_generation_on_owner(const PrefetchPlan& plan) noexcept;
+
+    // Read-only admission preview used to decide whether expanding a truncated Flow prediction
+    // wave could still produce useful Warm work. It never creates generations or requests.
+    [[nodiscard]] bool would_exhaust_warm_budget_on_owner(const PrefetchPlan& plan) const noexcept;
 
     void clear_on_owner() noexcept;
     [[nodiscard]] std::optional<PrefetchGenerationId> active_generation_on_owner() const noexcept;

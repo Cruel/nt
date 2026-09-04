@@ -97,6 +97,7 @@ const generationChange = {
           {
             root: 'prospective-room-entry',
             room: 'hall',
+            exit: 'north-exit',
             supplementalHintId: null,
             reasonChain: ['room:hall:after-enter', 'scene:opening:entry'],
           },
@@ -107,6 +108,8 @@ const generationChange = {
       {
         root: 'prospective-room-entry',
         room: 'hall',
+        exit: 'north-exit',
+        supplementalHintId: 'hall-opening',
         attachmentPoint: 'room:hall:after-enter',
         reasonChain: ['room:start:after-leave', 'room:hall:after-enter'],
       },
@@ -169,6 +172,8 @@ const opaqueMissChange = {
     frontier: {
       root: 'flow-execution',
       room: null,
+      exit: null,
+      supplementalHintId: null,
       attachmentPoint: 'scene:opening:step:lua',
       reasonChain: ['scene:opening:entry', 'scene:opening:step:lua'],
     },
@@ -182,6 +187,7 @@ const full = {
   capturedAtNs: '40',
   memory,
   outcomes,
+  activePrefetchGeneration: generationChange.generation,
   assets: [],
   inventoryRevision: '2',
   retainedChanges: [
@@ -238,6 +244,7 @@ describe('asset profiler protocol', () => {
         },
       },
       outcomes,
+      activePrefetchGeneration: generationChange.generation,
       replacementInventory: null,
       inventoryRevision: '2',
       changes: [
@@ -259,6 +266,24 @@ describe('asset profiler protocol', () => {
         type: 'runtime-asset-profiler',
         requestId: 'request-1',
         payload: delta,
+      }),
+    ).toBe(true);
+  });
+
+  it('accepts logical prefetch-generation release changes', () => {
+    expect(
+      isAssetProfilerWirePayload({
+        ...full,
+        latestSequence: '8',
+        retainedChanges: [
+          ...full.retainedChanges,
+          {
+            sequence: '8',
+            timestampNs: '33',
+            kind: 'prefetch-generation-released',
+            generation: '8',
+          },
+        ],
       }),
     ).toBe(true);
   });

@@ -753,17 +753,39 @@ AssetResidencyManager::admit_on_owner(ResidencyAdmissionRequest request) noexcep
                 .diagnostics = {}};
     }
 
-    if (request.reason == AssetRequestReason::Prefetch &&
-        (resident_addition_exceeds(m_impl->accounting.current, committed, m_impl->budget) ||
-         !prefetch_fits_warm_budget(m_impl->warm_cost(), committed, m_impl->budget))) {
-        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &request.cache_key,
-                                 "assets.prefetch_residency_rejected");
-        return {.admission = ResidencyAdmission::RejectedPrefetch,
-                .committed_cost = {},
-                .diagnostics = {
-                    pressure_diagnostic("assets.prefetch_residency_rejected",
-                                        "prefetch residency would exceed an asset memory budget or "
-                                        "the Warm residency allowance")}};
+    if (request.reason == AssetRequestReason::Prefetch) {
+        if (!prefetch_fits_warm_budget(m_impl->warm_cost(), committed, m_impl->budget)) {
+            m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure,
+                                     &request.cache_key, "assets.prefetch_residency_rejected");
+            return {.admission = ResidencyAdmission::RejectedPrefetch,
+                    .committed_cost = {},
+                    .diagnostics = {
+                        pressure_diagnostic("assets.prefetch_residency_rejected",
+                                            "prefetch residency would exceed the Warm residency "
+                                            "allowance")}};
+        }
+
+        // Prefetch may reclaim ordinary Cold cache residency, but it must not displace another
+        // Warm speculative interest merely to admit itself. This lets prediction-plan
+        // reconciliation replace obsolete Warm work once the old ticket has been released while
+        // preserving the configured Warm allowance as the speculative memory boundary.
+        while (resident_addition_exceeds(m_impl->accounting.current, committed, m_impl->budget)) {
+            auto candidate = m_impl->eviction_candidate();
+            if (candidate == m_impl->residents.end() ||
+                m_impl->classification(candidate->second) != ResidencyClass::Cold)
+                break;
+            (void)m_impl->evict_record(candidate, ResidencyEvictionReason::BudgetPressure);
+        }
+        if (resident_addition_exceeds(m_impl->accounting.current, committed, m_impl->budget)) {
+            m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure,
+                                     &request.cache_key, "assets.prefetch_residency_rejected");
+            return {.admission = ResidencyAdmission::RejectedPrefetch,
+                    .committed_cost = {},
+                    .diagnostics = {
+                        pressure_diagnostic("assets.prefetch_residency_rejected",
+                                            "prefetch residency would exceed an asset memory "
+                                            "budget after eligible Cold eviction")}};
+        }
     }
 
     while (resident_addition_exceeds(m_impl->accounting.current, committed, m_impl->budget)) {

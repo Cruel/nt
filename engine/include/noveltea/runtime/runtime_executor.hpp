@@ -139,6 +139,11 @@ public:
     {
         return m_gateway;
     }
+    // Projects the runtime-owned flattened Room lifecycle cursor back to the semantic Gameplay
+    // Command id used by Flow Prediction metadata. Prediction never re-flattens executable Room
+    // programs itself.
+    [[nodiscard]] std::optional<core::InteractionInstructionId>
+    room_transition_command_id(const core::RoomTransitionFrame& transition) const;
     [[nodiscard]] core::Result<bool, RuntimeExecutionError>
     evaluate(const core::Condition& condition, core::ConditionEvaluationContext context = {});
     [[nodiscard]] core::Result<RuntimeEffectOutcome, RuntimeExecutionError>

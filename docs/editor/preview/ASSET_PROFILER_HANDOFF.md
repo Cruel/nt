@@ -31,12 +31,18 @@ changes, earliest retained sequence, lost-change count, and `history_complete`.
 A stale session or cursor newer than the active session is a typed failure. A cursor older than the
 retained ring produces `history_gap=true` and a replacement inventory.
 
+Both full and delta payloads carry nullable `activePrefetchGeneration` as current state. When
+present, it is the exact active logical generation record, including `predictionPlan` and opaque
+frontiers. The Prediction view reads this field rather than reconstructing current runtime state from
+bounded history, so rolling the `8,192`-change ring cannot make a still-active plan disappear.
+
 Retained changes form one ordered variant log:
 
 - selected telemetry events;
 - complete memory points;
 - Asset wait records;
 - prefetch-generation upserts;
+- prefetch-generation releases;
 - lightweight inventory-revision markers.
 
 Each prefetch-generation upsert also carries `predictionPlan`, the exact normalized candidate list
@@ -45,6 +51,10 @@ confidence, semantic execution distance/order, dependency priority, estimated re
 estimate kind, plus compact provenance chains rooted in foreground Flow, prospective Room entry, or
 resident Room context. This is derived, read-only runtime tooling data. The renderer may display it
 but must not recompute a competing live prediction plan from Project data.
+
+`prefetch-generation-released` records when the named logical generation was retired. Current-state
+consumers use `activePrefetchGeneration`; the release change remains ordered historical provenance
+for diagnosis and delta consumers.
 
 Prediction provenance additionally carries nullable `supplementalHintId`. `null` means the path came
 from automatic prediction; a string identifies persisted authored supplemental intent. One effective
@@ -58,11 +68,12 @@ Conditions. Authors edit only Project `prefetchHints`; generated slice indexes a
 expansions remain internal compiled data and are never written back into Project source.
 
 Profiler-enabled prefetch-generation upserts additionally carry `opaqueFrontiers`. Each frontier has
-the prediction root, optional Room, a stable semantic `attachmentPoint`, and the compact reason chain
-that reached an opaque Flow point. If a later Demand miss was not already represented in that
-generation's `predictionPlan`, the profiler may emit a separate `opaque-prediction-miss` change when
-exactly one opaque frontier can be identified safely. Multiple possible frontiers intentionally
-produce no actionable attachment instead of guessed provenance.
+the prediction root, optional Room/exit, nullable `supplementalHintId`, a stable semantic
+`attachmentPoint`, and the compact reason chain that reached an opaque Flow point. If a later Demand
+miss was not already represented in that generation's `predictionPlan`, the profiler may emit a
+separate `opaque-prediction-miss` change when one unique semantic attachment point can be identified
+safely. Multiple automatic/authored provenance records for that same point remain actionable;
+multiple distinct attachment points intentionally produce no action rather than guessed provenance.
 
 An `opaque-prediction-miss` is optimization guidance, not a Project diagnostic and not a runtime
 error. The editor may use its semantic attachment point to offer an explicit supplemental-hint
@@ -188,11 +199,12 @@ Nested camelCase mapping is exact:
   `prefetchedButUnused`, `reloadedAfterRemoval`, `assetWaitCount`, `assetWaitTimeNs`.
 - Every retained change contains `sequence`, `timestampNs`, and `kind`. Variant payloads are
   `telemetry-event/event`, `memory-point/memory`, `asset-wait/wait`,
-  `prefetch-generation-upsert/generation`, or `inventory-changed/inventoryRevision`.
+  `prefetch-generation-upsert/generation`, `prefetch-generation-released/generation`,
+  `opaque-prediction-miss/miss`, or `inventory-changed/inventoryRevision`.
 - Prefetch generation: `generation`, `timestampNs`, `presentationRevision`, `expectedNextCount`,
-  `possibleNextCount`, `submittedEntries`, `submissionFailures`, `usedCount`, `lateCount`,
-  `unusedCount`. Submission entries contain `cacheKey` and `prediction`; failures additionally carry
-  one recursive `diagnostic`.
+  `possibleNextCount`, `predictionPlan`, `opaqueFrontiers`, `submittedEntries`,
+  `submissionFailures`, `usedCount`, `lateCount`, `unusedCount`. Submission entries contain
+  `cacheKey` and `prediction`; failures additionally carry one recursive `diagnostic`.
 - Asset wait: `operationId`, `phase`, `presentationRevision`, `startedAtNs`, `durationNs`, `result`,
   `waitingRequests`, `diagnostics`. Participants contain `cacheKey` and `requestId`; results are
   `completed`, `failed`, or `canceled`.
@@ -216,10 +228,13 @@ admission, eviction, loading gates, or correctness.
 
 ## Asset Performance Panel
 
-The Play preview exposes one workbench panel with three views:
+The Play preview exposes one workbench panel with four views:
 
 - **Overview** shows current and peak Asset RAM, GPU-resource estimates, Warm/prefetch memory against
   resolved allowances, state counts, outcome totals, bounded memory history, and recent Asset waits.
+- **Prediction** shows the exact active runtime prediction generation, opaque-miss optimization
+  guidance, persisted authored supplemental hints, and the read-only static compiled prediction
+  structure. A generation release clears the live-plan display without deleting historical data.
 - **Issues** derives actionable rows from authoritative diagnostics and lifecycle history, including
   failed assets, memory-limit rejections, late/missed prefetches, unused prefetches, reloads after
   removal, and Asset waits. Issue rows can navigate to the matching Assets row.

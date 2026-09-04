@@ -54,6 +54,7 @@ struct RuntimePublication {
     core::RuntimePresentationSnapshot presentation;
     RuntimeObservationSnapshot observations;
     std::vector<RuntimeGameplayInstanceSnapshot> gameplay_instances;
+    FlowPredictionContext prediction_context;
     std::optional<RuntimeSceneExecutionSnapshot> active_scene;
     std::optional<RuntimeDialogueExecutionSnapshot> active_dialogue;
     std::optional<ResidentRoomPredictionRoot> resident_room_prediction;

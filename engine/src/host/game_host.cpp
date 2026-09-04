@@ -1171,13 +1171,16 @@ bool GameHost::publish_runtime_publication(const runtime::RuntimePublication& pu
     m_runtime_observations = publication.observations;
     auto prediction_diagnostics =
         publication.active_scene
-            ? m_runtime_presentation.update_active_scene_prediction(publication.active_scene)
+            ? m_runtime_presentation.update_active_scene_prediction(publication.active_scene,
+                                                                    publication.prediction_context)
         : publication.active_dialogue
-            ? m_runtime_presentation.update_active_dialogue_prediction(publication.active_dialogue)
+            ? m_runtime_presentation.update_active_dialogue_prediction(
+                  publication.active_dialogue, publication.prediction_context)
         : publication.resident_room_prediction
             ? m_runtime_presentation.update_resident_room_prediction(
-                  publication.resident_room_prediction)
-            : m_runtime_presentation.update_active_scene_prediction(std::nullopt);
+                  publication.resident_room_prediction, publication.prediction_context)
+            : m_runtime_presentation.update_active_scene_prediction(
+                  std::nullopt, publication.prediction_context);
     if (!prediction_diagnostics.empty()) {
         retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, prediction_diagnostics);
         core::append_diagnostics(application_diagnostics, std::move(prediction_diagnostics));

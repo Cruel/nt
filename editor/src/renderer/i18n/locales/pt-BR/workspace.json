@@ -71,7 +71,45 @@
       "noDependencies": "Nenhuma dependência semântica introduzida",
       "noEdges": "Nenhuma aresta de predição de saída",
       "noStaticIndex": "Nenhum Índice de Predição de Fluxo compilado está disponível para o projeto atual.",
+      "effectiveExpansion": "Expansão efetiva: {{dependencies}}",
+      "noEffectiveDependencies": "Nenhuma dependência semântica efetiva",
+      "automaticProvenance": "Automático",
+      "authoredProvenance": "Dica autoral {{id}}",
+      "roomProvenance": "Sala {{room}}",
+      "exitProvenance": "Saída {{exit}}",
       "costSummary": "CPU {{cpu}} · GPU {{gpu}} · Áudio {{audio}} · estimativa {{kind}}",
+      "predictionKinds": {
+        "expected-next": "Próximo esperado",
+        "possible-next": "Próximo possível"
+      },
+      "costEstimateKinds": { "metadata": "por metadados", "conservative": "conservadora" },
+      "targetKinds": {
+        "asset": "Recurso",
+        "scene": "Cena",
+        "dialogue": "Diálogo",
+        "room": "Sala",
+        "layout": "Layout"
+      },
+      "roots": {
+        "flow-execution": "Execução de Fluxo",
+        "detached-flow-execution": "Execução de Fluxo desacoplada",
+        "prospective-room-entry": "Entrada prospectiva na Sala",
+        "resident-room-context": "Ações da Sala atual"
+      },
+      "edgeKinds": { "deterministic": "Determinística", "alternative": "Alternativa" },
+      "edgeReasons": {
+        "successor": "Sucessor",
+        "condition-true": "Condição verdadeira",
+        "condition-false": "Condição falsa",
+        "branch": "Ramo",
+        "choice": "Escolha"
+      },
+      "frontiers": {
+        "normal": "Normal",
+        "short-wait": "Espera curta",
+        "strong-wait": "Espera forte",
+        "decision": "Decisão"
+      },
       "columns": {
         "prediction": "Predição",
         "distance": "Distância",

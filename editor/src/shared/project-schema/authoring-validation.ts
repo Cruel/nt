@@ -207,14 +207,65 @@ function validatePrefetchHints(
         )
           break;
         const dialogue = parseDialogueData(project.dialogues[point.dialogue.$ref.id]!.data);
+        if (!dialogue) break;
         const block = dialogue?.blocks.find((candidate) => candidate.id === point.blockId);
-        const segmentExists =
-          point.segmentId === undefined ||
-          (block?.type === 'sequence' &&
-            block.segments.some((segment) => segment.id === point.segmentId));
-        const edgeExists =
-          point.edgeId === undefined || dialogue?.edges.some((edge) => edge.id === point.edgeId);
-        if (!block || !segmentExists || !edgeExists)
+        const segment =
+          point.segmentId !== undefined && block?.type === 'sequence'
+            ? block.segments.find((candidate) => candidate.id === point.segmentId)
+            : undefined;
+        const edge =
+          point.edgeId !== undefined
+            ? dialogue.edges.find((candidate) => candidate.id === point.edgeId)
+            : undefined;
+        const noSegmentOrEdge = point.segmentId === undefined && point.edgeId === undefined;
+        let pointExists = false;
+        switch (point.stage) {
+          case 'enter-block':
+            pointExists =
+              !!block && block.type !== 'comment' && noSegmentOrEdge && point.cursor === 0;
+            break;
+          case 'present-choices':
+            pointExists = block?.type === 'choice' && noSegmentOrEdge && point.cursor === 0;
+            break;
+          case 'present-segment':
+            if (block?.type === 'sequence' && segment && point.edgeId === undefined) {
+              if (segment.type === 'line') {
+                const semanticCueCount = segment.cues.filter(
+                  (cue) => cue.kind !== 'active-text' && cue.kind !== 'invalid-markup',
+                ).length;
+                pointExists = point.cursor <= semanticCueCount;
+              } else if (segment.type !== 'comment') {
+                pointExists = point.cursor === 0;
+              }
+            }
+            break;
+          case 'apply-segment-effects':
+            pointExists =
+              block?.type === 'sequence' &&
+              segment?.type === 'line' &&
+              point.edgeId === undefined &&
+              point.cursor <= segment.effects.length;
+            break;
+          case 'follow-edge':
+            pointExists =
+              !!block &&
+              block.type !== 'comment' &&
+              !!edge &&
+              edge.fromBlockId === block.id &&
+              point.segmentId === undefined &&
+              point.cursor === 0;
+            break;
+          case 'apply-choice-effects':
+            pointExists =
+              !!block &&
+              block.type !== 'comment' &&
+              edge?.kind === 'choice' &&
+              edge.fromBlockId === block.id &&
+              point.segmentId === undefined &&
+              point.cursor <= edge.effects.length;
+            break;
+        }
+        if (!pointExists)
           diagnostics.push(
             diagnostic(
               'error',

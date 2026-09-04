@@ -82,6 +82,140 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
         input);
 }
 
+FlowPredictionContext build_prediction_context(const core::CompiledProject& project,
+                                               RuntimeExecutor& kernel,
+                                               const FlowPredictionContext& navigation_context,
+                                               const std::optional<ActiveScenePredictionRoot>& active_scene,
+                                               const std::optional<ActiveDialoguePredictionRoot>& active_dialogue,
+                                               const std::optional<ResidentRoomPredictionRoot>& resident_room)
+{
+    FlowPredictionContext context = navigation_context;
+    if (!project.flow_prediction())
+        return context;
+
+    FlowPredictionContext requirements_context = navigation_context;
+    requirements_context.global_properties.clear();
+    requirements_context.condition_facts.clear();
+    FlowPredictionContextRequirements requirements;
+    const auto merge_requirements_into = [](FlowPredictionContextRequirements& target,
+                                            const FlowPredictionProjection& projection) {
+        for (const auto& property : projection.context_requirements.global_properties) {
+            if (std::ranges::find(target.global_properties, property) ==
+                target.global_properties.end())
+                target.global_properties.push_back(property);
+        }
+        for (const auto& condition : projection.context_requirements.condition_facts) {
+            if (std::ranges::find(target.condition_facts, condition) ==
+                target.condition_facts.end())
+                target.condition_facts.push_back(condition);
+        }
+    };
+    const auto merge_requirements = [&](const FlowPredictionProjection& projection) {
+        merge_requirements_into(requirements, projection);
+    };
+
+    FlowPredictor predictor(project);
+    if (active_scene)
+        merge_requirements(predictor.predict(*active_scene, requirements_context));
+    else if (active_dialogue)
+        merge_requirements(predictor.predict(*active_dialogue, requirements_context));
+    else if (navigation_context.active_interaction) {
+        FlowPredictionContextRequirements interaction_requirements;
+        merge_requirements_into(
+            interaction_requirements,
+            predictor.predict(*navigation_context.active_interaction, requirements_context));
+        for (const auto& property : interaction_requirements.global_properties) {
+            if (std::ranges::find(requirements.global_properties, property) ==
+                requirements.global_properties.end())
+                requirements.global_properties.push_back(property);
+        }
+        if (context.active_interaction) {
+            const core::ConditionEvaluationContext interaction_context{
+                .interaction_bindings = context.active_interaction->interaction_bindings,
+                .command_results = context.active_interaction->command_results};
+            for (const auto& condition : interaction_requirements.condition_facts) {
+                auto evaluated = kernel.evaluate(condition, interaction_context);
+                if (const auto* value = evaluated.value_if())
+                    context.active_interaction->condition_facts.push_back({condition, *value});
+            }
+        }
+    } else if (navigation_context.active_room_transition) {
+        FlowPredictionContextRequirements transition_requirements;
+        merge_requirements_into(
+            transition_requirements,
+            predictor.predict(*navigation_context.active_room_transition, requirements_context));
+        for (const auto& property : transition_requirements.global_properties) {
+            if (std::ranges::find(requirements.global_properties, property) ==
+                requirements.global_properties.end())
+                requirements.global_properties.push_back(property);
+        }
+        if (context.active_room_transition) {
+            const core::ConditionEvaluationContext transition_context{
+                .interaction_bindings = {},
+                .command_results = context.active_room_transition->command_results};
+            for (const auto& condition : transition_requirements.condition_facts) {
+                auto evaluated = kernel.evaluate(condition, transition_context);
+                if (const auto* value = evaluated.value_if())
+                    context.active_room_transition->condition_facts.push_back({condition, *value});
+            }
+        }
+    } else if (resident_room)
+        merge_requirements(predictor.predict(*resident_room, requirements_context));
+    for (const auto& prospective : navigation_context.prospective_room_entries)
+        merge_requirements(predictor.predict(prospective, requirements_context));
+    for (const auto& detached : navigation_context.detached_scenes)
+        merge_requirements(predictor.predict(detached, requirements_context));
+    for (const auto& detached : navigation_context.detached_dialogues)
+        merge_requirements(predictor.predict(detached, requirements_context));
+
+    context.global_properties.reserve(requirements.global_properties.size());
+    for (const auto& property : requirements.global_properties) {
+        auto value = kernel.gateway().global_property(property);
+        if (const auto* current = value.value_if())
+            context.global_properties.push_back({property, *current});
+    }
+
+    context.condition_facts.reserve(requirements.condition_facts.size());
+    for (const auto& condition : requirements.condition_facts) {
+        auto evaluated = kernel.evaluate(condition);
+        if (const auto* value = evaluated.value_if())
+            context.condition_facts.push_back({condition, *value});
+    }
+    return context;
+}
+
+void append_prospective_navigation_context(FlowPredictionContext& context,
+                                           const RuntimeWorld& world,
+                                           const core::RoomId& current_room)
+{
+    const auto* source = world.resolved_configuration(current_room);
+    if (source == nullptr)
+        return;
+    const auto has_hook = [](const core::compiled::RoomDefinition& room,
+                             core::compiled::RoomScriptHookKind hook) {
+        return std::ranges::any_of(
+            room.script_hooks, [&](const auto& mapping) { return mapping.hook == hook; });
+    };
+    const bool source_hook =
+        has_hook(*source, core::compiled::RoomScriptHookKind::CanLeave);
+    for (const auto& exit : source->exits) {
+        const auto* target = world.resolved_configuration(exit.target);
+        if (target == nullptr)
+            continue;
+        context.prospective_room_entries.push_back(
+            ProspectiveRoomEntryPredictionRoot{
+                .source_room = current_room,
+                .target_room = exit.target,
+                .source_exit = exit.id,
+                .source_can_leave = source->lifecycle.can_leave,
+                .exit_condition = exit.condition,
+                .target_can_enter = target->lifecycle.can_enter,
+                .source_can_leave_hook_opaque = source_hook,
+                .target_can_enter_hook_opaque =
+                    has_hook(*target, core::compiled::RoomScriptHookKind::CanEnter)});
+    }
+}
+
 const core::compiled::SceneInstruction*
 active_scene_instruction(const core::CompiledProject& project, const core::SceneFrame& frame)
 {
@@ -1986,6 +2120,8 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
 
     std::optional<runtime::RuntimeSceneExecutionSnapshot> active_scene;
     std::optional<runtime::RuntimeDialogueExecutionSnapshot> active_dialogue;
+    std::optional<runtime::ActiveInteractionPredictionRoot> active_interaction_prediction;
+    std::optional<runtime::ActiveRoomTransitionPredictionRoot> active_room_transition_prediction;
     if (!session_state.flow_stack().empty()) {
         if (const auto* scene = std::get_if<core::SceneFrame>(&session_state.flow_stack().back()))
             active_scene = runtime::RuntimeSceneExecutionSnapshot{scene->scene, scene->position};
@@ -1993,6 +2129,93 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                      std::get_if<core::DialogueFrame>(&session_state.flow_stack().back()))
             active_dialogue =
                 runtime::RuntimeDialogueExecutionSnapshot{dialogue->dialogue, dialogue->position};
+        else if (const auto* interaction =
+                     std::get_if<core::InteractionFrame>(&session_state.flow_stack().back())) {
+            active_interaction_prediction = runtime::ActiveInteractionPredictionRoot{
+                interaction->program, interaction->position, interaction->invocation.bindings,
+                interaction->command_results, {}};
+        } else if (const auto* transition =
+                       std::get_if<core::RoomTransitionFrame>(&session_state.flow_stack().back())) {
+            active_room_transition_prediction = runtime::ActiveRoomTransitionPredictionRoot{
+                .source_room = transition->source_room,
+                .target_room = transition->target_room,
+                .source_exit =
+                    transition->selected_exit
+                        ? std::optional<core::RoomExitId>{transition->selected_exit->exit_id}
+                        : std::nullopt,
+                .stage = transition->position.stage,
+                .command_id = m_kernel->room_transition_command_id(*transition),
+                .awaiting_completion = transition->position.awaiting_completion,
+                .command_results = transition->command_results,
+                .condition_facts = {}};
+        }
+    }
+
+    std::vector<runtime::ActiveScenePredictionRoot> detached_scene_predictions;
+    std::vector<runtime::ActiveDialoguePredictionRoot> detached_dialogue_predictions;
+    std::vector<runtime::ActiveScenePredictionRoot> detached_suspended_scene_predictions;
+    std::vector<runtime::ActiveDialoguePredictionRoot> detached_suspended_dialogue_predictions;
+    detached_scene_predictions.reserve(session_state.m_detached_flow_executions.size());
+    detached_dialogue_predictions.reserve(session_state.m_detached_flow_executions.size());
+    for (const auto& detached : session_state.m_detached_flow_executions) {
+        if (detached.context.flow_stack.empty())
+            continue;
+        const auto& top = detached.context.flow_stack.back();
+        if (const auto* scene = std::get_if<core::SceneFrame>(&top))
+            detached_scene_predictions.push_back({scene->scene, scene->position});
+        else if (const auto* dialogue = std::get_if<core::DialogueFrame>(&top))
+            detached_dialogue_predictions.push_back({dialogue->dialogue, dialogue->position});
+        if (detached.context.flow_stack.size() <= 1)
+            continue;
+        detached_suspended_scene_predictions.reserve(
+            detached_suspended_scene_predictions.size() + detached.context.flow_stack.size() - 1);
+        detached_suspended_dialogue_predictions.reserve(
+            detached_suspended_dialogue_predictions.size() + detached.context.flow_stack.size() - 1);
+        for (std::size_t index = 0; index + 1 < detached.context.flow_stack.size(); ++index) {
+            const auto& frame = detached.context.flow_stack[index];
+            if (const auto* scene = std::get_if<core::SceneFrame>(&frame))
+                detached_suspended_scene_predictions.push_back({scene->scene, scene->position});
+            else if (const auto* dialogue = std::get_if<core::DialogueFrame>(&frame))
+                detached_suspended_dialogue_predictions.push_back(
+                    {dialogue->dialogue, dialogue->position});
+        }
+    }
+
+    std::vector<runtime::ActiveScenePredictionRoot> suspended_scene_predictions;
+    std::vector<runtime::ActiveDialoguePredictionRoot> suspended_dialogue_predictions;
+    std::vector<runtime::ActiveInteractionPredictionRoot> suspended_interaction_predictions;
+    std::vector<runtime::ActiveRoomTransitionPredictionRoot> suspended_room_transition_predictions;
+    if (session_state.flow_stack().size() > 1) {
+        suspended_scene_predictions.reserve(session_state.flow_stack().size() - 1);
+        suspended_dialogue_predictions.reserve(session_state.flow_stack().size() - 1);
+        suspended_interaction_predictions.reserve(session_state.flow_stack().size() - 1);
+        suspended_room_transition_predictions.reserve(session_state.flow_stack().size() - 1);
+        for (std::size_t index = 0; index + 1 < session_state.flow_stack().size(); ++index) {
+            const auto& frame = session_state.flow_stack()[index];
+            if (const auto* scene = std::get_if<core::SceneFrame>(&frame))
+                suspended_scene_predictions.push_back({scene->scene, scene->position});
+            else if (const auto* dialogue = std::get_if<core::DialogueFrame>(&frame))
+                suspended_dialogue_predictions.push_back({dialogue->dialogue, dialogue->position});
+            else if (const auto* interaction = std::get_if<core::InteractionFrame>(&frame))
+                suspended_interaction_predictions.push_back(
+                    {interaction->program, interaction->position, interaction->invocation.bindings,
+                     interaction->command_results, {}});
+            else if (const auto* transition = std::get_if<core::RoomTransitionFrame>(&frame))
+                suspended_room_transition_predictions.push_back(
+                    runtime::ActiveRoomTransitionPredictionRoot{
+                        .source_room = transition->source_room,
+                        .target_room = transition->target_room,
+                        .source_exit =
+                            transition->selected_exit
+                                ? std::optional<core::RoomExitId>{transition->selected_exit
+                                                                      ->exit_id}
+                                : std::nullopt,
+                        .stage = transition->position.stage,
+                        .command_id = m_kernel->room_transition_command_id(*transition),
+                        .awaiting_completion = transition->position.awaiting_completion,
+                        .command_results = transition->command_results,
+                        .condition_facts = {}});
+        }
     }
 
     std::optional<runtime::ResidentRoomPredictionRoot> resident_room_prediction;
@@ -2012,14 +2235,52 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
             std::find(resident.layouts.begin(), resident.layouts.end(),
                       *m_project.settings().inventory.default_layout) == resident.layouts.end())
             resident.layouts.push_back(*m_project.settings().inventory.default_layout);
+        for (const auto& mounted : presentation_value.layouts) {
+            if (std::find(resident.layouts.begin(), resident.layouts.end(), mounted.layout) ==
+                resident.layouts.end())
+                resident.layouts.push_back(mounted.layout);
+        }
         resident_room_prediction = std::move(resident);
     }
+
+    FlowPredictionContext navigation_context;
+    if (session_state.room_visit())
+        navigation_context.current_room = session_state.room_visit()->room;
+    navigation_context.active_interaction = std::move(active_interaction_prediction);
+    navigation_context.active_room_transition = std::move(active_room_transition_prediction);
+    navigation_context.suspended_scenes = std::move(suspended_scene_predictions);
+    navigation_context.suspended_dialogues = std::move(suspended_dialogue_predictions);
+    navigation_context.suspended_interactions = std::move(suspended_interaction_predictions);
+    navigation_context.suspended_room_transitions =
+        std::move(suspended_room_transition_predictions);
+    navigation_context.detached_scenes = std::move(detached_scene_predictions);
+    navigation_context.detached_dialogues = std::move(detached_dialogue_predictions);
+    navigation_context.detached_suspended_scenes =
+        std::move(detached_suspended_scene_predictions);
+    navigation_context.detached_suspended_dialogues =
+        std::move(detached_suspended_dialogue_predictions);
+    if (session_state.flow_stack().empty() && gameplay_ui.room)
+        append_prospective_navigation_context(navigation_context, m_kernel->m_world,
+                                              gameplay_ui.room->room);
+    const std::optional<ActiveScenePredictionRoot> active_scene_prediction =
+        active_scene ? std::optional<ActiveScenePredictionRoot>{
+                           ActiveScenePredictionRoot{active_scene->scene, active_scene->position}}
+                     : std::nullopt;
+    const std::optional<ActiveDialoguePredictionRoot> active_dialogue_prediction =
+        active_dialogue
+            ? std::optional<ActiveDialoguePredictionRoot>{ActiveDialoguePredictionRoot{
+                  active_dialogue->dialogue, active_dialogue->position}}
+            : std::nullopt;
+    auto prediction_context = build_prediction_context(
+        m_project, *m_kernel, navigation_context, active_scene_prediction,
+        active_dialogue_prediction, resident_room_prediction);
 
     runtime::RuntimePublication publication{.revision = m_next_publication_revision,
                                             .gameplay_ui = std::move(gameplay_ui),
                                             .presentation = std::move(presentation_value),
                                             .observations = std::move(observations),
                                             .gameplay_instances = std::move(gameplay_instances),
+                                            .prediction_context = std::move(prediction_context),
                                             .active_scene = std::move(active_scene),
                                             .active_dialogue = std::move(active_dialogue),
                                             .resident_room_prediction =

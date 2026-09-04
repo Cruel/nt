@@ -240,11 +240,14 @@ public:
                                      MandatoryAssetRequestGroup::Clock::time_point now =
                                          MandatoryAssetRequestGroup::Clock::now()) noexcept;
     [[nodiscard]] core::Diagnostics update_active_scene_prediction_on_owner(
-        const runtime::ActiveScenePredictionRoot* root) noexcept;
+        const runtime::ActiveScenePredictionRoot* root,
+        const runtime::FlowPredictionContext& context = {}) noexcept;
     [[nodiscard]] core::Diagnostics update_active_dialogue_prediction_on_owner(
-        const runtime::ActiveDialoguePredictionRoot* root) noexcept;
+        const runtime::ActiveDialoguePredictionRoot* root,
+        const runtime::FlowPredictionContext& context = {}) noexcept;
     [[nodiscard]] core::Diagnostics update_resident_room_prediction_on_owner(
-        const runtime::ResidentRoomPredictionRoot* root) noexcept;
+        const runtime::ResidentRoomPredictionRoot* root,
+        const runtime::FlowPredictionContext& context = {}) noexcept;
     [[nodiscard]] std::optional<RuntimeMandatoryPublicationTransaction>
     take_ready_transaction_on_owner() noexcept;
     void release_previous_publication_on_owner() noexcept;

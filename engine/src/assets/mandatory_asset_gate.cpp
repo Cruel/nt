@@ -62,6 +62,8 @@ core::AssetProfilerPredictionRoot prediction_root(runtime::FlowPredictionRootKin
     switch (kind) {
     case runtime::FlowPredictionRootKind::FlowExecution:
         return core::AssetProfilerPredictionRoot::FlowExecution;
+    case runtime::FlowPredictionRootKind::DetachedFlowExecution:
+        return core::AssetProfilerPredictionRoot::DetachedFlowExecution;
     case runtime::FlowPredictionRootKind::ProspectiveRoomEntry:
         return core::AssetProfilerPredictionRoot::ProspectiveRoomEntry;
     case runtime::FlowPredictionRootKind::ResidentRoomContext:
@@ -189,7 +191,8 @@ bool same_scene_prediction_root(const runtime::ActiveScenePredictionRoot& left,
                 return left_substate.next_step == right_substate->next_step;
             } else if constexpr (std::is_same_v<T, core::SceneChoiceEffectPosition>) {
                 return left_substate.option == right_substate->option &&
-                       left_substate.next_effect == right_substate->next_effect;
+                       left_substate.next_effect == right_substate->next_effect &&
+                       left_substate.awaiting_completion == right_substate->awaiting_completion;
             } else {
                 return true;
             }
@@ -219,6 +222,56 @@ bool same_dialogue_prediction_root(const runtime::ActiveDialoguePredictionRoot& 
     default:
         return true;
     }
+}
+
+bool same_prediction_context(const runtime::FlowPredictionContext& left,
+                             const runtime::FlowPredictionContext& right) noexcept
+{
+    if (left.current_room != right.current_room ||
+        left.global_properties != right.global_properties ||
+        left.condition_facts != right.condition_facts ||
+        left.prospective_room_entries != right.prospective_room_entries ||
+        left.active_interaction != right.active_interaction ||
+        left.active_room_transition != right.active_room_transition ||
+        left.suspended_scenes.size() != right.suspended_scenes.size() ||
+        left.suspended_dialogues.size() != right.suspended_dialogues.size() ||
+        left.suspended_interactions != right.suspended_interactions ||
+        left.suspended_room_transitions != right.suspended_room_transitions ||
+        left.detached_scenes.size() != right.detached_scenes.size() ||
+        left.detached_dialogues.size() != right.detached_dialogues.size() ||
+        left.detached_suspended_scenes.size() != right.detached_suspended_scenes.size() ||
+        left.detached_suspended_dialogues.size() != right.detached_suspended_dialogues.size())
+        return false;
+    for (std::size_t index = 0; index < left.suspended_scenes.size(); ++index) {
+        if (!same_scene_prediction_root(left.suspended_scenes[index],
+                                        right.suspended_scenes[index]))
+            return false;
+    }
+    for (std::size_t index = 0; index < left.suspended_dialogues.size(); ++index) {
+        if (!same_dialogue_prediction_root(left.suspended_dialogues[index],
+                                           right.suspended_dialogues[index]))
+            return false;
+    }
+    for (std::size_t index = 0; index < left.detached_scenes.size(); ++index) {
+        if (!same_scene_prediction_root(left.detached_scenes[index], right.detached_scenes[index]))
+            return false;
+    }
+    for (std::size_t index = 0; index < left.detached_dialogues.size(); ++index) {
+        if (!same_dialogue_prediction_root(left.detached_dialogues[index],
+                                           right.detached_dialogues[index]))
+            return false;
+    }
+    for (std::size_t index = 0; index < left.detached_suspended_scenes.size(); ++index) {
+        if (!same_scene_prediction_root(left.detached_suspended_scenes[index],
+                                        right.detached_suspended_scenes[index]))
+            return false;
+    }
+    for (std::size_t index = 0; index < left.detached_suspended_dialogues.size(); ++index) {
+        if (!same_dialogue_prediction_root(left.detached_suspended_dialogues[index],
+                                           right.detached_suspended_dialogues[index]))
+            return false;
+    }
+    return true;
 }
 
 template<class T>
@@ -935,19 +988,52 @@ struct MandatoryAssetGate::Impl {
         return context;
     }
 
+    template<class Root>
+    runtime::FlowPredictionProjection predict_useful(const Root& root,
+                                                      const runtime::FlowPredictionContext& context)
+    {
+        if (package == nullptr)
+            return {};
+
+        constexpr std::size_t initial_wave = 64;
+        std::size_t limit = initial_wave;
+        for (;;) {
+            runtime::FlowPredictor predictor(package->project(), limit);
+            auto projection = predictor.predict(root, context);
+            const auto structural = std::ranges::find_if(
+                projection.diagnostics, [](const auto& diagnostic) {
+                    return diagnostic.code == "assets.flow_prediction_structural_limit";
+                });
+            if (structural == projection.diagnostics.end() || !dependency_index ||
+                limit >= runtime::FlowPredictor::structural_ceiling)
+                return projection;
+
+            auto wave_plan = resolve_flow_prediction(*dependency_index, projection);
+            if (prefetch.would_exhaust_warm_budget_on_owner(wave_plan)) {
+                // This is normal budget-driven horizon pruning, not a pathological structural
+                // truncation. Keep the partial ranked projection without surfacing a warning.
+                projection.diagnostics.erase(
+                    std::remove_if(projection.diagnostics.begin(), projection.diagnostics.end(),
+                                   [](const auto& diagnostic) {
+                                       return diagnostic.code ==
+                                              "assets.flow_prediction_structural_limit";
+                                   }),
+                    projection.diagnostics.end());
+                return projection;
+            }
+            limit = std::min(limit * 2, runtime::FlowPredictor::structural_ceiling);
+        }
+    }
+
     void append_adjacent_room_predictions(const core::RuntimePresentationSnapshot& snapshot)
     {
         adjacent_prediction_plan = {};
         if (package == nullptr || !dependency_index || !snapshot.current_room)
             return;
-        const auto* room = package->project().find_room(*snapshot.current_room);
-        if (room == nullptr)
-            return;
-
-        runtime::FlowPredictor predictor(package->project());
-        for (const auto& exit : room->exits) {
-            auto projection = predictor.predict(runtime::ProspectiveRoomEntryPredictionRoot{
-                .source_room = *snapshot.current_room, .target_room = exit.target});
+        for (const auto& root : prediction_context.prospective_room_entries) {
+            if (!root.source_room || *root.source_room != *snapshot.current_room)
+                continue;
+            auto projection = predict_useful(root, prediction_context);
             auto plan = resolve_flow_prediction(*dependency_index, projection);
             core::append_diagnostics(adjacent_prediction_plan.diagnostics,
                                      std::move(plan.diagnostics));
@@ -965,6 +1051,86 @@ struct MandatoryAssetGate::Impl {
                 std::make_move_iterator(plan.opaque_frontiers.end()));
 #endif
         }
+    }
+
+    void rebuild_detached_predictions()
+    {
+        active_interaction_prediction.reset();
+        active_room_transition_prediction.reset();
+        detached_predictions.clear();
+        detached_suspended_predictions.clear();
+        suspended_predictions.clear();
+        if (package == nullptr || !dependency_index)
+            return;
+        if (prediction_context.active_interaction)
+            active_interaction_prediction =
+                predict_useful(*prediction_context.active_interaction, prediction_context);
+        if (prediction_context.active_room_transition)
+            active_room_transition_prediction =
+                predict_useful(*prediction_context.active_room_transition, prediction_context);
+        suspended_predictions.reserve(prediction_context.suspended_scenes.size() +
+                                      prediction_context.suspended_dialogues.size() +
+                                      prediction_context.suspended_interactions.size() +
+                                      prediction_context.suspended_room_transitions.size());
+        detached_predictions.reserve(prediction_context.detached_scenes.size() +
+                                     prediction_context.detached_dialogues.size());
+        detached_suspended_predictions.reserve(
+            prediction_context.detached_suspended_scenes.size() +
+            prediction_context.detached_suspended_dialogues.size());
+        const auto mark_suspended = [](runtime::FlowPredictionProjection projection) {
+            for (auto& entry : projection.entries) {
+                entry.confidence = runtime::FlowPredictionConfidence::Alternative;
+                entry.execution_distance += 3;
+            }
+            return projection;
+        };
+        // Suspended awaited callers resume only after the active child returns. The child can
+        // mutate every authoritative fact admitted by prediction, so do not reuse the current
+        // publication's values while projecting these future continuations.
+        const runtime::FlowPredictionContext suspended_context{};
+        for (const auto& root : prediction_context.suspended_scenes)
+            suspended_predictions.push_back(mark_suspended(predict_useful(root, suspended_context)));
+        for (const auto& root : prediction_context.suspended_dialogues)
+            suspended_predictions.push_back(mark_suspended(predict_useful(root, suspended_context)));
+        for (const auto& root : prediction_context.suspended_interactions)
+            suspended_predictions.push_back(mark_suspended(predict_useful(root, suspended_context)));
+        for (const auto& root : prediction_context.suspended_room_transitions)
+            suspended_predictions.push_back(
+                mark_suspended(predict_useful(root, suspended_context)));
+        const auto mark_detached = [](runtime::FlowPredictionProjection projection) {
+            for (auto& entry : projection.entries) {
+                entry.provenance.root_kind = runtime::FlowPredictionRootKind::DetachedFlowExecution;
+                // A live detached branch runs in parallel with foreground Flow. Its current slice
+                // remains Expected, but successors beyond that root are speculative future work
+                // and must not recursively dominate nearer foreground continuation.
+                if (entry.provenance.points.size() > 1) {
+                    entry.confidence = runtime::FlowPredictionConfidence::Alternative;
+                    entry.execution_distance += 2;
+                }
+            }
+            for (auto& frontier : projection.opaque_frontiers)
+                frontier.provenance.root_kind =
+                    runtime::FlowPredictionRootKind::DetachedFlowExecution;
+            return projection;
+        };
+        for (const auto& root : prediction_context.detached_scenes)
+            detached_predictions.push_back(mark_detached(predict_useful(root, prediction_context)));
+        for (const auto& root : prediction_context.detached_dialogues)
+            detached_predictions.push_back(mark_detached(predict_useful(root, prediction_context)));
+        const auto mark_detached_suspended = [&](runtime::FlowPredictionProjection projection) {
+            projection = mark_detached(std::move(projection));
+            for (auto& entry : projection.entries) {
+                entry.confidence = runtime::FlowPredictionConfidence::Alternative;
+                entry.execution_distance += 3;
+            }
+            return projection;
+        };
+        for (const auto& root : prediction_context.detached_suspended_scenes)
+            detached_suspended_predictions.push_back(
+                mark_detached_suspended(predict_useful(root, suspended_context)));
+        for (const auto& root : prediction_context.detached_suspended_dialogues)
+            detached_suspended_predictions.push_back(
+                mark_detached_suspended(predict_useful(root, suspended_context)));
     }
 
     PrefetchPlan speculative_plan() const
@@ -994,6 +1160,10 @@ struct MandatoryAssetGate::Impl {
             projection = &*active_scene_prediction;
         else if (active_dialogue_prediction)
             projection = &*active_dialogue_prediction;
+        else if (active_interaction_prediction)
+            projection = &*active_interaction_prediction;
+        else if (active_room_transition_prediction)
+            projection = &*active_room_transition_prediction;
         else if (!runtime_prediction_observed && !entry_prediction.entries.empty())
             projection = &entry_prediction;
         if (projection != nullptr) {
@@ -1003,6 +1173,53 @@ struct MandatoryAssetGate::Impl {
             result.candidates.insert(result.candidates.end(),
                                      std::make_move_iterator(plan.candidates.begin()),
                                      std::make_move_iterator(plan.candidates.end()));
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+            result.opaque_frontiers.insert(result.opaque_frontiers.end(),
+                                           std::make_move_iterator(plan.opaque_frontiers.begin()),
+                                           std::make_move_iterator(plan.opaque_frontiers.end()));
+#endif
+        }
+        for (const auto& suspended : suspended_predictions) {
+            auto plan = resolve_flow_prediction(*dependency_index, suspended);
+            core::append_diagnostics(result.diagnostics, std::move(plan.diagnostics));
+            result.structural_limit_reached |= plan.structural_limit_reached;
+            result.candidates.insert(result.candidates.end(),
+                                     std::make_move_iterator(plan.candidates.begin()),
+                                     std::make_move_iterator(plan.candidates.end()));
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+            result.opaque_frontiers.insert(result.opaque_frontiers.end(),
+                                           std::make_move_iterator(plan.opaque_frontiers.begin()),
+                                           std::make_move_iterator(plan.opaque_frontiers.end()));
+#endif
+        }
+        for (const auto& detached : detached_predictions) {
+            auto plan = resolve_flow_prediction(*dependency_index, detached);
+            core::append_diagnostics(result.diagnostics, std::move(plan.diagnostics));
+            result.structural_limit_reached |= plan.structural_limit_reached;
+            for (auto& candidate : plan.candidates) {
+                // Detached execution is a parallel live branch. Preserve Expected confidence for
+                // its current content, but keep equal-distance ties behind the foreground root so
+                // detached work cannot systematically crowd it out.
+                ++candidate.execution_order;
+                result.candidates.push_back(std::move(candidate));
+            }
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+            result.opaque_frontiers.insert(result.opaque_frontiers.end(),
+                                           std::make_move_iterator(plan.opaque_frontiers.begin()),
+                                           std::make_move_iterator(plan.opaque_frontiers.end()));
+#endif
+        }
+        for (const auto& suspended : detached_suspended_predictions) {
+            auto plan = resolve_flow_prediction(*dependency_index, suspended);
+            core::append_diagnostics(result.diagnostics, std::move(plan.diagnostics));
+            result.structural_limit_reached |= plan.structural_limit_reached;
+            for (auto& candidate : plan.candidates) {
+                // This continuation remains part of a detached branch and cannot resume until the
+                // detached child above it returns. Its projection is already Alternative/+3;
+                // preserve the detached tie-break as well.
+                ++candidate.execution_order;
+                result.candidates.push_back(std::move(candidate));
+            }
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
             result.opaque_frontiers.insert(result.opaque_frontiers.end(),
                                            std::make_move_iterator(plan.opaque_frontiers.begin()),
@@ -1053,6 +1270,8 @@ struct MandatoryAssetGate::Impl {
                 flattened.root = prediction_root(provenance.root_kind);
                 if (provenance.room)
                     flattened.room = provenance.room->text();
+                if (provenance.exit)
+                    flattened.exit = provenance.exit->text();
                 flattened.supplemental_hint_id = provenance.supplemental_hint_id;
                 flattened.reason_chain.reserve(provenance.points.size());
                 for (const auto& point : provenance.points)
@@ -1066,6 +1285,9 @@ struct MandatoryAssetGate::Impl {
             flattened.root = prediction_root(frontier.provenance.root_kind);
             if (frontier.provenance.room)
                 flattened.room = frontier.provenance.room->text();
+            if (frontier.provenance.exit)
+                flattened.exit = frontier.provenance.exit->text();
+            flattened.supplemental_hint_id = frontier.provenance.supplemental_hint_id;
             flattened.attachment_point = prediction_point_name(frontier.attachment_point);
             flattened.reason_chain.reserve(frontier.provenance.points.size());
             for (const auto& point : frontier.provenance.points)
@@ -1073,6 +1295,8 @@ struct MandatoryAssetGate::Impl {
             const auto duplicate =
                 std::ranges::find_if(record.opaque_frontiers, [&](const auto& existing) {
                     return existing.root == flattened.root && existing.room == flattened.room &&
+                           existing.exit == flattened.exit &&
+                           existing.supplemental_hint_id == flattened.supplemental_hint_id &&
                            existing.attachment_point == flattened.attachment_point &&
                            existing.reason_chain == flattened.reason_chain;
                 });
@@ -1124,8 +1348,14 @@ struct MandatoryAssetGate::Impl {
     std::optional<runtime::FlowPredictionProjection> active_scene_prediction;
     std::optional<runtime::ActiveDialoguePredictionRoot> active_dialogue_root;
     std::optional<runtime::FlowPredictionProjection> active_dialogue_prediction;
+    std::optional<runtime::FlowPredictionProjection> active_interaction_prediction;
+    std::optional<runtime::FlowPredictionProjection> active_room_transition_prediction;
     std::optional<runtime::ResidentRoomPredictionRoot> resident_root;
     std::optional<runtime::FlowPredictionProjection> resident_prediction;
+    std::vector<runtime::FlowPredictionProjection> suspended_predictions;
+    std::vector<runtime::FlowPredictionProjection> detached_predictions;
+    std::vector<runtime::FlowPredictionProjection> detached_suspended_predictions;
+    runtime::FlowPredictionContext prediction_context;
     bool runtime_prediction_observed = false;
     AssetSourceGeneration dependency_generation;
     std::optional<MandatoryAssetRequestGroup> group;
@@ -1133,6 +1363,7 @@ struct MandatoryAssetGate::Impl {
     PrefetchPlan adjacent_prediction_plan;
     std::optional<core::PresentationSnapshotRevision> snapshot_revision;
     std::optional<core::RuntimePresentationSnapshot> pending_snapshot;
+    std::optional<core::RuntimePresentationSnapshot> latest_snapshot;
     bool transaction_active = false;
 };
 
@@ -1183,8 +1414,15 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
         m_impl->active_scene_prediction.reset();
         m_impl->active_dialogue_root.reset();
         m_impl->active_dialogue_prediction.reset();
+        m_impl->active_interaction_prediction.reset();
+        m_impl->active_room_transition_prediction.reset();
         m_impl->resident_root.reset();
         m_impl->resident_prediction.reset();
+        m_impl->suspended_predictions.clear();
+        m_impl->detached_predictions.clear();
+        m_impl->detached_suspended_predictions.clear();
+        m_impl->prediction_context = {};
+        m_impl->latest_snapshot.reset();
         m_impl->runtime_prediction_observed = false;
         m_impl->package = nullptr;
         return core::DiagnosticResult<void>::failure(
@@ -1200,15 +1438,21 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
 
     // The tracer uses the package entrypoint as its read-only prediction root. Submission still
     // waits for the normal mandatory publication commit boundary.
-    runtime::FlowPredictor predictor(package.project());
-    m_impl->entry_prediction = predictor.predict(package.project().entrypoint());
+    m_impl->entry_prediction = m_impl->predict_useful(package.project().entrypoint(), {});
     m_impl->adjacent_prediction_plan = {};
     m_impl->active_scene_root.reset();
     m_impl->active_scene_prediction.reset();
     m_impl->active_dialogue_root.reset();
     m_impl->active_dialogue_prediction.reset();
+    m_impl->active_interaction_prediction.reset();
+    m_impl->active_room_transition_prediction.reset();
     m_impl->resident_root.reset();
     m_impl->resident_prediction.reset();
+    m_impl->suspended_predictions.clear();
+    m_impl->detached_predictions.clear();
+    m_impl->detached_suspended_predictions.clear();
+    m_impl->prediction_context = {};
+    m_impl->latest_snapshot.reset();
     m_impl->runtime_prediction_observed = false;
     return core::DiagnosticResult<void>::success();
 }
@@ -1234,8 +1478,15 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
     m_impl->active_scene_prediction.reset();
     m_impl->active_dialogue_root.reset();
     m_impl->active_dialogue_prediction.reset();
+    m_impl->active_interaction_prediction.reset();
+    m_impl->active_room_transition_prediction.reset();
     m_impl->resident_root.reset();
     m_impl->resident_prediction.reset();
+    m_impl->suspended_predictions.clear();
+    m_impl->detached_predictions.clear();
+    m_impl->detached_suspended_predictions.clear();
+    m_impl->prediction_context = {};
+    m_impl->latest_snapshot.reset();
     m_impl->runtime_prediction_observed = false;
     m_impl->package = nullptr;
     m_impl->active_renderer_variant.clear();
@@ -1280,6 +1531,7 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
         return gate_result(&*m_impl->group);
 
     rollback_candidate_on_owner();
+    m_impl->latest_snapshot = snapshot;
     m_impl->dependencies = m_impl->collector->collect(m_impl->context_for(snapshot));
     if (snapshot.mode != core::PresentationRuntimeMode::Room || !snapshot.current_room ||
         !m_impl->resident_root || m_impl->resident_root->room != *snapshot.current_room) {
@@ -1401,16 +1653,42 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
 }
 
 core::Diagnostics MandatoryAssetGate::update_active_scene_prediction_on_owner(
-    const runtime::ActiveScenePredictionRoot* root) noexcept
+    const runtime::ActiveScenePredictionRoot* root,
+    const runtime::FlowPredictionContext& context) noexcept
 {
-    const bool same_root = root != nullptr && m_impl->active_scene_root &&
-                           same_scene_prediction_root(*m_impl->active_scene_root, *root) &&
-                           !m_impl->resident_root;
-    const bool same_absence = root == nullptr && m_impl->runtime_prediction_observed &&
-                              !m_impl->active_scene_root && !m_impl->active_dialogue_root &&
-                              !m_impl->resident_root;
-    if (same_root || same_absence)
+    const bool root_matches = root != nullptr && m_impl->active_scene_root &&
+                              same_scene_prediction_root(*m_impl->active_scene_root, *root) &&
+                              !m_impl->active_dialogue_root && !m_impl->resident_root;
+    const bool absence_matches = root == nullptr && m_impl->runtime_prediction_observed &&
+                                 !m_impl->active_scene_root && !m_impl->active_dialogue_root &&
+                                 !m_impl->resident_root;
+    const bool context_changed = !same_prediction_context(m_impl->prediction_context, context);
+    std::optional<PrefetchPlan> previous_plan;
+    if (context_changed && (root_matches || absence_matches) && m_impl->package != nullptr &&
+        m_impl->dependency_index)
+        previous_plan = m_impl->speculative_plan();
+    if (context_changed) {
+        m_impl->prediction_context = context;
+        m_impl->rebuild_detached_predictions();
+        if (m_impl->latest_snapshot)
+            m_impl->append_adjacent_room_predictions(*m_impl->latest_snapshot);
+    }
+    if (!context_changed && (root_matches || absence_matches))
         return {};
+
+    if (context_changed && root_matches && m_impl->package != nullptr) {
+        m_impl->active_scene_prediction = m_impl->predict_useful(*root, context);
+        auto current_plan = m_impl->speculative_plan();
+        if (previous_plan && equivalent_prefetch_plans(*previous_plan, current_plan)) {
+            auto diagnostics = m_impl->active_scene_prediction->diagnostics;
+            core::append_diagnostics(diagnostics, std::move(current_plan.diagnostics));
+            return diagnostics;
+        }
+    } else if (context_changed && absence_matches && previous_plan) {
+        auto current_plan = m_impl->speculative_plan();
+        if (equivalent_prefetch_plans(*previous_plan, current_plan))
+            return current_plan.diagnostics;
+    }
 
     m_impl->runtime_prediction_observed = true;
     m_impl->resident_root.reset();
@@ -1421,8 +1699,7 @@ core::Diagnostics MandatoryAssetGate::update_active_scene_prediction_on_owner(
         root != nullptr ? std::optional<runtime::ActiveScenePredictionRoot>{*root} : std::nullopt;
     m_impl->active_scene_prediction.reset();
     if (root != nullptr && m_impl->package != nullptr) {
-        runtime::FlowPredictor predictor(m_impl->package->project());
-        m_impl->active_scene_prediction = predictor.predict(*root);
+        m_impl->active_scene_prediction = m_impl->predict_useful(*root, context);
     }
 
     core::Diagnostics diagnostics;
@@ -1442,24 +1719,54 @@ core::Diagnostics MandatoryAssetGate::update_active_scene_prediction_on_owner(
         diagnostics.push_back(std::move(submitted).error());
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     } else {
-        m_impl->record_prefetch_replacement_on_owner(previous_generation, submitted.value(),
-                                                     std::nullopt);
+        m_impl->record_prefetch_replacement_on_owner(
+            previous_generation, submitted.value(),
+            m_impl->latest_snapshot
+                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot->revision}
+                : std::nullopt);
 #endif
     }
     return diagnostics;
 }
 
 core::Diagnostics MandatoryAssetGate::update_active_dialogue_prediction_on_owner(
-    const runtime::ActiveDialoguePredictionRoot* root) noexcept
+    const runtime::ActiveDialoguePredictionRoot* root,
+    const runtime::FlowPredictionContext& context) noexcept
 {
-    const bool same_root = root != nullptr && m_impl->active_dialogue_root &&
-                           same_dialogue_prediction_root(*m_impl->active_dialogue_root, *root) &&
-                           !m_impl->resident_root;
-    const bool same_absence = root == nullptr && m_impl->runtime_prediction_observed &&
-                              !m_impl->active_scene_root && !m_impl->active_dialogue_root &&
-                              !m_impl->resident_root;
-    if (same_root || same_absence)
+    const bool root_matches = root != nullptr && m_impl->active_dialogue_root &&
+                              same_dialogue_prediction_root(*m_impl->active_dialogue_root, *root) &&
+                              !m_impl->active_scene_root && !m_impl->resident_root;
+    const bool absence_matches = root == nullptr && m_impl->runtime_prediction_observed &&
+                                 !m_impl->active_scene_root && !m_impl->active_dialogue_root &&
+                                 !m_impl->resident_root;
+    const bool context_changed = !same_prediction_context(m_impl->prediction_context, context);
+    std::optional<PrefetchPlan> previous_plan;
+    if (context_changed && (root_matches || absence_matches) && m_impl->package != nullptr &&
+        m_impl->dependency_index)
+        previous_plan = m_impl->speculative_plan();
+    if (context_changed) {
+        m_impl->prediction_context = context;
+        m_impl->rebuild_detached_predictions();
+        if (m_impl->latest_snapshot)
+            m_impl->append_adjacent_room_predictions(*m_impl->latest_snapshot);
+    }
+    if (!context_changed && (root_matches || absence_matches))
         return {};
+
+
+    if (context_changed && root_matches && m_impl->package != nullptr) {
+        m_impl->active_dialogue_prediction = m_impl->predict_useful(*root, context);
+        auto current_plan = m_impl->speculative_plan();
+        if (previous_plan && equivalent_prefetch_plans(*previous_plan, current_plan)) {
+            auto diagnostics = m_impl->active_dialogue_prediction->diagnostics;
+            core::append_diagnostics(diagnostics, std::move(current_plan.diagnostics));
+            return diagnostics;
+        }
+    } else if (context_changed && absence_matches && previous_plan) {
+        auto current_plan = m_impl->speculative_plan();
+        if (equivalent_prefetch_plans(*previous_plan, current_plan))
+            return current_plan.diagnostics;
+    }
 
     m_impl->runtime_prediction_observed = true;
     m_impl->resident_root.reset();
@@ -1471,8 +1778,7 @@ core::Diagnostics MandatoryAssetGate::update_active_dialogue_prediction_on_owner
                                        : std::nullopt;
     m_impl->active_dialogue_prediction.reset();
     if (root != nullptr && m_impl->package != nullptr) {
-        runtime::FlowPredictor predictor(m_impl->package->project());
-        m_impl->active_dialogue_prediction = predictor.predict(*root);
+        m_impl->active_dialogue_prediction = m_impl->predict_useful(*root, context);
     }
 
     core::Diagnostics diagnostics;
@@ -1492,23 +1798,53 @@ core::Diagnostics MandatoryAssetGate::update_active_dialogue_prediction_on_owner
         diagnostics.push_back(std::move(submitted).error());
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     } else {
-        m_impl->record_prefetch_replacement_on_owner(previous_generation, submitted.value(),
-                                                     std::nullopt);
+        m_impl->record_prefetch_replacement_on_owner(
+            previous_generation, submitted.value(),
+            m_impl->latest_snapshot
+                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot->revision}
+                : std::nullopt);
 #endif
     }
     return diagnostics;
 }
 
 core::Diagnostics MandatoryAssetGate::update_resident_room_prediction_on_owner(
-    const runtime::ResidentRoomPredictionRoot* root) noexcept
+    const runtime::ResidentRoomPredictionRoot* root,
+    const runtime::FlowPredictionContext& context) noexcept
 {
-    const bool same_root = root != nullptr && m_impl->resident_root &&
-                           *m_impl->resident_root == *root && !m_impl->active_scene_root &&
-                           !m_impl->active_dialogue_root;
-    const bool same_absence = root == nullptr && !m_impl->resident_root &&
-                              !m_impl->active_scene_root && !m_impl->active_dialogue_root;
-    if (same_root || same_absence)
+    const bool root_matches = root != nullptr && m_impl->resident_root &&
+                              *m_impl->resident_root == *root && !m_impl->active_scene_root &&
+                              !m_impl->active_dialogue_root;
+    const bool absence_matches = root == nullptr && !m_impl->resident_root &&
+                                 !m_impl->active_scene_root && !m_impl->active_dialogue_root;
+    const bool context_changed = !same_prediction_context(m_impl->prediction_context, context);
+    std::optional<PrefetchPlan> previous_plan;
+    if (context_changed && (root_matches || absence_matches) && m_impl->package != nullptr &&
+        m_impl->dependency_index)
+        previous_plan = m_impl->speculative_plan();
+    if (context_changed) {
+        m_impl->prediction_context = context;
+        m_impl->rebuild_detached_predictions();
+        if (m_impl->latest_snapshot)
+            m_impl->append_adjacent_room_predictions(*m_impl->latest_snapshot);
+    }
+    if (!context_changed && (root_matches || absence_matches))
         return {};
+
+
+    if (context_changed && root_matches && m_impl->package != nullptr) {
+        m_impl->resident_prediction = m_impl->predict_useful(*root, context);
+        auto current_plan = m_impl->speculative_plan();
+        if (previous_plan && equivalent_prefetch_plans(*previous_plan, current_plan)) {
+            auto diagnostics = m_impl->resident_prediction->diagnostics;
+            core::append_diagnostics(diagnostics, std::move(current_plan.diagnostics));
+            return diagnostics;
+        }
+    } else if (context_changed && absence_matches && previous_plan) {
+        auto current_plan = m_impl->speculative_plan();
+        if (equivalent_prefetch_plans(*previous_plan, current_plan))
+            return current_plan.diagnostics;
+    }
 
     m_impl->runtime_prediction_observed = true;
     m_impl->active_scene_root.reset();
@@ -1519,8 +1855,7 @@ core::Diagnostics MandatoryAssetGate::update_resident_room_prediction_on_owner(
         root != nullptr ? std::optional<runtime::ResidentRoomPredictionRoot>{*root} : std::nullopt;
     m_impl->resident_prediction.reset();
     if (root != nullptr && m_impl->package != nullptr) {
-        runtime::FlowPredictor predictor(m_impl->package->project());
-        m_impl->resident_prediction = predictor.predict(*root);
+        m_impl->resident_prediction = m_impl->predict_useful(*root, context);
     }
 
     core::Diagnostics diagnostics;
@@ -1540,8 +1875,11 @@ core::Diagnostics MandatoryAssetGate::update_resident_room_prediction_on_owner(
         diagnostics.push_back(std::move(submitted).error());
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     } else {
-        m_impl->record_prefetch_replacement_on_owner(previous_generation, submitted.value(),
-                                                     std::nullopt);
+        m_impl->record_prefetch_replacement_on_owner(
+            previous_generation, submitted.value(),
+            m_impl->latest_snapshot
+                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot->revision}
+                : std::nullopt);
 #endif
     }
     return diagnostics;

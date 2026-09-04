@@ -530,6 +530,11 @@ TEST_CASE("Editor asset profiler retains bucket-aware generation upserts and out
     CHECK(released.assets[0].retention_reason == core::AssetProfilerRetentionReason::Prefetched);
     CHECK(released.assets[1].request_origin == core::AssetProfilerRequestOrigin::Prefetched);
     CHECK(released.assets[1].retention_reason == core::AssetProfilerRetentionReason::Prefetched);
+    CHECK(std::ranges::any_of(released.retained_changes, [](const auto& change) {
+        const auto* event =
+            std::get_if<core::AssetProfilerPrefetchGenerationReleased>(&change.payload);
+        return event != nullptr && event->generation == assets::PrefetchGenerationId{9};
+    }));
 }
 
 TEST_CASE("Editor asset profiler counts exactly the defined prefetch outcomes and rejections",
@@ -591,6 +596,7 @@ TEST_CASE(
         {.generation = {21},
          .opaque_frontiers = {
              {.root = core::AssetProfilerPredictionRoot::FlowExecution,
+              .supplemental_hint_id = "dynamic-hint",
               .attachment_point = "scene:opening:step:lua",
               .reason_chain = {"scene:opening:entry", "scene:opening:step:lua"}}}});
     service.record({.kind = core::AssetTelemetryEventKind::PrefetchMiss,
@@ -608,7 +614,27 @@ TEST_CASE(
     CHECK(miss.request_id == assets::AssetRequestId{77});
     CHECK(miss.generation == assets::PrefetchGenerationId{21});
     CHECK(miss.frontier.attachment_point == "scene:opening:step:lua");
+    CHECK(miss.frontier.supplemental_hint_id == "dynamic-hint");
     CHECK(snapshot.outcomes.not_prefetched == 1);
+
+    core::EditorAssetProfilerService duplicate_provenance;
+    duplicate_provenance.record_prefetch_generation(
+        {.generation = {24},
+         .opaque_frontiers = {{.root = core::AssetProfilerPredictionRoot::FlowExecution,
+                               .attachment_point = "scene:opening:step:lua",
+                               .reason_chain = {"scene:opening:entry", "scene:opening:step:lua"}},
+                              {.root = core::AssetProfilerPredictionRoot::FlowExecution,
+                               .supplemental_hint_id = "dynamic-hint",
+                               .attachment_point = "scene:opening:step:lua",
+                               .reason_chain = {"scene:opening:step:lua"}}}});
+    duplicate_provenance.record({.kind = core::AssetTelemetryEventKind::PrefetchMiss,
+                                 .cache_key = missed,
+                                 .request_id = {80},
+                                 .request_reason = assets::AssetRequestReason::Demand});
+    const auto duplicate_snapshot = duplicate_provenance.capture_on_owner();
+    CHECK(std::ranges::any_of(duplicate_snapshot.retained_changes, [](const auto& change) {
+        return std::holds_alternative<core::AssetProfilerOpaquePredictionMiss>(change.payload);
+    }));
 
     core::EditorAssetProfilerService ambiguous;
     ambiguous.record_prefetch_generation(
@@ -658,6 +684,29 @@ TEST_CASE("Editor asset profiler bounds detailed prefetch generation retention",
     REQUIRE_FALSE(after_outcome.retained_changes.empty());
     CHECK(std::holds_alternative<core::AssetTelemetryEvent>(
         after_outcome.retained_changes.back().payload));
+}
+
+TEST_CASE("Editor asset profiler snapshots preserve the active prediction plan after history rolls",
+          "[assets][telemetry-matrix][profiler][prefetch][prediction]")
+{
+    core::EditorAssetProfilerService service;
+    service.record_prefetch_generation(
+        {.generation = {41},
+         .prediction_plan = {{.cache_key = {.stable_identity = "texture|project:/active.png|0",
+                                            .source_generation = {1}},
+                              .prediction = core::PrefetchPredictionKind::ExpectedNext}}});
+    for (std::size_t index = 0; index <= core::editor_asset_profiler_change_capacity; ++index)
+        service.record({.kind = core::AssetTelemetryEventKind::SourceReadCompleted});
+
+    const auto snapshot = service.capture_on_owner();
+    REQUIRE(snapshot.active_prefetch_generation);
+    CHECK(snapshot.active_prefetch_generation->generation == assets::PrefetchGenerationId{41});
+    REQUIRE(snapshot.active_prefetch_generation->prediction_plan.size() == 1);
+    CHECK(snapshot.active_prefetch_generation->prediction_plan.front().cache_key.stable_identity ==
+          "texture|project:/active.png|0");
+    CHECK_FALSE(std::ranges::any_of(snapshot.retained_changes, [](const auto& change) {
+        return std::holds_alternative<core::AssetProfilerPrefetchGenerationRecord>(change.payload);
+    }));
 }
 
 TEST_CASE("Editor asset profiler retains generations referenced by live inventory",
