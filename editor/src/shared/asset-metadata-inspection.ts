@@ -56,6 +56,11 @@ export interface AssetC2paStatus {
   trust: AssetProvenanceTrust;
 }
 
+export interface AssetWorkflowMetadata {
+  tool: AssetProvenanceEntity;
+  kind: 'workflow';
+}
+
 export interface AssetMetadataInspectionReadyResponse {
   ok: true;
   status: 'ready';
@@ -65,6 +70,8 @@ export interface AssetMetadataInspectionReadyResponse {
   c2pa?: AssetC2paStatus;
   provenance?: AssetRecognizedProvenance;
   generation?: AssetRecognizedGeneration;
+  workflowMetadata?: AssetWorkflowMetadata[];
+  warnings?: string[];
 }
 
 export interface AssetMetadataInspectionUnsupportedResponse {

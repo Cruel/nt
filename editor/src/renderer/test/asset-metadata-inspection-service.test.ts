@@ -63,6 +63,75 @@ function digest(bytes: Buffer) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
+function synchsafe(value: number): Buffer {
+  return Buffer.from([
+    (value >>> 21) & 0x7f,
+    (value >>> 14) & 0x7f,
+    (value >>> 7) & 0x7f,
+    value & 0x7f,
+  ]);
+}
+
+function id3v24TextFrame(id: string, value: string, description?: string): Buffer {
+  const payload =
+    id === 'TXXX'
+      ? Buffer.concat([
+          Buffer.from([3]),
+          Buffer.from(description ?? '', 'utf8'),
+          Buffer.from([0]),
+          Buffer.from(value, 'utf8'),
+        ])
+      : Buffer.concat([Buffer.from([3]), Buffer.from(value, 'utf8')]);
+  return Buffer.concat([
+    Buffer.from(id, 'ascii'),
+    synchsafe(payload.byteLength),
+    Buffer.from([0, 0]),
+    payload,
+  ]);
+}
+
+function mp3Frame(): Buffer {
+  const frame = Buffer.alloc(417);
+  frame.set([0xff, 0xfb, 0x90, 0x00], 0);
+  return frame;
+}
+
+function mp3WithId3(frames: Buffer[]): Buffer {
+  const tag = Buffer.concat(frames);
+  return Buffer.concat([
+    Buffer.from('ID3', 'ascii'),
+    Buffer.from([4, 0, 0]),
+    synchsafe(tag.byteLength),
+    tag,
+    mp3Frame(),
+    mp3Frame(),
+  ]);
+}
+
+function tempAudioProject(bytes: Buffer) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-audio-metadata-inspection-'));
+  roots.push(root);
+  fs.writeFileSync(path.join(root, 'project.json'), '{}');
+  fs.mkdirSync(path.join(root, 'assets', 'audio'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'assets', 'audio', 'generated.mp3'), bytes);
+  const project = createAuthoringProject();
+  project.assets.generated = {
+    id: 'generated',
+    label: 'Generated audio',
+    data: {
+      kind: 'audio',
+      source: { type: 'project-file', path: 'assets/audio/generated.mp3' },
+      aliases: [],
+      extension: '.mp3',
+      mimeType: 'audio/mpeg',
+      byteSize: bytes.byteLength,
+      contentHash: digest(bytes),
+      imageMetadata: null,
+    },
+  };
+  return { root, project, projectFilePath: path.join(root, 'project.json') };
+}
+
 function tempProject(bytes: Buffer) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-metadata-inspection-'));
   roots.push(root);
@@ -451,6 +520,99 @@ describe('Project Asset embedded metadata inspection', () => {
     );
   });
 
+  it('inspects MP3 ID3 workflow metadata and MPEG properties through the generic Asset service', async () => {
+    const workflow = JSON.stringify({ workflow: 'x'.repeat(91_000) });
+    const prompt = JSON.stringify({ prompt: 'SFX. Zombies and laser rifles.' });
+    const bytes = mp3WithId3([
+      id3v24TextFrame('TXXX', prompt, 'prompt'),
+      id3v24TextFrame('TXXX', workflow, 'workflow'),
+      id3v24TextFrame('TSSE', 'Lavf62.12.101'),
+    ]);
+    const fixture = tempAudioProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'audio' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready audio metadata.');
+    expect(result.generation).toBeUndefined();
+    expect(result.provenance).toBeUndefined();
+    expect(result.workflowMetadata).toEqual([
+      { tool: { id: 'comfyui', label: 'ComfyUI' }, kind: 'workflow' },
+    ]);
+    expect(result.groups.find((group) => group.namespace === 'ID3v2.4')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'TXXX:prompt', value: prompt, valueKind: 'json' }),
+        expect.objectContaining({ key: 'TXXX:workflow', value: workflow, valueKind: 'json' }),
+        expect.objectContaining({ key: 'TSSE', value: 'Lavf62.12.101', valueKind: 'text' }),
+      ]),
+    );
+    expect(result.groups.find((group) => group.namespace === 'MPEG')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'Codec', value: 'MP3' }),
+        expect.objectContaining({ key: 'SampleRateHz', value: 44100 }),
+        expect.objectContaining({ key: 'Channels', value: 2 }),
+        expect.objectContaining({ key: 'BitrateKbps', value: 128 }),
+        expect.objectContaining({ key: 'DurationSeconds', value: expect.any(Number) }),
+      ]),
+    );
+  });
+
+  it('enforces the active Project session boundary for audio inspection', async () => {
+    const bytes = mp3WithId3([id3v24TextFrame('TSSE', 'Encoder')]);
+    const fixture = tempAudioProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    await expect(
+      service.inspect('00000000-0000-4000-8000-000000000000', 'generated'),
+    ).resolves.toMatchObject({ ok: false, code: 'stale-or-unknown' });
+    await expect(service.inspect(sessionId, 'generated')).resolves.toMatchObject({
+      ok: true,
+      status: 'ready',
+      kind: 'audio',
+    });
+  });
+
+  it('returns partial MP3 metadata with a warning when an ID3 frame is malformed', async () => {
+    const valid = id3v24TextFrame('TSSE', 'Encoder');
+    const malformed = Buffer.concat([
+      Buffer.from('TXXX', 'ascii'),
+      synchsafe(5000),
+      Buffer.from([0, 0, 3, 0]),
+    ]);
+    const bytes = mp3WithId3([valid, malformed]);
+    const fixture = tempAudioProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'audio' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready audio metadata.');
+    expect(result.warnings).toContain('Some embedded audio metadata could not be decoded.');
+    expect(result.groups.find((group) => group.namespace === 'ID3v2.4')?.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'TSSE', value: 'Encoder' })]),
+    );
+    expect(result.groups.find((group) => group.namespace === 'MPEG')).toBeDefined();
+  });
+
   it('returns JPEG structural metadata and exact comment tags', async () => {
     const comment = 'Generated by fixture';
     const bytes = withJpegComment(comment);
@@ -531,12 +693,12 @@ describe('Project Asset embedded metadata inspection', () => {
     });
   });
 
-  it('reports unsupported Asset kinds without inventing image metadata', async () => {
+  it('reports unsupported non-media Asset kinds without inventing metadata', async () => {
     const bytes = withPngText('prompt', '{"prompt":"image"}');
     const fixture = tempProject(bytes);
     fixture.project.assets.generated!.data = {
       ...fixture.project.assets.generated!.data,
-      kind: 'audio',
+      kind: 'script',
       imageMetadata: null,
     };
     const sessions = new ActiveProjectSessionService();
@@ -550,7 +712,7 @@ describe('Project Asset embedded metadata inspection', () => {
     await expect(service.inspect(sessionId, 'generated')).resolves.toMatchObject({
       ok: true,
       status: 'unsupported',
-      kind: 'audio',
+      kind: 'script',
       groups: [],
     });
   });

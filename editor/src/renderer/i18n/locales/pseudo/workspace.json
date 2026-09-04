@@ -5,6 +5,7 @@
     "empty": "⟦No embedded metadata found.⟧",
     "unsupported": "⟦Embedded metadata inspection is not supported for this Asset.⟧",
     "failure": "⟦Embedded metadata could not be inspected.⟧",
+    "workflowMetadata": "⟦{{tool}} workflow metadata⟧",
     "provenance": {
       "generated": "⟦Generated with {{source}}⟧",
       "edited": "⟦Edited with {{source}}⟧",

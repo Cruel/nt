@@ -19,6 +19,7 @@ import type {
 } from '../../shared/asset-metadata-inspection';
 import { inspectC2paMetadata } from './c2pa-metadata-inspection';
 import { recognizeComfyUiMetadata } from './comfyui-metadata-recognition';
+import { inspectAudioMetadata } from './audio-metadata-inspection';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_TEXT_METADATA_VALUE_BYTES = 8 * 1024 * 1024;
@@ -222,7 +223,7 @@ export class AssetMetadataInspectionService {
     } catch {
       return sourceFailure('unknown-asset', 'Asset is not admitted by the active Project session.');
     }
-    if (authorized.asset.kind !== 'image') {
+    if (authorized.asset.kind !== 'image' && authorized.asset.kind !== 'audio') {
       return {
         ok: true,
         status: 'unsupported',
@@ -233,7 +234,7 @@ export class AssetMetadataInspectionService {
     }
 
     const resolved = await resolveContainedOriginalAsset(this.sessions, projectSessionId, assetId, {
-      requireKind: 'image',
+      requireKind: authorized.asset.kind,
     });
     if (typeof resolved === 'string')
       return sourceFailure(
@@ -244,40 +245,63 @@ export class AssetMetadataInspectionService {
     try {
       const cached = this.cache.get(resolved.contentHash);
       if (cached) return cached;
+      if (authorized.asset.kind === 'audio' && resolved.mimeType !== 'audio/mpeg') {
+        return {
+          ok: true,
+          status: 'unsupported',
+          kind: 'audio',
+          contentHash: resolved.contentHash,
+          groups: [],
+        };
+      }
       const bytes = await readValidatedBytes(resolved);
       if (!bytes)
         return sourceFailure(
           'revision-mismatch',
           'Asset source changed during metadata inspection.',
         );
-      const groups = await inspectImage(bytes);
-      const c2pa = inspectC2paMetadata(bytes);
-      if (c2pa.group) groups.push(c2pa.group);
-      const comfyUi = recognizeComfyUiMetadata(groups);
-      const provenanceStages = [
-        ...(c2pa.provenance?.stages ?? []),
-        ...(comfyUi?.provenance?.stages ?? []),
-      ];
-      const result: AssetMetadataInspectionReadyResponse = {
-        ok: true,
-        status: 'ready',
-        kind: 'image',
-        contentHash: resolved.contentHash,
-        groups,
-        ...(c2pa.c2pa ? { c2pa: c2pa.c2pa } : {}),
-        ...(provenanceStages.length > 0 ? { provenance: { stages: provenanceStages } } : {}),
-        ...(comfyUi
-          ? {
-              generation: {
-                ...(comfyUi.prompt !== undefined ? { prompt: comfyUi.prompt } : {}),
-                ...(comfyUi.negativePrompt !== undefined
-                  ? { negativePrompt: comfyUi.negativePrompt }
-                  : {}),
-                facts: comfyUi.facts,
-              },
-            }
-          : {}),
-      };
+      let result: AssetMetadataInspectionReadyResponse;
+      if (authorized.asset.kind === 'audio') {
+        const audio = inspectAudioMetadata(bytes);
+        result = {
+          ok: true,
+          status: 'ready',
+          kind: 'audio',
+          contentHash: resolved.contentHash,
+          groups: audio.groups,
+          ...(audio.workflowMetadata ? { workflowMetadata: audio.workflowMetadata } : {}),
+          ...(audio.warnings.length > 0 ? { warnings: audio.warnings } : {}),
+        };
+      } else {
+        const groups = await inspectImage(bytes);
+        const c2pa = inspectC2paMetadata(bytes);
+        if (c2pa.group) groups.push(c2pa.group);
+        const comfyUi = recognizeComfyUiMetadata(groups);
+        const provenanceStages = [
+          ...(c2pa.provenance?.stages ?? []),
+          ...(comfyUi?.provenance?.stages ?? []),
+        ];
+        result = {
+          ok: true,
+          status: 'ready',
+          kind: 'image',
+          contentHash: resolved.contentHash,
+          groups,
+          ...(c2pa.c2pa ? { c2pa: c2pa.c2pa } : {}),
+          ...(provenanceStages.length > 0 ? { provenance: { stages: provenanceStages } } : {}),
+          ...(comfyUi
+            ? {
+                generation: {
+                  ...(comfyUi.prompt !== undefined ? { prompt: comfyUi.prompt } : {}),
+                  ...(comfyUi.negativePrompt !== undefined
+                    ? { negativePrompt: comfyUi.negativePrompt }
+                    : {}),
+                  facts: comfyUi.facts,
+                },
+              }
+            : {}),
+        };
+      }
       this.cache.set(resolved.contentHash, result);
       while (this.cache.size > MAX_CACHED_METADATA_RESULTS) {
         const oldest = this.cache.keys().next().value;
