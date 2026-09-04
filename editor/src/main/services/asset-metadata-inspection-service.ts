@@ -18,6 +18,7 @@ import type {
   AssetMetadataValueKind,
 } from '../../shared/asset-metadata-inspection';
 import { inspectC2paMetadata } from './c2pa-metadata-inspection';
+import { recognizeComfyUiMetadata } from './comfyui-metadata-recognition';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_TEXT_METADATA_VALUE_BYTES = 8 * 1024 * 1024;
@@ -252,6 +253,11 @@ export class AssetMetadataInspectionService {
       const groups = await inspectImage(bytes);
       const c2pa = inspectC2paMetadata(bytes);
       if (c2pa.group) groups.push(c2pa.group);
+      const comfyUi = recognizeComfyUiMetadata(groups);
+      const provenanceStages = [
+        ...(c2pa.provenance?.stages ?? []),
+        ...(comfyUi?.provenance?.stages ?? []),
+      ];
       const result: AssetMetadataInspectionReadyResponse = {
         ok: true,
         status: 'ready',
@@ -259,7 +265,18 @@ export class AssetMetadataInspectionService {
         contentHash: resolved.contentHash,
         groups,
         ...(c2pa.c2pa ? { c2pa: c2pa.c2pa } : {}),
-        ...(c2pa.provenance ? { provenance: c2pa.provenance } : {}),
+        ...(provenanceStages.length > 0 ? { provenance: { stages: provenanceStages } } : {}),
+        ...(comfyUi
+          ? {
+              generation: {
+                ...(comfyUi.prompt !== undefined ? { prompt: comfyUi.prompt } : {}),
+                ...(comfyUi.negativePrompt !== undefined
+                  ? { negativePrompt: comfyUi.negativePrompt }
+                  : {}),
+                facts: comfyUi.facts,
+              },
+            }
+          : {}),
       };
       this.cache.set(resolved.contentHash, result);
       while (this.cache.size > MAX_CACHED_METADATA_RESULTS) {

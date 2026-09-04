@@ -257,6 +257,200 @@ describe('Project Asset embedded metadata inspection', () => {
     expect(result.groups.find((group) => group.namespace === 'C2PA')).toBeDefined();
   });
 
+  it('recognizes NovelTea-marked ComfyUI execution metadata and preserves raw prompt/workflow fields', async () => {
+    const executedGraph = {
+      promptNode: {
+        inputs: { value: 'Moonlit bedroom' },
+        class_type: 'PrimitiveStringMultiline',
+        _meta: { title: 'noveltea.prompt' },
+      },
+      negativeNode: {
+        inputs: { text: 'people' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'noveltea.negativePrompt' },
+      },
+      modelNode: {
+        inputs: { unet_name: 'flux-2-klein-4b-fp8.safetensors' },
+        class_type: 'UNETLoader',
+        _meta: { title: 'noveltea.model' },
+      },
+      seedNode: {
+        inputs: { noise_seed: 42 },
+        class_type: 'RandomNoise',
+        _meta: { title: 'noveltea.seed' },
+      },
+      stepsNode: {
+        inputs: { steps: 20 },
+        class_type: 'Flux2Scheduler',
+        _meta: { title: 'noveltea.steps' },
+      },
+      cfgNode: { inputs: { cfg: 5 }, class_type: 'CFGGuider', _meta: { title: 'noveltea.cfg' } },
+      widthNode: {
+        inputs: { value: 1920 },
+        class_type: 'PrimitiveInt',
+        _meta: { title: 'noveltea.width' },
+      },
+      heightNode: {
+        inputs: { value: 1080 },
+        class_type: 'PrimitiveInt',
+        _meta: { title: 'noveltea.height' },
+      },
+    };
+    const workflow = JSON.stringify({
+      nodes: [{ title: 'noveltea.prompt', widgets_values: ['wrong fallback'] }],
+    });
+    const bytes = withPngText(
+      'workflow',
+      workflow,
+      withPngText('prompt', JSON.stringify(executedGraph)),
+    );
+    const fixture = tempProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.generation).toEqual({
+      prompt: 'Moonlit bedroom',
+      negativePrompt: 'people',
+      facts: [
+        { id: 'model', value: 'Flux 2 Klein 4B' },
+        { id: 'seed', value: '42' },
+        { id: 'steps', value: '20' },
+        { id: 'cfg', value: '5' },
+        { id: 'dimensions', value: '1920 × 1080' },
+      ],
+    });
+    expect(result.provenance?.stages).toEqual([
+      expect.objectContaining({
+        role: 'generated',
+        tool: { id: 'comfyui', label: 'ComfyUI' },
+        model: { id: 'black-forest-labs.flux-2-klein-4b', label: 'Flux 2 Klein 4B' },
+      }),
+    ]);
+    expect(result.groups.find((group) => group.namespace === 'PNG')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'prompt',
+          value: JSON.stringify(executedGraph),
+          valueKind: 'json',
+        }),
+        expect.objectContaining({ key: 'workflow', value: workflow, valueKind: 'json' }),
+      ]),
+    );
+  });
+
+  it('uses the NovelTea source-image marker to classify controlled ComfyUI edits', async () => {
+    const graph = {
+      sourceNode: {
+        inputs: { image: 'source.png' },
+        class_type: 'LoadImage',
+        _meta: { title: 'noveltea.sourceImage' },
+      },
+      promptNode: {
+        inputs: { text: 'Make it rainy' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'noveltea.prompt' },
+      },
+      modelNode: {
+        inputs: { unet_name: 'flux-2-klein-4b-fp8.safetensors' },
+        class_type: 'UNETLoader',
+        _meta: { title: 'noveltea.model' },
+      },
+    };
+    const bytes = withPngText('prompt', JSON.stringify(graph));
+    const fixture = tempProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.provenance?.stages).toEqual([
+      expect.objectContaining({
+        id: 'noveltea-comfyui-edit',
+        role: 'edited',
+        tool: { id: 'comfyui', label: 'ComfyUI' },
+        model: { id: 'black-forest-labs.flux-2-klein-4b', label: 'Flux 2 Klein 4B' },
+      }),
+    ]);
+  });
+
+  it('falls back only to API-shaped workflow metadata with NovelTea markers', async () => {
+    const workflowGraph = {
+      promptNode: {
+        inputs: { value: 'Fallback prompt' },
+        class_type: 'PrimitiveStringMultiline',
+        _meta: { title: 'noveltea.prompt' },
+      },
+    };
+    const bytes = withPngText('workflow', JSON.stringify(workflowGraph));
+    const fixture = tempProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.generation?.prompt).toBe('Fallback prompt');
+    expect(result.provenance?.stages).toEqual([
+      expect.objectContaining({ role: 'processed', tool: { id: 'comfyui', label: 'ComfyUI' } }),
+    ]);
+  });
+
+  it('does not infer semantics from an unmarked third-party ComfyUI graph', async () => {
+    const graph = {
+      text: {
+        inputs: { text: 'Do not guess this prompt' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'Positive Prompt' },
+      },
+      model: {
+        inputs: { unet_name: 'flux-2-klein-4b-fp8.safetensors' },
+        class_type: 'UNETLoader',
+        _meta: { title: 'Load Diffusion Model' },
+      },
+    };
+    const bytes = withPngText('prompt', JSON.stringify(graph));
+    const fixture = tempProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.generation).toBeUndefined();
+    expect(result.provenance).toBeUndefined();
+    expect(result.groups.find((group) => group.namespace === 'PNG')?.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'prompt', valueKind: 'json' })]),
+    );
+  });
+
   it('returns JPEG structural metadata and exact comment tags', async () => {
     const comment = 'Generated by fixture';
     const bytes = withJpegComment(comment);

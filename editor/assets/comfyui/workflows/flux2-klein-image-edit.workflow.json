@@ -34,7 +34,7 @@
     },
     "class_type": "UNETLoader",
     "_meta": {
-      "title": "Load Diffusion Model"
+      "title": "noveltea.model"
     }
   },
   "75:71": {

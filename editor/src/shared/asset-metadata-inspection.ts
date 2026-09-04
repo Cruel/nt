@@ -41,6 +41,17 @@ export interface AssetRecognizedProvenance {
   stages: AssetProvenanceStage[];
 }
 
+export interface AssetRecognizedGenerationFact {
+  id: 'model' | 'seed' | 'steps' | 'cfg' | 'dimensions';
+  value: string;
+}
+
+export interface AssetRecognizedGeneration {
+  prompt?: string;
+  negativePrompt?: string;
+  facts: AssetRecognizedGenerationFact[];
+}
+
 export interface AssetC2paStatus {
   trust: AssetProvenanceTrust;
 }
@@ -53,6 +64,7 @@ export interface AssetMetadataInspectionReadyResponse {
   groups: AssetMetadataInspectionGroup[];
   c2pa?: AssetC2paStatus;
   provenance?: AssetRecognizedProvenance;
+  generation?: AssetRecognizedGeneration;
 }
 
 export interface AssetMetadataInspectionUnsupportedResponse {

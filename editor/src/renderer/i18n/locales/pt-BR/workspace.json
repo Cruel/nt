@@ -14,6 +14,21 @@
         "verified": "Proveniência verificada",
         "invalid": "Proveniência inválida"
       }
+    },
+    "generation": {
+      "prompt": "Prompt",
+      "negativePrompt": "Prompt negativo",
+      "copy": "Copiar",
+      "none": "Nenhum",
+      "showMore": "Mostrar mais",
+      "showLess": "Mostrar menos",
+      "facts": {
+        "model": "Modelo",
+        "seed": "Seed",
+        "steps": "Passos",
+        "cfg": "CFG",
+        "dimensions": "Dimensões"
+      }
     }
   },
   "bottomPanel": {
