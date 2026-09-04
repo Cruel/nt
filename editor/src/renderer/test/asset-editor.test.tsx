@@ -182,6 +182,77 @@ describe('AssetEditor', () => {
     expect(screen.getByText('c2pa.created')).toBeInTheDocument();
   });
 
+  it('renders NovelTea ComfyUI prompt semantics and compact generation facts', async () => {
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      provenance: {
+        stages: [
+          {
+            id: 'noveltea-comfyui-generation',
+            role: 'generated',
+            tool: { id: 'comfyui', label: 'ComfyUI' },
+            model: { id: 'black-forest-labs.flux-2-klein-4b', label: 'Flux 2 Klein 4B' },
+          },
+        ],
+      },
+      generation: {
+        prompt: 'Moonlit bedroom',
+        negativePrompt: 'people',
+        facts: [
+          { id: 'model', value: 'Flux 2 Klein 4B' },
+          { id: 'seed', value: '42' },
+          { id: 'dimensions', value: '1920 × 1080' },
+        ],
+      },
+      groups: [],
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    render(<AssetEditor tab={tab} />);
+
+    expect(await screen.findByText(/Generated with Flux 2 Klein 4B/)).toBeInTheDocument();
+    expect(screen.getByText('Moonlit bedroom')).toBeInTheDocument();
+    expect(screen.getByText('people')).toBeInTheDocument();
+    expect(screen.getByText('Model:')).toBeInTheDocument();
+    expect(screen.getByText('Seed:')).toBeInTheDocument();
+    expect(screen.getByText('Dimensions:')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(2);
+  });
+
+  it('expands multiline recognized prompts that exceed the compact preview height', async () => {
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      generation: {
+        prompt: 'one\ntwo\nthree\nfour\nfive',
+        facts: [],
+      },
+      groups: [],
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    render(<AssetEditor tab={tab} />);
+
+    const showMore = await screen.findByRole('button', { name: 'Show more' });
+    fireEvent.click(showMore);
+    expect(screen.getByRole('button', { name: 'Show less' })).toBeInTheDocument();
+  });
+
   it('shows successful-empty, failure, and unsupported metadata inspection states', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),

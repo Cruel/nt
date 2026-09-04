@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
+import { NOVELTEA_COMFYUI_METADATA_MARKERS } from '../../shared/comfyui-metadata';
 import {
   COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG,
   COMFYUI_WORKFLOW_SCHEMA_VERSION,
@@ -222,6 +225,41 @@ describe('comfyui workflow manifests', () => {
     expect(() =>
       parseComfyUiWorkflowDefinition({ ...currentManifest, outputNodeIds: ['9'] }),
     ).toThrow('manifest.outputNodeIds is not supported');
+  });
+
+  it('keeps NovelTea metadata markers namespaced and marks bundled model semantics', () => {
+    expect(Object.values(NOVELTEA_COMFYUI_METADATA_MARKERS)).toSatisfy((markers: string[]) =>
+      markers.every((marker) => marker.startsWith('noveltea.')),
+    );
+
+    for (const fileName of [
+      'flux2-klein-text-to-image.workflow.json',
+      'flux2-klein-image-edit.workflow.json',
+    ]) {
+      const graph = JSON.parse(
+        fs.readFileSync(
+          path.join(process.cwd(), 'assets', 'comfyui', 'workflows', fileName),
+          'utf8',
+        ),
+      ) as Record<string, { _meta?: { title?: string }; inputs?: Record<string, unknown> }>;
+      const modelNodes = Object.values(graph).filter(
+        (node) => node._meta?.title === NOVELTEA_COMFYUI_METADATA_MARKERS.model,
+      );
+      expect(modelNodes).toHaveLength(1);
+      expect(modelNodes[0]?.inputs?.unet_name).toBe('flux-2-klein-4b-fp8.safetensors');
+      if (fileName === 'flux2-klein-text-to-image.workflow.json') {
+        expect(
+          Object.values(graph).some(
+            (node) => node._meta?.title === NOVELTEA_COMFYUI_METADATA_MARKERS.negativePrompt,
+          ),
+        ).toBe(true);
+        expect(
+          Object.values(graph).some(
+            (node) => node._meta?.title === NOVELTEA_COMFYUI_METADATA_MARKERS.cfg,
+          ),
+        ).toBe(true);
+      }
+    }
   });
 
   it('exposes known image classifications only as authoring/inference metadata', () => {

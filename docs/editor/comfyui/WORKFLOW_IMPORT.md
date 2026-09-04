@@ -118,8 +118,10 @@ use distinct client and prompt identities. `--json` still emits exactly one comp
 
 1. Build and test the workflow in ComfyUI.
 2. Optionally rename important nodes with NovelTea title markers:
-   `noveltea.prompt`, `noveltea.sourceImage`, `noveltea.width`, `noveltea.height`, `noveltea.seed`,
-   `noveltea.steps`, `noveltea.cfg`, `noveltea.filenamePrefix`, and `noveltea.output`.
+   `noveltea.prompt`, `noveltea.negativePrompt`, `noveltea.model`, `noveltea.sourceImage`,
+   `noveltea.width`, `noveltea.height`, `noveltea.seed`, `noveltea.steps`, `noveltea.cfg`,
+   `noveltea.filenamePrefix`, and `noveltea.output`. `noveltea.model` marks the node that owns the
+   primary generation-model identifier; it is inspection metadata, not a public workflow input.
 3. Export with `File -> Export Workflow (API)`.
 4. In NovelTea, open the `ComfyUI Workflows` tab from the command palette, global Settings, or Project Settings summary.
 5. For the current image classifications, review inferred bindings, select image output nodes, set defaults, and save.

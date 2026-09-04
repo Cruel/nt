@@ -47,7 +47,7 @@
     },
     "class_type": "CFGGuider",
     "_meta": {
-      "title": "CFG Guider"
+      "title": "noveltea.cfg"
     }
   },
   "75:64": {
@@ -91,7 +91,7 @@
     },
     "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "CLIP Text Encode (Negative Prompt)"
+      "title": "noveltea.negativePrompt"
     }
   },
   "75:68": {
@@ -128,7 +128,7 @@
     },
     "class_type": "UNETLoader",
     "_meta": {
-      "title": "Load Diffusion Model"
+      "title": "noveltea.model"
     }
   },
   "75:71": {
