@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type Ref } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { useProjectStore } from '@/project/project-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import type { AssetData } from '../../../shared/project-schema/authoring-assets';
-import { AssetEmbeddedMetadata } from './AssetEmbeddedMetadata';
+import { AssetEmbeddedMetadata, type AssetEmbeddedMetadataHandle } from './AssetEmbeddedMetadata';
 
 interface AssetPreviewProps {
   assetId: string;
   label: string;
   data: AssetData;
   compact?: boolean;
+  metadataStateRef?: Ref<AssetEmbeddedMetadataHandle>;
 }
 
 function kindLabel(kind: AssetData['kind']) {
@@ -36,7 +37,13 @@ function kindLabel(kind: AssetData['kind']) {
   }
 }
 
-export function AssetPreview({ assetId, label, data, compact = false }: AssetPreviewProps) {
+export function AssetPreview({
+  assetId,
+  label,
+  data,
+  compact = false,
+  metadataStateRef,
+}: AssetPreviewProps) {
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const deletedAsset = useAssetTrashStore((state) => state.deletedAssets[assetId]);
   const [assetUrl, setAssetUrl] = useState<string | null>(null);
@@ -135,7 +142,7 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
           </div>
         )}
       </div>
-      <AssetEmbeddedMetadata assetId={assetId} data={data} />
+      <AssetEmbeddedMetadata ref={metadataStateRef} assetId={assetId} data={data} />
       <div className="mt-3 grid gap-1 font-mono text-[11px] text-muted-foreground">
         <div>{data.source.path}</div>
         {data.byteSize !== undefined ? <div>{data.byteSize.toLocaleString()} bytes</div> : null}

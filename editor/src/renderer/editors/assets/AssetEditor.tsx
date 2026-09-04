@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TagInput } from '@/components/tags/TagInput';
@@ -26,10 +26,14 @@ import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildImageGenerationTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
+  captureScrollViewState,
+  isScrollViewState,
+  restoreScrollViewState,
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
 import { AssetPreview } from './AssetPreview';
+import type { AssetEmbeddedMetadataHandle } from './AssetEmbeddedMetadata';
 
 function lookupAsset(project: unknown, assetId: string | undefined) {
   if (!assetId || !isAuthoringProject(project)) return null;
@@ -51,6 +55,8 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const [renameTo, setRenameTo] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const editorScrollRef = useRef<HTMLDivElement>(null);
+  const metadataStateRef = useRef<AssetEmbeddedMetadataHandle>(null);
   useWorkbenchEditorTabState(
     tab.id,
     useMemo(
@@ -58,7 +64,13 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
         schema: 'noveltea.editor.asset-detail-tab-state',
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: 'noveltea.editor.asset-detail-tab-state',
-          payload: { aliasDraft, renameFrom, renameTo },
+          payload: {
+            aliasDraft,
+            renameFrom,
+            renameTo,
+            scroll: captureScrollViewState(editorScrollRef.current),
+            metadata: metadataStateRef.current?.captureTabState(),
+          },
         }),
         restoreTabState: (state: WorkbenchTabStatePayload) => {
           if (state.schema !== 'noveltea.editor.asset-detail-tab-state') return;
@@ -68,6 +80,9 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
           if (typeof values.aliasDraft === 'string') setAliasDraft(values.aliasDraft);
           if (typeof values.renameFrom === 'string') setRenameFrom(values.renameFrom);
           if (typeof values.renameTo === 'string') setRenameTo(values.renameTo);
+          if (isScrollViewState(values.scroll))
+            restoreScrollViewState(editorScrollRef.current, values.scroll);
+          metadataStateRef.current?.restoreTabState(values.metadata);
         },
       }),
       [aliasDraft, renameFrom, renameTo],
@@ -192,7 +207,11 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const deleteUsageCount = stableUsages.length + aliasUsages.length;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <div
+      ref={editorScrollRef}
+      data-testid="asset-editor-scroll"
+      className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"
+    >
       <div className="flex items-start gap-3" data-workbench-anchor="asset.summary">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -434,7 +453,12 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
         </div>
-        <AssetPreview assetId={assetId} label={record.label} data={data} />
+        <AssetPreview
+          assetId={assetId}
+          label={record.label}
+          data={data}
+          metadataStateRef={metadataStateRef}
+        />
       </div>
     </div>
   );
