@@ -126,6 +126,62 @@ describe('AssetEditor', () => {
     expect(screen.getByText('Original name')).toBeInTheDocument();
   });
 
+  it('renders recognized unverified C2PA provenance above the exhaustive raw metadata', async () => {
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      c2pa: { trust: 'unverified' },
+      provenance: {
+        stages: [
+          {
+            id: 'openai-created-0',
+            role: 'generated',
+            provider: { id: 'openai', label: 'OpenAI' },
+            model: { id: 'openai.gpt-image', label: 'gpt-image 2.0' },
+          },
+          {
+            id: 'google-synthid-1',
+            role: 'edited',
+            provider: { id: 'google', label: 'Google' },
+            tool: { id: 'google.synthid', label: 'SynthID' },
+          },
+        ],
+      },
+      groups: [
+        {
+          id: 'C2PA',
+          namespace: 'C2PA',
+          items: [
+            {
+              id: 'C2PA/action/0',
+              key: 'actions[0].action',
+              value: 'c2pa.created',
+              valueKind: 'text',
+            },
+          ],
+        },
+      ],
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    render(<AssetEditor tab={tab} />);
+
+    expect(await screen.findByText('Generated with gpt-image 2.0')).toBeInTheDocument();
+    expect(screen.getByText('Edited with SynthID')).toBeInTheDocument();
+    expect(screen.getByText('Embedded claim · unverified')).toBeInTheDocument();
+    expect(screen.queryByText('Verified provenance')).not.toBeInTheDocument();
+    expect(screen.getByText('C2PA')).toBeInTheDocument();
+    expect(screen.getByText('actions[0].action')).toBeInTheDocument();
+    expect(screen.getByText('c2pa.created')).toBeInTheDocument();
+  });
+
   it('shows successful-empty, failure, and unsupported metadata inspection states', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),

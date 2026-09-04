@@ -89,6 +89,23 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
+const OPENAI_C2PA_CLAIM = Buffer.from(
+  'AAACump1bWIAAAAnanVtZGMyY2wAEQAQgAAAqgA4m3EDYzJwYS5jbGFpbS52MgAAAAKLY2JvcqZqaW5zdGFuY2VJRHgseG1wOmlpZDpiMzNhYjMwMS1jOWQ3LTRkODctYjM2MC1mNTczMDg5ZTA3ZGR0Y2xhaW1fZ2VuZXJhdG9yX2luZm+kZG5hbWV4GE9wZW5BSSBNZWRpYSBTZXJ2aWNlIEFQSWRpY29uomN1cmx4JHNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaWNvbmRoYXNoWCAXdK+TpH6bIc2abhRzXYaUj02Hupiy8cxIV/k3fUUy63dvcmcuY29udGVudGF1dGguYzJwYV9yc2YwLjc5LjJrc3BlY1ZlcnNpb25lMi4yLjBpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjEzMjIwZjdhLWE5YzgtNDhhMC1iOGZiLTc5YjQzZjY5ZGIyZS9jMnBhLnNpZ25hdHVyZXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4JHNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaWNvbmRoYXNoWCAXdK+TpH6bIc2abhRzXYaUj02Hupiy8cxIV/k3fUUy66JjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggeAm8+0hqWSoTrPoz+flq3kO1D2+sLlU6fB3m+SLMbV+iY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgg6R+Gt0Y0Zv8RzKoy9g7LHRriNRHofa+cniXPEihXGH5oZGM6dGl0bGVpaW1hZ2UucG5nY2FsZ2ZzaGEyNTY=',
+  'base64',
+);
+const OPENAI_C2PA_ACTIONS = Buffer.from(
+  'AAABkmp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNozBtskqmFC0F0KmmRBH/fgAAAAUljYm9yomdhY3Rpb25zg6RmYWN0aW9ubGMycGEuY3JlYXRlZGR3aGVuwHQyMDI2LTA5LTA0VDAwOjAwOjAwWm1zb2Z0d2FyZUFnZW50omRuYW1laWdwdC1pbWFnZWd2ZXJzaW9uYzIuMHFkaWdpdGFsU291cmNlVHlwZXhGaHR0cDovL2N2LmlwdGMub3JnL25ld3Njb2Rlcy9kaWdpdGFsc291cmNldHlwZS90cmFpbmVkQWxnb3JpdGhtaWNNZWRpYaJmYWN0aW9ubmMycGEuY29udmVydGVkZHdoZW7AdDIwMjYtMDktMDRUMDA6MDA6MDBaomZhY3Rpb254GGMycGEud2F0ZXJtYXJrZWQudW5ib3VuZGR3aGVuwHQyMDI2LTA5LTA0VDAwOjAwOjAwWnJhbGxBY3Rpb25zSW5jbHVkZWT0',
+  'base64',
+);
+const GOOGLE_C2PA_CLAIM = Buffer.from(
+  'AAABt2p1bWIAAAAnanVtZGMyY2wAEQAQgAAAqgA4m3EDYzJwYS5jbGFpbS52MgAAAAGIY2JvcqVqaW5zdGFuY2VJRHgkY2Q2YjhjYjUtYTY0ZC0xYzU0LWM5MWEtNGFjNDZhYTY1NDE2dGNsYWltX2dlbmVyYXRvcl9pbmZvomRuYW1leCJHb29nbGUgQzJQQSBDb3JlIEdlbmVyYXRvciBMaWJyYXJ5Z3ZlcnNpb25zOTc0MTU0NTg4Ojk3NDE1NDU4OHJjcmVhdGVkX2Fzc2VydGlvbnOComN1cmx4KnNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuYWN0aW9ucy52MmRoYXNoWCBoIlEry3OUHQkL7sBT6fq20DpcCKubtEkMo/VaRNDouaJjdXJseClzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmhhc2guZGF0YWRoYXNoWCC7YcKybH3iGqUjpWm2/qhfAH8mGenMDMRQ1LYY8iCscGlzaWduYXR1cmV4GXNlbGYjanVtYmY9YzJwYS5zaWduYXR1cmVjYWxnZnNoYTI1Ng==',
+  'base64',
+);
+const GOOGLE_C2PA_ACTIONS = Buffer.from(
+  'AAABhGp1bWIAAAApanVtZGNib3IAEQAQgAAAqgA4m3EDYzJwYS5hY3Rpb25zLnYyAAAAAVNjYm9yoWdhY3Rpb25zgqNmYWN0aW9ubGMycGEuY3JlYXRlZGtkZXNjcmlwdGlvbnggQ3JlYXRlZCBieSBHb29nbGUgR2VuZXJhdGl2ZSBBSS5xZGlnaXRhbFNvdXJjZVR5cGV4Rmh0dHA6Ly9jdi5pcHRjLm9yZy9uZXdzY29kZXMvZGlnaXRhbHNvdXJjZXR5cGUvdHJhaW5lZEFsZ29yaXRobWljTWVkaWGjZmFjdGlvbmtjMnBhLmVkaXRlZGtkZXNjcmlwdGlvbngoQXBwbGllZCBpbXBlcmNlcHRpYmxlIFN5bnRoSUQgd2F0ZXJtYXJrLnFkaWdpdGFsc291cmNlVHlwZXhGaHR0cDovL2N2LmlwdGMub3JnL25ld3Njb2Rlcy9kaWdpdGFsc291cmNldHlwZS90cmFpbmVkQWxnb3JpdGhtaWNNZWRpYQ==',
+  'base64',
+);
+
 describe('Project Asset embedded metadata inspection', () => {
   it('returns grouped structural and textual PNG metadata from admitted bytes', async () => {
     const prompt = JSON.stringify({ prompt: 'Moonlit room' });
@@ -126,6 +143,118 @@ describe('Project Asset embedded metadata inspection', () => {
     expect(result.groups[0]!.items.some((metadataItem) => metadataItem.key === 'Density')).toBe(
       false,
     );
+  });
+
+  it('recognizes OpenAI C2PA generation evidence while preserving raw fields as unverified', async () => {
+    const bytes = Buffer.concat([basePng, OPENAI_C2PA_CLAIM, OPENAI_C2PA_ACTIONS]);
+    const fixture = tempProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.groups.find((group) => group.namespace === 'C2PA')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'claim_generator_info.name',
+          value: 'OpenAI Media Service API',
+        }),
+        expect.objectContaining({ key: 'actions[0].action', value: 'c2pa.created' }),
+        expect.objectContaining({ key: 'actions[0].softwareAgent.name', value: 'gpt-image' }),
+        expect.objectContaining({ key: 'actions[0].softwareAgent.version', value: '2.0' }),
+      ]),
+    );
+    expect(result.c2pa).toEqual({ trust: 'unverified' });
+    expect(result.provenance).toEqual({
+      stages: [
+        expect.objectContaining({
+          role: 'generated',
+          provider: { id: 'openai', label: 'OpenAI' },
+          model: { id: 'openai.gpt-image', label: 'gpt-image 2.0' },
+        }),
+      ],
+    });
+  });
+
+  it('recognizes Google Generative AI and its later SynthID edit without inventing a model', async () => {
+    const bytes = Buffer.concat([basePng, GOOGLE_C2PA_CLAIM, GOOGLE_C2PA_ACTIONS]);
+    const fixture = tempProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.c2pa).toEqual({ trust: 'unverified' });
+    expect(result.groups.find((group) => group.namespace === 'C2PA')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'jumbf[0].label', value: 'c2pa.claim.v2' }),
+        expect.objectContaining({ key: 'jumbf[1].label', value: 'c2pa.actions.v2' }),
+        expect.objectContaining({
+          key: 'claim_generator_info.name',
+          value: 'Google C2PA Core Generator Library',
+        }),
+        expect.objectContaining({
+          key: 'actions[0].description',
+          value: 'Created by Google Generative AI.',
+        }),
+        expect.objectContaining({
+          key: 'actions[1].description',
+          value: 'Applied imperceptible SynthID watermark.',
+        }),
+      ]),
+    );
+    expect(result.provenance?.stages).toEqual([
+      expect.objectContaining({
+        role: 'generated',
+        provider: { id: 'google', label: 'Google' },
+        tool: { id: 'google.generative-ai', label: 'Google Generative AI' },
+      }),
+      expect.objectContaining({
+        role: 'edited',
+        provider: { id: 'google', label: 'Google' },
+        tool: { id: 'google.synthid', label: 'SynthID' },
+      }),
+    ]);
+    expect(result.provenance?.stages[0]).not.toHaveProperty('model');
+  });
+
+  it('returns no recognized provenance for unrecognized C2PA evidence', async () => {
+    const bytes = Buffer.concat([basePng, OPENAI_C2PA_CLAIM]);
+    const mutated = Buffer.from(bytes);
+    const name = Buffer.from('OpenAI Media Service API');
+    const offset = mutated.indexOf(name);
+    expect(offset).toBeGreaterThan(0);
+    Buffer.from('Unknown Media Service   ').copy(mutated, offset, 0, name.length);
+    const fixture = tempProject(mutated);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.c2pa).toEqual({ trust: 'unverified' });
+    expect(result.provenance).toBeUndefined();
+    expect(result.groups.find((group) => group.namespace === 'C2PA')).toBeDefined();
   });
 
   it('returns JPEG structural metadata and exact comment tags', async () => {

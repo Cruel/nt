@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/project/project-store';
-import type { AssetMetadataInspectionResponse } from '../../../shared/asset-metadata-inspection';
+import type {
+  AssetMetadataInspectionResponse,
+  AssetProvenanceStage,
+} from '../../../shared/asset-metadata-inspection';
 import type { AssetData } from '../../../shared/project-schema/authoring-assets';
 
 interface AssetEmbeddedMetadataProps {
@@ -11,6 +14,10 @@ interface AssetEmbeddedMetadataProps {
 
 function displayedValue(value: string | number | boolean): string {
   return typeof value === 'string' ? value : String(value);
+}
+
+function provenanceSource(stage: AssetProvenanceStage): string | null {
+  return stage.model?.label ?? stage.tool?.label ?? stage.provider?.label ?? null;
 }
 
 export function AssetEmbeddedMetadata({ assetId, data }: AssetEmbeddedMetadataProps) {
@@ -65,6 +72,25 @@ export function AssetEmbeddedMetadata({ assetId, data }: AssetEmbeddedMetadataPr
         <p className="mt-2 text-xs text-muted-foreground">{t('assetMetadata.empty')}</p>
       ) : response?.status === 'ready' ? (
         <div className="mt-3 space-y-3">
+          {response.provenance ? (
+            <div className="rounded border bg-muted/20 p-2">
+              <div className="space-y-1">
+                {response.provenance.stages.map((stage) => {
+                  const source = provenanceSource(stage);
+                  return source ? (
+                    <div key={stage.id} className="text-xs font-medium text-foreground">
+                      {t(`assetMetadata.provenance.${stage.role}`, { source })}
+                    </div>
+                  ) : null;
+                })}
+              </div>
+              {response.c2pa ? (
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {t(`assetMetadata.provenance.trust.${response.c2pa.trust}`)}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {response.groups.map((group) => (
             <div key={group.id} className="space-y-1">
               <div className="text-[11px] font-semibold text-foreground">{group.namespace}</div>
