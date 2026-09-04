@@ -402,7 +402,7 @@ export const saveProjectCopyAsArgumentsSchema = z.tuple([
   scriptSourcePathsSchema,
 ]);
 export const projectSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
-export const projectAssetUrlArgumentsSchema = z.tuple([
+export const projectAssetIdentityArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.string().min(1).max(512),
 ]);

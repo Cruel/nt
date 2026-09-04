@@ -28,6 +28,8 @@ function project() {
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],
       extension: '.png',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      byteSize: 123,
       imageMetadata: { width: 256, height: 256, hasAlpha: true, orientation: 1 },
     },
   };
@@ -40,6 +42,14 @@ beforeEach(() => {
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: true,
     url: 'noveltea-asset://source/session/logo',
+  });
+  vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockClear();
+  vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+    ok: true,
+    status: 'ready',
+    kind: 'image',
+    contentHash: `sha256:${'a'.repeat(64)}`,
+    groups: [],
   });
 });
 
@@ -61,6 +71,139 @@ describe('AssetEditor', () => {
           recordMetadata: { assets: { logo: { tags: ['Hero'] } } },
         },
       }),
+    );
+  });
+
+  it('loads and renders grouped embedded metadata beneath the Asset preview', async () => {
+    let resolveInspection!: (
+      value: Awaited<ReturnType<typeof window.noveltea.inspectProjectAssetMetadata>>,
+    ) => void;
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockReturnValue(
+      new Promise((resolve) => {
+        resolveInspection = resolve;
+      }),
+    );
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    render(<AssetEditor tab={tab} />);
+
+    expect(screen.getByText('Loading embedded metadata…')).toBeInTheDocument();
+    expect(window.noveltea.inspectProjectAssetMetadata).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      'logo',
+    );
+
+    resolveInspection({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      groups: [
+        {
+          id: 'PNG',
+          namespace: 'PNG',
+          items: [
+            {
+              id: 'PNG/prompt/0',
+              key: 'prompt',
+              value: '{"prompt":"Moonlit room"}',
+              valueKind: 'json',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(await screen.findByText('Embedded metadata')).toBeInTheDocument();
+    expect(screen.getByText('PNG')).toBeInTheDocument();
+    expect(screen.getByText('prompt')).toBeInTheDocument();
+    expect(screen.getByText('{"prompt":"Moonlit room"}')).toBeInTheDocument();
+    expect(screen.getByText('Original name')).toBeInTheDocument();
+  });
+
+  it('shows successful-empty, failure, and unsupported metadata inspection states', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    const emptyView = render(<AssetEditor tab={tab} />);
+    expect(await screen.findByText('No embedded metadata found.')).toBeInTheDocument();
+    emptyView.unmount();
+
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: false,
+      status: 'failure',
+      code: 'revision-mismatch',
+      boundaryCode: 'source-revision-mismatch',
+      message: 'Asset source changed before inspection completed.',
+    });
+    const failureView = render(<AssetEditor tab={tab} />);
+    expect(
+      await screen.findByText('Asset source changed before inspection completed.'),
+    ).toBeInTheDocument();
+    failureView.unmount();
+
+    const audioProject = project();
+    audioProject.assets.logo!.data = {
+      ...audioProject.assets.logo!.data,
+      kind: 'audio',
+      imageMetadata: null,
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: audioProject,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+    vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
+      ok: true,
+      status: 'unsupported',
+      kind: 'audio',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      groups: [],
+    });
+
+    render(<AssetEditor tab={tab} />);
+    expect(
+      await screen.findByText('Embedded metadata inspection is not supported for this Asset.'),
+    ).toBeInTheDocument();
+  });
+
+  it('requests fresh metadata when the Asset content hash changes', async () => {
+    const firstProject = project();
+    useProjectStore.getState().loadProjectDocument({
+      document: firstProject,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+    render(<AssetEditor tab={tab} />);
+    await waitFor(() =>
+      expect(window.noveltea.inspectProjectAssetMetadata).toHaveBeenCalledTimes(1),
+    );
+
+    const changedProject = project();
+    changedProject.assets.logo!.data = {
+      ...changedProject.assets.logo!.data,
+      contentHash: `sha256:${'b'.repeat(64)}`,
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: changedProject,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+
+    await waitFor(() =>
+      expect(window.noveltea.inspectProjectAssetMetadata).toHaveBeenCalledTimes(2),
     );
   });
 });

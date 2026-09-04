@@ -156,6 +156,8 @@ const api: NovelTeaElectronApi = {
   },
   resolveProjectOriginalAssetUrl: (projectSessionId: string, assetId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PROJECT_ORIGINAL_ASSET_URL, projectSessionId, assetId),
+  inspectProjectAssetMetadata: (projectSessionId: string, assetId: string) =>
+    invokeGuarded(IPC_CHANNELS.INSPECT_PROJECT_ASSET_METADATA, projectSessionId, assetId),
   requestImageThumbnail: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL, request),
   prewarmImageThumbnails: (request) =>

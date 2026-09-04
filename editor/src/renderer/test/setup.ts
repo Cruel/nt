@@ -271,6 +271,13 @@ Object.defineProperty(window, 'noveltea', {
       ok: true,
       url: 'noveltea-asset://source/session/logo',
     }),
+    inspectProjectAssetMetadata: vi.fn().mockResolvedValue({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      groups: [],
+    }),
     requestImageThumbnail: vi.fn().mockResolvedValue({
       ok: true,
       url: 'noveltea-thumbnail://image/aa/'.concat('a'.repeat(64), '.webp'),

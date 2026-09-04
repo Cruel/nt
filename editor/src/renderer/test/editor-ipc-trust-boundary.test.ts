@@ -21,7 +21,7 @@ import {
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   previewSessionArgumentsSchema,
-  projectAssetUrlArgumentsSchema,
+  projectAssetIdentityArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
   saveProjectContentArgumentsSchema,
   saveProjectCopyAsArgumentsSchema,
@@ -267,7 +267,7 @@ describe('guarded editor IPC registrar', () => {
     });
     registrar.handle(
       'original-asset',
-      (arguments_) => projectAssetUrlArgumentsSchema.parse(arguments_),
+      (arguments_) => projectAssetIdentityArgumentsSchema.parse(arguments_),
       service,
     );
     const sessionId = '11111111-1111-4111-8111-111111111111';

@@ -1,4 +1,11 @@
 {
+  "assetMetadata": {
+    "title": "⟦Embedded metadata⟧",
+    "loading": "⟦Loading embedded metadata…⟧",
+    "empty": "⟦No embedded metadata found.⟧",
+    "unsupported": "⟦Embedded metadata inspection is not supported for this Asset.⟧",
+    "failure": "⟦Embedded metadata could not be inspected.⟧"
+  },
   "bottomPanel": {
     "empty": {
       "commandHistory": "⟦No project commands yet.⟧",

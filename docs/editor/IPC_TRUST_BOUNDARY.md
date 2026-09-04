@@ -70,25 +70,27 @@ different same-origin path or query and `javascript:`, `data:`, and `file:` targ
 redirects remain governed by their owning preview/iframe boundary. Window creation is denied.
 Rejected top-level navigation never changes the approved document or origin.
 
-## D-001, D-002, and D-014 closure
+## Privileged renderer trust model
 
-The three discovery findings are treated as one boundary rather than independent mitigations:
+Privileged editor operations share one trust boundary rather than relying on operation-specific
+filesystem authority:
 
-- **D-001 — renderer sender trust:** main accepts privileged invokes only from the owning live top-level
-  editor document at the exact approved origin, with unexpected navigation/redirects prevented.
-- **D-002 — unchecked privileged request forms / renderer-selected Project authority:** every preload
-  invoke is parsed from `unknown` through a strict bounded tuple/object contract, and Project-scoped
-  filesystem work derives its root from the current opaque `projectSessionId` instead of a renderer
-  root or manifest path.
-- **D-014 — Asset/source exfiltration:** original media is authorized by active-session Asset identity,
-  canonical containment, regular-file/revision/size checks, and bounded streaming. ComfyUI edit upload
-  additionally requires an admitted image and a pinned loopback HTTP destination with redirects
-  disabled and a 32 MiB upload ceiling.
+- **Renderer sender trust:** main accepts privileged invokes only from the owning live top-level editor
+  document at the exact approved origin, with unexpected navigation and redirects prevented.
+- **Bounded request contracts and Project authority:** every preload invoke is parsed from `unknown`
+  through a strict bounded tuple/object contract. Project-scoped filesystem work derives its root from
+  the current opaque `projectSessionId` instead of accepting a renderer-selected root or manifest path.
+- **Asset/source access:** original media is authorized by active-session Asset identity, canonical
+  containment, regular-file/revision/size checks, and bounded streaming. Embedded-media metadata
+  inspection uses that same authority and accepts only Project session plus Asset identity; the
+  renderer receives a normalized metadata result rather than a source filesystem path or arbitrary
+  file-read capability. ComfyUI edit upload additionally requires an admitted image and a pinned
+  loopback HTTP destination with redirects disabled and a 32 MiB upload ceiling.
 
-The current security invariant is therefore: a renderer invocation can affect Project files only when
-it comes from the owning top-level editor document, parses against its declared current contract,
-presents the current Project session where required, names an admitted capability, and passes the
-operation's containment and resource limits.
+A renderer invocation can therefore affect Project files only when it comes from the owning top-level
+editor document, parses against its declared current contract, presents the current Project session
+where required, names an admitted capability, and passes the operation's containment and resource
+limits.
 
 ## Verification
 

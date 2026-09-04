@@ -8,7 +8,7 @@ This document covers the new authoring asset model. It does not describe the old
 
 ## Current Status
 
-Assets are implemented as a typed authoring collection in the editor. The Assets editor can inspect asset metadata, manage aliases, show usage information, request previews/thumbnails, reimport asset metadata, and block deletion when references or alias usages exist unless forced.
+Assets are implemented as a typed authoring collection in the editor. The Assets editor can inspect asset metadata, manage aliases, show usage information, request previews/thumbnails, reimport asset metadata, and block deletion when references or alias usages exist unless forced. Image Asset details also inspect intrinsic metadata directly from the current source bytes through the active Project-session Asset authority; exhaustive embedded metadata is editor inspection state and is not copied into the Project document.
 
 The engine has a runtime `AssetManager` with namespace mounting, project/system/cache-style logical
 paths, typed loader bindings, asynchronous request/prefetch orchestration, residency accounting, and
@@ -179,13 +179,15 @@ Generic entity commands can still update metadata such as label, tags, color, pa
 
 The Assets editor shows metadata, aliases, stable reference usages, alias usages, deletion safety information, and an asset preview panel. Image records also expose a Linear/Nearest sampling control. Alias management is local to the asset editor, with explicit assign/remove/rename operations.
 
+The noncompact Asset preview asynchronously requests embedded-media metadata by Project session and Asset identity only. Main reuses the original-Asset containment, regular-file, byte-size, and SHA-256 authority before parsing. The current image slice normalizes useful image-container properties plus PNG textual chunks and JPEG comments into namespace groups with exact tag names, identifies textual values that are valid JSON, and caches parsed results by content hash. Unsupported Asset kinds, empty metadata, trust/source failures, and loading are explicit UI states. The embedded metadata section remains separate from import/reimport bookkeeping such as original filename, MIME type, and import time.
+
 The editor distinguishes stable `$ref` usages from string alias usages. Delete warnings include both kinds.
 
 The asset preview surface uses the PreviewManager thumbnail request path where possible. Asset kind determines what preview behavior can eventually be shown; not every asset kind has a rich preview yet.
 
 ## Editor Preview
 
-Asset preview is represented by `AssetPreview`. It asks the preview manager for thumbnails and uses asset metadata such as dimensions, duration, kind, and content hash where available.
+Asset preview is represented by `AssetPreview`. It asks the preview manager for thumbnails and uses asset metadata such as dimensions, duration, kind, and content hash where available. The full Asset preview also hosts the read-only embedded metadata inspector; compact Asset cards continue to use the thumbnail contract and do not request embedded metadata.
 
 Other component preview builders include asset metadata in their preview payloads so the engine preview can resolve image/font/script/material dependencies.
 
