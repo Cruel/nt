@@ -4,7 +4,17 @@
     "loading": "Loading embedded metadata…",
     "empty": "No embedded metadata found.",
     "unsupported": "Embedded metadata inspection is not supported for this Asset.",
-    "failure": "Embedded metadata could not be inspected."
+    "failure": "Embedded metadata could not be inspected.",
+    "provenance": {
+      "generated": "Generated with {{source}}",
+      "edited": "Edited with {{source}}",
+      "processed": "Processed with {{source}}",
+      "trust": {
+        "unverified": "Embedded claim · unverified",
+        "verified": "Verified provenance",
+        "invalid": "Invalid provenance"
+      }
+    }
   },
   "bottomPanel": {
     "empty": {

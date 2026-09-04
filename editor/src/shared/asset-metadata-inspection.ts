@@ -20,12 +20,39 @@ export interface AssetMetadataInspectionGroup {
   items: AssetMetadataInspectionItem[];
 }
 
+export type AssetProvenanceTrust = 'unverified' | 'verified' | 'invalid';
+export type AssetProvenanceRole = 'generated' | 'edited' | 'processed';
+
+export interface AssetProvenanceEntity {
+  id: string;
+  label: string;
+}
+
+export interface AssetProvenanceStage {
+  id: string;
+  role: AssetProvenanceRole;
+  provider?: AssetProvenanceEntity;
+  tool?: AssetProvenanceEntity;
+  model?: AssetProvenanceEntity;
+  description?: string;
+}
+
+export interface AssetRecognizedProvenance {
+  stages: AssetProvenanceStage[];
+}
+
+export interface AssetC2paStatus {
+  trust: AssetProvenanceTrust;
+}
+
 export interface AssetMetadataInspectionReadyResponse {
   ok: true;
   status: 'ready';
   kind: AssetKind;
   contentHash: string;
   groups: AssetMetadataInspectionGroup[];
+  c2pa?: AssetC2paStatus;
+  provenance?: AssetRecognizedProvenance;
 }
 
 export interface AssetMetadataInspectionUnsupportedResponse {
