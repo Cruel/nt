@@ -137,6 +137,7 @@ describe('AssetPerformancePanel', () => {
                 {
                   root: 'flow-execution',
                   room: null,
+                  exit: null,
                   supplementalHintId: null,
                   reasonChain: ['scene:opening:entry', 'scene:opening:step:show-intro'],
                 },
@@ -160,6 +161,9 @@ describe('AssetPerformancePanel', () => {
         },
       },
     ];
+    const generationChange = payload.retainedChanges[0]!;
+    if (generationChange.kind !== 'prefetch-generation-upsert') throw new Error('fixture mismatch');
+    payload.activePrefetchGeneration = generationChange.generation;
     useAssetProfilerStore.getState().applyPayload(payload);
     useAssetProfilerStore.getState().setSelectedView('prediction');
 
@@ -169,8 +173,29 @@ describe('AssetPerformancePanel', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'automatic → flow-execution → scene:opening:entry → scene:opening:step:show-intro',
+        'Automatic → Flow execution → scene:opening:entry → scene:opening:step:show-intro',
       ),
+    ).toBeInTheDocument();
+
+    act(() => {
+      useAssetProfilerStore.getState().applyPayload({
+        ...payload,
+        latestSequence: '3',
+        activePrefetchGeneration: null,
+        retainedChanges: [
+          ...payload.retainedChanges,
+          {
+            kind: 'prefetch-generation-released',
+            sequence: '3',
+            timestampNs: '21',
+            generation: '7',
+          },
+        ],
+      });
+    });
+    expect(screen.queryByText('texture|project:/intro.png|0')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('No live prediction generation has been published yet.'),
     ).toBeInTheDocument();
   });
 
@@ -213,6 +238,8 @@ describe('AssetPerformancePanel', () => {
           frontier: {
             root: 'flow-execution',
             room: 'hall',
+            exit: 'north-exit',
+            supplementalHintId: null,
             attachmentPoint: 'room:hall:after-enter',
             reasonChain: ['room:hall:after-enter'],
           },
@@ -226,6 +253,7 @@ describe('AssetPerformancePanel', () => {
 
     expect(screen.getByText('Opaque prediction misses')).toBeInTheDocument();
     expect(screen.getByText('dynamic')).toBeInTheDocument();
+    expect(screen.getByText(/Automatic → flow-execution/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add prefetch hint here' }));
 
     const updated = useProjectStore.getState().document;
@@ -243,6 +271,35 @@ describe('AssetPerformancePanel', () => {
         },
       },
     });
+  });
+
+  it('removes persisted author prefetch hints without editing derived prediction data', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Hall');
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: room };
+    project.entrypoint = { kind: 'room', id: 'hall' };
+    project.prefetchHints['author-hint'] = {
+      id: 'author-hint',
+      target: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'hall' } } },
+      attachment: {
+        kind: 'room',
+        room: { $ref: { collection: 'rooms', id: 'hall' } },
+        scope: 'resident',
+      },
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useAssetProfilerStore.getState().setSelectedView('prediction');
+
+    render(<AssetPerformancePanel />);
+
+    expect(screen.getByText(/author-hint/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    const updated = useProjectStore.getState().document;
+    expect(isAuthoringProject(updated)).toBe(true);
+    if (!isAuthoringProject(updated)) return;
+    expect(updated.prefetchHints['author-hint']).toBeUndefined();
+    expect('flowPrediction' in updated).toBe(false);
   });
 
   it('filters issues through profiler-local controls and reveals technical details on expansion', () => {

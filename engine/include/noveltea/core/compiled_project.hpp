@@ -1853,9 +1853,25 @@ struct FlowPredictionSetGlobalProperty {
     PropertyId property;
     RuntimeValue value;
 };
+struct FlowPredictionSetIdentityProperty {
+    GameplayIdentityOperand owner;
+    PropertyId property;
+    RuntimeValue value;
+};
+struct FlowPredictionSetTraitPresence {
+    GameplayIdentityOperand owner;
+    TraitId trait;
+    bool present = true;
+};
+struct FlowPredictionSetLocation {
+    LocationSubjectOperand subject;
+    LocationOperand location;
+};
 struct FlowPredictionInvalidateGlobalProperty {
     PropertyId property;
 };
+struct FlowPredictionInvalidateConditionFacts {};
+struct FlowPredictionInvalidateState {};
 struct FlowPredictionCallScene {
     SceneId scene;
 };
@@ -1877,7 +1893,11 @@ struct FlowPredictionIf {
 };
 struct FlowPredictionCommand {
     using Value = std::variant<FlowPredictionSetGlobalProperty,
-                               FlowPredictionInvalidateGlobalProperty, FlowPredictionCallScene,
+                               FlowPredictionSetIdentityProperty,
+                               FlowPredictionSetTraitPresence, FlowPredictionSetLocation,
+                               FlowPredictionInvalidateGlobalProperty,
+                               FlowPredictionInvalidateConditionFacts, FlowPredictionInvalidateState,
+                               FlowPredictionCallScene,
                                FlowPredictionStartDetachedScene, FlowPredictionCallDialogue,
                                FlowPredictionEnterRoom, FlowPredictionOpaque, FlowPredictionIf>;
     std::optional<InteractionInstructionId> command_id;
@@ -1917,6 +1937,7 @@ enum class FlowPredictionFrontier : std::uint8_t {
 
 struct FlowPredictionSlice {
     FlowPredictionPoint point;
+    std::vector<FlowPredictionPoint> resume_points;
     std::vector<std::size_t> dependency_groups;
     std::optional<Condition> condition;
     std::optional<std::size_t> condition_false_successor;
@@ -1963,12 +1984,17 @@ struct FlowPredictionSupplementalHint {
     std::string id;
     FlowPredictionHintTarget target;
     FlowPredictionHintAttachment attachment;
+    std::vector<std::size_t> potential_expansion_slices;
 };
 
 struct FlowPredictionIndex {
     std::vector<std::vector<FlowPredictionDependency>> dependency_groups;
     std::vector<FlowPredictionSupplementalHint> supplemental_hints;
     std::vector<FlowPredictionSlice> slices;
+    // Decode/validation failures in this non-authoritative optimization payload are retained as
+    // warnings so gameplay can continue through mandatory loading while tooling explains why
+    // speculative prediction degraded.
+    core::Diagnostics diagnostics;
 };
 
 struct CompiledProjectInput {

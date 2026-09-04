@@ -145,12 +145,14 @@ export interface AssetProfilerPrefetchSubmissionFailure {
 
 export type AssetProfilerPredictionRoot =
   | 'flow-execution'
+  | 'detached-flow-execution'
   | 'prospective-room-entry'
   | 'resident-room-context';
 
 export interface AssetProfilerPredictionProvenance {
   root: AssetProfilerPredictionRoot;
   room: string | null;
+  exit: string | null;
   supplementalHintId: string | null;
   reasonChain: string[];
 }
@@ -169,6 +171,8 @@ export interface AssetProfilerPrefetchPlanEntry {
 export interface AssetProfilerOpaquePredictionFrontier {
   root: AssetProfilerPredictionRoot;
   room: string | null;
+  exit: string | null;
+  supplementalHintId: string | null;
   attachmentPoint: string;
   reasonChain: string[];
 }
@@ -297,6 +301,10 @@ export type AssetProfilerWireChange =
       miss: AssetProfilerOpaquePredictionMiss;
     })
   | (AssetProfilerWireChangeBase & {
+      kind: 'prefetch-generation-released';
+      generation: CanonicalDecimal;
+    })
+  | (AssetProfilerWireChangeBase & {
       kind: 'inventory-changed';
       inventoryRevision: CanonicalDecimal;
     });
@@ -307,6 +315,7 @@ interface AssetProfilerWirePayloadBase {
   capturedAtNs: CanonicalDecimal;
   memory: AssetProfilerMemorySnapshot;
   outcomes: AssetProfilerOutcomeTotals;
+  activePrefetchGeneration: AssetProfilerPrefetchGenerationRecord | null;
   inventoryRevision: CanonicalDecimal;
   earliestRetainedSequence: CanonicalDecimal;
   lostChangeCount: CanonicalDecimal;
@@ -599,9 +608,15 @@ function isSubmissionFailure(value: unknown): value is AssetProfilerPrefetchSubm
 function isPredictionProvenance(value: unknown): value is AssetProfilerPredictionProvenance {
   return (
     isRecord(value) &&
-    hasExactKeys(value, ['root', 'room', 'supplementalHintId', 'reasonChain']) &&
-    isEnum(value.root, ['flow-execution', 'prospective-room-entry', 'resident-room-context']) &&
+    hasExactKeys(value, ['root', 'room', 'exit', 'supplementalHintId', 'reasonChain']) &&
+    isEnum(value.root, [
+      'flow-execution',
+      'detached-flow-execution',
+      'prospective-room-entry',
+      'resident-room-context',
+    ]) &&
     (value.room === null || typeof value.room === 'string') &&
+    (value.exit === null || typeof value.exit === 'string') &&
     (value.supplementalHintId === null || typeof value.supplementalHintId === 'string') &&
     Array.isArray(value.reasonChain) &&
     value.reasonChain.every((reason) => typeof reason === 'string')
@@ -636,9 +651,23 @@ function isPredictionPlanEntry(value: unknown): value is AssetProfilerPrefetchPl
 function isOpaqueFrontier(value: unknown): value is AssetProfilerOpaquePredictionFrontier {
   return (
     isRecord(value) &&
-    hasExactKeys(value, ['root', 'room', 'attachmentPoint', 'reasonChain']) &&
-    isEnum(value.root, ['flow-execution', 'prospective-room-entry', 'resident-room-context']) &&
+    hasExactKeys(value, [
+      'root',
+      'room',
+      'exit',
+      'supplementalHintId',
+      'attachmentPoint',
+      'reasonChain',
+    ]) &&
+    isEnum(value.root, [
+      'flow-execution',
+      'detached-flow-execution',
+      'prospective-room-entry',
+      'resident-room-context',
+    ]) &&
     (value.room === null || typeof value.room === 'string') &&
+    (value.exit === null || typeof value.exit === 'string') &&
+    (value.supplementalHintId === null || typeof value.supplementalHintId === 'string') &&
     typeof value.attachmentPoint === 'string' &&
     Array.isArray(value.reasonChain) &&
     value.reasonChain.every((reason) => typeof reason === 'string')
@@ -831,6 +860,11 @@ function isChange(value: unknown): value is AssetProfilerWireChange {
         isCanonicalUnsignedDecimal(value.miss.generation) &&
         isOpaqueFrontier(value.miss.frontier)
       );
+    case 'prefetch-generation-released':
+      return (
+        hasExactKeys(value, ['sequence', 'timestampNs', 'kind', 'generation']) &&
+        isCanonicalUnsignedDecimal(value.generation)
+      );
     case 'inventory-changed':
       return (
         hasExactKeys(value, ['sequence', 'timestampNs', 'kind', 'inventoryRevision']) &&
@@ -848,6 +882,7 @@ const payloadBaseKeys = [
   'capturedAtNs',
   'memory',
   'outcomes',
+  'activePrefetchGeneration',
   'inventoryRevision',
   'earliestRetainedSequence',
   'lostChangeCount',
@@ -862,6 +897,7 @@ export function isAssetProfilerWirePayload(value: unknown): value is AssetProfil
     !isCanonicalUnsignedDecimal(value.capturedAtNs) ||
     !isMemory(value.memory) ||
     !isOutcomes(value.outcomes) ||
+    !(value.activePrefetchGeneration === null || isGeneration(value.activePrefetchGeneration)) ||
     !isCanonicalUnsignedDecimal(value.inventoryRevision) ||
     !isCanonicalUnsignedDecimal(value.earliestRetainedSequence) ||
     !isCanonicalUnsignedDecimal(value.lostChangeCount)

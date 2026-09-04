@@ -307,6 +307,7 @@ function PredictionView() {
   const format = createEditorFormatters(i18n.language);
   const projectDocument = useProjectStore((state) => state.document);
   const changes = useAssetProfilerStore((state) => state.changes);
+  const profilerPayload = useAssetProfilerStore((state) => state.payload);
   const status = useAssetProfilerStore((state) => state.status);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -321,13 +322,7 @@ function PredictionView() {
     if (!compiled.ok) return null;
     return projectFlowPredictionIndexForTooling(compiled.project.flowPrediction);
   }, [project]);
-  const liveGeneration = useMemo(() => {
-    for (let index = changes.length - 1; index >= 0; --index) {
-      const change = changes[index];
-      if (change.kind === 'prefetch-generation-upsert') return change.generation;
-    }
-    return null;
-  }, [changes]);
+  const liveGeneration = profilerPayload?.activePrefetchGeneration ?? null;
   const targetRecords = useMemo(() => {
     if (!project) return [];
     const records =
@@ -451,7 +446,9 @@ function PredictionView() {
               <tbody>
                 {liveGeneration.predictionPlan.map((entry, index) => (
                   <tr key={`${entry.cacheKey.stableIdentity}:${index}`} className="border-t">
-                    <td className="px-2 py-1.5">{entry.prediction}</td>
+                    <td className="px-2 py-1.5">
+                      {t(`assetProfiler.prediction.predictionKinds.${entry.prediction}`)}
+                    </td>
                     <td className="px-2 py-1.5 tabular-nums">
                       {entry.executionDistance.toString()}
                     </td>
@@ -464,7 +461,7 @@ function PredictionView() {
                         cpu: format.fileSize(BigInt(entry.estimatedCost.preparedCpuBytes)),
                         gpu: format.fileSize(BigInt(entry.estimatedCost.gpuBytes)),
                         audio: format.fileSize(BigInt(entry.estimatedCost.audioBytes)),
-                        kind: entry.costEstimate,
+                        kind: t(`assetProfiler.prediction.costEstimateKinds.${entry.costEstimate}`),
                       })}
                     </td>
                     <td className="px-2 py-1.5 font-mono text-[10px]">
@@ -475,10 +472,17 @@ function PredictionView() {
                         .map((path) =>
                           [
                             path.supplementalHintId
-                              ? `authored:${path.supplementalHintId}`
-                              : 'automatic',
-                            path.root,
-                            path.room ? `room:${path.room}` : null,
+                              ? t('assetProfiler.prediction.authoredProvenance', {
+                                  id: path.supplementalHintId,
+                                })
+                              : t('assetProfiler.prediction.automaticProvenance'),
+                            t(`assetProfiler.prediction.roots.${path.root}`),
+                            path.room
+                              ? t('assetProfiler.prediction.roomProvenance', { room: path.room })
+                              : null,
+                            path.exit
+                              ? t('assetProfiler.prediction.exitProvenance', { exit: path.exit })
+                              : null,
                             ...path.reasonChain,
                           ]
                             .filter(Boolean)
@@ -517,7 +521,27 @@ function PredictionView() {
                 <div className="min-w-0">
                   <div className="truncate font-medium">{assetId}</div>
                   <div className="truncate text-[10px] text-muted-foreground">
-                    {[change.miss.frontier.root, ...change.miss.frontier.reasonChain].join(' → ')}
+                    {[
+                      change.miss.frontier.supplementalHintId
+                        ? t('assetProfiler.prediction.authoredProvenance', {
+                            id: change.miss.frontier.supplementalHintId,
+                          })
+                        : t('assetProfiler.prediction.automaticProvenance'),
+                      change.miss.frontier.root,
+                      change.miss.frontier.room
+                        ? t('assetProfiler.prediction.roomProvenance', {
+                            room: change.miss.frontier.room,
+                          })
+                        : null,
+                      change.miss.frontier.exit
+                        ? t('assetProfiler.prediction.exitProvenance', {
+                            exit: change.miss.frontier.exit,
+                          })
+                        : null,
+                      ...change.miss.frontier.reasonChain,
+                    ]
+                      .filter(Boolean)
+                      .join(' → ')}
                   </div>
                   <div className="truncate font-mono text-[10px] text-muted-foreground">
                     {change.miss.frontier.attachmentPoint}
@@ -564,6 +588,18 @@ function PredictionView() {
                       ? authoringPredictionPointLabel(hint.attachment.point)
                       : `room:${hint.attachment.room.$ref.id}:${hint.attachment.scope}`}
                   </div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {(() => {
+                      const expansion = staticProjection?.supplementalHints.find(
+                        (compiledHint) => compiledHint.id === hint.id,
+                      )?.potentialExpansion.dependencies;
+                      return expansion?.length
+                        ? t('assetProfiler.prediction.effectiveExpansion', {
+                            dependencies: expansion.map(predictionDependencyLabel).join(', '),
+                          })
+                        : t('assetProfiler.prediction.noEffectiveDependencies');
+                    })()}
+                  </div>
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => removeHint(hint.id)}>
                   {t('assetProfiler.prediction.removeHint')}
@@ -586,7 +622,7 @@ function PredictionView() {
                   <SelectContent>
                     {(['asset', 'scene', 'dialogue', 'room', 'layout'] as const).map((kind) => (
                       <SelectItem key={kind} value={kind}>
-                        {kind}
+                        {t(`assetProfiler.prediction.targetKinds.${kind}`)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -707,14 +743,19 @@ function PredictionView() {
                     <div className="truncate font-mono text-[10px] text-muted-foreground">
                       {slice.edges.length
                         ? slice.edges
-                            .map((edge) => `${edge.kind}:${edge.reason}→#${edge.target}`)
+                            .map(
+                              (edge) =>
+                                `${t(`assetProfiler.prediction.edgeKinds.${edge.kind}`)}: ${t(
+                                  `assetProfiler.prediction.edgeReasons.${edge.reason}`,
+                                )} → #${edge.target}`,
+                            )
                             .join(' · ')
                         : t('assetProfiler.prediction.noEdges')}
                     </div>
                   </div>
                   <div className="text-right text-[10px] text-muted-foreground">
                     <div>{state}</div>
-                    <div>{slice.frontier}</div>
+                    <div>{t(`assetProfiler.prediction.frontiers.${slice.frontier}`)}</div>
                     {(staticProjection.supplementalHints ?? [])
                       .filter(
                         (hint) =>
@@ -723,6 +764,11 @@ function PredictionView() {
                       .map((hint) => (
                         <div key={hint.id} className="font-mono">
                           {hint.id}→{compiledHintTargetLabel(hint.target)}
+                          {hint.potentialExpansion.dependencies.length
+                            ? ` · ${hint.potentialExpansion.dependencies
+                                .map(predictionDependencyLabel)
+                                .join(', ')}`
+                            : ''}
                         </div>
                       ))}
                     <Button

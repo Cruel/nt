@@ -514,35 +514,38 @@ RuntimePresentationBridge::reconcile_publication(const core::RuntimePresentation
 }
 
 core::Diagnostics RuntimePresentationBridge::update_active_scene_prediction(
-    const std::optional<runtime::RuntimeSceneExecutionSnapshot>& active_scene)
+    const std::optional<runtime::RuntimeSceneExecutionSnapshot>& active_scene,
+    const runtime::FlowPredictionContext& context)
 {
     if (m_mandatory_asset_gate == nullptr)
         return {};
     if (!active_scene)
-        return m_mandatory_asset_gate->update_active_scene_prediction_on_owner(nullptr);
+        return m_mandatory_asset_gate->update_active_scene_prediction_on_owner(nullptr, context);
     const runtime::ActiveScenePredictionRoot root{active_scene->scene, active_scene->position};
-    return m_mandatory_asset_gate->update_active_scene_prediction_on_owner(&root);
+    return m_mandatory_asset_gate->update_active_scene_prediction_on_owner(&root, context);
 }
 
 core::Diagnostics RuntimePresentationBridge::update_active_dialogue_prediction(
-    const std::optional<runtime::RuntimeDialogueExecutionSnapshot>& active_dialogue)
+    const std::optional<runtime::RuntimeDialogueExecutionSnapshot>& active_dialogue,
+    const runtime::FlowPredictionContext& context)
 {
     if (m_mandatory_asset_gate == nullptr)
         return {};
     if (!active_dialogue)
-        return m_mandatory_asset_gate->update_active_dialogue_prediction_on_owner(nullptr);
+        return m_mandatory_asset_gate->update_active_dialogue_prediction_on_owner(nullptr, context);
     const runtime::ActiveDialoguePredictionRoot root{active_dialogue->dialogue,
                                                      active_dialogue->position};
-    return m_mandatory_asset_gate->update_active_dialogue_prediction_on_owner(&root);
+    return m_mandatory_asset_gate->update_active_dialogue_prediction_on_owner(&root, context);
 }
 
 core::Diagnostics RuntimePresentationBridge::update_resident_room_prediction(
-    const std::optional<runtime::ResidentRoomPredictionRoot>& resident_room)
+    const std::optional<runtime::ResidentRoomPredictionRoot>& resident_room,
+    const runtime::FlowPredictionContext& context)
 {
     if (m_mandatory_asset_gate == nullptr)
         return {};
     return m_mandatory_asset_gate->update_resident_room_prediction_on_owner(
-        resident_room ? &*resident_room : nullptr);
+        resident_room ? &*resident_room : nullptr, context);
 }
 
 core::Result<void, core::Diagnostics>

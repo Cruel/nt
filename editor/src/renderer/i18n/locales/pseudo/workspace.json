@@ -71,7 +71,45 @@
       "noDependencies": "⟦No semantic dependencies introduced⟧",
       "noEdges": "⟦No outgoing prediction edges⟧",
       "noStaticIndex": "⟦No compiled Flow Prediction Index is available for the current project.⟧",
+      "effectiveExpansion": "⟦Effective expansion: {{dependencies}}⟧",
+      "noEffectiveDependencies": "⟦No effective semantic dependencies⟧",
+      "automaticProvenance": "⟦Automatic⟧",
+      "authoredProvenance": "⟦Authored hint {{id}}⟧",
+      "roomProvenance": "⟦Room {{room}}⟧",
+      "exitProvenance": "⟦Exit {{exit}}⟧",
       "costSummary": "⟦CPU {{cpu}} · GPU {{gpu}} · Audio {{audio}} · {{kind}} estimate⟧",
+      "predictionKinds": {
+        "expected-next": "⟦Expected next⟧",
+        "possible-next": "⟦Possible next⟧"
+      },
+      "costEstimateKinds": { "metadata": "⟦metadata⟧", "conservative": "⟦conservative⟧" },
+      "targetKinds": {
+        "asset": "⟦Asset⟧",
+        "scene": "⟦Scene⟧",
+        "dialogue": "⟦Dialogue⟧",
+        "room": "⟦Room⟧",
+        "layout": "⟦Layout⟧"
+      },
+      "roots": {
+        "flow-execution": "⟦Flow execution⟧",
+        "detached-flow-execution": "⟦Detached Flow execution⟧",
+        "prospective-room-entry": "⟦Prospective Room entry⟧",
+        "resident-room-context": "⟦Current Room actions⟧"
+      },
+      "edgeKinds": { "deterministic": "⟦Deterministic⟧", "alternative": "⟦Alternative⟧" },
+      "edgeReasons": {
+        "successor": "⟦Successor⟧",
+        "condition-true": "⟦Condition true⟧",
+        "condition-false": "⟦Condition false⟧",
+        "branch": "⟦Branch⟧",
+        "choice": "⟦Choice⟧"
+      },
+      "frontiers": {
+        "normal": "⟦Normal⟧",
+        "short-wait": "⟦Short wait⟧",
+        "strong-wait": "⟦Strong wait⟧",
+        "decision": "⟦Decision⟧"
+      },
       "columns": {
         "prediction": "⟦Prediction⟧",
         "distance": "⟦Distance⟧",

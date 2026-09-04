@@ -424,6 +424,8 @@ std::string_view prediction_root_name(AssetProfilerPredictionRoot value) noexcep
     switch (value) {
     case AssetProfilerPredictionRoot::FlowExecution:
         return "flow-execution";
+    case AssetProfilerPredictionRoot::DetachedFlowExecution:
+        return "detached-flow-execution";
     case AssetProfilerPredictionRoot::ProspectiveRoomEntry:
         return "prospective-room-entry";
     case AssetProfilerPredictionRoot::ResidentRoomContext:
@@ -444,6 +446,7 @@ Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
             provenance.push_back(
                 Json{{"root", prediction_root_name(path.root)},
                      {"room", path.room ? Json(*path.room) : Json(nullptr)},
+                     {"exit", path.exit ? Json(*path.exit) : Json(nullptr)},
                      {"supplementalHintId",
                       path.supplemental_hint_id ? Json(*path.supplemental_hint_id) : Json(nullptr)},
                      {"reasonChain", std::move(reason_chain)}});
@@ -475,11 +478,14 @@ Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
         Json reason_chain = array_with_capacity(frontier.reason_chain.size());
         for (const auto& reason : frontier.reason_chain)
             reason_chain.push_back(reason);
-        opaque_frontiers.push_back(
-            Json{{"root", prediction_root_name(frontier.root)},
-                 {"room", frontier.room ? Json(*frontier.room) : Json(nullptr)},
-                 {"attachmentPoint", frontier.attachment_point},
-                 {"reasonChain", std::move(reason_chain)}});
+        opaque_frontiers.push_back(Json{
+            {"root", prediction_root_name(frontier.root)},
+            {"room", frontier.room ? Json(*frontier.room) : Json(nullptr)},
+            {"exit", frontier.exit ? Json(*frontier.exit) : Json(nullptr)},
+            {"supplementalHintId",
+             frontier.supplemental_hint_id ? Json(*frontier.supplemental_hint_id) : Json(nullptr)},
+            {"attachmentPoint", frontier.attachment_point},
+            {"reasonChain", std::move(reason_chain)}});
     }
     return Json{{"generation", decimal(value.generation.value)},
                 {"timestampNs", decimal(value.timestamp_ns)},
@@ -508,6 +514,10 @@ Json opaque_prediction_miss_json(const AssetProfilerOpaquePredictionMiss& value)
                 {"frontier",
                  Json{{"root", prediction_root_name(value.frontier.root)},
                       {"room", value.frontier.room ? Json(*value.frontier.room) : Json(nullptr)},
+                      {"exit", value.frontier.exit ? Json(*value.frontier.exit) : Json(nullptr)},
+                      {"supplementalHintId", value.frontier.supplemental_hint_id
+                                                 ? Json(*value.frontier.supplemental_hint_id)
+                                                 : Json(nullptr)},
                       {"attachmentPoint", value.frontier.attachment_point},
                       {"reasonChain", std::move(reason_chain)}}}};
 }
@@ -579,6 +589,9 @@ Json change_json(const AssetProfilerChange& value)
             } else if constexpr (std::is_same_v<T, AssetProfilerOpaquePredictionMiss>) {
                 result["kind"] = "opaque-prediction-miss";
                 result["miss"] = opaque_prediction_miss_json(payload);
+            } else if constexpr (std::is_same_v<T, AssetProfilerPrefetchGenerationReleased>) {
+                result["kind"] = "prefetch-generation-released";
+                result["generation"] = decimal(payload.generation.value);
             } else {
                 result["kind"] = "inventory-changed";
                 result["inventoryRevision"] = decimal(payload.revision);
@@ -619,38 +632,45 @@ bool parse_asset_profiler_decimal(std::string_view text, std::uint64_t& value) n
 
 std::string serialize_asset_profiler_snapshot(const AssetProfilerSnapshot& value)
 {
-    Json payload{{"kind", "full"},
-                 {"sessionId", decimal(value.session_id.value)},
-                 {"latestSequence", decimal(value.latest_sequence.value)},
-                 {"capturedAtNs", decimal(value.captured_at_ns)},
-                 {"memory", memory_json(value.memory)},
-                 {"outcomes", outcomes_json(value.outcomes)},
-                 {"assets", entries_json(value.assets)},
-                 {"inventoryRevision", decimal(value.inventory_revision)},
-                 {"retainedChanges", changes_json(value.retained_changes)},
-                 {"earliestRetainedSequence", decimal(value.earliest_retained_sequence.value)},
-                 {"lostChangeCount", decimal(value.lost_change_count)},
-                 {"historyComplete", value.history_complete}};
+    Json payload{
+        {"kind", "full"},
+        {"sessionId", decimal(value.session_id.value)},
+        {"latestSequence", decimal(value.latest_sequence.value)},
+        {"capturedAtNs", decimal(value.captured_at_ns)},
+        {"memory", memory_json(value.memory)},
+        {"outcomes", outcomes_json(value.outcomes)},
+        {"assets", entries_json(value.assets)},
+        {"activePrefetchGeneration", value.active_prefetch_generation
+                                         ? generation_json(*value.active_prefetch_generation)
+                                         : Json(nullptr)},
+        {"inventoryRevision", decimal(value.inventory_revision)},
+        {"retainedChanges", changes_json(value.retained_changes)},
+        {"earliestRetainedSequence", decimal(value.earliest_retained_sequence.value)},
+        {"lostChangeCount", decimal(value.lost_change_count)},
+        {"historyComplete", value.history_complete}};
     return success(std::move(payload)).dump();
 }
 
 std::string serialize_asset_profiler_delta(const AssetProfilerDelta& value)
 {
-    Json payload{{"kind", "delta"},
-                 {"sessionId", decimal(value.session_id.value)},
-                 {"afterSequence", decimal(value.after_sequence.value)},
-                 {"latestSequence", decimal(value.latest_sequence.value)},
-                 {"capturedAtNs", decimal(value.captured_at_ns)},
-                 {"memory", memory_json(value.memory)},
-                 {"outcomes", outcomes_json(value.outcomes)},
-                 {"replacementInventory", value.replacement_inventory
-                                              ? entries_json(*value.replacement_inventory)
-                                              : Json(nullptr)},
-                 {"inventoryRevision", decimal(value.inventory_revision)},
-                 {"changes", changes_json(value.changes)},
-                 {"earliestRetainedSequence", decimal(value.earliest_retained_sequence.value)},
-                 {"lostChangeCount", decimal(value.lost_change_count)},
-                 {"historyGap", value.history_gap}};
+    Json payload{
+        {"kind", "delta"},
+        {"sessionId", decimal(value.session_id.value)},
+        {"afterSequence", decimal(value.after_sequence.value)},
+        {"latestSequence", decimal(value.latest_sequence.value)},
+        {"capturedAtNs", decimal(value.captured_at_ns)},
+        {"memory", memory_json(value.memory)},
+        {"outcomes", outcomes_json(value.outcomes)},
+        {"replacementInventory",
+         value.replacement_inventory ? entries_json(*value.replacement_inventory) : Json(nullptr)},
+        {"activePrefetchGeneration", value.active_prefetch_generation
+                                         ? generation_json(*value.active_prefetch_generation)
+                                         : Json(nullptr)},
+        {"inventoryRevision", decimal(value.inventory_revision)},
+        {"changes", changes_json(value.changes)},
+        {"earliestRetainedSequence", decimal(value.earliest_retained_sequence.value)},
+        {"lostChangeCount", decimal(value.lost_change_count)},
+        {"historyGap", value.history_gap}};
     return success(std::move(payload)).dump();
 }
 

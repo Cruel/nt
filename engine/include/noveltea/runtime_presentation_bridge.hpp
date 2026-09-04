@@ -63,11 +63,14 @@ public:
     [[nodiscard]] core::Diagnostics
     reconcile_publication(const core::RuntimePresentationSnapshot& snapshot) override;
     [[nodiscard]] core::Diagnostics update_active_scene_prediction(
-        const std::optional<runtime::RuntimeSceneExecutionSnapshot>& active_scene);
+        const std::optional<runtime::RuntimeSceneExecutionSnapshot>& active_scene,
+        const runtime::FlowPredictionContext& context = {});
     [[nodiscard]] core::Diagnostics update_active_dialogue_prediction(
-        const std::optional<runtime::RuntimeDialogueExecutionSnapshot>& active_dialogue);
+        const std::optional<runtime::RuntimeDialogueExecutionSnapshot>& active_dialogue,
+        const runtime::FlowPredictionContext& context = {});
     [[nodiscard]] core::Diagnostics update_resident_room_prediction(
-        const std::optional<runtime::ResidentRoomPredictionRoot>& resident_room);
+        const std::optional<runtime::ResidentRoomPredictionRoot>& resident_room,
+        const runtime::FlowPredictionContext& context = {});
     [[nodiscard]] core::Result<void, core::Diagnostics>
     prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();

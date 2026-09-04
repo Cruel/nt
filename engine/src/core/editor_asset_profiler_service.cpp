@@ -364,12 +364,26 @@ void EditorAssetProfilerService::record(AssetTelemetryEvent event) noexcept
                 std::ranges::any_of(generation->second.prediction_plan, [&](const auto& entry) {
                     return entry.cache_key == *event.cache_key;
                 });
-            if (!was_planned && generation->second.opaque_frontiers.size() == 1) {
+            const AssetProfilerOpaquePredictionFrontier* unique_frontier = nullptr;
+            bool ambiguous_frontier = false;
+            for (const auto& frontier : generation->second.opaque_frontiers) {
+                if (frontier.attachment_point.empty())
+                    continue;
+                if (unique_frontier == nullptr) {
+                    unique_frontier = &frontier;
+                    continue;
+                }
+                if (frontier.attachment_point != unique_frontier->attachment_point) {
+                    ambiguous_frontier = true;
+                    break;
+                }
+            }
+            if (!was_planned && unique_frontier != nullptr && !ambiguous_frontier) {
                 opaque_prediction_miss = AssetProfilerOpaquePredictionMiss{
                     .cache_key = *event.cache_key,
                     .request_id = event.request_id,
                     .generation = generation->second.generation,
-                    .frontier = generation->second.opaque_frontiers.front(),
+                    .frontier = *unique_frontier,
                 };
             }
         }
@@ -420,6 +434,7 @@ void EditorAssetProfilerService::record_prefetch_generation_released(
         return;
     m_impl->active_prefetch_generation.reset();
     m_impl->active_predictions.clear();
+    m_impl->append_change_unlocked(AssetProfilerPrefetchGenerationReleased{generation});
     m_impl->inventory_dirty = true;
 }
 
@@ -497,6 +512,12 @@ AssetProfilerSnapshot EditorAssetProfilerService::capture_on_owner() const
     snapshot.lost_change_count = m_impl->lost_change_count;
     snapshot.history_complete = m_impl->lost_change_count == 0;
     snapshot.assets = m_impl->inventory;
+    if (m_impl->active_prefetch_generation) {
+        const auto active =
+            m_impl->prefetch_generations.find(m_impl->active_prefetch_generation->value);
+        if (active != m_impl->prefetch_generations.end())
+            snapshot.active_prefetch_generation = active->second;
+    }
     snapshot.inventory_revision = m_impl->inventory_revision;
     snapshot.outcomes = m_impl->outcomes;
     snapshot.memory = {.current = m_impl->memory_current,
@@ -656,6 +677,12 @@ EditorAssetProfilerService::capture_delta_on_owner(AssetProfilerSessionId expect
     delta.lost_change_count = m_impl->lost_change_count;
     delta.inventory_revision = m_impl->inventory_revision;
     delta.outcomes = m_impl->outcomes;
+    if (m_impl->active_prefetch_generation) {
+        const auto active =
+            m_impl->prefetch_generations.find(m_impl->active_prefetch_generation->value);
+        if (active != m_impl->prefetch_generations.end())
+            delta.active_prefetch_generation = active->second;
+    }
     delta.memory = {.current = m_impl->memory_current,
                     .peak = m_impl->memory_peak,
                     .policy = m_impl->policy,

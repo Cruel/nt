@@ -340,8 +340,9 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
                                                                     std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"commandId", "kind", "property", "value", "scene", "dialogue", "room",
-                         "condition", "thenCommands", "elseCommands"}))
+                        {"commandId", "kind", "property", "value", "owner", "trait", "present",
+                         "subject", "location", "scene", "dialogue", "room", "condition",
+                         "thenCommands", "elseCommands"}))
         return std::nullopt;
     const auto* kind_value = decoder.member(value, "kind", pointer);
     auto kind =
@@ -363,6 +364,10 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
 
     if (*kind == "opaque")
         return make_command(FlowPredictionOpaque{});
+    if (*kind == "invalidate-condition-facts")
+        return make_command(FlowPredictionInvalidateConditionFacts{});
+    if (*kind == "invalidate-prediction-state")
+        return make_command(FlowPredictionInvalidateState{});
     if (*kind == "set-global-property" || *kind == "invalidate-global-property") {
         const auto* property_value = decoder.member(value, "property", pointer);
         auto property =
@@ -382,6 +387,64 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
             return std::nullopt;
         return make_command(
             FlowPredictionSetGlobalProperty{std::move(*property), std::move(*parsed_value)});
+    }
+    if (*kind == "set-identity-property") {
+        const auto* owner_value = decoder.member(value, "owner", pointer);
+        const auto* property_value = decoder.member(value, "property", pointer);
+        const auto* runtime_value = decoder.member(value, "value", pointer);
+        auto owner = owner_value
+                         ? decode_prediction_identity_operand(decoder, *owner_value,
+                                                             pointer_child(pointer, "owner"))
+                         : std::nullopt;
+        auto property =
+            property_value
+                ? decode_reference<PropertyId>(decoder, *property_value,
+                                               pointer_child(pointer, "property"), "property")
+                : std::nullopt;
+        auto parsed_value = runtime_value ? decode_runtime_value(decoder, *runtime_value,
+                                                                 pointer_child(pointer, "value"))
+                                          : std::nullopt;
+        return owner && property && parsed_value
+                   ? std::optional<FlowPredictionCommand>{make_command(
+                         FlowPredictionSetIdentityProperty{std::move(*owner), std::move(*property),
+                                                           std::move(*parsed_value)})}
+                   : std::nullopt;
+    }
+    if (*kind == "set-trait-presence") {
+        const auto* owner_value = decoder.member(value, "owner", pointer);
+        const auto* trait_value = decoder.member(value, "trait", pointer);
+        const auto* present_value = decoder.member(value, "present", pointer);
+        auto owner = owner_value
+                         ? decode_prediction_identity_operand(decoder, *owner_value,
+                                                             pointer_child(pointer, "owner"))
+                         : std::nullopt;
+        auto trait = trait_value
+                         ? decode_reference<TraitId>(decoder, *trait_value,
+                                                     pointer_child(pointer, "trait"), "trait")
+                         : std::nullopt;
+        auto present = present_value
+                           ? decoder.boolean(*present_value, pointer_child(pointer, "present"))
+                           : std::nullopt;
+        return owner && trait && present
+                   ? std::optional<FlowPredictionCommand>{make_command(FlowPredictionSetTraitPresence{
+                         std::move(*owner), std::move(*trait), *present})}
+                   : std::nullopt;
+    }
+    if (*kind == "set-location") {
+        const auto* subject_value = decoder.member(value, "subject", pointer);
+        const auto* location_value = decoder.member(value, "location", pointer);
+        auto subject = subject_value
+                           ? decode_prediction_location_subject_operand(
+                                 decoder, *subject_value, pointer_child(pointer, "subject"))
+                           : std::nullopt;
+        auto location = location_value
+                            ? decode_prediction_location_operand(
+                                  decoder, *location_value, pointer_child(pointer, "location"))
+                            : std::nullopt;
+        return subject && location
+                   ? std::optional<FlowPredictionCommand>{make_command(
+                         FlowPredictionSetLocation{std::move(*subject), std::move(*location)})}
+                   : std::nullopt;
     }
     if (*kind == "call-scene" || *kind == "start-detached-scene") {
         const auto* scene_value = decoder.member(value, "scene", pointer);
@@ -744,11 +807,13 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
             *hints_iter, pointer_child(pointer, "supplementalHints"),
             [&](const nlohmann::json& hint,
                 const std::string& hint_pointer) -> std::optional<FlowPredictionSupplementalHint> {
-                if (!decoder.object(hint, hint_pointer, {"id", "target", "attachment"}))
+                if (!decoder.object(hint, hint_pointer,
+                                    {"id", "target", "attachment", "potentialExpansionSlices"}))
                     return std::nullopt;
                 const auto* id_value = decoder.member(hint, "id", hint_pointer);
                 const auto* target_value = decoder.member(hint, "target", hint_pointer);
                 const auto* attachment_value = decoder.member(hint, "attachment", hint_pointer);
+                const auto expansion_iter = hint.find("potentialExpansionSlices");
                 auto id = id_value ? decoder.string(*id_value, pointer_child(hint_pointer, "id"))
                                    : std::nullopt;
                 auto target =
@@ -760,10 +825,17 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                                                          decoder, *attachment_value,
                                                          pointer_child(hint_pointer, "attachment"))
                                                    : std::nullopt;
-                if (!id || !target || !attachment)
+                std::optional<std::vector<std::size_t>> potential_expansion =
+                    std::vector<std::size_t>{};
+                if (expansion_iter != hint.end())
+                    potential_expansion = decode_flow_prediction_indexes(
+                        decoder, *expansion_iter,
+                        pointer_child(hint_pointer, "potentialExpansionSlices"));
+                if (!id || !target || !attachment || !potential_expansion)
                     return std::nullopt;
                 return FlowPredictionSupplementalHint{std::move(*id), std::move(*target),
-                                                      std::move(*attachment)};
+                                                      std::move(*attachment),
+                                                      std::move(*potential_expansion)};
             });
     }
     auto slices =
@@ -773,11 +845,12 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                   [&](const nlohmann::json& slice,
                       const std::string& slice_pointer) -> std::optional<FlowPredictionSlice> {
                       if (!decoder.object(slice, slice_pointer,
-                                          {"point", "dependencyGroups", "condition",
+                                          {"point", "resumePoints", "dependencyGroups", "condition",
                                            "conditionFalseSuccessor", "control", "frontier",
                                            "program"}))
                           return std::nullopt;
                       const auto* point_value = decoder.member(slice, "point", slice_pointer);
+                      const auto resume_points_iter = slice.find("resumePoints");
                       const auto* dependency_groups_value =
                           decoder.member(slice, "dependencyGroups", slice_pointer);
                       const auto* false_successor_value =
@@ -790,6 +863,17 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                               ? decode_flow_prediction_point(decoder, *point_value,
                                                              pointer_child(slice_pointer, "point"))
                               : std::nullopt;
+                      std::optional<std::vector<FlowPredictionPoint>> resume_points =
+                          std::vector<FlowPredictionPoint>{};
+                      if (resume_points_iter != slice.end()) {
+                          resume_points = decoder.array<FlowPredictionPoint>(
+                              *resume_points_iter, pointer_child(slice_pointer, "resumePoints"),
+                              [&](const nlohmann::json& resume_point,
+                                  const std::string& resume_pointer) {
+                                  return decode_flow_prediction_point(decoder, resume_point,
+                                                                      resume_pointer);
+                              });
+                      }
                       auto dependency_groups =
                           dependency_groups_value
                               ? decode_flow_prediction_indexes(
@@ -830,18 +914,19 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                                                                  decoder, command, command_pointer);
                                                          })
                                                    : std::nullopt;
-                      if (!point || !dependency_groups || !false_successor_ok || !control ||
+                      if (!point || !resume_points || !dependency_groups || !false_successor_ok || !control ||
                           !frontier || !program)
                           return std::nullopt;
                       return FlowPredictionSlice{
-                          std::move(*point),  std::move(*dependency_groups), std::move(condition),
-                          false_successor,    std::move(*control),           *frontier,
-                          std::move(*program)};
+                          std::move(*point),         std::move(*resume_points),
+                          std::move(*dependency_groups), std::move(condition),
+                          false_successor,           std::move(*control),
+                          *frontier,                 std::move(*program)};
                   })
             : std::nullopt;
     if (!groups || !hints || !slices)
         return std::nullopt;
-    return FlowPredictionIndex{std::move(*groups), std::move(*hints), std::move(*slices)};
+    return FlowPredictionIndex{std::move(*groups), std::move(*hints), std::move(*slices), {}};
 }
 
 } // namespace
@@ -849,7 +934,7 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
 Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& document,
                                                          std::string source_path)
 {
-    Decoder decoder(std::move(source_path));
+    Decoder decoder(source_path);
     if (!decoder.object(document, "",
                         {"archetypes", "bootstrapModule", "definitions", "entrypoint",
                          "flowPrediction", "interactableInstances", "inventories", "localization",
@@ -907,14 +992,22 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     auto entrypoint = entrypoint_value
                           ? decode_entrypoint(decoder, *entrypoint_value, "/entrypoint")
                           : std::nullopt;
-    bool flow_prediction_valid = true;
     std::optional<FlowPredictionIndex> flow_prediction;
     if (flow_prediction_value && !flow_prediction_value->is_null()) {
-        auto decoded =
-            decode_flow_prediction_index(decoder, *flow_prediction_value, "/flowPrediction");
-        flow_prediction_valid = decoded.has_value();
-        if (decoded)
+        Decoder prediction_decoder(source_path);
+        auto decoded = decode_flow_prediction_index(prediction_decoder, *flow_prediction_value,
+                                                    "/flowPrediction");
+        auto prediction_diagnostics = prediction_decoder.take_diagnostics();
+        for (auto& diagnostic : prediction_diagnostics)
+            diagnostic.severity = ErrorSeverity::Warning;
+        if (decoded) {
+            decoded->diagnostics = std::move(prediction_diagnostics);
             flow_prediction = std::move(*decoded);
+        } else {
+            FlowPredictionIndex degraded;
+            degraded.diagnostics = std::move(prediction_diagnostics);
+            flow_prediction = std::move(degraded);
+        }
     }
     auto bootstrap = bootstrap_value ? decode_reference<ScriptId>(decoder, *bootstrap_value,
                                                                   "/bootstrapModule", "script")
@@ -1464,8 +1557,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 #undef NOVELTEA_DUPLICATE_DEFINITION
 
     const bool complete =
-        schema && version && identity && settings && entrypoint && flow_prediction_valid &&
-        bootstrap && save_contract && localization && inventories && properties && traits &&
+        schema && version && identity && settings && entrypoint && bootstrap && save_contract &&
+        localization && inventories && properties && traits &&
         archetypes && interactable_instances && assets && layouts && material_interfaces &&
         scripts && characters && rooms && interactables && verbs && interactions &&
         undefined_interaction_valid && scenes && dialogues && maps;

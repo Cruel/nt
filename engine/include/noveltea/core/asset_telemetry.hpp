@@ -350,6 +350,7 @@ struct AssetProfilerPrefetchSubmissionFailure {
 
 enum class AssetProfilerPredictionRoot : std::uint8_t {
     FlowExecution,
+    DetachedFlowExecution,
     ProspectiveRoomEntry,
     ResidentRoomContext,
 };
@@ -357,6 +358,7 @@ enum class AssetProfilerPredictionRoot : std::uint8_t {
 struct AssetProfilerPredictionProvenance {
     AssetProfilerPredictionRoot root = AssetProfilerPredictionRoot::FlowExecution;
     std::optional<std::string> room;
+    std::optional<std::string> exit;
     std::optional<std::string> supplemental_hint_id;
     std::vector<std::string> reason_chain;
 };
@@ -381,6 +383,8 @@ struct AssetProfilerPrefetchPlanEntry {
 struct AssetProfilerOpaquePredictionFrontier {
     AssetProfilerPredictionRoot root = AssetProfilerPredictionRoot::FlowExecution;
     std::optional<std::string> room;
+    std::optional<std::string> exit;
+    std::optional<std::string> supplemental_hint_id;
     std::string attachment_point;
     std::vector<std::string> reason_chain;
 };
@@ -406,6 +410,9 @@ struct AssetProfilerOpaquePredictionMiss {
     assets::PrefetchGenerationId generation;
     AssetProfilerOpaquePredictionFrontier frontier;
 };
+struct AssetProfilerPrefetchGenerationReleased {
+    assets::PrefetchGenerationId generation;
+};
 struct AssetProfilerInventoryChanged {
     std::uint64_t revision = 0;
 };
@@ -413,7 +420,7 @@ struct AssetProfilerInventoryChanged {
 using AssetProfilerChangePayload =
     std::variant<AssetTelemetryEvent, AssetProfilerMemoryPoint, AssetWaitRecord,
                  AssetProfilerPrefetchGenerationRecord, AssetProfilerOpaquePredictionMiss,
-                 AssetProfilerInventoryChanged>;
+                 AssetProfilerPrefetchGenerationReleased, AssetProfilerInventoryChanged>;
 
 struct AssetProfilerChange {
     AssetProfilerSequence sequence;
@@ -428,6 +435,7 @@ struct AssetProfilerSnapshot {
     AssetProfilerMemorySnapshot memory;
     AssetProfilerOutcomeTotals outcomes;
     std::vector<AssetProfilerEntry> assets;
+    std::optional<AssetProfilerPrefetchGenerationRecord> active_prefetch_generation;
     std::uint64_t inventory_revision = 0;
     std::vector<AssetProfilerChange> retained_changes;
     AssetProfilerSequence earliest_retained_sequence;
@@ -443,6 +451,7 @@ struct AssetProfilerDelta {
     AssetProfilerMemorySnapshot memory;
     AssetProfilerOutcomeTotals outcomes;
     std::optional<std::vector<AssetProfilerEntry>> replacement_inventory;
+    std::optional<AssetProfilerPrefetchGenerationRecord> active_prefetch_generation;
     std::uint64_t inventory_revision = 0;
     std::vector<AssetProfilerChange> changes;
     AssetProfilerSequence earliest_retained_sequence;

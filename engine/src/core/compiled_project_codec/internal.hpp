@@ -74,6 +74,12 @@ std::optional<PersistableValue> decode_persistable_value(Decoder&, const nlohman
 std::optional<TextContent> decode_text(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<Condition> decode_condition_impl(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<Effect> decode_effect_impl(Decoder&, const nlohmann::json&, std::string_view);
+std::optional<GameplayIdentityOperand>
+decode_prediction_identity_operand(Decoder&, const nlohmann::json&, std::string_view);
+std::optional<LocationSubjectOperand>
+decode_prediction_location_subject_operand(Decoder&, const nlohmann::json&, std::string_view);
+std::optional<LocationOperand>
+decode_prediction_location_operand(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<GameplayCommand> decode_gameplay_command_impl(Decoder&, const nlohmann::json&,
                                                             std::string_view);
 std::optional<FlowTarget> decode_flow_target_impl(Decoder&, const nlohmann::json&,

@@ -1127,7 +1127,14 @@ PrefetchPlan resolve_flow_prediction(const StructuredAssetDependencyIndex& index
             descriptor = texture_descriptor(*asset, index.m_impl->source_generation);
         else if (asset->kind == core::compiled::AssetKind::Font)
             descriptor = font_descriptor(*asset, index.m_impl->source_generation);
-        else {
+        else if (asset->kind == core::compiled::AssetKind::Audio) {
+            AudioAssetRequest request{.path = logical_project_path(asset->path),
+                                      .mode = AudioLoadMode::Auto,
+                                      .kind = AudioClipKind::Auto};
+            descriptor = StructuredAssetRequestDescriptor{
+                .request = request,
+                .cache_key = make_audio_cache_key(request, index.m_impl->source_generation)};
+        } else {
             add_diagnostic(plan.diagnostics, "assets.flow_prediction_unsupported_asset_kind",
                            "Flow Prediction Asset '" + asset_dependency->asset.text() +
                                "' does not yet have a tracer-bullet request mapping",
@@ -1246,6 +1253,18 @@ void add_planning_cost(ResidencyCost& current, const ResidencyCost& added) noexc
     current.temporary_bytes = saturating_add(current.temporary_bytes, added.temporary_bytes);
 }
 
+void subtract_planning_cost(ResidencyCost& current, const ResidencyCost& removed) noexcept
+{
+    const auto subtract = [](std::uint64_t value, std::uint64_t amount) {
+        return value > amount ? value - amount : 0;
+    };
+    current.source_bytes = subtract(current.source_bytes, removed.source_bytes);
+    current.prepared_cpu_bytes = subtract(current.prepared_cpu_bytes, removed.prepared_cpu_bytes);
+    current.gpu_bytes = subtract(current.gpu_bytes, removed.gpu_bytes);
+    current.audio_bytes = subtract(current.audio_bytes, removed.audio_bytes);
+    current.temporary_bytes = subtract(current.temporary_bytes, removed.temporary_bytes);
+}
+
 [[nodiscard]] ResidencyCost positive_cost_difference(const ResidencyCost& newer,
                                                      const ResidencyCost& older) noexcept
 {
@@ -1278,6 +1297,32 @@ void merge_cost_upper_bound(ResidencyCost& target, const ResidencyCost& value) n
     if (retained_texture != nullptr && requested_texture != nullptr)
         return !requested_texture->retain_alpha_coverage || retained_texture->retain_alpha_coverage;
     return retained.request.index() == requested.request.index();
+}
+
+[[nodiscard]] bool same_provenance_set(
+    const std::vector<runtime::FlowPredictionProvenance>& left,
+    const std::vector<runtime::FlowPredictionProvenance>& right) noexcept
+{
+    if (left.size() != right.size())
+        return false;
+    return std::all_of(left.begin(), left.end(), [&](const auto& item) {
+        return std::find(right.begin(), right.end(), item) != right.end();
+    });
+}
+
+[[nodiscard]] bool same_candidate(const PrefetchCandidate& left,
+                                  const PrefetchCandidate& right) noexcept
+{
+    return left.descriptor.cache_key == right.descriptor.cache_key &&
+           descriptor_satisfies(left.descriptor, right.descriptor) &&
+           descriptor_satisfies(right.descriptor, left.descriptor) &&
+           left.prediction == right.prediction &&
+           left.execution_distance == right.execution_distance &&
+           left.execution_order == right.execution_order &&
+           left.dependency_priority == right.dependency_priority &&
+           left.estimated_cost == right.estimated_cost &&
+           left.cost_estimate == right.cost_estimate &&
+           same_provenance_set(left.provenance, right.provenance);
 }
 
 void merge_descriptor_capability(StructuredAssetRequestDescriptor& target,
@@ -1335,6 +1380,33 @@ struct NormalizedPlan {
 
 } // namespace
 
+bool equivalent_prefetch_plans(const PrefetchPlan& left, const PrefetchPlan& right) noexcept
+{
+    auto normalized_left = normalize_plan(left);
+    auto normalized_right = normalize_plan(right);
+    const bool left_structural_limit =
+        left.structural_limit_reached || normalized_left.structural_limit_reached;
+    const bool right_structural_limit =
+        right.structural_limit_reached || normalized_right.structural_limit_reached;
+    if (left_structural_limit != right_structural_limit ||
+        normalized_left.candidates.size() != normalized_right.candidates.size())
+        return false;
+    for (std::size_t index = 0; index < normalized_left.candidates.size(); ++index) {
+        if (!same_candidate(normalized_left.candidates[index], normalized_right.candidates[index]))
+            return false;
+    }
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (left.opaque_frontiers.size() != right.opaque_frontiers.size())
+        return false;
+    for (const auto& frontier : left.opaque_frontiers) {
+        if (std::find(right.opaque_frontiers.begin(), right.opaque_frontiers.end(), frontier) ==
+            right.opaque_frontiers.end())
+            return false;
+    }
+#endif
+    return true;
+}
+
 PrefetchPlanner::PrefetchPlanner(AssetManager& assets) noexcept
     : m_impl(std::make_unique<Impl>(assets))
 {
@@ -1343,6 +1415,78 @@ PrefetchPlanner::PrefetchPlanner(AssetManager& assets) noexcept
 PrefetchPlanner::~PrefetchPlanner() = default;
 PrefetchPlanner::PrefetchPlanner(PrefetchPlanner&&) noexcept = default;
 PrefetchPlanner& PrefetchPlanner::operator=(PrefetchPlanner&&) noexcept = default;
+
+bool PrefetchPlanner::would_exhaust_warm_budget_on_owner(const PrefetchPlan& plan) const noexcept
+{
+    auto normalized = normalize_plan(plan);
+    const auto& candidates = normalized.candidates;
+
+    std::set<CacheIdentity> next_identities;
+    for (const auto& candidate : candidates)
+        next_identities.insert(identity_of(candidate.descriptor.cache_key));
+
+    std::map<CacheIdentity, std::size_t> previous_by_identity;
+    for (std::size_t index = 0; index < m_impl->plan_interests.size(); ++index)
+        previous_by_identity.emplace(
+            identity_of(m_impl->plan_interests[index].candidate.descriptor.cache_key), index);
+
+    const auto residency = m_impl->assets->prefetch_planning_residency_on_owner();
+    ResidencyCost planned_warm = residency.warm;
+    for (const auto& interest : m_impl->plan_interests) {
+        const auto identity = identity_of(interest.candidate.descriptor.cache_key);
+        const auto classification = m_impl->assets->prefetch_residency_class_on_owner(
+            interest.candidate.descriptor.cache_key);
+        if (!next_identities.contains(identity)) {
+            // Replacement destroys this planner's obsolete ticket after the new generation is
+            // attached. Budget the eventual reconciled interest set rather than treating stale
+            // Warm work as permanently occupying the next plan's allowance.
+            if (classification == ResidencyClass::Warm)
+                subtract_planning_cost(planned_warm, interest.candidate.estimated_cost);
+            continue;
+        }
+        if (classification != ResidencyClass::Warm)
+            add_planning_cost(planned_warm, interest.candidate.estimated_cost);
+    }
+
+    const auto previous_for = [&](const PrefetchCandidate& candidate) -> const Impl::Interest* {
+        const auto found = previous_by_identity.find(identity_of(candidate.descriptor.cache_key));
+        return found == previous_by_identity.end() ? nullptr
+                                                   : &m_impl->plan_interests[found->second];
+    };
+    const auto additional_cost = [&](const PrefetchCandidate& candidate) {
+        if (m_impl->assets->prefetch_residency_class_on_owner(candidate.descriptor.cache_key) ==
+            ResidencyClass::Warm)
+            return ResidencyCost{};
+        if (const auto* previous = previous_for(candidate))
+            return positive_cost_difference(candidate.estimated_cost,
+                                            previous->candidate.estimated_cost);
+        return candidate.estimated_cost;
+    };
+
+    bool uses_prepared_cpu = false;
+    bool uses_gpu = false;
+    bool uses_audio = false;
+    for (const auto& candidate : candidates) {
+        if (const auto* previous = previous_for(candidate);
+            previous != nullptr &&
+            descriptor_satisfies(previous->candidate.descriptor, candidate.descriptor))
+            continue;
+        const auto added = additional_cost(candidate);
+        uses_prepared_cpu |= added.prepared_cpu_bytes != 0;
+        uses_gpu |= added.gpu_bytes != 0;
+        uses_audio |= added.audio_bytes != 0;
+        if (!prefetch_fits_warm_budget(planned_warm, added, residency.policy.budget))
+            continue;
+        add_planning_cost(planned_warm, added);
+    }
+    const auto allowance = prefetch_allowance_cost(residency.policy.budget);
+    const bool uses_budgeted_memory = uses_prepared_cpu || uses_gpu || uses_audio;
+    return uses_budgeted_memory &&
+           (!uses_prepared_cpu ||
+            planned_warm.prepared_cpu_bytes >= allowance.prepared_cpu_bytes) &&
+           (!uses_gpu || planned_warm.gpu_bytes >= allowance.gpu_bytes) &&
+           (!uses_audio || planned_warm.audio_bytes >= allowance.audio_bytes);
+}
 
 core::Result<PrefetchSubmissionReport, core::Diagnostic>
 PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
@@ -1371,11 +1515,22 @@ PrefetchPlanner::replace_generation_on_owner(const PrefetchPlan& plan) noexcept
         previous_by_identity.emplace(
             identity_of(m_impl->plan_interests[index].candidate.descriptor.cache_key), index);
 
+    std::set<CacheIdentity> next_identities;
+    for (const auto& candidate : candidates)
+        next_identities.insert(identity_of(candidate.descriptor.cache_key));
+
     const auto residency = m_impl->assets->prefetch_planning_residency_on_owner();
     ResidencyCost planned_warm = residency.warm;
     for (const auto& interest : m_impl->plan_interests) {
-        if (m_impl->assets->prefetch_residency_class_on_owner(
-                interest.candidate.descriptor.cache_key) != ResidencyClass::Warm)
+        const auto identity = identity_of(interest.candidate.descriptor.cache_key);
+        const auto classification = m_impl->assets->prefetch_residency_class_on_owner(
+            interest.candidate.descriptor.cache_key);
+        if (!next_identities.contains(identity)) {
+            if (classification == ResidencyClass::Warm)
+                subtract_planning_cost(planned_warm, interest.candidate.estimated_cost);
+            continue;
+        }
+        if (classification != ResidencyClass::Warm)
             add_planning_cost(planned_warm, interest.candidate.estimated_cost);
     }
 

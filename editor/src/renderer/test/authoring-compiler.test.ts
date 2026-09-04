@@ -10,6 +10,7 @@ import {
   compileSubjectSelector,
   lowerSharedAuthoringProject,
 } from '../../shared/authoring-compiler-shared-lowering';
+import { projectFlowPredictionIndexForTooling } from '../../shared/flow-prediction-tooling';
 import { lowerSceneAndRoomPrograms } from '../../shared/authoring-compiler-scene-room-lowering';
 import { lowerDialogueAndInteractionPrograms } from '../../shared/authoring-compiler-dialogue-interaction-lowering';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
@@ -52,6 +53,11 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 describe('authoring compiler framework', () => {
   it('lowers persisted supplemental prefetch intent into the generated prediction index', () => {
     const project = validProject();
+    project.layouts.overlay = {
+      id: 'overlay',
+      label: 'Overlay',
+      data: defaultLayoutData('Overlay'),
+    };
     project.assets['hinted-image'] = {
       id: 'hinted-image',
       label: 'Hinted image',
@@ -85,11 +91,22 @@ describe('authoring compiler framework', () => {
         scope: 'resident',
       },
     };
+    project.prefetchHints['overlay-point'] = {
+      id: 'overlay-point',
+      target: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'hinted-image' } } },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'resident-layout',
+          layout: { $ref: { collection: 'layouts', id: 'overlay' } },
+        },
+      },
+    };
 
     const compiled = compileAuthoringProject(project);
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
-    expect(compiled.project.flowPrediction?.supplementalHints).toHaveLength(2);
+    expect(compiled.project.flowPrediction?.supplementalHints).toHaveLength(3);
     const precise = compiled.project.flowPrediction?.supplementalHints?.find(
       (hint) => hint.id === 'foyer-image',
     );
@@ -103,14 +120,32 @@ describe('authoring compiler framework', () => {
         stage: 'after-enter',
       });
     }
-    expect(
-      compiled.project.flowPrediction?.supplementalHints?.find(
-        (hint) => hint.id === 'hall-resident',
-      ),
-    ).toMatchObject({
+    const resident = compiled.project.flowPrediction?.supplementalHints?.find(
+      (hint) => hint.id === 'hall-resident',
+    );
+    expect(resident).toMatchObject({
       target: { kind: 'room', room: { id: 'foyer' } },
       attachment: { kind: 'room', room: { id: 'hall' }, scope: 'resident' },
     });
+    expect(
+      resident?.potentialExpansionSlices?.map(
+        (slice) => compiled.project.flowPrediction?.slices[slice]?.point,
+      ),
+    ).toEqual([
+      { kind: 'room-lifecycle', room: { kind: 'room', id: 'foyer' }, stage: 'before-enter' },
+      { kind: 'room-lifecycle', room: { kind: 'room', id: 'foyer' }, stage: 'presentation' },
+      { kind: 'room-lifecycle', room: { kind: 'room', id: 'foyer' }, stage: 'after-enter' },
+    ]);
+    const overlay = compiled.project.flowPrediction?.supplementalHints?.find(
+      (hint) => hint.id === 'overlay-point',
+    );
+    expect(overlay?.attachment.kind).toBe('point');
+    if (overlay?.attachment.kind === 'point') {
+      expect(compiled.project.flowPrediction?.slices[overlay.attachment.slice]?.point).toEqual({
+        kind: 'resident-layout',
+        layout: { kind: 'layout', id: 'overlay' },
+      });
+    }
     expect(project.prefetchHints['foyer-image']).toBeDefined();
   });
 
@@ -150,6 +185,318 @@ describe('authoring compiler framework', () => {
     if (!result.ok) return;
     expect(result.project.flowPrediction).toBeDefined();
     expect('flowPrediction' in project).toBe(false);
+  });
+
+  it('recomputes semantic hint expansion when the hinted Scene dependencies change', () => {
+    const project = validProject();
+    for (const assetId of ['first-background', 'second-background']) {
+      project.assets[assetId] = {
+        id: assetId,
+        label: assetId,
+        data: assetDataFromImportMetadata({
+          kind: 'image',
+          projectRelativePath: `assets/images/${assetId}.png`,
+          aliases: [],
+          contentHash: `${assetId}-hash`,
+          sampling: 'linear',
+          imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
+        }),
+      };
+    }
+
+    const hinted = defaultSceneData('Hinted');
+    if (hinted.stage.kind !== 'blank') throw new Error('Expected blank default Scene Stage.');
+    hinted.stage.background.asset = { $ref: { collection: 'assets', id: 'first-background' } };
+    project.scenes.hinted = { id: 'hinted', label: 'Hinted', data: hinted };
+    project.prefetchHints['foyer-hinted-scene'] = {
+      id: 'foyer-hinted-scene',
+      target: { kind: 'scene', scene: { $ref: { collection: 'scenes', id: 'hinted' } } },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'room-lifecycle',
+          room: { $ref: { collection: 'rooms', id: 'foyer' } },
+          stage: 'after-enter',
+        },
+      },
+    };
+
+    const expansionDependencies = () => {
+      const compiled = compileAuthoringProject(project);
+      expect(compiled.ok).toBe(true);
+      if (!compiled.ok) return [];
+      const projection = projectFlowPredictionIndexForTooling(compiled.project.flowPrediction);
+      return (
+        projection?.supplementalHints.find((hint) => hint.id === 'foyer-hinted-scene')
+          ?.potentialExpansion.dependencies ?? []
+      );
+    };
+
+    expect(expansionDependencies()).toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'first-background' },
+    });
+
+    hinted.stage.background.asset = { $ref: { collection: 'assets', id: 'second-background' } };
+    const changed = expansionDependencies();
+    expect(changed).toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'second-background' },
+    });
+    expect(changed).not.toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'first-background' },
+    });
+  });
+
+  it('recomputes semantic hint expansion when hinted Dialogue cue dependencies change', () => {
+    const project = validProject();
+    for (const assetId of ['first-voice', 'second-voice']) {
+      project.assets[assetId] = {
+        id: assetId,
+        label: assetId,
+        data: assetDataFromImportMetadata({
+          kind: 'audio',
+          projectRelativePath: `assets/audio/${assetId}.ogg`,
+          extension: '.ogg',
+          byteSize: 10,
+          contentHash: `${assetId}-hash`,
+          importedAt: '2026-01-01T00:00:00.000Z',
+          originalName: `${assetId}.ogg`,
+          originalPath: `/tmp/${assetId}.ogg`,
+          imageMetadata: null,
+        }),
+      };
+    }
+    const dialogue = defaultDialogueData('Hinted Dialogue');
+    const line = defaultDialogueSegment('line', 'line');
+    line.cues = [
+      {
+        id: 'voice',
+        kind: 'voice',
+        position: { offset: 0, order: 0 },
+        asset: { $ref: { collection: 'assets', id: 'first-voice' } },
+        pausePolicy: 'gameplay',
+        gain: 1,
+        pan: 0,
+        waitForCompletion: false,
+        skipBehavior: 'stop',
+      },
+    ];
+    dialogue.blocks = [{ ...defaultDialogueBlock('sequence', 'start'), segments: [line] }];
+    project.dialogues.hinted = { id: 'hinted', label: 'Hinted', data: dialogue };
+    project.prefetchHints['foyer-hinted-dialogue'] = {
+      id: 'foyer-hinted-dialogue',
+      target: { kind: 'dialogue', dialogue: { $ref: { collection: 'dialogues', id: 'hinted' } } },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'room-lifecycle',
+          room: { $ref: { collection: 'rooms', id: 'foyer' } },
+          stage: 'after-enter',
+        },
+      },
+    };
+    const expansionDependencies = () => {
+      const compiled = compileAuthoringProject(project);
+      expect(compiled.ok).toBe(true);
+      if (!compiled.ok) return [];
+      return (
+        projectFlowPredictionIndexForTooling(
+          compiled.project.flowPrediction,
+        )?.supplementalHints.find((hint) => hint.id === 'foyer-hinted-dialogue')?.potentialExpansion
+          .dependencies ?? []
+      );
+    };
+    expect(expansionDependencies()).toContainEqual({
+      kind: 'audio',
+      asset: { kind: 'asset', id: 'first-voice' },
+      purpose: 'voice',
+    });
+    const voiceCue = line.cues[0]!;
+    if (voiceCue.kind !== 'voice') throw new Error('fixture mismatch');
+    voiceCue.asset = { $ref: { collection: 'assets', id: 'second-voice' } };
+    const changed = expansionDependencies();
+    expect(changed).toContainEqual({
+      kind: 'audio',
+      asset: { kind: 'asset', id: 'second-voice' },
+      purpose: 'voice',
+    });
+    expect(changed).not.toContainEqual({
+      kind: 'audio',
+      asset: { kind: 'asset', id: 'first-voice' },
+      purpose: 'voice',
+    });
+  });
+
+  it('includes Choice effect Flow and nested supplemental hints in displayed hint expansion', () => {
+    const project = validProject();
+    for (const assetId of ['choice-child-image', 'nested-hint-image']) {
+      project.assets[assetId] = {
+        id: assetId,
+        label: assetId,
+        data: assetDataFromImportMetadata({
+          kind: 'image',
+          projectRelativePath: `assets/images/${assetId}.png`,
+          aliases: [],
+          contentHash: `${assetId}-hash`,
+          sampling: 'linear',
+          imageMetadata: { width: 64, height: 64, hasAlpha: false, orientation: 1 },
+        }),
+      };
+    }
+
+    const child = defaultSceneData('Choice Child');
+    if (child.stage.kind !== 'blank') throw new Error('Expected blank default Scene Stage.');
+    child.stage.background.asset = {
+      $ref: { collection: 'assets', id: 'choice-child-image' },
+    };
+    project.scenes['choice-child'] = { id: 'choice-child', label: 'Choice Child', data: child };
+
+    const dialogue = defaultDialogueData('Choice Hint');
+    dialogue.entryBlockId = 'choice';
+    dialogue.blocks = [
+      defaultDialogueBlock('choice', 'choice'),
+      defaultDialogueBlock('sequence', 'done'),
+    ];
+    dialogue.edges = [
+      {
+        id: 'choose-child',
+        kind: 'choice',
+        fromBlockId: 'choice',
+        toBlockId: 'done',
+        label: { source: { kind: 'inline', text: 'Child' }, markup: 'plain' },
+        condition: { kind: 'always' },
+        effects: [
+          {
+            id: 'call-choice-child',
+            kind: 'call-scene',
+            scene: { $ref: { collection: 'scenes', id: 'choice-child' } },
+          },
+        ],
+        logged: true,
+        autosaveSafePoint: false,
+      },
+    ];
+    project.dialogues['choice-hint'] = {
+      id: 'choice-hint',
+      label: 'Choice Hint',
+      data: dialogue,
+    };
+
+    project.prefetchHints['outer-dialogue-hint'] = {
+      id: 'outer-dialogue-hint',
+      target: {
+        kind: 'dialogue',
+        dialogue: { $ref: { collection: 'dialogues', id: 'choice-hint' } },
+      },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'room-lifecycle',
+          room: { $ref: { collection: 'rooms', id: 'foyer' } },
+          stage: 'after-enter',
+        },
+      },
+    };
+    project.prefetchHints['nested-asset-hint'] = {
+      id: 'nested-asset-hint',
+      target: {
+        kind: 'asset',
+        asset: { $ref: { collection: 'assets', id: 'nested-hint-image' } },
+      },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'scene-entry',
+          scene: { $ref: { collection: 'scenes', id: 'choice-child' } },
+        },
+      },
+    };
+
+    const compiled = compileAuthoringProject(project);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const expansion = projectFlowPredictionIndexForTooling(
+      compiled.project.flowPrediction,
+    )?.supplementalHints.find((hint) => hint.id === 'outer-dialogue-hint')?.potentialExpansion;
+    expect(expansion?.dependencies).toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'choice-child-image' },
+    });
+    expect(expansion?.dependencies).toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'nested-hint-image' },
+    });
+  });
+
+  it('recomputes semantic Room hint expansion when entry lifecycle Flow changes', () => {
+    const project = validProject();
+    for (const assetId of ['first-arrival', 'second-arrival']) {
+      project.assets[assetId] = {
+        id: assetId,
+        label: assetId,
+        data: assetDataFromImportMetadata({
+          kind: 'image',
+          projectRelativePath: `assets/images/${assetId}.png`,
+          aliases: [],
+          contentHash: `${assetId}-hash`,
+          sampling: 'linear',
+          imageMetadata: { width: 64, height: 64, hasAlpha: false, orientation: 1 },
+        }),
+      };
+      const scene = defaultSceneData(assetId);
+      if (scene.stage.kind !== 'blank') throw new Error('Expected blank default Scene Stage.');
+      scene.stage.background.asset = { $ref: { collection: 'assets', id: assetId } };
+      project.scenes[assetId] = { id: assetId, label: assetId, data: scene };
+    }
+    const hall = project.rooms.hall!.data;
+    hall.lifecycle.afterEnter = [
+      {
+        id: 'arrival',
+        kind: 'call-scene',
+        scene: { $ref: { collection: 'scenes', id: 'first-arrival' } },
+      },
+    ];
+    project.prefetchHints['foyer-hinted-room'] = {
+      id: 'foyer-hinted-room',
+      target: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'hall' } } },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'room-lifecycle',
+          room: { $ref: { collection: 'rooms', id: 'foyer' } },
+          stage: 'after-enter',
+        },
+      },
+    };
+    const expansionDependencies = () => {
+      const compiled = compileAuthoringProject(project);
+      expect(compiled.ok).toBe(true);
+      if (!compiled.ok) return [];
+      return (
+        projectFlowPredictionIndexForTooling(
+          compiled.project.flowPrediction,
+        )?.supplementalHints.find((hint) => hint.id === 'foyer-hinted-room')?.potentialExpansion
+          .dependencies ?? []
+      );
+    };
+    expect(expansionDependencies()).toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'first-arrival' },
+    });
+    const arrival = hall.lifecycle.afterEnter[0];
+    if (!arrival || arrival.kind !== 'call-scene') throw new Error('Expected call-scene command.');
+    arrival.scene = { $ref: { collection: 'scenes', id: 'second-arrival' } };
+    const changed = expansionDependencies();
+    expect(changed).toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'second-arrival' },
+    });
+    expect(changed).not.toContainEqual({
+      kind: 'asset',
+      asset: { kind: 'asset', id: 'first-arrival' },
+    });
   });
 
   it('lowers Scene execution positions, local dependencies, and wait frontiers into prediction metadata', () => {
@@ -215,6 +562,100 @@ describe('authoring compiler framework', () => {
       asset: { kind: 'asset', id: 'scene-image' },
     });
     expect(entry!.dependencyGroups).not.toEqual(background!.dependencyGroups);
+  });
+
+  it('coalesces adjacent prediction-inert Scene events while preserving every live resume position', () => {
+    const project = validProject();
+    project.assets['later-image'] = {
+      id: 'later-image',
+      label: 'Later image',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/later-image.png',
+        aliases: [],
+        contentHash: 'later-image-hash',
+        sampling: 'linear',
+        imageMetadata: { width: 64, height: 64, hasAlpha: false, orientation: 1 },
+      }),
+    };
+    const scene = defaultSceneData('Compact Prediction Scene');
+    scene.events = [
+      { ...defaultSceneStep('show-text'), id: 'immediate-a', wait: 'immediate' },
+      { ...defaultSceneStep('show-text'), id: 'immediate-c', wait: 'immediate' },
+      { ...defaultSceneStep('show-text'), id: 'immediate-b', wait: 'immediate' },
+      {
+        ...defaultSceneStep('set-background'),
+        id: 'later-background',
+        asset: { $ref: { collection: 'assets', id: 'later-image' } },
+      },
+    ];
+    project.scenes.compact = { id: 'compact', label: 'Compact', data: scene };
+    project.entrypoint = { kind: 'scene', id: 'compact' };
+    project.prefetchHints['precise-immediate-b'] = {
+      id: 'precise-immediate-b',
+      target: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'later-image' } } },
+      attachment: {
+        kind: 'point',
+        point: {
+          kind: 'scene-step',
+          scene: { $ref: { collection: 'scenes', id: 'compact' } },
+          stepId: 'immediate-b',
+        },
+      },
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const prediction = result.project.flowPrediction!;
+    const sceneSlices = prediction.slices.filter(
+      (slice) =>
+        (slice.point.kind === 'scene-entry' ||
+          slice.point.kind === 'scene-step' ||
+          slice.point.kind === 'scene-terminal') &&
+        'scene' in slice.point &&
+        slice.point.scene.id === 'compact',
+    );
+    expect(sceneSlices.length).toBeLessThan(scene.events.length + 2);
+
+    const inert = sceneSlices.find(
+      (slice) => slice.point.kind === 'scene-step' && slice.point.stepId === 'immediate-a',
+    );
+    expect(inert?.resumePoints).toEqual([
+      { kind: 'scene-step', scene: { kind: 'scene', id: 'compact' }, stepId: 'immediate-c' },
+    ]);
+    const hinted = sceneSlices.find(
+      (slice) => slice.point.kind === 'scene-step' && slice.point.stepId === 'immediate-b',
+    );
+    expect(hinted).toBeDefined();
+    const compiledHint = prediction.supplementalHints?.find(
+      (hint) => hint.id === 'precise-immediate-b',
+    );
+    expect(compiledHint?.attachment.kind).toBe('point');
+    if (compiledHint?.attachment.kind === 'point') {
+      expect(prediction.slices[compiledHint.attachment.slice]?.point).toEqual({
+        kind: 'scene-step',
+        scene: { kind: 'scene', id: 'compact' },
+        stepId: 'immediate-b',
+      });
+    }
+    expect(inert?.control).toMatchObject({ kind: 'sequential' });
+    if (inert?.control.kind === 'sequential') {
+      expect(prediction.slices[inert.control.successor!]?.point).toEqual({
+        kind: 'scene-step',
+        scene: { kind: 'scene', id: 'compact' },
+        stepId: 'immediate-b',
+      });
+    }
+    expect(hinted?.control).toMatchObject({ kind: 'sequential' });
+    if (hinted?.control.kind === 'sequential') {
+      expect(prediction.slices[hinted.control.successor!]?.point).toEqual({
+        kind: 'scene-step',
+        scene: { kind: 'scene', id: 'compact' },
+        stepId: 'later-background',
+      });
+    }
   });
 
   it('lowers Dialogue execution positions, cue dependencies, effects, choices, and child Flow into prediction metadata', () => {

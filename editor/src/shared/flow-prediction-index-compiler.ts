@@ -8,6 +8,7 @@ import type {
   PrefetchHintPoint,
   PrefetchHintTarget,
 } from './project-schema/authoring-prefetch-hints';
+import { staticPredictionTruth } from './flow-prediction-static';
 
 type PredictionDependency = FlowPredictionIndex['dependencyGroups'][number][number];
 type PredictionProgram = FlowPredictionIndex['slices'][number]['program'];
@@ -106,6 +107,51 @@ function summarizeGameplayCommands(
           property: command.property,
         });
         break;
+      case 'set-property':
+        result.push({
+          commandId: command.id,
+          kind: 'set-identity-property',
+          owner: command.owner,
+          property: command.property,
+          value: command.value,
+        });
+        break;
+      case 'add-trait':
+      case 'remove-trait':
+        result.push({
+          commandId: command.id,
+          kind: 'set-trait-presence',
+          owner: command.owner,
+          trait: command.trait,
+          present: command.kind === 'add-trait',
+        });
+        break;
+      case 'move-instance':
+        result.push({
+          commandId: command.id,
+          kind: 'set-location',
+          subject: command.subject,
+          location: command.location,
+        });
+        break;
+      case 'unset-property':
+      case 'set-enabled':
+      case 'set-visible':
+      case 'create-room':
+      case 'create-character':
+      case 'create-interactable':
+      case 'destroy-instance':
+      case 'split-quantity':
+      case 'merge-quantity':
+      case 'transfer-quantity':
+      case 'add-quantity':
+      case 'consume-quantity':
+        result.push({ commandId: command.id, kind: 'invalidate-condition-facts' });
+        break;
+      case 'navigate-exit':
+      case 'change-room':
+        result.push({ commandId: command.id, kind: 'invalidate-prediction-state' });
+        break;
       case 'call-scene':
         result.push({ commandId: command.id, kind: 'call-scene', scene: command.scene });
         break;
@@ -125,8 +171,8 @@ function summarizeGameplayCommands(
         });
         break;
       default:
-        // Mutations outside the admitted global-Property prediction subset are intentionally not
-        // simulated. Conditions depending on those facts remain unknown at runtime and widen.
+        // Presentation-only commands such as inventory UI and notifications do not change the
+        // authoritative typed facts admitted by prediction.
         break;
     }
   }
@@ -236,6 +282,12 @@ function sceneInstructionProgram(instruction: SceneInstruction): PredictionProgr
       return summarizeGameplayCommands(instruction.operations);
     case 'run-lua':
       return [{ kind: 'opaque' }];
+    case 'runtime-world-transaction':
+      return [{ kind: 'invalidate-condition-facts' }];
+    case 'directed-room-change':
+    case 'navigation-attempt':
+    case 'call-interaction':
+      return [{ kind: 'invalidate-prediction-state' }];
     default:
       return [];
   }
@@ -269,6 +321,15 @@ function sceneInstructionFrontier(instruction: SceneInstruction): PredictionSlic
     default:
       return 'normal';
   }
+}
+
+function sceneInstructionCanSharePredictionSlice(instruction: SceneInstruction): boolean {
+  // Keep coalescing intentionally conservative. A number of Scene instructions currently have no
+  // asset dependency or mutation summary but can still change authoritative gameplay/Flow state
+  // (for example navigation, runtime-world transactions, and Interaction dispatch). Treat only an
+  // immediate text presentation as prediction-inert: it introduces no dependency, suspension, or
+  // state/reachability distinction for speculative asset prediction.
+  return instruction.kind === 'show-text' && instruction.wait === 'immediate';
 }
 
 function characterDependency(
@@ -481,6 +542,11 @@ export function compileFlowPredictionIndex(
   const slices: FlowPredictionIndex['slices'] = [];
   const sliceByPoint = new Map<string, number>();
   const pointKey = (point: PredictionPoint): string => JSON.stringify(point);
+  const hintedPointKeys = new Set(
+    Object.values(authoredHints).flatMap((hint) =>
+      hint.attachment.kind === 'point' ? [pointKey(compiledHintPoint(hint.attachment.point))] : [],
+    ),
+  );
   const addSlice = (
     point: PredictionPoint,
     dependencies: FlowPredictionIndex['dependencyGroups'][number] = [],
@@ -503,6 +569,13 @@ export function compileFlowPredictionIndex(
     sliceByPoint.set(pointKey(point), index);
     return index;
   };
+  const addResumePoint = (sliceIndex: number, point: PredictionPoint): void => {
+    const slice = slices[sliceIndex];
+    if (!slice) return;
+    slice.resumePoints ??= [];
+    slice.resumePoints.push(point);
+    sliceByPoint.set(pointKey(point), sliceIndex);
+  };
   const findSlice = (point: PredictionPoint): number | undefined =>
     sliceByPoint.get(pointKey(point));
 
@@ -517,16 +590,30 @@ export function compileFlowPredictionIndex(
         stageDependencies.push({ kind: 'layout', layout: scene.stage.layout });
     }
     addSlice({ kind: 'scene-entry', scene: sceneRef }, stageDependencies);
+    let inertRunSlice: number | null = null;
     for (const event of scene.program.events) {
-      addSlice(
-        { kind: 'scene-step', scene: sceneRef, stepId: event.id },
-        sceneInstructionDependencies(event.instruction),
-        sceneInstructionProgram(event.instruction),
-        {
-          condition: event.instruction.condition,
-          frontier: sceneInstructionFrontier(event.instruction),
-        },
-      );
+      const point = { kind: 'scene-step' as const, scene: sceneRef, stepId: event.id };
+      const dependencies = sceneInstructionDependencies(event.instruction);
+      const program = sceneInstructionProgram(event.instruction);
+      const frontier = sceneInstructionFrontier(event.instruction);
+      const inert =
+        sceneInstructionCanSharePredictionSlice(event.instruction) &&
+        dependencies.length === 0 &&
+        program.length === 0 &&
+        !event.instruction.condition &&
+        frontier === 'normal' &&
+        !hintedPointKeys.has(pointKey(point)) &&
+        event.instruction.kind !== 'conditional-branch' &&
+        event.instruction.kind !== 'choice';
+      if (inert && inertRunSlice !== null) {
+        addResumePoint(inertRunSlice, point);
+        continue;
+      }
+      inertRunSlice = addSlice(point, dependencies, program, {
+        condition: event.instruction.condition,
+        frontier,
+      });
+      if (!inert) inertRunSlice = null;
     }
     addSlice({ kind: 'scene-terminal', scene: sceneRef });
   }
@@ -704,13 +791,23 @@ export function compileFlowPredictionIndex(
       summarizeInteractionProgram(project.undefinedInteractionProgram),
     );
   }
+  // Resident Layout points are prediction metadata, not a mirror of every Layout resource. Keep
+  // default resident surfaces plus Layouts that have an authored precise attachment. Runtime may
+  // report additional mounted Layouts, but they need no generated slice until they actually carry
+  // prediction-relevant intent.
   const residentLayoutIds = new Set<string>();
   for (const layout of [
     project.settings.interaction.defaultVerbMenuLayout,
     project.settings.inventory.defaultLayout,
   ]) {
-    if (!layout || residentLayoutIds.has(layout.id)) continue;
-    residentLayoutIds.add(layout.id);
+    if (layout) residentLayoutIds.add(layout.id);
+  }
+  for (const hint of Object.values(authoredHints)) {
+    if (hint.attachment.kind === 'point' && hint.attachment.point.kind === 'resident-layout')
+      residentLayoutIds.add(hint.attachment.point.layout.$ref.id);
+  }
+  for (const layoutId of [...residentLayoutIds].sort()) {
+    const layout = { kind: 'layout' as const, id: layoutId };
     addSlice({ kind: 'resident-layout', layout }, [{ kind: 'layout', layout }]);
   }
 
@@ -730,12 +827,19 @@ export function compileFlowPredictionIndex(
     for (let index = 0; index < scene.program.events.length; index += 1) {
       const event = scene.program.events[index]!;
       const instruction = event.instruction;
-      const sliceIndex = findSlice({ kind: 'scene-step', scene: sceneRef, stepId: event.id });
+      const eventPoint = { kind: 'scene-step' as const, scene: sceneRef, stepId: event.id };
+      const sliceIndex = findSlice(eventPoint);
       if (sliceIndex === undefined) continue;
-      const sequentialEvent = scene.program.events[index + 1];
-      const sequential = sequentialEvent
-        ? findSlice({ kind: 'scene-step', scene: sceneRef, stepId: sequentialEvent.id })
-        : terminal;
+      if (pointKey(slices[sliceIndex]!.point) !== pointKey(eventPoint)) continue;
+      let sequential = terminal;
+      for (let nextIndex = index + 1; nextIndex < scene.program.events.length; nextIndex += 1) {
+        const nextEvent = scene.program.events[nextIndex]!;
+        const nextSlice = findSlice({ kind: 'scene-step', scene: sceneRef, stepId: nextEvent.id });
+        if (nextSlice !== undefined && nextSlice !== sliceIndex) {
+          sequential = nextSlice;
+          break;
+        }
+      }
       slices[sliceIndex]!.conditionFalseSuccessor = instruction.condition
         ? (sequential ?? null)
         : null;
@@ -1001,6 +1105,123 @@ export function compileFlowPredictionIndex(
     }
   }
 
+  const roomEntryRoots = (roomId: string): number[] =>
+    (['before-enter', 'presentation', 'after-enter'] as const)
+      .map((stage) =>
+        findSlice({
+          kind: 'room-lifecycle',
+          room: { kind: 'room', id: roomId },
+          stage,
+        }),
+      )
+      .filter((value): value is number => value !== undefined);
+
+  const targetRoots = (
+    target: NonNullable<FlowPredictionIndex['supplementalHints']>[number]['target'],
+  ): number[] => {
+    if (target.kind === 'scene') {
+      const root = findSlice({ kind: 'scene-entry', scene: target.scene });
+      return root === undefined ? [] : [root];
+    }
+    if (target.kind === 'dialogue') {
+      const root = findSlice({ kind: 'dialogue-entry', dialogue: target.dialogue });
+      return root === undefined ? [] : [root];
+    }
+    if (target.kind === 'room') return roomEntryRoots(target.room.id);
+    return [];
+  };
+
+  const entryPathHintRoots = (roomId: string): number[] =>
+    Object.values(authoredHints).flatMap((hint) =>
+      hint.attachment.kind === 'room' &&
+      hint.attachment.scope === 'entry-path' &&
+      hint.attachment.room.$ref.id === roomId
+        ? targetRoots(compiledHintTarget(hint.target))
+        : [],
+    );
+
+  const programRoots = (program: PredictionProgram): number[] => {
+    const roots: number[] = [];
+    const add = (slice: number | undefined) => {
+      if (slice !== undefined) roots.push(slice);
+    };
+    for (const command of program) {
+      if (command.kind === 'call-scene' || command.kind === 'start-detached-scene') {
+        add(findSlice({ kind: 'scene-entry', scene: command.scene }));
+      } else if (command.kind === 'call-dialogue') {
+        add(findSlice({ kind: 'dialogue-entry', dialogue: command.dialogue }));
+      } else if (command.kind === 'enter-room') {
+        roots.push(...roomEntryRoots(command.room.id), ...entryPathHintRoots(command.room.id));
+      } else if (command.kind === 'if') {
+        const truth = staticPredictionTruth(command.condition);
+        if (truth !== 'false') roots.push(...programRoots(command.thenCommands));
+        if (truth !== 'true') roots.push(...programRoots(command.elseCommands));
+      }
+    }
+    return roots;
+  };
+
+  const controlSuccessors = (slice: PredictionSlice): number[] => {
+    if (slice.control.kind === 'sequential')
+      return slice.control.successor === null ? [] : [slice.control.successor];
+    if (slice.control.kind === 'choice') {
+      const targets: number[] = [];
+      for (const option of slice.control.options) {
+        if (option.condition && staticPredictionTruth(option.condition) === 'false') continue;
+        for (const program of option.programs) targets.push(...programRoots(program));
+        targets.push(option.target);
+      }
+      return targets;
+    }
+
+    const targets: number[] = [];
+    let fallthrough = true;
+    for (const branch of slice.control.branches) {
+      const truth = staticPredictionTruth(branch.condition);
+      if (truth === 'false') continue;
+      targets.push(branch.target);
+      if (truth === 'true') {
+        fallthrough = false;
+        break;
+      }
+    }
+    if (fallthrough) targets.push(slice.control.fallback);
+    return targets;
+  };
+
+  const potentialExpansionSlices = (
+    target: NonNullable<FlowPredictionIndex['supplementalHints']>[number]['target'],
+  ): number[] => {
+    const roots = targetRoots(target);
+    if (target.kind === 'room') roots.push(...entryPathHintRoots(target.room.id));
+
+    const pending = [...roots];
+    const traversed = new Set<number>();
+    const dependencySlices: number[] = [];
+    while (pending.length > 0 && traversed.size < 4096) {
+      const sliceIndex = pending.shift()!;
+      if (traversed.has(sliceIndex)) continue;
+      const slice = slices[sliceIndex];
+      if (!slice) continue;
+      traversed.add(sliceIndex);
+
+      const truth = slice.condition ? staticPredictionTruth(slice.condition) : 'true';
+      if (truth !== 'false') {
+        dependencySlices.push(sliceIndex);
+        for (const nested of Object.values(authoredHints)) {
+          if (nested.attachment.kind !== 'point') continue;
+          const attachment = findSlice(compiledHintPoint(nested.attachment.point));
+          if (attachment === sliceIndex)
+            pending.push(...targetRoots(compiledHintTarget(nested.target)));
+        }
+        pending.push(...programRoots(slice.program), ...controlSuccessors(slice));
+      }
+      if (slice.conditionFalseSuccessor !== null && truth !== 'true')
+        pending.push(slice.conditionFalseSuccessor);
+    }
+    return dependencySlices;
+  };
+
   const supplementalHints: NonNullable<FlowPredictionIndex['supplementalHints']> = [];
   for (const hint of Object.values(authoredHints).sort((left, right) =>
     left.id.localeCompare(right.id),
@@ -1011,13 +1232,16 @@ export function compileFlowPredictionIndex(
       supplementalHints.push({
         id: hint.id,
         target: compiledHintTarget(hint.target),
+        potentialExpansionSlices: potentialExpansionSlices(compiledHintTarget(hint.target)),
         attachment: { kind: 'point', slice },
       });
       continue;
     }
+    const target = compiledHintTarget(hint.target);
     supplementalHints.push({
       id: hint.id,
-      target: compiledHintTarget(hint.target),
+      target,
+      potentialExpansionSlices: potentialExpansionSlices(target),
       attachment: {
         kind: 'room',
         room: { kind: 'room', id: hint.attachment.room.$ref.id },

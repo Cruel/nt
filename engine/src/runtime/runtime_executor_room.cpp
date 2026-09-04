@@ -94,6 +94,32 @@ gameplay_program_plan(std::span<const core::GameplayCommand> commands)
     return plan;
 }
 
+std::span<const core::GameplayCommand>
+room_lifecycle_program(const RuntimeWorld& world, const core::RoomTransitionFrame& transition,
+                       core::RoomTransitionStage stage)
+{
+    const auto* source = transition.source_room
+                             ? world.resolved_configuration(*transition.source_room)
+                             : nullptr;
+    const auto* target = world.resolved_configuration(transition.target_room);
+    switch (stage) {
+    case core::RoomTransitionStage::BeforeLeave:
+        return source ? std::span<const core::GameplayCommand>{source->lifecycle.before_leave}
+                      : std::span<const core::GameplayCommand>{};
+    case core::RoomTransitionStage::BeforeEnter:
+        return target ? std::span<const core::GameplayCommand>{target->lifecycle.before_enter}
+                      : std::span<const core::GameplayCommand>{};
+    case core::RoomTransitionStage::AfterLeave:
+        return source ? std::span<const core::GameplayCommand>{source->lifecycle.after_leave}
+                      : std::span<const core::GameplayCommand>{};
+    case core::RoomTransitionStage::AfterEnter:
+        return target ? std::span<const core::GameplayCommand>{target->lifecycle.after_enter}
+                      : std::span<const core::GameplayCommand>{};
+    default:
+        return {};
+    }
+}
+
 core::RoomTransitionStage next_hook_stage(const core::RoomTransitionFrame& transition) noexcept
 {
     switch (transition.position.stage) {
@@ -189,6 +215,17 @@ private:
 
 } // namespace
 
+std::optional<core::InteractionInstructionId>
+RuntimeExecutor::room_transition_command_id(const core::RoomTransitionFrame& transition) const
+{
+    const auto program = room_lifecycle_program(m_world, transition, transition.position.stage);
+    const auto plan = gameplay_program_plan(program);
+    if (transition.position.next_effect >= plan.size() ||
+        plan[transition.position.next_effect].command == nullptr)
+        return std::nullopt;
+    return plan[transition.position.next_effect].command->id;
+}
+
 std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_view runtime_locale)
 {
     auto fault = [this](core::Diagnostics diagnostics) -> std::optional<core::FlowRunOutcome> {
@@ -274,23 +311,8 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         return transition.source_room ? m_world.resolved_configuration(*transition.source_room)
                                       : nullptr;
     };
-    auto lifecycle_program =
-        [&](core::RoomTransitionStage stage) -> std::span<const core::GameplayCommand> {
-        const auto* source = source_configuration();
-        switch (stage) {
-        case core::RoomTransitionStage::BeforeLeave:
-            return source ? std::span<const core::GameplayCommand>{source->lifecycle.before_leave}
-                          : std::span<const core::GameplayCommand>{};
-        case core::RoomTransitionStage::BeforeEnter:
-            return target->lifecycle.before_enter;
-        case core::RoomTransitionStage::AfterLeave:
-            return source ? std::span<const core::GameplayCommand>{source->lifecycle.after_leave}
-                          : std::span<const core::GameplayCommand>{};
-        case core::RoomTransitionStage::AfterEnter:
-            return target->lifecycle.after_enter;
-        default:
-            return {};
-        }
+    auto lifecycle_program = [&](core::RoomTransitionStage stage) {
+        return room_lifecycle_program(m_world, transition, stage);
     };
     auto rejection_program =
         [&](core::RoomRejectionStage stage) -> std::span<const core::GameplayCommand> {

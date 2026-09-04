@@ -719,6 +719,10 @@ const flowPredictionHintTargetSchema = z.discriminatedUnion('kind', [
 const flowPredictionSupplementalHintSchema = strict({
   id,
   target: flowPredictionHintTargetSchema,
+  // Generated optimization/tooling metadata. Authoring Project data persists only the semantic
+  // target and attachment; this slice projection is regenerated atomically with the compiled
+  // Flow Prediction Index so editor tooling never needs to reimplement traversal semantics.
+  potentialExpansionSlices: z.array(z.number().int().nonnegative()).optional(),
   attachment: z.discriminatedUnion('kind', [
     strict({ kind: z.literal('point'), slice: z.number().int().nonnegative() }),
     strict({
@@ -738,9 +742,31 @@ type FlowPredictionCommand =
     }
   | {
       commandId?: string;
+      kind: 'set-identity-property';
+      owner: z.infer<typeof compiledGameplayIdentityOperandSchema>;
+      property: z.infer<typeof propertyReferenceSchema>;
+      value: z.infer<typeof runtimeValueSchema>;
+    }
+  | {
+      commandId?: string;
+      kind: 'set-trait-presence';
+      owner: z.infer<typeof compiledGameplayIdentityOperandSchema>;
+      trait: z.infer<typeof traitReferenceSchema>;
+      present: boolean;
+    }
+  | {
+      commandId?: string;
+      kind: 'set-location';
+      subject: z.infer<typeof compiledLocationSubjectOperandSchema>;
+      location: z.infer<typeof compiledLocationOperandSchema>;
+    }
+  | {
+      commandId?: string;
       kind: 'invalidate-global-property';
       property: z.infer<typeof propertyReferenceSchema>;
     }
+  | { commandId?: string; kind: 'invalidate-condition-facts' }
+  | { commandId?: string; kind: 'invalidate-prediction-state' }
   | { commandId?: string; kind: 'call-scene'; scene: z.infer<typeof sceneReferenceSchema> }
   | {
       commandId?: string;
@@ -768,9 +794,31 @@ const flowPredictionCommandSchema: z.ZodType<FlowPredictionCommand> = z.lazy(() 
     }),
     strict({
       commandId: id.optional(),
+      kind: z.literal('set-identity-property'),
+      owner: compiledGameplayIdentityOperandSchema,
+      property: propertyReferenceSchema,
+      value: runtimeValueSchema,
+    }),
+    strict({
+      commandId: id.optional(),
+      kind: z.literal('set-trait-presence'),
+      owner: compiledGameplayIdentityOperandSchema,
+      trait: traitReferenceSchema,
+      present: z.boolean(),
+    }),
+    strict({
+      commandId: id.optional(),
+      kind: z.literal('set-location'),
+      subject: compiledLocationSubjectOperandSchema,
+      location: compiledLocationOperandSchema,
+    }),
+    strict({
+      commandId: id.optional(),
       kind: z.literal('invalidate-global-property'),
       property: propertyReferenceSchema,
     }),
+    strict({ commandId: id.optional(), kind: z.literal('invalidate-condition-facts') }),
+    strict({ commandId: id.optional(), kind: z.literal('invalidate-prediction-state') }),
     strict({
       commandId: id.optional(),
       kind: z.literal('call-scene'),
@@ -826,6 +874,7 @@ const flowPredictionIndexSchema = strict({
   slices: z.array(
     strict({
       point: flowPredictionPointSchema,
+      resumePoints: z.array(flowPredictionPointSchema).optional(),
       dependencyGroups: z.array(z.number().int().nonnegative()),
       condition: compiledConditionSchema.optional(),
       conditionFalseSuccessor: z.number().int().nonnegative().nullable(),
