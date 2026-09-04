@@ -6,6 +6,15 @@
     "unsupported": "A inspeção de metadados incorporados não é compatível com este Asset.",
     "failure": "Não foi possível inspecionar os metadados incorporados.",
     "workflowMetadata": "Metadados de workflow do {{tool}}",
+    "filter": "Filtrar metadados",
+    "copy": "Copiar",
+    "binary": "Dados binários ({{bytes}} bytes)",
+    "limited": "Não carregado ({{bytes}} bytes) — limite de inspeção atingido",
+    "limitedUnknown": "Não carregado — limite de inspeção atingido",
+    "warnings": {
+      "partial-decode": "Alguns metadados incorporados não puderam ser decodificados.",
+      "aggregate-limit-reached": "Alguns valores de metadados não foram carregados porque o limite de inspeção foi atingido."
+    },
     "provenance": {
       "generated": "Gerado com {{source}}",
       "edited": "Editado com {{source}}",

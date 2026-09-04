@@ -238,6 +238,7 @@ describe('Project Asset embedded metadata inspection', () => {
         expect.objectContaining({ key: 'actions[0].action', value: 'c2pa.created' }),
         expect.objectContaining({ key: 'actions[0].softwareAgent.name', value: 'gpt-image' }),
         expect.objectContaining({ key: 'actions[0].softwareAgent.version', value: '2.0' }),
+        expect.objectContaining({ valueKind: 'binary', byteSize: expect.any(Number) }),
       ]),
     );
     expect(result.c2pa).toEqual({ trust: 'unverified' });
@@ -606,11 +607,70 @@ describe('Project Asset embedded metadata inspection', () => {
 
     expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'audio' });
     if (!result.ok || result.status !== 'ready') throw new Error('Expected ready audio metadata.');
-    expect(result.warnings).toContain('Some embedded audio metadata could not be decoded.');
+    expect(result.warnings).toContain('partial-decode');
     expect(result.groups.find((group) => group.namespace === 'ID3v2.4')?.items).toEqual(
       expect.arrayContaining([expect.objectContaining({ key: 'TSSE', value: 'Encoder' })]),
     );
     expect(result.groups.find((group) => group.namespace === 'MPEG')).toBeDefined();
+  });
+
+  it('keeps oversized audio metadata visible as an explicit limited descriptor', async () => {
+    const workflow = JSON.stringify({ workflow: 'x'.repeat(9 * 1024 * 1024) });
+    const bytes = mp3WithId3([id3v24TextFrame('TXXX', workflow, 'workflow')]);
+    const fixture = tempAudioProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'audio' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready audio metadata.');
+    expect(result.groups.find((group) => group.namespace === 'ID3v2.4')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'TXXX:workflow',
+          valueKind: 'limited',
+          byteSize: expect.any(Number),
+          limitReason: 'value-too-large',
+        }),
+      ]),
+    );
+  });
+
+  it('caps aggregate decoded metadata without dropping the affected rows', async () => {
+    const sixMiB = 'x'.repeat(6 * 1024 * 1024);
+    const bytes = mp3WithId3([
+      id3v24TextFrame('TXXX', sixMiB, 'one'),
+      id3v24TextFrame('TXXX', sixMiB, 'two'),
+      id3v24TextFrame('TXXX', sixMiB, 'three'),
+    ]);
+    const fixture = tempAudioProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'audio' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready audio metadata.');
+    expect(result.warnings).toContain('aggregate-limit-reached');
+    const items = result.groups.find((group) => group.namespace === 'ID3v2.4')?.items ?? [];
+    expect(items.find((metadataItem) => metadataItem.key === 'TXXX:one')?.valueKind).toBe('text');
+    expect(items.find((metadataItem) => metadataItem.key === 'TXXX:two')?.valueKind).toBe('text');
+    expect(items.find((metadataItem) => metadataItem.key === 'TXXX:three')).toMatchObject({
+      valueKind: 'limited',
+      byteSize: expect.any(Number),
+      limitReason: 'aggregate-limit',
+    });
   });
 
   it('returns JPEG structural metadata and exact comment tags', async () => {
