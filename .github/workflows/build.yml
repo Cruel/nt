@@ -475,11 +475,11 @@ jobs:
 
       - name: Configure Windows release
         shell: pwsh
-        run: cmake --preset windows-release -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake --preset windows-release -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build shipped Windows targets
         shell: pwsh
-        run: cmake --build --preset windows-release --target noveltea-player
+        run: cmake --build --preset windows-release --target noveltea-player noveltea-tooling-bridge
 
       - name: Report Windows compiler cache
         if: always()
@@ -943,7 +943,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Audit production dependencies
-        run: pnpm audit --prod --audit-level high
+        run: |
+          if ! pnpm audit --prod --audit-level high; then
+            echo "Initial pnpm audit failed; retrying once in case the npm advisory service was transiently unavailable."
+            sleep 15
+            pnpm audit --prod --audit-level high
+          fi
 
       - name: Check
         run: pnpm -C editor run check

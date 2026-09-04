@@ -1,0 +1,23 @@
+diff --git a/bimg/tools/texturec/texturec.cpp b/bimg/tools/texturec/texturec.cpp
+--- a/bimg/tools/texturec/texturec.cpp
++++ b/bimg/tools/texturec/texturec.cpp
+@@ -1006,7 +1006,7 @@ struct TinyStlAllocator
+ 	size_t m_minAlignment;
+ };
+ 
+-int main(int _argc, const char* _argv[])
++int noveltea_bimg_texturec_main(int _argc, const char** _argv)
+ {
+ 	bx::CommandLine cmdLine(_argc, _argv);
+ 
+@@ -1357,3 +1357,10 @@ int noveltea_bimg_texturec_main(int _argc, const char** _argv)
+ 
+ 	return bx::kExitSuccess;
+ }
++
++#if !defined(NOVELTEA_BIMG_TEXTUREC_EMBEDDED)
++int main(int _argc, const char* _argv[])
++{
++	return noveltea_bimg_texturec_main(_argc, _argv);
++}
++#endif
