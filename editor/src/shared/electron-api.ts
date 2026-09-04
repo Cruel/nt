@@ -155,6 +155,10 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     assetId: string,
   ): Promise<ProjectOriginalAssetUrlResponse>;
+  inspectProjectAssetMetadata(
+    projectSessionId: string,
+    assetId: string,
+  ): Promise<import('./asset-metadata-inspection').AssetMetadataInspectionResponse>;
   requestImageThumbnail(
     request: import('./image-thumbnails').ImageThumbnailRequest,
   ): Promise<import('./image-thumbnails').ImageThumbnailResult>;

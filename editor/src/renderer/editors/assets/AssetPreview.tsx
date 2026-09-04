@@ -4,6 +4,7 @@ import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { useProjectStore } from '@/project/project-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import type { AssetData } from '../../../shared/project-schema/authoring-assets';
+import { AssetEmbeddedMetadata } from './AssetEmbeddedMetadata';
 
 interface AssetPreviewProps {
   assetId: string;
@@ -134,6 +135,7 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
           </div>
         )}
       </div>
+      <AssetEmbeddedMetadata assetId={assetId} data={data} />
       <div className="mt-3 grid gap-1 font-mono text-[11px] text-muted-foreground">
         <div>{data.source.path}</div>
         {data.byteSize !== undefined ? <div>{data.byteSize.toLocaleString()} bytes</div> : null}

@@ -17,7 +17,7 @@ export const PROJECT_ORIGINAL_ASSET_SCHEME = 'noveltea-asset';
 
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
 
-interface ResolvedOriginalAsset {
+export interface ResolvedOriginalAsset {
   handle: FileHandle;
   size: number;
   mimeType: string;

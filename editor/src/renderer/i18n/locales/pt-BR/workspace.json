@@ -1,4 +1,11 @@
 {
+  "assetMetadata": {
+    "title": "Metadados incorporados",
+    "loading": "Carregando metadados incorporados…",
+    "empty": "Nenhum metadado incorporado encontrado.",
+    "unsupported": "A inspeção de metadados incorporados não é compatível com este Asset.",
+    "failure": "Não foi possível inspecionar os metadados incorporados."
+  },
   "bottomPanel": {
     "empty": {
       "commandHistory": "Ainda não há comandos de projeto.",

@@ -61,6 +61,7 @@ import {
   resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
 import {
   compileShaders,
   exportPackage,
@@ -150,8 +151,8 @@ import {
   openProjectArgumentsSchema,
   previewExportedPackageArgumentsSchema,
   previewSessionArgumentsSchema,
+  projectAssetIdentityArgumentsSchema,
   projectAssetPathsArgumentsSchema,
-  projectAssetUrlArgumentsSchema,
   projectSessionArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
   reimportAssetArgumentsSchema,
@@ -241,6 +242,7 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
+const assetMetadataInspectionService = new AssetMetadataInspectionService(activeProjectSessions);
 const imageThumbnailService = new ImageThumbnailService(
   packageSmokeCacheRoot
     ? path.resolve(packageSmokeCacheRoot)
@@ -1305,9 +1307,16 @@ void app.whenReady().then(async () => {
 
   guardedIpc.handle(
     IPC_CHANNELS.RESOLVE_PROJECT_ORIGINAL_ASSET_URL,
-    (arguments_) => projectAssetUrlArgumentsSchema.parse(arguments_),
+    (arguments_) => projectAssetIdentityArgumentsSchema.parse(arguments_),
     (projectSessionId, assetId) =>
       resolveProjectOriginalAssetUrl(activeProjectSessions, projectSessionId, assetId),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.INSPECT_PROJECT_ASSET_METADATA,
+    (arguments_) => projectAssetIdentityArgumentsSchema.parse(arguments_),
+    (projectSessionId, assetId) =>
+      assetMetadataInspectionService.inspect(projectSessionId, assetId),
   );
 
   guardedIpc.handle(
