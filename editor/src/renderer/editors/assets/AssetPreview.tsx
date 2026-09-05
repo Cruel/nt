@@ -12,6 +12,7 @@ interface AssetPreviewProps {
   data: AssetData;
   compact?: boolean;
   metadataStateRef?: Ref<AssetEmbeddedMetadataHandle>;
+  onMetadataLayoutReady?: () => void;
 }
 
 function kindLabel(kind: AssetData['kind']) {
@@ -43,6 +44,7 @@ export function AssetPreview({
   data,
   compact = false,
   metadataStateRef,
+  onMetadataLayoutReady,
 }: AssetPreviewProps) {
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const deletedAsset = useAssetTrashStore((state) => state.deletedAssets[assetId]);
@@ -142,7 +144,12 @@ export function AssetPreview({
           </div>
         )}
       </div>
-      <AssetEmbeddedMetadata ref={metadataStateRef} assetId={assetId} data={data} />
+      <AssetEmbeddedMetadata
+        ref={metadataStateRef}
+        assetId={assetId}
+        data={data}
+        onLayoutReady={onMetadataLayoutReady}
+      />
       <div className="mt-3 grid gap-1 font-mono text-[11px] text-muted-foreground">
         <div>{data.source.path}</div>
         {data.byteSize !== undefined ? <div>{data.byteSize.toLocaleString()} bytes</div> : null}

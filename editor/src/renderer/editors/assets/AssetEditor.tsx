@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TagInput } from '@/components/tags/TagInput';
@@ -31,6 +31,7 @@ import {
   restoreScrollViewState,
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
+  type ScrollViewState,
 } from '@/workbench/workbench-tab-state';
 import { AssetPreview } from './AssetPreview';
 import type { AssetEmbeddedMetadataHandle } from './AssetEmbeddedMetadata';
@@ -57,6 +58,15 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const metadataStateRef = useRef<AssetEmbeddedMetadataHandle>(null);
+  const pendingScrollRef = useRef<ScrollViewState | null>(null);
+  const finishScrollRestore = useCallback(() => {
+    if (!pendingScrollRef.current) return;
+    restoreScrollViewState(editorScrollRef.current, pendingScrollRef.current);
+    pendingScrollRef.current = null;
+  }, []);
+  const cancelScrollRestore = () => {
+    pendingScrollRef.current = null;
+  };
   useWorkbenchEditorTabState(
     tab.id,
     useMemo(
@@ -68,7 +78,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
             aliasDraft,
             renameFrom,
             renameTo,
-            scroll: captureScrollViewState(editorScrollRef.current),
+            scroll: pendingScrollRef.current ?? captureScrollViewState(editorScrollRef.current),
             metadata: metadataStateRef.current?.captureTabState(),
           },
         }),
@@ -80,8 +90,10 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
           if (typeof values.aliasDraft === 'string') setAliasDraft(values.aliasDraft);
           if (typeof values.renameFrom === 'string') setRenameFrom(values.renameFrom);
           if (typeof values.renameTo === 'string') setRenameTo(values.renameTo);
-          if (isScrollViewState(values.scroll))
+          if (isScrollViewState(values.scroll)) {
+            pendingScrollRef.current = values.scroll;
             restoreScrollViewState(editorScrollRef.current, values.scroll);
+          }
           metadataStateRef.current?.restoreTabState(values.metadata);
         },
       }),
@@ -210,6 +222,10 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     <div
       ref={editorScrollRef}
       data-testid="asset-editor-scroll"
+      onWheelCapture={cancelScrollRestore}
+      onTouchMoveCapture={cancelScrollRestore}
+      onPointerDownCapture={cancelScrollRestore}
+      onKeyDownCapture={cancelScrollRestore}
       className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"
     >
       <div className="flex items-start gap-3" data-workbench-anchor="asset.summary">
@@ -458,6 +474,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
           label={record.label}
           data={data}
           metadataStateRef={metadataStateRef}
+          onMetadataLayoutReady={finishScrollRestore}
         />
       </div>
     </div>

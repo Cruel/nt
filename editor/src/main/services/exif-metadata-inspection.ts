@@ -7,6 +7,11 @@ import type {
 const MAX_EXIF_IFD_ENTRIES = 4096;
 const MAX_EXIF_IFDS = 64;
 const MAX_TEXT_VALUE_BYTES = 8 * 1024 * 1024;
+const MAX_DECODED_BYTES = 16 * 1024 * 1024;
+
+interface DecodeBudget {
+  remainingBytes: number;
+}
 
 const TIFF_TAGS: Record<number, string> = {
   0x0100: 'ImageWidth',
@@ -198,6 +203,7 @@ function limitedItem(
   key: string,
   byteSize: number,
   occurrence: number,
+  limitReason: 'value-too-large' | 'aggregate-limit',
 ): AssetMetadataInspectionItem {
   return {
     id: itemId(path, tag, occurrence),
@@ -205,7 +211,7 @@ function limitedItem(
     value: '',
     valueKind: 'limited',
     byteSize,
-    limitReason: 'value-too-large',
+    limitReason,
   };
 }
 
@@ -224,10 +230,20 @@ function parseEntryValue(
   count: number,
   valueOffset: number,
   byteLength: number,
-): { value?: string | number; binary?: boolean; limited?: boolean } | null {
-  if (byteLength > MAX_TEXT_VALUE_BYTES && type === 2) return { limited: true };
+  budget: DecodeBudget,
+): {
+  value?: string | number;
+  binary?: boolean;
+  limited?: 'value-too-large' | 'aggregate-limit';
+} | null {
   if (valueOffset < 0 || valueOffset + byteLength > reader.bytes.byteLength) return null;
   if (type === 7) return { binary: true };
+  // Reserve worst-case UTF-8 expansion or numeric array/JSON storage before allocating.
+  // Keep reservations even for malformed values so repeated offsets cannot amplify decoding work.
+  const decodedBytes = type === 2 ? byteLength * 3 : count * 32 + 2;
+  if (decodedBytes > MAX_TEXT_VALUE_BYTES) return { limited: 'value-too-large' };
+  if (decodedBytes > budget.remainingBytes) return { limited: 'aggregate-limit' };
+  budget.remainingBytes -= decodedBytes;
   if (type === 2) {
     const raw = reader.bytes.subarray(valueOffset, valueOffset + byteLength);
     const zero = raw.indexOf(0);
@@ -293,6 +309,7 @@ export function inspectExifMetadata(raw: Buffer): {
   const warnings: AssetMetadataInspectionWarning[] = [];
   const visited = new Set<number>();
   let ifdCount = 0;
+  const budget: DecodeBudget = { remainingBytes: MAX_DECODED_BYTES };
 
   const parseIfd = (offset: number, path: string): void => {
     if (ifdCount >= MAX_EXIF_IFDS || visited.has(offset)) return;
@@ -336,13 +353,15 @@ export function inspectExifMetadata(raw: Buffer): {
       const occurrence = occurrences.get(tag) ?? 0;
       occurrences.set(tag, occurrence + 1);
       const key = tagName(tag, path);
-      const parsed = parseEntryValue(reader, type, count, valueOffset, byteLength);
+      const parsed = parseEntryValue(reader, type, count, valueOffset, byteLength, budget);
       if (!parsed) {
         warnings.push('partial-decode');
         continue;
       }
-      if (parsed.limited) items.push(limitedItem(path, tag, key, byteLength, occurrence));
-      else if (parsed.binary) items.push(binaryItem(path, tag, key, byteLength, occurrence));
+      if (parsed.limited) {
+        items.push(limitedItem(path, tag, key, byteLength, occurrence, parsed.limited));
+        if (parsed.limited === 'aggregate-limit') warnings.push('aggregate-limit-reached');
+      } else if (parsed.binary) items.push(binaryItem(path, tag, key, byteLength, occurrence));
       else if (parsed.value !== undefined) {
         items.push({
           id: itemId(path, tag, occurrence),

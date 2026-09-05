@@ -13,6 +13,7 @@ import type { AssetData } from '../../../shared/project-schema/authoring-assets'
 interface AssetEmbeddedMetadataProps {
   assetId: string;
   data: AssetData;
+  onLayoutReady?: () => void;
 }
 
 export interface AssetEmbeddedMetadataTabState {
@@ -107,7 +108,7 @@ function isLongRecognizedText(value: string): boolean {
 export const AssetEmbeddedMetadata = forwardRef<
   AssetEmbeddedMetadataHandle,
   AssetEmbeddedMetadataProps
->(function AssetEmbeddedMetadata({ assetId, data }, ref) {
+>(function AssetEmbeddedMetadata({ assetId, data, onLayoutReady }, ref) {
   const { t } = useTranslation('workspace');
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const [response, setResponse] = useState<AssetMetadataInspectionResponse | null>(null);
@@ -225,6 +226,12 @@ export const AssetEmbeddedMetadata = forwardRef<
         jsonHeights: pendingJsonHeights,
       };
   }, [data.contentHash, expandedItemIds, filter, response]);
+
+  // Run after inner scroll/height restoration so the outer editor sees the final layout.
+  useEffect(() => {
+    if (!loading && (response !== null || requestError !== null || !projectSessionId))
+      onLayoutReady?.();
+  });
 
   return (
     <section
