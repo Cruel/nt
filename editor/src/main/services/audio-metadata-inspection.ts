@@ -56,6 +56,21 @@ function item(
   };
 }
 
+function binaryItem(
+  namespace: string,
+  key: string,
+  byteSize: number,
+  occurrence = 0,
+): AssetMetadataInspectionItem {
+  return {
+    id: `${namespace}/${encodeURIComponent(key)}/${occurrence}`,
+    key,
+    value: '',
+    valueKind: 'binary',
+    byteSize,
+  };
+}
+
 function limitedItem(
   namespace: string,
   key: string,
@@ -214,6 +229,9 @@ function parseId3v2(bytes: Buffer): {
     const frameFormatFlags = bytes[offset + 9]!;
     const data = bytes.subarray(offset + 10, offset + 10 + frameSize);
     if (frameStatusFlags !== 0 || frameFormatFlags !== 0) {
+      const occurrence = occurrences.get(frameId) ?? 0;
+      items.push(binaryItem(namespace, frameId, data.byteLength, occurrence));
+      occurrences.set(frameId, occurrence + 1);
       warnings.push('partial-decode');
       offset += 10 + frameSize;
       frameCount += 1;
@@ -241,9 +259,15 @@ function parseId3v2(bytes: Buffer): {
           if (parsed.key.toLowerCase() === 'txxx:workflow' && valueKind(parsed.value) === 'json')
             hasComfyUiWorkflow = true;
         } else {
+          items.push(binaryItem(namespace, key, data.byteLength, occurrence));
+          occurrences.set(key, occurrence + 1);
           warnings.push('partial-decode');
         }
       }
+    } else {
+      const occurrence = occurrences.get(frameId) ?? 0;
+      items.push(binaryItem(namespace, frameId, data.byteLength, occurrence));
+      occurrences.set(frameId, occurrence + 1);
     }
     offset += 10 + frameSize;
     frameCount += 1;

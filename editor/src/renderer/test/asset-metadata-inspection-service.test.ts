@@ -59,6 +59,51 @@ function withJpegComment(value: string): Buffer {
   return Buffer.concat([baseJpeg.subarray(0, 2), segment, baseJpeg.subarray(2)]);
 }
 
+function withJpegXmp(): Buffer {
+  const xml =
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/" dc:format="image/jpeg"><dc:title>NovelTea XMP fixture</dc:title></rdf:Description></rdf:RDF></x:xmpmeta>';
+  const payload = Buffer.concat([
+    Buffer.from('http://ns.adobe.com/xap/1.0/\0', 'ascii'),
+    Buffer.from(xml, 'utf8'),
+  ]);
+  const segment = Buffer.alloc(4 + payload.byteLength);
+  segment[0] = 0xff;
+  segment[1] = 0xe1;
+  segment.writeUInt16BE(payload.byteLength + 2, 2);
+  payload.copy(segment, 4);
+  return Buffer.concat([baseJpeg.subarray(0, 2), segment, baseJpeg.subarray(2)]);
+}
+
+function withJpegExif(): Buffer {
+  const tiff = Buffer.alloc(55);
+  tiff.write('II', 0, 'ascii');
+  tiff.writeUInt16LE(42, 2);
+  tiff.writeUInt32LE(8, 4);
+  tiff.writeUInt16LE(2, 8);
+
+  tiff.writeUInt16LE(0x010f, 10);
+  tiff.writeUInt16LE(2, 12);
+  tiff.writeUInt32LE(9, 14);
+  tiff.writeUInt32LE(38, 18);
+
+  tiff.writeUInt16LE(0x011a, 22);
+  tiff.writeUInt16LE(5, 24);
+  tiff.writeUInt32LE(1, 26);
+  tiff.writeUInt32LE(47, 30);
+  tiff.writeUInt32LE(0, 34);
+  tiff.write('NovelTea\0', 38, 'ascii');
+  tiff.writeUInt32LE(300, 47);
+  tiff.writeUInt32LE(1, 51);
+
+  const payload = Buffer.concat([Buffer.from('Exif\0\0', 'ascii'), tiff]);
+  const segment = Buffer.alloc(4 + payload.byteLength);
+  segment[0] = 0xff;
+  segment[1] = 0xe1;
+  segment.writeUInt16BE(payload.byteLength + 2, 2);
+  payload.copy(segment, 4);
+  return Buffer.concat([baseJpeg.subarray(0, 2), segment, baseJpeg.subarray(2)]);
+}
+
 function digest(bytes: Buffer) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
@@ -69,6 +114,15 @@ function synchsafe(value: number): Buffer {
     (value >>> 14) & 0x7f,
     (value >>> 7) & 0x7f,
     value & 0x7f,
+  ]);
+}
+
+function id3v24BinaryFrame(id: string, payload: Buffer): Buffer {
+  return Buffer.concat([
+    Buffer.from(id, 'ascii'),
+    synchsafe(payload.byteLength),
+    Buffer.from([0, 0]),
+    payload,
   ]);
 }
 
@@ -211,6 +265,33 @@ describe('Project Asset embedded metadata inspection', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(result.groups[0]!.items.some((metadataItem) => metadataItem.key === 'Density')).toBe(
       false,
+    );
+  });
+
+  it('reports partial extraction when one C2PA assertion cannot be decoded', async () => {
+    const malformedClaim = Buffer.from(OPENAI_C2PA_CLAIM);
+    const cborTypeOffset = malformedClaim.indexOf(Buffer.from('cbor', 'ascii'));
+    expect(cborTypeOffset).toBeGreaterThanOrEqual(0);
+    malformedClaim[cborTypeOffset + 4] = 0x9f;
+    const bytes = Buffer.concat([basePng, malformedClaim, OPENAI_C2PA_ACTIONS]);
+    const fixture = tempProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'image' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.warnings).toContain('partial-decode');
+    expect(result.groups.find((group) => group.namespace === 'C2PA')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'jumbf[0].label', value: 'c2pa.actions.v2' }),
+      ]),
     );
   });
 
@@ -516,6 +597,9 @@ describe('Project Asset embedded metadata inspection', () => {
     if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
     expect(result.generation).toBeUndefined();
     expect(result.provenance).toBeUndefined();
+    expect(result.workflowMetadata).toEqual([
+      { tool: { id: 'comfyui', label: 'ComfyUI' }, kind: 'workflow' },
+    ]);
     expect(result.groups.find((group) => group.namespace === 'PNG')?.items).toEqual(
       expect.arrayContaining([expect.objectContaining({ key: 'prompt', valueKind: 'json' })]),
     );
@@ -671,6 +755,102 @@ describe('Project Asset embedded metadata inspection', () => {
       byteSize: expect.any(Number),
       limitReason: 'aggregate-limit',
     });
+  });
+
+  it('preserves binary ID3 frames instead of silently dropping non-text metadata', async () => {
+    const bytes = mp3WithId3([
+      id3v24TextFrame('TIT2', 'Generated audio'),
+      id3v24BinaryFrame('APIC', Buffer.from([3, 1, 4, 1, 5, 9])),
+    ]);
+    const fixture = tempAudioProject(bytes);
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'audio' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready audio metadata.');
+    expect(result.groups.find((group) => group.namespace === 'ID3v2.4')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'APIC', valueKind: 'binary', byteSize: 6 }),
+      ]),
+    );
+  });
+
+  it('preserves the XMP packet and exposes exact XML tag and attribute names', async () => {
+    const bytes = withJpegXmp();
+    const fixture = tempProject(bytes);
+    const jpegPath = path.join(fixture.root, 'assets', 'images', 'generated.jpg');
+    fs.renameSync(path.join(fixture.root, 'assets', 'images', 'generated.png'), jpegPath);
+    fixture.project.assets.generated!.data = {
+      ...fixture.project.assets.generated!.data,
+      source: { type: 'project-file', path: 'assets/images/generated.jpg' },
+      extension: '.jpg',
+      mimeType: 'image/jpeg',
+      byteSize: bytes.byteLength,
+      contentHash: digest(bytes),
+    };
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'image' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.groups.find((group) => group.namespace === 'XMP')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'Packet', valueKind: 'text' }),
+        expect.objectContaining({ key: 'dc:format', value: 'image/jpeg', valueKind: 'text' }),
+        expect.objectContaining({
+          key: 'dc:title',
+          value: 'NovelTea XMP fixture',
+          valueKind: 'text',
+        }),
+      ]),
+    );
+  });
+
+  it('returns parsed EXIF fields as a separate JPEG metadata namespace', async () => {
+    const bytes = withJpegExif();
+    const fixture = tempProject(bytes);
+    const jpegPath = path.join(fixture.root, 'assets', 'images', 'generated.jpg');
+    fs.renameSync(path.join(fixture.root, 'assets', 'images', 'generated.png'), jpegPath);
+    fixture.project.assets.generated!.data = {
+      ...fixture.project.assets.generated!.data,
+      source: { type: 'project-file', path: 'assets/images/generated.jpg' },
+      extension: '.jpg',
+      mimeType: 'image/jpeg',
+      byteSize: bytes.byteLength,
+      contentHash: digest(bytes),
+    };
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({ ok: true, status: 'ready', kind: 'image' });
+    if (!result.ok || result.status !== 'ready') throw new Error('Expected ready metadata.');
+    expect(result.groups.find((group) => group.namespace === 'EXIF')?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'Make', value: 'NovelTea', valueKind: 'text' }),
+        expect.objectContaining({ key: 'XResolution', value: 300, valueKind: 'number' }),
+      ]),
+    );
   });
 
   it('returns JPEG structural metadata and exact comment tags', async () => {
