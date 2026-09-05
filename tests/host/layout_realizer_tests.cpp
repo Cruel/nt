@@ -236,6 +236,16 @@ public:
             return "runtime_text_log";
         case RuntimeLayoutBuiltinDocument::Modal:
             return "runtime_modal";
+        case RuntimeLayoutBuiltinDocument::CommandBuilder:
+            return "runtime_command_builder";
+        case RuntimeLayoutBuiltinDocument::SceneText:
+            return "runtime_scene_text";
+        case RuntimeLayoutBuiltinDocument::SceneChoice:
+            return "runtime_scene_choice";
+        case RuntimeLayoutBuiltinDocument::Inventory:
+            return "runtime_inventory";
+        case RuntimeLayoutBuiltinDocument::VerbMenu:
+            return "runtime_verb_menu";
         case RuntimeLayoutBuiltinDocument::None:
             return {};
         }
@@ -366,6 +376,51 @@ TEST_CASE("LayoutRealizer validates package layouts against isolated candidate a
                           return diagnostic.code == "layout_realizer.asset_unreadable";
                       }));
     CHECK(realizer.validate_project(project, candidate_assets));
+}
+
+TEST_CASE("PresentationLayoutReconciler re-primes an exact retained contextual Layout revision")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+    auto project = load_project("minimal.json");
+    const auto generation = *HostGeneration::from_number(7);
+    REQUIRE(realizer.bind_session(project, generation));
+
+    presentation::RuntimeLayoutManager layouts;
+    layouts.bind_document_host(&realizer);
+    PresentationLayoutReconciler reconciler(layouts, realizer);
+    reconciler.bind_project(project);
+
+    const auto layout =
+        core::LayoutId::create(std::string(core::compiled::builtin_verb_menu_layout_id));
+    const auto instance = core::ScopedLayoutInstanceId::create("verb-menu-ui");
+    REQUIRE(layout);
+    REQUIRE(instance);
+    const core::SessionPresentationOwner owner{core::PresentationSessionId::from_number(1)};
+    const auto mounted = core::PresentationMountedLayout{
+        .key = core::ScopedLayoutMountKey{*instance.value_if()},
+        .owner = owner,
+        .layout = *layout.value_if(),
+        .policy = policy(0, core::LayoutVisibility::Visible),
+        .composition_group = core::PresentationCompositionGroup::Interface,
+    };
+
+    core::RuntimePresentationSnapshot source;
+    source.revision = core::PresentationSnapshotRevision::from_number(1);
+    source.layouts = {mounted};
+    REQUIRE(reconciler.reconcile(source));
+    REQUIRE(layouts.mounted_layouts().size() == 1);
+    const auto original_instance = layouts.mounted_layouts().front().mounted.instance;
+
+    core::RuntimePresentationSnapshot destination;
+    destination.revision = core::PresentationSnapshotRevision::from_number(2);
+    REQUIRE(reconciler.reconcile(destination));
+    REQUIRE(layouts.mounted_layouts().size() == 1);
+
+    REQUIRE(reconciler.reconcile(source));
+    REQUIRE(layouts.mounted_layouts().size() == 1);
+    CHECK(layouts.mounted_layouts().front().mounted.instance == original_instance);
 }
 
 TEST_CASE("LayoutRealizer deterministically reconciles logical mounted Layout state")
