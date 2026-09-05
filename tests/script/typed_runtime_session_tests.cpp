@@ -1076,6 +1076,45 @@ TEST_CASE("typed Room navigation input commits the default Cut transition")
     CHECK(fixture.presentation.presentation_operations.empty());
 }
 
+TEST_CASE("Room navigation dismisses an open contextual Verb Menu before composing the destination")
+{
+    Fixture fixture("comprehensive.json");
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+
+    const core::compiled::InteractionSubject key = core::compiled::InteractableInteractionSubject{
+        make_id<core::InteractableInstanceIdTag>("key")};
+    auto opened = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::OpenVerbMenuInput{
+                              key, core::TriggerContext{.pointer = core::TriggerPoint{0.5, 0.5}}}});
+    REQUIRE(opened.diagnostics.empty());
+    REQUIRE(opened.publication);
+    REQUIRE(opened.publication->gameplay_ui.verb_menu_open);
+
+    auto navigated = fixture.session->dispatch(core::RuntimeInputMessage{
+        core::NavigateRoomInput{make_id<core::RoomExitIdTag>("north-exit")}});
+    REQUIRE(navigated.diagnostics.empty());
+    REQUIRE(navigated.publication);
+    REQUIRE(navigated.publication->gameplay_ui.room);
+    CHECK(navigated.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("hall"));
+    CHECK_FALSE(navigated.publication->gameplay_ui.verb_menu_open);
+    CHECK(navigated.publication->gameplay_ui.selected_subjects.empty());
+    CHECK(std::none_of(fixture.session->presentation_state().mounted_layouts().begin(),
+                       fixture.session->presentation_state().mounted_layouts().end(),
+                       [](const auto& mounted) {
+                           const auto* key = std::get_if<core::ScopedLayoutMountKey>(&mounted.key);
+                           return key != nullptr && key->instance.text() == "verb-menu-ui";
+                       }));
+
+    auto returned = fixture.session->dispatch(core::RuntimeInputMessage{
+        core::NavigateRoomInput{make_id<core::RoomExitIdTag>("south-exit")}});
+    REQUIRE(returned.diagnostics.empty());
+    REQUIRE(returned.publication);
+    REQUIRE(returned.publication->gameplay_ui.room);
+    CHECK(returned.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("start"));
+}
+
 TEST_CASE("failed Room recomposition republishes diagnostics with the prior complete target")
 {
     auto document = load_document("minimal.json");

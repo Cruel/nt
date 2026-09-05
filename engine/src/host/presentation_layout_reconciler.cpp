@@ -163,6 +163,18 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         }
 
         const auto existing = m_current.find(item.identity);
+        std::optional<std::size_t> retained_match;
+        auto retained_revision = m_retained.find(snapshot.revision.number());
+        if (existing == m_current.end() && retained_revision != m_retained.end()) {
+            const auto found = std::find_if(
+                retained_revision->second.begin(), retained_revision->second.end(),
+                [&](const auto& value) {
+                    return value.semantic_owner == item.semantic_owner && value.key == item.key;
+                });
+            if (found != retained_revision->second.end())
+                retained_match = static_cast<std::size_t>(
+                    std::distance(retained_revision->second.begin(), found));
+        }
         if (existing != m_current.end() && existing->second.layout == item.layout &&
             existing->second.semantic_owner == item.semantic_owner &&
             existing->second.owner == item.owner && existing->second.policy == item.policy &&
@@ -222,6 +234,28 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                     item.connected_signals, item.state_shape, item.state_values,
                     item.material_parameters, item.material_camera_zoom, item.trigger_context,
                     item.composition_group, snapshot.revision});
+            continue;
+        }
+        if (retained_match && retained_revision != m_retained.end() &&
+            *retained_match < retained_revision->second.size()) {
+            const auto retained_instance = retained_revision->second[*retained_match].instance;
+            auto updated = m_layouts.update(retained_instance, std::move(request));
+            if (!updated) {
+                rollback_new_mounts();
+                return core::Result<void, core::Diagnostics>::failure(std::move(updated).error());
+            }
+            retained_revision->second.erase(retained_revision->second.begin() +
+                                            static_cast<std::ptrdiff_t>(*retained_match));
+            if (retained_revision->second.empty())
+                m_retained.erase(retained_revision);
+            next.insert_or_assign(item.identity,
+                                  MountedPresentationLayout{
+                                      item.key, retained_instance, item.layout, item.semantic_owner,
+                                      item.owner, item.policy, item.scale_overrides,
+                                      item.occurrence, item.inputs, item.connected_signals,
+                                      item.state_shape, item.state_values, item.material_parameters,
+                                      item.material_camera_zoom, item.trigger_context,
+                                      item.composition_group, snapshot.revision});
             continue;
         }
 
