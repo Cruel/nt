@@ -270,6 +270,127 @@ describe('project workspace watcher policy', () => {
     );
   });
 
+  it('does not report a missing Asset source after the Asset record is intentionally deleted', async () => {
+    const root = tempRoot();
+    const project = createAuthoringProject();
+    project.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/logo.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    const snapshot = {
+      projectRoot: root,
+      project,
+      canonicalSourceFiles: [],
+      fileRevisions: {},
+      scriptSourcePaths: {},
+    };
+    const session = {
+      captureAuthoringFileStamps: vi.fn(async () => undefined),
+      knownAssetSourcePaths: vi.fn(() => (project.assets.logo ? ['assets/logo.bin'] : [])),
+      coherenceState: vi.fn(() => 'coherent'),
+      markResyncNeeded: vi.fn(),
+      runExclusive: vi.fn(async (callback: () => unknown) => callback()),
+      snapshot: vi.fn(() => snapshot),
+      readFreshRevision: vi.fn(),
+      requiresAuthoringReassembly: vi.fn(),
+      resynchronizeAuthoring: vi.fn(),
+      recoverPendingTransactions: vi.fn(async () => ({ recovered: false, changedPaths: [] })),
+      reassemble: vi.fn(),
+      observeAssetRevisions: vi.fn(async () => ({ 'assets/logo.bin': 'absent' })),
+      project: vi.fn(() => project),
+    } as never;
+    const send = vi.fn();
+    const owner = { isDestroyed: () => false, webContents: { send } } as never;
+
+    await startProjectWorkspaceWatcher(
+      owner,
+      'session-a',
+      root,
+      session,
+      () => true,
+      async () => undefined,
+    );
+
+    delete project.assets.logo;
+    watcherHarness.emit('unlink', path.join(root, 'assets/logo.bin'));
+    await waitForWatcherFlush();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const event = send.mock.calls[0]?.[1] as { assetDiagnostics?: Array<{ code: string }> };
+    expect(event.assetDiagnostics ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'workspace.asset-source.missing' })]),
+    );
+  });
+
+  it('still reports a source that disappears while its Asset record remains', async () => {
+    const root = tempRoot();
+    const project = createAuthoringProject();
+    project.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/logo.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    const snapshot = {
+      projectRoot: root,
+      project,
+      canonicalSourceFiles: [],
+      fileRevisions: {},
+      scriptSourcePaths: {},
+    };
+    const session = {
+      captureAuthoringFileStamps: vi.fn(async () => undefined),
+      knownAssetSourcePaths: vi.fn(() => ['assets/logo.bin']),
+      coherenceState: vi.fn(() => 'coherent'),
+      markResyncNeeded: vi.fn(),
+      runExclusive: vi.fn(async (callback: () => unknown) => callback()),
+      snapshot: vi.fn(() => snapshot),
+      readFreshRevision: vi.fn(),
+      requiresAuthoringReassembly: vi.fn(),
+      resynchronizeAuthoring: vi.fn(),
+      recoverPendingTransactions: vi.fn(async () => ({ recovered: false, changedPaths: [] })),
+      reassemble: vi.fn(),
+      observeAssetRevisions: vi.fn(async () => ({ 'assets/logo.bin': 'absent' })),
+      project: vi.fn(() => project),
+    } as never;
+    const send = vi.fn();
+    const owner = { isDestroyed: () => false, webContents: { send } } as never;
+
+    await startProjectWorkspaceWatcher(
+      owner,
+      'session-a',
+      root,
+      session,
+      () => true,
+      async () => undefined,
+    );
+
+    watcherHarness.emit('unlink', path.join(root, 'assets/logo.bin'));
+    await waitForWatcherFlush();
+
+    expect(send).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        assetDiagnostics: [
+          expect.objectContaining({
+            code: 'workspace.asset-source.missing',
+            message: "Referenced asset source 'assets/logo.bin' is missing.",
+          }),
+        ],
+      }),
+    );
+  });
+
   it('retries only the failed Asset observation without dropping it', async () => {
     const root = tempRoot();
     const project = createAuthoringProject();

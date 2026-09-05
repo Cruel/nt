@@ -353,6 +353,13 @@ async function flushWatcher(
     }
   }
   const publishedAssetChangedPaths = assetFileRevisions ? assetChangedPaths : [];
+  // Internal structural saves can remove an Asset record before chokidar delivers the source unlink.
+  // Reconcile the watcher's cached source set with the current workspace before deciding that an
+  // absent file is still referenced.
+  refreshProjectWorkspaceWatchAssetSourcePaths(
+    watcher.assetSourcePaths,
+    watcher.workspaceSession.project(),
+  );
   const assetDiagnostics: ProjectValidationDiagnostic[] = assetFileRevisions
     ? Object.entries(assetFileRevisions).flatMap(([relativePath, revision]) =>
         revision === 'absent' && watcher.assetSourcePaths.has(relativePath)
