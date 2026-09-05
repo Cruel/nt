@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
@@ -336,6 +336,89 @@ describe('AssetEditor', () => {
       expect(screen.getByTestId('asset-editor-scroll').scrollLeft).toBe(7);
     });
   });
+
+  it.each([false, true])(
+    'restores outer scroll after delayed layout unless interrupted (%s)',
+    async (interrupted) => {
+      let finishInspection!: (
+        value: Awaited<ReturnType<typeof window.noveltea.inspectProjectAssetMetadata>>,
+      ) => void;
+      vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishInspection = resolve;
+          }),
+      );
+      const positions = new WeakMap<Element, number>();
+      const getter = vi
+        .spyOn(Element.prototype, 'scrollTop', 'get')
+        .mockImplementation(function (this: Element) {
+          return positions.get(this) ?? 0;
+        });
+      const setter = vi.spyOn(Element.prototype, 'scrollTop', 'set').mockImplementation(function (
+        this: Element,
+        value: number,
+      ) {
+        // Model browser clamping until the restored JSON viewer contributes its full height.
+        const ready = this.querySelector('textarea')?.style.height === '400px';
+        positions.set(
+          this,
+          this.getAttribute('data-testid') === 'asset-editor-scroll' && !ready ? 0 : value,
+        );
+      });
+      try {
+        useProjectStore.getState().loadProjectDocument({
+          document: project(),
+          projectPath: '/mock/project',
+          projectFilePath: '/mock/project/game.json',
+        });
+        useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+        restoreSerializedWorkbenchTabStates({
+          [tab.id]: {
+            schema: 'noveltea.editor.asset-detail-tab-state',
+            payload: {
+              scroll: { scrollTop: 300, scrollLeft: 0 },
+              metadata: {
+                contentHash: `sha256:${'a'.repeat(64)}`,
+                filter: '',
+                expandedItemIds: ['workflow'],
+                promptExpanded: false,
+                negativePromptExpanded: false,
+                itemScroll: {},
+                jsonHeights: { workflow: 400 },
+              },
+            },
+          },
+        });
+        render(<AssetEditor tab={tab} />);
+        const outer = screen.getByTestId('asset-editor-scroll');
+        expect(outer.scrollTop).toBe(0);
+        if (interrupted) fireEvent.wheel(outer, { deltaY: 10 });
+        await act(async () =>
+          finishInspection({
+            ok: true,
+            status: 'ready',
+            kind: 'image',
+            contentHash: `sha256:${'a'.repeat(64)}`,
+            groups: [
+              {
+                id: 'PNG',
+                namespace: 'PNG',
+                items: [
+                  { id: 'workflow', key: 'workflow', value: '{"nodes":[]}', valueKind: 'json' },
+                ],
+              },
+            ],
+          }),
+        );
+        expect(screen.getByLabelText('workflow JSON').style.height).toBe('400px');
+        expect(outer.scrollTop).toBe(interrupted ? 0 : 300);
+      } finally {
+        getter.mockRestore();
+        setter.mockRestore();
+      }
+    },
+  );
 
   it('discards metadata-specific tab state after a content-hash change while restoring outer scroll', async () => {
     restoreSerializedWorkbenchTabStates({
