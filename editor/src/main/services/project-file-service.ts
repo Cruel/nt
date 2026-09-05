@@ -135,13 +135,37 @@ function mutationValueAtPointer(root: unknown, pointer: string): ProjectMutation
   return value.present ? { exists: true, value: structuredClone(value.value) } : { exists: false };
 }
 
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => jsonValuesEqual(value, right[index]))
+    );
+  }
+  if (!isRecord(left) || !isRecord(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] &&
+        Object.prototype.hasOwnProperty.call(right, key) &&
+        jsonValuesEqual(left[key], right[key]),
+    )
+  );
+}
+
 function mutationValuesEqual(
   left: ProjectMutationPathValue,
   right: ProjectMutationPathValue,
 ): boolean {
   return (
     left.exists === right.exists &&
-    (!left.exists || !right.exists || JSON.stringify(left.value) === JSON.stringify(right.value))
+    (!left.exists || !right.exists || jsonValuesEqual(left.value, right.value))
   );
 }
 
@@ -173,7 +197,7 @@ function appendChangedMutationValues(
   segments: readonly string[],
   output: Record<string, ProjectMutationPathValue>,
 ): void {
-  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  if (jsonValuesEqual(before, after)) return;
   const beforeObject = isRecord(before);
   const afterObject = isRecord(after);
   if (beforeObject && afterObject) {
@@ -283,9 +307,7 @@ function scopedExpectedRevisions(
     const exactPathsAreUnchanged = exactChangedPaths.every((pointer) => {
       const disk = valueAtPointer(opened.project, pointer);
       const base = valueAtPointer(baseline.data, pointer);
-      return (
-        disk.present === base.present && JSON.stringify(disk.value) === JSON.stringify(base.value)
-      );
+      return disk.present === base.present && jsonValuesEqual(disk.value, base.value);
     });
     if (!exactPathsAreUnchanged)
       throw new ProjectWorkspaceMutationError(
@@ -300,9 +322,7 @@ function scopedExpectedRevisions(
       const selectedPathsAreUnchanged = ownership.paths.every((pointer) => {
         const disk = valueAtPointer(opened.project, pointer);
         const base = valueAtPointer(baseline.data, pointer);
-        return (
-          disk.present === base.present && JSON.stringify(disk.value) === JSON.stringify(base.value)
-        );
+        return disk.present === base.present && jsonValuesEqual(disk.value, base.value);
       });
       if (!selectedPathsAreUnchanged)
         throw new ProjectWorkspaceMutationError(
@@ -460,9 +480,7 @@ async function writeWorkspaceProject(
     commitOptions.affectedPaths?.every((pointer) => {
       const disk = valueAtPointer(openedSnapshot.project, pointer);
       const base = valueAtPointer(baseline.data, pointer);
-      return (
-        disk.present === base.present && JSON.stringify(disk.value) === JSON.stringify(base.value)
-      );
+      return disk.present === base.present && jsonValuesEqual(disk.value, base.value);
     });
   if (structuralPathsAreUnchanged)
     for (const file of targetFiles ?? []) {

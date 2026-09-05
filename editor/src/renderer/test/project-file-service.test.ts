@@ -1027,6 +1027,102 @@ describe('project-file-service workspace-v1', () => {
     expect(JSON.parse(fs.readFileSync(projectPath, 'utf8')).project.name).toBe('Fail Closed');
   });
 
+  it('does not manufacture an external conflict when an asset memory policy is edited after saving', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Asset Memory Save', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+
+    const firstPolicy = {
+      id: 'memory-policy',
+      label: 'Test',
+      basePreset: 'high' as const,
+      // UI edits preserve insertion order. Deliberately differ from the schema's key order so the
+      // renderer's saved baseline is semantically equal to, but not byte-string equal to, the
+      // main process's parsed AuthoringProject value.
+      overrides: {
+        temporaryBytes: 1024 * 1024 * 1024,
+        prefetchAllowancePercent: 80,
+        gpuBytes: 1024 * 1024 * 1024,
+        preparedCpuBytes: 1024 * 1024 * 1024,
+      },
+    };
+    const firstSave = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['project:settings'],
+        affectedPaths: ['/export/assetMemoryPolicies'],
+        baseValueByPath: { '/export/assetMemoryPolicies': { exists: true, value: [] } },
+        localValueByPath: {
+          '/export/assetMemoryPolicies': { exists: true, value: [firstPolicy] },
+        },
+        operationLabel: 'add asset memory policy',
+      },
+      opened.editorState,
+    );
+    expect(firstSave.success).toBe(true);
+
+    expect(await filterExternallyChangedAuthoringPaths(session, ['project.json'])).toEqual([]);
+
+    const secondPolicy = {
+      ...firstPolicy,
+      overrides: {
+        preparedCpuBytes: 4000 * 1024 * 1024,
+        gpuBytes: 4000 * 1024 * 1024,
+        audioBytes: 1000 * 1024 * 1024,
+        temporaryBytes: 4000 * 1024 * 1024,
+        prefetchAllowancePercent: 80,
+      },
+    };
+    const recoveryState = structuredClone(firstSave.editorState ?? opened.editorState);
+    recoveryState.recovery = {
+      sequence: 1,
+      saveUnitsById: {
+        'project:settings': {
+          sequence: 1,
+          patches: [{ op: 'replace', path: '/export/assetMemoryPolicies', value: [secondPolicy] }],
+          affectedPaths: ['/export/assetMemoryPolicies'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      },
+    };
+    const persistedRecovery = await session.persistEditorState(recoveryState, {
+      'project:settings': ['project.json'],
+    });
+    expect(
+      persistedRecovery.recovery.saveUnitsById['project:settings']?.baselineFileRevisions,
+    ).toEqual({
+      'project.json': session.knownFileRevision('project.json'),
+    });
+
+    const secondSave = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['project:settings'],
+        affectedPaths: ['/export/assetMemoryPolicies'],
+        baseValueByPath: {
+          '/export/assetMemoryPolicies': { exists: true, value: [firstPolicy] },
+        },
+        localValueByPath: {
+          '/export/assetMemoryPolicies': { exists: true, value: [secondPolicy] },
+        },
+        operationLabel: 'update asset memory policy',
+        recoveryFileOwnershipHints: { 'project:settings': ['project.json'] },
+      },
+      persistedRecovery,
+    );
+
+    expect(secondSave.success).toBe(true);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).export
+        .assetMemoryPolicies,
+    ).toEqual([secondPolicy]);
+  });
+
   it('merges a disjoint external edit in the same Room during a scoped save', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Room Merge', projectDirectory: root });
