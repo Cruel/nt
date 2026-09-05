@@ -2,6 +2,7 @@ import type {
   AssetMetadataInspectionGroup,
   AssetProvenanceEntity,
   AssetProvenanceStage,
+  AssetWorkflowMetadata,
 } from '../../shared/asset-metadata-inspection';
 import { NOVELTEA_COMFYUI_METADATA_MARKERS } from '../../shared/comfyui-metadata';
 
@@ -88,6 +89,14 @@ function pngMetadataValue(groups: AssetMetadataInspectionGroup[], key: string): 
   return png?.items.find((candidate) => candidate.key === key)?.value;
 }
 
+function looksLikeUiWorkflow(value: JsonRecord | null): value is JsonRecord {
+  if (!value || !Array.isArray(value.nodes)) return false;
+  return value.nodes.some((candidate) => {
+    const node = record(candidate);
+    return node !== null && (typeof node.type === 'string' || typeof node.id === 'number');
+  });
+}
+
 function looksLikeApiGraph(value: JsonRecord | null): value is JsonRecord {
   if (!value) return false;
   const nodes = Object.values(value);
@@ -169,6 +178,20 @@ function recognizeGraph(graph: JsonRecord): ComfyUiRecognizedGeneration | undefi
     ...(negativePrompt !== undefined ? { negativePrompt } : {}),
     facts,
   };
+}
+
+export function identifyComfyUiWorkflowMetadata(
+  groups: AssetMetadataInspectionGroup[],
+): AssetWorkflowMetadata[] | undefined {
+  const promptGraph = parseJsonText(pngMetadataValue(groups, 'prompt'));
+  const workflowGraph = parseJsonText(pngMetadataValue(groups, 'workflow'));
+  if (
+    !looksLikeApiGraph(promptGraph) &&
+    !looksLikeApiGraph(workflowGraph) &&
+    !looksLikeUiWorkflow(workflowGraph)
+  )
+    return undefined;
+  return [{ tool: COMFYUI_ENTITY, kind: 'workflow' }];
 }
 
 export function recognizeComfyUiMetadata(

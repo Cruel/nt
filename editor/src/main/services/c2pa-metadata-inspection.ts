@@ -1,6 +1,7 @@
 import type {
   AssetMetadataInspectionGroup,
   AssetMetadataInspectionItem,
+  AssetMetadataInspectionWarning,
   AssetRecognizedProvenance,
   AssetProvenanceEntity,
   AssetProvenanceStage,
@@ -23,6 +24,12 @@ interface C2paInspection {
   group?: AssetMetadataInspectionGroup;
   c2pa?: { trust: 'unverified' };
   provenance?: AssetRecognizedProvenance;
+  warnings?: AssetMetadataInspectionWarning[];
+}
+
+interface C2paAssertionParseResult {
+  assertion?: C2paAssertion;
+  partial: boolean;
 }
 
 interface CborCursor {
@@ -174,32 +181,42 @@ function jumbLabel(bytes: Buffer, payloadStart: number, end: number): string | n
   return bytes.toString('utf8', labelStart, labelEnd);
 }
 
-function assertionFromJumb(bytes: Buffer, start: number): C2paAssertion | null {
+function assertionFromJumb(bytes: Buffer, start: number): C2paAssertionParseResult {
   const outer = boxBounds(bytes, start);
-  if (!outer || outer.type !== 'jumb') return null;
+  if (!outer || outer.type !== 'jumb') return { partial: false };
   let label: string | null = null;
   let value: unknown;
+  let decodeFailed = false;
+  let malformedChild = false;
   let cursor = outer.payloadStart;
   while (cursor + 8 <= outer.end) {
     const child = boxBounds(bytes, cursor);
-    if (!child || child.end > outer.end) break;
+    if (!child || child.end > outer.end) {
+      malformedChild = true;
+      break;
+    }
     if (child.type === 'jumd') label = jumbLabel(bytes, child.payloadStart, child.end);
     else if (child.type === 'cbor') {
       try {
         value = decodeCbor(bytes.subarray(child.payloadStart, child.end));
       } catch {
+        decodeFailed = true;
         value = undefined;
       }
     }
     cursor = child.end;
   }
-  if (!label || value === undefined) return null;
-  if (label !== 'c2pa.claim.v2' && label !== 'c2pa.actions.v2') return null;
-  return { label, value };
+  if (!label?.startsWith('c2pa.')) return { partial: false };
+  if (value === undefined) return { partial: decodeFailed || malformedChild || cursor < outer.end };
+  return { assertion: { label, value }, partial: malformedChild || cursor < outer.end };
 }
 
-function findC2paAssertions(bytes: Buffer): C2paAssertion[] {
+function findC2paAssertions(bytes: Buffer): {
+  assertions: C2paAssertion[];
+  partial: boolean;
+} {
   const assertions: C2paAssertion[] = [];
+  let partial = false;
   const seen = new Set<number>();
   let searchFrom = 4;
   while (searchFrom < bytes.byteLength - 4) {
@@ -208,15 +225,16 @@ function findC2paAssertions(bytes: Buffer): C2paAssertion[] {
     const start = typeOffset - 4;
     if (!seen.has(start)) {
       seen.add(start);
-      const assertion = assertionFromJumb(bytes, start);
-      if (assertion) {
-        assertions.push(assertion);
+      const parsed = assertionFromJumb(bytes, start);
+      partial ||= parsed.partial;
+      if (parsed.assertion) {
+        assertions.push(parsed.assertion);
         if (assertions.length >= MAX_C2PA_ASSERTIONS) break;
       }
     }
     searchFrom = typeOffset + 4;
   }
-  return assertions;
+  return { assertions, partial };
 }
 
 function scalarMetadataItem(
@@ -368,8 +386,8 @@ function recognizedProvenance(assertions: C2paAssertion[]): AssetRecognizedProve
 }
 
 export function inspectC2paMetadata(bytes: Buffer): C2paInspection {
-  const assertions = findC2paAssertions(bytes);
-  if (assertions.length === 0) return {};
+  const { assertions, partial } = findC2paAssertions(bytes);
+  if (assertions.length === 0) return partial ? { warnings: ['partial-decode'] } : {};
   const items: AssetMetadataInspectionItem[] = assertions.map((assertion, index) => ({
     id: `C2PA/jumbf-label/${index}`,
     key: `jumbf[${index}].label`,
@@ -383,5 +401,6 @@ export function inspectC2paMetadata(bytes: Buffer): C2paInspection {
     group,
     c2pa: { trust: 'unverified' },
     ...(provenance ? { provenance } : {}),
+    ...(partial ? { warnings: ['partial-decode'] } : {}),
   };
 }
