@@ -154,9 +154,9 @@ describe('ProjectSettingsEditor', () => {
     fireEvent.click(overrideSwitches[1]!);
     await waitFor(() => {
       const current = useProjectStore.getState().document as ReturnType<typeof project>;
-      expect(current.export.assetMemoryPolicies[0]?.overrides.gpuBytes).toBe(128 * 1024 * 1024);
+      expect(current.export.assetMemoryPolicies[0]?.overrides.gpuBytes).toBe(640 * 1024 * 1024);
     });
-    expect(screen.getByLabelText('GPU MiB')).toHaveValue(128);
+    expect(screen.getByLabelText('GPU MiB')).toHaveValue(640);
 
     fireEvent.click(screen.getAllByRole('switch')[4]!);
     await waitFor(() => {

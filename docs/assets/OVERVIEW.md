@@ -94,9 +94,9 @@ disposable UI audio creates the same asynchronous request without blocking gamep
 ready or is dropped with a diagnostic if loading fails or the operation becomes obsolete. No audio
 adapter path assumes that an unpublished lease already exists, and no path falls back to synchronous
 loading. Platform export profiles resolve measured Low, Balanced, High, or Custom memory
-policy. The runtime enforces both total evictable residency and the configured Warm-prefetch share
-while preserving mandatory correctness; the player startup log and telemetry snapshots retain the
-fully resolved policy.
+policy. The runtime enforces both total evictable residency and the configured absolute per-domain
+Warm-prefetch ceilings while preserving mandatory correctness; the player startup log and telemetry
+snapshots retain the fully resolved policy.
 
 `AssetProgressOrchestrator` is the owner-frame progress boundary above `AssetManager`. It derives a
 small `Idle`/`Background`/`Blocking` urgency from live typed request state so the engine can choose its

@@ -124,83 +124,122 @@ export type AssetMemoryBuiltinPreset = (typeof assetMemoryBuiltinPresetValues)[n
 export type ResolvedAssetMemoryPolicy = z.infer<typeof resolvedAssetMemoryPolicySchema>;
 
 const mib = (value: number) => value * 1024 * 1024;
-type MeasuredAssetMemoryDefault = Omit<
-  ResolvedAssetMemoryPolicy,
-  'preset' | 'warmPreparedCpuBytes' | 'warmGpuBytes' | 'warmAudioBytes'
->;
+const percentageBytes = (totalBytes: number, percent: number) =>
+  Math.floor(totalBytes / 100) * percent + Math.floor(((totalBytes % 100) * percent) / 100);
+type MeasuredAssetMemoryDefault = Omit<ResolvedAssetMemoryPolicy, 'preset'>;
+type AssetMemoryTargetFamily = 'desktop' | 'android' | 'web';
+type AssetMemoryMeasuredPreset = 'low' | 'balanced' | 'high';
+
 const measuredAssetMemoryDefaults: Record<
-  'desktop' | 'android' | 'web',
-  Record<'low' | 'balanced' | 'high', MeasuredAssetMemoryDefault>
+  AssetMemoryTargetFamily,
+  Record<AssetMemoryMeasuredPreset, MeasuredAssetMemoryDefault>
 > = {
   desktop: {
     low: {
       preparedCpuBytes: mib(64),
-      gpuBytes: mib(128),
+      gpuBytes: mib(640),
       audioBytes: mib(32),
       temporaryBytes: mib(32),
+      warmPreparedCpuBytes: percentageBytes(mib(64), 20),
+      warmGpuBytes: mib(512),
+      warmAudioBytes: percentageBytes(mib(32), 20),
       prefetchAllowancePercent: 20,
     },
     balanced: {
       preparedCpuBytes: mib(128),
-      gpuBytes: mib(256),
+      gpuBytes: mib(1280),
       audioBytes: mib(64),
       temporaryBytes: mib(64),
+      warmPreparedCpuBytes: percentageBytes(mib(128), 30),
+      warmGpuBytes: mib(1024),
+      warmAudioBytes: percentageBytes(mib(64), 30),
       prefetchAllowancePercent: 30,
     },
     high: {
       preparedCpuBytes: mib(256),
-      gpuBytes: mib(512),
+      gpuBytes: mib(2560),
       audioBytes: mib(128),
       temporaryBytes: mib(128),
+      warmPreparedCpuBytes: percentageBytes(mib(256), 40),
+      warmGpuBytes: mib(2048),
+      warmAudioBytes: percentageBytes(mib(128), 40),
       prefetchAllowancePercent: 40,
     },
   },
   android: {
     low: {
       preparedCpuBytes: mib(48),
-      gpuBytes: mib(96),
+      gpuBytes: mib(352),
       audioBytes: mib(24),
       temporaryBytes: mib(24),
+      warmPreparedCpuBytes: percentageBytes(mib(48), 15),
+      warmGpuBytes: mib(256),
+      warmAudioBytes: percentageBytes(mib(24), 15),
       prefetchAllowancePercent: 15,
     },
     balanced: {
       preparedCpuBytes: mib(96),
-      gpuBytes: mib(192),
+      gpuBytes: mib(704),
       audioBytes: mib(48),
       temporaryBytes: mib(48),
+      warmPreparedCpuBytes: percentageBytes(mib(96), 25),
+      warmGpuBytes: mib(512),
+      warmAudioBytes: percentageBytes(mib(48), 25),
       prefetchAllowancePercent: 25,
     },
     high: {
       preparedCpuBytes: mib(192),
-      gpuBytes: mib(384),
+      gpuBytes: mib(1408),
       audioBytes: mib(96),
       temporaryBytes: mib(96),
+      warmPreparedCpuBytes: percentageBytes(mib(192), 35),
+      warmGpuBytes: mib(1024),
+      warmAudioBytes: percentageBytes(mib(96), 35),
       prefetchAllowancePercent: 35,
     },
   },
   web: {
     low: {
       preparedCpuBytes: mib(32),
-      gpuBytes: mib(64),
+      gpuBytes: mib(320),
       audioBytes: mib(16),
       temporaryBytes: mib(16),
+      warmPreparedCpuBytes: percentageBytes(mib(32), 10),
+      warmGpuBytes: mib(256),
+      warmAudioBytes: percentageBytes(mib(16), 10),
       prefetchAllowancePercent: 10,
     },
     balanced: {
       preparedCpuBytes: mib(64),
-      gpuBytes: mib(128),
+      gpuBytes: mib(640),
       audioBytes: mib(32),
       temporaryBytes: mib(32),
+      warmPreparedCpuBytes: percentageBytes(mib(64), 20),
+      warmGpuBytes: mib(512),
+      warmAudioBytes: percentageBytes(mib(32), 20),
       prefetchAllowancePercent: 20,
     },
     high: {
       preparedCpuBytes: mib(128),
-      gpuBytes: mib(256),
+      gpuBytes: mib(1280),
       audioBytes: mib(64),
       temporaryBytes: mib(64),
+      warmPreparedCpuBytes: percentageBytes(mib(128), 30),
+      warmGpuBytes: mib(1024),
+      warmAudioBytes: percentageBytes(mib(64), 30),
       prefetchAllowancePercent: 30,
     },
   },
+};
+
+// Percentage-only policies keep this pre-recalibration GPU denominator unless they override GPU total.
+const legacyPercentageGpuBytes: Record<
+  AssetMemoryTargetFamily,
+  Record<AssetMemoryMeasuredPreset, number>
+> = {
+  desktop: { low: mib(128), balanced: mib(256), high: mib(512) },
+  android: { low: mib(96), balanced: mib(192), high: mib(384) },
+  web: { low: mib(64), balanced: mib(128), high: mib(256) },
 };
 
 export function resolveAssetMemoryPolicy(
@@ -223,18 +262,30 @@ export function resolveAssetMemoryPolicy(
   const audioBytes = overrides?.audioBytes ?? baseline.audioBytes;
   const prefetchAllowancePercent =
     overrides?.prefetchAllowancePercent ?? baseline.prefetchAllowancePercent;
-  const percentageBytes = (totalBytes: number) =>
-    Math.floor(totalBytes / 100) * prefetchAllowancePercent +
-    Math.floor(((totalBytes % 100) * prefetchAllowancePercent) / 100);
+  const compatibilityWarmBytes = (totalBytes: number) =>
+    percentageBytes(totalBytes, prefetchAllowancePercent);
+  const compatibilityGpuBytes =
+    overrides?.gpuBytes ?? legacyPercentageGpuBytes[family][baselinePreset];
+  const useBuiltInWarmDefaults = profile.kind === 'builtin';
   return resolvedAssetMemoryPolicySchema.parse({
     preset: profile.kind === 'builtin' ? profile.preset : 'custom',
     preparedCpuBytes,
     gpuBytes,
     audioBytes,
     temporaryBytes: overrides?.temporaryBytes ?? baseline.temporaryBytes,
-    warmPreparedCpuBytes: overrides?.warmPreparedCpuBytes ?? percentageBytes(preparedCpuBytes),
-    warmGpuBytes: overrides?.warmGpuBytes ?? percentageBytes(gpuBytes),
-    warmAudioBytes: overrides?.warmAudioBytes ?? percentageBytes(audioBytes),
+    warmPreparedCpuBytes:
+      overrides?.warmPreparedCpuBytes ??
+      (useBuiltInWarmDefaults
+        ? baseline.warmPreparedCpuBytes
+        : compatibilityWarmBytes(preparedCpuBytes)),
+    warmGpuBytes:
+      overrides?.warmGpuBytes ??
+      (useBuiltInWarmDefaults
+        ? baseline.warmGpuBytes
+        : compatibilityWarmBytes(compatibilityGpuBytes)),
+    warmAudioBytes:
+      overrides?.warmAudioBytes ??
+      (useBuiltInWarmDefaults ? baseline.warmAudioBytes : compatibilityWarmBytes(audioBytes)),
     prefetchAllowancePercent,
   });
 }

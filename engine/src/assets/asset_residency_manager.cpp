@@ -18,6 +18,20 @@ using PrefetchCounts = std::map<std::uint64_t, std::uint64_t>;
 
 constexpr std::uint64_t mib(std::uint64_t value) noexcept { return value * 1024u * 1024u; }
 
+// Percentage-only Custom policies keep their old GPU denominator when preset totals grow.
+constexpr std::uint64_t legacy_custom_gpu_percentage_base(AssetMemoryTarget target) noexcept
+{
+    switch (target) {
+    case AssetMemoryTarget::Desktop:
+        return mib(256);
+    case AssetMemoryTarget::Android:
+        return mib(192);
+    case AssetMemoryTarget::Web:
+        return mib(128);
+    }
+    return 0;
+}
+
 ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset preset) noexcept
 {
     switch (target) {
@@ -26,24 +40,27 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
         case AssetMemoryPreset::Low:
             return {.source_bytes = mib(64),
                     .prepared_cpu_bytes = mib(64),
-                    .gpu_bytes = mib(128),
+                    .gpu_bytes = mib(640),
                     .audio_bytes = mib(32),
                     .temporary_bytes = mib(32),
+                    .warm_gpu_bytes = mib(512),
                     .prefetch_allowance_percent = 20};
         case AssetMemoryPreset::Balanced:
         case AssetMemoryPreset::Custom:
             return {.source_bytes = mib(128),
                     .prepared_cpu_bytes = mib(128),
-                    .gpu_bytes = mib(256),
+                    .gpu_bytes = mib(1280),
                     .audio_bytes = mib(64),
                     .temporary_bytes = mib(64),
+                    .warm_gpu_bytes = mib(1024),
                     .prefetch_allowance_percent = 30};
         case AssetMemoryPreset::High:
             return {.source_bytes = mib(256),
                     .prepared_cpu_bytes = mib(256),
-                    .gpu_bytes = mib(512),
+                    .gpu_bytes = mib(2560),
                     .audio_bytes = mib(128),
                     .temporary_bytes = mib(128),
+                    .warm_gpu_bytes = mib(2048),
                     .prefetch_allowance_percent = 40};
         }
         break;
@@ -52,24 +69,27 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
         case AssetMemoryPreset::Low:
             return {.source_bytes = mib(48),
                     .prepared_cpu_bytes = mib(48),
-                    .gpu_bytes = mib(96),
+                    .gpu_bytes = mib(352),
                     .audio_bytes = mib(24),
                     .temporary_bytes = mib(24),
+                    .warm_gpu_bytes = mib(256),
                     .prefetch_allowance_percent = 15};
         case AssetMemoryPreset::Balanced:
         case AssetMemoryPreset::Custom:
             return {.source_bytes = mib(96),
                     .prepared_cpu_bytes = mib(96),
-                    .gpu_bytes = mib(192),
+                    .gpu_bytes = mib(704),
                     .audio_bytes = mib(48),
                     .temporary_bytes = mib(48),
+                    .warm_gpu_bytes = mib(512),
                     .prefetch_allowance_percent = 25};
         case AssetMemoryPreset::High:
             return {.source_bytes = mib(192),
                     .prepared_cpu_bytes = mib(192),
-                    .gpu_bytes = mib(384),
+                    .gpu_bytes = mib(1408),
                     .audio_bytes = mib(96),
                     .temporary_bytes = mib(96),
+                    .warm_gpu_bytes = mib(1024),
                     .prefetch_allowance_percent = 35};
         }
         break;
@@ -78,24 +98,27 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
         case AssetMemoryPreset::Low:
             return {.source_bytes = mib(32),
                     .prepared_cpu_bytes = mib(32),
-                    .gpu_bytes = mib(64),
+                    .gpu_bytes = mib(320),
                     .audio_bytes = mib(16),
                     .temporary_bytes = mib(16),
+                    .warm_gpu_bytes = mib(256),
                     .prefetch_allowance_percent = 10};
         case AssetMemoryPreset::Balanced:
         case AssetMemoryPreset::Custom:
             return {.source_bytes = mib(64),
                     .prepared_cpu_bytes = mib(64),
-                    .gpu_bytes = mib(128),
+                    .gpu_bytes = mib(640),
                     .audio_bytes = mib(32),
                     .temporary_bytes = mib(32),
+                    .warm_gpu_bytes = mib(512),
                     .prefetch_allowance_percent = 20};
         case AssetMemoryPreset::High:
             return {.source_bytes = mib(128),
                     .prepared_cpu_bytes = mib(128),
-                    .gpu_bytes = mib(256),
+                    .gpu_bytes = mib(1280),
                     .audio_bytes = mib(64),
                     .temporary_bytes = mib(64),
+                    .warm_gpu_bytes = mib(1024),
                     .prefetch_allowance_percent = 30};
         }
         break;
@@ -222,6 +245,13 @@ resolve_asset_memory_policy(AssetMemoryTarget target, AssetMemoryPreset preset,
     }
 
     auto legacy_budget = budget;
+    if (preset == AssetMemoryPreset::Custom) {
+        legacy_budget.warm_prepared_cpu_bytes.reset();
+        legacy_budget.warm_gpu_bytes.reset();
+        legacy_budget.warm_audio_bytes.reset();
+        if (!custom.gpu_bytes)
+            legacy_budget.gpu_bytes = legacy_custom_gpu_percentage_base(target);
+    }
     legacy_budget.prefetch_allowance_percent = std::min(budget.prefetch_allowance_percent, 100u);
     const auto legacy_allowance = prefetch_allowance_cost(legacy_budget);
     budget.warm_prepared_cpu_bytes =

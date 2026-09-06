@@ -1024,24 +1024,26 @@ TEST_CASE("Measured asset memory profiles resolve and validate for every target"
     constexpr std::uint64_t mib = 1024u * 1024u;
     constexpr ExpectedTargetProfiles expected[]{
         {.target = assets::AssetMemoryTarget::Desktop,
-         .low = {64 * mib, 64 * mib, 128 * mib, 32 * mib, 32 * mib, 13421772, 26843545, 6710886,
+         .low = {64 * mib, 64 * mib, 640 * mib, 32 * mib, 32 * mib, 13421772, 512 * mib, 6710886,
                  20},
-         .balanced = {128 * mib, 128 * mib, 256 * mib, 64 * mib, 64 * mib, 40265318, 80530636,
+         .balanced = {128 * mib, 128 * mib, 1280 * mib, 64 * mib, 64 * mib, 40265318, 1024 * mib,
                       20132659, 30},
-         .high = {256 * mib, 256 * mib, 512 * mib, 128 * mib, 128 * mib, 107374182, 214748364,
+         .high = {256 * mib, 256 * mib, 2560 * mib, 128 * mib, 128 * mib, 107374182, 2048 * mib,
                   53687091, 40}},
         {.target = assets::AssetMemoryTarget::Android,
-         .low = {48 * mib, 48 * mib, 96 * mib, 24 * mib, 24 * mib, 7549747, 15099494, 3774873, 15},
-         .balanced = {96 * mib, 96 * mib, 192 * mib, 48 * mib, 48 * mib, 25165824, 50331648,
+         .low = {48 * mib, 48 * mib, 352 * mib, 24 * mib, 24 * mib, 7549747, 256 * mib, 3774873,
+                 15},
+         .balanced = {96 * mib, 96 * mib, 704 * mib, 48 * mib, 48 * mib, 25165824, 512 * mib,
                       12582912, 25},
-         .high = {192 * mib, 192 * mib, 384 * mib, 96 * mib, 96 * mib, 70464307, 140928614,
+         .high = {192 * mib, 192 * mib, 1408 * mib, 96 * mib, 96 * mib, 70464307, 1024 * mib,
                   35232153, 35}},
         {.target = assets::AssetMemoryTarget::Web,
-         .low = {32 * mib, 32 * mib, 64 * mib, 16 * mib, 16 * mib, 3355443, 6710886, 1677721, 10},
-         .balanced = {64 * mib, 64 * mib, 128 * mib, 32 * mib, 32 * mib, 13421772, 26843545,
+         .low = {32 * mib, 32 * mib, 320 * mib, 16 * mib, 16 * mib, 3355443, 256 * mib, 1677721,
+                 10},
+         .balanced = {64 * mib, 64 * mib, 640 * mib, 32 * mib, 32 * mib, 13421772, 512 * mib,
                       6710886, 20},
-         .high = {128 * mib, 128 * mib, 256 * mib, 64 * mib, 64 * mib, 40265318, 80530636, 20132659,
-                  30}},
+         .high = {128 * mib, 128 * mib, 1280 * mib, 64 * mib, 64 * mib, 40265318, 1024 * mib,
+                  20132659, 30}},
     };
     for (const auto& target : expected) {
         auto low =
@@ -1072,6 +1074,12 @@ TEST_CASE("Measured asset memory profiles resolve and validate for every target"
         CHECK(low_budget.prefetch_allowance_percent <= 100);
         CHECK(low.value().target == target.target);
     }
+
+    auto legacy_inherited = assets::resolve_asset_memory_policy(assets::AssetMemoryTarget::Desktop,
+                                                                assets::AssetMemoryPreset::Custom);
+    REQUIRE(legacy_inherited);
+    CHECK(legacy_inherited.value().budget.gpu_bytes == 1280u * mib);
+    CHECK(legacy_inherited.value().budget.warm_gpu_bytes == 80530636);
 
     auto inherited = assets::resolve_asset_memory_policy(
         assets::AssetMemoryTarget::Web, assets::AssetMemoryPreset::Custom,
