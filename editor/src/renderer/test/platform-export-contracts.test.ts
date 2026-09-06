@@ -149,6 +149,9 @@ describe('platform export contracts', () => {
         gpuBytes: gpu * mib,
         audioBytes: audio * mib,
         temporaryBytes: temporary * mib,
+        warmPreparedCpuBytes: Math.floor((cpu * mib * allowance) / 100),
+        warmGpuBytes: Math.floor((gpu * mib * allowance) / 100),
+        warmAudioBytes: Math.floor((audio * mib * allowance) / 100),
         prefetchAllowancePercent: allowance,
       });
     }
@@ -167,7 +170,55 @@ describe('platform export contracts', () => {
       preset: 'custom',
       preparedCpuBytes: 64 * 1024 * 1024,
       gpuBytes: 96 * 1024 * 1024,
+      warmPreparedCpuBytes: 0,
+      warmGpuBytes: 0,
+      warmAudioBytes: 0,
       prefetchAllowancePercent: 0,
+    });
+
+    const legacyPercentage = assetMemoryPolicyDefinitionSchema.parse({
+      id: 'legacy-percentage',
+      label: 'Legacy percentage',
+      basePreset: 'balanced',
+      overrides: {
+        preparedCpuBytes: 100,
+        gpuBytes: 200,
+        audioBytes: 300,
+        prefetchAllowancePercent: 25,
+      },
+    });
+    expect(
+      resolveAssetMemoryPolicy('linux', { kind: 'policy', policyId: legacyPercentage.id }, [
+        legacyPercentage,
+      ]),
+    ).toMatchObject({
+      warmPreparedCpuBytes: 25,
+      warmGpuBytes: 50,
+      warmAudioBytes: 75,
+    });
+
+    const absoluteWarm = assetMemoryPolicyDefinitionSchema.parse({
+      id: 'absolute-warm',
+      label: 'Absolute Warm',
+      basePreset: 'balanced',
+      overrides: {
+        preparedCpuBytes: 100,
+        gpuBytes: 200,
+        audioBytes: 300,
+        prefetchAllowancePercent: 99,
+        warmPreparedCpuBytes: 10,
+        warmGpuBytes: 20,
+        warmAudioBytes: 30,
+      },
+    });
+    expect(
+      resolveAssetMemoryPolicy('linux', { kind: 'policy', policyId: absoluteWarm.id }, [
+        absoluteWarm,
+      ]),
+    ).toMatchObject({
+      warmPreparedCpuBytes: 10,
+      warmGpuBytes: 20,
+      warmAudioBytes: 30,
     });
     expect(() =>
       assetMemoryPolicyDefinitionSchema.parse({

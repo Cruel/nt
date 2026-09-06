@@ -115,6 +115,9 @@ export interface EnginePreviewAssetMemoryPolicy {
   gpuBytes: number;
   audioBytes: number;
   temporaryBytes: number;
+  warmPreparedCpuBytes: number;
+  warmGpuBytes: number;
+  warmAudioBytes: number;
   prefetchAllowancePercent: number;
 }
 
@@ -740,6 +743,8 @@ function isEnginePreviewAssetMemoryPolicy(value: unknown): value is EnginePrevie
   if (!isRecord(value)) return false;
   const positiveSafeInteger = (candidate: unknown) =>
     typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate > 0;
+  const nonNegativeSafeInteger = (candidate: unknown) =>
+    typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= 0;
   return (
     ENGINE_PREVIEW_ASSET_MEMORY_TARGETS.includes(value.target as EnginePreviewAssetMemoryTarget) &&
     ENGINE_PREVIEW_ASSET_MEMORY_PRESETS.includes(
@@ -750,6 +755,12 @@ function isEnginePreviewAssetMemoryPolicy(value: unknown): value is EnginePrevie
     positiveSafeInteger(value.audioBytes) &&
     positiveSafeInteger(value.temporaryBytes) &&
     (value.temporaryBytes as number) >= 1024 * 1024 &&
+    nonNegativeSafeInteger(value.warmPreparedCpuBytes) &&
+    (value.warmPreparedCpuBytes as number) <= (value.preparedCpuBytes as number) &&
+    nonNegativeSafeInteger(value.warmGpuBytes) &&
+    (value.warmGpuBytes as number) <= (value.gpuBytes as number) &&
+    nonNegativeSafeInteger(value.warmAudioBytes) &&
+    (value.warmAudioBytes as number) <= (value.audioBytes as number) &&
     typeof value.prefetchAllowancePercent === 'number' &&
     Number.isInteger(value.prefetchAllowancePercent) &&
     value.prefetchAllowancePercent >= 0 &&

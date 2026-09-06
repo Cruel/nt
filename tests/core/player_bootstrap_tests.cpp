@@ -102,12 +102,15 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
       "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
       "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
       "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
-      "assetMemory":{"preset":"balanced","preparedCpuBytes":134217728,"gpuBytes":268435456,"audioBytes":67108864,"temporaryBytes":67108864,"prefetchAllowancePercent":30}
+      "assetMemory":{"preset":"balanced","preparedCpuBytes":134217728,"gpuBytes":268435456,"audioBytes":67108864,"temporaryBytes":67108864,"warmPreparedCpuBytes":40265318,"warmGpuBytes":80530636,"warmAudioBytes":20132659,"prefetchAllowancePercent":30}
     })");
     REQUIRE(result.success());
     REQUIRE(result.config.asset_memory);
     CHECK(result.config.asset_memory->preset == "balanced");
     CHECK(result.config.asset_memory->prepared_cpu_bytes == 134217728);
+    CHECK(result.config.asset_memory->warm_prepared_cpu_bytes == 40265318);
+    CHECK(result.config.asset_memory->warm_gpu_bytes == 80530636);
+    CHECK(result.config.asset_memory->warm_audio_bytes == 20132659);
     CHECK(result.config.asset_memory->prefetch_allowance_percent == 30);
 
     const auto invalid = parse_player_config(R"({
@@ -116,7 +119,7 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
       "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
       "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
       "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
-      "assetMemory":{"preset":"custom","preparedCpuBytes":1,"gpuBytes":1,"audioBytes":1,"temporaryBytes":1024,"prefetchAllowancePercent":101}
+      "assetMemory":{"preset":"custom","preparedCpuBytes":1,"gpuBytes":1,"audioBytes":1,"temporaryBytes":1024,"warmPreparedCpuBytes":2,"warmGpuBytes":2,"warmAudioBytes":2,"prefetchAllowancePercent":101}
     })");
     REQUIRE_FALSE(invalid.success());
     CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
@@ -124,6 +127,15 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
     }));
     CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
         return diagnostic.path == "/assetMemory/prefetchAllowancePercent";
+    }));
+    CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
+        return diagnostic.path == "/assetMemory/warmPreparedCpuBytes";
+    }));
+    CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
+        return diagnostic.path == "/assetMemory/warmGpuBytes";
+    }));
+    CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
+        return diagnostic.path == "/assetMemory/warmAudioBytes";
     }));
 }
 

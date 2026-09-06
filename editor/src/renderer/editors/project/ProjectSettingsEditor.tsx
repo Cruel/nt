@@ -720,7 +720,14 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
   }
 
   function setByteOverride(
-    field: 'preparedCpuBytes' | 'gpuBytes' | 'audioBytes' | 'temporaryBytes',
+    field:
+      | 'preparedCpuBytes'
+      | 'gpuBytes'
+      | 'audioBytes'
+      | 'temporaryBytes'
+      | 'warmPreparedCpuBytes'
+      | 'warmGpuBytes'
+      | 'warmAudioBytes',
     enabled: boolean,
   ) {
     if (!selectedPolicy) return;
@@ -773,6 +780,9 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
     ['gpuBytes', 'GPU'],
     ['audioBytes', 'Audio'],
     ['temporaryBytes', 'Temporary preparation'],
+    ['warmPreparedCpuBytes', 'Warm prepared CPU'],
+    ['warmGpuBytes', 'Warm GPU'],
+    ['warmAudioBytes', 'Warm audio'],
   ] as const;
 
   return (
@@ -890,14 +900,18 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
                           <Input
                             aria-label={`${label} MiB`}
                             type="number"
-                            min={field === 'temporaryBytes' ? 1 : Number.MIN_VALUE}
-                            step="1"
+                            min={field.startsWith('warm') ? 0 : 1}
+                            step={field.startsWith('warm') ? '0.01' : '1'}
                             disabled={override === undefined}
                             value={override === undefined ? '' : override / ASSET_MEMORY_MIB}
                             onChange={(event) => {
                               const mibValue = Number(event.currentTarget.value);
-                              if (!Number.isFinite(mibValue) || mibValue <= 0) return;
-                              const bytes = mibValue * ASSET_MEMORY_MIB;
+                              const minimum = field.startsWith('warm') ? 0 : Number.MIN_VALUE;
+                              if (!Number.isFinite(mibValue) || mibValue < minimum) return;
+                              const rawBytes = mibValue * ASSET_MEMORY_MIB;
+                              const bytes = field.startsWith('warm')
+                                ? Math.round(rawBytes)
+                                : rawBytes;
                               if (!Number.isSafeInteger(bytes)) return;
                               updatePolicy(
                                 selectedPolicy.id,
@@ -961,7 +975,9 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
                           <th className="px-2 py-2 font-medium">GPU</th>
                           <th className="px-2 py-2 font-medium">Audio</th>
                           <th className="px-2 py-2 font-medium">Temporary</th>
-                          <th className="px-2 py-2 font-medium">Warm</th>
+                          <th className="px-2 py-2 font-medium">Warm CPU</th>
+                          <th className="px-2 py-2 font-medium">Warm GPU</th>
+                          <th className="px-2 py-2 font-medium">Warm audio</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -976,7 +992,15 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
                             <td className="px-2 py-2">
                               {formatAssetMemoryMiB(value.temporaryBytes)}
                             </td>
-                            <td className="px-2 py-2">{value.prefetchAllowancePercent}%</td>
+                            <td className="px-2 py-2">
+                              {formatAssetMemoryMiB(value.warmPreparedCpuBytes)}
+                            </td>
+                            <td className="px-2 py-2">
+                              {formatAssetMemoryMiB(value.warmGpuBytes)}
+                            </td>
+                            <td className="px-2 py-2">
+                              {formatAssetMemoryMiB(value.warmAudioBytes)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

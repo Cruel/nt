@@ -21,6 +21,9 @@ type AssetProfilerDecimalField =
   | 'gpuBytes'
   | 'audioBytes'
   | 'temporaryBytes'
+  | 'warmPreparedCpuBytes'
+  | 'warmGpuBytes'
+  | 'warmAudioBytes'
   | 'assetRamBytes'
   | 'ordinaryTextureBytes'
   | 'renderTargetBytes'
@@ -79,6 +82,9 @@ const DECIMAL_KEYS = new Set<AssetProfilerDecimalField>([
   'gpuBytes',
   'audioBytes',
   'temporaryBytes',
+  'warmPreparedCpuBytes',
+  'warmGpuBytes',
+  'warmAudioBytes',
   'assetRamBytes',
   'ordinaryTextureBytes',
   'renderTargetBytes',

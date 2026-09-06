@@ -111,8 +111,9 @@ Profiler memory values distinguish engine accounting from renderer estimates:
   owned by `AssetResidencyManager`;
 - Asset RAM is the observed sum of source, prepared CPU, and audio bytes at one instant;
 - its session peak is the highest observed combined value, not the sum of independent domain peaks;
-- Warm/prefetched cost is reported per memory domain and compared only with that domain's resolved
-  prefetch allowance;
+- Warm/prefetched cost is reported per long-lived memory domain and compared only with that domain's
+  resolved absolute Warm byte ceiling; prepared CPU, GPU, and audio each have an independent Warm
+  ceiling, while source and temporary preparation do not;
 - ordinary texture and render-target bytes come from bgfx logical resource estimates;
 - Total GPU resources is ordinary textures plus render targets. Residency-managed GPU bytes are
   descriptive attribution inside that total and are not added again;
@@ -164,10 +165,11 @@ type AssetProfilerExportResult =
 ```
 
 Every C++ `uint64_t` ID, revision, sequence, timestamp, duration, byte value, cost, and counter is a
-canonical unsigned-decimal JSON string. This includes zero-valued invalid IDs where the C++ field is
-non-optional. Optional integer fields are a decimal string or `null`. Schema version and bounded
-`prefetchAllowancePercent` remain JSON numbers. Enums cross only as explicit lowercase-kebab-case
-strings; C++ ordinals are not wire values.
+canonical unsigned-decimal JSON string. This includes the configured `warmPreparedCpuBytes`,
+`warmGpuBytes`, and `warmAudioBytes` policy ceilings and zero-valued invalid IDs where the C++ field
+is non-optional. Optional integer fields are a decimal string or `null`. Schema version and the
+transitional bounded `prefetchAllowancePercent` provenance field remain JSON numbers. Enums cross only
+as explicit lowercase-kebab-case strings; C++ ordinals are not wire values.
 
 The full payload has exactly these top-level keys:
 

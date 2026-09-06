@@ -811,6 +811,9 @@ describe('FullGamePreviewEditor', () => {
             candidate.settings.assetMemoryPolicy.gpuBytes === 96 * 1024 * 1024 &&
             candidate.settings.assetMemoryPolicy.audioBytes === 32 * 1024 * 1024 &&
             candidate.settings.assetMemoryPolicy.temporaryBytes === 32 * 1024 * 1024 &&
+            candidate.settings.assetMemoryPolicy.warmPreparedCpuBytes === 0 &&
+            candidate.settings.assetMemoryPolicy.warmGpuBytes === 0 &&
+            candidate.settings.assetMemoryPolicy.warmAudioBytes === 0 &&
             candidate.settings.assetMemoryPolicy.prefetchAllowancePercent === 0
           );
         }),

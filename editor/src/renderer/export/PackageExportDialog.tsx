@@ -1184,7 +1184,7 @@ export function PackageExportDialog({
             </p>
           ) : null}
           {draftResolvedAssetMemory ? (
-            <div className="grid gap-2 text-xs sm:grid-cols-5">
+            <div className="grid gap-2 text-xs sm:grid-cols-4 lg:grid-cols-7">
               <div>
                 <div className="text-muted-foreground">Prepared CPU</div>
                 <div className="font-medium">
@@ -1210,9 +1210,21 @@ export function PackageExportDialog({
                 </div>
               </div>
               <div>
-                <div className="text-muted-foreground">Warm allowance</div>
+                <div className="text-muted-foreground">Warm CPU</div>
                 <div className="font-medium">
-                  {draftResolvedAssetMemory.prefetchAllowancePercent}%
+                  {formatMemoryMiB(draftResolvedAssetMemory.warmPreparedCpuBytes)}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Warm GPU</div>
+                <div className="font-medium">
+                  {formatMemoryMiB(draftResolvedAssetMemory.warmGpuBytes)}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Warm audio</div>
+                <div className="font-medium">
+                  {formatMemoryMiB(draftResolvedAssetMemory.warmAudioBytes)}
                 </div>
               </div>
             </div>

@@ -4464,7 +4464,8 @@ TEST_CASE("Flow prefetch planner ranks usefulness before cost and admits only th
 {
     auto budget = generous_budget();
     budget.gpu_bytes = 100;
-    budget.prefetch_allowance_percent = 50;
+    budget.prefetch_allowance_percent = 100;
+    budget.warm_gpu_bytes = 50;
     PlannerFixture fixture(nullptr, budget);
     assets::PrefetchPlanner planner(fixture.manager);
     const auto generation = fixture.manager.source_generation_on_owner();

@@ -324,6 +324,7 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         if (!memory_it->is_object() ||
             !exact_keys(*memory_it,
                         {"preset", "preparedCpuBytes", "gpuBytes", "audioBytes", "temporaryBytes",
+                         "warmPreparedCpuBytes", "warmGpuBytes", "warmAudioBytes",
                          "prefetchAllowancePercent"},
                         {}, result, "/assetMemory"))
             return result;
@@ -332,10 +333,15 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         const auto gpu = memory_it->find("gpuBytes");
         const auto audio = memory_it->find("audioBytes");
         const auto temporary = memory_it->find("temporaryBytes");
+        const auto warm_prepared_cpu = memory_it->find("warmPreparedCpuBytes");
+        const auto warm_gpu = memory_it->find("warmGpuBytes");
+        const auto warm_audio = memory_it->find("warmAudioBytes");
         const auto allowance = memory_it->find("prefetchAllowancePercent");
         if (!preset->is_string() || !prepared_cpu->is_number_unsigned() ||
             !gpu->is_number_unsigned() || !audio->is_number_unsigned() ||
-            !temporary->is_number_unsigned() || !allowance->is_number_unsigned()) {
+            !temporary->is_number_unsigned() || !warm_prepared_cpu->is_number_unsigned() ||
+            !warm_gpu->is_number_unsigned() || !warm_audio->is_number_unsigned() ||
+            !allowance->is_number_unsigned()) {
             fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory",
                  "asset memory fields have invalid types");
             return result;
@@ -351,6 +357,9 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
             .gpu_bytes = gpu->get<std::uint64_t>(),
             .audio_bytes = audio->get<std::uint64_t>(),
             .temporary_bytes = temporary->get<std::uint64_t>(),
+            .warm_prepared_cpu_bytes = warm_prepared_cpu->get<std::uint64_t>(),
+            .warm_gpu_bytes = warm_gpu->get<std::uint64_t>(),
+            .warm_audio_bytes = warm_audio->get<std::uint64_t>(),
             .prefetch_allowance_percent = allowance->get<std::uint32_t>(),
         };
         if (memory.preset != "low" && memory.preset != "balanced" && memory.preset != "high" &&
@@ -370,6 +379,15 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         if (memory.temporary_bytes < 1024u * 1024u)
             fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/temporaryBytes",
                  "temporary preparation budget must be at least 1 MiB");
+        if (memory.warm_prepared_cpu_bytes > memory.prepared_cpu_bytes)
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/warmPreparedCpuBytes",
+                 "Warm prepared CPU ceiling must not exceed the prepared CPU residency ceiling");
+        if (memory.warm_gpu_bytes > memory.gpu_bytes)
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/warmGpuBytes",
+                 "Warm GPU ceiling must not exceed the GPU residency ceiling");
+        if (memory.warm_audio_bytes > memory.audio_bytes)
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/warmAudioBytes",
+                 "Warm audio ceiling must not exceed the audio residency ceiling");
         if (memory.prefetch_allowance_percent > 100)
             fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/prefetchAllowancePercent",
                  "prefetch allowance percent must be between 0 and 100");
