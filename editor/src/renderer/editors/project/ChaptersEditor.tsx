@@ -218,7 +218,7 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
       ) : null}
       <section className="rounded border p-3">
         <div className="mb-3 text-sm font-medium">Chapter registry</div>
-        <div className="grid gap-2 md:grid-cols-[1fr_1fr_8rem_auto]">
+        <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_8rem_auto]">
           <Input
             value={chapterId}
             onChange={(event) => setChapterId(event.currentTarget.value)}
@@ -245,7 +245,7 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
             chapterEntries.map(([id, chapter]) => (
               <div
                 key={id}
-                className="grid items-center gap-2 rounded border p-2 md:grid-cols-[1fr_8rem_auto]"
+                className="grid items-center gap-2 rounded border p-2 @3xl:grid-cols-[1fr_8rem_auto]"
               >
                 <div className="min-w-0">
                   <Input

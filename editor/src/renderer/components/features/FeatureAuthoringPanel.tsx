@@ -114,7 +114,7 @@ export function FeatureAuthoringPanel({
             className="space-y-3 rounded-md border bg-background/50 p-3"
             data-workbench-anchor={`${anchorPrefix}.feature.${feature.id}`}
           >
-            <div className="grid gap-3 md:grid-cols-[12rem_1fr_auto] md:items-end">
+            <div className="grid gap-3 @3xl:grid-cols-[12rem_1fr_auto] @3xl:items-end">
               <div>
                 <Label>{t('features.fields.id')}</Label>
                 <Input value={feature.id} readOnly className="font-mono" />

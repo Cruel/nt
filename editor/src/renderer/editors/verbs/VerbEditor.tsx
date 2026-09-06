@@ -30,7 +30,7 @@ function TextContentEditor({
   onChange: (next: TextContent) => void;
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-3">
+    <div className="grid gap-2 @3xl:grid-cols-3">
       <Select
         value={value.source.kind}
         onValueChange={(kind) => {
@@ -163,7 +163,7 @@ function VerbForm({
         <Label>Named subject slots</Label>
         {data.slots.map((slot, index) => (
           <section className="space-y-2 rounded border p-3" key={slot.id}>
-            <div className="grid gap-2 md:grid-cols-[1fr_auto_auto_auto]">
+            <div className="grid gap-2 @3xl:grid-cols-[1fr_auto_auto_auto]">
               <Input
                 value={slot.id}
                 onChange={(event) => {
@@ -328,7 +328,7 @@ function VerbForm({
         <Label>Explicit Offers</Label>
         {data.offers.map((offer, offerIndex) => (
           <section className="space-y-2 rounded border p-3" key={offer.id}>
-            <div className="grid gap-2 md:grid-cols-4">
+            <div className="grid gap-2 @3xl:grid-cols-4">
               <div>
                 <Label>Offer ID</Label>
                 <Input

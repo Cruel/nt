@@ -438,7 +438,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       ) : null}
 
       <div
-        className="mt-4 grid gap-4 xl:grid-cols-[minmax(360px,1fr)_440px]"
+        className="mt-4 grid gap-4 @7xl:grid-cols-[minmax(360px,1fr)_440px]"
         data-workbench-anchor="test.summary"
       >
         <div className="space-y-4">
@@ -530,7 +530,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                   </Button>
                 </div>
               </div>
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
+              <div className="grid gap-2 @3xl:grid-cols-2 @7xl:grid-cols-1">
                 <div className="space-y-1">
                   <Label>Label</Label>
                   <Input

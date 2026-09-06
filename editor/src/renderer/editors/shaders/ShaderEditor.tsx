@@ -282,7 +282,7 @@ function UniformRow({
     updateShader(shaderId, { ...data, uniforms }, 'Update shader uniform');
   }
   return (
-    <div className="grid gap-2 rounded border p-2 md:grid-cols-[1fr_130px_1fr_1fr_auto]">
+    <div className="grid gap-2 rounded border p-2 @3xl:grid-cols-[1fr_130px_1fr_1fr_auto]">
       <Input
         value={uniform.name}
         onChange={(event) => commit({ ...uniform, name: event.currentTarget.value })}

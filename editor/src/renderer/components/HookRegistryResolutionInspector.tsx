@@ -70,7 +70,7 @@ export function HookRegistryResolutionInspector({
         : t('hookRegistryResolution.summary.none');
 
   return (
-    <details className="md:col-span-3 rounded-md border bg-muted/20 px-3 py-2">
+    <details className="@3xl:col-span-3 rounded-md border bg-muted/20 px-3 py-2">
       <summary className="cursor-pointer select-none text-xs font-medium text-foreground">
         {summary}
       </summary>

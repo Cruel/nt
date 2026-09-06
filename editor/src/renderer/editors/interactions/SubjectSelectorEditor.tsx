@@ -53,7 +53,7 @@ export function SubjectSelectorEditor({
     value.kind === 'exact' && value.subject.kind === 'feature' ? value.subject.feature : null;
 
   return (
-    <div className="grid gap-2 rounded border p-2 md:grid-cols-[minmax(10rem,0.8fr)_1fr_auto]">
+    <div className="grid gap-2 rounded border p-2 @3xl:grid-cols-[minmax(10rem,0.8fr)_1fr_auto]">
       <Select
         value={value.kind}
         onValueChange={(kind) => {
@@ -94,7 +94,7 @@ export function SubjectSelectorEditor({
         <SelectItem value="qualified-pattern">Qualified pattern</SelectItem>
         <SelectItem value="exact">Exact subject</SelectItem>
       </Select>
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 @3xl:grid-cols-2">
         {value.kind === 'family' && (
           <Select
             value={value.family}

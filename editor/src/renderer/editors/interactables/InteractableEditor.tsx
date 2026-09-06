@@ -311,7 +311,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       </div>
       <div
         data-workbench-anchor="interactable.summary"
-        className="mt-4 grid max-w-2xl gap-3 rounded border p-3 md:grid-cols-2"
+        className="mt-4 grid max-w-2xl gap-3 rounded border p-3 @3xl:grid-cols-2"
       >
         <div>
           <Label>Display name</Label>

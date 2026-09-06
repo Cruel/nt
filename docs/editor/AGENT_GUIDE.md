@@ -153,6 +153,8 @@ Stable user-facing strings should use i18n resources under `editor/src/renderer/
 
 Use shadcn Base UI components whenever an appropriate component exists. Keep generated components close to upstream output and adapt usage code rather than rewriting generated primitives.
 
+Workbench editor panes establish a Tailwind container-query context at the pane root. Other independently resizable workbench surfaces that use container-responsive layouts, such as the bottom panel, establish their own container at that surface root. Responsive layout inside these surfaces should therefore use container variants rather than viewport variants. For the current coarse migration, use the larger container thresholds that roughly preserve the old viewport behavior: `sm:` → `@xl:`, `md:` → `@3xl:`, `lg:` → `@5xl:`, and `xl:` → `@7xl:`. These thresholds are intentionally provisional and may be refined per editor as UI/UX work continues. Viewport variants remain appropriate for UI whose layout is genuinely tied to the application viewport, such as top-level dialogs or application-shell chrome. Do not add nested `@container` boundaries unless a component intentionally needs to respond to its own allocated width rather than the enclosing editor pane.
+
 All authored typed Property surfaces use the shared Property Manager under
 `editor/src/renderer/components/properties/`. Variables establish the canonical compact table/dialog
 interaction language; Rooms, Characters, Features, Traits, Archetypes, Interactable definitions, and

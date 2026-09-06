@@ -1001,10 +1001,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
         />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_320px]">
+      <div className="mt-4 grid gap-4 @7xl:grid-cols-[1fr_320px]">
         <div className="space-y-4">
           <section
-            className="grid gap-3 rounded border p-3 md:grid-cols-2"
+            className="grid gap-3 rounded border p-3 @3xl:grid-cols-2"
             data-workbench-anchor="character.summary"
           >
             <div className="space-y-1">
@@ -1046,7 +1046,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                 placeholder="#f8fafc or empty"
               />
             </div>
-            <div className="space-y-1 md:col-span-2">
+            <div className="space-y-1 @3xl:col-span-2">
               <Label>Style class</Label>
               <Input
                 value={data.dialogue.styleClass}
@@ -1057,7 +1057,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           </section>
 
           <section
-            className="grid gap-3 rounded border p-3 md:grid-cols-2"
+            className="grid gap-3 rounded border p-3 @3xl:grid-cols-2"
             data-workbench-anchor="character.defaults"
           >
             <div className="space-y-1">
@@ -1121,11 +1121,11 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           </section>
 
           <section
-            className="grid gap-3 rounded border p-3 md:grid-cols-2"
+            className="grid gap-3 rounded border p-3 @3xl:grid-cols-2"
             data-workbench-anchor="character.initialWorldState"
           >
-            <h3 className="text-sm font-medium md:col-span-2">Initial world state</h3>
-            <div className="space-y-1 md:col-span-2">
+            <h3 className="text-sm font-medium @3xl:col-span-2">Initial world state</h3>
+            <div className="space-y-1 @3xl:col-span-2">
               <Label>Location</Label>
               <Select
                 value={
@@ -1227,7 +1227,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                 className="space-y-3 rounded border p-3"
                 data-workbench-anchor={`character.profile.${profile.id || profileIndex}`}
               >
-                <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+                <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_1fr_auto]">
                   <div className="space-y-1">
                     <Label>ID</Label>
                     <Input value={profile.id} readOnly />
@@ -1278,7 +1278,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                   {profile.layers.map((layer) => (
                     <div
                       key={layer.id}
-                      className="grid gap-2 rounded bg-muted/30 p-2 md:grid-cols-[1fr_1fr_1fr_auto]"
+                      className="grid gap-2 rounded bg-muted/30 p-2 @3xl:grid-cols-[1fr_1fr_1fr_auto]"
                     >
                       <div className="space-y-1">
                         <Label>Layer ID</Label>
@@ -1345,7 +1345,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                       className="space-y-2 rounded border p-2"
                       data-workbench-anchor={`character.profile.${profile.id}.pose.${pose.id || poseIndex}`}
                     >
-                      <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                      <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_auto]">
                         <div className="space-y-1">
                           <Label>ID</Label>
                           <Input value={pose.id} readOnly />
@@ -1373,7 +1373,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                       {pose.layers.map((layer) => (
                         <div
                           key={layer.layerId}
-                          className="grid gap-2 rounded bg-muted/20 p-2 md:grid-cols-2 xl:grid-cols-5"
+                          className="grid gap-2 rounded bg-muted/20 p-2 @3xl:grid-cols-2 @7xl:grid-cols-5"
                         >
                           <div className="space-y-1">
                             <Label>Layer</Label>
@@ -1466,7 +1466,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                   {profile.animationClips.map((clip) => (
                     <div key={clip.id} className="space-y-2 rounded border p-2">
-                      <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+                      <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_1fr_auto]">
                         <div className="space-y-1">
                           <Label>ID</Label>
                           <Input value={clip.id} readOnly />
@@ -1567,7 +1567,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                               return (
                                 <div
                                   key={layerDefinition.id}
-                                  className="grid gap-2 rounded border/50 border p-2 md:grid-cols-[auto_1fr_1fr_auto]"
+                                  className="grid gap-2 rounded border/50 border p-2 @3xl:grid-cols-[auto_1fr_1fr_auto]"
                                 >
                                   <label className="flex items-center gap-2 text-xs">
                                     <input
@@ -1678,7 +1678,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                       the intended layer contract; the selected clip may animate multiple layers.
                     </p>
                   </div>
-                  <div className="grid gap-2 lg:grid-cols-3">
+                  <div className="grid gap-2 @5xl:grid-cols-3">
                     <div className="space-y-1">
                       <Label>Blink clip</Label>
                       <Select
@@ -1754,7 +1754,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                       />
                     </div>
                   </div>
-                  <div className="grid gap-2 md:grid-cols-2">
+                  <div className="grid gap-2 @3xl:grid-cols-2">
                     <div className="space-y-1">
                       <Label>Speaking clip</Label>
                       <Select
@@ -1818,7 +1818,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             {data.expressions.map((expression, index) => (
               <div
                 key={expression.id}
-                className="grid gap-2 rounded border p-2 md:grid-cols-2"
+                className="grid gap-2 rounded border p-2 @3xl:grid-cols-2"
                 data-workbench-anchor={`character.expression.${expression.id || index}`}
               >
                 <div className="space-y-1">
@@ -1839,7 +1839,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                     }
                   />
                 </div>
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-2 @3xl:col-span-2">
                   <div className="text-xs text-muted-foreground">
                     Profile overrides are optional. Missing overrides deliberately fall back to this
                     Character&apos;s default Expression for the selected profile.
@@ -1852,7 +1852,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                           .find((candidate) => candidate.profileId === profile.id)
                           ?.layers.find((candidate) => candidate.layerId === layer.id);
                         return (
-                          <div key={layer.id} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_1fr]">
+                          <div
+                            key={layer.id}
+                            className="grid gap-2 @3xl:grid-cols-[1fr_1fr_1fr_1fr]"
+                          >
                             <div className="self-end pb-2 text-xs">{layer.label}</div>
                             <div className="space-y-1">
                               <Label>Sprite</Label>
@@ -1956,7 +1959,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                   ))}
                 </div>
-                <div className="flex items-end md:col-span-2">
+                <div className="flex items-end @3xl:col-span-2">
                   <Button
                     size="sm"
                     variant="outline"
@@ -1988,7 +1991,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             {data.appearances.map((appearance, index) => (
               <div
                 key={appearance.id}
-                className="grid gap-2 rounded border p-2 md:grid-cols-2"
+                className="grid gap-2 rounded border p-2 @3xl:grid-cols-2"
                 data-workbench-anchor={`character.appearance.${appearance.id || index}`}
               >
                 <div className="space-y-1">
@@ -2004,7 +2007,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                     }
                   />
                 </div>
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-2 @3xl:col-span-2">
                   {data.profiles.map((profile) => (
                     <div key={profile.id} className="space-y-2 rounded bg-muted/20 p-2">
                       <div className="text-xs font-medium">{profile.label}</div>
@@ -2013,7 +2016,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                           .find((candidate) => candidate.profileId === profile.id)
                           ?.layers.find((candidate) => candidate.layerId === layer.id);
                         return (
-                          <div key={layer.id} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_1fr]">
+                          <div
+                            key={layer.id}
+                            className="grid gap-2 @3xl:grid-cols-[1fr_1fr_1fr_1fr]"
+                          >
                             <div className="self-end pb-2 text-xs">{layer.label}</div>
                             <Select
                               value={
@@ -2108,7 +2114,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                   ))}
                 </div>
-                <div className="md:col-span-2">
+                <div className="@3xl:col-span-2">
                   <Button
                     size="sm"
                     variant="outline"
@@ -2144,7 +2150,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                 className="space-y-3 rounded border p-3"
                 data-workbench-anchor={`character.gesture.${gesture.id || gestureIndex}`}
               >
-                <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_auto]">
                   <div className="space-y-1">
                     <Label>ID</Label>
                     <Input value={gesture.id} readOnly />
@@ -2170,7 +2176,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                   );
                   return (
                     <div key={profile.id} className="space-y-2 rounded bg-muted/20 p-2">
-                      <div className="grid gap-2 md:grid-cols-2">
+                      <div className="grid gap-2 @3xl:grid-cols-2">
                         <div className="space-y-1">
                           <Label>Profile</Label>
                           <Input value={`${profile.label} (${profile.id})`} readOnly />
@@ -2223,7 +2229,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                           {mapping.cues.map((cue) => (
                             <div
                               key={cue.id}
-                              className="grid gap-2 rounded border p-2 md:grid-cols-[1fr_1fr_2fr_auto]"
+                              className="grid gap-2 rounded border p-2 @3xl:grid-cols-[1fr_1fr_2fr_auto]"
                             >
                               <div className="space-y-1">
                                 <Label>Cue</Label>
@@ -2256,7 +2262,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                   />
                                 </div>
                               ) : (
-                                <div className="grid gap-2 sm:grid-cols-3">
+                                <div className="grid gap-2 @xl:grid-cols-3">
                                   <div className="space-y-1">
                                     <Label>Audio asset</Label>
                                     <Select
@@ -2345,7 +2351,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             {data.idles.map((idle, index) => (
               <div
                 key={idle.id}
-                className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-6"
+                className="grid gap-2 rounded border p-2 @3xl:grid-cols-2 @7xl:grid-cols-6"
                 data-workbench-anchor={`character.idle.${idle.id || index}`}
               >
                 <div className="space-y-1">
@@ -2417,7 +2423,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                     ))}
                   </Select>
                 </div>
-                <div className="flex items-end xl:col-span-6">
+                <div className="flex items-end @7xl:col-span-6">
                   <Button size="sm" variant="outline" onClick={() => deleteIdle(idle.id)}>
                     Delete
                   </Button>

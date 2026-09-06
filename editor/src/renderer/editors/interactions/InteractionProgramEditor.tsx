@@ -43,7 +43,7 @@ export function InteractionProgramEditor({
         policy={{ interactionSlots, currentRoom: true, playerInventory: true }}
         onChange={(instructions) => onChange({ ...value, instructions })}
       />
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 @3xl:grid-cols-2">
         <div>
           <Label>Completion</Label>
           <Select

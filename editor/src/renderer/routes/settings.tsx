@@ -87,8 +87,16 @@ import {
   signingSecretReferenceSchema,
 } from '../../shared/project-schema/platform-export-contracts';
 
+function SettingsRoutePage() {
+  return (
+    <div className="@container h-full min-h-0">
+      <SettingsPage />
+    </div>
+  );
+}
+
 export const Route = createFileRoute('/settings')({
-  component: SettingsPage,
+  component: SettingsRoutePage,
 });
 
 export type EditorSettingsCategory =
@@ -970,7 +978,7 @@ export function SettingsPage({
             <CardTitle>{t('settings:window.title')}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
-            <div className="grid gap-3 rounded-md border p-3 md:grid-cols-2">
+            <div className="grid gap-3 rounded-md border p-3 @3xl:grid-cols-2">
               <div className="space-y-1">
                 <Label>{t('settings:window.previewDisplay.profile')}</Label>
                 <Select
@@ -1354,7 +1362,7 @@ export function SettingsPage({
                   {t('settings:exportSettings.platformToolchainsDescription')}
                 </p>
               </div>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 @3xl:grid-cols-2">
                 {(
                   [
                     ['androidSdk', t('settings:exportSettings.androidSdk'), 'ANDROID_HOME'],
@@ -1459,7 +1467,7 @@ export function SettingsPage({
 
               {signingDraft ? (
                 <div className="grid gap-3 rounded border bg-muted/20 p-3">
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3 @3xl:grid-cols-2">
                     <div className="space-y-1">
                       <Label>{t('settings:exportSettings.configurationId')}</Label>
                       <Input
@@ -1481,7 +1489,7 @@ export function SettingsPage({
                   </div>
 
                   {signingDraft.target === 'windows' ? (
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-3 @3xl:grid-cols-2">
                       <div className="space-y-1">
                         <Label>{t('settings:exportSettings.signingCommand')}</Label>
                         <Input
@@ -1530,8 +1538,8 @@ export function SettingsPage({
                       </div>
                     </div>
                   ) : signingDraft.target === 'macos' ? (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div className="space-y-1 md:col-span-2">
+                    <div className="grid gap-3 @3xl:grid-cols-2">
+                      <div className="space-y-1 @3xl:col-span-2">
                         <Label>{t('settings:exportSettings.signingIdentity')}</Label>
                         <Input
                           value={signingDraft.identity}
@@ -1568,7 +1576,7 @@ export function SettingsPage({
                           }
                         />
                       </div>
-                      <div className="space-y-1 md:col-span-2">
+                      <div className="space-y-1 @3xl:col-span-2">
                         <Label>{t('settings:exportSettings.notarizationArguments')}</Label>
                         <Input
                           value={signingDraft.notarizationArgs}
@@ -1582,8 +1590,8 @@ export function SettingsPage({
                       </div>
                     </div>
                   ) : (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div className="space-y-1 md:col-span-2">
+                    <div className="grid gap-3 @3xl:grid-cols-2">
+                      <div className="space-y-1 @3xl:col-span-2">
                         <Label>{t('settings:exportSettings.keystorePath')}</Label>
                         <Input
                           value={signingDraft.keystorePath}
@@ -1776,7 +1784,7 @@ export function SettingsPage({
                   />
                 </div>
                 {comfyUiDefaultClassifications.length > 0 ? (
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3 @3xl:grid-cols-2">
                     {comfyUiDefaultClassifications.map((classification) => {
                       const selectedId = comfyUiConfig.defaultWorkflows[classification] ?? '';
                       const options = workflowDefaultOptions(

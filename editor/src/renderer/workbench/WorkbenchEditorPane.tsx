@@ -96,7 +96,7 @@ export function WorkbenchEditorPane({
       <div
         ref={setPaneElement}
         aria-hidden={isVisible ? undefined : true}
-        className={`${isVisible ? 'h-full min-h-0' : 'pointer-events-none invisible h-full min-h-0'}${className ? ` ${className}` : ''}`}
+        className={`${isVisible ? '@container h-full min-h-0' : '@container pointer-events-none invisible h-full min-h-0'}${className ? ` ${className}` : ''}`}
         data-hidden={isVisible ? undefined : true}
         data-workbench-editor-pane={tab.id}
         data-workbench-group-id={location.groupId || undefined}

@@ -43,14 +43,14 @@ export function CategorizedEditorLayout<Id extends string>({
   return (
     <div
       className={cn(
-        'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background sm:flex-row',
+        'flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background @xl:flex-row',
         className,
       )}
     >
-      <aside className="flex shrink-0 flex-col border-b bg-muted/10 p-2 sm:w-48 sm:border-r sm:border-b-0">
+      <aside className="flex shrink-0 flex-col border-b bg-muted/10 p-2 @xl:w-48 @xl:border-r @xl:border-b-0">
         <nav
           aria-label={navigationLabel}
-          className="flex gap-1 overflow-x-auto sm:min-h-0 sm:flex-1 sm:flex-col sm:overflow-x-visible sm:overflow-y-auto"
+          className="flex gap-1 overflow-x-auto @xl:min-h-0 @xl:flex-1 @xl:flex-col @xl:overflow-x-visible @xl:overflow-y-auto"
         >
           {categories.map((category) => {
             const Icon = category.icon;
@@ -84,12 +84,12 @@ export function CategorizedEditorLayout<Id extends string>({
           })}
         </nav>
         {sidebarFooter ? (
-          <div className="mt-2 shrink-0 border-t pt-2 sm:mt-auto">{sidebarFooter}</div>
+          <div className="mt-2 shrink-0 border-t pt-2 @xl:mt-auto">{sidebarFooter}</div>
         ) : null}
       </aside>
 
       <main ref={contentRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className={cn('mx-auto w-full max-w-5xl p-3 sm:p-4', contentContainerClassName)}>
+        <div className={cn('mx-auto w-full max-w-5xl p-3 @xl:p-4', contentContainerClassName)}>
           {header}
           {showActiveDescription && active?.description ? (
             <p className="mt-1 text-xs text-muted-foreground">{active.description}</p>

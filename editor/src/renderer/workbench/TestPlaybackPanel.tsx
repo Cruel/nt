@@ -125,7 +125,7 @@ export function TestPlaybackPanel() {
       {finalState ? (
         <section className="rounded border p-3">
           <h3 className="mb-2 text-sm font-medium">Final state</h3>
-          <div className="grid gap-2 md:grid-cols-5">
+          <div className="grid gap-2 @3xl:grid-cols-5">
             <div>
               <span className="text-muted-foreground">Loaded</span>
               <div>{getText(finalState.loaded, 'false')}</div>
@@ -202,7 +202,7 @@ export function TestPlaybackPanel() {
       {trace.length > 0 ? (
         <section className="space-y-2 rounded border p-3">
           <h3 className="text-sm font-medium">Trace</h3>
-          <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-1 @3xl:grid-cols-2 @7xl:grid-cols-3">
             {trace.slice(0, 60).map((event, index) => {
               const item = isRecord(event) ? event : {};
               return (
@@ -222,7 +222,7 @@ export function TestPlaybackPanel() {
       {events.length > 0 ? (
         <section className="space-y-2 rounded border p-3">
           <h3 className="text-sm font-medium">Events</h3>
-          <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-1 @3xl:grid-cols-2 @7xl:grid-cols-3">
             {events.slice(0, 60).map((event, index) => {
               const item = isRecord(event) ? event : {};
               return (

@@ -521,10 +521,10 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
           </div>
         ) : null}
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_340px]">
+        <div className="mt-4 grid gap-4 @7xl:grid-cols-[1fr_340px]">
           <div className="space-y-4">
             <section
-              className="grid gap-3 rounded border p-3 md:grid-cols-3"
+              className="grid gap-3 rounded border p-3 @3xl:grid-cols-3"
               data-workbench-anchor="layout.summary"
             >
               <div className="space-y-1">
@@ -807,7 +807,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                   />
                 </label>
               </div>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 @3xl:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Namespace</Label>
                   <Input

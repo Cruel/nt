@@ -315,7 +315,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
         <div className="mt-3 rounded border p-2 text-xs text-muted-foreground">{message}</div>
       ) : null}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="mt-4 grid gap-4 @5xl:grid-cols-[1fr_320px]">
         <div className="space-y-4">
           {data.kind === 'image' ? (
             <section className="rounded border p-3" data-workbench-anchor="asset.sampling">
@@ -401,7 +401,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
                 Add
               </Button>
             </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+            <div className="mt-3 grid gap-2 @3xl:grid-cols-[1fr_1fr_auto]">
               <Input
                 value={renameFrom}
                 onChange={(event) => setRenameFrom(event.currentTarget.value)}
@@ -435,7 +435,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
           <section className="rounded border p-3" data-workbench-anchor="asset.metadata">
             <h3 className="text-sm font-medium">Metadata</h3>
-            <div className="mt-2 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+            <div className="mt-2 grid gap-2 text-xs text-muted-foreground @3xl:grid-cols-2">
               <div>
                 <Label>Original name</Label>
                 <div className="font-mono">{data.originalName ?? '—'}</div>
