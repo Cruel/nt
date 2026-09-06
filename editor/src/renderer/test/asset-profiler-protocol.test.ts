@@ -40,7 +40,13 @@ const memory = {
   policy: {
     target: 'web',
     preset: 'balanced',
-    budget: { ...decimalCost, prefetchAllowancePercent: 25 },
+    budget: {
+      ...decimalCost,
+      warmPreparedCpuBytes: '1',
+      warmGpuBytes: '2',
+      warmAudioBytes: '3',
+      prefetchAllowancePercent: 25,
+    },
   },
   assetCounts: {
     inUse: '1',

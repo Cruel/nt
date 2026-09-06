@@ -71,6 +71,7 @@ import {
   type ProjectValidationDiagnostic,
   type ProjectValidationDiagnosticLike,
 } from './project-validation';
+import { resolveAssetMemoryPolicy } from './platform-export-contracts';
 
 function diagnostic(
   severity: ToolSeverity,
@@ -1341,6 +1342,39 @@ function validateAssetMemoryPolicies(
         ),
       );
     else labels.set(normalizedLabel, index);
+
+    const warmFields = [
+      ['warmPreparedCpuBytes', 'preparedCpuBytes', 'prepared CPU'],
+      ['warmGpuBytes', 'gpuBytes', 'GPU'],
+      ['warmAudioBytes', 'audioBytes', 'audio'],
+    ] as const;
+    const targetFamilies = [
+      ['linux', 'Desktop'],
+      ['android', 'Android'],
+      ['web', 'Web'],
+    ] as const;
+    for (const [warmField, totalField, domainLabel] of warmFields) {
+      const warmBytes = policy.overrides[warmField];
+      if (warmBytes === undefined) continue;
+      for (const [target, targetLabel] of targetFamilies) {
+        const baseline = resolveAssetMemoryPolicy(target, {
+          kind: 'builtin',
+          preset: policy.basePreset,
+        });
+        const totalBytes = policy.overrides[totalField] ?? baseline[totalField];
+        if (warmBytes <= totalBytes) continue;
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/overrides/${warmField}`,
+            `${targetLabel} Warm ${domainLabel} ceiling must not exceed its total residency ceiling.`,
+            'Asset memory policies',
+            'authoring.asset-memory-policy.warm.exceeds-total',
+          ),
+        );
+        break;
+      }
+    }
   }
 
   const knownIds = new Set(project.export.assetMemoryPolicies.map((policy) => policy.id));

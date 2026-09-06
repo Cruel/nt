@@ -48,6 +48,7 @@ export const assetMemoryBuiltinPresetValues = ['low', 'balanced', 'high'] as con
 export const assetMemoryPresetValues = [...assetMemoryBuiltinPresetValues, 'custom'] as const;
 const minimumTemporaryAssetBudgetBytes = 1024 * 1024;
 const positiveRuntimeByteCountSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const nonNegativeRuntimeByteCountSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
 export const assetMemoryPolicyOverridesSchema = z
   .object({
@@ -55,6 +56,9 @@ export const assetMemoryPolicyOverridesSchema = z
     gpuBytes: positiveRuntimeByteCountSchema.optional(),
     audioBytes: positiveRuntimeByteCountSchema.optional(),
     temporaryBytes: positiveRuntimeByteCountSchema.min(minimumTemporaryAssetBudgetBytes).optional(),
+    warmPreparedCpuBytes: nonNegativeRuntimeByteCountSchema.optional(),
+    warmGpuBytes: nonNegativeRuntimeByteCountSchema.optional(),
+    warmAudioBytes: nonNegativeRuntimeByteCountSchema.optional(),
     prefetchAllowancePercent: z.number().int().min(0).max(100).optional(),
   })
   .strict();
@@ -92,9 +96,27 @@ export const resolvedAssetMemoryPolicySchema = z
     gpuBytes: positiveRuntimeByteCountSchema,
     audioBytes: positiveRuntimeByteCountSchema,
     temporaryBytes: positiveRuntimeByteCountSchema.min(minimumTemporaryAssetBudgetBytes),
+    warmPreparedCpuBytes: nonNegativeRuntimeByteCountSchema,
+    warmGpuBytes: nonNegativeRuntimeByteCountSchema,
+    warmAudioBytes: nonNegativeRuntimeByteCountSchema,
     prefetchAllowancePercent: z.number().int().min(0).max(100),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const pairs = [
+      ['warmPreparedCpuBytes', 'preparedCpuBytes', 'Warm prepared CPU'],
+      ['warmGpuBytes', 'gpuBytes', 'Warm GPU'],
+      ['warmAudioBytes', 'audioBytes', 'Warm audio'],
+    ] as const;
+    for (const [warmField, totalField, label] of pairs) {
+      if (value[warmField] <= value[totalField]) continue;
+      context.addIssue({
+        code: 'custom',
+        path: [warmField],
+        message: `${label} ceiling must not exceed its total residency ceiling.`,
+      });
+    }
+  });
 
 export type AssetMemoryProfile = z.infer<typeof assetMemoryProfileSchema>;
 export type AssetMemoryPolicyDefinition = z.infer<typeof assetMemoryPolicyDefinitionSchema>;
@@ -102,9 +124,13 @@ export type AssetMemoryBuiltinPreset = (typeof assetMemoryBuiltinPresetValues)[n
 export type ResolvedAssetMemoryPolicy = z.infer<typeof resolvedAssetMemoryPolicySchema>;
 
 const mib = (value: number) => value * 1024 * 1024;
+type MeasuredAssetMemoryDefault = Omit<
+  ResolvedAssetMemoryPolicy,
+  'preset' | 'warmPreparedCpuBytes' | 'warmGpuBytes' | 'warmAudioBytes'
+>;
 const measuredAssetMemoryDefaults: Record<
   'desktop' | 'android' | 'web',
-  Record<'low' | 'balanced' | 'high', Omit<ResolvedAssetMemoryPolicy, 'preset'>>
+  Record<'low' | 'balanced' | 'high', MeasuredAssetMemoryDefault>
 > = {
   desktop: {
     low: {
@@ -192,14 +218,24 @@ export function resolveAssetMemoryPolicy(
   const baselinePreset = profile.kind === 'builtin' ? profile.preset : policy!.basePreset;
   const baseline = measuredAssetMemoryDefaults[family][baselinePreset];
   const overrides = profile.kind === 'policy' ? policy!.overrides : undefined;
+  const preparedCpuBytes = overrides?.preparedCpuBytes ?? baseline.preparedCpuBytes;
+  const gpuBytes = overrides?.gpuBytes ?? baseline.gpuBytes;
+  const audioBytes = overrides?.audioBytes ?? baseline.audioBytes;
+  const prefetchAllowancePercent =
+    overrides?.prefetchAllowancePercent ?? baseline.prefetchAllowancePercent;
+  const percentageBytes = (totalBytes: number) =>
+    Math.floor(totalBytes / 100) * prefetchAllowancePercent +
+    Math.floor(((totalBytes % 100) * prefetchAllowancePercent) / 100);
   return resolvedAssetMemoryPolicySchema.parse({
     preset: profile.kind === 'builtin' ? profile.preset : 'custom',
-    preparedCpuBytes: overrides?.preparedCpuBytes ?? baseline.preparedCpuBytes,
-    gpuBytes: overrides?.gpuBytes ?? baseline.gpuBytes,
-    audioBytes: overrides?.audioBytes ?? baseline.audioBytes,
+    preparedCpuBytes,
+    gpuBytes,
+    audioBytes,
     temporaryBytes: overrides?.temporaryBytes ?? baseline.temporaryBytes,
-    prefetchAllowancePercent:
-      overrides?.prefetchAllowancePercent ?? baseline.prefetchAllowancePercent,
+    warmPreparedCpuBytes: overrides?.warmPreparedCpuBytes ?? percentageBytes(preparedCpuBytes),
+    warmGpuBytes: overrides?.warmGpuBytes ?? percentageBytes(gpuBytes),
+    warmAudioBytes: overrides?.warmAudioBytes ?? percentageBytes(audioBytes),
+    prefetchAllowancePercent,
   });
 }
 

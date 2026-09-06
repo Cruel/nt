@@ -325,6 +325,7 @@ const char* eviction_reason_name(assets::ResidencyEvictionReason value)
 
 Json policy_json(const assets::ResolvedAssetMemoryPolicy& value)
 {
+    const auto warm = assets::prefetch_allowance_cost(value.budget);
     return Json{
         {"target", assets::asset_memory_target_name(value.target)},
         {"preset", assets::asset_memory_preset_name(value.preset)},
@@ -333,6 +334,9 @@ Json policy_json(const assets::ResolvedAssetMemoryPolicy& value)
                         {"gpuBytes", decimal(value.budget.gpu_bytes)},
                         {"audioBytes", decimal(value.budget.audio_bytes)},
                         {"temporaryBytes", decimal(value.budget.temporary_bytes)},
+                        {"warmPreparedCpuBytes", decimal(warm.prepared_cpu_bytes)},
+                        {"warmGpuBytes", decimal(warm.gpu_bytes)},
+                        {"warmAudioBytes", decimal(warm.audio_bytes)},
                         {"prefetchAllowancePercent", value.budget.prefetch_allowance_percent}}}};
 }
 

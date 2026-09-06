@@ -157,6 +157,15 @@ describe('ProjectSettingsEditor', () => {
       expect(current.export.assetMemoryPolicies[0]?.overrides.gpuBytes).toBe(128 * 1024 * 1024);
     });
     expect(screen.getByLabelText('GPU MiB')).toHaveValue(128);
+
+    fireEvent.click(screen.getAllByRole('switch')[4]!);
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<typeof project>;
+      expect(current.export.assetMemoryPolicies[0]?.overrides.warmPreparedCpuBytes).toBe(
+        13_421_772,
+      );
+    });
+    expect(screen.getByLabelText('Warm prepared CPU MiB')).toBeEnabled();
   });
 
   it('restores the selected category on the first remount render', () => {

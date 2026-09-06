@@ -37,10 +37,13 @@ ComfyUI connection settings and workflow-library management are machine/user-lev
 
 The Asset Memory category owns reusable Project deployment/simulation policies at
 `/export/assetMemoryPolicies`. A named policy has a stable generated ID, editable unique name,
-Low/Balanced/High base, and explicit inherited/override controls. Overrides are edited in MiB (or as
-the Warm percentage), and the editor shows resolved Desktop/Android/Web values together. Export
-profiles reference these policies by ID; deletion is disabled while references remain. The policies
-are deployment/tooling configuration and are not compiled into gameplay content.
+Low/Balanced/High base, and explicit inherited/override controls. Total and absolute Warm
+prepared-CPU/GPU/audio overrides are edited in MiB, and the editor shows resolved
+Desktop/Android/Web values together. The legacy Warm percentage remains editable only as a
+compatibility input for policies that do not yet provide an absolute ceiling for a domain; resolved
+policies always contain concrete Warm bytes. Export profiles reference these policies by ID; deletion
+is disabled while references remain. The policies are deployment/tooling configuration and are not
+compiled into gameplay content.
 
 ## Editing and Save Behavior
 

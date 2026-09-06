@@ -54,7 +54,13 @@ const memory = () => ({
   policy: {
     target: 'desktop' as const,
     preset: 'balanced' as const,
-    budget: { ...zeroCost(), prefetchAllowancePercent: 25 },
+    budget: {
+      ...zeroCost(),
+      warmPreparedCpuBytes: '0',
+      warmGpuBytes: '0',
+      warmAudioBytes: '0',
+      prefetchAllowancePercent: 25,
+    },
   },
   assetCounts: zeroCounts(),
   accountingRevision: '0',

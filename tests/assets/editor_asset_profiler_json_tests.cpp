@@ -52,6 +52,9 @@ core::AssetProfilerMemorySnapshot memory_snapshot()
                               .gpu_bytes = 102,
                               .audio_bytes = 103,
                               .temporary_bytes = 104,
+                              .warm_prepared_cpu_bytes = 11,
+                              .warm_gpu_bytes = 12,
+                              .warm_audio_bytes = 13,
                               .prefetch_allowance_percent = 25}},
         .asset_counts = {.in_use = 1,
                          .prefetched = 2,
@@ -219,6 +222,9 @@ void require_decimal_wire_fields(const Json& value)
         "gpuBytes",
         "audioBytes",
         "temporaryBytes",
+        "warmPreparedCpuBytes",
+        "warmGpuBytes",
+        "warmAudioBytes",
         "assetRamBytes",
         "ordinaryTextureBytes",
         "renderTargetBytes",
@@ -315,6 +321,10 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     CHECK_FALSE(payload.contains("schemaVersion"));
     CHECK(payload.at("sessionId") == "18446744073709551615");
     CHECK(payload.at("capturedAtNs") == "9007199254740993");
+    const auto& budget = payload.at("memory").at("policy").at("budget");
+    CHECK(budget.at("warmPreparedCpuBytes") == "11");
+    CHECK(budget.at("warmGpuBytes") == "12");
+    CHECK(budget.at("warmAudioBytes") == "13");
     CHECK(payload.at("assets").at(0).at("jobId") == "9007199254740993");
     CHECK(payload.at("activePrefetchGeneration").at("generation") == "9007199254740993");
     CHECK(payload.at("activePrefetchGeneration").at("predictionPlan").size() == 1);

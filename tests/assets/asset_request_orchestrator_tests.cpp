@@ -1024,17 +1024,24 @@ TEST_CASE("Measured asset memory profiles resolve and validate for every target"
     constexpr std::uint64_t mib = 1024u * 1024u;
     constexpr ExpectedTargetProfiles expected[]{
         {.target = assets::AssetMemoryTarget::Desktop,
-         .low = {64 * mib, 64 * mib, 128 * mib, 32 * mib, 32 * mib, 20},
-         .balanced = {128 * mib, 128 * mib, 256 * mib, 64 * mib, 64 * mib, 30},
-         .high = {256 * mib, 256 * mib, 512 * mib, 128 * mib, 128 * mib, 40}},
+         .low = {64 * mib, 64 * mib, 128 * mib, 32 * mib, 32 * mib, 13421772, 26843545, 6710886,
+                 20},
+         .balanced = {128 * mib, 128 * mib, 256 * mib, 64 * mib, 64 * mib, 40265318, 80530636,
+                      20132659, 30},
+         .high = {256 * mib, 256 * mib, 512 * mib, 128 * mib, 128 * mib, 107374182, 214748364,
+                  53687091, 40}},
         {.target = assets::AssetMemoryTarget::Android,
-         .low = {48 * mib, 48 * mib, 96 * mib, 24 * mib, 24 * mib, 15},
-         .balanced = {96 * mib, 96 * mib, 192 * mib, 48 * mib, 48 * mib, 25},
-         .high = {192 * mib, 192 * mib, 384 * mib, 96 * mib, 96 * mib, 35}},
+         .low = {48 * mib, 48 * mib, 96 * mib, 24 * mib, 24 * mib, 7549747, 15099494, 3774873, 15},
+         .balanced = {96 * mib, 96 * mib, 192 * mib, 48 * mib, 48 * mib, 25165824, 50331648,
+                      12582912, 25},
+         .high = {192 * mib, 192 * mib, 384 * mib, 96 * mib, 96 * mib, 70464307, 140928614,
+                  35232153, 35}},
         {.target = assets::AssetMemoryTarget::Web,
-         .low = {32 * mib, 32 * mib, 64 * mib, 16 * mib, 16 * mib, 10},
-         .balanced = {64 * mib, 64 * mib, 128 * mib, 32 * mib, 32 * mib, 20},
-         .high = {128 * mib, 128 * mib, 256 * mib, 64 * mib, 64 * mib, 30}},
+         .low = {32 * mib, 32 * mib, 64 * mib, 16 * mib, 16 * mib, 3355443, 6710886, 1677721, 10},
+         .balanced = {64 * mib, 64 * mib, 128 * mib, 32 * mib, 32 * mib, 13421772, 26843545,
+                      6710886, 20},
+         .high = {128 * mib, 128 * mib, 256 * mib, 64 * mib, 64 * mib, 40265318, 80530636, 20132659,
+                  30}},
     };
     for (const auto& target : expected) {
         auto low =
@@ -1074,15 +1081,81 @@ TEST_CASE("Measured asset memory profiles resolve and validate for every target"
     CHECK(inherited.value().budget.prepared_cpu_bytes == 64u * 1024u * 1024u);
     CHECK(inherited.value().budget.gpu_bytes == 96u * 1024u * 1024u);
     CHECK(inherited.value().budget.prefetch_allowance_percent == 0);
+    CHECK(inherited.value().budget.warm_prepared_cpu_bytes == 0);
+    CHECK(inherited.value().budget.warm_gpu_bytes == 0);
+    CHECK(inherited.value().budget.warm_audio_bytes == 0);
+
+    auto absolute = assets::resolve_asset_memory_policy(
+        assets::AssetMemoryTarget::Desktop, assets::AssetMemoryPreset::Custom,
+        assets::CustomAssetMemoryPolicy{.prepared_cpu_bytes = 100,
+                                        .gpu_bytes = 200,
+                                        .audio_bytes = 300,
+                                        .prefetch_allowance_percent = 99,
+                                        .warm_prepared_cpu_bytes = 10,
+                                        .warm_gpu_bytes = 20,
+                                        .warm_audio_bytes = 30});
+    REQUIRE(absolute);
+    CHECK(assets::prefetch_allowance_cost(absolute.value().budget) ==
+          assets::ResidencyCost{.prepared_cpu_bytes = 10, .gpu_bytes = 20, .audio_bytes = 30});
+
+    auto legacy_percentage = assets::resolve_asset_memory_policy(
+        assets::AssetMemoryTarget::Desktop, assets::AssetMemoryPreset::Custom,
+        assets::CustomAssetMemoryPolicy{.prepared_cpu_bytes = 100,
+                                        .gpu_bytes = 200,
+                                        .audio_bytes = 300,
+                                        .prefetch_allowance_percent = 25});
+    REQUIRE(legacy_percentage);
+    CHECK(assets::prefetch_allowance_cost(legacy_percentage.value().budget) ==
+          assets::ResidencyCost{.prepared_cpu_bytes = 25, .gpu_bytes = 50, .audio_bytes = 75});
 
     auto invalid = assets::resolve_asset_memory_policy(
         assets::AssetMemoryTarget::Desktop, assets::AssetMemoryPreset::Custom,
-        assets::CustomAssetMemoryPolicy{.temporary_bytes = 1024,
-                                        .prefetch_allowance_percent = 101});
+        assets::CustomAssetMemoryPolicy{.prepared_cpu_bytes = 100,
+                                        .temporary_bytes = 1024,
+                                        .prefetch_allowance_percent = 101,
+                                        .warm_prepared_cpu_bytes = 101});
     REQUIRE_FALSE(invalid);
-    REQUIRE(invalid.error().size() == 2);
-    CHECK(invalid.error()[0].source_path == "/assetMemory/custom/temporaryBytes");
-    CHECK(invalid.error()[1].source_path == "/assetMemory/custom/prefetchAllowancePercent");
+    CHECK(std::ranges::any_of(invalid.error(), [](const auto& diagnostic) {
+        return diagnostic.source_path == "/assetMemory/custom/temporaryBytes";
+    }));
+    CHECK(std::ranges::any_of(invalid.error(), [](const auto& diagnostic) {
+        return diagnostic.source_path == "/assetMemory/custom/prefetchAllowancePercent";
+    }));
+    CHECK(std::ranges::any_of(invalid.error(), [](const auto& diagnostic) {
+        return diagnostic.source_path == "/assetMemory/custom/warmPreparedCpuBytes";
+    }));
+}
+
+TEST_CASE("Absolute Warm ceilings reject speculative residency independently by domain",
+          "[assets][residency-matrix]")
+{
+    const assets::ResidencyBudget budget{.source_bytes = 100,
+                                         .prepared_cpu_bytes = 100,
+                                         .gpu_bytes = 100,
+                                         .audio_bytes = 100,
+                                         .temporary_bytes = 10,
+                                         .warm_prepared_cpu_bytes = 20,
+                                         .warm_gpu_bytes = 30,
+                                         .warm_audio_bytes = 40,
+                                         .prefetch_allowance_percent = 100};
+    assets::AssetResidencyManager residency(budget);
+    std::uint64_t destructions = 0;
+    const auto admit = [&](std::string_view identity, assets::ResidencyCost cost) {
+        return residency.admit_on_owner(
+            {.cache_key = key(std::string(identity), 1),
+             .reason = assets::AssetRequestReason::Prefetch,
+             .estimated_cost = cost,
+             .resident_control = std::make_shared<CountingResidentControl>(
+                 destructions, std::this_thread::get_id())});
+    };
+
+    CHECK(admit("warm-cpu-too-large", {.prepared_cpu_bytes = 21}).admission ==
+          assets::ResidencyAdmission::RejectedPrefetch);
+    CHECK(admit("warm-gpu-too-large", {.gpu_bytes = 31}).admission ==
+          assets::ResidencyAdmission::RejectedPrefetch);
+    CHECK(admit("warm-audio-too-large", {.audio_bytes = 41}).admission ==
+          assets::ResidencyAdmission::RejectedPrefetch);
+    CHECK(residency.accounting_on_owner().current == assets::ResidencyCost{});
 }
 
 TEST_CASE("Warm allowance protects demand and records deterministic pressure high-water",
@@ -1097,7 +1170,10 @@ TEST_CASE("Warm allowance protects demand and records deterministic pressure hig
                    .gpu_bytes = 100,
                    .audio_bytes = 100,
                    .temporary_bytes = 10,
-                   .prefetch_allowance_percent = 25},
+                   .warm_prepared_cpu_bytes = 25,
+                   .warm_gpu_bytes = 35,
+                   .warm_audio_bytes = 45,
+                   .prefetch_allowance_percent = 100},
     };
     assets::AssetResidencyManager residency(policy, &telemetry);
     auto snapshot = telemetry.snapshot_on_owner();

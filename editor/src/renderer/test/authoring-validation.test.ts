@@ -915,6 +915,25 @@ describe('authoring validation', () => {
     );
   });
 
+  it('rejects absolute Warm ceilings that exceed a target total residency ceiling', () => {
+    const project = createAuthoringProject();
+    project.export.assetMemoryPolicies = [
+      {
+        id: 'too-warm',
+        label: 'Too warm',
+        basePreset: 'low',
+        overrides: { warmPreparedCpuBytes: 40 * 1024 * 1024 },
+      },
+    ];
+
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.asset-memory-policy.warm.exceeds-total',
+        path: '/export/assetMemoryPolicies/0/overrides/warmPreparedCpuBytes',
+      }),
+    );
+  });
+
   it('reports duplicate named asset-memory policies and broken export-profile references', () => {
     const project = createAuthoringProject();
     project.export.assetMemoryPolicies = [

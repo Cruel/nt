@@ -59,6 +59,9 @@ export type AssetProfilerMemoryTarget = 'desktop' | 'android' | 'web';
 export type AssetProfilerMemoryPreset = 'low' | 'balanced' | 'high' | 'custom';
 
 export interface AssetProfilerMemoryBudget extends AssetProfilerResidencyCost {
+  warmPreparedCpuBytes: CanonicalDecimal;
+  warmGpuBytes: CanonicalDecimal;
+  warmAudioBytes: CanonicalDecimal;
   prefetchAllowancePercent: number;
 }
 
@@ -474,12 +477,24 @@ function isPolicy(value: unknown): value is AssetProfilerMemoryPolicy {
     !isEnum(value.target, ['desktop', 'android', 'web']) ||
     !isEnum(value.preset, ['low', 'balanced', 'high', 'custom']) ||
     !isRecord(budget) ||
-    !hasExactKeys(budget, [...costKeys, 'prefetchAllowancePercent']) ||
-    !costKeys.every((key) => isCanonicalUnsignedDecimal(budget[key]))
+    !hasExactKeys(budget, [
+      ...costKeys,
+      'warmPreparedCpuBytes',
+      'warmGpuBytes',
+      'warmAudioBytes',
+      'prefetchAllowancePercent',
+    ]) ||
+    !costKeys.every((key) => isCanonicalUnsignedDecimal(budget[key])) ||
+    !isCanonicalUnsignedDecimal(budget.warmPreparedCpuBytes) ||
+    !isCanonicalUnsignedDecimal(budget.warmGpuBytes) ||
+    !isCanonicalUnsignedDecimal(budget.warmAudioBytes)
   ) {
     return false;
   }
   return (
+    BigInt(budget.warmPreparedCpuBytes as string) <= BigInt(budget.preparedCpuBytes as string) &&
+    BigInt(budget.warmGpuBytes as string) <= BigInt(budget.gpuBytes as string) &&
+    BigInt(budget.warmAudioBytes as string) <= BigInt(budget.audioBytes as string) &&
     typeof budget.prefetchAllowancePercent === 'number' &&
     Number.isInteger(budget.prefetchAllowancePercent) &&
     budget.prefetchAllowancePercent >= 0 &&

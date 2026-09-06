@@ -331,7 +331,11 @@ describe('platform staging service', () => {
         id: 'constrained',
         label: 'Constrained',
         basePreset: 'low',
-        overrides: { gpuBytes: 80 * 1024 * 1024, prefetchAllowancePercent: 5 },
+        overrides: {
+          gpuBytes: 80 * 1024 * 1024,
+          warmGpuBytes: 10 * 1024 * 1024,
+          prefetchAllowancePercent: 5,
+        },
       },
     ];
     request.profile.assetMemory = { kind: 'policy', policyId: 'constrained' };
@@ -346,6 +350,9 @@ describe('platform staging service', () => {
           preset: string;
           preparedCpuBytes: number;
           gpuBytes: number;
+          warmPreparedCpuBytes: number;
+          warmGpuBytes: number;
+          warmAudioBytes: number;
           prefetchAllowancePercent: number;
         };
       };
@@ -354,8 +361,15 @@ describe('platform staging service', () => {
       preset: 'custom',
       preparedCpuBytes: 64 * 1024 * 1024,
       gpuBytes: 80 * 1024 * 1024,
+      warmPreparedCpuBytes: 3_355_443,
+      warmGpuBytes: 10 * 1024 * 1024,
+      warmAudioBytes: 1_677_721,
       prefetchAllowancePercent: 5,
     });
+    const playerConfig = JSON.parse(
+      fs.readFileSync(path.join(request.outputDirectory, 'bin/player.json'), 'utf8'),
+    ) as { assetMemory: Record<string, unknown> };
+    expect(playerConfig.assetMemory).toMatchObject(manifest.deployment.assetMemory);
   });
 
   it('builds deterministic provenance and replaces a previous output', async () => {

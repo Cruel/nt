@@ -189,16 +189,16 @@ std::optional<noveltea::assets::AssetMemoryPreset> asset_memory_preset(std::stri
     return std::nullopt;
 }
 
-std::optional<std::uint64_t> positive_policy_bytes(const nlohmann::json& value,
-                                                   std::string_view key)
+std::optional<std::uint64_t> policy_bytes(const nlohmann::json& value, std::string_view key,
+                                          bool allow_zero = false)
 {
     const auto found = value.find(key);
-    if (found == value.end() || !found->is_number_integer())
+    if (found == value.end() || !found->is_number_unsigned())
         return std::nullopt;
-    const auto parsed = found->get<std::int64_t>();
-    if (parsed <= 0)
+    const auto parsed = found->get<std::uint64_t>();
+    if (!allow_zero && parsed == 0)
         return std::nullopt;
-    return static_cast<std::uint64_t>(parsed);
+    return parsed;
 }
 } // namespace
 
@@ -257,17 +257,21 @@ EMSCRIPTEN_KEEPALIVE int noveltea_engine_set_asset_memory_policy(const char* pol
         return 0;
     const auto target = asset_memory_target(target_it->get<std::string>());
     const auto preset = asset_memory_preset(preset_it->get<std::string>());
-    const auto prepared_cpu = positive_policy_bytes(value, "preparedCpuBytes");
-    const auto gpu = positive_policy_bytes(value, "gpuBytes");
-    const auto audio = positive_policy_bytes(value, "audioBytes");
-    const auto temporary = positive_policy_bytes(value, "temporaryBytes");
+    const auto prepared_cpu = policy_bytes(value, "preparedCpuBytes");
+    const auto gpu = policy_bytes(value, "gpuBytes");
+    const auto audio = policy_bytes(value, "audioBytes");
+    const auto temporary = policy_bytes(value, "temporaryBytes");
+    const auto warm_prepared_cpu = policy_bytes(value, "warmPreparedCpuBytes", true);
+    const auto warm_gpu = policy_bytes(value, "warmGpuBytes", true);
+    const auto warm_audio = policy_bytes(value, "warmAudioBytes", true);
     const auto prefetch_it = value.find("prefetchAllowancePercent");
-    if (!target || !preset || !prepared_cpu || !gpu || !audio || !temporary ||
-        prefetch_it == value.end() || !prefetch_it->is_number_integer())
+    if (!target || !preset || !prepared_cpu || !gpu || !audio || !temporary || !warm_prepared_cpu ||
+        !warm_gpu || !warm_audio || prefetch_it == value.end() || !prefetch_it->is_number_integer())
         return 0;
     const auto prefetch = prefetch_it->get<std::int64_t>();
-    if (*temporary < noveltea::assets::minimum_temporary_asset_budget_bytes || prefetch < 0 ||
-        prefetch > 100)
+    if (*temporary < noveltea::assets::minimum_temporary_asset_budget_bytes ||
+        *warm_prepared_cpu > *prepared_cpu || *warm_gpu > *gpu || *warm_audio > *audio ||
+        prefetch < 0 || prefetch > 100)
         return 0;
     noveltea::assets::ResolvedAssetMemoryPolicy policy{
         .target = *target,
@@ -277,6 +281,9 @@ EMSCRIPTEN_KEEPALIVE int noveltea_engine_set_asset_memory_policy(const char* pol
                    .gpu_bytes = *gpu,
                    .audio_bytes = *audio,
                    .temporary_bytes = *temporary,
+                   .warm_prepared_cpu_bytes = *warm_prepared_cpu,
+                   .warm_gpu_bytes = *warm_gpu,
+                   .warm_audio_bytes = *warm_audio,
                    .prefetch_allowance_percent = static_cast<std::uint32_t>(prefetch)}};
     (void)noveltea::EngineTooling::set_asset_memory_policy(*engine, std::move(policy));
     return 1;

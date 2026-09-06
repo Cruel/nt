@@ -58,6 +58,9 @@ type BigMemory = {
   gpuBytes: bigint;
   audioBytes: bigint;
   temporaryBytes: bigint;
+  warmPreparedCpuBytes: bigint;
+  warmGpuBytes: bigint;
+  warmAudioBytes: bigint;
 };
 
 function Metric({
@@ -1516,16 +1519,12 @@ export function AssetPerformancePanel() {
                       {budget
                         ? (
                             [
-                              ['sourceBytes', 'source'],
-                              ['preparedCpuBytes', 'preparedCpu'],
-                              ['audioBytes', 'audio'],
-                              ['gpuBytes', 'gpu'],
+                              ['preparedCpuBytes', 'warmPreparedCpuBytes', 'preparedCpu'],
+                              ['audioBytes', 'warmAudioBytes', 'audio'],
+                              ['gpuBytes', 'warmGpuBytes', 'gpu'],
                             ] as const
-                          ).map(([key, label]) => {
-                            const allowance =
-                              (budget[key] *
-                                BigInt(memory.policy.budget.prefetchAllowancePercent)) /
-                              100n;
+                          ).map(([key, warmKey, label]) => {
+                            const allowance = budget[warmKey];
                             return (
                               <tr key={`prefetch-${key}`} className="border-t">
                                 <td className="px-2 py-1.5">
