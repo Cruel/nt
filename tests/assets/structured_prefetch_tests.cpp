@@ -1074,8 +1074,7 @@ TEST_CASE(
 
     runtime::FlowPredictionContext prediction_context{
         .prospective_room_entries = {runtime::ProspectiveRoomEntryPredictionRoot{
-            .source_room = id<core::RoomId>("hall"),
-            .target_room = id<core::RoomId>("tower")}}};
+            .source_room = id<core::RoomId>("hall"), .target_room = id<core::RoomId>("tower")}}};
     CHECK(gate.update_active_scene_prediction_on_owner(nullptr, prediction_context).empty());
 
     CHECK(std::ranges::find(fixture.recorder.calls, "texture:project:/assets/images/main.png") !=
@@ -1118,9 +1117,7 @@ TEST_CASE("resident Room actions are excluded prospectively and admitted only af
          {"program", nlohmann::json::array()}});
     document["flowPrediction"]["supplementalHints"] = nlohmann::json::array(
         {{{"id", "resident-click-hint"},
-          {"target",
-           {{"kind", "asset"},
-            {"asset", {{"kind", "asset"}, {"id", "resident-image"}}}}},
+          {"target", {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "resident-image"}}}}},
           {"attachment", {{"kind", "point"}, {"slice", interaction_slice}}}}});
     auto package = package_from_document(std::move(document), "resident-room-prediction.json");
 
@@ -1135,8 +1132,13 @@ TEST_CASE("resident Room actions are excluded prospectively and admitted only af
 
     const runtime::ResidentRoomPredictionRoot resident_root{
         .room = id<core::RoomId>("hall"),
-        .programs = {core::InteractionRuleProgramRef{
-            id<core::InteractionId>("look"), id<core::InteractionRuleId>("resident-click")}},
+        .actions = {runtime::ResidentActionPredictionCandidate{
+            .program =
+                core::InteractionRuleProgramRef{id<core::InteractionId>("look"),
+                                                id<core::InteractionRuleId>("resident-click")},
+            .verb = id<core::VerbId>("look"),
+            .binding_count = 1,
+            .primary = true}},
         .layouts = {}};
     const auto resident = predictor.predict(resident_root);
     const auto resident_entry = std::ranges::find_if(resident.entries, [](const auto& entry) {
@@ -1303,8 +1305,8 @@ TEST_CASE("Flow prediction resolves semantic dependencies against the current so
 {
     auto package =
         package_from_document(read_compiled_project_golden("scene-program"), "scene-program.json");
-    const auto projection = runtime::FlowPredictor(package.project()).predict(
-        core::compiled::Entrypoint{id<core::SceneId>("opening")});
+    const auto projection = runtime::FlowPredictor(package.project())
+                                .predict(core::compiled::Entrypoint{id<core::SceneId>("opening")});
     REQUIRE(projection.diagnostics.empty());
 
     const assets::AssetSourceGeneration first_generation{41};
@@ -1329,7 +1331,8 @@ TEST_CASE("Flow prediction resolves semantic dependencies against the current so
     const auto second = find_main(second_plan);
     REQUIRE(first != first_plan.candidates.end());
     REQUIRE(second != second_plan.candidates.end());
-    CHECK(first->descriptor.cache_key.stable_identity == second->descriptor.cache_key.stable_identity);
+    CHECK(first->descriptor.cache_key.stable_identity ==
+          second->descriptor.cache_key.stable_identity);
     CHECK(first->descriptor.cache_key.source_generation == first_generation);
     CHECK(second->descriptor.cache_key.source_generation == second_generation);
 }
@@ -1613,25 +1616,21 @@ TEST_CASE("mandatory gate includes live detached Flow positions in the speculati
         .position = core::SceneFramePosition{id<core::SceneStepId>("after-short"),
                                              core::SceneStepReady{}, true}};
     runtime::FlowPredictionContext context;
-    context.detached_scenes.push_back(
-        {.scene = id<core::SceneId>("prediction-detached"),
-         .position = core::SceneFramePosition{}});
+    context.detached_scenes.push_back({.scene = id<core::SceneId>("prediction-detached"),
+                                       .position = core::SceneFramePosition{}});
     context.detached_suspended_scenes.push_back(
         {.scene = id<core::SceneId>("prediction-horizon"),
          .position = core::SceneFramePosition{id<core::SceneStepId>("caller-after"),
                                               core::SceneStepReady{}, true}});
     CHECK(gate.update_active_scene_prediction_on_owner(&foreground, context).empty());
-    CHECK(std::ranges::find(
-              fixture.recorder.calls,
-              "texture:project:/assets/images/image-prediction-after-short.png") !=
+    CHECK(std::ranges::find(fixture.recorder.calls,
+                            "texture:project:/assets/images/image-prediction-after-short.png") !=
           fixture.recorder.calls.end());
-    CHECK(std::ranges::find(
-              fixture.recorder.calls,
-              "texture:project:/assets/images/image-prediction-detached-stage.png") !=
+    CHECK(std::ranges::find(fixture.recorder.calls,
+                            "texture:project:/assets/images/image-prediction-detached-stage.png") !=
           fixture.recorder.calls.end());
-    CHECK(std::ranges::find(
-              fixture.recorder.calls,
-              "texture:project:/assets/images/image-prediction-detached-deep.png") !=
+    CHECK(std::ranges::find(fixture.recorder.calls,
+                            "texture:project:/assets/images/image-prediction-detached-deep.png") !=
           fixture.recorder.calls.end());
     CHECK(std::ranges::find(fixture.recorder.calls,
                             "texture:project:/assets/images/image-prediction-caller-after.png") !=
@@ -1694,8 +1693,9 @@ TEST_CASE("mandatory gate includes live detached Flow positions in the speculati
     gate.clear_package_on_owner();
 }
 
-TEST_CASE("mandatory gate consumes context-only active Room transition prediction",
-          "[assets][flow-prediction][mandatory-assets][structured-prefetch][active][room-lifecycle]")
+TEST_CASE(
+    "mandatory gate consumes context-only active Room transition prediction",
+    "[assets][flow-prediction][mandatory-assets][structured-prefetch][active][room-lifecycle]")
 {
     PlannerFixture fixture;
     auto document = read_compiled_project_golden("scene-program");
@@ -1710,10 +1710,10 @@ TEST_CASE("mandatory gate consumes context-only active Room transition predictio
         } else if (point.value("kind", "") == "room-lifecycle" &&
                    point["room"].value("id", "") == "tower" &&
                    point.value("stage", "") == "after-enter") {
-            slice["program"] = nlohmann::json::array(
-                {{{"commandId", "active-dialogue"},
-                  {"kind", "call-dialogue"},
-                  {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}});
+            slice["program"] =
+                nlohmann::json::array({{{"commandId", "active-dialogue"},
+                                        {"kind", "call-dialogue"},
+                                        {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}});
         }
     }
 
@@ -1824,8 +1824,13 @@ TEST_CASE(
         .source_room = id<core::RoomId>("tower"), .target_room = id<core::RoomId>("hall")});
     const runtime::ResidentRoomPredictionRoot resident_root{
         .room = id<core::RoomId>("tower"),
-        .programs = {core::InteractionRuleProgramRef{
-            id<core::InteractionId>("look"), id<core::InteractionRuleId>("resident-click")}},
+        .actions = {runtime::ResidentActionPredictionCandidate{
+            .program =
+                core::InteractionRuleProgramRef{id<core::InteractionId>("look"),
+                                                id<core::InteractionRuleId>("resident-click")},
+            .verb = id<core::VerbId>("look"),
+            .binding_count = 1,
+            .primary = true}},
         .layouts = {}};
 
     CHECK(gate.update_resident_room_prediction_on_owner(&resident_root, context).empty());
@@ -1841,8 +1846,10 @@ TEST_CASE(
     gate.clear_package_on_owner();
 }
 
-TEST_CASE("mandatory gate keeps suspended Room continuation below foreground Flow and refreshes its cursor",
-          "[assets][flow-prediction][mandatory-assets][structured-prefetch][suspended][room-lifecycle]")
+TEST_CASE(
+    "mandatory gate keeps suspended Room continuation below foreground Flow and refreshes its "
+    "cursor",
+    "[assets][flow-prediction][mandatory-assets][structured-prefetch][suspended][room-lifecycle]")
 {
     PrefetchGenerationCaptureSink sink;
     PlannerFixture fixture(&sink);
@@ -1858,10 +1865,10 @@ TEST_CASE("mandatory gate keeps suspended Room continuation below foreground Flo
         } else if (point.value("kind", "") == "room-lifecycle" &&
                    point["room"].value("id", "") == "tower" &&
                    point.value("stage", "") == "after-enter") {
-            slice["program"] = nlohmann::json::array(
-                {{{"commandId", "suspended-dialogue"},
-                  {"kind", "call-dialogue"},
-                  {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}});
+            slice["program"] =
+                nlohmann::json::array({{{"commandId", "suspended-dialogue"},
+                                        {"kind", "call-dialogue"},
+                                        {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}});
         }
     }
 
@@ -1992,10 +1999,10 @@ TEST_CASE("mandatory gate refreshes the same live prediction root when typed sta
     CHECK(gate.update_active_scene_prediction_on_owner(&root, selected_context).empty());
     const auto selected_generation = gate.active_prefetch_generation_on_owner();
     REQUIRE(selected_generation);
-    CHECK(std::ranges::find(
-              fixture.recorder.calls,
-              "texture:project:/assets/images/image-prediction-branch-expected.png") !=
-          fixture.recorder.calls.end());
+    CHECK(
+        std::ranges::find(fixture.recorder.calls,
+                          "texture:project:/assets/images/image-prediction-branch-expected.png") !=
+        fixture.recorder.calls.end());
     CHECK(std::ranges::find(
               fixture.recorder.calls,
               "texture:project:/assets/images/image-prediction-branch-alternative.png") ==
@@ -2434,14 +2441,14 @@ TEST_CASE("compiled Flow Prediction Index drives semantic prediction into real p
           fixture.recorder.calls.end());
     std::vector<std::string> main_texture_keys;
     for (const auto& candidate : plan.candidates) {
-        const auto* texture = std::get_if<assets::TextureAssetRequest>(&candidate.descriptor.request);
+        const auto* texture =
+            std::get_if<assets::TextureAssetRequest>(&candidate.descriptor.request);
         if (texture != nullptr && texture->path == "project:/assets/images/main.png")
             main_texture_keys.push_back(candidate.descriptor.cache_key.stable_identity);
     }
     CHECK(std::set(main_texture_keys.begin(), main_texture_keys.end()).size() ==
           main_texture_keys.size());
-    CHECK(std::ranges::count(fixture.recorder.calls,
-                             "texture:project:/assets/images/main.png") ==
+    CHECK(std::ranges::count(fixture.recorder.calls, "texture:project:/assets/images/main.png") ==
           main_texture_keys.size());
     fixture.run_until_idle();
     planner.clear_on_owner();
@@ -2617,18 +2624,15 @@ TEST_CASE("semantic Room hints compose Current Room lifecycle and entry-path hin
     auto& prediction = document["flowPrediction"];
     const auto source_group = prediction["dependencyGroups"].size();
     prediction["dependencyGroups"].push_back(nlohmann::json::array(
-        {{{"kind", "asset"},
-          {"asset", {{"kind", "asset"}, {"id", "image-arrival-dialogue"}}}}}));
+        {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "image-arrival-dialogue"}}}}}));
     std::optional<std::size_t> opening_entry;
     for (std::size_t index = 0; index < prediction["slices"].size(); ++index) {
         auto& slice = prediction["slices"][index];
         const auto& point = slice["point"];
-        if (point.value("kind", "") == "scene-entry" &&
-            point["scene"].value("id", "") == "opening")
+        if (point.value("kind", "") == "scene-entry" && point["scene"].value("id", "") == "opening")
             opening_entry = index;
         if (point.value("kind", "") == "room-lifecycle" &&
-            point["room"].value("id", "") == "hall" &&
-            point.value("stage", "") == "before-leave") {
+            point["room"].value("id", "") == "hall" && point.value("stage", "") == "before-leave") {
             slice["dependencyGroups"] = nlohmann::json::array({source_group});
         }
     }
@@ -2638,9 +2642,7 @@ TEST_CASE("semantic Room hints compose Current Room lifecycle and entry-path hin
           {"target", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", "tower"}}}}},
           {"attachment", {{"kind", "point"}, {"slice", *opening_entry}}}},
          {{"id", "tower-entry-extra"},
-          {"target",
-           {{"kind", "asset"},
-            {"asset", {{"kind", "asset"}, {"id", "image-main"}}}}},
+          {"target", {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "image-main"}}}}},
           {"attachment",
            {{"kind", "room"},
             {"room", {{"kind", "room"}, {"id", "tower"}}},
@@ -2663,8 +2665,7 @@ TEST_CASE("semantic Room hints compose Current Room lifecycle and entry-path hin
     });
     REQUIRE(source_lifecycle != projection.entries.end());
     CHECK(std::ranges::any_of(source_lifecycle->provenance.points, [](const auto& point) {
-        const auto* lifecycle =
-            std::get_if<core::compiled::RoomLifecyclePredictionPoint>(&point);
+        const auto* lifecycle = std::get_if<core::compiled::RoomLifecyclePredictionPoint>(&point);
         return lifecycle != nullptr && lifecycle->room == id<core::RoomId>("hall") &&
                lifecycle->stage == core::compiled::RoomLifecyclePredictionStage::BeforeLeave;
     }));
@@ -2672,8 +2673,7 @@ TEST_CASE("semantic Room hints compose Current Room lifecycle and entry-path hin
     const auto broad_entry = std::ranges::find_if(projection.entries, [](const auto& entry) {
         const auto* dependency =
             std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
-        return dependency != nullptr &&
-               dependency->asset == id<core::AssetId>("image-main") &&
+        return dependency != nullptr && dependency->asset == id<core::AssetId>("image-main") &&
                entry.provenance.supplemental_hint_id == "tower-entry-extra";
     });
     REQUIRE(broad_entry != projection.entries.end());
@@ -2690,8 +2690,7 @@ TEST_CASE("prospective after-enter opacity can be covered by a semantic Scene hi
         auto& slice = prediction["slices"][index];
         const auto& point = slice["point"];
         if (point.value("kind", "") != "room-lifecycle" ||
-            point["room"].value("id", "") != "tower" ||
-            point.value("stage", "") != "after-enter")
+            point["room"].value("id", "") != "tower" || point.value("stage", "") != "after-enter")
             continue;
         after_enter = index;
         slice["program"] = nlohmann::json::array({{{"kind", "opaque"}}});
@@ -2704,9 +2703,10 @@ TEST_CASE("prospective after-enter opacity can be covered by a semantic Scene hi
           {"attachment", {{"kind", "point"}, {"slice", *after_enter}}}}});
     auto package = package_from_document(std::move(document), "room-after-enter-opaque-hint.json");
 
-    const auto projection = runtime::FlowPredictor(package.project()).predict(
-        runtime::ProspectiveRoomEntryPredictionRoot{
-            .source_room = id<core::RoomId>("hall"), .target_room = id<core::RoomId>("tower")});
+    const auto projection =
+        runtime::FlowPredictor(package.project())
+            .predict(runtime::ProspectiveRoomEntryPredictionRoot{
+                .source_room = id<core::RoomId>("hall"), .target_room = id<core::RoomId>("tower")});
     CHECK(std::ranges::any_of(projection.opaque_frontiers, [](const auto& frontier) {
         const auto* point =
             std::get_if<core::compiled::RoomLifecyclePredictionPoint>(&frontier.attachment_point);
@@ -2910,33 +2910,30 @@ TEST_CASE("committed Room transition wait retains authoritative typed facts for 
           "[assets][structured-prefetch][flow-prediction][room-lifecycle][condition][active]")
 {
     auto document = read_compiled_project_golden("scene-program");
-    const auto trait_condition = nlohmann::json{
-        {"kind", "trait-presence"},
-        {"owner",
-         {{"kind", "interactable"},
-          {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
-        {"trait", {{"kind", "trait"}, {"id", "currency"}}},
-        {"present", true}};
+    const auto trait_condition =
+        nlohmann::json{{"kind", "trait-presence"},
+                       {"owner",
+                        {{"kind", "interactable"},
+                         {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
+                       {"trait", {{"kind", "trait"}, {"id", "currency"}}},
+                       {"present", true}};
     for (auto& slice : document["flowPrediction"]["slices"]) {
         const auto& point = slice["point"];
         if (point.value("kind", "") != "room-lifecycle" ||
-            point["room"].value("id", "") != "tower" ||
-            point.value("stage", "") != "after-enter")
+            point["room"].value("id", "") != "tower" || point.value("stage", "") != "after-enter")
             continue;
         slice["program"] = nlohmann::json::array(
             {{{"commandId", "post-commit-branch"},
               {"kind", "if"},
               {"condition", trait_condition},
               {"thenCommands",
-               nlohmann::json::array(
-                   {{{"commandId", "post-commit-dialogue"},
-                     {"kind", "call-dialogue"},
-                     {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}})},
+               nlohmann::json::array({{{"commandId", "post-commit-dialogue"},
+                                       {"kind", "call-dialogue"},
+                                       {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}})},
               {"elseCommands",
-               nlohmann::json::array(
-                   {{{"commandId", "post-commit-scene"},
-                     {"kind", "call-scene"},
-                     {"scene", {{"kind", "scene"}, {"id", "closing"}}}}})}}});
+               nlohmann::json::array({{{"commandId", "post-commit-scene"},
+                                       {"kind", "call-scene"},
+                                       {"scene", {{"kind", "scene"}, {"id", "closing"}}}}})}}});
         break;
     }
     auto package = package_from_document(std::move(document), "active-room-transition-facts.json");
@@ -2944,8 +2941,7 @@ TEST_CASE("committed Room transition wait retains authoritative typed facts for 
 
     std::optional<core::Condition> condition;
     for (const auto& slice : package.project().flow_prediction()->slices) {
-        const auto* point =
-            std::get_if<core::compiled::RoomLifecyclePredictionPoint>(&slice.point);
+        const auto* point = std::get_if<core::compiled::RoomLifecyclePredictionPoint>(&slice.point);
         if (point == nullptr || point->room != id<core::RoomId>("tower") ||
             point->stage != core::compiled::RoomLifecyclePredictionStage::AfterEnter ||
             slice.program.empty())
@@ -2986,9 +2982,9 @@ TEST_CASE("prospective Room prediction honors authoritative navigation guards",
     auto package =
         package_from_document(read_compiled_project_golden("scene-program"), "scene-program.json");
     runtime::FlowPredictor predictor(package.project());
-    const auto flag_truthy = core::Condition{core::GlobalPropertyComparison{
-        core::GlobalPropertyTruthiness{id<core::PropertyId>("flag"),
-                                       core::TruthinessOperator::Truthy}}};
+    const auto flag_truthy =
+        core::Condition{core::GlobalPropertyComparison{core::GlobalPropertyTruthiness{
+            id<core::PropertyId>("flag"), core::TruthinessOperator::Truthy}}};
     const runtime::ProspectiveRoomEntryPredictionRoot guarded{
         .source_room = id<core::RoomId>("hall"),
         .target_room = id<core::RoomId>("tower"),
@@ -2999,15 +2995,17 @@ TEST_CASE("prospective Room prediction honors authoritative navigation guards",
     };
 
     const auto blocked = predictor.predict(
-        guarded, runtime::FlowPredictionContext{.global_properties = {
-                     {id<core::PropertyId>("flag"), core::RuntimeValue{false}}}});
+        guarded,
+        runtime::FlowPredictionContext{
+            .global_properties = {{id<core::PropertyId>("flag"), core::RuntimeValue{false}}}});
     CHECK(blocked.entries.empty());
 
     auto opaque_root = guarded;
     opaque_root.exit_condition = core::Condition{core::LuaPredicate{"dynamic_exit_open()"}};
     const auto uncertain = predictor.predict(
-        opaque_root, runtime::FlowPredictionContext{.global_properties = {
-                         {id<core::PropertyId>("flag"), core::RuntimeValue{false}}}});
+        opaque_root,
+        runtime::FlowPredictionContext{
+            .global_properties = {{id<core::PropertyId>("flag"), core::RuntimeValue{false}}}});
     const auto room_dependency = std::ranges::find_if(uncertain.entries, [](const auto& entry) {
         const auto* room =
             std::get_if<core::compiled::FlowPredictionRoomDependency>(&entry.dependency);
@@ -3055,13 +3053,13 @@ TEST_CASE("Room entrypoint prediction honors the target can-enter guard",
     const core::compiled::Entrypoint entry{id<core::RoomId>("start")};
 
     const auto blocked = predictor.predict(
-        entry, runtime::FlowPredictionContext{.global_properties = {
-                   {id<core::PropertyId>("flag"), core::RuntimeValue{false}}}});
+        entry, runtime::FlowPredictionContext{.global_properties = {{id<core::PropertyId>("flag"),
+                                                                     core::RuntimeValue{false}}}});
     CHECK(blocked.entries.empty());
 
     const auto allowed = predictor.predict(
-        entry, runtime::FlowPredictionContext{.global_properties = {
-                   {id<core::PropertyId>("flag"), core::RuntimeValue{true}}}});
+        entry, runtime::FlowPredictionContext{.global_properties = {{id<core::PropertyId>("flag"),
+                                                                     core::RuntimeValue{true}}}});
     CHECK(std::ranges::any_of(allowed.entries, [](const auto& entry_item) {
         const auto* room =
             std::get_if<core::compiled::FlowPredictionRoomDependency>(&entry_item.dependency);
@@ -3081,20 +3079,17 @@ TEST_CASE("opaque prospective Room guards invalidate projected facts before life
     for (auto& slice : document["flowPrediction"]["slices"]) {
         const auto& point = slice["point"];
         if (point.value("kind", "") != "room-lifecycle" ||
-            point["room"].value("id", "") != "tower" ||
-            point.value("stage", "") != "after-enter")
+            point["room"].value("id", "") != "tower" || point.value("stage", "") != "after-enter")
             continue;
         slice["program"] = nlohmann::json::array(
             {{{"kind", "if"},
               {"condition", player_name_condition},
               {"thenCommands",
-               nlohmann::json::array(
-                   {{{"kind", "call-dialogue"},
-                     {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}})},
+               nlohmann::json::array({{{"kind", "call-dialogue"},
+                                       {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}})},
               {"elseCommands",
-               nlohmann::json::array(
-                   {{{"kind", "call-scene"},
-                     {"scene", {{"kind", "scene"}, {"id", "closing"}}}}})}}});
+               nlohmann::json::array({{{"kind", "call-scene"},
+                                       {"scene", {{"kind", "scene"}, {"id", "closing"}}}}})}}});
         break;
     }
     auto package = package_from_document(std::move(document), "room-opaque-guard-facts.json");
@@ -3106,15 +3101,17 @@ TEST_CASE("opaque prospective Room guards invalidate projected facts before life
         .exit_condition = core::Condition{core::LuaPredicate{"dynamic_exit_open()"}},
     };
     const auto projection = predictor.predict(
-        root, runtime::FlowPredictionContext{.global_properties = {
-                  {id<core::PropertyId>("player-name"), core::RuntimeValue{std::string{"Ada"}}}}});
+        root, runtime::FlowPredictionContext{
+                  .global_properties = {{id<core::PropertyId>("player-name"),
+                                         core::RuntimeValue{std::string{"Ada"}}}}});
     REQUIRE(projection.diagnostics.empty());
 
     const auto has_asset = [&](std::string_view asset) {
         return std::ranges::any_of(projection.entries, [&](const auto& entry) {
             const auto* dependency =
                 std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
-            return dependency != nullptr && dependency->asset == id<core::AssetId>(std::string(asset)) &&
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset)) &&
                    entry.confidence == runtime::FlowPredictionConfidence::Alternative;
         });
     };
@@ -3122,7 +3119,8 @@ TEST_CASE("opaque prospective Room guards invalidate projected facts before life
         return std::ranges::any_of(projection.entries, [&](const auto& entry) {
             const auto* dependency =
                 std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
-            return dependency != nullptr && dependency->asset == id<core::AssetId>(std::string(asset));
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset));
         });
     };
     CHECK(has_asset("image-arrival-dialogue"));
@@ -3141,17 +3139,15 @@ TEST_CASE("opaque compound Conditions invalidate facts even when their final tru
                        {"property", {{"kind", "property"}, {"id", "player-name"}}},
                        {"operator", "equal"},
                        {"value", "Ada"}};
-    const auto opaque_but_true =
-        nlohmann::json{{"kind", "any"},
-                       {"conditions",
-                        nlohmann::json::array(
-                            {{{"kind", "lua-predicate"}, {"source", "mutating_probe()"}},
-                             {{"kind", "always"}}})}};
+    const auto opaque_but_true = nlohmann::json{
+        {"kind", "any"},
+        {"conditions",
+         nlohmann::json::array(
+             {{{"kind", "lua-predicate"}, {"source", "mutating_probe()"}}, {{"kind", "always"}}})}};
     for (auto& slice : document["flowPrediction"]["slices"]) {
         const auto& point = slice["point"];
         if (point.value("kind", "") != "room-lifecycle" ||
-            point["room"].value("id", "") != "tower" ||
-            point.value("stage", "") != "after-enter")
+            point["room"].value("id", "") != "tower" || point.value("stage", "") != "after-enter")
             continue;
         slice["program"] = nlohmann::json::array(
             {{{"kind", "if"},
@@ -3161,13 +3157,11 @@ TEST_CASE("opaque compound Conditions invalidate facts even when their final tru
              {{"kind", "if"},
               {"condition", player_name_condition},
               {"thenCommands",
-               nlohmann::json::array(
-                   {{{"kind", "call-dialogue"},
-                     {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}})},
+               nlohmann::json::array({{{"kind", "call-dialogue"},
+                                       {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}})},
               {"elseCommands",
-               nlohmann::json::array(
-                   {{{"kind", "call-scene"},
-                     {"scene", {{"kind", "scene"}, {"id", "closing"}}}}})}}});
+               nlohmann::json::array({{{"kind", "call-scene"},
+                                       {"scene", {{"kind", "scene"}, {"id", "closing"}}}}})}}});
         break;
     }
     auto package = package_from_document(std::move(document), "opaque-known-condition-facts.json");
@@ -3178,15 +3172,17 @@ TEST_CASE("opaque compound Conditions invalidate facts even when their final tru
         .stage = core::RoomTransitionStage::AfterEnter,
     };
     const auto projection = predictor.predict(
-        root, runtime::FlowPredictionContext{.global_properties = {
-                  {id<core::PropertyId>("player-name"), core::RuntimeValue{std::string{"Ada"}}}}});
+        root, runtime::FlowPredictionContext{
+                  .global_properties = {{id<core::PropertyId>("player-name"),
+                                         core::RuntimeValue{std::string{"Ada"}}}}});
     REQUIRE(projection.diagnostics.empty());
     CHECK_FALSE(projection.opaque_frontiers.empty());
     const auto has_asset = [&](std::string_view asset) {
         return std::ranges::any_of(projection.entries, [&](const auto& entry) {
             const auto* dependency =
                 std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
-            return dependency != nullptr && dependency->asset == id<core::AssetId>(std::string(asset)) &&
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>(std::string(asset)) &&
                    entry.confidence == runtime::FlowPredictionConfidence::Alternative;
         });
     };
@@ -3201,26 +3197,24 @@ TEST_CASE("prospective Room commit invalidates source-context typed facts before
           "[assets][structured-prefetch][flow-prediction][room-lifecycle][condition]")
 {
     auto document = read_compiled_project_golden("scene-program");
-    const auto trait_condition = nlohmann::json{
-        {"kind", "trait-presence"},
-        {"owner",
-         {{"kind", "interactable"},
-          {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
-        {"trait", {{"kind", "trait"}, {"id", "currency"}}},
-        {"present", true}};
+    const auto trait_condition =
+        nlohmann::json{{"kind", "trait-presence"},
+                       {"owner",
+                        {{"kind", "interactable"},
+                         {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
+                       {"trait", {{"kind", "trait"}, {"id", "currency"}}},
+                       {"present", true}};
     for (auto& slice : document["flowPrediction"]["slices"]) {
         const auto& point = slice["point"];
         if (point.value("kind", "") != "room-lifecycle" ||
-            point["room"].value("id", "") != "tower" ||
-            point.value("stage", "") != "after-enter")
+            point["room"].value("id", "") != "tower" || point.value("stage", "") != "after-enter")
             continue;
         slice["program"] = nlohmann::json::array(
             {{{"kind", "if"},
               {"condition", trait_condition},
               {"thenCommands",
-               nlohmann::json::array(
-                   {{{"kind", "call-dialogue"},
-                     {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}})},
+               nlohmann::json::array({{{"kind", "call-dialogue"},
+                                       {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}})},
               {"elseCommands", nlohmann::json::array()}}});
         break;
     }
@@ -3229,8 +3223,7 @@ TEST_CASE("prospective Room commit invalidates source-context typed facts before
 
     std::optional<core::Condition> condition;
     for (const auto& slice : package.project().flow_prediction()->slices) {
-        const auto* point =
-            std::get_if<core::compiled::RoomLifecyclePredictionPoint>(&slice.point);
+        const auto* point = std::get_if<core::compiled::RoomLifecyclePredictionPoint>(&slice.point);
         if (point == nullptr || point->room != id<core::RoomId>("tower") ||
             point->stage != core::compiled::RoomLifecyclePredictionStage::AfterEnter ||
             slice.program.empty())
@@ -3245,8 +3238,8 @@ TEST_CASE("prospective Room commit invalidates source-context typed facts before
 
     runtime::FlowPredictor predictor(package.project());
     const auto projection = predictor.predict(
-        runtime::ProspectiveRoomEntryPredictionRoot{
-            .source_room = id<core::RoomId>("hall"), .target_room = id<core::RoomId>("tower")},
+        runtime::ProspectiveRoomEntryPredictionRoot{.source_room = id<core::RoomId>("hall"),
+                                                    .target_room = id<core::RoomId>("tower")},
         runtime::FlowPredictionContext{.condition_facts = {{*condition, true}}});
     const auto arrival = std::ranges::find_if(projection.entries, [](const auto& entry) {
         const auto* dependency =
@@ -3268,24 +3261,21 @@ TEST_CASE("typed EnterRoom prediction composes source and target lifecycle from 
             point["scene"].value("id", "") == "opening") {
             slice["dependencyGroups"] = nlohmann::json::array();
             slice["program"] = nlohmann::json::array(
-                {{{"kind", "enter-room"},
-                  {"room", {{"kind", "room"}, {"id", "tower"}}}}});
+                {{{"kind", "enter-room"}, {"room", {{"kind", "room"}, {"id", "tower"}}}}});
             slice["control"] = {{"kind", "sequential"}, {"successor", nullptr}};
         }
         if (point.value("kind", "") == "room-lifecycle" &&
-            point["room"].value("id", "") == "hall" &&
-            point.value("stage", "") == "before-leave") {
+            point["room"].value("id", "") == "hall" && point.value("stage", "") == "before-leave") {
             slice["program"].push_back(
-                {{"kind", "call-scene"},
-                 {"scene", {{"kind", "scene"}, {"id", "closing"}}}});
+                {{"kind", "call-scene"}, {"scene", {{"kind", "scene"}, {"id", "closing"}}}});
         }
     }
 
     auto package = package_from_document(std::move(document), "enter-room-current-room.json");
     runtime::FlowPredictor predictor(package.project());
-    const auto with_source = predictor.predict(
-        core::compiled::Entrypoint{id<core::SceneId>("opening")},
-        runtime::FlowPredictionContext{.current_room = id<core::RoomId>("hall")});
+    const auto with_source =
+        predictor.predict(core::compiled::Entrypoint{id<core::SceneId>("opening")},
+                          runtime::FlowPredictionContext{.current_room = id<core::RoomId>("hall")});
     REQUIRE(with_source.diagnostics.empty());
 
     const auto has_source_before_leave = [](const auto& projection) {
@@ -3340,9 +3330,8 @@ TEST_CASE(
     const auto room_ref = [](std::string_view value) {
         return nlohmann::json{{"kind", "room"}, {"id", value}};
     };
-    for (const auto [scene_id, asset_id] :
-         {std::pair{"location-true", "image-location-true"},
-          std::pair{"location-false", "image-location-false"}}) {
+    for (const auto [scene_id, asset_id] : {std::pair{"location-true", "image-location-true"},
+                                            std::pair{"location-false", "image-location-false"}}) {
         auto scene = document["definitions"]["scenes"][0];
         scene["id"] = scene_id;
         scene["displayName"] = scene_id;
@@ -3358,9 +3347,8 @@ TEST_CASE(
              {"width", 64},
              {"height", 64}});
         const auto group = document["flowPrediction"]["dependencyGroups"].size();
-        document["flowPrediction"]["dependencyGroups"].push_back(
-            nlohmann::json::array({{{"kind", "asset"},
-                                    {"asset", {{"kind", "asset"}, {"id", asset_id}}}}}));
+        document["flowPrediction"]["dependencyGroups"].push_back(nlohmann::json::array(
+            {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", asset_id}}}}}));
         document["flowPrediction"]["slices"].push_back(
             {{"point", {{"kind", "scene-entry"}, {"scene", scene_ref(scene_id)}}},
              {"dependencyGroups", nlohmann::json::array({group})},
@@ -3372,8 +3360,7 @@ TEST_CASE(
 
     for (auto& slice : document["flowPrediction"]["slices"]) {
         const auto& point = slice["point"];
-        if (point.value("kind", "") != "scene-entry" ||
-            point["scene"].value("id", "") != "opening")
+        if (point.value("kind", "") != "scene-entry" || point["scene"].value("id", "") != "opening")
             continue;
         slice["dependencyGroups"] = nlohmann::json::array();
         slice["program"] = nlohmann::json::array(
@@ -3386,8 +3373,7 @@ TEST_CASE(
                {{"kind", "interactable"},
                 {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
               {"location",
-               {{"kind", "room"},
-                {"room", {{"kind", "room"}, {"room", room_ref("tower")}}}}}},
+               {{"kind", "room"}, {"room", {{"kind", "room"}, {"room", room_ref("tower")}}}}}},
              {{"kind", "enter-room"}, {"room", room_ref("tower")}},
              {{"kind", "if"},
               {"condition",
@@ -3397,21 +3383,16 @@ TEST_CASE(
                      {{{"kind", "location-comparison"},
                        {"subject",
                         {{"kind", "interactable"},
-                         {"interactable",
-                          {{"kind", "interactable"}, {"id", "wallet"}}}}},
+                         {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
                        {"operator", "equal"},
-                       {"location",
-                        {{"kind", "room"}, {"room", {{"kind", "current-room"}}}}}},
+                       {"location", {{"kind", "room"}, {"room", {{"kind", "current-room"}}}}}},
                       {{"kind", "property-comparison"},
-                       {"owner",
-                        {{"kind", "room"},
-                         {"room", {{"kind", "room"}, {"id", "hall"}}}}},
+                       {"owner", {{"kind", "room"}, {"room", {{"kind", "room"}, {"id", "hall"}}}}},
                        {"propertyId", "visit-count"},
                        {"operator", "equal"},
                        {"value", 9}}})}}},
-              {"thenCommands",
-               nlohmann::json::array(
-                   {{{"kind", "call-scene"}, {"scene", scene_ref("location-true")}}})},
+              {"thenCommands", nlohmann::json::array({{{"kind", "call-scene"},
+                                                       {"scene", scene_ref("location-true")}}})},
               {"elseCommands",
                nlohmann::json::array(
                    {{{"kind", "call-scene"}, {"scene", scene_ref("location-false")}}})}}});
@@ -3419,10 +3400,12 @@ TEST_CASE(
         break;
     }
 
-    auto package = package_from_document(std::move(document), "current-room-location-projection.json");
-    const auto projection = runtime::FlowPredictor(package.project()).predict(
-        core::compiled::Entrypoint{id<core::SceneId>("opening")},
-        runtime::FlowPredictionContext{.current_room = id<core::RoomId>("hall")});
+    auto package =
+        package_from_document(std::move(document), "current-room-location-projection.json");
+    const auto projection =
+        runtime::FlowPredictor(package.project())
+            .predict(core::compiled::Entrypoint{id<core::SceneId>("opening")},
+                     runtime::FlowPredictionContext{.current_room = id<core::RoomId>("hall")});
     REQUIRE(projection.diagnostics.empty());
     CHECK(projection.context_requirements.condition_facts.empty());
     const auto has_asset = [&](std::string_view asset) {
@@ -3507,13 +3490,12 @@ TEST_CASE("awaited child Flow returns deterministic projected state to caller co
 {
     auto document = scene_prediction_test_document();
     auto& slices = document["flowPrediction"]["slices"];
-    slices[2]["program"] = nlohmann::json::array(
-        {{{"kind", "set-global-property"},
-          {"property", {{"kind", "property"}, {"id", "flag"}}},
-          {"value", true}}});
+    slices[2]["program"] =
+        nlohmann::json::array({{{"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "flag"}}},
+                                {"value", true}}});
     slices[8]["condition"] = nlohmann::json{{"kind", "global-property-comparison"},
-                                            {"property",
-                                             {{"kind", "property"}, {"id", "flag"}}},
+                                            {"property", {{"kind", "property"}, {"id", "flag"}}},
                                             {"operator", "truthy"}};
     slices[8]["conditionFalseSuccessor"] = 18;
 
@@ -3539,10 +3521,10 @@ TEST_CASE("active Scene prediction preserves an aliased resume point in provenan
           "[assets][structured-prefetch][flow-prediction][scene][provenance]")
 {
     auto document = scene_prediction_test_document();
-    document["flowPrediction"]["slices"][8]["resumePoints"] = nlohmann::json::array(
-        {{{"kind", "scene-step"},
-          {"scene", {{"kind", "scene"}, {"id", "prediction-horizon"}}},
-          {"stepId", "caller-after-resume"}}});
+    document["flowPrediction"]["slices"][8]["resumePoints"] =
+        nlohmann::json::array({{{"kind", "scene-step"},
+                                {"scene", {{"kind", "scene"}, {"id", "prediction-horizon"}}},
+                                {"stepId", "caller-after-resume"}}});
     auto package = package_from_document(std::move(document), "scene-resume-provenance.json");
     runtime::FlowPredictor predictor(package.project());
 
@@ -3596,8 +3578,8 @@ TEST_CASE("Scene prediction selects known branches, widens choices, and continue
     CHECK(find_asset(projection, "image-prediction-branch-alternative") ==
           projection.entries.end());
     CHECK_FALSE(std::ranges::any_of(projection.opaque_frontiers, [](const auto& frontier) {
-        const auto* point = std::get_if<core::compiled::SceneStepPredictionPoint>(
-            &frontier.attachment_point);
+        const auto* point =
+            std::get_if<core::compiled::SceneStepPredictionPoint>(&frontier.attachment_point);
         return point != nullptr && point->scene == id<core::SceneId>("prediction-decision") &&
                point->step == id<core::SceneStepId>("decision-branch");
     }));
@@ -3666,8 +3648,7 @@ TEST_CASE("Lua predicates in Flow Conditions publish opaque frontiers without ex
         {"kind", "all"},
         {"conditions",
          nlohmann::json::array({{{"kind", "always"}},
-                                {{"kind", "lua-predicate"},
-                                 {"source", "dynamic_branch_gate()"}}})},
+                                {{"kind", "lua-predicate"}, {"source", "dynamic_branch_gate()"}}})},
     };
 
     auto package = package_from_document(std::move(document), "scene-lua-condition-opacity.json");
@@ -3679,8 +3660,8 @@ TEST_CASE("Lua predicates in Flow Conditions publish opaque frontiers without ex
 
     REQUIRE(projection.diagnostics.empty());
     CHECK(std::ranges::any_of(projection.opaque_frontiers, [](const auto& frontier) {
-        const auto* point = std::get_if<core::compiled::SceneStepPredictionPoint>(
-            &frontier.attachment_point);
+        const auto* point =
+            std::get_if<core::compiled::SceneStepPredictionPoint>(&frontier.attachment_point);
         return point != nullptr && point->scene == id<core::SceneId>("prediction-decision") &&
                point->step == id<core::SceneStepId>("decision-branch");
     }));
@@ -3691,8 +3672,7 @@ TEST_CASE("active Scene choice prediction resumes after an awaited effect fronti
 {
     auto document = scene_prediction_test_document();
     auto& option = document["flowPrediction"]["slices"][20]["control"]["options"][0];
-    option["programs"] =
-        nlohmann::json::array({nlohmann::json::array({{{"kind", "opaque"}}})});
+    option["programs"] = nlohmann::json::array({nlohmann::json::array({{{"kind", "opaque"}}})});
     auto package = package_from_document(std::move(document), "scene-choice-wait-prediction.json");
     runtime::FlowPredictor predictor(package.project());
 
@@ -3707,15 +3687,15 @@ TEST_CASE("active Scene choice prediction resumes after an awaited effect fronti
     };
     const auto active = predictor.predict(root(false));
     CHECK(std::ranges::any_of(active.opaque_frontiers, [](const auto& frontier) {
-        const auto* point = std::get_if<core::compiled::SceneStepPredictionPoint>(
-            &frontier.attachment_point);
+        const auto* point =
+            std::get_if<core::compiled::SceneStepPredictionPoint>(&frontier.attachment_point);
         return point != nullptr && point->step == id<core::SceneStepId>("decision-choice");
     }));
 
     const auto waiting = predictor.predict(root(true));
     CHECK_FALSE(std::ranges::any_of(waiting.opaque_frontiers, [](const auto& frontier) {
-        const auto* point = std::get_if<core::compiled::SceneStepPredictionPoint>(
-            &frontier.attachment_point);
+        const auto* point =
+            std::get_if<core::compiled::SceneStepPredictionPoint>(&frontier.attachment_point);
         return point != nullptr && point->step == id<core::SceneStepId>("decision-choice");
     }));
     const auto target = std::ranges::find_if(waiting.entries, [](const auto& entry) {
@@ -3729,16 +3709,17 @@ TEST_CASE("active Scene choice prediction resumes after an awaited effect fronti
     CHECK(target->execution_distance >= 3);
 }
 
-TEST_CASE("typed gameplay mutations invalidate non-global prediction facts before downstream branches",
-          "[assets][structured-prefetch][flow-prediction][condition][projection]")
+TEST_CASE(
+    "typed gameplay mutations invalidate non-global prediction facts before downstream branches",
+    "[assets][structured-prefetch][flow-prediction][condition][projection]")
 {
-    const auto trait_condition = nlohmann::json{
-        {"kind", "trait-presence"},
-        {"owner",
-         {{"kind", "interactable"},
-          {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
-        {"trait", {{"kind", "trait"}, {"id", "currency"}}},
-        {"present", true}};
+    const auto trait_condition =
+        nlohmann::json{{"kind", "trait-presence"},
+                       {"owner",
+                        {{"kind", "interactable"},
+                         {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
+                       {"trait", {{"kind", "trait"}, {"id", "currency"}}},
+                       {"present", true}};
     const auto amend_branch = [&](nlohmann::json& document, bool invalidate) {
         for (auto& slice : document["flowPrediction"]["slices"]) {
             if (slice["point"]["kind"] != "scene-step" ||
@@ -3746,10 +3727,9 @@ TEST_CASE("typed gameplay mutations invalidate non-global prediction facts befor
                 slice["point"]["stepId"] != "decision-branch")
                 continue;
             slice["control"]["branches"][0]["condition"] = trait_condition;
-            slice["program"] = invalidate
-                                   ? nlohmann::json::array(
-                                         {{{"kind", "invalidate-condition-facts"}}})
-                                   : nlohmann::json::array();
+            slice["program"] =
+                invalidate ? nlohmann::json::array({{{"kind", "invalidate-condition-facts"}}})
+                           : nlohmann::json::array();
             return;
         }
         FAIL("prediction decision branch slice is missing");
@@ -3788,9 +3768,10 @@ TEST_CASE("typed gameplay mutations invalidate non-global prediction facts befor
     amend_branch(known_document, false);
     auto known_package = package_from_document(std::move(known_document), "known-typed-fact.json");
     const auto known_condition = branch_condition(known_package.project());
-    const auto known_projection = runtime::FlowPredictor(known_package.project())
-                                      .predict(root, runtime::FlowPredictionContext{
-                                                         .condition_facts = {{known_condition, true}}});
+    const auto known_projection =
+        runtime::FlowPredictor(known_package.project())
+            .predict(root,
+                     runtime::FlowPredictionContext{.condition_facts = {{known_condition, true}}});
     REQUIRE(known_projection.diagnostics.empty());
     CHECK(has_asset(known_projection, "image-prediction-branch-expected"));
     CHECK_FALSE(has_asset(known_projection, "image-prediction-branch-alternative"));
@@ -3800,10 +3781,10 @@ TEST_CASE("typed gameplay mutations invalidate non-global prediction facts befor
     auto invalidated_package =
         package_from_document(std::move(invalidated_document), "invalidated-typed-fact.json");
     const auto invalidated_condition = branch_condition(invalidated_package.project());
-    const auto invalidated_projection = runtime::FlowPredictor(invalidated_package.project())
-                                            .predict(root, runtime::FlowPredictionContext{
-                                                               .condition_facts = {
-                                                                   {invalidated_condition, true}}});
+    const auto invalidated_projection =
+        runtime::FlowPredictor(invalidated_package.project())
+            .predict(root, runtime::FlowPredictionContext{
+                               .condition_facts = {{invalidated_condition, true}}});
     REQUIRE(invalidated_projection.diagnostics.empty());
     CHECK(has_asset(invalidated_projection, "image-prediction-branch-expected"));
     CHECK(has_asset(invalidated_projection, "image-prediction-branch-alternative"));
@@ -3812,13 +3793,13 @@ TEST_CASE("typed gameplay mutations invalidate non-global prediction facts befor
 TEST_CASE("deterministic typed mutation projects a changed non-global fact into a later branch",
           "[assets][structured-prefetch][flow-prediction][condition][projection][typed]")
 {
-    const auto trait_condition = nlohmann::json{
-        {"kind", "trait-presence"},
-        {"owner",
-         {{"kind", "interactable"},
-          {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
-        {"trait", {{"kind", "trait"}, {"id", "currency"}}},
-        {"present", true}};
+    const auto trait_condition =
+        nlohmann::json{{"kind", "trait-presence"},
+                       {"owner",
+                        {{"kind", "interactable"},
+                         {"interactable", {{"kind", "interactable"}, {"id", "wallet"}}}}},
+                       {"trait", {{"kind", "trait"}, {"id", "currency"}}},
+                       {"present", true}};
     auto document = scene_prediction_test_document();
     for (auto& slice : document["flowPrediction"]["slices"]) {
         if (slice["point"]["kind"] != "scene-step" ||
@@ -3838,22 +3819,23 @@ TEST_CASE("deterministic typed mutation projects a changed non-global fact into 
 
     auto package = package_from_document(std::move(document), "projected-typed-fact.json");
     REQUIRE(package.project().flow_prediction());
-    const auto branch = std::ranges::find_if(
-        package.project().flow_prediction()->slices, [](const auto& slice) {
+    const auto branch =
+        std::ranges::find_if(package.project().flow_prediction()->slices, [](const auto& slice) {
             const auto* point = std::get_if<core::compiled::SceneStepPredictionPoint>(&slice.point);
             return point != nullptr && point->scene == id<core::SceneId>("prediction-decision") &&
                    point->step == id<core::SceneStepId>("decision-branch");
         });
     REQUIRE(branch != package.project().flow_prediction()->slices.end());
-    const auto* control = std::get_if<core::compiled::FlowPredictionBranchControl>(&branch->control);
+    const auto* control =
+        std::get_if<core::compiled::FlowPredictionBranchControl>(&branch->control);
     REQUIRE(control != nullptr);
     REQUIRE_FALSE(control->branches.empty());
-    const auto projection = runtime::FlowPredictor(package.project())
-                                .predict(runtime::ActiveScenePredictionRoot{
-                                             .scene = id<core::SceneId>("prediction-decision"),
-                                             .position = core::SceneFramePosition{
-                                                 id<core::SceneStepId>("decision-branch"),
-                                                 core::SceneStepReady{}, true}});
+    const auto projection =
+        runtime::FlowPredictor(package.project())
+            .predict(runtime::ActiveScenePredictionRoot{
+                .scene = id<core::SceneId>("prediction-decision"),
+                .position = core::SceneFramePosition{id<core::SceneStepId>("decision-branch"),
+                                                     core::SceneStepReady{}, true}});
     REQUIRE(projection.diagnostics.empty());
     const auto has_asset = [&](std::string_view asset) {
         return std::ranges::any_of(projection.entries, [&](const auto& entry) {
@@ -3871,11 +3853,10 @@ TEST_CASE("context-bound typed mutation operands widen without a binding environ
           "[assets][structured-prefetch][flow-prediction][condition][projection][binding]")
 {
     const auto slot_owner = nlohmann::json{{"kind", "interaction-slot"}, {"slotId", "target"}};
-    const auto trait_condition = nlohmann::json{
-        {"kind", "trait-presence"},
-        {"owner", slot_owner},
-        {"trait", {{"kind", "trait"}, {"id", "currency"}}},
-        {"present", true}};
+    const auto trait_condition = nlohmann::json{{"kind", "trait-presence"},
+                                                {"owner", slot_owner},
+                                                {"trait", {{"kind", "trait"}, {"id", "currency"}}},
+                                                {"present", true}};
     auto document = scene_prediction_test_document();
     for (auto& slice : document["flowPrediction"]["slices"]) {
         if (slice["point"].value("kind", "") != "scene-step" ||
@@ -3883,20 +3864,21 @@ TEST_CASE("context-bound typed mutation operands widen without a binding environ
             slice["point"].value("stepId", "") != "decision-branch")
             continue;
         slice["control"]["branches"][0]["condition"] = trait_condition;
-        slice["program"] = nlohmann::json::array(
-            {{{"kind", "set-trait-presence"},
-              {"owner", slot_owner},
-              {"trait", {{"kind", "trait"}, {"id", "currency"}}},
-              {"present", true}}});
+        slice["program"] =
+            nlohmann::json::array({{{"kind", "set-trait-presence"},
+                                    {"owner", slot_owner},
+                                    {"trait", {{"kind", "trait"}, {"id", "currency"}}},
+                                    {"present", true}}});
         break;
     }
 
     auto package = package_from_document(std::move(document), "context-bound-projection.json");
-    const auto projection = runtime::FlowPredictor(package.project()).predict(
-        runtime::ActiveScenePredictionRoot{
-            .scene = id<core::SceneId>("prediction-decision"),
-            .position = core::SceneFramePosition{id<core::SceneStepId>("decision-branch"),
-                                                 core::SceneStepReady{}, true}});
+    const auto projection =
+        runtime::FlowPredictor(package.project())
+            .predict(runtime::ActiveScenePredictionRoot{
+                .scene = id<core::SceneId>("prediction-decision"),
+                .position = core::SceneFramePosition{id<core::SceneStepId>("decision-branch"),
+                                                     core::SceneStepReady{}, true}});
     REQUIRE(projection.diagnostics.empty());
     const auto find_asset = [&](std::string_view asset) {
         return std::ranges::find_if(projection.entries, [&](const auto& entry) {
@@ -3919,11 +3901,10 @@ TEST_CASE("active Interaction bindings project slot-targeted mutations into late
 {
     auto document = read_compiled_project_golden("interaction-program");
     const auto slot_owner = nlohmann::json{{"kind", "interaction-slot"}, {"slotId", "target"}};
-    const auto trait_condition = nlohmann::json{
-        {"kind", "trait-presence"},
-        {"owner", slot_owner},
-        {"trait", {{"kind", "trait"}, {"id", "currency"}}},
-        {"present", true}};
+    const auto trait_condition = nlohmann::json{{"kind", "trait-presence"},
+                                                {"owner", slot_owner},
+                                                {"trait", {{"kind", "trait"}, {"id", "currency"}}},
+                                                {"present", true}};
     auto& groups = document["flowPrediction"]["dependencyGroups"];
     const auto scene_group = groups.size();
     groups.push_back(nlohmann::json::array(
@@ -3944,21 +3925,18 @@ TEST_CASE("active Interaction bindings project slot-targeted mutations into late
               {"kind", "if"},
               {"condition", trait_condition},
               {"then",
-               nlohmann::json::array(
-                   {{{"id", "slot-true"},
-                     {"kind", "call-scene"},
-                     {"scene", {{"kind", "scene"}, {"id", "opening"}}}}})},
+               nlohmann::json::array({{{"id", "slot-true"},
+                                       {"kind", "call-scene"},
+                                       {"scene", {{"kind", "scene"}, {"id", "opening"}}}}})},
               {"else",
-               nlohmann::json::array(
-                   {{{"id", "slot-false"},
-                     {"kind", "call-dialogue"},
-                     {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}}})}}});
+               nlohmann::json::array({{{"id", "slot-false"},
+                                       {"kind", "call-dialogue"},
+                                       {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}}})}}});
     }
 
     for (auto& slice : document["flowPrediction"]["slices"]) {
         const auto& point = slice["point"];
-        if (point.value("kind", "") == "scene-entry" &&
-            point["scene"].value("id", "") == "opening")
+        if (point.value("kind", "") == "scene-entry" && point["scene"].value("id", "") == "opening")
             slice["dependencyGroups"] = nlohmann::json::array({scene_group});
         else if (point.value("kind", "") == "dialogue-entry" &&
                  point["dialogue"].value("id", "") == "intro")
@@ -3975,9 +3953,8 @@ TEST_CASE("active Interaction bindings project slot-targeted mutations into late
                   {"kind", "if"},
                   {"condition", trait_condition},
                   {"thenCommands",
-                   nlohmann::json::array(
-                       {{{"kind", "call-scene"},
-                         {"scene", {{"kind", "scene"}, {"id", "opening"}}}}})},
+                   nlohmann::json::array({{{"kind", "call-scene"},
+                                           {"scene", {{"kind", "scene"}, {"id", "opening"}}}}})},
                   {"elseCommands",
                    nlohmann::json::array(
                        {{{"kind", "call-dialogue"},
@@ -3985,21 +3962,20 @@ TEST_CASE("active Interaction bindings project slot-targeted mutations into late
         }
     }
 
-    auto decoded =
-        core::decode_compiled_project(document, "interaction-slot-projection.json");
+    auto decoded = core::decode_compiled_project(document, "interaction-slot-projection.json");
     REQUIRE(decoded);
     auto project = std::move(decoded).value();
     const runtime::ActiveInteractionPredictionRoot root{
         .program = core::VerbDefaultProgramRef{id<core::VerbId>("unlock")},
-        .position = core::InteractionFramePosition{
-            .next_instruction = id<core::InteractionInstructionId>("slot-trait"),
-            .fallback_stage = core::InteractionFallbackStage::VerbDefault,
-            .outcome = core::InteractionExecutionOutcome::Pending,
-            .awaiting_completion = false},
-        .interaction_bindings =
-            {{id<core::VerbSlotId>("target"),
-              core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>(
-                  "key")}}},
+        .position =
+            core::InteractionFramePosition{
+                .next_instruction = id<core::InteractionInstructionId>("slot-trait"),
+                .fallback_stage = core::InteractionFallbackStage::VerbDefault,
+                .outcome = core::InteractionExecutionOutcome::Pending,
+                .awaiting_completion = false},
+        .interaction_bindings = {{id<core::VerbSlotId>("target"),
+                                  core::compiled::InteractableInteractionSubject{
+                                      id<core::InteractableInstanceId>("key")}}},
         .command_results = {},
         .condition_facts = {}};
     const auto projection = runtime::FlowPredictor(project).predict(root);
@@ -4072,8 +4048,9 @@ TEST_CASE("typed identity mutations invalidate inventory quantity facts they may
         .scene = id<core::SceneId>("prediction-decision"),
         .position = core::SceneFramePosition{id<core::SceneStepId>("decision-branch"),
                                              core::SceneStepReady{}, true}};
-    const auto projection = runtime::FlowPredictor(package.project()).predict(
-        root, runtime::FlowPredictionContext{.condition_facts = {{*condition, true}}});
+    const auto projection =
+        runtime::FlowPredictor(package.project())
+            .predict(root, runtime::FlowPredictionContext{.condition_facts = {{*condition, true}}});
     const auto has_asset = [&](std::string_view asset) {
         return std::ranges::any_of(projection.entries, [&](const auto& entry) {
             const auto* dependency =
@@ -4124,22 +4101,21 @@ TEST_CASE("Flow prediction bounds pathological acyclic expansion before planner 
     nlohmann::json slices = nlohmann::json::array();
     constexpr std::size_t slice_count = 4100;
     for (std::size_t index = 0; index < slice_count; ++index) {
-        nlohmann::json point = index == 0
-                                   ? nlohmann::json{{"kind", "scene-entry"},
-                                                    {"scene", {{"kind", "scene"}, {"id", "opening"}}}}
-                                   : nlohmann::json{{"kind", "scene-step"},
-                                                    {"scene", {{"kind", "scene"}, {"id", "opening"}}},
-                                                    {"stepId", "bounded-" + std::to_string(index)}};
-        slices.push_back(
-            {{"point", std::move(point)},
-             {"dependencyGroups", nlohmann::json::array({0})},
-             {"conditionFalseSuccessor", nullptr},
-             {"control",
-              {{"kind", "sequential"},
-               {"successor", index + 1 < slice_count ? nlohmann::json(index + 1)
-                                                       : nlohmann::json(nullptr)}}},
-             {"frontier", "normal"},
-             {"program", nlohmann::json::array()}});
+        nlohmann::json point =
+            index == 0 ? nlohmann::json{{"kind", "scene-entry"},
+                                        {"scene", {{"kind", "scene"}, {"id", "opening"}}}}
+                       : nlohmann::json{{"kind", "scene-step"},
+                                        {"scene", {{"kind", "scene"}, {"id", "opening"}}},
+                                        {"stepId", "bounded-" + std::to_string(index)}};
+        slices.push_back({{"point", std::move(point)},
+                          {"dependencyGroups", nlohmann::json::array({0})},
+                          {"conditionFalseSuccessor", nullptr},
+                          {"control",
+                           {{"kind", "sequential"},
+                            {"successor", index + 1 < slice_count ? nlohmann::json(index + 1)
+                                                                  : nlohmann::json(nullptr)}}},
+                          {"frontier", "normal"},
+                          {"program", nlohmann::json::array()}});
     }
     document["flowPrediction"] = {
         {"dependencyGroups",
@@ -4150,7 +4126,8 @@ TEST_CASE("Flow prediction bounds pathological acyclic expansion before planner 
 
     auto package = package_from_document(std::move(document), "bounded-flow-prediction.json");
     runtime::FlowPredictor predictor(package.project());
-    const auto projection = predictor.predict(core::compiled::Entrypoint{id<core::SceneId>("opening")});
+    const auto projection =
+        predictor.predict(core::compiled::Entrypoint{id<core::SceneId>("opening")});
     CHECK_FALSE(projection.entries.empty());
     CHECK(projection.entries.size() <= runtime::FlowPredictor::structural_ceiling);
     CHECK(std::ranges::any_of(projection.diagnostics, [](const auto& diagnostic) {
@@ -4453,11 +4430,11 @@ TEST_CASE("prefetch generation replacement can reuse Warm capacity from obsolete
     const assets::TextureAssetRequest first{.path = "project:/textures/replaced-first.png"};
     const assets::TextureAssetRequest second{.path = "project:/textures/replaced-second.png"};
     const auto candidate = [&](const assets::TextureAssetRequest& request) {
-        return assets::PrefetchCandidate{
-            .descriptor = descriptor(request, generation),
-            .prediction = assets::PrefetchPredictionKind::ExpectedNext,
-            .estimated_cost = {.prepared_cpu_bytes = 1},
-            .cost_estimate = assets::PrefetchCostEstimateKind::Metadata};
+        return assets::PrefetchCandidate{.descriptor = descriptor(request, generation),
+                                         .prediction = assets::PrefetchPredictionKind::ExpectedNext,
+                                         .estimated_cost = {.prepared_cpu_bytes = 1},
+                                         .cost_estimate =
+                                             assets::PrefetchCostEstimateKind::Metadata};
     };
 
     assets::PrefetchPlan first_plan;
@@ -4604,8 +4581,7 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
         const auto idle_slice = prediction["slices"].size();
         prediction["slices"].push_back(
             {{"point",
-              {{"kind", "scene-entry"},
-               {"scene", {{"kind", "scene"}, {"id", "prediction-idle"}}}}},
+              {{"kind", "scene-entry"}, {"scene", {{"kind", "scene"}, {"id", "prediction-idle"}}}}},
              {"dependencyGroups", nlohmann::json::array()},
              {"conditionFalseSuccessor", nullptr},
              {"control", {{"kind", "sequential"}, {"successor", nullptr}}},
@@ -4618,14 +4594,13 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
         const auto first_slice = prediction["slices"].size();
         for (std::size_t index = 0; index < candidate_count; ++index) {
             const auto id = "prediction-wave-" + std::to_string(index);
-            document["resources"]["assets"].push_back(
-                {{"aliases", nlohmann::json::array()},
-                 {"id", id},
-                 {"kind", "image"},
-                 {"path", "assets/images/" + id + ".png"},
-                 {"sampling", "linear"},
-                 {"width", 64},
-                 {"height", 64}});
+            document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                                       {"id", id},
+                                                       {"kind", "image"},
+                                                       {"path", "assets/images/" + id + ".png"},
+                                                       {"sampling", "linear"},
+                                                       {"width", 64},
+                                                       {"height", 64}});
             prediction["dependencyGroups"].push_back(nlohmann::json::array(
                 {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", id}}}}}));
 
@@ -4642,9 +4617,9 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
                  {"conditionFalseSuccessor", nullptr},
                  {"control",
                   {{"kind", "sequential"},
-                   {"successor",
-                    index + 1 < candidate_count ? nlohmann::json(first_slice + index + 1)
-                                                : nlohmann::json(nullptr)}}},
+                   {"successor", index + 1 < candidate_count
+                                     ? nlohmann::json(first_slice + index + 1)
+                                     : nlohmann::json(nullptr)}}},
                  {"frontier", "normal"},
                  {"program", nlohmann::json::array()}});
         }
@@ -4690,8 +4665,7 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
     SECTION("available Warm capacity expands into later prediction waves")
     {
         const auto calls = run(generous_budget());
-        CHECK(std::ranges::find(calls,
-                                "texture:project:/assets/images/prediction-wave-79.png") !=
+        CHECK(std::ranges::find(calls, "texture:project:/assets/images/prediction-wave-79.png") !=
               calls.end());
     }
 }
@@ -4861,23 +4835,224 @@ TEST_CASE("mandatory gate deepens ordinary Room exits through Warm-budget-aware 
     }
 }
 
+TEST_CASE("rapid Room actions rank against multi-hop presentation on execution distance",
+          "[assets][structured-prefetch][flow-prediction][room-lifecycle][resident-room][ranking]")
+{
+    auto document = read_compiled_project_golden("interaction-program");
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    for (auto& interactable : document["definitions"]["interactables"]) {
+        auto& hotspots = interactable["presentation"]["hotspots"];
+        if (hotspots.value("kind", "") == "custom") {
+            for (auto& hotspot : hotspots["hotspots"])
+                hotspot["highlight"] = {{"kind", "none"}};
+        } else if (hotspots.value("kind", "") == "sprite-alpha") {
+            hotspots["hotspot"]["highlight"] = {{"kind", "none"}};
+        }
+    }
+
+    const auto add_asset = [&](std::string id_value) {
+        document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                                   {"id", id_value},
+                                                   {"kind", "image"},
+                                                   {"path", "assets/images/" + id_value + ".png"},
+                                                   {"sampling", "linear"},
+                                                   {"width", 64},
+                                                   {"height", 64}});
+    };
+    for (const auto* asset :
+         {"rank-b-presentation", "rank-c-presentation", "rank-primary", "rank-secondary",
+          "rank-multistep", "rank-entry-hint", "rank-resident-hint"})
+        add_asset(asset);
+
+    const auto room_template = document["definitions"]["rooms"].back();
+    const auto add_room = [&](std::string room_id, std::optional<std::string> target) {
+        auto room = room_template;
+        room["id"] = room_id;
+        room["displayName"] = room_id;
+        room["background"]["asset"] = nullptr;
+        room["background"]["material"] = nullptr;
+        room["cast"] = nlohmann::json::array();
+        room["interactables"] = nlohmann::json::array();
+        room["features"] = nlohmann::json::array();
+        room["hotspots"] = nlohmann::json::array();
+        room["exits"] = nlohmann::json::array();
+        if (target) {
+            room["exits"].push_back(
+                {{"condition", {{"kind", "always"}}},
+                 {"direction", "east"},
+                 {"id", "next-exit"},
+                 {"label",
+                  {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Next"}}}}},
+                 {"onRejected", nlohmann::json::array()},
+                 {"target", {{"kind", "room"}, {"id", *target}}},
+                 {"transition", nullptr}});
+        }
+        document["definitions"]["rooms"].push_back(std::move(room));
+    };
+    add_room("rank-room-a", "rank-room-b");
+    add_room("rank-room-b", "rank-room-c");
+    add_room("rank-room-c", std::nullopt);
+
+    auto& prediction = document["flowPrediction"];
+    prediction["dependencyGroups"] = nlohmann::json::array();
+    prediction["slices"] = nlohmann::json::array();
+    prediction["supplementalHints"] = nlohmann::json::array();
+    const auto add_slice = [&](nlohmann::json point, std::string asset_id) {
+        const auto group = prediction["dependencyGroups"].size();
+        prediction["dependencyGroups"].push_back(nlohmann::json::array(
+            {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", std::move(asset_id)}}}}}));
+        prediction["slices"].push_back(
+            {{"point", std::move(point)},
+             {"dependencyGroups", nlohmann::json::array({group})},
+             {"conditionFalseSuccessor", nullptr},
+             {"control", {{"kind", "sequential"}, {"successor", nullptr}}},
+             {"frontier", "normal"},
+             {"program", nlohmann::json::array()}});
+    };
+    add_slice({{"kind", "room-lifecycle"},
+               {"room", {{"kind", "room"}, {"id", "rank-room-b"}}},
+               {"stage", "presentation"}},
+              "rank-b-presentation");
+    add_slice({{"kind", "room-lifecycle"},
+               {"room", {{"kind", "room"}, {"id", "rank-room-c"}}},
+               {"stage", "presentation"}},
+              "rank-c-presentation");
+    add_slice({{"kind", "verb-default"}, {"verb", {{"kind", "verb"}, {"id", "use"}}}},
+              "rank-primary");
+    add_slice({{"kind", "verb-default"}, {"verb", {{"kind", "verb"}, {"id", "inspect"}}}},
+              "rank-secondary");
+    add_slice({{"kind", "verb-default"}, {"verb", {{"kind", "verb"}, {"id", "combine"}}}},
+              "rank-multistep");
+    prediction["supplementalHints"].push_back(
+        {{"id", "rank-entry"},
+         {"target", {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "rank-entry-hint"}}}}},
+         {"attachment",
+          {{"kind", "room"},
+           {"room", {{"kind", "room"}, {"id", "rank-room-b"}}},
+           {"scope", "entry-path"}}}});
+    prediction["supplementalHints"].push_back(
+        {{"id", "rank-resident"},
+         {"target",
+          {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "rank-resident-hint"}}}}},
+         {"attachment",
+          {{"kind", "room"},
+           {"room", {{"kind", "room"}, {"id", "rank-room-b"}}},
+           {"scope", "resident"}}}});
+
+    auto package = package_from_document(std::move(document), "rapid-room-action-ranking.json");
+    runtime::FlowPredictionContext context;
+    context.current_room = id<core::RoomId>("rank-room-a");
+    runtime::ResidentRoomPredictionRoot resident{
+        .room = id<core::RoomId>("rank-room-b"),
+        .actions = {runtime::ResidentActionPredictionCandidate{
+                        .program = core::VerbDefaultProgramRef{id<core::VerbId>("use")},
+                        .verb = id<core::VerbId>("use"),
+                        .binding_count = 1,
+                        .primary = true},
+                    runtime::ResidentActionPredictionCandidate{
+                        .program = core::VerbDefaultProgramRef{id<core::VerbId>("inspect")},
+                        .verb = id<core::VerbId>("inspect"),
+                        .binding_count = 1,
+                        .primary = false},
+                    runtime::ResidentActionPredictionCandidate{
+                        .program = core::VerbDefaultProgramRef{id<core::VerbId>("combine")},
+                        .verb = id<core::VerbId>("combine"),
+                        .binding_count = 2,
+                        .primary = false}},
+        .layouts = {}};
+    context.future_resident_rooms.push_back(resident);
+
+    runtime::FlowPredictor predictor(package.project());
+    const auto future = predictor.predict(
+        runtime::ProspectiveRoomEntryPredictionRoot{.source_room = id<core::RoomId>("rank-room-a"),
+                                                    .target_room = id<core::RoomId>("rank-room-b"),
+                                                    .source_exit =
+                                                        id<core::RoomExitId>("next-exit")},
+        context);
+    const auto distance_for = [](const runtime::FlowPredictionProjection& projection,
+                                 const core::AssetId& asset) {
+        const auto found = std::ranges::find_if(projection.entries, [&](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr && dependency->asset == asset;
+        });
+        REQUIRE(found != projection.entries.end());
+        return found->execution_distance;
+    };
+
+    const auto b_presentation = distance_for(future, id<core::AssetId>("rank-b-presentation"));
+    const auto primary = distance_for(future, id<core::AssetId>("rank-primary"));
+    const auto c_presentation = distance_for(future, id<core::AssetId>("rank-c-presentation"));
+    const auto secondary = distance_for(future, id<core::AssetId>("rank-secondary"));
+    const auto multistep = distance_for(future, id<core::AssetId>("rank-multistep"));
+    const auto entry_hint = distance_for(future, id<core::AssetId>("rank-entry-hint"));
+    const auto resident_hint = distance_for(future, id<core::AssetId>("rank-resident-hint"));
+
+    CHECK(b_presentation < primary);
+    CHECK(primary < c_presentation);
+    CHECK(c_presentation < secondary);
+    CHECK(secondary < multistep);
+    CHECK(entry_hint < resident_hint);
+    CHECK(resident_hint == primary);
+
+    const auto current = predictor.predict(resident, context);
+    const auto current_primary = distance_for(current, id<core::AssetId>("rank-primary"));
+    const auto current_secondary = distance_for(current, id<core::AssetId>("rank-secondary"));
+    const auto current_multistep = distance_for(current, id<core::AssetId>("rank-multistep"));
+    const auto current_resident_hint =
+        distance_for(current, id<core::AssetId>("rank-resident-hint"));
+    CHECK(current_primary < primary);
+    CHECK(current_primary < current_secondary);
+    CHECK(current_secondary < current_multistep);
+    CHECK(current_resident_hint == current_primary);
+
+    PlannerFixture fixture;
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto dependency_index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    runtime::FlowPredictionProjection duplicate_paths;
+    duplicate_paths.entries.push_back(
+        {.dependency =
+             core::compiled::FlowPredictionAssetDependency{id<core::AssetId>("rank-primary")},
+         .execution_distance = primary,
+         .confidence = runtime::FlowPredictionConfidence::Alternative,
+         .provenance = {.root_kind = runtime::FlowPredictionRootKind::ProspectiveRoomEntry,
+                        .room = id<core::RoomId>("rank-room-b"),
+                        .exit = id<core::RoomExitId>("next-exit")}});
+    duplicate_paths.entries.push_back(
+        {.dependency =
+             core::compiled::FlowPredictionAssetDependency{id<core::AssetId>("rank-primary")},
+         .execution_distance = current_primary,
+         .confidence = runtime::FlowPredictionConfidence::Alternative,
+         .provenance = {.root_kind = runtime::FlowPredictionRootKind::ResidentRoomContext,
+                        .room = id<core::RoomId>("rank-room-b")}});
+    const auto duplicate_plan = assets::resolve_flow_prediction(dependency_index, duplicate_paths);
+    const auto duplicate_candidate =
+        std::ranges::find_if(duplicate_plan.candidates, [](const auto& candidate) {
+            const auto* texture =
+                std::get_if<assets::TextureAssetRequest>(&candidate.descriptor.request);
+            return texture != nullptr && texture->path == "project:/assets/images/rank-primary.png";
+        });
+    REQUIRE(duplicate_candidate != duplicate_plan.candidates.end());
+    CHECK(duplicate_candidate->execution_distance == current_primary);
+    CHECK(duplicate_candidate->provenance.size() == 2);
+}
+
 TEST_CASE("prediction waves give uncertain sibling branches equal path-depth opportunity",
           "[assets][structured-prefetch][flow-prediction][budget][horizon][branch]")
 {
     auto document = read_compiled_project_golden("scene-program");
     auto& prediction = document["flowPrediction"];
-    prediction["dependencyGroups"] = nlohmann::json::array(
-        {nlohmann::json::array(
-             {{{"kind", "asset"},
-               {"asset", {{"kind", "asset"}, {"id", "image-arrival-dialogue"}}}}})});
+    prediction["dependencyGroups"] = nlohmann::json::array({nlohmann::json::array(
+        {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "image-arrival-dialogue"}}}}})});
     prediction["supplementalHints"] = nlohmann::json::array();
 
     nlohmann::json slices = nlohmann::json::array();
     constexpr std::size_t deep_count = 70;
     const auto sibling = deep_count + 1;
     slices.push_back(
-        {{"point",
-          {{"kind", "scene-entry"}, {"scene", {{"kind", "scene"}, {"id", "opening"}}}}},
+        {{"point", {{"kind", "scene-entry"}, {"scene", {{"kind", "scene"}, {"id", "opening"}}}}},
          {"dependencyGroups", nlohmann::json::array()},
          {"conditionFalseSuccessor", nullptr},
          {"control",
@@ -4891,36 +5066,34 @@ TEST_CASE("prediction waves give uncertain sibling branches equal path-depth opp
          {"frontier", "normal"},
          {"program", nlohmann::json::array()}});
     for (std::size_t index = 0; index < deep_count; ++index) {
-        slices.push_back(
-            {{"point",
-              {{"kind", "scene-step"},
-               {"scene", {{"kind", "scene"}, {"id", "opening"}}},
-               {"stepId", "deep-wave-" + std::to_string(index)}}},
-             {"dependencyGroups", nlohmann::json::array()},
-             {"conditionFalseSuccessor", nullptr},
-             {"control",
-              {{"kind", "sequential"},
-               {"successor",
-                index + 1 < deep_count ? nlohmann::json(index + 2)
-                                       : nlohmann::json(nullptr)}}},
-             {"frontier", "normal"},
-             {"program", nlohmann::json::array()}});
+        slices.push_back({{"point",
+                           {{"kind", "scene-step"},
+                            {"scene", {{"kind", "scene"}, {"id", "opening"}}},
+                            {"stepId", "deep-wave-" + std::to_string(index)}}},
+                          {"dependencyGroups", nlohmann::json::array()},
+                          {"conditionFalseSuccessor", nullptr},
+                          {"control",
+                           {{"kind", "sequential"},
+                            {"successor", index + 1 < deep_count ? nlohmann::json(index + 2)
+                                                                 : nlohmann::json(nullptr)}}},
+                          {"frontier", "normal"},
+                          {"program", nlohmann::json::array()}});
     }
-    slices.push_back(
-        {{"point",
-          {{"kind", "scene-step"},
-           {"scene", {{"kind", "scene"}, {"id", "opening"}}},
-           {"stepId", "fair-sibling"}}},
-         {"dependencyGroups", nlohmann::json::array({0})},
-         {"conditionFalseSuccessor", nullptr},
-         {"control", {{"kind", "sequential"}, {"successor", nullptr}}},
-         {"frontier", "normal"},
-         {"program", nlohmann::json::array()}});
+    slices.push_back({{"point",
+                       {{"kind", "scene-step"},
+                        {"scene", {{"kind", "scene"}, {"id", "opening"}}},
+                        {"stepId", "fair-sibling"}}},
+                      {"dependencyGroups", nlohmann::json::array({0})},
+                      {"conditionFalseSuccessor", nullptr},
+                      {"control", {{"kind", "sequential"}, {"successor", nullptr}}},
+                      {"frontier", "normal"},
+                      {"program", nlohmann::json::array()}});
     prediction["slices"] = std::move(slices);
 
-    auto package = package_from_document(std::move(document), "prediction-wave-branch-fairness.json");
-    const auto projection = runtime::FlowPredictor(package.project(), 64).predict(
-        core::compiled::Entrypoint{id<core::SceneId>("opening")});
+    auto package =
+        package_from_document(std::move(document), "prediction-wave-branch-fairness.json");
+    const auto projection = runtime::FlowPredictor(package.project(), 64)
+                                .predict(core::compiled::Entrypoint{id<core::SceneId>("opening")});
     CHECK(std::ranges::any_of(projection.diagnostics, [](const auto& diagnostic) {
         return diagnostic.code == "assets.flow_prediction_structural_limit";
     }));
