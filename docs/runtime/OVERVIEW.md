@@ -130,6 +130,14 @@ Resident dependencies are alternatives (`PossibleNext`) and provenance identifie
 and committed Room. Re-publishing an identical resident root is a no-op for speculative generation
 replacement, while a semantic change refreshes the one shared prefetch plan.
 
+Ordinary Room exits continue through the same adaptive Flow-prediction horizon after a prospective
+adjacent entry projects its successful lifecycle. The immediately adjacent exit still uses the
+Runtime Session's authoritative guard facts and requirement collection. Later hops use compiled Room
+structure plus already-admitted prediction facts; unavailable deeper guard facts remain alternatives
+rather than triggering eager context discovery. Room-hop recursion shares the existing wave limit and
+structural ceiling, treats sibling exits as independent paths, and cuts active Room cycles, so Warm
+budget analysis can stop or enlarge the same speculative frontier without a separate prediction engine.
+
 Editor/tooling inspection has two deliberately different read-only views over this same machinery.
 Outside a live Runtime Session, the editor may project the compiler-generated Flow Prediction Index
 to show potential semantic slices, deterministic edges, alternatives, effective dependency groups,

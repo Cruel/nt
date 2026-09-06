@@ -802,15 +802,15 @@ class PredictionTraversal {
 public:
     static constexpr std::size_t recursion_safety_depth = 1024;
 
-    PredictionTraversal(const core::compiled::FlowPredictionIndex& index,
-                        FlowPredictionProjection& result,
-                        const FlowPredictionContext& context,
+    PredictionTraversal(const core::CompiledProject& project,
+                        const core::compiled::FlowPredictionIndex& index,
+                        FlowPredictionProjection& result, const FlowPredictionContext& context,
                         std::size_t traversal_limit,
                         FlowPredictionRootKind root_kind = FlowPredictionRootKind::FlowExecution,
                         std::optional<core::RoomId> root_room = std::nullopt,
                         std::optional<core::RoomExitId> root_exit = std::nullopt)
-        : m_index(index), m_result(result), m_context(context), m_traversal_limit(traversal_limit),
-          m_root_kind(root_kind),
+        : m_project(project), m_index(index), m_result(result), m_context(context),
+          m_traversal_limit(traversal_limit), m_root_kind(root_kind),
           m_root_room(std::move(root_room)), m_root_exit(std::move(root_exit))
     {
     }
@@ -1322,7 +1322,106 @@ public:
         }
     }
 
+    void run_ordinary_room_topology(const core::RoomId& room, std::size_t distance,
+                                    const ProjectedProperties& properties,
+                                    bool condition_facts_valid = true)
+    {
+        if (std::find(m_active_topology_rooms.begin(), m_active_topology_rooms.end(), room) !=
+            m_active_topology_rooms.end())
+            return;
+        if (m_active_topology_rooms.size() >= m_traversal_limit ||
+            m_traversal_steps >= FlowPredictor::structural_ceiling) {
+            report_structural_limit();
+            return;
+        }
+
+        const auto* source = m_project.find_room(room);
+        if (source == nullptr)
+            return;
+        m_active_topology_rooms.push_back(room);
+        const bool source_can_leave_hook_opaque =
+            std::ranges::any_of(source->script_hooks, [](const auto& hook) {
+                return hook.hook == core::compiled::RoomScriptHookKind::CanLeave;
+            });
+
+        for (const auto& exit : source->exits) {
+            if (m_traversal_steps >= FlowPredictor::structural_ceiling) {
+                report_structural_limit();
+                break;
+            }
+            if (std::find(m_active_topology_rooms.begin(), m_active_topology_rooms.end(),
+                          exit.target) != m_active_topology_rooms.end())
+                continue;
+            const auto* target = m_project.find_room(exit.target);
+            if (target == nullptr)
+                continue;
+            ++m_traversal_steps;
+
+            auto branch_properties = properties;
+            bool branch_condition_facts_valid = condition_facts_valid;
+            auto branch_confidence = FlowPredictionConfidence::Alternative;
+            const auto evaluate_deeper_guard =
+                [&](const core::Condition& guard, bool opaque_hook,
+                    const core::compiled::FlowPredictionPoint& attachment_point) {
+                    const bool opaque_condition = condition_may_execute_opaque(
+                        guard, branch_properties, m_context, branch_condition_facts_valid);
+                    if (opaque_condition || opaque_hook)
+                        append_root_opaque_frontier(attachment_point);
+                    const auto evaluated = evaluate_condition(guard, branch_properties, m_context,
+                                                              branch_condition_facts_valid);
+                    if (evaluated == KnownCondition::False)
+                        return false;
+                    if (evaluated == KnownCondition::Unknown)
+                        branch_confidence = FlowPredictionConfidence::Alternative;
+                    if (opaque_condition || opaque_hook) {
+                        branch_properties.clear();
+                        branch_condition_facts_valid = false;
+                    }
+                    return true;
+                };
+
+            const core::compiled::FlowPredictionPoint source_guard_point =
+                core::compiled::RoomLifecyclePredictionPoint{
+                    room, core::compiled::RoomLifecyclePredictionStage::BeforeLeave};
+            const core::compiled::FlowPredictionPoint target_guard_point =
+                core::compiled::RoomLifecyclePredictionPoint{
+                    exit.target, core::compiled::RoomLifecyclePredictionStage::BeforeEnter};
+            const bool target_can_enter_hook_opaque =
+                std::ranges::any_of(target->script_hooks, [](const auto& hook) {
+                    return hook.hook == core::compiled::RoomScriptHookKind::CanEnter;
+                });
+            if (!evaluate_deeper_guard(source->lifecycle.can_leave, source_can_leave_hook_opaque,
+                                       source_guard_point) ||
+                !evaluate_deeper_guard(exit.condition, false, source_guard_point) ||
+                !evaluate_deeper_guard(target->lifecycle.can_enter, target_can_enter_hook_opaque,
+                                       target_guard_point))
+                continue;
+
+            auto entered =
+                run_room_entry(exit.target, distance + 1, branch_confidence,
+                               std::move(branch_properties), branch_condition_facts_valid);
+            if (!entered.properties.current_room ||
+                *entered.properties.current_room == exit.target) {
+                entered.properties.current_room = exit.target;
+                run_ordinary_room_topology(exit.target, entered.max_distance, entered.properties,
+                                           entered.condition_facts_valid);
+            }
+        }
+        m_active_topology_rooms.pop_back();
+    }
+
 private:
+    void report_structural_limit()
+    {
+        if (m_structural_limit_reported)
+            return;
+        m_result.diagnostics.push_back(
+            {.code = "assets.flow_prediction_structural_limit",
+             .message = "Flow prediction stopped after reaching the structural safety ceiling",
+             .severity = core::ErrorSeverity::Warning});
+        m_structural_limit_reported = true;
+    }
+
     ProgramResult
     run_program_from(const std::vector<core::compiled::FlowPredictionCommand>& program,
                      std::size_t start, std::size_t distance, FlowPredictionConfidence confidence,
@@ -1668,6 +1767,7 @@ private:
             slice.control);
     }
 
+    const core::CompiledProject& m_project;
     const core::compiled::FlowPredictionIndex& m_index;
     FlowPredictionProjection& m_result;
     const FlowPredictionContext& m_context;
@@ -1677,6 +1777,7 @@ private:
     std::optional<core::RoomExitId> m_root_exit;
     std::optional<core::compiled::FlowPredictionPoint> m_root_point_override;
     std::vector<std::size_t> m_active_slices;
+    std::vector<core::RoomId> m_active_topology_rooms;
     std::vector<const core::compiled::FlowPredictionSupplementalHint*> m_active_hints;
     std::optional<std::string> m_supplemental_hint_id;
     std::size_t m_next_execution_order = 0;
@@ -1732,7 +1833,8 @@ FlowPredictionProjection FlowPredictor::predict(const core::compiled::Entrypoint
                 const auto root_slice = find_slice(*optional_index, entry_point(value));
                 if (!root_slice)
                     return result;
-                PredictionTraversal traversal(*optional_index, result, context, m_traversal_limit);
+                PredictionTraversal traversal(*m_project, *optional_index, result, context,
+                                              m_traversal_limit);
                 (void)traversal.run_slice(*root_slice, 0, FlowPredictionConfidence::Expected,
                                           initial_properties(context));
                 return result;
@@ -1758,9 +1860,9 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     result.diagnostics = index.diagnostics;
     if (index.slices.empty())
         return result;
-    PredictionTraversal traversal(index, result, context, m_traversal_limit,
-                                  FlowPredictionRootKind::ProspectiveRoomEntry,
-                                  root.target_room, root.source_exit);
+    PredictionTraversal traversal(*m_project, index, result, context, m_traversal_limit,
+                                  FlowPredictionRootKind::ProspectiveRoomEntry, root.target_room,
+                                  root.source_exit);
     auto properties = initial_properties(context);
     if (root.source_room)
         properties.current_room = root.source_room;
@@ -1845,6 +1947,17 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     if (root.source_room)
         run_stage(*root.source_room, core::compiled::RoomLifecyclePredictionStage::AfterLeave);
     run_stage(root.target_room, core::compiled::RoomLifecyclePredictionStage::AfterEnter);
+
+    // Ordinary navigation joins the same adaptive Flow horizon only after this authoritative
+    // adjacent entry has projected its successful lifecycle. Deeper exits deliberately use
+    // compiled structural guards without requesting new Runtime Session facts; unknown or opaque
+    // conditions remain speculative alternatives and are revisited only if a later publication
+    // supplies a nearer authoritative root.
+    if (!properties.current_room || *properties.current_room == root.target_room) {
+        properties.current_room = root.target_room;
+        traversal.run_ordinary_room_topology(root.target_room, distance, properties,
+                                             condition_facts_valid);
+    }
     return result;
 }
 
@@ -1864,7 +1977,7 @@ FlowPredictionProjection FlowPredictor::predict(const ResidentRoomPredictionRoot
     result.diagnostics = index.diagnostics;
     if (index.slices.empty())
         return result;
-    PredictionTraversal traversal(index, result, context, m_traversal_limit,
+    PredictionTraversal traversal(*m_project, index, result, context, m_traversal_limit,
                                   FlowPredictionRootKind::ResidentRoomContext, root.room);
     const auto properties = initial_properties(context);
     traversal.run_room_hints(root.room, core::compiled::FlowPredictionRoomHintScope::Resident, 0,
@@ -1912,7 +2025,7 @@ FlowPredictionProjection FlowPredictor::predict(const ActiveScenePredictionRoot&
     result.diagnostics = index.diagnostics;
     if (index.slices.empty())
         return result;
-    PredictionTraversal traversal(index, result, context, m_traversal_limit);
+    PredictionTraversal traversal(*m_project, index, result, context, m_traversal_limit);
     auto properties = initial_properties(context);
 
     if (!root.position.stage_initialized) {
@@ -2014,7 +2127,7 @@ FlowPredictionProjection FlowPredictor::predict(const ActiveDialoguePredictionRo
     result.diagnostics = index.diagnostics;
     if (index.slices.empty())
         return result;
-    PredictionTraversal traversal(index, result, context, m_traversal_limit);
+    PredictionTraversal traversal(*m_project, index, result, context, m_traversal_limit);
 
     core::compiled::FlowPredictionPoint point =
         core::compiled::DialogueTerminalPredictionPoint{root.dialogue};
@@ -2109,7 +2222,8 @@ FlowPredictionProjection FlowPredictor::predict(const ActiveInteractionPredictio
     interaction_context.condition_facts.insert(interaction_context.condition_facts.begin(),
                                                root.condition_facts.begin(),
                                                root.condition_facts.end());
-    PredictionTraversal traversal(index, result, interaction_context, m_traversal_limit);
+    PredictionTraversal traversal(*m_project, index, result, interaction_context,
+                                  m_traversal_limit);
     traversal.set_root_point_override(point);
     auto properties = initial_properties(interaction_context);
     properties.interaction_bindings = root.interaction_bindings;
@@ -2142,7 +2256,7 @@ FlowPredictionProjection FlowPredictor::predict(const ActiveRoomTransitionPredic
     transition_context.condition_facts.insert(transition_context.condition_facts.begin(),
                                               root.condition_facts.begin(),
                                               root.condition_facts.end());
-    PredictionTraversal traversal(index, result, transition_context, m_traversal_limit,
+    PredictionTraversal traversal(*m_project, index, result, transition_context, m_traversal_limit,
                                   FlowPredictionRootKind::FlowExecution, root.target_room,
                                   root.source_exit);
     auto properties = initial_properties(transition_context);
