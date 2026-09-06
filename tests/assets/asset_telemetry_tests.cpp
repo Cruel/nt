@@ -754,21 +754,26 @@ TEST_CASE("Prefetch memory rejection telemetry preserves typed generation correl
                                              .prepared_cpu_bytes = 64,
                                              .gpu_bytes = 64,
                                              .audio_bytes = 64,
-                                             .temporary_bytes = 0};
+                                             .temporary_bytes = 4};
         auto residency =
             std::make_shared<assets::AssetResidencyManager>(budget, &recorder, executor.mode());
         assets::AssetRequestOrchestrator<TelemetryAsset> orchestrator(executor, residency,
                                                                       &recorder);
+        auto competing = residency->reserve_preparation_on_owner(
+            {.temporary_bytes = 4}, assets::AssetRequestReason::Demand);
+        REQUIRE(competing.reservation);
         const assets::PrefetchGenerationId generation{401};
         auto rejected = orchestrator.prefetch_on_owner(
             telemetry_key("telemetry:prefetch-preparation-rejected", 1), generation,
-            std::make_unique<TelemetryPreparationTask>(1));
+            std::make_unique<TelemetryPreparationTask>(
+                1, assets::ResidencyCost{.prepared_cpu_bytes = 16, .temporary_bytes = 1}));
         REQUIRE(rejected);
         auto ticket = std::move(rejected).value();
         const auto snapshot = recorder.snapshot_on_owner();
         CHECK(correlated_pressure(snapshot, "assets.prefetch_preparation_rejected", generation) !=
               snapshot.retained_events.end());
         ticket.reset();
+        competing.reservation->reset();
         executor.begin_shutdown();
         (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
         CHECK(executor.shutdown_complete());
@@ -781,15 +786,18 @@ TEST_CASE("Prefetch memory rejection telemetry preserves typed generation correl
                                              .prepared_cpu_bytes = 64,
                                              .gpu_bytes = 64,
                                              .audio_bytes = 64,
-                                             .temporary_bytes = 4};
+                                             .temporary_bytes = 8};
         auto residency =
             std::make_shared<assets::AssetResidencyManager>(budget, &recorder, executor.mode());
         assets::AssetRequestOrchestrator<TelemetryAsset> orchestrator(executor, residency,
                                                                       &recorder);
+        auto competing = residency->reserve_preparation_on_owner(
+            {.temporary_bytes = 4}, assets::AssetRequestReason::Demand);
+        REQUIRE(competing.reservation);
         const assets::PrefetchGenerationId generation{402};
         auto rejected = orchestrator.prefetch_on_owner(
             telemetry_key("telemetry:prefetch-resize-rejected", 1), generation,
-            std::make_unique<ExpandingTelemetryPreparationTask>(1, 8));
+            std::make_unique<ExpandingTelemetryPreparationTask>(1, 6));
         REQUIRE(rejected);
         auto ticket = std::move(rejected).value();
         REQUIRE(executor.advance_one_step());
@@ -798,6 +806,7 @@ TEST_CASE("Prefetch memory rejection telemetry preserves typed generation correl
         CHECK(correlated_pressure(snapshot, "assets.prefetch_preparation_resize_rejected",
                                   generation) != snapshot.retained_events.end());
         ticket.reset();
+        competing.reservation->reset();
         executor.begin_shutdown();
         (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
         CHECK(executor.shutdown_complete());
