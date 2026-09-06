@@ -3,6 +3,7 @@ import { AUTHORING_PROJECT_SCHEMA, authoringCollectionKeys } from './authoring-c
 import { authoringProjectSchema, type AuthoringProject } from './authoring-project';
 import { validateAuthoringProject } from './authoring-validation';
 import { emptyEditorProjectState } from './editor-project-state';
+import { migrateLegacyAssetMemoryPolicyPercentages } from './platform-export-contracts';
 import {
   collectProjectValidationDiagnostics,
   createProjectValidationDiagnostic,
@@ -325,6 +326,7 @@ export function decodeAuthoringProject(value: unknown): AuthoringProjectDecodeRe
     };
   }
 
+  const migratedLegacyAssetMemoryPolicy = migrateLegacyAssetMemoryPolicyPercentages(working.export);
   const repairs = applyKnownEnumRepairs(working);
   const strict = authoringProjectSchema.safeParse(working);
   if (strict.success) {
@@ -336,7 +338,7 @@ export function decodeAuthoringProject(value: unknown): AuthoringProjectDecodeRe
         validateAuthoringProject(strict.data),
       ),
       repairs,
-      differsFromDisk: repairs.length > 0,
+      differsFromDisk: migratedLegacyAssetMemoryPolicy || repairs.length > 0,
     };
   }
 
@@ -356,7 +358,7 @@ export function decodeAuthoringProject(value: unknown): AuthoringProjectDecodeRe
       ),
       semanticDiagnostics: repairs.map(warningForRepair),
       repairs,
-      differsFromDisk: repairs.length > 0,
+      differsFromDisk: migratedLegacyAssetMemoryPolicy || repairs.length > 0,
     };
   }
 
@@ -370,6 +372,6 @@ export function decodeAuthoringProject(value: unknown): AuthoringProjectDecodeRe
       validateAuthoringProject(semanticProject),
     ),
     repairs,
-    differsFromDisk: repairs.length > 0,
+    differsFromDisk: migratedLegacyAssetMemoryPolicy || repairs.length > 0,
   };
 }

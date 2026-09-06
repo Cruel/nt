@@ -787,7 +787,12 @@ describe('FullGamePreviewEditor', () => {
         id: 'web-constrained',
         label: 'Web constrained',
         basePreset: 'balanced',
-        overrides: { gpuBytes: 96 * 1024 * 1024, prefetchAllowancePercent: 0 },
+        overrides: {
+          gpuBytes: 96 * 1024 * 1024,
+          warmPreparedCpuBytes: 0,
+          warmGpuBytes: 0,
+          warmAudioBytes: 0,
+        },
       },
     ];
     useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -814,7 +819,7 @@ describe('FullGamePreviewEditor', () => {
             candidate.settings.assetMemoryPolicy.warmPreparedCpuBytes === 0 &&
             candidate.settings.assetMemoryPolicy.warmGpuBytes === 0 &&
             candidate.settings.assetMemoryPolicy.warmAudioBytes === 0 &&
-            candidate.settings.assetMemoryPolicy.prefetchAllowancePercent === 0
+            !('prefetchAllowancePercent' in candidate.settings.assetMemoryPolicy)
           );
         }),
       ).toBe(true),

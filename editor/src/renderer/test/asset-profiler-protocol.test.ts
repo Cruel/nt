@@ -45,7 +45,6 @@ const memory = {
       warmPreparedCpuBytes: '1',
       warmGpuBytes: '2',
       warmAudioBytes: '3',
-      prefetchAllowancePercent: 25,
     },
   },
   assetCounts: {

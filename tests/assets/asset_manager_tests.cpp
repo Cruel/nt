@@ -359,7 +359,9 @@ TEST_CASE("AssetManager profiler inventory joins all typed domains with authorit
                                                              .gpu_bytes = 4096,
                                                              .audio_bytes = 4096,
                                                              .temporary_bytes = 4096,
-                                                             .prefetch_allowance_percent = 25}};
+                                                             .warm_prepared_cpu_bytes = 1024,
+                                                             .warm_gpu_bytes = 1024,
+                                                             .warm_audio_bytes = 1024}};
     auto residency = std::make_shared<AssetResidencyManager>(memory_policy, &profiler);
     FakeFontAssetLoader font_loader;
     FakeTextureAssetLoader texture_loader;
@@ -439,7 +441,7 @@ TEST_CASE("AssetManager profiler inventory joins all typed domains with authorit
         CHECK(memory.peak.asset.temporary_bytes >= 12);
         CHECK(memory.asset_counts.prefetched == 1);
         CHECK(memory.policy.budget.gpu_bytes == 4096);
-        CHECK(memory.policy.budget.prefetch_allowance_percent == 25);
+        CHECK(memory.policy.budget.warm_gpu_bytes == 1024);
         CHECK(image.removable);
         const auto image_key = image.cache_key;
         CHECK(find_type(noveltea::core::AssetProfilerAssetType::Font).state ==

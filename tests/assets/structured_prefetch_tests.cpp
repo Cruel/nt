@@ -527,7 +527,10 @@ assets::ResidencyBudget generous_budget()
             .prepared_cpu_bytes = generous,
             .gpu_bytes = generous,
             .audio_bytes = generous,
-            .temporary_bytes = generous};
+            .temporary_bytes = generous,
+            .warm_prepared_cpu_bytes = generous,
+            .warm_gpu_bytes = generous,
+            .warm_audio_bytes = generous};
 }
 
 template<class T> class ImmediatePreparationTask final : public assets::AssetPreparationTask<T> {
@@ -2224,7 +2227,7 @@ TEST_CASE("mandatory gate profiler reports planner Warm admission rejection",
     PrefetchGenerationCaptureSink sink;
     auto budget = generous_budget();
     budget.gpu_bytes = 1;
-    budget.prefetch_allowance_percent = 100;
+    budget.warm_gpu_bytes = 1;
     PlannerFixture fixture(&sink, budget);
     auto document = scene_prediction_test_document();
     for (auto& system_layout : document["settings"]["systemLayouts"])
@@ -2518,6 +2521,9 @@ TEST_CASE("explicit Asset hints remain speculative and obey Warm admission",
     budget.prepared_cpu_bytes = 0;
     budget.gpu_bytes = 0;
     budget.audio_bytes = 0;
+    budget.warm_prepared_cpu_bytes = 0;
+    budget.warm_gpu_bytes = 0;
+    budget.warm_audio_bytes = 0;
     PlannerFixture fixture(nullptr, budget);
 
     auto document = read_compiled_project_golden("scene-program");
@@ -4424,6 +4430,9 @@ TEST_CASE("prefetch generation replacement can reuse Warm capacity from obsolete
     budget.prepared_cpu_bytes = 1;
     budget.gpu_bytes = 0;
     budget.audio_bytes = 0;
+    budget.warm_prepared_cpu_bytes = 1;
+    budget.warm_gpu_bytes = 0;
+    budget.warm_audio_bytes = 0;
     PlannerFixture fixture(nullptr, budget);
     assets::PrefetchPlanner planner(fixture.manager);
     const auto generation = fixture.manager.source_generation_on_owner();
@@ -4464,7 +4473,6 @@ TEST_CASE("Flow prefetch planner ranks usefulness before cost and admits only th
 {
     auto budget = generous_budget();
     budget.gpu_bytes = 100;
-    budget.prefetch_allowance_percent = 100;
     budget.warm_gpu_bytes = 50;
     PlannerFixture fixture(nullptr, budget);
     assets::PrefetchPlanner planner(fixture.manager);
@@ -4512,7 +4520,7 @@ TEST_CASE("Flow prefetch planner uses conservative prediction cost without prepa
 {
     auto constrained = generous_budget();
     constrained.prepared_cpu_bytes = 64u * 1024u - 1u;
-    constrained.prefetch_allowance_percent = 100;
+    constrained.warm_prepared_cpu_bytes = constrained.prepared_cpu_bytes;
     PlannerFixture fixture(nullptr, constrained);
     auto package =
         package_from_document(scene_prediction_test_document(), "unknown-prediction-cost.json");
@@ -4656,6 +4664,9 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
         budget.prepared_cpu_bytes = 512u * 1024u * 1024u;
         budget.gpu_bytes = 64u * 64u * 4u;
         budget.audio_bytes = 512u * 1024u * 1024u;
+        budget.warm_prepared_cpu_bytes = budget.prepared_cpu_bytes;
+        budget.warm_gpu_bytes = budget.gpu_bytes;
+        budget.warm_audio_bytes = budget.audio_bytes;
         const auto calls = run(budget);
         CHECK(std::ranges::find(calls, "texture:project:/assets/images/prediction-wave-0.png") !=
               calls.end());
@@ -4821,6 +4832,9 @@ TEST_CASE("mandatory gate deepens ordinary Room exits through Warm-budget-aware 
         budget.prepared_cpu_bytes = 512u * 1024u * 1024u;
         budget.gpu_bytes = 64u * 64u * 4u;
         budget.audio_bytes = 512u * 1024u * 1024u;
+        budget.warm_prepared_cpu_bytes = budget.prepared_cpu_bytes;
+        budget.warm_gpu_bytes = budget.gpu_bytes;
+        budget.warm_audio_bytes = budget.audio_bytes;
         const auto calls = run(budget);
         CHECK(std::ranges::find(calls, "texture:project:/assets/images/topology-image-1.png") !=
               calls.end());
@@ -5203,6 +5217,7 @@ TEST_CASE("Flow prefetch alternative peers do not inherit traversal-order priori
 {
     auto budget = generous_budget();
     budget.gpu_bytes = 10;
+    budget.warm_gpu_bytes = 10;
     PlannerFixture fixture(nullptr, budget);
     assets::PrefetchPlanner planner(fixture.manager);
     const auto generation = fixture.manager.source_generation_on_owner();
@@ -5242,6 +5257,7 @@ TEST_CASE("Flow prefetch planner caps pathological candidate sets before dispatc
 {
     auto budget = generous_budget();
     budget.gpu_bytes = 0;
+    budget.warm_gpu_bytes = 0;
     PlannerFixture fixture(nullptr, budget);
     assets::PrefetchPlanner planner(fixture.manager);
     const auto generation = fixture.manager.source_generation_on_owner();

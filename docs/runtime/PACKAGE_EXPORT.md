@@ -128,8 +128,9 @@ capabilities before calling the shared compiled-project loader.
 
 `player.json` carries reference resolution, world raster policy, accessibility policies, and the
 fully resolved asset-memory policy selected by the platform export profile. That policy contains the
-preset name, prepared-CPU/GPU/audio/temporary byte ceilings, and Warm-prefetch percentage; it never
-uses zero or an omitted value to mean unlimited. Version-2 configs produced before this field existed
+preset name, prepared-CPU/GPU/audio/temporary byte ceilings plus independent prepared-CPU/GPU/audio
+Warm byte ceilings; it never carries a percentage-only Warm limit or uses an omitted value to mean
+unlimited. Version-2 configs produced before this field existed
 remain valid and resolve to the target's measured Balanced defaults. Desktop, Web, and Android staging
 derive launch aspect/orientation from reference resolution at their platform boundary; those derived
 values are not duplicated into the compiled project or canonical package display metadata. See

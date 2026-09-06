@@ -62,7 +62,6 @@ export interface AssetProfilerMemoryBudget extends AssetProfilerResidencyCost {
   warmPreparedCpuBytes: CanonicalDecimal;
   warmGpuBytes: CanonicalDecimal;
   warmAudioBytes: CanonicalDecimal;
-  prefetchAllowancePercent: number;
 }
 
 export interface AssetProfilerMemoryPolicy {
@@ -482,7 +481,6 @@ function isPolicy(value: unknown): value is AssetProfilerMemoryPolicy {
       'warmPreparedCpuBytes',
       'warmGpuBytes',
       'warmAudioBytes',
-      'prefetchAllowancePercent',
     ]) ||
     !costKeys.every((key) => isCanonicalUnsignedDecimal(budget[key])) ||
     !isCanonicalUnsignedDecimal(budget.warmPreparedCpuBytes) ||
@@ -494,11 +492,7 @@ function isPolicy(value: unknown): value is AssetProfilerMemoryPolicy {
   return (
     BigInt(budget.warmPreparedCpuBytes as string) <= BigInt(budget.preparedCpuBytes as string) &&
     BigInt(budget.warmGpuBytes as string) <= BigInt(budget.gpuBytes as string) &&
-    BigInt(budget.warmAudioBytes as string) <= BigInt(budget.audioBytes as string) &&
-    typeof budget.prefetchAllowancePercent === 'number' &&
-    Number.isInteger(budget.prefetchAllowancePercent) &&
-    budget.prefetchAllowancePercent >= 0 &&
-    budget.prefetchAllowancePercent <= 100
+    BigInt(budget.warmAudioBytes as string) <= BigInt(budget.audioBytes as string)
   );
 }
 

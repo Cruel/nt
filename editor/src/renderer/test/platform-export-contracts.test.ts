@@ -8,6 +8,7 @@ import {
   TEMPLATE_DESCRIPTOR_FORMAT_VERSION,
   assetMemoryPolicyDefinitionSchema,
   defaultPlatformExportProfile,
+  migrateLegacyAssetMemoryPolicyPercentages,
   parseEditorExportLocalState,
   parsePlatformExportProfile,
   parseProjectPlatformExportSettings,
@@ -132,111 +133,73 @@ describe('platform export contracts', () => {
   it('resolves measured memory presets and reusable named policy overrides', () => {
     const mib = 1024 * 1024;
     const expected = [
-      ['linux', 'low', 64, 640, 32, 32, 512, 20],
-      ['linux', 'balanced', 128, 1280, 64, 64, 1024, 30],
-      ['linux', 'high', 256, 2560, 128, 128, 2048, 40],
-      ['android', 'low', 48, 352, 24, 24, 256, 15],
-      ['android', 'balanced', 96, 704, 48, 48, 512, 25],
-      ['android', 'high', 192, 1408, 96, 96, 1024, 35],
-      ['web', 'low', 32, 320, 16, 16, 256, 10],
-      ['web', 'balanced', 64, 640, 32, 32, 512, 20],
-      ['web', 'high', 128, 1280, 64, 64, 1024, 30],
+      ['linux', 'low', 64, 640, 32, 32, 13_421_772, 512, 6_710_886],
+      ['linux', 'balanced', 128, 1280, 64, 64, 40_265_318, 1024, 20_132_659],
+      ['linux', 'high', 256, 2560, 128, 128, 107_374_182, 2048, 53_687_091],
+      ['android', 'low', 48, 352, 24, 24, 7_549_747, 256, 3_774_873],
+      ['android', 'balanced', 96, 704, 48, 48, 25_165_824, 512, 12_582_912],
+      ['android', 'high', 192, 1408, 96, 96, 70_464_307, 1024, 35_232_153],
+      ['web', 'low', 32, 320, 16, 16, 3_355_443, 256, 1_677_721],
+      ['web', 'balanced', 64, 640, 32, 32, 13_421_772, 512, 6_710_886],
+      ['web', 'high', 128, 1280, 64, 64, 40_265_318, 1024, 20_132_659],
     ] as const;
-    for (const [target, preset, cpu, gpu, audio, temporary, warmGpu, allowance] of expected) {
+    for (const [
+      target,
+      preset,
+      cpu,
+      gpu,
+      audio,
+      temporary,
+      warmCpu,
+      warmGpu,
+      warmAudio,
+    ] of expected) {
       expect(resolveAssetMemoryPolicy(target, { kind: 'builtin', preset })).toEqual({
         preset,
         preparedCpuBytes: cpu * mib,
         gpuBytes: gpu * mib,
         audioBytes: audio * mib,
         temporaryBytes: temporary * mib,
-        warmPreparedCpuBytes: Math.floor((cpu * mib * allowance) / 100),
+        warmPreparedCpuBytes: warmCpu,
         warmGpuBytes: warmGpu * mib,
-        warmAudioBytes: Math.floor((audio * mib * allowance) / 100),
-        prefetchAllowancePercent: allowance,
+        warmAudioBytes: warmAudio,
       });
     }
-
-    const legacyPercentageOnly = assetMemoryPolicyDefinitionSchema.parse({
-      id: 'desktop-low-legacy',
-      label: 'Desktop low legacy',
-      basePreset: 'low',
-      overrides: {},
-    });
-    expect(
-      resolveAssetMemoryPolicy('linux', { kind: 'policy', policyId: legacyPercentageOnly.id }, [
-        legacyPercentageOnly,
-      ]),
-    ).toMatchObject({
-      preset: 'custom',
-      gpuBytes: 640 * mib,
-      warmGpuBytes: 26_843_545,
-      prefetchAllowancePercent: 20,
-    });
 
     const namedPolicy = assetMemoryPolicyDefinitionSchema.parse({
       id: 'web-constrained',
       label: 'Web constrained',
       basePreset: 'balanced',
-      overrides: { gpuBytes: 96 * 1024 * 1024, prefetchAllowancePercent: 0 },
+      overrides: {
+        gpuBytes: 96 * mib,
+        warmPreparedCpuBytes: 0,
+        warmGpuBytes: 0,
+        warmAudioBytes: 0,
+      },
     });
     const custom = parsePlatformExportProfile({
       ...defaultPlatformExportProfile('web'),
       assetMemory: { kind: 'policy', policyId: namedPolicy.id },
     });
-    expect(resolveAssetMemoryPolicy('web', custom.assetMemory, [namedPolicy])).toMatchObject({
+    expect(resolveAssetMemoryPolicy('web', custom.assetMemory, [namedPolicy])).toEqual({
       preset: 'custom',
-      preparedCpuBytes: 64 * 1024 * 1024,
-      gpuBytes: 96 * 1024 * 1024,
+      preparedCpuBytes: 64 * mib,
+      gpuBytes: 96 * mib,
+      audioBytes: 32 * mib,
+      temporaryBytes: 32 * mib,
       warmPreparedCpuBytes: 0,
       warmGpuBytes: 0,
       warmAudioBytes: 0,
-      prefetchAllowancePercent: 0,
     });
 
-    const legacyPercentage = assetMemoryPolicyDefinitionSchema.parse({
-      id: 'legacy-percentage',
-      label: 'Legacy percentage',
-      basePreset: 'balanced',
-      overrides: {
-        preparedCpuBytes: 100,
-        gpuBytes: 200,
-        audioBytes: 300,
-        prefetchAllowancePercent: 25,
-      },
-    });
-    expect(
-      resolveAssetMemoryPolicy('linux', { kind: 'policy', policyId: legacyPercentage.id }, [
-        legacyPercentage,
-      ]),
-    ).toMatchObject({
-      warmPreparedCpuBytes: 25,
-      warmGpuBytes: 50,
-      warmAudioBytes: 75,
-    });
-
-    const absoluteWarm = assetMemoryPolicyDefinitionSchema.parse({
-      id: 'absolute-warm',
-      label: 'Absolute Warm',
-      basePreset: 'balanced',
-      overrides: {
-        preparedCpuBytes: 100,
-        gpuBytes: 200,
-        audioBytes: 300,
-        prefetchAllowancePercent: 99,
-        warmPreparedCpuBytes: 10,
-        warmGpuBytes: 20,
-        warmAudioBytes: 30,
-      },
-    });
-    expect(
-      resolveAssetMemoryPolicy('linux', { kind: 'policy', policyId: absoluteWarm.id }, [
-        absoluteWarm,
-      ]),
-    ).toMatchObject({
-      warmPreparedCpuBytes: 10,
-      warmGpuBytes: 20,
-      warmAudioBytes: 30,
-    });
+    expect(() =>
+      assetMemoryPolicyDefinitionSchema.parse({
+        id: 'legacy-percentage',
+        label: 'Legacy percentage',
+        basePreset: 'balanced',
+        overrides: { prefetchAllowancePercent: 25 },
+      }),
+    ).toThrow();
     expect(() =>
       assetMemoryPolicyDefinitionSchema.parse({
         id: 'invalid',
@@ -248,6 +211,55 @@ describe('platform export contracts', () => {
     expect(() =>
       resolveAssetMemoryPolicy('linux', { kind: 'policy', policyId: 'missing' }),
     ).toThrow(/Unknown asset memory policy/);
+  });
+
+  it('migrates legacy percentage policies to target-specific absolute Warm ceilings', () => {
+    const settings: Record<string, unknown> = {
+      assetMemoryPolicies: [
+        {
+          id: 'legacy-shared',
+          label: 'Legacy shared',
+          basePreset: 'balanced',
+          overrides: { prefetchAllowancePercent: 25 },
+        },
+      ],
+      profiles: [
+        {
+          ...defaultPlatformExportProfile('linux'),
+          assetMemory: { kind: 'policy', policyId: 'legacy-shared' },
+        },
+        {
+          ...defaultPlatformExportProfile('web'),
+          assetMemory: { kind: 'policy', policyId: 'legacy-shared' },
+        },
+      ],
+    };
+
+    expect(migrateLegacyAssetMemoryPolicyPercentages(settings)).toBe(true);
+    const parsed = parseProjectPlatformExportSettings(settings);
+    expect(parsed.assetMemoryPolicies).toHaveLength(2);
+    expect(JSON.stringify(parsed)).not.toContain('prefetchAllowancePercent');
+
+    for (const profile of parsed.profiles) {
+      const resolved = resolveAssetMemoryPolicy(
+        profile.target,
+        profile.assetMemory,
+        parsed.assetMemoryPolicies,
+      );
+      if (profile.target === 'web') {
+        expect(resolved).toMatchObject({
+          warmPreparedCpuBytes: 16_777_216,
+          warmGpuBytes: 33_554_432,
+          warmAudioBytes: 8_388_608,
+        });
+      } else {
+        expect(resolved).toMatchObject({
+          warmPreparedCpuBytes: 33_554_432,
+          warmGpuBytes: 67_108_864,
+          warmAudioBytes: 16_777_216,
+        });
+      }
+    }
   });
 
   it('accepts host paths only in editor-local state', () => {

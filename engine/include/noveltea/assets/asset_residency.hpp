@@ -67,18 +67,16 @@ struct ResidencyBudget {
     std::uint64_t gpu_bytes = 0;
     std::uint64_t audio_bytes = 0;
     std::uint64_t temporary_bytes = 0;
-    std::optional<std::uint64_t> warm_prepared_cpu_bytes = std::nullopt;
-    std::optional<std::uint64_t> warm_gpu_bytes = std::nullopt;
-    std::optional<std::uint64_t> warm_audio_bytes = std::nullopt;
-    std::uint32_t prefetch_allowance_percent = 100;
+    std::uint64_t warm_prepared_cpu_bytes = 0;
+    std::uint64_t warm_gpu_bytes = 0;
+    std::uint64_t warm_audio_bytes = 0;
 
     auto operator<=>(const ResidencyBudget&) const = default;
 };
 
-// Resolved policies carry explicit per-domain Warm ceilings. The percentage remains a temporary
-// compatibility input for callers that have not crossed the policy-resolution boundary yet. Both
-// the planner and AssetResidencyManager use these helpers so admission advice and final residency
-// enforcement cannot drift in their allowance semantics.
+// Resolved policies carry explicit per-domain Warm ceilings. Both the planner and
+// AssetResidencyManager use these helpers so admission advice and final residency enforcement
+// cannot drift in their Warm-budget semantics.
 [[nodiscard]] ResidencyCost prefetch_allowance_cost(const ResidencyBudget& budget) noexcept;
 [[nodiscard]] bool prefetch_fits_warm_budget(const ResidencyCost& current_warm,
                                              const ResidencyCost& added,
@@ -102,7 +100,6 @@ struct CustomAssetMemoryPolicy {
     std::optional<std::uint64_t> gpu_bytes;
     std::optional<std::uint64_t> audio_bytes;
     std::optional<std::uint64_t> temporary_bytes;
-    std::optional<std::uint32_t> prefetch_allowance_percent;
     std::optional<std::uint64_t> warm_prepared_cpu_bytes;
     std::optional<std::uint64_t> warm_gpu_bytes;
     std::optional<std::uint64_t> warm_audio_bytes;

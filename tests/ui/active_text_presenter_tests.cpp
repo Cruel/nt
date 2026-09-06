@@ -43,7 +43,10 @@ noveltea::assets::ResidencyBudget font_test_budget()
             .prepared_cpu_bytes = budget,
             .gpu_bytes = budget,
             .audio_bytes = budget,
-            .temporary_bytes = budget};
+            .temporary_bytes = budget,
+            .warm_prepared_cpu_bytes = budget,
+            .warm_gpu_bytes = budget,
+            .warm_audio_bytes = budget};
 }
 
 } // namespace

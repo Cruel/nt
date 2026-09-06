@@ -1524,16 +1524,16 @@ export function AssetPerformancePanel() {
                               ['gpuBytes', 'warmGpuBytes', 'gpu'],
                             ] as const
                           ).map(([key, warmKey, label]) => {
-                            const allowance = budget[warmKey];
+                            const warmCeiling = budget[warmKey];
                             return (
-                              <tr key={`prefetch-${key}`} className="border-t">
+                              <tr key={`warm-${key}`} className="border-t">
                                 <td className="px-2 py-1.5">
-                                  {t('assetProfiler.budgets.prefetchAllowance', {
+                                  {t('assetProfiler.budgets.warmCeiling', {
                                     domain: t(`assetProfiler.budgets.${label}`),
                                   })}
                                 </td>
                                 <td className="px-2 py-1.5 tabular-nums">
-                                  {usage(current.warm[key], allowance)}
+                                  {usage(current.warm[key], warmCeiling)}
                                 </td>
                                 <td className="px-2 py-1.5 text-muted-foreground">—</td>
                               </tr>

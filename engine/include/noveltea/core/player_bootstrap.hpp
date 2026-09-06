@@ -58,7 +58,6 @@ struct PlayerAssetMemoryConfig {
     std::uint64_t warm_prepared_cpu_bytes = 0;
     std::uint64_t warm_gpu_bytes = 0;
     std::uint64_t warm_audio_bytes = 0;
-    std::uint32_t prefetch_allowance_percent = 0;
 };
 
 struct PlayerBootstrapConfig {

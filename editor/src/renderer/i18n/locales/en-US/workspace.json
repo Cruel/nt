@@ -206,7 +206,7 @@
       "gpu": "GPU",
       "audio": "Audio",
       "temporary": "Temporary",
-      "prefetchAllowance": "{{domain}} prefetch allowance"
+      "warmCeiling": "{{domain}} Warm ceiling"
     },
     "assetStates": {
       "inUse": "In use",

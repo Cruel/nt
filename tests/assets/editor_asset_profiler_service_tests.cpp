@@ -277,7 +277,9 @@ TEST_CASE("Editor asset profiler tracks exact memory peaks and coalesces frame p
                                             .gpu_bytes = 3000,
                                             .audio_bytes = 4000,
                                             .temporary_bytes = 5000,
-                                            .prefetch_allowance_percent = 25}});
+                                            .warm_prepared_cpu_bytes = 500,
+                                            .warm_gpu_bytes = 750,
+                                            .warm_audio_bytes = 1000}});
 
     accounting.current = {.source_bytes = 100,
                           .prepared_cpu_bytes = 300,
@@ -323,7 +325,9 @@ TEST_CASE("Editor asset profiler tracks exact memory peaks and coalesces frame p
     CHECK(first.memory.policy.budget.prepared_cpu_bytes == 2000);
     CHECK(first.memory.policy.budget.gpu_bytes == 3000);
     CHECK(first.memory.policy.budget.audio_bytes == 4000);
-    CHECK(first.memory.policy.budget.prefetch_allowance_percent == 25);
+    CHECK(first.memory.policy.budget.warm_prepared_cpu_bytes == 500);
+    CHECK(first.memory.policy.budget.warm_gpu_bytes == 750);
+    CHECK(first.memory.policy.budget.warm_audio_bytes == 1000);
     CHECK(first.memory.accounting_revision == 2);
     REQUIRE(first.retained_changes.size() == 1);
     CHECK(std::holds_alternative<core::AssetProfilerMemoryPoint>(
@@ -351,7 +355,9 @@ TEST_CASE("Editor asset profiler tracks exact memory peaks and coalesces frame p
                    .gpu_bytes = 400,
                    .audio_bytes = 500,
                    .temporary_bytes = 600,
-                   .prefetch_allowance_percent = 10}};
+                   .warm_prepared_cpu_bytes = 30,
+                   .warm_gpu_bytes = 40,
+                   .warm_audio_bytes = 50}};
     accounting.current = {.source_bytes = 40,
                           .prepared_cpu_bytes = 60,
                           .gpu_bytes = 15,

@@ -334,7 +334,6 @@ describe('platform staging service', () => {
         overrides: {
           gpuBytes: 80 * 1024 * 1024,
           warmGpuBytes: 10 * 1024 * 1024,
-          prefetchAllowancePercent: 5,
         },
       },
     ];
@@ -353,7 +352,6 @@ describe('platform staging service', () => {
           warmPreparedCpuBytes: number;
           warmGpuBytes: number;
           warmAudioBytes: number;
-          prefetchAllowancePercent: number;
         };
       };
     };
@@ -361,10 +359,9 @@ describe('platform staging service', () => {
       preset: 'custom',
       preparedCpuBytes: 64 * 1024 * 1024,
       gpuBytes: 80 * 1024 * 1024,
-      warmPreparedCpuBytes: 3_355_443,
+      warmPreparedCpuBytes: 13_421_772,
       warmGpuBytes: 10 * 1024 * 1024,
-      warmAudioBytes: 1_677_721,
-      prefetchAllowancePercent: 5,
+      warmAudioBytes: 6_710_886,
     });
     const playerConfig = JSON.parse(
       fs.readFileSync(path.join(request.outputDirectory, 'bin/player.json'), 'utf8'),

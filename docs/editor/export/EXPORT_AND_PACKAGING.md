@@ -55,8 +55,8 @@ navigate to the canonical policy editor. Those resolved values include independe
 prepared-CPU, GPU, and audio ceilings in addition to total residency and temporary-preparation
 ceilings. Platform staging receives the named policy definitions only to resolve the selected
 reference, then writes the fully concrete limits into deployment/player metadata. Legacy percentage
-authoring is resolved to absolute Warm bytes before this boundary; runtime admission does not derive
-Warm capacity from the percentage. Authoring policy IDs never cross into the runtime contract.
+authoring is converted at Project load, before this boundary; runtime admission receives only absolute
+Warm ceilings. Authoring policy IDs never cross into the runtime contract.
 
 Runtime-package compiler errors block package and platform export. Diagnostics retain compiler
 codes, source paths, JSON pointers, owner paths, explicit boundaries, and deterministic ordering.

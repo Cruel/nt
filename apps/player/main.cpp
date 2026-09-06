@@ -120,8 +120,7 @@ resolved_asset_memory_policy(const noveltea::core::PlayerBootstrapConfig& config
                    .temporary_bytes = memory.temporary_bytes,
                    .warm_prepared_cpu_bytes = memory.warm_prepared_cpu_bytes,
                    .warm_gpu_bytes = memory.warm_gpu_bytes,
-                   .warm_audio_bytes = memory.warm_audio_bytes,
-                   .prefetch_allowance_percent = memory.prefetch_allowance_percent},
+                   .warm_audio_bytes = memory.warm_audio_bytes},
     };
 }
 
@@ -486,7 +485,7 @@ int main(int argc, char** argv)
         << " temporary=" << memory_budget.temporary_bytes
         << " warm_prepared_cpu=" << warm_budget.prepared_cpu_bytes
         << " warm_gpu=" << warm_budget.gpu_bytes << " warm_audio=" << warm_budget.audio_bytes
-        << " legacy_prefetch=" << memory_budget.prefetch_allowance_percent << "%\n";
+        << "\n";
     log.flush();
 #if defined(__EMSCRIPTEN__)
     report_web_loading(noveltea::core::LoadingPhase::OpeningPackageIndex,

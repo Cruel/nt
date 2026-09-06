@@ -5,6 +5,7 @@ import {
   decodeAuthoringProject,
 } from '../../shared/project-schema/decode-authoring-project';
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 
 describe('decodeAuthoringProject', () => {
   it('opens structurally valid projects with semantic diagnostics', () => {
@@ -44,6 +45,40 @@ describe('decodeAuthoringProject', () => {
         severity: 'warning',
       }),
     );
+  });
+
+  it('migrates legacy percentage Warm policies at the project-load boundary', () => {
+    const project = stripEditorProjectState(createAuthoringProject()) as unknown as Record<
+      string,
+      unknown
+    >;
+    const exportSettings = project.export as Record<string, unknown>;
+    exportSettings.assetMemoryPolicies = [
+      {
+        id: 'legacy-web',
+        label: 'Legacy Web',
+        basePreset: 'balanced',
+        overrides: { gpuBytes: 96 * 1024 * 1024, prefetchAllowancePercent: 25 },
+      },
+    ];
+    exportSettings.profiles = [
+      {
+        ...defaultPlatformExportProfile('web'),
+        assetMemory: { kind: 'policy', policyId: 'legacy-web' },
+      },
+    ];
+
+    const decoded = decodeAuthoringProject(project);
+
+    expect(decoded.project).not.toBeNull();
+    expect(decoded.differsFromDisk).toBe(true);
+    expect(decoded.structuralDiagnostics).toEqual([]);
+    expect(decoded.project?.export.assetMemoryPolicies[0]?.overrides).toMatchObject({
+      warmPreparedCpuBytes: 16_777_216,
+      warmGpuBytes: 25_165_824,
+      warmAudioBytes: 8_388_608,
+    });
+    expect(JSON.stringify(decoded.project)).not.toContain('prefetchAllowancePercent');
   });
 
   it('preserves invalid present world raster policy values for settings recovery', () => {
