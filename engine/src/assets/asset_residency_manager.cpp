@@ -627,18 +627,30 @@ AssetResidencyManager::reserve_preparation_on_owner(ResidencyCost cost,
                                                     AssetRequestReason reason) noexcept
 {
     m_impl->assert_owner();
-    const bool exceeds = addition_exceeds(m_impl->accounting.current.temporary_bytes,
-                                          cost.temporary_bytes, m_impl->budget.temporary_bytes);
-    if (exceeds && reason == AssetRequestReason::Prefetch) {
-        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
-                                 "assets.prefetch_preparation_rejected");
-        return {.admission = ResidencyAdmission::RejectedPrefetch,
-                .reservation = std::nullopt,
-                .diagnostics = {pressure_diagnostic(
-                    "assets.prefetch_preparation_rejected",
-                    "prefetch preparation would exceed the temporary asset budget")}};
-    }
-    if (exceeds && m_impl->accounting.current.temporary_bytes != 0) {
+    const auto current_temporary = m_impl->accounting.current.temporary_bytes;
+    const bool exceeds =
+        addition_exceeds(current_temporary, cost.temporary_bytes, m_impl->budget.temporary_bytes);
+    const bool individually_oversized = cost.temporary_bytes > m_impl->budget.temporary_bytes;
+    if (exceeds && current_temporary != 0) {
+        if (reason == AssetRequestReason::Prefetch) {
+            if (individually_oversized) {
+                m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
+                                         "assets.oversized_prefetch_preparation_deferred");
+                return {
+                    .admission = ResidencyAdmission::Deferred,
+                    .reservation = std::nullopt,
+                    .diagnostics = {pressure_diagnostic(
+                        "assets.oversized_prefetch_preparation_deferred",
+                        "oversized prefetch preparation waits for exclusive temporary memory")}};
+            }
+            m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
+                                     "assets.prefetch_preparation_rejected");
+            return {.admission = ResidencyAdmission::RejectedPrefetch,
+                    .reservation = std::nullopt,
+                    .diagnostics = {pressure_diagnostic(
+                        "assets.prefetch_preparation_rejected",
+                        "prefetch preparation would exceed the temporary asset budget")}};
+        }
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
                                  "assets.preparation_deferred");
         return {.admission = ResidencyAdmission::Deferred,
@@ -667,9 +679,13 @@ AssetResidencyManager::reserve_preparation_on_owner(ResidencyCost cost,
         exceeds ? ResidencyAdmission::AdmittedOverBudget : ResidencyAdmission::Admitted;
     core::Diagnostics diagnostics;
     if (exceeds) {
+        const bool prefetch = reason == AssetRequestReason::Prefetch;
         diagnostics.push_back(pressure_diagnostic(
-            "assets.oversized_mandatory_preparation",
-            "mandatory asset preparation exceeds the temporary budget and is admitted serially"));
+            prefetch ? "assets.oversized_prefetch_preparation"
+                     : "assets.oversized_mandatory_preparation",
+            prefetch ? "prefetch preparation exceeds the temporary budget and is admitted serially"
+                     : "mandatory asset preparation exceeds the temporary budget and is admitted "
+                       "serially"));
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
                                  diagnostics.front().code);
     }
@@ -701,7 +717,17 @@ PreparationReservationResizeResult AssetResidencyManager::resize_preparation_on_
         m_impl->accounting.current.temporary_bytes - previous.temporary_bytes;
     const bool exceeds =
         addition_exceeds(other_temporary, cost.temporary_bytes, m_impl->budget.temporary_bytes);
-    if (exceeds && reason == AssetRequestReason::Prefetch) {
+    const bool individually_oversized = cost.temporary_bytes > m_impl->budget.temporary_bytes;
+    if (exceeds && reason == AssetRequestReason::Prefetch && other_temporary != 0) {
+        if (individually_oversized) {
+            m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
+                                     "assets.oversized_prefetch_preparation_resize_deferred");
+            return {.admission = ResidencyAdmission::Deferred,
+                    .diagnostics = {
+                        pressure_diagnostic("assets.oversized_prefetch_preparation_resize_deferred",
+                                            "oversized prefetch preparation expansion waits for "
+                                            "exclusive temporary memory")}};
+        }
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
                                  "assets.prefetch_preparation_resize_rejected");
         return {.admission = ResidencyAdmission::RejectedPrefetch,
@@ -738,12 +764,17 @@ PreparationReservationResizeResult AssetResidencyManager::resize_preparation_on_
     core::Diagnostics diagnostics;
     if (exceeds) {
         const bool arbitrated = other_temporary != 0;
+        const bool prefetch = reason == AssetRequestReason::Prefetch;
         diagnostics.push_back(pressure_diagnostic(
             arbitrated ? "assets.preparation_resize_arbitrated"
+            : prefetch ? "assets.oversized_prefetch_preparation_resize"
                        : "assets.oversized_mandatory_preparation_resize",
             arbitrated
                 ? "mandatory preparation expansion exceeds the temporary budget and was selected "
                   "as the sole active expansion arbiter"
+            : prefetch
+                ? "prefetch preparation expansion exceeds the temporary budget and is admitted "
+                  "serially"
                 : "mandatory preparation expansion exceeds the temporary budget and is admitted "
                   "serially"));
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,

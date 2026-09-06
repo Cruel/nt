@@ -449,7 +449,7 @@ void AssetProgressOrchestrator::service_owner_frame() noexcept
     if (m_assets.m_async == nullptr)
         return;
     if (m_assets.m_async->consume_progress_wakeup_on_owner()) {
-        (void)m_assets.m_async->retry_deferred_requests_on_owner();
+        (void)m_assets.m_async->retry_deferred_on_owner();
         return;
     }
     if (!m_assets.m_async->progress_on_owner().deferred_request)

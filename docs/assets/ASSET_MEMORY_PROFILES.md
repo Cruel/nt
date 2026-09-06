@@ -38,14 +38,19 @@ repository fixtures on 2026-07-23. The deterministic measurement inputs are:
 | System UI font source | 139,764 source/transient | `engine/assets/system/fonts/LiberationSans.ttf` |
 
 The texture figures are finalized residency, not estimates. Temporary texture admission remains based
-on the loader's conservative source-plus-decode/mipmap estimate, so an unusually compressed mandatory
-texture may be admitted serially over the temporary ceiling. That is intentional: ceilings govern
-evictable concurrency and speculative work, never mandatory correctness.
+on the loader's conservative source-plus-decode/mipmap estimate. A single preparation whose own peak
+working set exceeds the temporary ceiling may be admitted serially for either Demand or Prefetch; the
+ceiling limits concurrent transient work rather than making a large asset categorically ineligible for
+speculation. If an individually oversized prefetch encounters active temporary work, it remains queued
+until it can run exclusively. Ordinary speculative preparation that fits individually but would exceed
+the aggregate ceiling because other preparation is active may still be rejected.
 
 Prepared-CPU, audio, and temporary-preparation capacities remain the fixture-derived envelopes selected
 by rounding representative units to MiB boundaries. Their Warm CPU/audio ceilings also preserve the
 previous effective percentage-derived byte capacities exactly. Temporary preparation remains a
-concurrency/transient ceiling; it is intentionally not enlarged to match any long-lived Warm cache.
+concurrency/transient ceiling; it is intentionally not enlarged to match any long-lived Warm cache, and
+an asset larger than that ceiling is serialized rather than excluded from prefetch solely because of
+its individual preparation peak.
 
 GPU Warm capacity is now an independently selected absolute ceiling sized for multi-Room visual
 speculation: Desktop uses 512 MiB / 1 GiB / 2 GiB for Low / Balanced / High, while Android and Web use
@@ -126,11 +131,14 @@ and inherited values do not cross into the player runtime contract.
 ## Runtime Semantics
 
 Demand admission evicts eligible Cold entries before Warm entries and may remain over budget when all
-remaining residency is pinned or one mandatory asset is oversized. Prefetch admission is rejected if
-either a total domain ceiling or that domain's absolute Warm ceiling would be exceeded. Releasing the
-last pin re-enforces both constraints. Temporary preparation remains an independent transient budget
-and has no Warm counterpart. The same policy object and residency implementation are used by
-cooperative and threaded executors.
+remaining residency is pinned or one mandatory asset is oversized. Prefetch residency admission is
+rejected if either a total domain ceiling or that domain's absolute Warm ceiling would be exceeded.
+Releasing the last pin re-enforces both constraints. Temporary preparation remains an independent
+transient-concurrency budget and has no Warm counterpart: one individually oversized Demand or
+Prefetch preparation may run over it serially; an oversized Prefetch waits for exclusive temporary
+capacity rather than being discarded solely for its size. Ordinary additional speculative work is not
+admitted when the aggregate temporary working set would exceed the ceiling. The same policy object and
+residency implementation are used by cooperative and threaded executors.
 
 These profile limits apply to the sole production prepared-asset path. Runtime and editor-preview
 consumers acquire prepared resources through asynchronous requests and retained leases; there is no

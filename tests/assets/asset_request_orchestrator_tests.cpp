@@ -569,7 +569,7 @@ TEST_CASE("Typed request and residency contract is executor independent",
     }
 }
 
-TEST_CASE("Preparation reservations defer demand and reject speculative work")
+TEST_CASE("Preparation reservations defer mandatory and oversized speculative work")
 {
     jobs::InlineJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(
@@ -577,7 +577,10 @@ TEST_CASE("Preparation reservations defer demand and reject speculative work")
                                 .prepared_cpu_bytes = 100,
                                 .gpu_bytes = 100,
                                 .audio_bytes = 100,
-                                .temporary_bytes = 10});
+                                .temporary_bytes = 10,
+                                .warm_prepared_cpu_bytes = 100,
+                                .warm_gpu_bytes = 100,
+                                .warm_audio_bytes = 100});
     {
         assets::AssetRequestOrchestrator<TestAsset> requests(executor, residency);
         auto occupied =
@@ -638,7 +641,32 @@ TEST_CASE("Preparation reservations defer demand and reject speculative work")
         REQUIRE(rejected);
         CHECK(requests.cache_state_on_owner(rejected_key) == assets::AssetCacheState::Canceled);
         CHECK(rejected_probe->steps.load(std::memory_order_relaxed) == 0);
+
+        auto oversized_probe = std::make_shared<TaskProbe>();
+        oversized_probe->owner_thread = std::this_thread::get_id();
+        const auto oversized_key = key("oversized-prefetch", 1);
+        auto oversized = requests.prefetch_on_owner(
+            oversized_key, assets::PrefetchGenerationId{3},
+            std::make_unique<ProbePreparationTask>(oversized_probe, 9,
+                                                   assets::ResidencyCost{.source_bytes = 0,
+                                                                         .prepared_cpu_bytes = 1,
+                                                                         .gpu_bytes = 0,
+                                                                         .audio_bytes = 0,
+                                                                         .temporary_bytes = 20}));
+        REQUIRE(oversized);
+        auto oversized_ticket = std::move(oversized).value();
+        CHECK(requests.cache_state_on_owner(oversized_key) == assets::AssetCacheState::Queued);
+        CHECK_FALSE(requests.job_id_on_owner(oversized_key).valid());
+        CHECK(oversized_probe->steps.load(std::memory_order_relaxed) == 0);
+
         occupied_again.reservation->reset();
+        CHECK(requests.retry_deferred_on_owner() == 1);
+        REQUIRE(executor.run_until_idle(16));
+        CHECK(requests.cache_state_on_owner(oversized_key) == assets::AssetCacheState::Resident);
+        CHECK(oversized_probe->steps.load(std::memory_order_relaxed) > 0);
+        oversized_ticket.reset();
+        CHECK(residency->evict_on_owner(oversized_key,
+                                        assets::ResidencyEvictionReason::ExplicitRelease));
     }
     shutdown_executor(executor);
 }
@@ -886,14 +914,18 @@ TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy"
                                                assets::AssetRequestReason::Demand);
     CHECK(deferred.admission == assets::ResidencyAdmission::Deferred);
     oversized.reservation->reset();
-    auto rejected =
+    auto oversized_prefetch =
         residency.reserve_preparation_on_owner(assets::ResidencyCost{.source_bytes = 0,
                                                                      .prepared_cpu_bytes = 0,
                                                                      .gpu_bytes = 0,
                                                                      .audio_bytes = 0,
                                                                      .temporary_bytes = 20},
                                                assets::AssetRequestReason::Prefetch);
-    CHECK(rejected.admission == assets::ResidencyAdmission::RejectedPrefetch);
+    CHECK(oversized_prefetch.admission == assets::ResidencyAdmission::AdmittedOverBudget);
+    REQUIRE(oversized_prefetch.reservation);
+    REQUIRE(oversized_prefetch.diagnostics.size() == 1);
+    CHECK(oversized_prefetch.diagnostics.front().code == "assets.oversized_prefetch_preparation");
+    oversized_prefetch.reservation->reset();
 }
 
 TEST_CASE("Residency policy reconfiguration preserves mandatory work and resets the peak epoch",
@@ -1007,17 +1039,20 @@ TEST_CASE("Preparation reservations arbitrate one mandatory expansion at a time"
     CHECK(residency.accounting_on_owner().current.temporary_bytes == 110);
 
     auto rejected = residency.resize_preparation_on_owner(
-        *first.reservation, {.temporary_bytes = 120}, assets::AssetRequestReason::Prefetch);
+        *first.reservation, {.temporary_bytes = 90}, assets::AssetRequestReason::Prefetch);
     CHECK(rejected.admission == assets::ResidencyAdmission::RejectedPrefetch);
     CHECK(first.reservation->cost().temporary_bytes == 80);
     CHECK(residency.accounting_on_owner().current.temporary_bytes == 110);
     first.reservation->reset();
     CHECK(residency.accounting_on_owner().current.temporary_bytes == 30);
-    auto admitted = residency.resize_preparation_on_owner(
-        *second.reservation, {.temporary_bytes = 80}, assets::AssetRequestReason::Demand);
-    CHECK(admitted.admission == assets::ResidencyAdmission::Admitted);
-    CHECK(second.reservation->cost().temporary_bytes == 80);
-    CHECK(residency.accounting_on_owner().current.temporary_bytes == 80);
+    auto oversized_prefetch_resize = residency.resize_preparation_on_owner(
+        *second.reservation, {.temporary_bytes = 120}, assets::AssetRequestReason::Prefetch);
+    CHECK(oversized_prefetch_resize.admission == assets::ResidencyAdmission::AdmittedOverBudget);
+    CHECK(second.reservation->cost().temporary_bytes == 120);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 120);
+    REQUIRE(oversized_prefetch_resize.diagnostics.size() == 1);
+    CHECK(oversized_prefetch_resize.diagnostics.front().code ==
+          "assets.oversized_prefetch_preparation_resize");
     second.reservation->reset();
     CHECK(residency.accounting_on_owner().current.temporary_bytes == 0);
 }
