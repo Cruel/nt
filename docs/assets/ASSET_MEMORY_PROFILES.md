@@ -42,40 +42,52 @@ on the loader's conservative source-plus-decode/mipmap estimate, so an unusually
 texture may be admitted serially over the temporary ceiling. That is intentional: ceilings govern
 evictable concurrency and speculative work, never mandatory correctness.
 
-Preset capacities were selected by rounding representative-unit envelopes to MiB boundaries. Web Low
-holds one 4K background plus smaller UI textures and one decoded 30-second clip; Android Low holds two
-4K-class backgrounds and two decoded clips; Desktop Low holds two 4K-class backgrounds with additional
-render-target/material room. Balanced doubles the principal ceilings, and High doubles Balanced.
-The legacy Warm percentages leave progressively larger mandatory headroom on constrained targets.
-During the compatibility transition they are resolved once into the absolute byte ceilings shown
-below; those resolved bytes, rather than percentage arithmetic in the runtime, govern speculation.
+Prepared-CPU, audio, and temporary-preparation capacities remain the fixture-derived envelopes selected
+by rounding representative units to MiB boundaries. Their Warm CPU/audio ceilings also preserve the
+previous effective percentage-derived byte capacities exactly. Temporary preparation remains a
+concurrency/transient ceiling; it is intentionally not enlarged to match any long-lived Warm cache.
 
-The legacy Warm percentages are also fixture-derived. Per-domain percentage rounding produces these minimum
-representative GPU envelopes: Desktop Low admits one 2560 x 1440 texture, Balanced admits one 4K plus
-one 1080p texture, and High admits four 4K textures; Android Low admits one 1080p texture, Balanced one
-4K texture, and High three 4K textures; Web Low admits one 1024 x 1024 texture, Balanced one 2560 x
-1440 texture, and High one 4K plus one 1080p texture. The independent audio allowances admit at least
-two long-form stream page sets in every preset, a 30-second decoded representative clip from Android
+GPU Warm capacity is now an independently selected absolute ceiling sized for multi-Room visual
+speculation: Desktop uses 512 MiB / 1 GiB / 2 GiB for Low / Balanced / High, while Android and Web use
+256 MiB / 512 MiB / 1 GiB. At the measured 44,236,220-byte 4K RGBA8+mips unit, those ceilings can hold
+roughly 12 / 24 / 48 such textures on Desktop and 6 / 12 / 24 on Android/Web before smaller assets and
+other residency costs are considered.
+
+The total GPU residency envelopes add the previous full GPU residency ceiling to each new Warm GPU
+ceiling. This deliberately preserves the formerly measured GPU pool as non-Warm headroom for pinned or
+current presentation plus ordinary Cold-cache reuse instead of inventing a new cross-domain multiplier:
+Desktop keeps 128 / 256 / 512 MiB of such headroom, Android keeps 96 / 192 / 384 MiB, and Web keeps
+64 / 128 / 256 MiB. Consequently the resolved GPU totals are 640 MiB / 1.25 GiB / 2.5 GiB on Desktop,
+352 MiB / 704 MiB / 1.375 GiB on Android, and 320 MiB / 640 MiB / 1.25 GiB on Web.
+
+The legacy percentages remain measurement provenance and the compatibility fallback for named custom
+policies that do not yet author absolute Warm values. They no longer derive built-in GPU Warm capacity.
+For an existing percentage-only custom policy, GPU compatibility retains the pre-recalibration built-in
+GPU denominator (Desktop 128 / 256 / 512 MiB, Android 96 / 192 / 384 MiB, Web 64 / 128 / 256 MiB for
+Low / Balanced / High) unless that policy explicitly overrides its GPU total. This keeps the policy's
+historical effective Warm GPU bytes stable while its unoverridden total residency still follows the
+new built-in envelope. The independent CPU/audio allowances continue to admit at least two long-form
+stream page sets in every preset, a 30-second decoded representative clip from Android
 Balanced/Desktop Balanced/Web High upward, and multiple such clips in each High native profile. These
-are capacity targets for speculative residency, not promises that all listed units will be requested
+are capacity ceilings, not reservations or promises that all listed units will be requested
 simultaneously.
 
 ## Resolved Defaults
 
-All values below are bytes. The final column records the legacy percentage that currently derives
-these preset Warm values; it is compatibility provenance, not the runtime admission limit.
+All values below are bytes. The final column records the legacy percentage retained for compatibility
+and CPU/audio measurement provenance; built-in GPU Warm values are the fixed absolute ceilings shown.
 
 | Target | Preset | Prepared CPU | GPU | Audio | Temporary | Warm CPU | Warm GPU | Warm audio | Legacy % |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Desktop | Low | 67,108,864 | 134,217,728 | 33,554,432 | 33,554,432 | 13,421,772 | 26,843,545 | 6,710,886 | 20% |
-| Desktop | Balanced | 134,217,728 | 268,435,456 | 67,108,864 | 67,108,864 | 40,265,318 | 80,530,636 | 20,132,659 | 30% |
-| Desktop | High | 268,435,456 | 536,870,912 | 134,217,728 | 134,217,728 | 107,374,182 | 214,748,364 | 53,687,091 | 40% |
-| Android | Low | 50,331,648 | 100,663,296 | 25,165,824 | 25,165,824 | 7,549,747 | 15,099,494 | 3,774,873 | 15% |
-| Android | Balanced | 100,663,296 | 201,326,592 | 50,331,648 | 50,331,648 | 25,165,824 | 50,331,648 | 12,582,912 | 25% |
-| Android | High | 201,326,592 | 402,653,184 | 100,663,296 | 100,663,296 | 70,464,307 | 140,928,614 | 35,232,153 | 35% |
-| Web | Low | 33,554,432 | 67,108,864 | 16,777,216 | 16,777,216 | 3,355,443 | 6,710,886 | 1,677,721 | 10% |
-| Web | Balanced | 67,108,864 | 134,217,728 | 33,554,432 | 33,554,432 | 13,421,772 | 26,843,545 | 6,710,886 | 20% |
-| Web | High | 134,217,728 | 268,435,456 | 67,108,864 | 67,108,864 | 40,265,318 | 80,530,636 | 20,132,659 | 30% |
+| Desktop | Low | 67,108,864 | 671,088,640 | 33,554,432 | 33,554,432 | 13,421,772 | 536,870,912 | 6,710,886 | 20% |
+| Desktop | Balanced | 134,217,728 | 1,342,177,280 | 67,108,864 | 67,108,864 | 40,265,318 | 1,073,741,824 | 20,132,659 | 30% |
+| Desktop | High | 268,435,456 | 2,684,354,560 | 134,217,728 | 134,217,728 | 107,374,182 | 2,147,483,648 | 53,687,091 | 40% |
+| Android | Low | 50,331,648 | 369,098,752 | 25,165,824 | 25,165,824 | 7,549,747 | 268,435,456 | 3,774,873 | 15% |
+| Android | Balanced | 100,663,296 | 738,197,504 | 50,331,648 | 50,331,648 | 25,165,824 | 536,870,912 | 12,582,912 | 25% |
+| Android | High | 201,326,592 | 1,476,395,008 | 100,663,296 | 100,663,296 | 70,464,307 | 1,073,741,824 | 35,232,153 | 35% |
+| Web | Low | 33,554,432 | 335,544,320 | 16,777,216 | 16,777,216 | 3,355,443 | 268,435,456 | 1,677,721 | 10% |
+| Web | Balanced | 67,108,864 | 671,088,640 | 33,554,432 | 33,554,432 | 13,421,772 | 536,870,912 | 6,710,886 | 20% |
+| Web | High | 134,217,728 | 1,342,177,280 | 67,108,864 | 67,108,864 | 40,265,318 | 1,073,741,824 | 20,132,659 | 30% |
 
 Windows, Linux, and macOS use the Desktop row. Missing profile data resolves to the target's Balanced
 row.
@@ -87,18 +99,25 @@ stable generated ID, a unique case-insensitive display name, one direct built-in
 `balanced`, or `high`), and optional absolute overrides. Policies never derive from other named
 policies, so resolution cannot form chains or cycles.
 
-An omitted override continues to track the selected built-in for the concrete target. An overridden
-byte value is absolute across targets. Total-residency byte overrides are positive safe integers
-representable by both the editor JSON boundary and runtime; `temporaryBytes` is at least 1 MiB.
+An omitted total-residency or temporary override continues to track the selected built-in for the
+concrete target. An omitted Warm override retains the legacy percentage-derived compatibility
+behavior described below; enabling an absolute Warm override opts that domain into the selected
+built-in's current absolute value before further editing. An overridden byte value is absolute across
+targets. Total-residency byte overrides are positive safe integers representable by both the editor
+JSON boundary and runtime; `temporaryBytes` is at least 1 MiB.
 `warmPreparedCpuBytes`, `warmGpuBytes`, and `warmAudioBytes` are non-negative safe integers and each
 must not exceed its corresponding resolved total ceiling on any supported target. Zero is valid and
 disables speculative residency in that domain.
 
-For compatibility, `prefetchAllowancePercent` remains an accepted integer from 0 through 100. When an
-absolute Warm override is present for a domain it wins for that domain. Otherwise resolution derives
-that domain's absolute Warm bytes from the legacy percentage and the resolved total. Empty override
-sets remain valid. No runtime admission path chooses between percentage and absolute policy: Play and
-export carry the already-resolved absolute values, and residency/planner checks consume those bytes.
+For compatibility, `prefetchAllowancePercent` remains an accepted integer from 0 through 100 on named
+custom policies. When an absolute Warm override is present for a domain it wins for that domain.
+Otherwise prepared CPU and audio resolve from the legacy percentage and their resolved totals. GPU
+uses an explicit GPU-total override when present; without one, it uses the historical built-in GPU
+baseline listed above so the total-envelope recalibration does not silently inflate an existing
+percentage-authored policy's Warm GPU capacity. Built-in profiles themselves resolve directly to the
+fixed absolute Warm defaults above. No runtime admission path chooses between percentage and absolute
+policy: Play and export carry the already-resolved absolute values, and residency/planner checks consume
+those bytes.
 
 Export profiles reference either a built-in preset or a named policy by stable ID. Missing policy
 references and duplicate policy IDs/names are semantic authoring errors. A policy referenced by an

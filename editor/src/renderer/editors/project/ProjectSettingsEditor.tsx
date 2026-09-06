@@ -792,8 +792,9 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
           <div>
             <CardTitle>Asset Memory Policies</CardTitle>
             <CardDescription>
-              Define reusable policies based on Low, Balanced, or High. Unoverridden fields continue
-              to follow each target&apos;s built-in values.
+              Define reusable policies based on Low, Balanced, or High. Total and temporary fields
+              inherit each target&apos;s built-in values; Warm fields without absolute overrides
+              retain the compatibility percentage.
             </CardDescription>
           </div>
           <Button type="button" size="sm" onClick={addPolicy}>
@@ -877,6 +878,12 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
                   <div className="space-y-3">
                     {byteFields.map(([field, label]) => {
                       const override = selectedPolicy.overrides[field];
+                      const overrideStatus =
+                        override !== undefined
+                          ? 'Absolute override'
+                          : field.startsWith('warm')
+                            ? 'Resolved from compatibility percentage'
+                            : 'Inherited from target preset';
                       return (
                         <div
                           key={field}
@@ -884,11 +891,7 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
                         >
                           <div>
                             <div className="text-sm font-medium">{label}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {override === undefined
-                                ? 'Inherited from target preset'
-                                : 'Absolute override'}
-                            </div>
+                            <div className="text-xs text-muted-foreground">{overrideStatus}</div>
                           </div>
                           <label className="flex items-center gap-2 text-xs">
                             <Switch

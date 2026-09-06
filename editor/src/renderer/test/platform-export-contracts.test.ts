@@ -132,17 +132,17 @@ describe('platform export contracts', () => {
   it('resolves measured memory presets and reusable named policy overrides', () => {
     const mib = 1024 * 1024;
     const expected = [
-      ['linux', 'low', 64, 128, 32, 32, 20],
-      ['linux', 'balanced', 128, 256, 64, 64, 30],
-      ['linux', 'high', 256, 512, 128, 128, 40],
-      ['android', 'low', 48, 96, 24, 24, 15],
-      ['android', 'balanced', 96, 192, 48, 48, 25],
-      ['android', 'high', 192, 384, 96, 96, 35],
-      ['web', 'low', 32, 64, 16, 16, 10],
-      ['web', 'balanced', 64, 128, 32, 32, 20],
-      ['web', 'high', 128, 256, 64, 64, 30],
+      ['linux', 'low', 64, 640, 32, 32, 512, 20],
+      ['linux', 'balanced', 128, 1280, 64, 64, 1024, 30],
+      ['linux', 'high', 256, 2560, 128, 128, 2048, 40],
+      ['android', 'low', 48, 352, 24, 24, 256, 15],
+      ['android', 'balanced', 96, 704, 48, 48, 512, 25],
+      ['android', 'high', 192, 1408, 96, 96, 1024, 35],
+      ['web', 'low', 32, 320, 16, 16, 256, 10],
+      ['web', 'balanced', 64, 640, 32, 32, 512, 20],
+      ['web', 'high', 128, 1280, 64, 64, 1024, 30],
     ] as const;
-    for (const [target, preset, cpu, gpu, audio, temporary, allowance] of expected) {
+    for (const [target, preset, cpu, gpu, audio, temporary, warmGpu, allowance] of expected) {
       expect(resolveAssetMemoryPolicy(target, { kind: 'builtin', preset })).toEqual({
         preset,
         preparedCpuBytes: cpu * mib,
@@ -150,11 +150,28 @@ describe('platform export contracts', () => {
         audioBytes: audio * mib,
         temporaryBytes: temporary * mib,
         warmPreparedCpuBytes: Math.floor((cpu * mib * allowance) / 100),
-        warmGpuBytes: Math.floor((gpu * mib * allowance) / 100),
+        warmGpuBytes: warmGpu * mib,
         warmAudioBytes: Math.floor((audio * mib * allowance) / 100),
         prefetchAllowancePercent: allowance,
       });
     }
+
+    const legacyPercentageOnly = assetMemoryPolicyDefinitionSchema.parse({
+      id: 'desktop-low-legacy',
+      label: 'Desktop low legacy',
+      basePreset: 'low',
+      overrides: {},
+    });
+    expect(
+      resolveAssetMemoryPolicy('linux', { kind: 'policy', policyId: legacyPercentageOnly.id }, [
+        legacyPercentageOnly,
+      ]),
+    ).toMatchObject({
+      preset: 'custom',
+      gpuBytes: 640 * mib,
+      warmGpuBytes: 26_843_545,
+      prefetchAllowancePercent: 20,
+    });
 
     const namedPolicy = assetMemoryPolicyDefinitionSchema.parse({
       id: 'web-constrained',
