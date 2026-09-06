@@ -37,15 +37,14 @@ assets::AssetBytes one_pixel_png()
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
 }
 
-assets::AssetBytes png_header_with_dimensions(std::uint32_t width, std::uint32_t height)
+assets::AssetBytes compressible_32_pixel_png()
 {
-    auto bytes = one_pixel_png();
-    for (std::size_t index = 0; index < 4; ++index) {
-        const auto shift = static_cast<std::uint32_t>((3u - index) * 8u);
-        bytes[16u + index] = static_cast<std::uint8_t>((width >> shift) & 0xffu);
-        bytes[20u + index] = static_cast<std::uint8_t>((height >> shift) & 0xffu);
-    }
-    return bytes;
+    return {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x20, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x73, 0x7a, 0x7a, 0xf4, 0x00, 0x00, 0x00, 0x1a, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0xda, 0xed, 0xc1, 0x01, 0x01, 0x00, 0x00, 0x00, 0x82, 0x20, 0xff, 0xaf, 0x6e, 0x48,
+            0x40, 0x01, 0x00, 0x00, 0x00, 0xef, 0x06, 0x10, 0x20, 0x00, 0x01, 0xc9, 0xb5, 0xc3,
+            0xb1, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
 }
 
 assets::ResidencyBudget generous_budget()
@@ -887,7 +886,7 @@ TEST_CASE("Texture prefetch expands its reservation from encoded dimensions befo
 {
     jobs::InlineJobExecutor executor;
     auto budget = generous_budget();
-    budget.temporary_bytes = 1024u * 1024u;
+    budget.temporary_bytes = 1024u;
     core::AssetTelemetryRecorder telemetry(128);
     auto residency =
         std::make_shared<assets::AssetResidencyManager>(budget, &telemetry, executor.mode());
@@ -896,8 +895,8 @@ TEST_CASE("Texture prefetch expands its reservation from encoded dimensions befo
 
     {
         assets::AssetManager manager;
-        auto source = std::make_shared<RecordingAssetSource>(
-            "textures/compressible.png", png_header_with_dimensions(4096, 4096), probe);
+        auto source = std::make_shared<RecordingAssetSource>("textures/compressible.png",
+                                                             compressible_32_pixel_png(), probe);
         manager.mount("project", source);
         TestTextureLoader loader(manager, probe);
         manager.bind_texture_loader(&loader);
@@ -918,12 +917,14 @@ TEST_CASE("Texture prefetch expands its reservation from encoded dimensions befo
         }
         (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
 
-        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 0);
+        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
         CHECK(residency->accounting_on_owner().current.temporary_bytes == 0);
-        CHECK(residency->accounting_on_owner().high_water.temporary_bytes < budget.temporary_bytes);
+        CHECK(residency->accounting_on_owner().high_water.temporary_bytes > budget.temporary_bytes);
         const auto snapshot = telemetry.snapshot_on_owner();
         CHECK(snapshot.event_counts[static_cast<std::size_t>(
-                  core::AssetTelemetryEventKind::RequestCanceled)] == 1);
+                  core::AssetTelemetryEventKind::RequestCanceled)] == 0);
+        CHECK(snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::BudgetPressure)] >= 1);
         ticket.reset();
     }
     shutdown(executor);

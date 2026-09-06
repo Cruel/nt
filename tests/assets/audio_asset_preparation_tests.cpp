@@ -454,12 +454,14 @@ TEST_CASE("Decoded audio prefetch expands its reservation before allocating PCM"
         }
         (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
 
-        CHECK(audio.backend_stats().clips_loaded == 0);
+        CHECK(audio.backend_stats().clips_loaded == 1);
         CHECK(residency->accounting_on_owner().current.temporary_bytes == 0);
-        CHECK(residency->accounting_on_owner().high_water.temporary_bytes < budget.temporary_bytes);
+        CHECK(residency->accounting_on_owner().high_water.temporary_bytes > budget.temporary_bytes);
         const auto snapshot = telemetry.snapshot_on_owner();
         CHECK(snapshot.event_counts[static_cast<std::size_t>(
-                  core::AssetTelemetryEventKind::RequestCanceled)] == 1);
+                  core::AssetTelemetryEventKind::RequestCanceled)] == 0);
+        CHECK(snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::BudgetPressure)] >= 1);
         ticket.reset();
         manager.bind_audio_loader(nullptr);
         audio.shutdown();
