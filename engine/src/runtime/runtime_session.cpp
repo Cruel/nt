@@ -2218,8 +2218,10 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         }
     }
 
+    const bool resident_room_eligible =
+        gameplay_ui.room && m_kernel->room_committed_for_prediction(gameplay_ui.room->room);
     std::optional<runtime::ResidentRoomPredictionRoot> resident_room_prediction;
-    if (session_state.flow_stack().empty() && gameplay_ui.room) {
+    if (resident_room_eligible) {
         runtime::ResidentRoomPredictionRoot resident{
             .room = gameplay_ui.room->room, .programs = {}, .layouts = {}};
         std::vector<core::VerbId> enabled_verbs;
@@ -2259,7 +2261,7 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         std::move(detached_suspended_scene_predictions);
     navigation_context.detached_suspended_dialogues =
         std::move(detached_suspended_dialogue_predictions);
-    if (session_state.flow_stack().empty() && gameplay_ui.room)
+    if (resident_room_eligible)
         append_prospective_navigation_context(navigation_context, m_kernel->m_world,
                                               gameplay_ui.room->room);
     const std::optional<ActiveScenePredictionRoot> active_scene_prediction =

@@ -215,6 +215,41 @@ private:
 
 } // namespace
 
+bool RuntimeExecutor::room_committed_for_prediction(const core::RoomId& room) const noexcept
+{
+    if (!m_state.room_visit() || m_state.room_visit()->room != room)
+        return false;
+    if (m_state.flow_stack().empty())
+        return true;
+
+    const core::RoomTransitionFrame* transition = nullptr;
+    for (auto frame = m_state.flow_stack().rbegin(); frame != m_state.flow_stack().rend();
+         ++frame) {
+        transition = std::get_if<core::RoomTransitionFrame>(&*frame);
+        if (transition != nullptr)
+            break;
+    }
+    if (transition == nullptr || transition->target_room != room)
+        return false;
+
+    switch (transition->position.stage) {
+    case core::RoomTransitionStage::CommitRoomSwitch:
+        return transition->position.awaiting_completion;
+    case core::RoomTransitionStage::AfterLeave:
+    case core::RoomTransitionStage::AfterEnter:
+    case core::RoomTransitionStage::Complete:
+        return true;
+    case core::RoomTransitionStage::SourceCanLeave:
+    case core::RoomTransitionStage::ExitCondition:
+    case core::RoomTransitionStage::TargetCanEnter:
+    case core::RoomTransitionStage::BeforeLeave:
+    case core::RoomTransitionStage::BeforeEnter:
+    case core::RoomTransitionStage::RejectionProgram:
+        return false;
+    }
+    return false;
+}
+
 std::optional<core::InteractionInstructionId>
 RuntimeExecutor::room_transition_command_id(const core::RoomTransitionFrame& transition) const
 {

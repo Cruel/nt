@@ -144,6 +144,7 @@ public:
     // programs itself.
     [[nodiscard]] std::optional<core::InteractionInstructionId>
     room_transition_command_id(const core::RoomTransitionFrame& transition) const;
+    [[nodiscard]] bool room_committed_for_prediction(const core::RoomId& room) const noexcept;
     [[nodiscard]] core::Result<bool, RuntimeExecutionError>
     evaluate(const core::Condition& condition, core::ConditionEvaluationContext context = {});
     [[nodiscard]] core::Result<RuntimeEffectOutcome, RuntimeExecutionError>
