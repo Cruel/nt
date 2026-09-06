@@ -59,7 +59,6 @@ export const assetMemoryPolicyOverridesSchema = z
     warmPreparedCpuBytes: nonNegativeRuntimeByteCountSchema.optional(),
     warmGpuBytes: nonNegativeRuntimeByteCountSchema.optional(),
     warmAudioBytes: nonNegativeRuntimeByteCountSchema.optional(),
-    prefetchAllowancePercent: z.number().int().min(0).max(100).optional(),
   })
   .strict();
 
@@ -99,7 +98,6 @@ export const resolvedAssetMemoryPolicySchema = z
     warmPreparedCpuBytes: nonNegativeRuntimeByteCountSchema,
     warmGpuBytes: nonNegativeRuntimeByteCountSchema,
     warmAudioBytes: nonNegativeRuntimeByteCountSchema,
-    prefetchAllowancePercent: z.number().int().min(0).max(100),
   })
   .strict()
   .superRefine((value, context) => {
@@ -124,7 +122,9 @@ export type AssetMemoryBuiltinPreset = (typeof assetMemoryBuiltinPresetValues)[n
 export type ResolvedAssetMemoryPolicy = z.infer<typeof resolvedAssetMemoryPolicySchema>;
 
 const mib = (value: number) => value * 1024 * 1024;
-const percentageBytes = (totalBytes: number, percent: number) =>
+// Used only by the legacy authoring-load migration below. Canonical policy resolution never derives
+// Warm capacity from a percentage.
+const legacyPercentageBytes = (totalBytes: number, percent: number) =>
   Math.floor(totalBytes / 100) * percent + Math.floor(((totalBytes % 100) * percent) / 100);
 type MeasuredAssetMemoryDefault = Omit<ResolvedAssetMemoryPolicy, 'preset'>;
 type AssetMemoryTargetFamily = 'desktop' | 'android' | 'web';
@@ -140,30 +140,27 @@ const measuredAssetMemoryDefaults: Record<
       gpuBytes: mib(640),
       audioBytes: mib(32),
       temporaryBytes: mib(32),
-      warmPreparedCpuBytes: percentageBytes(mib(64), 20),
+      warmPreparedCpuBytes: 13_421_772,
       warmGpuBytes: mib(512),
-      warmAudioBytes: percentageBytes(mib(32), 20),
-      prefetchAllowancePercent: 20,
+      warmAudioBytes: 6_710_886,
     },
     balanced: {
       preparedCpuBytes: mib(128),
       gpuBytes: mib(1280),
       audioBytes: mib(64),
       temporaryBytes: mib(64),
-      warmPreparedCpuBytes: percentageBytes(mib(128), 30),
+      warmPreparedCpuBytes: 40_265_318,
       warmGpuBytes: mib(1024),
-      warmAudioBytes: percentageBytes(mib(64), 30),
-      prefetchAllowancePercent: 30,
+      warmAudioBytes: 20_132_659,
     },
     high: {
       preparedCpuBytes: mib(256),
       gpuBytes: mib(2560),
       audioBytes: mib(128),
       temporaryBytes: mib(128),
-      warmPreparedCpuBytes: percentageBytes(mib(256), 40),
+      warmPreparedCpuBytes: 107_374_182,
       warmGpuBytes: mib(2048),
-      warmAudioBytes: percentageBytes(mib(128), 40),
-      prefetchAllowancePercent: 40,
+      warmAudioBytes: 53_687_091,
     },
   },
   android: {
@@ -172,30 +169,27 @@ const measuredAssetMemoryDefaults: Record<
       gpuBytes: mib(352),
       audioBytes: mib(24),
       temporaryBytes: mib(24),
-      warmPreparedCpuBytes: percentageBytes(mib(48), 15),
+      warmPreparedCpuBytes: 7_549_747,
       warmGpuBytes: mib(256),
-      warmAudioBytes: percentageBytes(mib(24), 15),
-      prefetchAllowancePercent: 15,
+      warmAudioBytes: 3_774_873,
     },
     balanced: {
       preparedCpuBytes: mib(96),
       gpuBytes: mib(704),
       audioBytes: mib(48),
       temporaryBytes: mib(48),
-      warmPreparedCpuBytes: percentageBytes(mib(96), 25),
+      warmPreparedCpuBytes: 25_165_824,
       warmGpuBytes: mib(512),
-      warmAudioBytes: percentageBytes(mib(48), 25),
-      prefetchAllowancePercent: 25,
+      warmAudioBytes: 12_582_912,
     },
     high: {
       preparedCpuBytes: mib(192),
       gpuBytes: mib(1408),
       audioBytes: mib(96),
       temporaryBytes: mib(96),
-      warmPreparedCpuBytes: percentageBytes(mib(192), 35),
+      warmPreparedCpuBytes: 70_464_307,
       warmGpuBytes: mib(1024),
-      warmAudioBytes: percentageBytes(mib(96), 35),
-      prefetchAllowancePercent: 35,
+      warmAudioBytes: 35_232_153,
     },
   },
   web: {
@@ -204,35 +198,34 @@ const measuredAssetMemoryDefaults: Record<
       gpuBytes: mib(320),
       audioBytes: mib(16),
       temporaryBytes: mib(16),
-      warmPreparedCpuBytes: percentageBytes(mib(32), 10),
+      warmPreparedCpuBytes: 3_355_443,
       warmGpuBytes: mib(256),
-      warmAudioBytes: percentageBytes(mib(16), 10),
-      prefetchAllowancePercent: 10,
+      warmAudioBytes: 1_677_721,
     },
     balanced: {
       preparedCpuBytes: mib(64),
       gpuBytes: mib(640),
       audioBytes: mib(32),
       temporaryBytes: mib(32),
-      warmPreparedCpuBytes: percentageBytes(mib(64), 20),
+      warmPreparedCpuBytes: 13_421_772,
       warmGpuBytes: mib(512),
-      warmAudioBytes: percentageBytes(mib(32), 20),
-      prefetchAllowancePercent: 20,
+      warmAudioBytes: 6_710_886,
     },
     high: {
       preparedCpuBytes: mib(128),
       gpuBytes: mib(1280),
       audioBytes: mib(64),
       temporaryBytes: mib(64),
-      warmPreparedCpuBytes: percentageBytes(mib(128), 30),
+      warmPreparedCpuBytes: 40_265_318,
       warmGpuBytes: mib(1024),
-      warmAudioBytes: percentageBytes(mib(64), 30),
-      prefetchAllowancePercent: 30,
+      warmAudioBytes: 20_132_659,
     },
   },
 };
 
-// Percentage-only policies keep this pre-recalibration GPU denominator unless they override GPU total.
+// Legacy percentage-authored policies used these pre-recalibration GPU denominators when no GPU
+// total override was present. Keep them isolated to the load migration so existing projects retain
+// their effective Warm capacity after the canonical contract switches to bytes.
 const legacyPercentageGpuBytes: Record<
   AssetMemoryTargetFamily,
   Record<AssetMemoryMeasuredPreset, number>
@@ -260,34 +253,195 @@ export function resolveAssetMemoryPolicy(
   const preparedCpuBytes = overrides?.preparedCpuBytes ?? baseline.preparedCpuBytes;
   const gpuBytes = overrides?.gpuBytes ?? baseline.gpuBytes;
   const audioBytes = overrides?.audioBytes ?? baseline.audioBytes;
-  const prefetchAllowancePercent =
-    overrides?.prefetchAllowancePercent ?? baseline.prefetchAllowancePercent;
-  const compatibilityWarmBytes = (totalBytes: number) =>
-    percentageBytes(totalBytes, prefetchAllowancePercent);
-  const compatibilityGpuBytes =
-    overrides?.gpuBytes ?? legacyPercentageGpuBytes[family][baselinePreset];
-  const useBuiltInWarmDefaults = profile.kind === 'builtin';
   return resolvedAssetMemoryPolicySchema.parse({
     preset: profile.kind === 'builtin' ? profile.preset : 'custom',
     preparedCpuBytes,
     gpuBytes,
     audioBytes,
     temporaryBytes: overrides?.temporaryBytes ?? baseline.temporaryBytes,
-    warmPreparedCpuBytes:
-      overrides?.warmPreparedCpuBytes ??
-      (useBuiltInWarmDefaults
-        ? baseline.warmPreparedCpuBytes
-        : compatibilityWarmBytes(preparedCpuBytes)),
-    warmGpuBytes:
-      overrides?.warmGpuBytes ??
-      (useBuiltInWarmDefaults
-        ? baseline.warmGpuBytes
-        : compatibilityWarmBytes(compatibilityGpuBytes)),
-    warmAudioBytes:
-      overrides?.warmAudioBytes ??
-      (useBuiltInWarmDefaults ? baseline.warmAudioBytes : compatibilityWarmBytes(audioBytes)),
-    prefetchAllowancePercent,
+    warmPreparedCpuBytes: overrides?.warmPreparedCpuBytes ?? baseline.warmPreparedCpuBytes,
+    warmGpuBytes: overrides?.warmGpuBytes ?? baseline.warmGpuBytes,
+    warmAudioBytes: overrides?.warmAudioBytes ?? baseline.warmAudioBytes,
   });
+}
+
+function isAssetMemoryMigrationRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function migrationTargetFamily(target: unknown): AssetMemoryTargetFamily | null {
+  if (target === 'web') return 'web';
+  if (target === 'android') return 'android';
+  if (target === 'windows' || target === 'linux' || target === 'macos') return 'desktop';
+  return null;
+}
+
+function legacyWarmOverrides(
+  family: AssetMemoryTargetFamily,
+  preset: AssetMemoryMeasuredPreset,
+  overrides: Record<string, unknown>,
+  percent: number,
+) {
+  const baseline = measuredAssetMemoryDefaults[family][preset];
+  const preparedCpuBytes =
+    typeof overrides.preparedCpuBytes === 'number'
+      ? overrides.preparedCpuBytes
+      : baseline.preparedCpuBytes;
+  const gpuBytes =
+    typeof overrides.gpuBytes === 'number'
+      ? overrides.gpuBytes
+      : legacyPercentageGpuBytes[family][preset];
+  const audioBytes =
+    typeof overrides.audioBytes === 'number' ? overrides.audioBytes : baseline.audioBytes;
+  return {
+    ...overrides,
+    warmPreparedCpuBytes:
+      typeof overrides.warmPreparedCpuBytes === 'number'
+        ? overrides.warmPreparedCpuBytes
+        : legacyPercentageBytes(preparedCpuBytes, percent),
+    warmGpuBytes:
+      typeof overrides.warmGpuBytes === 'number'
+        ? overrides.warmGpuBytes
+        : legacyPercentageBytes(gpuBytes, percent),
+    warmAudioBytes:
+      typeof overrides.warmAudioBytes === 'number'
+        ? overrides.warmAudioBytes
+        : legacyPercentageBytes(audioBytes, percent),
+  };
+}
+
+/**
+ * Converts the pre-#174 percentage authoring contract at the project-load boundary. The canonical
+ * schema intentionally does not accept the legacy field, so callers must invoke this before strict
+ * project parsing. Policies shared across target families are split only when their inherited totals
+ * make the equivalent absolute Warm ceilings differ.
+ */
+export function migrateLegacyAssetMemoryPolicyPercentages(value: unknown): boolean {
+  if (!isAssetMemoryMigrationRecord(value)) return false;
+  const policies = value.assetMemoryPolicies;
+  const profiles = value.profiles;
+  if (!Array.isArray(policies) || !Array.isArray(profiles)) return false;
+
+  const ids = new Set(
+    policies
+      .filter(isAssetMemoryMigrationRecord)
+      .map((policy) => policy.id)
+      .filter((id): id is string => typeof id === 'string'),
+  );
+  const labels = new Set(
+    policies
+      .filter(isAssetMemoryMigrationRecord)
+      .map((policy) => policy.label)
+      .filter((label): label is string => typeof label === 'string')
+      .map((label) => label.trim().toLowerCase()),
+  );
+  const originalPolicies = [...policies];
+  let migrated = false;
+
+  const uniqueId = (base: string) => {
+    let candidate = base;
+    let suffix = 2;
+    while (ids.has(candidate)) candidate = `${base}-${suffix++}`;
+    ids.add(candidate);
+    return candidate;
+  };
+  const uniqueLabel = (base: string) => {
+    let candidate = base;
+    let suffix = 2;
+    while (labels.has(candidate.trim().toLowerCase())) candidate = `${base} (${suffix++})`;
+    labels.add(candidate.trim().toLowerCase());
+    return candidate;
+  };
+
+  for (const policyValue of originalPolicies) {
+    if (!isAssetMemoryMigrationRecord(policyValue)) continue;
+    const overridesValue = policyValue.overrides;
+    if (!isAssetMemoryMigrationRecord(overridesValue)) continue;
+    const percent = overridesValue.prefetchAllowancePercent;
+    const preset = policyValue.basePreset;
+    if (
+      typeof percent !== 'number' ||
+      !Number.isInteger(percent) ||
+      percent < 0 ||
+      percent > 100 ||
+      (preset !== 'low' && preset !== 'balanced' && preset !== 'high') ||
+      typeof policyValue.id !== 'string' ||
+      typeof policyValue.label !== 'string'
+    )
+      continue;
+
+    const referencedFamilies = new Set<AssetMemoryTargetFamily>();
+    for (const profile of profiles) {
+      if (!isAssetMemoryMigrationRecord(profile)) continue;
+      const assetMemory = profile.assetMemory;
+      if (
+        !isAssetMemoryMigrationRecord(assetMemory) ||
+        assetMemory.kind !== 'policy' ||
+        assetMemory.policyId !== policyValue.id
+      )
+        continue;
+      const family = migrationTargetFamily(profile.target);
+      if (family) referencedFamilies.add(family);
+    }
+    if (referencedFamilies.size === 0) referencedFamilies.add('desktop');
+
+    const families = (['desktop', 'android', 'web'] as const).filter((family) =>
+      referencedFamilies.has(family),
+    );
+    const policyIdByFamily = new Map<AssetMemoryTargetFamily, string>();
+    let firstOverrides: Record<string, unknown> | null = null;
+    let firstFamily: AssetMemoryTargetFamily | null = null;
+
+    for (const family of families) {
+      const canonicalOverrides: Record<string, unknown> = legacyWarmOverrides(
+        family,
+        preset,
+        overridesValue,
+        percent,
+      );
+      delete canonicalOverrides.prefetchAllowancePercent;
+      if (firstOverrides === null) {
+        firstOverrides = canonicalOverrides;
+        firstFamily = family;
+        policyValue.overrides = canonicalOverrides;
+        policyIdByFamily.set(family, policyValue.id);
+        continue;
+      }
+      if (JSON.stringify(canonicalOverrides) === JSON.stringify(firstOverrides)) {
+        policyIdByFamily.set(family, policyValue.id);
+        continue;
+      }
+      const familyLabel =
+        family === 'desktop' ? 'Desktop' : family === 'android' ? 'Android' : 'Web';
+      const cloneId = uniqueId(`${policyValue.id}-${family}-warm`);
+      const clone = {
+        ...policyValue,
+        id: cloneId,
+        label: uniqueLabel(`${policyValue.label} (${familyLabel})`),
+        overrides: canonicalOverrides,
+      };
+      policies.push(clone);
+      policyIdByFamily.set(family, cloneId);
+    }
+
+    if (firstFamily) {
+      for (const profile of profiles) {
+        if (!isAssetMemoryMigrationRecord(profile)) continue;
+        const assetMemory = profile.assetMemory;
+        if (
+          !isAssetMemoryMigrationRecord(assetMemory) ||
+          assetMemory.kind !== 'policy' ||
+          assetMemory.policyId !== policyValue.id
+        )
+          continue;
+        const family = migrationTargetFamily(profile.target);
+        const migratedId = family ? policyIdByFamily.get(family) : undefined;
+        if (migratedId) assetMemory.policyId = migratedId;
+      }
+    }
+    migrated = true;
+  }
+  return migrated;
 }
 
 const relativeArtifactPathSchema = z

@@ -1519,8 +1519,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     const auto& budget = memory_policy->budget;
     const auto warm_budget = assets::prefetch_allowance_cost(budget);
     SDL_Log("[assets] memory policy target=%s preset=%s source=%llu prepared_cpu=%llu gpu=%llu "
-            "audio=%llu temporary=%llu warm_prepared_cpu=%llu warm_gpu=%llu warm_audio=%llu "
-            "legacy_prefetch=%u%%",
+            "audio=%llu temporary=%llu warm_prepared_cpu=%llu warm_gpu=%llu warm_audio=%llu",
             assets::asset_memory_target_name(memory_policy->target),
             assets::asset_memory_preset_name(memory_policy->preset),
             static_cast<unsigned long long>(budget.source_bytes),
@@ -1530,8 +1529,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
             static_cast<unsigned long long>(budget.temporary_bytes),
             static_cast<unsigned long long>(warm_budget.prepared_cpu_bytes),
             static_cast<unsigned long long>(warm_budget.gpu_bytes),
-            static_cast<unsigned long long>(warm_budget.audio_bytes),
-            budget.prefetch_allowance_percent);
+            static_cast<unsigned long long>(warm_budget.audio_bytes));
 
 #if defined(_WIN32)
     std::fprintf(stderr, "[engine] resolving native window handles\n");

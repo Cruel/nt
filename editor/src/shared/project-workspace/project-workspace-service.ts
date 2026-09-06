@@ -28,6 +28,7 @@ import {
 } from '../project-schema/authoring-collections';
 import { entityIdSchema } from '../project-schema/authoring-common';
 import { authoringProjectSchema, type AuthoringProject } from '../project-schema/authoring-project';
+import { migrateLegacyAssetMemoryPolicyPercentages } from '../project-schema/platform-export-contracts';
 import { authoringLocalizationSchema } from '../project-schema/authoring-localization';
 import { traitDefinitionSchema } from '../project-schema/authoring-properties';
 import { authoringRecordSchemas } from '../project-schema/authoring-records';
@@ -1070,6 +1071,7 @@ export class ProjectWorkspaceService {
           };
           (candidate as Record<string, unknown>).schema = AUTHORING_PROJECT_SCHEMA;
           delete (candidate as Record<string, unknown>).schemaVersion;
+          migrateLegacyAssetMemoryPolicyPercentages((candidate as Record<string, unknown>).export);
           const decoded = authoringProjectSchema.safeParse(candidate);
           if (!decoded.success)
             return complete({

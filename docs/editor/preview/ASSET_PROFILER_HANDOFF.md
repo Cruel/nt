@@ -167,9 +167,9 @@ type AssetProfilerExportResult =
 Every C++ `uint64_t` ID, revision, sequence, timestamp, duration, byte value, cost, and counter is a
 canonical unsigned-decimal JSON string. This includes the configured `warmPreparedCpuBytes`,
 `warmGpuBytes`, and `warmAudioBytes` policy ceilings and zero-valued invalid IDs where the C++ field
-is non-optional. Optional integer fields are a decimal string or `null`. Schema version and the
-transitional bounded `prefetchAllowancePercent` provenance field remain JSON numbers. Enums cross only
-as explicit lowercase-kebab-case strings; C++ ordinals are not wire values.
+is non-optional. Optional integer fields are a decimal string or `null`. Schema version remains a JSON
+number. The profiler protocol carries no percentage-based Warm-policy field. Enums cross only as
+explicit lowercase-kebab-case strings; C++ ordinals are not wire values.
 
 The full payload has exactly these top-level keys:
 

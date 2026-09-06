@@ -18,20 +18,6 @@ using PrefetchCounts = std::map<std::uint64_t, std::uint64_t>;
 
 constexpr std::uint64_t mib(std::uint64_t value) noexcept { return value * 1024u * 1024u; }
 
-// Percentage-only Custom policies keep their old GPU denominator when preset totals grow.
-constexpr std::uint64_t legacy_custom_gpu_percentage_base(AssetMemoryTarget target) noexcept
-{
-    switch (target) {
-    case AssetMemoryTarget::Desktop:
-        return mib(256);
-    case AssetMemoryTarget::Android:
-        return mib(192);
-    case AssetMemoryTarget::Web:
-        return mib(128);
-    }
-    return 0;
-}
-
 ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset preset) noexcept
 {
     switch (target) {
@@ -43,8 +29,9 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
                     .gpu_bytes = mib(640),
                     .audio_bytes = mib(32),
                     .temporary_bytes = mib(32),
+                    .warm_prepared_cpu_bytes = 13421772,
                     .warm_gpu_bytes = mib(512),
-                    .prefetch_allowance_percent = 20};
+                    .warm_audio_bytes = 6710886};
         case AssetMemoryPreset::Balanced:
         case AssetMemoryPreset::Custom:
             return {.source_bytes = mib(128),
@@ -52,16 +39,18 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
                     .gpu_bytes = mib(1280),
                     .audio_bytes = mib(64),
                     .temporary_bytes = mib(64),
+                    .warm_prepared_cpu_bytes = 40265318,
                     .warm_gpu_bytes = mib(1024),
-                    .prefetch_allowance_percent = 30};
+                    .warm_audio_bytes = 20132659};
         case AssetMemoryPreset::High:
             return {.source_bytes = mib(256),
                     .prepared_cpu_bytes = mib(256),
                     .gpu_bytes = mib(2560),
                     .audio_bytes = mib(128),
                     .temporary_bytes = mib(128),
+                    .warm_prepared_cpu_bytes = 107374182,
                     .warm_gpu_bytes = mib(2048),
-                    .prefetch_allowance_percent = 40};
+                    .warm_audio_bytes = 53687091};
         }
         break;
     case AssetMemoryTarget::Android:
@@ -72,8 +61,9 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
                     .gpu_bytes = mib(352),
                     .audio_bytes = mib(24),
                     .temporary_bytes = mib(24),
+                    .warm_prepared_cpu_bytes = 7549747,
                     .warm_gpu_bytes = mib(256),
-                    .prefetch_allowance_percent = 15};
+                    .warm_audio_bytes = 3774873};
         case AssetMemoryPreset::Balanced:
         case AssetMemoryPreset::Custom:
             return {.source_bytes = mib(96),
@@ -81,16 +71,18 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
                     .gpu_bytes = mib(704),
                     .audio_bytes = mib(48),
                     .temporary_bytes = mib(48),
+                    .warm_prepared_cpu_bytes = 25165824,
                     .warm_gpu_bytes = mib(512),
-                    .prefetch_allowance_percent = 25};
+                    .warm_audio_bytes = 12582912};
         case AssetMemoryPreset::High:
             return {.source_bytes = mib(192),
                     .prepared_cpu_bytes = mib(192),
                     .gpu_bytes = mib(1408),
                     .audio_bytes = mib(96),
                     .temporary_bytes = mib(96),
+                    .warm_prepared_cpu_bytes = 70464307,
                     .warm_gpu_bytes = mib(1024),
-                    .prefetch_allowance_percent = 35};
+                    .warm_audio_bytes = 35232153};
         }
         break;
     case AssetMemoryTarget::Web:
@@ -101,8 +93,9 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
                     .gpu_bytes = mib(320),
                     .audio_bytes = mib(16),
                     .temporary_bytes = mib(16),
+                    .warm_prepared_cpu_bytes = 3355443,
                     .warm_gpu_bytes = mib(256),
-                    .prefetch_allowance_percent = 10};
+                    .warm_audio_bytes = 1677721};
         case AssetMemoryPreset::Balanced:
         case AssetMemoryPreset::Custom:
             return {.source_bytes = mib(64),
@@ -110,16 +103,18 @@ ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset pres
                     .gpu_bytes = mib(640),
                     .audio_bytes = mib(32),
                     .temporary_bytes = mib(32),
+                    .warm_prepared_cpu_bytes = 13421772,
                     .warm_gpu_bytes = mib(512),
-                    .prefetch_allowance_percent = 20};
+                    .warm_audio_bytes = 6710886};
         case AssetMemoryPreset::High:
             return {.source_bytes = mib(128),
                     .prepared_cpu_bytes = mib(128),
                     .gpu_bytes = mib(1280),
                     .audio_bytes = mib(64),
                     .temporary_bytes = mib(64),
+                    .warm_prepared_cpu_bytes = 40265318,
                     .warm_gpu_bytes = mib(1024),
-                    .prefetch_allowance_percent = 30};
+                    .warm_audio_bytes = 20132659};
         }
         break;
     }
@@ -188,11 +183,6 @@ bool resident_over_budget(const ResidencyCost& current, const ResidencyBudget& b
            current.gpu_bytes > budget.gpu_bytes || current.audio_bytes > budget.audio_bytes;
 }
 
-std::uint64_t allowance_bytes(std::uint64_t budget, std::uint32_t percent) noexcept
-{
-    return budget / 100u * percent + budget % 100u * percent / 100u;
-}
-
 bool warm_over_budget(const ResidencyCost& current, const ResidencyBudget& budget) noexcept
 {
     const auto allowance = prefetch_allowance_cost(budget);
@@ -211,12 +201,9 @@ core::Diagnostic pressure_diagnostic(std::string code, std::string message)
 
 ResidencyCost prefetch_allowance_cost(const ResidencyBudget& budget) noexcept
 {
-    const auto percent = budget.prefetch_allowance_percent;
-    return {.prepared_cpu_bytes = budget.warm_prepared_cpu_bytes.value_or(
-                allowance_bytes(budget.prepared_cpu_bytes, percent)),
-            .gpu_bytes = budget.warm_gpu_bytes.value_or(allowance_bytes(budget.gpu_bytes, percent)),
-            .audio_bytes =
-                budget.warm_audio_bytes.value_or(allowance_bytes(budget.audio_bytes, percent))};
+    return {.prepared_cpu_bytes = budget.warm_prepared_cpu_bytes,
+            .gpu_bytes = budget.warm_gpu_bytes,
+            .audio_bytes = budget.warm_audio_bytes};
 }
 
 bool prefetch_fits_warm_budget(const ResidencyCost& current_warm, const ResidencyCost& added,
@@ -240,30 +227,11 @@ resolve_asset_memory_policy(AssetMemoryTarget target, AssetMemoryPreset preset,
         budget.gpu_bytes = custom.gpu_bytes.value_or(budget.gpu_bytes);
         budget.audio_bytes = custom.audio_bytes.value_or(budget.audio_bytes);
         budget.temporary_bytes = custom.temporary_bytes.value_or(budget.temporary_bytes);
-        budget.prefetch_allowance_percent =
-            custom.prefetch_allowance_percent.value_or(budget.prefetch_allowance_percent);
+        budget.warm_prepared_cpu_bytes =
+            custom.warm_prepared_cpu_bytes.value_or(budget.warm_prepared_cpu_bytes);
+        budget.warm_gpu_bytes = custom.warm_gpu_bytes.value_or(budget.warm_gpu_bytes);
+        budget.warm_audio_bytes = custom.warm_audio_bytes.value_or(budget.warm_audio_bytes);
     }
-
-    auto legacy_budget = budget;
-    if (preset == AssetMemoryPreset::Custom) {
-        legacy_budget.warm_prepared_cpu_bytes.reset();
-        legacy_budget.warm_gpu_bytes.reset();
-        legacy_budget.warm_audio_bytes.reset();
-        if (!custom.gpu_bytes)
-            legacy_budget.gpu_bytes = legacy_custom_gpu_percentage_base(target);
-    }
-    legacy_budget.prefetch_allowance_percent = std::min(budget.prefetch_allowance_percent, 100u);
-    const auto legacy_allowance = prefetch_allowance_cost(legacy_budget);
-    budget.warm_prepared_cpu_bytes =
-        preset == AssetMemoryPreset::Custom
-            ? custom.warm_prepared_cpu_bytes.value_or(legacy_allowance.prepared_cpu_bytes)
-            : legacy_allowance.prepared_cpu_bytes;
-    budget.warm_gpu_bytes = preset == AssetMemoryPreset::Custom
-                                ? custom.warm_gpu_bytes.value_or(legacy_allowance.gpu_bytes)
-                                : legacy_allowance.gpu_bytes;
-    budget.warm_audio_bytes = preset == AssetMemoryPreset::Custom
-                                  ? custom.warm_audio_bytes.value_or(legacy_allowance.audio_bytes)
-                                  : legacy_allowance.audio_bytes;
 
     core::Diagnostics diagnostics;
     if (budget.prepared_cpu_bytes == 0)
@@ -280,22 +248,17 @@ resolve_asset_memory_policy(AssetMemoryTarget target, AssetMemoryPreset preset,
             invalid_policy_field("/assetMemory/custom/temporaryBytes",
                                  "temporary preparation budget must be at least 1 MiB"));
     }
-    if (budget.prefetch_allowance_percent > 100) {
-        diagnostics.push_back(
-            invalid_policy_field("/assetMemory/custom/prefetchAllowancePercent",
-                                 "prefetch allowance percent must be between 0 and 100"));
-    }
-    if (budget.warm_prepared_cpu_bytes.value_or(0) > budget.prepared_cpu_bytes) {
+    if (budget.warm_prepared_cpu_bytes > budget.prepared_cpu_bytes) {
         diagnostics.push_back(invalid_policy_field(
             "/assetMemory/custom/warmPreparedCpuBytes",
             "Warm prepared CPU ceiling must not exceed the prepared CPU residency ceiling"));
     }
-    if (budget.warm_gpu_bytes.value_or(0) > budget.gpu_bytes) {
+    if (budget.warm_gpu_bytes > budget.gpu_bytes) {
         diagnostics.push_back(
             invalid_policy_field("/assetMemory/custom/warmGpuBytes",
                                  "Warm GPU ceiling must not exceed the GPU residency ceiling"));
     }
-    if (budget.warm_audio_bytes.value_or(0) > budget.audio_bytes) {
+    if (budget.warm_audio_bytes > budget.audio_bytes) {
         diagnostics.push_back(
             invalid_policy_field("/assetMemory/custom/warmAudioBytes",
                                  "Warm audio ceiling must not exceed the audio residency ceiling"));

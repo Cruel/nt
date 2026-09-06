@@ -743,23 +743,6 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
     );
   }
 
-  function setPercentOverride(enabled: boolean) {
-    if (!selectedPolicy) return;
-    updatePolicy(
-      selectedPolicy.id,
-      (policy) => {
-        const overrides = { ...policy.overrides };
-        if (enabled)
-          overrides.prefetchAllowancePercent = baseResolved(
-            policy.basePreset,
-          ).prefetchAllowancePercent;
-        else delete overrides.prefetchAllowancePercent;
-        return { ...policy, overrides };
-      },
-      `Update ${selectedPolicy.label} prefetch allowance`,
-    );
-  }
-
   const resolutions = selectedPolicy
     ? [
         ['Desktop', 'linux'],
@@ -792,9 +775,8 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
           <div>
             <CardTitle>Asset Memory Policies</CardTitle>
             <CardDescription>
-              Define reusable policies based on Low, Balanced, or High. Total and temporary fields
-              inherit each target&apos;s built-in values; Warm fields without absolute overrides
-              retain the compatibility percentage.
+              Define reusable policies based on Low, Balanced, or High. Total, temporary, and Warm
+              fields inherit each target&apos;s built-in absolute values unless overridden.
             </CardDescription>
           </div>
           <Button type="button" size="sm" onClick={addPolicy}>
@@ -881,9 +863,7 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
                       const overrideStatus =
                         override !== undefined
                           ? 'Absolute override'
-                          : field.startsWith('warm')
-                            ? 'Resolved from compatibility percentage'
-                            : 'Inherited from target preset';
+                          : 'Inherited from target preset';
                       return (
                         <div
                           key={field}
@@ -929,44 +909,6 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
                         </div>
                       );
                     })}
-                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_9rem] sm:items-center">
-                      <div>
-                        <div className="text-sm font-medium">Warm prefetch allowance</div>
-                        <div className="text-xs text-muted-foreground">
-                          {selectedPolicy.overrides.prefetchAllowancePercent === undefined
-                            ? 'Inherited from target preset'
-                            : 'Absolute percentage override'}
-                        </div>
-                      </div>
-                      <label className="flex items-center gap-2 text-xs">
-                        <Switch
-                          checked={selectedPolicy.overrides.prefetchAllowancePercent !== undefined}
-                          onCheckedChange={setPercentOverride}
-                        />
-                        Override
-                      </label>
-                      <Input
-                        aria-label="Warm prefetch allowance percent"
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        disabled={selectedPolicy.overrides.prefetchAllowancePercent === undefined}
-                        value={selectedPolicy.overrides.prefetchAllowancePercent ?? ''}
-                        onChange={(event) => {
-                          const percent = Number(event.currentTarget.value);
-                          if (!Number.isInteger(percent) || percent < 0 || percent > 100) return;
-                          updatePolicy(
-                            selectedPolicy.id,
-                            (policy) => ({
-                              ...policy,
-                              overrides: { ...policy.overrides, prefetchAllowancePercent: percent },
-                            }),
-                            `Update ${selectedPolicy.label} prefetch allowance`,
-                          );
-                        }}
-                      />
-                    </div>
                   </div>
 
                   <div className="overflow-x-auto rounded border">

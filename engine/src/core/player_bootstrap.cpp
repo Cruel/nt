@@ -324,8 +324,7 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         if (!memory_it->is_object() ||
             !exact_keys(*memory_it,
                         {"preset", "preparedCpuBytes", "gpuBytes", "audioBytes", "temporaryBytes",
-                         "warmPreparedCpuBytes", "warmGpuBytes", "warmAudioBytes",
-                         "prefetchAllowancePercent"},
+                         "warmPreparedCpuBytes", "warmGpuBytes", "warmAudioBytes"},
                         {}, result, "/assetMemory"))
             return result;
         const auto preset = memory_it->find("preset");
@@ -336,19 +335,12 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         const auto warm_prepared_cpu = memory_it->find("warmPreparedCpuBytes");
         const auto warm_gpu = memory_it->find("warmGpuBytes");
         const auto warm_audio = memory_it->find("warmAudioBytes");
-        const auto allowance = memory_it->find("prefetchAllowancePercent");
         if (!preset->is_string() || !prepared_cpu->is_number_unsigned() ||
             !gpu->is_number_unsigned() || !audio->is_number_unsigned() ||
             !temporary->is_number_unsigned() || !warm_prepared_cpu->is_number_unsigned() ||
-            !warm_gpu->is_number_unsigned() || !warm_audio->is_number_unsigned() ||
-            !allowance->is_number_unsigned()) {
+            !warm_gpu->is_number_unsigned() || !warm_audio->is_number_unsigned()) {
             fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory",
                  "asset memory fields have invalid types");
-            return result;
-        }
-        if (allowance->get<std::uint64_t>() > std::numeric_limits<std::uint32_t>::max()) {
-            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/prefetchAllowancePercent",
-                 "value exceeds runtime range");
             return result;
         }
         PlayerAssetMemoryConfig memory{
@@ -360,7 +352,6 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
             .warm_prepared_cpu_bytes = warm_prepared_cpu->get<std::uint64_t>(),
             .warm_gpu_bytes = warm_gpu->get<std::uint64_t>(),
             .warm_audio_bytes = warm_audio->get<std::uint64_t>(),
-            .prefetch_allowance_percent = allowance->get<std::uint32_t>(),
         };
         if (memory.preset != "low" && memory.preset != "balanced" && memory.preset != "high" &&
             memory.preset != "custom") {
@@ -388,9 +379,6 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         if (memory.warm_audio_bytes > memory.audio_bytes)
             fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/warmAudioBytes",
                  "Warm audio ceiling must not exceed the audio residency ceiling");
-        if (memory.prefetch_allowance_percent > 100)
-            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/prefetchAllowancePercent",
-                 "prefetch allowance percent must be between 0 and 100");
         config.asset_memory = std::move(memory);
     }
     for (const auto& capability : *capabilities) {

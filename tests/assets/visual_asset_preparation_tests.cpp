@@ -50,11 +50,15 @@ assets::AssetBytes png_header_with_dimensions(std::uint32_t width, std::uint32_t
 
 assets::ResidencyBudget generous_budget()
 {
-    return {.source_bytes = 16u * 1024u * 1024u,
-            .prepared_cpu_bytes = 16u * 1024u * 1024u,
-            .gpu_bytes = 16u * 1024u * 1024u,
-            .audio_bytes = 16u * 1024u * 1024u,
-            .temporary_bytes = 16u * 1024u * 1024u};
+    constexpr std::uint64_t generous = 16u * 1024u * 1024u;
+    return {.source_bytes = generous,
+            .prepared_cpu_bytes = generous,
+            .gpu_bytes = generous,
+            .audio_bytes = generous,
+            .temporary_bytes = generous,
+            .warm_prepared_cpu_bytes = generous,
+            .warm_gpu_bytes = generous,
+            .warm_audio_bytes = generous};
 }
 
 template<class Predicate> bool drive_until(jobs::InlineJobExecutor& executor, Predicate predicate)

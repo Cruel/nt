@@ -94,11 +94,15 @@ assets::AssetBytes stored_zip(std::string_view path, const assets::AssetBytes& b
 
 assets::ResidencyBudget generous_budget()
 {
-    return {.source_bytes = 32u * 1024u * 1024u,
-            .prepared_cpu_bytes = 32u * 1024u * 1024u,
-            .gpu_bytes = 32u * 1024u * 1024u,
-            .audio_bytes = 32u * 1024u * 1024u,
-            .temporary_bytes = 32u * 1024u * 1024u};
+    constexpr std::uint64_t generous = 32u * 1024u * 1024u;
+    return {.source_bytes = generous,
+            .prepared_cpu_bytes = generous,
+            .gpu_bytes = generous,
+            .audio_bytes = generous,
+            .temporary_bytes = generous,
+            .warm_prepared_cpu_bytes = generous,
+            .warm_gpu_bytes = generous,
+            .warm_audio_bytes = generous};
 }
 
 struct ReaderProbe {

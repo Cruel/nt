@@ -118,7 +118,6 @@ export interface EnginePreviewAssetMemoryPolicy {
   warmPreparedCpuBytes: number;
   warmGpuBytes: number;
   warmAudioBytes: number;
-  prefetchAllowancePercent: number;
 }
 
 export interface EnginePreviewSettings {
@@ -760,11 +759,7 @@ function isEnginePreviewAssetMemoryPolicy(value: unknown): value is EnginePrevie
     nonNegativeSafeInteger(value.warmGpuBytes) &&
     (value.warmGpuBytes as number) <= (value.gpuBytes as number) &&
     nonNegativeSafeInteger(value.warmAudioBytes) &&
-    (value.warmAudioBytes as number) <= (value.audioBytes as number) &&
-    typeof value.prefetchAllowancePercent === 'number' &&
-    Number.isInteger(value.prefetchAllowancePercent) &&
-    value.prefetchAllowancePercent >= 0 &&
-    value.prefetchAllowancePercent <= 100
+    (value.warmAudioBytes as number) <= (value.audioBytes as number)
   );
 }
 

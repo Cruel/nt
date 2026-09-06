@@ -2394,7 +2394,6 @@ export function FullGamePreviewEditor({
           warmPreparedCpuBytes: effectiveAssetMemoryPolicy.warmPreparedCpuBytes,
           warmGpuBytes: effectiveAssetMemoryPolicy.warmGpuBytes,
           warmAudioBytes: effectiveAssetMemoryPolicy.warmAudioBytes,
-          prefetchAllowancePercent: effectiveAssetMemoryPolicy.prefetchAllowancePercent,
         },
       })
       .catch((error: Error) => {
@@ -2411,7 +2410,6 @@ export function FullGamePreviewEditor({
     assetMemoryTarget,
     effectiveAssetMemoryPolicy.audioBytes,
     effectiveAssetMemoryPolicy.gpuBytes,
-    effectiveAssetMemoryPolicy.prefetchAllowancePercent,
     effectiveAssetMemoryPolicy.preparedCpuBytes,
     effectiveAssetMemoryPolicy.warmAudioBytes,
     effectiveAssetMemoryPolicy.warmGpuBytes,

@@ -102,7 +102,7 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
       "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
       "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
       "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
-      "assetMemory":{"preset":"balanced","preparedCpuBytes":134217728,"gpuBytes":268435456,"audioBytes":67108864,"temporaryBytes":67108864,"warmPreparedCpuBytes":40265318,"warmGpuBytes":80530636,"warmAudioBytes":20132659,"prefetchAllowancePercent":30}
+      "assetMemory":{"preset":"balanced","preparedCpuBytes":134217728,"gpuBytes":268435456,"audioBytes":67108864,"temporaryBytes":67108864,"warmPreparedCpuBytes":40265318,"warmGpuBytes":80530636,"warmAudioBytes":20132659}
     })");
     REQUIRE(result.success());
     REQUIRE(result.config.asset_memory);
@@ -111,7 +111,6 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
     CHECK(result.config.asset_memory->warm_prepared_cpu_bytes == 40265318);
     CHECK(result.config.asset_memory->warm_gpu_bytes == 80530636);
     CHECK(result.config.asset_memory->warm_audio_bytes == 20132659);
-    CHECK(result.config.asset_memory->prefetch_allowance_percent == 30);
 
     const auto invalid = parse_player_config(R"({
       "format":"noveltea.player-config","formatVersion":1,"displayName":"Game",
@@ -119,14 +118,11 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
       "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
       "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
       "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
-      "assetMemory":{"preset":"custom","preparedCpuBytes":1,"gpuBytes":1,"audioBytes":1,"temporaryBytes":1024,"warmPreparedCpuBytes":2,"warmGpuBytes":2,"warmAudioBytes":2,"prefetchAllowancePercent":101}
+      "assetMemory":{"preset":"custom","preparedCpuBytes":1,"gpuBytes":1,"audioBytes":1,"temporaryBytes":1024,"warmPreparedCpuBytes":2,"warmGpuBytes":2,"warmAudioBytes":2}
     })");
     REQUIRE_FALSE(invalid.success());
     CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
         return diagnostic.path == "/assetMemory/temporaryBytes";
-    }));
-    CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
-        return diagnostic.path == "/assetMemory/prefetchAllowancePercent";
     }));
     CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
         return diagnostic.path == "/assetMemory/warmPreparedCpuBytes";
@@ -136,6 +132,19 @@ TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
     }));
     CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
         return diagnostic.path == "/assetMemory/warmAudioBytes";
+    }));
+
+    const auto legacy_percentage = parse_player_config(R"({
+      "format":"noveltea.player-config","formatVersion":1,"displayName":"Game",
+      "applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1.0.0",
+      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
+      "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
+      "assetMemory":{"preset":"balanced","preparedCpuBytes":134217728,"gpuBytes":268435456,"audioBytes":67108864,"temporaryBytes":67108864,"warmPreparedCpuBytes":40265318,"warmGpuBytes":80530636,"warmAudioBytes":20132659,"prefetchAllowancePercent":30}
+    })");
+    REQUIRE_FALSE(legacy_percentage.success());
+    CHECK(std::ranges::any_of(legacy_percentage.diagnostics, [](const auto& diagnostic) {
+        return diagnostic.path == "/assetMemory/prefetchAllowancePercent";
     }));
 }
 

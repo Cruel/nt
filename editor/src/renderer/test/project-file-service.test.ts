@@ -1045,9 +1045,10 @@ describe('project-file-service workspace-v1', () => {
       // main process's parsed AuthoringProject value.
       overrides: {
         temporaryBytes: 1024 * 1024 * 1024,
-        prefetchAllowancePercent: 80,
+        warmGpuBytes: 800 * 1024 * 1024,
         gpuBytes: 1024 * 1024 * 1024,
         preparedCpuBytes: 1024 * 1024 * 1024,
+        warmPreparedCpuBytes: 800 * 1024 * 1024,
       },
     };
     const firstSave = await saveActiveProjectContent(
@@ -1074,7 +1075,9 @@ describe('project-file-service workspace-v1', () => {
         gpuBytes: 4000 * 1024 * 1024,
         audioBytes: 1000 * 1024 * 1024,
         temporaryBytes: 4000 * 1024 * 1024,
-        prefetchAllowancePercent: 80,
+        warmPreparedCpuBytes: 800 * 1024 * 1024,
+        warmGpuBytes: 800 * 1024 * 1024,
+        warmAudioBytes: 800 * 1024 * 1024,
       },
     };
     const recoveryState = structuredClone(firstSave.editorState ?? opened.editorState);

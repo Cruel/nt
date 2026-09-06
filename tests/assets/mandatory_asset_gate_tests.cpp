@@ -31,7 +31,10 @@ assets::ResidencyBudget matrix_budget()
             .prepared_cpu_bytes = 4096,
             .gpu_bytes = 4096,
             .audio_bytes = 4096,
-            .temporary_bytes = 4096};
+            .temporary_bytes = 4096,
+            .warm_prepared_cpu_bytes = 4096,
+            .warm_gpu_bytes = 4096,
+            .warm_audio_bytes = 4096};
 }
 
 template<class T> class MatrixPreparationTask final : public assets::AssetPreparationTask<T> {
