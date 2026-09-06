@@ -116,7 +116,11 @@ eligible, and an animated Room navigation becomes eligible as soon as its target
 even while the active Room transition is still awaiting presentation completion. Pre-commit Room
 transition stages remain ineligible. Runtime reuses the Verb availability already resolved for the
 publication and admits only Interaction/Verb programs whose slots have eligible committed-Room
-subjects; it does not evaluate Interaction Guards merely to improve speculation. The predictor does
+subjects; it does not evaluate Interaction Guards merely to improve speculation. The same structural
+matching query accepts an explicit Room plus eligible-subject set, so future-Room prediction can reuse
+Current-Room selector semantics without constructing a hypothetical Room presentation. Its candidates
+also retain the owning Verb, binding count, and whether structurally plausible primary one-click
+activation exists, providing ranking metadata without evaluating Offer conditions. The predictor does
 not re-evaluate Verb availability, execute Lua, or clone the Runtime Session: runtime supplies the
 semantic program/Layout identities after the normal publication has resolved them. During the
 post-commit transition wait, the resident root and target Room's prospective navigation roots are
