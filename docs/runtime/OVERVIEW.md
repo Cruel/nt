@@ -138,6 +138,19 @@ rather than triggering eager context discovery. Room-hop recursion shares the ex
 structural ceiling, treats sibling exits as independent paths, and cuts active Room cycles, so Warm
 budget analysis can stop or enlarge the same speculative frontier without a separate prediction engine.
 
+Runtime Session also publishes conservative resident-action candidates for future Rooms from the
+current authoritative world placement and compiled Room/Interactable structure. This is a simple
+whole-world structural pass: it does not execute Lua, synthesize a future Room presentation, or add a
+property-dependency graph, and future resident actions are excluded from the authoritative prediction
+requirement prepass. When a prospective or deeper Room handoff reaches one of those Rooms, its resident
+hint and plausible actions join that same Flow traversal. Ranking remains entirely on the existing
+`execution_distance` axis: future Room entry/presentation stays ahead of resident work at that horizon,
+primary/default one-click actions use the resident horizon directly, direct secondary actions receive a
+larger offset, and multi-binding command-building actions receive a still larger offset. A Current Room
+uses the same action metadata from distance zero, so equivalent primary/default work is promoted when the
+Room becomes Current. Room `entry-path` hints remain attached to entry/presentation distance while
+`resident` hints follow the resident-action horizon.
+
 Editor/tooling inspection has two deliberately different read-only views over this same machinery.
 Outside a live Runtime Session, the editor may project the compiler-generated Flow Prediction Index
 to show potential semantic slices, deterministic edges, alternatives, effective dependency groups,

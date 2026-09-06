@@ -17,6 +17,39 @@ enum class KnownCondition : std::uint8_t {
     Unknown,
 };
 
+// A completed Room handoff consumes several lifecycle steps. Keep the rapid one-click resident
+// action at that horizon, but push slower menu/command-building work behind a plausible next hop.
+constexpr std::size_t resident_secondary_action_offset = 4;
+constexpr std::size_t resident_multistep_action_offset = 6;
+
+std::size_t
+resident_action_distance_offset(const ResidentActionPredictionCandidate& candidate) noexcept
+{
+    if (candidate.primary && candidate.binding_count <= 1)
+        return 0;
+    if (candidate.binding_count <= 1)
+        return resident_secondary_action_offset;
+    return resident_multistep_action_offset + ((candidate.binding_count - 2) * 2);
+}
+
+core::compiled::FlowPredictionPoint
+resident_action_point(const ResidentActionPredictionCandidate& candidate)
+{
+    return std::visit(
+        [](const auto& value) -> core::compiled::FlowPredictionPoint {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::InteractionRuleProgramRef>) {
+                return core::compiled::InteractionRulePredictionPoint{value.interaction,
+                                                                      value.rule};
+            } else if constexpr (std::is_same_v<T, core::VerbDefaultProgramRef>) {
+                return core::compiled::VerbDefaultPredictionPoint{value.verb};
+            } else {
+                return core::compiled::UndefinedInteractionPredictionPoint{};
+            }
+        },
+        candidate.program);
+}
+
 struct ProjectedProperty {
     core::PropertyId property;
     core::RuntimeValue value;
@@ -95,8 +128,7 @@ identity_from_command_result(const core::GameplayOperandValue& result)
     return std::visit(
         [](const auto& value) -> std::optional<core::GameplayIdentityOperand> {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, core::RoomId> ||
-                          std::is_same_v<T, core::CharacterId> ||
+            if constexpr (std::is_same_v<T, core::RoomId> || std::is_same_v<T, core::CharacterId> ||
                           std::is_same_v<T, core::InteractableInstanceId> ||
                           std::is_same_v<T, core::RoomFeatureRef> ||
                           std::is_same_v<T, core::InteractableFeatureRef>)
@@ -111,8 +143,8 @@ bool condition_invalidated(const ProjectedProperties& properties,
                            const core::Condition& condition) noexcept
 {
     return std::find(properties.invalidated_conditions.begin(),
-                     properties.invalidated_conditions.end(), condition) !=
-           properties.invalidated_conditions.end();
+                     properties.invalidated_conditions.end(),
+                     condition) != properties.invalidated_conditions.end();
 }
 
 void invalidate_condition(ProjectedProperties& properties, const core::Condition& condition)
@@ -125,7 +157,8 @@ void invalidate_inventory_quantity_facts(ProjectedProperties& properties,
                                          const FlowPredictionContext& context)
 {
     for (const auto& fact : context.condition_facts) {
-        if (std::holds_alternative<core::InventoryQuantityComparisonCondition>(fact.condition.value))
+        if (std::holds_alternative<core::InventoryQuantityComparisonCondition>(
+                fact.condition.value))
             invalidate_condition(properties, fact.condition);
     }
 }
@@ -135,7 +168,8 @@ void invalidate_location_facts(ProjectedProperties& properties,
                                const core::LocationSubjectOperand& subject)
 {
     for (const auto& fact : context.condition_facts) {
-        const auto* location = std::get_if<core::LocationComparisonCondition>(&fact.condition.value);
+        const auto* location =
+            std::get_if<core::LocationComparisonCondition>(&fact.condition.value);
         if (location != nullptr && location->subject == subject)
             invalidate_condition(properties, fact.condition);
     }
@@ -147,21 +181,22 @@ void invalidate_identity_property_facts(ProjectedProperties& properties,
                                         const core::PropertyId& property)
 {
     for (const auto& fact : context.condition_facts) {
-        const auto* comparison = std::get_if<core::IdentityPropertyComparison>(&fact.condition.value);
+        const auto* comparison =
+            std::get_if<core::IdentityPropertyComparison>(&fact.condition.value);
         if (comparison == nullptr)
             continue;
         const bool matches = std::visit(
-            [&](const auto& value) { return value.owner == owner && value.property_id == property; },
+            [&](const auto& value) {
+                return value.owner == owner && value.property_id == property;
+            },
             *comparison);
         if (matches)
             invalidate_condition(properties, fact.condition);
     }
 }
 
-void invalidate_trait_facts(ProjectedProperties& properties,
-                            const FlowPredictionContext& context,
-                            const core::GameplayIdentityOperand& owner,
-                            const core::TraitId& trait)
+void invalidate_trait_facts(ProjectedProperties& properties, const FlowPredictionContext& context,
+                            const core::GameplayIdentityOperand& owner, const core::TraitId& trait)
 {
     for (const auto& fact : context.condition_facts) {
         const auto* comparison = std::get_if<core::TraitPresenceCondition>(&fact.condition.value);
@@ -313,8 +348,8 @@ void collect_context_requirements(const core::Condition& condition,
                     value);
             } else {
                 if (std::find(requirements.condition_facts.begin(),
-                              requirements.condition_facts.end(), condition) ==
-                    requirements.condition_facts.end())
+                              requirements.condition_facts.end(),
+                              condition) == requirements.condition_facts.end())
                     requirements.condition_facts.push_back(condition);
             }
         },
@@ -323,13 +358,11 @@ void collect_context_requirements(const core::Condition& condition,
 
 KnownCondition evaluate_condition(const core::Condition& condition,
                                   const ProjectedProperties& properties,
-                                  const FlowPredictionContext& context,
-                                  bool condition_facts_valid);
+                                  const FlowPredictionContext& context, bool condition_facts_valid);
 
 bool condition_may_execute_opaque(const core::Condition& condition,
                                   const ProjectedProperties& properties,
-                                  const FlowPredictionContext& context,
-                                  bool condition_facts_valid)
+                                  const FlowPredictionContext& context, bool condition_facts_valid)
 {
     return std::visit(
         [&](const auto& value) -> bool {
@@ -379,16 +412,18 @@ resolve_projected_identity(const core::GameplayIdentityOperand& owner,
                            ? std::optional<core::GameplayIdentityOperand>{*properties.current_room}
                            : std::nullopt;
             } else if constexpr (std::is_same_v<T, core::InteractionSlotOperand>) {
-                const auto found = std::ranges::find_if(
-                    properties.interaction_bindings,
-                    [&](const auto& binding) { return binding.slot_id == value.slot_id; });
+                const auto found =
+                    std::ranges::find_if(properties.interaction_bindings, [&](const auto& binding) {
+                        return binding.slot_id == value.slot_id;
+                    });
                 return found == properties.interaction_bindings.end()
                            ? std::nullopt
                            : identity_from_interaction_subject(found->subject);
             } else if constexpr (std::is_same_v<T, core::CommandResultOperand>) {
-                const auto found = std::ranges::find_if(
-                    properties.command_results,
-                    [&](const auto& binding) { return binding.binding_id == value.binding_id; });
+                const auto found =
+                    std::ranges::find_if(properties.command_results, [&](const auto& binding) {
+                        return binding.binding_id == value.binding_id;
+                    });
                 return found == properties.command_results.end()
                            ? std::nullopt
                            : identity_from_command_result(found->value);
@@ -407,9 +442,10 @@ resolve_projected_location_subject(const core::LocationSubjectOperand& subject,
         [&](const auto& value) -> std::optional<core::LocationSubjectOperand> {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, core::InteractionSlotOperand>) {
-                const auto found = std::ranges::find_if(
-                    properties.interaction_bindings,
-                    [&](const auto& binding) { return binding.slot_id == value.slot_id; });
+                const auto found =
+                    std::ranges::find_if(properties.interaction_bindings, [&](const auto& binding) {
+                        return binding.slot_id == value.slot_id;
+                    });
                 if (found == properties.interaction_bindings.end())
                     return std::nullopt;
                 return std::visit(
@@ -419,17 +455,17 @@ resolve_projected_location_subject(const core::LocationSubjectOperand& subject,
                                                      core::compiled::CharacterInteractionSubject>)
                             return core::LocationSubjectOperand{bound.character};
                         else if constexpr (std::is_same_v<
-                                               B,
-                                               core::compiled::InteractableInteractionSubject>)
+                                               B, core::compiled::InteractableInteractionSubject>)
                             return core::LocationSubjectOperand{bound.interactable};
                         else
                             return std::nullopt;
                     },
                     found->subject);
             } else if constexpr (std::is_same_v<T, core::CommandResultOperand>) {
-                const auto found = std::ranges::find_if(
-                    properties.command_results,
-                    [&](const auto& binding) { return binding.binding_id == value.binding_id; });
+                const auto found =
+                    std::ranges::find_if(properties.command_results, [&](const auto& binding) {
+                        return binding.binding_id == value.binding_id;
+                    });
                 if (found == properties.command_results.end())
                     return std::nullopt;
                 return std::visit(
@@ -456,10 +492,11 @@ bool project_identity_property(ProjectedProperties& properties,
     const auto resolved_owner = resolve_projected_identity(owner, properties);
     if (!resolved_owner)
         return false;
-    const auto found = std::find_if(properties.identity_properties.begin(),
-                                    properties.identity_properties.end(), [&](const auto& item) {
-                                        return item.owner == *resolved_owner && item.property == property;
-                                    });
+    const auto found =
+        std::find_if(properties.identity_properties.begin(), properties.identity_properties.end(),
+                     [&](const auto& item) {
+                         return item.owner == *resolved_owner && item.property == property;
+                     });
     if (found == properties.identity_properties.end())
         properties.identity_properties.push_back({*resolved_owner, property, value});
     else
@@ -474,10 +511,10 @@ bool project_trait_presence(ProjectedProperties& properties,
     const auto resolved_owner = resolve_projected_identity(owner, properties);
     if (!resolved_owner)
         return false;
-    const auto found = std::find_if(properties.traits.begin(), properties.traits.end(),
-                                    [&](const auto& item) {
-                                        return item.owner == *resolved_owner && item.trait == trait;
-                                    });
+    const auto found =
+        std::find_if(properties.traits.begin(), properties.traits.end(), [&](const auto& item) {
+            return item.owner == *resolved_owner && item.trait == trait;
+        });
     if (found == properties.traits.end())
         properties.traits.push_back({*resolved_owner, trait, present});
     else
@@ -497,8 +534,8 @@ resolve_projected_location(const core::LocationOperand& location,
                     [&](const auto& room) -> std::optional<core::LocationOperand> {
                         using R = std::decay_t<decltype(room)>;
                         if constexpr (std::is_same_v<R, core::RoomId>) {
-                            return core::LocationOperand{core::RoomLocationOperand{
-                                core::RoomOperand{room}}};
+                            return core::LocationOperand{
+                                core::RoomLocationOperand{core::RoomOperand{room}}};
                         } else if constexpr (std::is_same_v<R, core::CurrentRoomOperand>) {
                             if (!properties.current_room)
                                 return std::nullopt;
@@ -523,17 +560,16 @@ resolve_projected_location(const core::LocationOperand& location,
                                            !std::is_same_v<O, core::CommandResultOperand>;
                                 },
                                 operand.owner);
-                            return stable_owner
-                                       ? std::optional<core::InventoryOperand>{operand}
-                                       : std::nullopt;
+                            return stable_owner ? std::optional<core::InventoryOperand>{operand}
+                                                : std::nullopt;
                         } else {
                             return core::InventoryOperand{operand};
                         }
                     },
                     value.inventory);
                 return inventory
-                           ? std::optional<core::LocationOperand>{
-                                 core::InventoryLocationOperand{std::move(*inventory)}}
+                           ? std::optional<core::LocationOperand>{core::InventoryLocationOperand{
+                                 std::move(*inventory)}}
                            : std::nullopt;
             } else {
                 // Unplaced is a stable semantic location.
@@ -548,10 +584,9 @@ bool project_location(ProjectedProperties& properties, const core::LocationSubje
 {
     const auto resolved_subject = resolve_projected_location_subject(subject, properties);
     const auto resolved = resolve_projected_location(location, properties);
-    const auto found = std::find_if(properties.locations.begin(), properties.locations.end(),
-                                    [&](const auto& item) {
-                                        return resolved_subject && item.subject == *resolved_subject;
-                                    });
+    const auto found = std::find_if(
+        properties.locations.begin(), properties.locations.end(),
+        [&](const auto& item) { return resolved_subject && item.subject == *resolved_subject; });
     if (!resolved_subject || !resolved) {
         if (found != properties.locations.end())
             properties.locations.erase(found);
@@ -639,8 +674,7 @@ KnownCondition evaluate_condition(const core::Condition& condition,
                         if (found == properties.identity_properties.end())
                             return KnownCondition::Unknown;
                         using Comparison = std::decay_t<decltype(comparison)>;
-                        if constexpr (std::is_same_v<Comparison,
-                                                     core::IdentityPropertyTruthiness>)
+                        if constexpr (std::is_same_v<Comparison, core::IdentityPropertyTruthiness>)
                             return compare_truthiness(found->value, comparison.operation);
                         else
                             return compare_values(found->value, comparison.operation,
@@ -660,11 +694,10 @@ KnownCondition evaluate_condition(const core::Condition& condition,
                 const auto resolved_owner = resolve_projected_identity(value.owner, properties);
                 if (!resolved_owner)
                     return KnownCondition::Unknown;
-                const auto found =
-                    std::find_if(properties.traits.begin(), properties.traits.end(),
-                                 [&](const auto& item) {
-                                     return item.owner == *resolved_owner && item.trait == value.trait;
-                                 });
+                const auto found = std::find_if(
+                    properties.traits.begin(), properties.traits.end(), [&](const auto& item) {
+                        return item.owner == *resolved_owner && item.trait == value.trait;
+                    });
                 if (found != properties.traits.end())
                     return found->present == value.present ? KnownCondition::True
                                                            : KnownCondition::False;
@@ -688,9 +721,8 @@ KnownCondition evaluate_condition(const core::Condition& condition,
                     if (!expected)
                         return KnownCondition::Unknown;
                     const bool equal = found->location == *expected;
-                    const bool matches = value.operation == core::EqualityComparisonOperator::Equal
-                                             ? equal
-                                             : !equal;
+                    const bool matches =
+                        value.operation == core::EqualityComparisonOperator::Equal ? equal : !equal;
                     return matches ? KnownCondition::True : KnownCondition::False;
                 }
                 if (!condition_facts_valid)
@@ -732,31 +764,29 @@ ProjectedProperties merge_properties(const ProjectedProperties& left,
             merged.push_back(item);
     }
     for (const auto& item : left.identity_properties) {
-        const auto found = std::find_if(
-            right.identity_properties.begin(), right.identity_properties.end(),
-            [&](const auto& other) {
-                return other.owner == item.owner && other.property == item.property &&
-                       other.value == item.value;
-            });
+        const auto found = std::find_if(right.identity_properties.begin(),
+                                        right.identity_properties.end(), [&](const auto& other) {
+                                            return other.owner == item.owner &&
+                                                   other.property == item.property &&
+                                                   other.value == item.value;
+                                        });
         if (found != right.identity_properties.end())
             merged.identity_properties.push_back(item);
     }
     for (const auto& item : left.traits) {
-        const auto found = std::find_if(right.traits.begin(), right.traits.end(),
-                                        [&](const auto& other) {
-                                            return other.owner == item.owner &&
-                                                   other.trait == item.trait &&
-                                                   other.present == item.present;
-                                        });
+        const auto found =
+            std::find_if(right.traits.begin(), right.traits.end(), [&](const auto& other) {
+                return other.owner == item.owner && other.trait == item.trait &&
+                       other.present == item.present;
+            });
         if (found != right.traits.end())
             merged.traits.push_back(item);
     }
     for (const auto& item : left.locations) {
-        const auto found = std::find_if(right.locations.begin(), right.locations.end(),
-                                        [&](const auto& other) {
-                                            return other.subject == item.subject &&
-                                                   other.location == item.location;
-                                        });
+        const auto found =
+            std::find_if(right.locations.begin(), right.locations.end(), [&](const auto& other) {
+                return other.subject == item.subject && other.location == item.location;
+            });
         if (found != right.locations.end())
             merged.locations.push_back(item);
     }
@@ -897,8 +927,7 @@ public:
         const auto condition_properties = properties;
         const bool condition_facts_before_slice = condition_facts_valid;
         append_dependencies(slice, distance, local_confidence);
-        run_point_hints(slice_index, distance, local_confidence, properties,
-                        condition_facts_valid);
+        run_point_hints(slice_index, distance, local_confidence, properties, condition_facts_valid);
         auto program = run_program(slice.program, distance + 1, local_confidence,
                                    std::move(properties), condition_facts_valid);
         auto followed = run_control(slice, std::move(program), local_confidence, detached_root);
@@ -936,9 +965,9 @@ public:
         run_point_hints(slice_index, distance, confidence, properties, condition_facts_valid);
         auto program = run_programs(option->programs, next_effect, distance, confidence,
                                     std::move(properties), condition_facts_valid);
-        auto result = run_target(option->target, program.next_distance, confidence,
-                                 std::move(program.properties), false,
-                                 program.condition_facts_valid);
+        auto result =
+            run_target(option->target, program.next_distance, confidence,
+                       std::move(program.properties), false, program.condition_facts_valid);
         m_active_slices.pop_back();
         return result;
     }
@@ -971,9 +1000,9 @@ public:
 
         m_active_slices.push_back(slice_index);
         run_point_hints(slice_index, distance, confidence, properties, condition_facts_valid);
-        auto resumed = run_program_from_command(slice.program, *command_id, awaiting_completion,
-                                                distance, confidence, properties,
-                                                condition_facts_valid);
+        auto resumed =
+            run_program_from_command(slice.program, *command_id, awaiting_completion, distance,
+                                     confidence, properties, condition_facts_valid);
         if (!resumed) {
             m_active_slices.pop_back();
             m_result.diagnostics.push_back(
@@ -993,10 +1022,12 @@ public:
         return result;
     }
 
-    Result run_interaction_program(
-        std::size_t slice_index, const std::optional<core::InteractionInstructionId>& command_id,
-        bool awaiting_completion, std::size_t distance, FlowPredictionConfidence confidence,
-        ProjectedProperties properties, bool condition_facts_valid = true)
+    Result run_interaction_program(std::size_t slice_index,
+                                   const std::optional<core::InteractionInstructionId>& command_id,
+                                   bool awaiting_completion, std::size_t distance,
+                                   FlowPredictionConfidence confidence,
+                                   ProjectedProperties properties,
+                                   bool condition_facts_valid = true)
     {
         if (slice_index >= m_index.slices.size()) {
             add_invalid_index(m_result.diagnostics, "slice", slice_index);
@@ -1008,9 +1039,9 @@ public:
 
         std::optional<ProgramResult> resumed;
         if (command_id) {
-            resumed = run_program_from_command(slice.program, *command_id, awaiting_completion,
-                                               distance, confidence, properties,
-                                               condition_facts_valid);
+            resumed =
+                run_program_from_command(slice.program, *command_id, awaiting_completion, distance,
+                                         confidence, properties, condition_facts_valid);
         } else {
             // Interaction completion targets are appended after the top-level instruction
             // summaries and intentionally carry no command id. When runtime has exhausted the
@@ -1117,9 +1148,9 @@ public:
             const auto slice = find_slice(
                 m_index, core::compiled::RoomLifecyclePredictionPoint{stage_room, stage});
             if (slice) {
-                result = run_slice(*slice, result.max_distance, confidence,
-                                   std::move(result.properties), false,
-                                   result.condition_facts_valid);
+                result =
+                    run_slice(*slice, result.max_distance, confidence, std::move(result.properties),
+                              false, result.condition_facts_valid);
             }
             ++result.max_distance;
         };
@@ -1155,8 +1186,7 @@ private:
     };
 
     KnownCondition evaluate_known(const core::Condition& condition,
-                                  const ProjectedProperties& properties,
-                                  bool condition_facts_valid)
+                                  const ProjectedProperties& properties, bool condition_facts_valid)
     {
         const auto result =
             evaluate_condition(condition, properties, m_context, condition_facts_valid);
@@ -1322,6 +1352,34 @@ public:
         }
     }
 
+    void run_future_room_resident_horizon(const core::RoomId& room, std::size_t distance,
+                                          FlowPredictionConfidence confidence,
+                                          const ProjectedProperties& properties,
+                                          bool condition_facts_valid)
+    {
+        const auto found = std::ranges::find_if(
+            m_context.future_resident_rooms,
+            [&](const ResidentRoomPredictionRoot& resident) { return resident.room == room; });
+        if (found == m_context.future_resident_rooms.end())
+            return;
+
+        run_room_hints(room, core::compiled::FlowPredictionRoomHintScope::Resident, distance,
+                       confidence, properties, condition_facts_valid);
+        for (const auto& action : found->actions) {
+            if (const auto slice = find_slice(m_index, resident_action_point(action))) {
+                (void)run_slice(*slice, distance + resident_action_distance_offset(action),
+                                confidence, properties, false, condition_facts_valid);
+            }
+        }
+        for (const auto& layout : found->layouts) {
+            if (const auto slice =
+                    find_slice(m_index, core::compiled::ResidentLayoutPredictionPoint{layout})) {
+                (void)run_slice(*slice, distance, confidence, properties, false,
+                                condition_facts_valid);
+            }
+        }
+    }
+
     void run_ordinary_room_topology(const core::RoomId& room, std::size_t distance,
                                     const ProjectedProperties& properties,
                                     bool condition_facts_valid = true)
@@ -1403,6 +1461,9 @@ public:
             if (!entered.properties.current_room ||
                 *entered.properties.current_room == exit.target) {
                 entered.properties.current_room = exit.target;
+                run_future_room_resident_horizon(exit.target, entered.max_distance,
+                                                 branch_confidence, entered.properties,
+                                                 entered.condition_facts_valid);
                 run_ordinary_room_topology(exit.target, entered.max_distance, entered.properties,
                                            entered.condition_facts_valid);
             }
@@ -1442,30 +1503,28 @@ private:
                         if (!project_identity_property(properties, value.owner, value.property,
                                                        value.value))
                             invalidate_identity_property_facts(properties, m_context, value.owner,
-                                                              value.property);
+                                                               value.property);
                         invalidate_inventory_quantity_facts(properties, m_context);
                     } else if constexpr (std::is_same_v<
-                                             T,
-                                             core::compiled::FlowPredictionSetTraitPresence>) {
+                                             T, core::compiled::FlowPredictionSetTraitPresence>) {
                         if (!project_trait_presence(properties, value.owner, value.trait,
                                                     value.present))
                             invalidate_trait_facts(properties, m_context, value.owner, value.trait);
                         invalidate_inventory_quantity_facts(properties, m_context);
-                    } else if constexpr (
-                        std::is_same_v<T, core::compiled::FlowPredictionSetLocation>) {
+                    } else if constexpr (std::is_same_v<
+                                             T, core::compiled::FlowPredictionSetLocation>) {
                         if (!project_location(properties, value.subject, value.location))
                             invalidate_location_facts(properties, m_context, value.subject);
                         invalidate_inventory_quantity_facts(properties, m_context);
                     } else if constexpr (
                         std::is_same_v<T, core::compiled::FlowPredictionInvalidateGlobalProperty>) {
                         invalidate_property(properties, value.property);
-                    } else if constexpr (std::is_same_v<
-                                             T,
-                                             core::compiled::FlowPredictionInvalidateConditionFacts>) {
+                    } else if constexpr (
+                        std::is_same_v<T, core::compiled::FlowPredictionInvalidateConditionFacts>) {
                         properties.clear_typed();
                         condition_facts_valid = false;
-                    } else if constexpr (
-                        std::is_same_v<T, core::compiled::FlowPredictionInvalidateState>) {
+                    } else if constexpr (std::is_same_v<
+                                             T, core::compiled::FlowPredictionInvalidateState>) {
                         properties.clear();
                         condition_facts_valid = false;
                     } else if constexpr (std::is_same_v<T, core::compiled::FlowPredictionOpaque>) {
@@ -1489,17 +1548,16 @@ private:
                         condition_facts_valid = false;
                     } else if constexpr (std::is_same_v<
                                              T, core::compiled::FlowPredictionCallDialogue>) {
-                        auto child = run_child(entry_point(value.dialogue), next_distance,
-                                               confidence, properties, false,
-                                               condition_facts_valid);
+                        auto child =
+                            run_child(entry_point(value.dialogue), next_distance, confidence,
+                                      properties, false, condition_facts_valid);
                         next_distance = std::max(next_distance, child.max_distance + 1);
                         properties = std::move(child.properties);
                         condition_facts_valid = child.condition_facts_valid;
                     } else if constexpr (std::is_same_v<T,
                                                         core::compiled::FlowPredictionEnterRoom>) {
-                        auto room =
-                            run_room_entry(value.room, next_distance, confidence, properties,
-                                           condition_facts_valid);
+                        auto room = run_room_entry(value.room, next_distance, confidence,
+                                                   properties, condition_facts_valid);
                         next_distance = std::max(next_distance, room.max_distance);
                         properties = std::move(room.properties);
                         condition_facts_valid = room.condition_facts_valid;
@@ -1522,14 +1580,12 @@ private:
                             return run_program(value.else_commands, next_distance + 1, confidence,
                                                std::move(properties), condition_facts_valid);
                         }
-                        auto then_result =
-                            run_program(value.then_commands, next_distance + 1,
-                                        FlowPredictionConfidence::Alternative, properties,
-                                        condition_facts_valid);
-                        auto else_result =
-                            run_program(value.else_commands, next_distance + 1,
-                                        FlowPredictionConfidence::Alternative, properties,
-                                        condition_facts_valid);
+                        auto then_result = run_program(value.then_commands, next_distance + 1,
+                                                       FlowPredictionConfidence::Alternative,
+                                                       properties, condition_facts_valid);
+                        auto else_result = run_program(value.else_commands, next_distance + 1,
+                                                       FlowPredictionConfidence::Alternative,
+                                                       properties, condition_facts_valid);
                         return {merge_properties(then_result.properties, else_result.properties),
                                 std::max(then_result.next_distance, else_result.next_distance),
                                 then_result.condition_facts_valid &&
@@ -1568,15 +1624,15 @@ private:
             const auto* branch = std::get_if<core::compiled::FlowPredictionIf>(&command.value);
             if (branch == nullptr)
                 continue;
-            if (auto nested = run_program_from_command(branch->then_commands, command_id, completed,
-                                                       distance, confidence, properties,
-                                                       condition_facts_valid))
+            if (auto nested =
+                    run_program_from_command(branch->then_commands, command_id, completed, distance,
+                                             confidence, properties, condition_facts_valid))
                 return run_program_from(program, index + 1, nested->next_distance, confidence,
                                         std::move(nested->properties),
                                         nested->condition_facts_valid);
-            if (auto nested = run_program_from_command(branch->else_commands, command_id, completed,
-                                                       distance, confidence, properties,
-                                                       condition_facts_valid))
+            if (auto nested =
+                    run_program_from_command(branch->else_commands, command_id, completed, distance,
+                                             confidence, properties, condition_facts_valid))
                 return run_program_from(program, index + 1, nested->next_distance, confidence,
                                         std::move(nested->properties),
                                         nested->condition_facts_valid);
@@ -1670,9 +1726,9 @@ private:
                     auto branch_properties = program.properties;
                     bool branch_condition_facts_valid = program.condition_facts_valid;
                     for (const auto& branch : control.branches) {
-                        const bool opaque_condition = condition_may_execute_opaque(
-                            branch.condition, branch_properties, m_context,
-                            branch_condition_facts_valid);
+                        const bool opaque_condition =
+                            condition_may_execute_opaque(branch.condition, branch_properties,
+                                                         m_context, branch_condition_facts_valid);
                         if (opaque_condition)
                             append_opaque_frontier();
                         const auto evaluated = evaluate_known(branch.condition, branch_properties,
@@ -1688,8 +1744,7 @@ private:
                                 run_target(branch.target, distance,
                                            widened ? FlowPredictionConfidence::Alternative
                                                    : continuation_confidence,
-                                           branch_properties, false,
-                                           branch_condition_facts_valid);
+                                           branch_properties, false, branch_condition_facts_valid);
                             if (!widened)
                                 return selected;
                             alternatives.push_back(std::move(selected));
@@ -1697,18 +1752,16 @@ private:
                             break;
                         }
                         widened = true;
-                        alternatives.push_back(run_target(branch.target, distance,
-                                                          FlowPredictionConfidence::Alternative,
-                                                          branch_properties, false,
-                                                          branch_condition_facts_valid));
+                        alternatives.push_back(run_target(
+                            branch.target, distance, FlowPredictionConfidence::Alternative,
+                            branch_properties, false, branch_condition_facts_valid));
                     }
                     if (fallthrough_possible)
                         alternatives.push_back(
                             run_target(control.fallback, distance,
                                        widened ? FlowPredictionConfidence::Alternative
                                                : continuation_confidence,
-                                       branch_properties, false,
-                                       branch_condition_facts_valid));
+                                       branch_properties, false, branch_condition_facts_valid));
                     Result merged = std::move(alternatives.front());
                     for (std::size_t index = 1; index < alternatives.size(); ++index) {
                         merged.max_distance =
@@ -1724,15 +1777,14 @@ private:
                     bool choice_condition_facts_valid = program.condition_facts_valid;
                     for (const auto& option : control.options) {
                         const bool opaque_condition =
-                            option.condition && condition_may_execute_opaque(
-                                                    *option.condition, choice_properties, m_context,
-                                                    choice_condition_facts_valid);
+                            option.condition &&
+                            condition_may_execute_opaque(*option.condition, choice_properties,
+                                                         m_context, choice_condition_facts_valid);
                         if (opaque_condition)
                             append_opaque_frontier();
                         if (option.condition) {
-                            const auto evaluated = evaluate_known(*option.condition,
-                                                                  choice_properties,
-                                                                  choice_condition_facts_valid);
+                            const auto evaluated = evaluate_known(
+                                *option.condition, choice_properties, choice_condition_facts_valid);
                             if (opaque_condition) {
                                 choice_properties.clear();
                                 choice_condition_facts_valid = false;
@@ -1740,15 +1792,14 @@ private:
                             if (evaluated == KnownCondition::False)
                                 continue;
                         }
-                        auto option_program =
-                            run_programs(option.programs, 0, distance,
-                                         FlowPredictionConfidence::Alternative, choice_properties,
-                                         choice_condition_facts_valid);
-                        alternatives.push_back(run_target(option.target,
-                                                          option_program.next_distance,
-                                                          FlowPredictionConfidence::Alternative,
-                                                          std::move(option_program.properties), false,
-                                                          option_program.condition_facts_valid));
+                        auto option_program = run_programs(
+                            option.programs, 0, distance, FlowPredictionConfidence::Alternative,
+                            choice_properties, choice_condition_facts_valid);
+                        alternatives.push_back(
+                            run_target(option.target, option_program.next_distance,
+                                       FlowPredictionConfidence::Alternative,
+                                       std::move(option_program.properties), false,
+                                       option_program.condition_facts_valid));
                     }
                     if (alternatives.empty())
                         return {std::move(program.properties), distance,
@@ -1808,20 +1859,22 @@ FlowPredictionProjection FlowPredictor::predict(const core::compiled::Entrypoint
             if constexpr (std::is_same_v<T, core::RoomId>) {
                 const auto* room = m_project->find_room(value);
                 const bool can_enter_hook_opaque =
-                    room != nullptr && std::ranges::any_of(room->script_hooks, [](const auto& hook) {
+                    room != nullptr &&
+                    std::ranges::any_of(room->script_hooks, [](const auto& hook) {
                         return hook.hook == core::compiled::RoomScriptHookKind::CanEnter;
                     });
-                return predict(ProspectiveRoomEntryPredictionRoot{
-                                   .source_room = std::nullopt,
-                                   .target_room = value,
-                                   .source_can_leave = std::nullopt,
-                                   .exit_condition = std::nullopt,
-                                   .target_can_enter = room ? std::optional<core::Condition>{
-                                                                  room->lifecycle.can_enter}
-                                                            : std::nullopt,
-                                   .source_can_leave_hook_opaque = false,
-                                   .target_can_enter_hook_opaque = can_enter_hook_opaque},
-                               context);
+                return predict(
+                    ProspectiveRoomEntryPredictionRoot{
+                        .source_room = std::nullopt,
+                        .target_room = value,
+                        .source_can_leave = std::nullopt,
+                        .exit_condition = std::nullopt,
+                        .target_can_enter =
+                            room ? std::optional<core::Condition>{room->lifecycle.can_enter}
+                                 : std::nullopt,
+                        .source_can_leave_hook_opaque = false,
+                        .target_can_enter_hook_opaque = can_enter_hook_opaque},
+                    context);
             } else {
                 FlowPredictionProjection result;
                 const auto& optional_index = m_project->flow_prediction();
@@ -1871,8 +1924,8 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     const auto evaluate_guard = [&](const std::optional<core::Condition>& guard, bool opaque_hook,
                                     core::compiled::FlowPredictionPoint attachment_point) {
         const bool opaque_condition =
-            guard && condition_may_execute_opaque(*guard, properties, context,
-                                                  condition_facts_valid);
+            guard &&
+            condition_may_execute_opaque(*guard, properties, context, condition_facts_valid);
         if (opaque_condition || opaque_hook)
             traversal.append_root_opaque_frontier(std::move(attachment_point));
         if (guard) {
@@ -1922,9 +1975,8 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     auto run_stage = [&](const core::RoomId& room,
                          core::compiled::RoomLifecyclePredictionStage stage) {
         if (const auto slice = find_room_stage(index, room, stage)) {
-            auto stage_result = traversal.run_slice(*slice, distance, confidence,
-                                                    std::move(properties), false,
-                                                    condition_facts_valid);
+            auto stage_result = traversal.run_slice(
+                *slice, distance, confidence, std::move(properties), false, condition_facts_valid);
             properties = std::move(stage_result.properties);
             condition_facts_valid = stage_result.condition_facts_valid;
             distance = std::max(distance, stage_result.max_distance);
@@ -1955,6 +2007,8 @@ FlowPredictionProjection FlowPredictor::predict(const ProspectiveRoomEntryPredic
     // supplies a nearer authoritative root.
     if (!properties.current_room || *properties.current_room == root.target_room) {
         properties.current_room = root.target_room;
+        traversal.run_future_room_resident_horizon(root.target_room, distance, confidence,
+                                                   properties, condition_facts_valid);
         traversal.run_ordinary_room_topology(root.target_room, distance, properties,
                                              condition_facts_valid);
     }
@@ -1982,22 +2036,10 @@ FlowPredictionProjection FlowPredictor::predict(const ResidentRoomPredictionRoot
     const auto properties = initial_properties(context);
     traversal.run_room_hints(root.room, core::compiled::FlowPredictionRoomHintScope::Resident, 0,
                              FlowPredictionConfidence::Alternative, properties);
-    for (const auto& program : root.programs) {
-        const auto point = std::visit(
-            [](const auto& value) -> core::compiled::FlowPredictionPoint {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::InteractionRuleProgramRef>) {
-                    return core::compiled::InteractionRulePredictionPoint{value.interaction,
-                                                                          value.rule};
-                } else if constexpr (std::is_same_v<T, core::VerbDefaultProgramRef>) {
-                    return core::compiled::VerbDefaultPredictionPoint{value.verb};
-                } else {
-                    return core::compiled::UndefinedInteractionPredictionPoint{};
-                }
-            },
-            program);
-        if (const auto slice = find_slice(index, point)) {
-            (void)traversal.run_slice(*slice, 0, FlowPredictionConfidence::Alternative, properties);
+    for (const auto& action : root.actions) {
+        if (const auto slice = find_slice(index, resident_action_point(action))) {
+            (void)traversal.run_slice(*slice, resident_action_distance_offset(action),
+                                      FlowPredictionConfidence::Alternative, properties);
         }
     }
     for (const auto& layout : root.layouts) {
@@ -2060,8 +2102,8 @@ FlowPredictionProjection FlowPredictor::predict(const ActiveScenePredictionRoot&
             std::get_if<core::SceneChoiceEffectPosition>(&root.position.substate)) {
         if (root.position.next_step) {
             if (const auto slice = step_slice(*root.position.next_step)) {
-                traversal.set_root_point_override(core::compiled::SceneStepPredictionPoint{
-                    root.scene, *root.position.next_step});
+                traversal.set_root_point_override(
+                    core::compiled::SceneStepPredictionPoint{root.scene, *root.position.next_step});
                 const auto next_effect =
                     effects->next_effect + (effects->awaiting_completion ? 1U : 0U);
                 const auto distance = effects->awaiting_completion ? 3U : 0U;
@@ -2206,7 +2248,8 @@ FlowPredictionProjection FlowPredictor::predict(const ActiveInteractionPredictio
         [](const auto& value) -> core::compiled::FlowPredictionPoint {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, core::InteractionRuleProgramRef>) {
-                return core::compiled::InteractionRulePredictionPoint{value.interaction, value.rule};
+                return core::compiled::InteractionRulePredictionPoint{value.interaction,
+                                                                      value.rule};
             } else if constexpr (std::is_same_v<T, core::VerbDefaultProgramRef>) {
                 return core::compiled::VerbDefaultPredictionPoint{value.verb};
             } else {

@@ -86,6 +86,21 @@ struct FlowPredictionConditionFact {
     bool operator==(const FlowPredictionConditionFact&) const = default;
 };
 
+struct ResidentActionPredictionCandidate {
+    core::InteractionProgramRef program;
+    std::optional<core::VerbId> verb;
+    std::size_t binding_count = 0;
+    bool primary = false;
+    bool operator==(const ResidentActionPredictionCandidate&) const = default;
+};
+
+struct ResidentRoomPredictionRoot {
+    core::RoomId room;
+    std::vector<ResidentActionPredictionCandidate> actions;
+    std::vector<core::LayoutId> layouts;
+    bool operator==(const ResidentRoomPredictionRoot&) const = default;
+};
+
 struct ProspectiveRoomEntryPredictionRoot {
     std::optional<core::RoomId> source_room;
     core::RoomId target_room;
@@ -139,6 +154,9 @@ struct FlowPredictionContext {
     std::vector<FlowPredictionGlobalProperty> global_properties;
     std::vector<FlowPredictionConditionFact> condition_facts;
     std::vector<ProspectiveRoomEntryPredictionRoot> prospective_room_entries;
+    // Conservative resident candidates for Rooms that are not necessarily Current yet. These are
+    // derived from authoritative world placement plus compiled structure without evaluating Lua.
+    std::vector<ResidentRoomPredictionRoot> future_resident_rooms;
     std::optional<ActiveInteractionPredictionRoot> active_interaction;
     std::optional<ActiveRoomTransitionPredictionRoot> active_room_transition;
     // Awaited foreground callers below the active top frame. Their stored positions already point
@@ -155,13 +173,6 @@ struct FlowPredictionContext {
     // additional suspension demotion in the planner.
     std::vector<ActiveScenePredictionRoot> detached_suspended_scenes;
     std::vector<ActiveDialoguePredictionRoot> detached_suspended_dialogues;
-};
-
-struct ResidentRoomPredictionRoot {
-    core::RoomId room;
-    std::vector<core::InteractionProgramRef> programs;
-    std::vector<core::LayoutId> layouts;
-    bool operator==(const ResidentRoomPredictionRoot&) const = default;
 };
 
 class FlowPredictor {
@@ -190,10 +201,12 @@ public:
     [[nodiscard]] FlowPredictionProjection predict(const ActiveDialoguePredictionRoot& root) const;
     [[nodiscard]] FlowPredictionProjection predict(const ActiveDialoguePredictionRoot& root,
                                                    const FlowPredictionContext& context) const;
-    [[nodiscard]] FlowPredictionProjection predict(const ActiveRoomTransitionPredictionRoot& root) const;
+    [[nodiscard]] FlowPredictionProjection
+    predict(const ActiveRoomTransitionPredictionRoot& root) const;
     [[nodiscard]] FlowPredictionProjection predict(const ActiveRoomTransitionPredictionRoot& root,
                                                    const FlowPredictionContext& context) const;
-    [[nodiscard]] FlowPredictionProjection predict(const ActiveInteractionPredictionRoot& root) const;
+    [[nodiscard]] FlowPredictionProjection
+    predict(const ActiveInteractionPredictionRoot& root) const;
     [[nodiscard]] FlowPredictionProjection predict(const ActiveInteractionPredictionRoot& root,
                                                    const FlowPredictionContext& context) const;
 

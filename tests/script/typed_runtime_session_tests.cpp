@@ -1054,8 +1054,7 @@ TEST_CASE("typed Room navigation input commits the default Cut transition")
             return root.source_room == make_id<core::RoomIdTag>("start") &&
                    root.target_room == make_id<core::RoomIdTag>("hall");
         });
-    REQUIRE(prospective !=
-            started.publication->prediction_context.prospective_room_entries.end());
+    REQUIRE(prospective != started.publication->prediction_context.prospective_room_entries.end());
     REQUIRE(prospective->source_exit);
     CHECK(*prospective->source_exit == make_id<core::RoomExitIdTag>("north-exit"));
     REQUIRE(prospective->source_can_leave);
@@ -1269,7 +1268,8 @@ TEST_CASE("internal runtime commands settle before checkpoint evaluation")
     }));
 }
 
-TEST_CASE("runtime publication retains suspended Interaction continuation while awaited Dialogue runs")
+TEST_CASE(
+    "runtime publication retains suspended Interaction continuation while awaited Dialogue runs")
 {
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
@@ -1277,12 +1277,11 @@ TEST_CASE("runtime publication retains suspended Interaction continuation while 
 
     const auto unlock = make_id<core::VerbIdTag>("unlock");
     const auto key = make_id<core::InteractableInstanceIdTag>("key");
-    auto invoked = dispatch_settled(
-        *fixture.session,
-        core::RuntimeInputMessage{core::InvokeInteractionInput{
-            unlock,
-            {{make_id<core::VerbSlotIdTag>("target"),
-              core::compiled::InteractableInteractionSubject{key}}}}});
+    auto invoked = dispatch_settled(*fixture.session,
+                                    core::RuntimeInputMessage{core::InvokeInteractionInput{
+                                        unlock,
+                                        {{make_id<core::VerbSlotIdTag>("target"),
+                                          core::compiled::InteractableInteractionSubject{key}}}}});
     REQUIRE(invoked.diagnostics.empty());
     REQUIRE(invoked.publication);
     REQUIRE(invoked.publication->active_dialogue);
@@ -1290,8 +1289,7 @@ TEST_CASE("runtime publication retains suspended Interaction continuation while 
 
     const auto& suspended = invoked.publication->prediction_context.suspended_interactions;
     REQUIRE(suspended.size() == 1);
-    const auto* rule =
-        std::get_if<core::InteractionRuleProgramRef>(&suspended.front().program);
+    const auto* rule = std::get_if<core::InteractionRuleProgramRef>(&suspended.front().program);
     REQUIRE(rule != nullptr);
     CHECK(rule->interaction == make_id<core::InteractionIdTag>("actions"));
     CHECK(rule->rule == make_id<core::InteractionRuleIdTag>("placement-context"));
@@ -1380,13 +1378,12 @@ TEST_CASE("active Interaction prediction scopes authoritative slot-bound Conditi
             const auto& point = slice["point"];
             if (point["kind"] != "interaction-rule" || point["ruleId"] != "placement-context")
                 continue;
-            slice["program"] = nlohmann::json::array(
-                {{{"commandId", "wait"}, {"kind", "opaque"}},
-                 {{"commandId", "slot-branch"},
-                  {"kind", "if"},
-                  {"condition", slot_condition},
-                  {"thenCommands", nlohmann::json::array()},
-                  {"elseCommands", nlohmann::json::array()}}});
+            slice["program"] = nlohmann::json::array({{{"commandId", "wait"}, {"kind", "opaque"}},
+                                                      {{"commandId", "slot-branch"},
+                                                       {"kind", "if"},
+                                                       {"condition", slot_condition},
+                                                       {"thenCommands", nlohmann::json::array()},
+                                                       {"elseCommands", nlohmann::json::array()}}});
         }
     });
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
@@ -1394,10 +1391,10 @@ TEST_CASE("active Interaction prediction scopes authoritative slot-bound Conditi
 
     const auto unlock = make_id<core::VerbIdTag>("unlock");
     const auto key = make_id<core::InteractableInstanceIdTag>("key");
-    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{core::InvokeInteractionInput{
-        unlock,
-        {{make_id<core::VerbSlotIdTag>("target"),
-          core::compiled::InteractableInteractionSubject{key}}}}});
+    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{
+        core::InvokeInteractionInput{unlock,
+                                     {{make_id<core::VerbSlotIdTag>("target"),
+                                       core::compiled::InteractableInteractionSubject{key}}}}});
     REQUIRE(invoked.diagnostics.empty());
     REQUIRE(invoked.publication);
     REQUIRE(invoked.publication->prediction_context.active_interaction);
@@ -1409,8 +1406,8 @@ TEST_CASE("active Interaction prediction scopes authoritative slot-bound Conditi
     CHECK(root.condition_facts.front().value);
     CHECK(invoked.publication->prediction_context.condition_facts.empty());
 
-    const auto projection =
-        runtime::FlowPredictor(fixture.project).predict(root, invoked.publication->prediction_context);
+    const auto projection = runtime::FlowPredictor(fixture.project)
+                                .predict(root, invoked.publication->prediction_context);
     CHECK(projection.context_requirements.condition_facts.empty());
 }
 
@@ -2027,23 +2024,22 @@ TEST_CASE("detached awaited child publication retains its caller continuation")
         auto child = closing;
         child["id"] = "detached-child";
         child["displayName"] = "Detached Child";
-        child["program"]["events"] = scene_events(nlohmann::json::array(
-            {{{"id", "child-delay"},
-              {"kind", "wait-duration"},
-              {"durationMs", 1000},
-              {"skippable", true}}}));
+        child["program"]["events"] = scene_events(nlohmann::json::array({{{"id", "child-delay"},
+                                                                          {"kind", "wait-duration"},
+                                                                          {"durationMs", 1000},
+                                                                          {"skippable", true}}}));
         child["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
 
-        closing["program"]["events"] = scene_events(nlohmann::json::array(
-            {{{"id", "await-child"},
-              {"kind", "call-scene"},
-              {"autosaveSafePoint", false},
-              {"scene", {{"kind", "scene"}, {"id", "detached-child"}}},
-              {"inputs", nlohmann::json::array()}},
-             {{"id", "parent-delay"},
-              {"kind", "wait-duration"},
-              {"durationMs", 1000},
-              {"skippable", true}}}));
+        closing["program"]["events"] = scene_events(
+            nlohmann::json::array({{{"id", "await-child"},
+                                    {"kind", "call-scene"},
+                                    {"autosaveSafePoint", false},
+                                    {"scene", {{"kind", "scene"}, {"id", "detached-child"}}},
+                                    {"inputs", nlohmann::json::array()}},
+                                   {{"id", "parent-delay"},
+                                    {"kind", "wait-duration"},
+                                    {"durationMs", 1000},
+                                    {"skippable", true}}}));
         closing["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
 
         opening["program"]["events"] = scene_events(nlohmann::json::array(
@@ -2058,7 +2054,8 @@ TEST_CASE("detached awaited child publication retains its caller continuation")
         document["definitions"]["scenes"].push_back(std::move(child));
 
         // This regression is about canonical Runtime Session Flow positions, not prediction-index
-        // lowering. Avoid carrying stale golden optimization metadata after changing the Scene graph.
+        // lowering. Avoid carrying stale golden optimization metadata after changing the Scene
+        // graph.
         document["flowPrediction"] = nullptr;
     });
 
@@ -2651,6 +2648,14 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     CHECK(presentation.presentation_operations.empty());
     CHECK(entered.publication->presentation.current_room == make_id<core::RoomIdTag>("start"));
     CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{7}});
+    const auto future_hall = std::ranges::find_if(
+        entered.publication->prediction_context.future_resident_rooms,
+        [](const auto& resident) { return resident.room == make_id<core::RoomIdTag>("hall"); });
+    REQUIRE(future_hall != entered.publication->prediction_context.future_resident_rooms.end());
+    CHECK(std::ranges::any_of(future_hall->actions, [](const auto& action) {
+        const auto* fallback = std::get_if<core::VerbDefaultProgramRef>(&action.program);
+        return fallback != nullptr && fallback->verb == make_id<core::VerbIdTag>("look");
+    }));
 
     presentation.status = {core::CheckpointStatusRevision::from_number(3), {}};
     REQUIRE(session->gateway().request_navigation(core::compiled::RoomExitRef{
@@ -2685,8 +2690,8 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     CHECK(navigated.publication->resident_room_prediction->room ==
           make_id<core::RoomIdTag>("hall"));
     CHECK(std::ranges::any_of(
-        navigated.publication->resident_room_prediction->programs, [](const auto& program) {
-            const auto* fallback = std::get_if<core::VerbDefaultProgramRef>(&program);
+        navigated.publication->resident_room_prediction->actions, [](const auto& action) {
+            const auto* fallback = std::get_if<core::VerbDefaultProgramRef>(&action.program);
             return fallback != nullptr && fallback->verb == make_id<core::VerbIdTag>("look");
         }));
     const auto onward = std::ranges::find_if(
