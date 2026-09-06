@@ -371,19 +371,26 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
         std::move(resolved));
 }
 
-std::vector<core::InteractionProgramRef>
-RuntimeExecutor::resident_interaction_programs(std::span<const core::VerbId> enabled_verbs) const
+std::vector<ResidentInteractionPredictionCandidate>
+RuntimeExecutor::resident_interaction_candidates(
+    const core::RoomId& room, std::span<const core::compiled::InteractionSubject> eligible_subjects,
+    std::span<const core::VerbId> candidate_verbs) const
 {
-    if (!m_room_presentation || m_room_presentation_dirty ||
-        !room_committed_for_prediction(m_room_presentation->presentation.visit.room))
-        return {};
-
-    // Resident prediction is a conservative structural plausibility pass over the already-resolved
-    // Current Room. `enabled_verbs` comes from normal RuntimeUI publication, so do not re-evaluate
-    // availability or Interaction Guards here: in particular, prediction must not invoke Lua merely
-    // to decide whether speculative work is worth warming.
+    // Resident prediction is a conservative structural plausibility pass. The caller supplies the
+    // Room and candidate subjects explicitly so the same matching rules can be reused for future
+    // Rooms without constructing a hypothetical Room presentation. The candidate Verb set is also
+    // supplied by the caller; Interaction Guards and Offer conditions are deliberately not
+    // evaluated, so Lua remains opaque to speculation.
     const auto enabled = [&](const core::VerbId& verb) {
-        return std::find(enabled_verbs.begin(), enabled_verbs.end(), verb) != enabled_verbs.end();
+        return std::find(candidate_verbs.begin(), candidate_verbs.end(), verb) !=
+               candidate_verbs.end();
+    };
+    const auto subject_belongs_to_context = [&](const core::compiled::InteractionSubject& subject) {
+        const auto* feature = std::get_if<core::compiled::FeatureInteractionSubject>(&subject);
+        if (feature == nullptr)
+            return true;
+        const auto* room_feature = std::get_if<core::RoomFeatureRef>(&feature->feature);
+        return room_feature == nullptr || room_feature->room == room;
     };
     const auto subject_family = [](const core::compiled::InteractionSubject& value) {
         if (std::holds_alternative<core::compiled::CharacterInteractionSubject>(value))
@@ -501,20 +508,21 @@ RuntimeExecutor::resident_interaction_programs(std::span<const core::VerbId> ena
             return selector_matches(selector, subject);
         });
     };
+    const auto selectors_have_candidate =
+        [&](const std::vector<core::compiled::SubjectSelector>& selectors) {
+            return std::any_of(
+                eligible_subjects.begin(), eligible_subjects.end(), [&](const auto& subject) {
+                    return subject_belongs_to_context(subject) && union_matches(selectors, subject);
+                });
+        };
     const auto slot_has_candidate = [&](const core::compiled::InteractionSlotSelector& slot) {
-        return std::any_of(m_room_presentation->eligible_subjects.begin(),
-                           m_room_presentation->eligible_subjects.end(), [&](const auto& subject) {
-                               return union_matches(slot.selectors, subject);
-                           });
+        return selectors_have_candidate(slot.selectors);
     };
     const auto verb_slot_has_candidate = [&](const core::compiled::VerbSlot& slot) {
-        return std::any_of(m_room_presentation->eligible_subjects.begin(),
-                           m_room_presentation->eligible_subjects.end(), [&](const auto& subject) {
-                               return union_matches(slot.selectors, subject);
-                           });
+        return selectors_have_candidate(slot.selectors);
     };
 
-    std::vector<core::InteractionProgramRef> result;
+    std::vector<ResidentInteractionPredictionCandidate> result;
     std::vector<core::VerbId> plausible_verbs;
     for (const auto& verb : m_project.verbs()) {
         if (!enabled(verb.identity.id) ||
@@ -527,14 +535,48 @@ RuntimeExecutor::resident_interaction_programs(std::span<const core::VerbId> ena
                plausible_verbs.end();
     };
 
+    const auto rule_is_plausible = [&](const core::compiled::InteractionRule& rule) {
+        const auto* verb = m_project.find_verb(rule.verb);
+        return verb != nullptr && plausible_verb(rule.verb) &&
+               rule.slots.size() == verb->slots.size() &&
+               std::all_of(rule.slots.begin(), rule.slots.end(), slot_has_candidate);
+    };
+    const auto primary_direct_possible = [&](const core::compiled::VerbDefinition& verb) {
+        if (verb.binding_order.size() != 1)
+            return false;
+        const auto& first_slot = verb.binding_order.front();
+        if (std::any_of(verb.offers.begin(), verb.offers.end(), [&](const auto& offer) {
+                return offer.primary && offer.slot_id == first_slot &&
+                       selectors_have_candidate(offer.selectors);
+            }))
+            return true;
+        return std::any_of(m_project.interactions().begin(), m_project.interactions().end(),
+                           [&](const auto& interaction) {
+                               return std::any_of(interaction.rules.begin(),
+                                                  interaction.rules.end(), [&](const auto& rule) {
+                                                      return rule.verb == verb.identity.id &&
+                                                             rule.offer && rule.offer->primary &&
+                                                             rule.offer->slot_id == first_slot &&
+                                                             rule_is_plausible(rule);
+                                                  });
+                           });
+    };
+    const auto append_candidate = [&](core::InteractionProgramRef program,
+                                      const core::compiled::VerbDefinition& verb) {
+        result.push_back(
+            ResidentInteractionPredictionCandidate{.program = std::move(program),
+                                                   .verb = verb.identity.id,
+                                                   .binding_count = verb.binding_order.size(),
+                                                   .primary = primary_direct_possible(verb)});
+    };
+
     for (const auto& interaction : m_project.interactions()) {
         for (const auto& rule : interaction.rules) {
-            const auto* verb = m_project.find_verb(rule.verb);
-            if (verb == nullptr || !plausible_verb(rule.verb) ||
-                rule.slots.size() != verb->slots.size() ||
-                !std::all_of(rule.slots.begin(), rule.slots.end(), slot_has_candidate))
+            if (!rule_is_plausible(rule))
                 continue;
-            result.emplace_back(core::InteractionRuleProgramRef{interaction.identity.id, rule.id});
+            const auto* verb = m_project.find_verb(rule.verb);
+            append_candidate(core::InteractionRuleProgramRef{interaction.identity.id, rule.id},
+                             *verb);
         }
     }
 
@@ -542,12 +584,33 @@ RuntimeExecutor::resident_interaction_programs(std::span<const core::VerbId> ena
     for (const auto& verb : m_project.verbs()) {
         if (!plausible_verb(verb.identity.id))
             continue;
-        result.emplace_back(core::VerbDefaultProgramRef{verb.identity.id});
+        append_candidate(core::VerbDefaultProgramRef{verb.identity.id}, verb);
         undefined_possible |=
             verb.default_program.outcome == core::compiled::InteractionOutcome::Unhandled;
     }
     if (undefined_possible && m_project.undefined_interaction_program())
-        result.emplace_back(core::ProjectUndefinedProgramRef{});
+        result.push_back(
+            ResidentInteractionPredictionCandidate{.program = core::ProjectUndefinedProgramRef{},
+                                                   .verb = std::nullopt,
+                                                   .binding_count = 0,
+                                                   .primary = false});
+    return result;
+}
+
+std::vector<core::InteractionProgramRef>
+RuntimeExecutor::resident_interaction_programs(std::span<const core::VerbId> enabled_verbs) const
+{
+    if (!m_room_presentation || m_room_presentation_dirty ||
+        !room_committed_for_prediction(m_room_presentation->presentation.visit.room))
+        return {};
+
+    const auto candidates =
+        resident_interaction_candidates(m_room_presentation->presentation.visit.room,
+                                        m_room_presentation->eligible_subjects, enabled_verbs);
+    std::vector<core::InteractionProgramRef> result;
+    result.reserve(candidates.size());
+    for (const auto& candidate : candidates)
+        result.push_back(candidate.program);
     return result;
 }
 

@@ -677,6 +677,97 @@ TEST_CASE("resident Interaction prediction keeps only programs plausible for Cur
     }));
 }
 
+TEST_CASE("resident Interaction plausibility accepts an explicit non-current Room subject context")
+{
+    auto document = load_document();
+    auto& use = definition(document, "verbs", "use");
+    use["availability"] = {{"kind", "always"}};
+    use["offers"][0]["primary"] = true;
+    auto& combine = definition(document, "verbs", "combine");
+    combine["availability"] = {{"kind", "always"}};
+    document["undefinedInteractionProgram"] = program(nlohmann::json::array());
+
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    const auto source = std::find_if(rules.begin(), rules.end(),
+                                     [](const auto& rule) { return rule["id"] == "any-context"; });
+    REQUIRE(source != rules.end());
+    auto coin_rule = *source;
+    coin_rule["id"] = "future-coin";
+    coin_rule["guard"] = {{"kind", "lua-predicate"},
+                          {"source", "error('resident prediction must not execute Lua')"}};
+    coin_rule["offer"] = nullptr;
+    coin_rule["slots"][0]["selectors"][0]["subject"]["interactable"]["id"] = "coin";
+    rules.push_back(std::move(coin_rule));
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const std::array future_subjects{
+        core::compiled::InteractionSubject{core::compiled::InteractableInteractionSubject{
+            id<core::InteractableInstanceId>("coin")}},
+        core::compiled::InteractionSubject{core::compiled::InteractableInteractionSubject{
+            id<core::InteractableInstanceId>("key")}},
+        core::compiled::InteractionSubject{core::compiled::FeatureInteractionSubject{
+            core::RoomFeatureRef{id<core::RoomId>("start"), id<core::FeatureId>("door")}}}};
+    const std::array enabled{id<core::VerbId>("use"), id<core::VerbId>("combine"),
+                             id<core::VerbId>("inspect")};
+    const auto candidates =
+        kernel->resident_interaction_candidates(id<core::RoomId>("hall"), future_subjects, enabled);
+
+    const auto future_coin =
+        std::find_if(candidates.begin(), candidates.end(), [](const auto& item) {
+            const auto* rule = std::get_if<core::InteractionRuleProgramRef>(&item.program);
+            return rule != nullptr && rule->rule == id<core::InteractionRuleId>("future-coin");
+        });
+    REQUIRE(future_coin != candidates.end());
+    REQUIRE(future_coin->verb);
+    CHECK(*future_coin->verb == id<core::VerbId>("use"));
+    CHECK(future_coin->binding_count == 1);
+    CHECK(future_coin->primary);
+
+    const auto combine_rule =
+        std::find_if(candidates.begin(), candidates.end(), [](const auto& item) {
+            const auto* rule = std::get_if<core::InteractionRuleProgramRef>(&item.program);
+            return rule != nullptr &&
+                   rule->rule == id<core::InteractionRuleId>("predicate-context");
+        });
+    REQUIRE(combine_rule != candidates.end());
+    REQUIRE(combine_rule->verb);
+    CHECK(*combine_rule->verb == id<core::VerbId>("combine"));
+    CHECK(combine_rule->binding_count == 2);
+    CHECK_FALSE(combine_rule->primary);
+
+    CHECK(std::none_of(candidates.begin(), candidates.end(), [](const auto& item) {
+        const auto* rule = std::get_if<core::InteractionRuleProgramRef>(&item.program);
+        return rule != nullptr && rule->rule == id<core::InteractionRuleId>("room-feature");
+    }));
+    const auto current_room_candidates = kernel->resident_interaction_candidates(
+        id<core::RoomId>("start"), future_subjects, enabled);
+    CHECK(std::any_of(
+        current_room_candidates.begin(), current_room_candidates.end(), [](const auto& item) {
+            const auto* rule = std::get_if<core::InteractionRuleProgramRef>(&item.program);
+            return rule != nullptr && rule->rule == id<core::InteractionRuleId>("room-feature");
+        }));
+    const auto use_default =
+        std::find_if(candidates.begin(), candidates.end(), [](const auto& item) {
+            const auto* fallback = std::get_if<core::VerbDefaultProgramRef>(&item.program);
+            return fallback != nullptr && fallback->verb == id<core::VerbId>("use");
+        });
+    REQUIRE(use_default != candidates.end());
+    REQUIRE(use_default->verb);
+    CHECK(*use_default->verb == id<core::VerbId>("use"));
+    CHECK(use_default->binding_count == 1);
+    CHECK(use_default->primary);
+    CHECK(std::any_of(candidates.begin(), candidates.end(), [](const auto& item) {
+        return std::holds_alternative<core::ProjectUndefinedProgramRef>(item.program) &&
+               !item.verb && item.binding_count == 0 && !item.primary;
+    }));
+}
+
 TEST_CASE("a false most-specific Verb Offer suppresses the Verb without broader fallback")
 {
     auto document = load_document();

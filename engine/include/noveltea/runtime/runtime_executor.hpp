@@ -11,6 +11,7 @@
 #include <iterator>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -30,6 +31,14 @@ namespace noveltea::runtime {
 
 using RuntimeExecutionError = std::variant<core::Diagnostics, ScriptInvocationError>;
 using RuntimeEffectOutcome = std::variant<core::WaitCompleted, ScriptInvocationSuspended>;
+
+struct ResidentInteractionPredictionCandidate {
+    core::InteractionProgramRef program;
+    std::optional<core::VerbId> verb;
+    std::size_t binding_count = 0;
+    bool primary = false;
+    bool operator==(const ResidentInteractionPredictionCandidate&) const = default;
+};
 
 struct PendingSceneTransitionGroupOperation {
     core::compiled::TransitionKind kind = core::compiled::TransitionKind::Fade;
@@ -243,6 +252,11 @@ public:
     [[nodiscard]] core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>
     command_builder_reference(const core::compiled::InteractionSubject& subject,
                               std::string_view runtime_locale);
+    [[nodiscard]] std::vector<ResidentInteractionPredictionCandidate>
+    resident_interaction_candidates(
+        const core::RoomId& room,
+        std::span<const core::compiled::InteractionSubject> eligible_subjects,
+        std::span<const core::VerbId> candidate_verbs) const;
     [[nodiscard]] std::vector<core::InteractionProgramRef>
     resident_interaction_programs(std::span<const core::VerbId> enabled_verbs) const;
     [[nodiscard]] core::Result<core::MapView, RuntimeExecutionError>
