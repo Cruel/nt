@@ -49,7 +49,7 @@ export function LuaExplicitFallbackEditor({
       {targets.map((target, index) => (
         <div
           key={`${targetKey(target)}:${index}`}
-          className="grid gap-2 md:grid-cols-[180px_1fr_auto]"
+          className="grid gap-2 @3xl:grid-cols-[180px_1fr_auto]"
         >
           <Select
             value={target.kind}
@@ -63,7 +63,7 @@ export function LuaExplicitFallbackEditor({
             <SelectItem value="room-exit">Room exit</SelectItem>
           </Select>
           {target.kind === 'record' ? (
-            <div className="grid gap-2 md:grid-cols-2">
+            <div className="grid gap-2 @3xl:grid-cols-2">
               <Select
                 value={target.collection}
                 onValueChange={(collection) =>
@@ -86,7 +86,7 @@ export function LuaExplicitFallbackEditor({
               />
             </div>
           ) : target.kind === 'property-value' ? (
-            <div className="grid gap-2 md:grid-cols-3">
+            <div className="grid gap-2 @3xl:grid-cols-3">
               <Select
                 value={target.owner.kind}
                 onValueChange={(kind) =>
@@ -121,7 +121,7 @@ export function LuaExplicitFallbackEditor({
               />
             </div>
           ) : (
-            <div className="grid gap-2 md:grid-cols-2">
+            <div className="grid gap-2 @3xl:grid-cols-2">
               <Input
                 aria-label="Room ID"
                 value={target.roomId}

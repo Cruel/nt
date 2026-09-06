@@ -83,7 +83,7 @@ function RuleEditor({
       className="space-y-3 rounded border p-3"
       data-workbench-anchor={`interaction.rule.${rule.id}`}
     >
-      <div className="grid gap-2 md:grid-cols-4">
+      <div className="grid gap-2 @3xl:grid-cols-4">
         <div>
           <Label>Rule ID</Label>
           <Input
@@ -160,7 +160,7 @@ function RuleEditor({
           </Badge>
           {analysis.uncertainty && <Badge variant="secondary">Runtime-dependent</Badge>}
         </div>
-        <div className="grid gap-1 text-muted-foreground md:grid-cols-2">
+        <div className="grid gap-1 text-muted-foreground @3xl:grid-cols-2">
           <div>
             <span className="text-foreground">Match space:</span>{' '}
             {rule.slots.length
@@ -300,7 +300,7 @@ function RuleEditor({
           Derive Verb Offer from this rule
         </label>
         {rule.offer && (
-          <div className="grid gap-2 md:grid-cols-4">
+          <div className="grid gap-2 @3xl:grid-cols-4">
             <div>
               <Label>Offer slot</Label>
               <Select

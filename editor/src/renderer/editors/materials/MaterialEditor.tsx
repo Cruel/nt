@@ -195,10 +195,10 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
         </div>
       ) : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_320px]">
+      <div className="mt-4 grid gap-4 @7xl:grid-cols-[1fr_320px]">
         <div className="space-y-4">
           <section
-            className="grid gap-3 rounded border p-3 md:grid-cols-2"
+            className="grid gap-3 rounded border p-3 @3xl:grid-cols-2"
             data-workbench-anchor="material.settings"
           >
             <div className="space-y-1">
@@ -326,7 +326,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               return (
                 <div
                   key={uniform.name}
-                  className="grid gap-2 rounded border p-2 md:grid-cols-[160px_120px_1fr_auto]"
+                  className="grid gap-2 rounded border p-2 @3xl:grid-cols-[160px_120px_1fr_auto]"
                 >
                   <div>
                     <div className="font-mono text-xs">{uniform.name}</div>
@@ -392,7 +392,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               return (
                 <div
                   key={sampler.name}
-                  className="grid gap-2 rounded border p-2 md:grid-cols-[160px_1fr_160px_auto]"
+                  className="grid gap-2 rounded border p-2 @3xl:grid-cols-[160px_1fr_160px_auto]"
                 >
                   <div>
                     <div className="font-mono text-xs">{sampler.name}</div>

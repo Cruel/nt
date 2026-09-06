@@ -611,7 +611,7 @@ function PredictionView() {
             ))}
 
             <div className="space-y-2 rounded border p-2">
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 @xl:grid-cols-2">
                 <Select
                   value={targetKind}
                   onValueChange={(value) => {
@@ -1424,7 +1424,7 @@ export function AssetPerformancePanel() {
                   </span>
                 </div>
               ) : null}
-              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6">
+              <div className="grid grid-cols-2 @3xl:grid-cols-4 @7xl:grid-cols-6">
                 <Metric
                   label={t('assetProfiler.metrics.assetRam')}
                   value={format.fileSize(current.assetRamBytes)}
@@ -1544,7 +1544,7 @@ export function AssetPerformancePanel() {
                   </table>
                 </div>
               </section>
-              <section className="grid gap-4 px-3 pb-3 md:grid-cols-3">
+              <section className="grid gap-4 px-3 pb-3 @3xl:grid-cols-3">
                 <div>
                   <h3 className="mb-2 font-medium">
                     {t('assetProfiler.sections.totalGpuDetails')}

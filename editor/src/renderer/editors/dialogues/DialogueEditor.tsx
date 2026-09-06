@@ -1118,10 +1118,10 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         </div>
       ) : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_380px]">
+      <div className="mt-4 grid gap-4 @7xl:grid-cols-[1fr_380px]">
         <div className="space-y-4">
           <section
-            className="grid gap-3 rounded border p-3 md:grid-cols-2 xl:grid-cols-3"
+            className="grid gap-3 rounded border p-3 @3xl:grid-cols-2 @7xl:grid-cols-3"
             data-workbench-anchor="dialogue.summary"
           >
             <Label>
@@ -1322,7 +1322,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                       </label>
                     </div>
                     {slot.initial ? (
-                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="grid gap-2 @3xl:grid-cols-2 @7xl:grid-cols-4">
                         <Label>
                           Character
                           <Select
@@ -1494,7 +1494,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                         Remove
                       </Button>
                     </div>
-                    <div className="grid gap-2 md:grid-cols-3">
+                    <div className="grid gap-2 @3xl:grid-cols-3">
                       <Label>
                         Initial content
                         <Select
@@ -1584,7 +1584,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                       </label>
                     </div>
                     {slot.initial?.kind === 'character' ? (
-                      <div className="grid gap-2 md:grid-cols-4">
+                      <div className="grid gap-2 @3xl:grid-cols-4">
                         {(['profileId', 'poseId', 'expressionId'] as const).map((field) => (
                           <Label key={field}>
                             {field === 'profileId'
@@ -2207,7 +2207,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                     ) : null}
                     {activeSegment.cues.map((cue, cueIndex) => (
                       <div key={cue.id} className="space-y-2 rounded border p-2">
-                        <div className="grid gap-2 md:grid-cols-[1fr_8rem_8rem_auto]">
+                        <div className="grid gap-2 @3xl:grid-cols-[1fr_8rem_8rem_auto]">
                           <Label>
                             Cue ID / kind
                             <Input value={`${cue.id} · ${cue.kind}`} readOnly />
@@ -2274,7 +2274,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                         </div>
                         {cue.kind === 'gesture' ? (
                           <div className="space-y-2">
-                            <div className="grid gap-2 md:grid-cols-2">
+                            <div className="grid gap-2 @3xl:grid-cols-2">
                               <Label>
                                 Stage Slot
                                 <Select
@@ -2336,7 +2336,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                         ) : null}
                         {cue.kind === 'voice' || cue.kind === 'sound-effect' ? (
                           <div className="space-y-2">
-                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="grid gap-2 @3xl:grid-cols-2 @7xl:grid-cols-4">
                               <Label>
                                 Audio Asset
                                 <Select
@@ -2410,7 +2410,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                                 />
                               </Label>
                             </div>
-                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="grid gap-2 @3xl:grid-cols-2 @7xl:grid-cols-4">
                               <Label>
                                 Skip Behavior
                                 <Select
@@ -2499,7 +2499,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                         ) : null}
                         {cue.kind === 'camera' ? (
                           <div className="space-y-2">
-                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="grid gap-2 @3xl:grid-cols-2 @7xl:grid-cols-4">
                               <Label>
                                 Emphasis
                                 <Select
@@ -2592,7 +2592,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                               </Label>
                             </div>
                             {cue.emphasis.kind === 'shake' ? (
-                              <div className="grid gap-2 md:grid-cols-3">
+                              <div className="grid gap-2 @3xl:grid-cols-3">
                                 <Label>
                                   Amplitude X
                                   <Input
@@ -2652,7 +2652,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                               </div>
                             ) : null}
                             {cue.emphasis.kind === 'punch' ? (
-                              <div className="grid gap-2 md:grid-cols-4">
+                              <div className="grid gap-2 @3xl:grid-cols-4">
                                 <Label>
                                   Translation X
                                   <Input
@@ -2728,7 +2728,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                               </div>
                             ) : null}
                             {cue.emphasis.kind === 'flash' ? (
-                              <div className="grid gap-2 md:grid-cols-2">
+                              <div className="grid gap-2 @3xl:grid-cols-2">
                                 <Label>
                                   Color
                                   <Input
@@ -2851,7 +2851,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                     </Label>
                     {activeSegment.presentation.stage.map((mutation, mutationIndex) => (
                       <div key={`stage-${mutationIndex}`} className="space-y-2 rounded border p-2">
-                        <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                        <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_auto]">
                           <Label>
                             Stage Slot
                             <Select
@@ -2921,7 +2921,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                           </Button>
                         </div>
                         {mutation.action !== 'clear' ? (
-                          <div className="grid gap-2 md:grid-cols-2">
+                          <div className="grid gap-2 @3xl:grid-cols-2">
                             <Label>
                               Character
                               <Select
@@ -3120,7 +3120,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                     ))}
                     {activeSegment.presentation.media.map((mutation, mutationIndex) => (
                       <div key={`media-${mutationIndex}`} className="space-y-2 rounded border p-2">
-                        <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                        <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_auto]">
                           <Label>
                             Media Slot
                             <Select
@@ -3190,7 +3190,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                           </Button>
                         </div>
                         {mutation.action === 'update' ? (
-                          <div className="grid gap-2 md:grid-cols-2">
+                          <div className="grid gap-2 @3xl:grid-cols-2">
                             <Label>
                               Content
                               <Select

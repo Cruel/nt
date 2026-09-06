@@ -303,7 +303,7 @@ export function HotspotAuthoringPanel(props: Props) {
           onDelete={(id) => props.onDelete(id)}
         />
       ) : null}
-      <div className="grid gap-3 lg:grid-cols-[14rem_1fr]">
+      <div className="grid gap-3 @5xl:grid-cols-[14rem_1fr]">
         <div className="space-y-1">
           {props.hotspots.map((item) => (
             <Button
@@ -318,7 +318,7 @@ export function HotspotAuthoringPanel(props: Props) {
           ))}
         </div>
         {selected ? (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 @3xl:grid-cols-2">
             <div>
               <Label>{t('hotspots.fields.id')}</Label>
               <Input
@@ -406,7 +406,7 @@ export function HotspotAuthoringPanel(props: Props) {
                 </Button>
               </div>
             ) : null}
-            <div className="md:col-span-2">
+            <div className="@3xl:col-span-2">
               <Label>{t('hotspots.fields.target')}</Label>
               <Select
                 value={selectedTargetOption?.value ?? '__invalid__'}
@@ -524,7 +524,7 @@ export function HotspotAuthoringPanel(props: Props) {
               </>
             ) : null}
             {selectedCondition?.kind === 'lua-predicate' ? (
-              <div className="md:col-span-2">
+              <div className="@3xl:col-span-2">
                 <Label>{t('hotspots.fields.luaPredicate')}</Label>
                 <Input
                   value={selectedCondition.source}

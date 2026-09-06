@@ -52,7 +52,7 @@ export function InventoryDeclarationsEditor({
         inventories.map((inventory, index) => (
           <div
             key={inventory.id}
-            className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]"
+            className="grid gap-2 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]"
           >
             <Input aria-label="Inventory ID" value={inventory.id} readOnly />
             <Input
@@ -101,7 +101,7 @@ export function InteractableLocationEditor({
   const selectedInventory =
     location.kind === 'inventory' ? authoringInventoryKey(location.inventory) : null;
   return (
-    <div className="grid gap-2 md:grid-cols-2">
+    <div className="grid gap-2 @3xl:grid-cols-2">
       <div className="space-y-1">
         <Label>Location</Label>
         <Select

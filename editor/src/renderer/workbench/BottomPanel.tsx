@@ -175,7 +175,7 @@ export function BottomPanel() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-t bg-background">
+    <div className="@container flex h-full min-h-0 flex-col border-t bg-background">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b px-2">
         {bottomPanelDefinitions.map((panel) => (
           <button

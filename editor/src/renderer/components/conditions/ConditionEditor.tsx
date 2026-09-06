@@ -1031,7 +1031,7 @@ export function RecursiveConditionEditor({
       ) : null}
 
       {value.kind === 'variable-comparison' ? (
-        <div className="grid gap-2 md:grid-cols-3">
+        <div className="grid gap-2 @3xl:grid-cols-3">
           <Select
             value={value.variable.$ref.id}
             onValueChange={(id) => onChange({ ...value, variable: variableRef(String(id)) })}
@@ -1071,7 +1071,7 @@ export function RecursiveConditionEditor({
             scope={scope}
             onChange={(owner) => onChange({ ...value, owner })}
           />
-          <div className="grid gap-2 md:grid-cols-3">
+          <div className="grid gap-2 @3xl:grid-cols-3">
             <Input
               value={value.propertyId}
               onChange={(event) => onChange({ ...value, propertyId: event.currentTarget.value })}

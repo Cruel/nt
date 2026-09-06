@@ -510,7 +510,7 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
   }
 
   return (
-    <div className="space-y-2 md:col-span-2">
+    <div className="space-y-2 @3xl:col-span-2">
       <div>
         <Label>{PROJECT_INVENTORY_LABEL}</Label>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -525,7 +525,7 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
             return (
               <div
                 key={instance.id}
-                className="grid gap-2 rounded border p-2 md:grid-cols-[minmax(0,1fr)_7rem_auto] md:items-center"
+                className="grid gap-2 rounded border p-2 @3xl:grid-cols-[minmax(0,1fr)_7rem_auto] @3xl:items-center"
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium">
@@ -584,7 +584,7 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
       ) : (
         <p className="text-xs text-muted-foreground">Inventory starts empty.</p>
       )}
-      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_7rem_auto] md:items-end">
+      <div className="grid gap-2 @3xl:grid-cols-[minmax(0,1fr)_7rem_auto] @3xl:items-end">
         <Label className="gap-1">
           Interactable
           <select
@@ -791,7 +791,7 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
           </p>
         ) : (
           <>
-            <div className="grid gap-3 md:grid-cols-[14rem_minmax(0,1fr)]">
+            <div className="grid gap-3 @3xl:grid-cols-[14rem_minmax(0,1fr)]">
               <div className="space-y-2">
                 {policies.map((policy) => (
                   <button
@@ -811,7 +811,7 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
               </div>
               {selectedPolicy ? (
                 <div className="space-y-4 rounded border p-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3 @xl:grid-cols-2">
                     <Label className="gap-1">
                       Name
                       <Input
@@ -867,7 +867,7 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
                       return (
                         <div
                           key={field}
-                          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_9rem] sm:items-center"
+                          className="grid gap-2 @xl:grid-cols-[minmax(0,1fr)_7rem_9rem] @xl:items-center"
                         >
                           <div>
                             <div className="text-sm font-medium">{label}</div>
@@ -1507,8 +1507,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 Built-in fallback resources are used when no project resource is selected.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2 md:col-span-2">
+            <CardContent className="grid gap-3 @3xl:grid-cols-2">
+              <div className="space-y-2 @3xl:col-span-2">
                 <div>
                   <Label>System layouts</Label>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -1516,7 +1516,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     engine-provided layout for that role.
                   </p>
                 </div>
-                <div className="grid gap-2 md:grid-cols-2">
+                <div className="grid gap-2 @3xl:grid-cols-2">
                   {systemLayoutRoleValues.map((role) => {
                     const selected = getSystemLayoutSetting(project, role);
                     const selectedLayoutId = selected?.$ref.id ?? null;
@@ -1669,8 +1669,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2 rounded-md border p-3 md:col-span-2">
+            <div className="grid gap-3 @3xl:grid-cols-2">
+              <div className="space-y-2 rounded-md border p-3 @3xl:col-span-2">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <Label>Reference resolution</Label>
@@ -1783,7 +1783,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                       Enabled
                     </label>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3 @3xl:grid-cols-2">
                     <div className="space-y-1">
                       <Label htmlFor={`${scale}-minimum`}>{label} minimum</Label>
                       <PendingDecimalInput
@@ -1829,7 +1829,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 return (
                   <div
                     key={purpose}
-                    className="grid gap-3 rounded-md border p-3 md:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)_auto] md:items-center"
+                    className="grid gap-3 rounded-md border p-3 @3xl:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)_auto] @3xl:items-center"
                   >
                     <div>
                       <Label>{AUDIO_PURPOSE_LABELS[purpose]}</Label>
@@ -1889,7 +1889,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   Enabled
                 </label>
               </div>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 @3xl:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="audio-duck-music">Music gain while Voice is active</Label>
                   <PendingDecimalInput
@@ -1922,7 +1922,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             <CardTitle>Title Screen</CardTitle>
             <CardDescription>Values consumed by the built-in title/menu layout.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
+          <CardContent className="grid gap-3 @3xl:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="title-image">Title image</Label>
               <select
@@ -1973,7 +1973,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               />
               Show author name
             </label>
-            <div className="space-y-1 md:col-span-2">
+            <div className="space-y-1 @3xl:col-span-2">
               <Label>Subtitle</Label>
               <Input
                 value={settings.titleScreen.subtitle}
@@ -2287,7 +2287,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               transition.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
+          <CardContent className="grid gap-3 @3xl:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="transition-kind">Kind</Label>
               <select

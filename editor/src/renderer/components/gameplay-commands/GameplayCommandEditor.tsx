@@ -535,7 +535,7 @@ function ConfigurationSourceEditor({
   onChange: (value: GameplayConfigurationSource) => void;
 }) {
   return (
-    <div className="grid gap-2 md:grid-cols-2">
+    <div className="grid gap-2 @3xl:grid-cols-2">
       <Select
         value={value.kind}
         onValueChange={(kind) => {
@@ -612,7 +612,7 @@ function CommandFields({
   const traits = Object.keys(project.traits);
   if (command.kind === 'set-global-property' || command.kind === 'unset-global-property')
     return (
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 @3xl:grid-cols-2">
         <Select
           value={command.variable.$ref.id}
           onValueChange={(id) => onChange({ ...command, variable: variableRef(String(id)) })}
@@ -657,7 +657,7 @@ function CommandFields({
     );
   if (command.kind === 'add-trait' || command.kind === 'remove-trait')
     return (
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 @3xl:grid-cols-2">
         <IdentityOperandEditor
           value={command.owner}
           project={project}
@@ -678,7 +678,7 @@ function CommandFields({
     );
   if (command.kind === 'set-enabled' || command.kind === 'set-visible')
     return (
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 @3xl:grid-cols-2">
         <LocationSubjectOperandEditor
           value={command.subject}
           project={project}
@@ -777,7 +777,7 @@ function CommandFields({
   if (command.kind === 'create-interactable')
     return (
       <div className="grid gap-2">
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="grid gap-2 @3xl:grid-cols-2">
           <div className="space-y-1">
             <Label>Interactable Definition</Label>
             <Select
@@ -868,7 +868,7 @@ function CommandFields({
     );
   if (command.kind === 'split-quantity')
     return (
-      <div className="grid gap-2 md:grid-cols-3">
+      <div className="grid gap-2 @3xl:grid-cols-3">
         <InteractableOperandEditor
           value={command.source}
           project={project}
@@ -891,7 +891,7 @@ function CommandFields({
     );
   if (command.kind === 'merge-quantity')
     return (
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 @3xl:grid-cols-2">
         <InteractableOperandEditor
           value={command.receiver}
           project={project}
@@ -1020,7 +1020,7 @@ function CommandFields({
   }
   if (command.kind === 'add-quantity')
     return (
-      <div className="grid gap-2 md:grid-cols-3">
+      <div className="grid gap-2 @3xl:grid-cols-3">
         <Select
           value={command.definition.$ref.id}
           onValueChange={(id) => onChange({ ...command, definition: interactableRef(String(id)) })}
@@ -1049,7 +1049,7 @@ function CommandFields({
     );
   if (command.kind === 'present-inventory')
     return (
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 @3xl:grid-cols-2">
         <div className="space-y-1">
           <Label>Inventory</Label>
           <InventoryOperandEditor

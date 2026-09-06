@@ -150,8 +150,8 @@ function MapForm({
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 rounded border p-3 md:grid-cols-4">
-        <div className="md:col-span-2">
+      <section className="grid gap-3 rounded border p-3 @3xl:grid-cols-4">
+        <div className="@3xl:col-span-2">
           <Label>Title</Label>
           <Input
             value={
@@ -262,7 +262,7 @@ function MapForm({
         </div>
         {data.locations.map((location, locationIndex) => (
           <div className="space-y-3 rounded border p-3" key={location.id}>
-            <div className="grid gap-2 md:grid-cols-5">
+            <div className="grid gap-2 @3xl:grid-cols-5">
               <Input
                 aria-label="Location ID"
                 value={location.id}
@@ -357,7 +357,7 @@ function MapForm({
               />
             </div>
 
-            <div className="grid gap-2 md:grid-cols-4">
+            <div className="grid gap-2 @3xl:grid-cols-4">
               <Input
                 aria-label="Location style"
                 placeholder="Style ID"
@@ -564,7 +564,7 @@ function MapForm({
                       Delete Region
                     </Button>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="grid gap-2 @xl:grid-cols-2 @5xl:grid-cols-4">
                     {region.points.map((point, pointIndex) => (
                       <div className="grid grid-cols-2 gap-1" key={pointIndex}>
                         <Input
@@ -751,7 +751,7 @@ function MapForm({
             : [];
           return (
             <div className="space-y-3 rounded border p-3" key={connection.id}>
-              <div className="grid gap-2 md:grid-cols-4">
+              <div className="grid gap-2 @3xl:grid-cols-4">
                 <Input
                   aria-label="Connection ID"
                   value={connection.id}
@@ -834,7 +834,7 @@ function MapForm({
                 />
               </div>
 
-              <div className="grid gap-2 md:grid-cols-3">
+              <div className="grid gap-2 @3xl:grid-cols-3">
                 <Input
                   aria-label="Connection label"
                   placeholder="Map-specific label"
@@ -940,7 +940,7 @@ function MapForm({
                     Add Path Point
                   </Button>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-2 @xl:grid-cols-2 @5xl:grid-cols-4">
                   {connection.path.map((point, pointIndex) => (
                     <div className="grid grid-cols-[1fr_1fr_auto] gap-1" key={pointIndex}>
                       <Input
@@ -1048,7 +1048,7 @@ function MapForm({
                 </div>
                 {connection.hitRegions.map((region, regionIndex) => (
                   <div className="space-y-2 rounded border p-2" key={regionIndex}>
-                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid gap-2 @xl:grid-cols-2 @5xl:grid-cols-4">
                       {region.points.map((point, pointIndex) => (
                         <div className="grid grid-cols-2 gap-1" key={pointIndex}>
                           <Input

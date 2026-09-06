@@ -338,7 +338,7 @@ function TextContentEditor({
         : value.source.source;
   return (
     <div className="space-y-2">
-      <div className="grid gap-2 md:grid-cols-[160px_140px_1fr]">
+      <div className="grid gap-2 @3xl:grid-cols-[160px_140px_1fr]">
         <Select
           value={value.source.kind}
           onValueChange={(kind) => {
@@ -938,7 +938,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 kind="room"
               />
             </div>
-            <div className="grid gap-3 p-3 md:grid-cols-2">
+            <div className="grid gap-3 p-3 @3xl:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Display name</Label>
                 <Input
@@ -948,7 +948,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   }
                 />
               </div>
-              <div data-workbench-anchor="room.description" className="space-y-1.5 md:col-span-2">
+              <div data-workbench-anchor="room.description" className="space-y-1.5 @3xl:col-span-2">
                 <Label>Description</Label>
                 <TextContentEditor
                   value={data.description}
@@ -960,9 +960,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </div>
             <div
               data-workbench-anchor="room.background"
-              className="grid gap-3 border-t bg-muted/10 p-3 md:grid-cols-3"
+              className="grid gap-3 border-t bg-muted/10 p-3 @3xl:grid-cols-3"
             >
-              <div className="space-y-1.5 md:col-span-3">
+              <div className="space-y-1.5 @3xl:col-span-3">
                 <Label>Background image</Label>
                 <div className="flex min-h-16 items-stretch overflow-hidden rounded-lg border bg-background">
                   <button
@@ -1300,7 +1300,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         />
                       </div>
                       <div className="min-w-0 flex-1 space-y-1.5">
-                        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid gap-6 @3xl:grid-cols-2 @7xl:grid-cols-3">
                           <div className="flex min-w-0 items-center gap-1.5">
                             <Label className="shrink-0 text-[11px]">Label</Label>
                             <Input
@@ -1430,7 +1430,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                             Transition{' '}
                             {exit.transition ? `· ${exit.transition.kind}` : '· Project default'}
                           </summary>
-                          <div className="grid gap-2 border-t p-2 md:grid-cols-3">
+                          <div className="grid gap-2 border-t p-2 @3xl:grid-cols-3">
                             {exit.transition ? (
                               <>
                                 <div className="flex min-w-0 items-center gap-1.5">
@@ -1495,14 +1495,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                                 </div>
                               </>
                             ) : (
-                              <p className="self-center text-xs text-muted-foreground md:col-span-2">
+                              <p className="self-center text-xs text-muted-foreground @3xl:col-span-2">
                                 This exit uses the project transition settings.
                               </p>
                             )}
                             <Button
                               size="sm"
                               variant="outline"
-                              className="justify-self-start md:col-start-3 md:justify-self-end"
+                              className="justify-self-start @3xl:col-start-3 @3xl:justify-self-end"
                               onClick={() =>
                                 replaceExit(exit.id, {
                                   transition: exit.transition
@@ -1555,7 +1555,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   Camera View to authored bounds; Overscan allows framing outside them.
                 </p>
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 @3xl:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label>Width</Label>
                   <Input
@@ -1673,7 +1673,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </Button>
               </div>
               {data.presentationSpace.bounds ? (
-                <div className="grid gap-3 md:grid-cols-4">
+                <div className="grid gap-3 @3xl:grid-cols-4">
                   {(['x', 'y', 'width', 'height'] as const).map((field) => (
                     <div key={field} className="space-y-1.5">
                       <Label>{field[0]!.toUpperCase() + field.slice(1)}</Label>
@@ -1712,7 +1712,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   Reconstructible framing used when no higher-precedence View is active.
                 </p>
               </div>
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 @3xl:grid-cols-4">
                 {(['x', 'y'] as const).map((axis) => (
                   <div key={axis} className="space-y-1.5">
                     <Label>Center {axis.toUpperCase()}</Label>
@@ -1844,9 +1844,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {data.presentationSpace.views.map((entry, index) => (
                 <div
                   key={`${entry.id}-${index}`}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-6"
+                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-6"
                 >
-                  <div className="space-y-1.5 md:col-span-2">
+                  <div className="space-y-1.5 @3xl:col-span-2">
                     <Label>View ID</Label>
                     <Input
                       value={entry.id}
@@ -2045,9 +2045,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {data.anchors.map((anchor, index) => (
                 <div
                   key={`${anchor.id}-${index}`}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-6"
+                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-6"
                 >
-                  <div className="space-y-1.5 md:col-span-2">
+                  <div className="space-y-1.5 @3xl:col-span-2">
                     <Label>Anchor ID</Label>
                     <Input
                       value={anchor.id}
@@ -2525,7 +2525,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         Percentage of the Room presentation surface.
                       </p>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
                       {(
                         [
                           ['x', 'Left'],
@@ -2567,7 +2567,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                   </div>
 
-                  <div className="grid gap-4 border-t pt-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div className="grid gap-4 border-t pt-4 @5xl:grid-cols-[minmax(0,1fr)_18rem]">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-3">
                         <div>
@@ -2696,7 +2696,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {data.overlays.map((overlay) => (
                 <div
                   key={overlay.id}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-4"
+                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4"
                 >
                   <Input
                     value={overlay.id}
@@ -2793,7 +2793,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {data.cast.map((entry) => (
                 <div
                   key={entry.id}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-4"
+                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4"
                 >
                   <Input
                     value={entry.id}
@@ -2854,7 +2854,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       replaceCast(entry.id, { idleId: event.currentTarget.value || null })
                     }
                   />
-                  <div className="md:col-span-3">
+                  <div className="@3xl:col-span-3">
                     <RecursiveConditionEditor
                       value={entry.condition}
                       project={project}
@@ -2925,7 +2925,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {data.props.map((entry) => (
                 <div
                   key={entry.id}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-4"
+                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4"
                 >
                   <Input
                     value={entry.id}
@@ -2971,7 +2971,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       </SelectItem>
                     ))}
                   </Select>
-                  <div className="md:col-span-3">
+                  <div className="@3xl:col-span-3">
                     <RecursiveConditionEditor
                       value={entry.condition}
                       project={project}
@@ -3046,7 +3046,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {data.environments.map((entry) => (
                 <div
                   key={entry.id}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-4"
+                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4"
                 >
                   <div>
                     <Label>ID</Label>
@@ -3203,7 +3203,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       }
                     />
                   </div>
-                  <div className="md:col-span-3">
+                  <div className="@3xl:col-span-3">
                     <RecursiveConditionEditor
                       value={entry.condition}
                       project={project}
@@ -3247,7 +3247,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {roomScriptHookKindValues.map((hook) => {
                 const mapping = data.scriptHooks.find((item) => item.hook === hook);
                 return (
-                  <div key={hook} className="grid gap-2 rounded-lg border p-3 md:grid-cols-3">
+                  <div key={hook} className="grid gap-2 rounded-lg border p-3 @3xl:grid-cols-3">
                     <div>
                       <Label>Hook</Label>
                       <div className="mt-2 font-mono text-xs">{hook}</div>

@@ -798,7 +798,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
         {message ? (
           <div className="mb-4 rounded border p-2 text-xs text-muted-foreground">{message}</div>
         ) : null}
-        <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid min-h-0 gap-4 @7xl:grid-cols-[minmax(0,1fr)_360px]">
           <section className="min-h-0 rounded border bg-muted/20 p-3">
             <div className="group relative flex min-h-[420px] items-center justify-center overflow-hidden rounded border bg-background">
               {mainPreviewUrl ? (

@@ -114,7 +114,7 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
           </p>
         </div>
 
-        <div className="grid gap-4 rounded-md border p-4 md:grid-cols-2">
+        <div className="grid gap-4 rounded-md border p-4 @3xl:grid-cols-2">
           <div className="space-y-1">
             <Label>Gameplay Instance kind</Label>
             <Select
