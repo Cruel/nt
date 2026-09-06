@@ -110,16 +110,20 @@ live Flow position even when the rendered presentation snapshot is unchanged. Th
 are prediction input only; presentation reconciliation and mandatory correctness remain driven by their
 existing authoritative contracts.
 
-Completed Room-mode publications similarly carry an optional resident-Room prediction root derived
-from already-resolved runtime UI state. Runtime reuses the Verb availability already resolved for the
-publication and admits only Interaction/Verb programs whose slots have eligible Current-Room subjects;
-it does not evaluate Interaction Guards merely to improve speculation. The predictor does not
-re-evaluate Verb availability, execute Lua, or clone the Runtime Session: runtime supplies the
-semantic program/Layout identities after the normal publication has resolved them. The host activates
-exactly one foreground-Flow or resident root for each publication, and activates the resident root
-only after publication succeeds.
+A Room publication carries an optional resident-Room prediction root derived from already-resolved
+runtime UI state once that Room is semantically committed for prediction. A settled Current Room is
+eligible, and an animated Room navigation becomes eligible as soon as its target Room commit succeeds,
+even while the active Room transition is still awaiting presentation completion. Pre-commit Room
+transition stages remain ineligible. Runtime reuses the Verb availability already resolved for the
+publication and admits only Interaction/Verb programs whose slots have eligible committed-Room
+subjects; it does not evaluate Interaction Guards merely to improve speculation. The predictor does
+not re-evaluate Verb availability, execute Lua, or clone the Runtime Session: runtime supplies the
+semantic program/Layout identities after the normal publication has resolved them. During the
+post-commit transition wait, the resident root and target Room's prospective navigation roots are
+combined with the still-active Room-transition prediction in the same speculative plan rather than
+replacing it.
 Resident dependencies are alternatives (`PossibleNext`) and provenance identifies the resident root
-and Current Room. Re-publishing an identical resident root is a no-op for speculative generation
+and committed Room. Re-publishing an identical resident root is a no-op for speculative generation
 replacement, while a semantic change refreshes the one shared prefetch plan.
 
 Editor/tooling inspection has two deliberately different read-only views over this same machinery.

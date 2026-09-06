@@ -1072,6 +1072,15 @@ TEST_CASE("typed Room navigation input commits the default Cut transition")
     REQUIRE(navigated.publication->prediction_context.current_room);
     CHECK(*navigated.publication->prediction_context.current_room ==
           make_id<core::RoomIdTag>("hall"));
+    CHECK_FALSE(navigated.publication->prediction_context.active_room_transition);
+    REQUIRE(navigated.publication->resident_room_prediction);
+    CHECK(navigated.publication->resident_room_prediction->room ==
+          make_id<core::RoomIdTag>("hall"));
+    CHECK(std::ranges::count_if(navigated.publication->prediction_context.prospective_room_entries,
+                                [](const auto& root) {
+                                    return root.source_room == make_id<core::RoomIdTag>("hall") &&
+                                           root.target_room == make_id<core::RoomIdTag>("start");
+                                }) == 1);
     CHECK(navigated.publication->presentation.current_room == make_id<core::RoomIdTag>("hall"));
     CHECK(fixture.presentation.presentation_operations.empty());
 }
@@ -1331,6 +1340,14 @@ TEST_CASE("runtime publication retains suspended Room transition continuation wh
     REQUIRE(transition.command_id);
     CHECK(transition.command_id->text() == "after-dialogue-count");
     CHECK_FALSE(transition.awaiting_completion);
+    REQUIRE(navigated.publication->resident_room_prediction);
+    CHECK(navigated.publication->resident_room_prediction->room ==
+          make_id<core::RoomIdTag>("hall"));
+    CHECK(std::ranges::any_of(navigated.publication->prediction_context.prospective_room_entries,
+                              [](const auto& root) {
+                                  return root.source_room == make_id<core::RoomIdTag>("hall") &&
+                                         root.target_room == make_id<core::RoomIdTag>("start");
+                              }));
 }
 
 TEST_CASE("active Interaction prediction scopes authoritative slot-bound Condition facts")
@@ -2664,6 +2681,22 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     CHECK(transition_prediction.stage == core::RoomTransitionStage::CommitRoomSwitch);
     CHECK_FALSE(transition_prediction.command_id);
     CHECK(transition_prediction.awaiting_completion);
+    REQUIRE(navigated.publication->resident_room_prediction);
+    CHECK(navigated.publication->resident_room_prediction->room ==
+          make_id<core::RoomIdTag>("hall"));
+    CHECK(std::ranges::any_of(
+        navigated.publication->resident_room_prediction->programs, [](const auto& program) {
+            const auto* fallback = std::get_if<core::VerbDefaultProgramRef>(&program);
+            return fallback != nullptr && fallback->verb == make_id<core::VerbIdTag>("look");
+        }));
+    const auto onward = std::ranges::find_if(
+        navigated.publication->prediction_context.prospective_room_entries, [](const auto& root) {
+            return root.source_room == make_id<core::RoomIdTag>("hall") &&
+                   root.target_room == make_id<core::RoomIdTag>("start");
+        });
+    REQUIRE(onward != navigated.publication->prediction_context.prospective_room_entries.end());
+    REQUIRE(onward->source_exit);
+    CHECK(*onward->source_exit == make_id<core::RoomExitIdTag>("south-exit"));
     REQUIRE(navigated.publication->gameplay_ui.room);
     CHECK(navigated.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("hall"));
     CHECK(navigated.publication->gameplay_ui.room->description.empty());

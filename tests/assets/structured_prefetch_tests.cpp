@@ -1751,6 +1751,96 @@ TEST_CASE("mandatory gate consumes context-only active Room transition predictio
     gate.clear_package_on_owner();
 }
 
+TEST_CASE(
+    "mandatory gate combines committed target Room speculation with active transition continuation",
+    "[assets][flow-prediction][mandatory-assets][structured-prefetch][resident-room][room-"
+    "lifecycle]")
+{
+    PlannerFixture fixture;
+    auto document = read_compiled_project_golden("scene-program");
+    for (auto& system_layout : document["settings"]["systemLayouts"])
+        system_layout["layout"] = nullptr;
+    document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                               {"height", 64},
+                                               {"id", "resident-image"},
+                                               {"kind", "image"},
+                                               {"path", "assets/images/resident.png"},
+                                               {"sampling", "linear"},
+                                               {"width", 64}});
+    const auto dependency_group = document["flowPrediction"]["dependencyGroups"].size();
+    document["flowPrediction"]["dependencyGroups"].push_back(nlohmann::json::array(
+        {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "resident-image"}}}}}));
+    const auto interaction_slice = document["flowPrediction"]["slices"].size();
+    document["flowPrediction"]["slices"].push_back(
+        {{"conditionFalseSuccessor", nullptr},
+         {"control", {{"kind", "sequential"}, {"successor", nullptr}}},
+         {"dependencyGroups", nlohmann::json::array({dependency_group})},
+         {"frontier", "normal"},
+         {"point",
+          {{"kind", "interaction-rule"},
+           {"interaction", {{"kind", "interaction"}, {"id", "look"}}},
+           {"ruleId", "resident-click"}}},
+         {"program", nlohmann::json::array()}});
+    document["flowPrediction"]["supplementalHints"].push_back(
+        {{"id", "resident-click-hint"},
+         {"target", {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "resident-image"}}}}},
+         {"attachment", {{"kind", "point"}, {"slice", interaction_slice}}}});
+    for (auto& slice : document["flowPrediction"]["slices"]) {
+        const auto& point = slice["point"];
+        if (point.value("kind", "") == "room-lifecycle" &&
+            point["room"].value("id", "") == "tower" && point.value("stage", "") == "after-enter") {
+            slice["program"] =
+                nlohmann::json::array({{{"commandId", "active-dialogue"},
+                                        {"kind", "call-dialogue"},
+                                        {"dialogue", {{"kind", "dialogue"}, {"id", "arrival"}}}}});
+        }
+    }
+
+    auto package =
+        package_from_document(std::move(document), "committed-room-transition-gate.json");
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(156);
+    snapshot.mode = core::PresentationRuntimeMode::Room;
+    snapshot.current_room = id<core::RoomId>("tower");
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+
+    runtime::FlowPredictionContext context;
+    context.current_room = id<core::RoomId>("tower");
+    context.active_room_transition = runtime::ActiveRoomTransitionPredictionRoot{
+        .source_room = id<core::RoomId>("hall"),
+        .target_room = id<core::RoomId>("tower"),
+        .source_exit = id<core::RoomExitId>("east-exit"),
+        .stage = core::RoomTransitionStage::CommitRoomSwitch,
+        .awaiting_completion = true};
+    context.prospective_room_entries.push_back(runtime::ProspectiveRoomEntryPredictionRoot{
+        .source_room = id<core::RoomId>("tower"), .target_room = id<core::RoomId>("hall")});
+    const runtime::ResidentRoomPredictionRoot resident_root{
+        .room = id<core::RoomId>("tower"),
+        .programs = {core::InteractionRuleProgramRef{
+            id<core::InteractionId>("look"), id<core::InteractionRuleId>("resident-click")}},
+        .layouts = {}};
+
+    CHECK(gate.update_resident_room_prediction_on_owner(&resident_root, context).empty());
+    REQUIRE(gate.active_prefetch_generation_on_owner());
+    CHECK(std::ranges::find(fixture.recorder.calls,
+                            "texture:project:/assets/images/arrival-dialogue.png") !=
+          fixture.recorder.calls.end());
+    CHECK(
+        std::ranges::find(fixture.recorder.calls, "texture:project:/assets/images/resident.png") !=
+        fixture.recorder.calls.end());
+
+    fixture.run_until_idle();
+    gate.clear_package_on_owner();
+}
+
 TEST_CASE("mandatory gate keeps suspended Room continuation below foreground Flow and refreshes its cursor",
           "[assets][flow-prediction][mandatory-assets][structured-prefetch][suspended][room-lifecycle]")
 {

@@ -374,7 +374,8 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
 std::vector<core::InteractionProgramRef>
 RuntimeExecutor::resident_interaction_programs(std::span<const core::VerbId> enabled_verbs) const
 {
-    if (!m_room_presentation || m_room_presentation_dirty || !m_state.flow_stack().empty())
+    if (!m_room_presentation || m_room_presentation_dirty ||
+        !room_committed_for_prediction(m_room_presentation->presentation.visit.room))
         return {};
 
     // Resident prediction is a conservative structural plausibility pass over the already-resolved
