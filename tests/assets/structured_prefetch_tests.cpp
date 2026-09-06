@@ -2847,11 +2847,12 @@ TEST_CASE("prospective Room entry predicts successful lifecycle Flow and widens 
         return dependency != nullptr && dependency->asset == id<core::AssetId>("image-main") &&
                entry.confidence == runtime::FlowPredictionConfidence::Expected;
     }));
-    CHECK_FALSE(std::ranges::any_of(context_projection.entries, [](const auto& entry) {
+    CHECK(std::ranges::any_of(context_projection.entries, [](const auto& entry) {
         const auto* dependency =
             std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
         return dependency != nullptr &&
-               dependency->asset == id<core::AssetId>("image-arrival-dialogue");
+               dependency->asset == id<core::AssetId>("image-arrival-dialogue") &&
+               entry.confidence == runtime::FlowPredictionConfidence::Alternative;
     }));
 }
 
@@ -4691,6 +4692,171 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
         const auto calls = run(generous_budget());
         CHECK(std::ranges::find(calls,
                                 "texture:project:/assets/images/prediction-wave-79.png") !=
+              calls.end());
+    }
+}
+
+TEST_CASE("mandatory gate deepens ordinary Room exits through Warm-budget-aware prediction waves",
+          "[assets][structured-prefetch][flow-prediction][budget][horizon][room-lifecycle]")
+{
+    const auto make_document = [] {
+        auto document = read_compiled_project_golden("interaction-program");
+        for (auto& system_layout : document["settings"]["systemLayouts"])
+            system_layout["layout"] = nullptr;
+        for (auto& interactable : document["definitions"]["interactables"]) {
+            auto& hotspots = interactable["presentation"]["hotspots"];
+            if (hotspots.value("kind", "") == "custom") {
+                for (auto& hotspot : hotspots["hotspots"])
+                    hotspot["highlight"] = {{"kind", "none"}};
+            } else if (hotspots.value("kind", "") == "sprite-alpha") {
+                hotspots["hotspot"]["highlight"] = {{"kind", "none"}};
+            }
+        }
+
+        const auto room_template = document["definitions"]["rooms"].back();
+        auto& prediction = document["flowPrediction"];
+
+        constexpr std::size_t room_count = 70;
+        for (std::size_t index = 0; index < room_count; ++index) {
+            const auto room_id = "topology-room-" + std::to_string(index);
+            const auto asset_id = "topology-image-" + std::to_string(index);
+            document["resources"]["assets"].push_back(
+                {{"aliases", nlohmann::json::array()},
+                 {"id", asset_id},
+                 {"kind", "image"},
+                 {"path", "assets/images/" + asset_id + ".png"},
+                 {"sampling", "linear"},
+                 {"width", 64},
+                 {"height", 64}});
+
+            auto room = room_template;
+            room["id"] = room_id;
+            room["displayName"] = room_id;
+            room["background"]["asset"] = nullptr;
+            room["background"]["material"] = nullptr;
+            const auto exit_condition =
+                index == 2 ? nlohmann::json{{"kind", "global-property-comparison"},
+                                            {"operator", "truthy"},
+                                            {"property", {{"kind", "property"}, {"id", "flag"}}}}
+                           : nlohmann::json{{"kind", "always"}};
+            room["exits"] = nlohmann::json::array(
+                {{{"condition", std::move(exit_condition)},
+                  {"direction", "east"},
+                  {"id", "next-exit"},
+                  {"label",
+                   {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Next"}}}}},
+                  {"onRejected", nlohmann::json::array()},
+                  {"target",
+                   {{"kind", "room"},
+                    {"id", "topology-room-" + std::to_string((index + 1) % room_count)}}},
+                  {"transition", nullptr}}});
+            if (index == 1) {
+                room["exits"].push_back(
+                    {{"condition", {{"kind", "always"}}},
+                     {"direction", "west"},
+                     {"id", "sibling-exit"},
+                     {"label",
+                      {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Sibling"}}}}},
+                     {"onRejected", nlohmann::json::array()},
+                     {"target", {{"kind", "room"}, {"id", "topology-room-0"}}},
+                     {"transition", nullptr}});
+            }
+            document["definitions"]["rooms"].push_back(std::move(room));
+
+            const auto group = prediction["dependencyGroups"].size();
+            prediction["dependencyGroups"].push_back(nlohmann::json::array(
+                {{{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", asset_id}}}}}));
+            prediction["slices"].push_back(
+                {{"point",
+                  {{"kind", "room-lifecycle"},
+                   {"room", {{"kind", "room"}, {"id", room_id}}},
+                   {"stage", "presentation"}}},
+                 {"dependencyGroups", nlohmann::json::array({group})},
+                 {"conditionFalseSuccessor", nullptr},
+                 {"control", {{"kind", "sequential"}, {"successor", nullptr}}},
+                 {"frontier", "normal"},
+                 {"program", nlohmann::json::array()}});
+        }
+        return document;
+    };
+
+    const auto run = [&](assets::ResidencyBudget budget) {
+        PlannerFixture fixture(nullptr, budget);
+        auto package = package_from_document(make_document(), "room-topology-waves.json");
+        const auto generation = fixture.manager.source_generation_on_owner();
+        assets::MandatoryAssetGate gate(fixture.manager);
+        REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+
+        core::RuntimePresentationSnapshot snapshot;
+        snapshot.revision = core::PresentationSnapshotRevision::from_number(157);
+        snapshot.mode = core::PresentationRuntimeMode::Room;
+        snapshot.current_room = id<core::RoomId>("topology-room-0");
+        REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+                assets::MandatoryAssetGateDisposition::Ready);
+        auto transaction = gate.take_ready_transaction_on_owner();
+        REQUIRE(transaction);
+        REQUIRE(transaction->commit_on_owner(false));
+        fixture.recorder.calls.clear();
+
+        runtime::FlowPredictionContext context;
+        context.current_room = id<core::RoomId>("topology-room-0");
+        context.prospective_room_entries.push_back(runtime::ProspectiveRoomEntryPredictionRoot{
+            .source_room = id<core::RoomId>("topology-room-0"),
+            .target_room = id<core::RoomId>("topology-room-1"),
+            .source_exit = id<core::RoomExitId>("next-exit"),
+            .source_can_leave = core::Condition{},
+            .exit_condition = core::Condition{},
+            .target_can_enter = core::Condition{}});
+        const auto first_wave = runtime::FlowPredictor(package.project(), 64)
+                                    .predict(context.prospective_room_entries.front(), context);
+        CHECK(std::ranges::any_of(first_wave.diagnostics, [](const auto& diagnostic) {
+            return diagnostic.code == "assets.flow_prediction_structural_limit";
+        }));
+        CHECK(std::ranges::any_of(first_wave.entries, [](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>("topology-image-0");
+        }));
+        const auto direct_projection =
+            runtime::FlowPredictor(package.project(), 128)
+                .predict(context.prospective_room_entries.front(), context);
+        CHECK(std::ranges::any_of(direct_projection.entries, [](const auto& entry) {
+            const auto* dependency =
+                std::get_if<core::compiled::FlowPredictionAssetDependency>(&entry.dependency);
+            return dependency != nullptr &&
+                   dependency->asset == id<core::AssetId>("topology-image-69");
+        }));
+        CHECK(std::ranges::none_of(direct_projection.diagnostics, [](const auto& diagnostic) {
+            return diagnostic.code == "assets.flow_prediction_structural_limit";
+        }));
+        CHECK(std::ranges::find(direct_projection.context_requirements.global_properties,
+                                id<core::PropertyId>("flag")) ==
+              direct_projection.context_requirements.global_properties.end());
+        const auto diagnostics = gate.update_resident_room_prediction_on_owner(nullptr, context);
+        CHECK(std::ranges::none_of(diagnostics, [](const auto& diagnostic) {
+            return diagnostic.code == "assets.flow_prediction_structural_limit";
+        }));
+        return fixture.recorder.calls;
+    };
+
+    SECTION("saturated Warm capacity prunes before a later Room wave")
+    {
+        auto budget = generous_budget();
+        budget.prepared_cpu_bytes = 512u * 1024u * 1024u;
+        budget.gpu_bytes = 64u * 64u * 4u;
+        budget.audio_bytes = 512u * 1024u * 1024u;
+        const auto calls = run(budget);
+        CHECK(std::ranges::find(calls, "texture:project:/assets/images/topology-image-1.png") !=
+              calls.end());
+        CHECK(std::ranges::find(calls, "texture:project:/assets/images/topology-image-69.png") ==
+              calls.end());
+    }
+
+    SECTION("available Warm capacity reaches a later ordinary Room hop")
+    {
+        const auto calls = run(generous_budget());
+        CHECK(std::ranges::find(calls, "texture:project:/assets/images/topology-image-69.png") !=
               calls.end());
     }
 }
