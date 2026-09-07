@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { CollectionMasterDetail } from '@/components/collection-master-detail';
+import { EditorSectionHeading } from '@/components/editor-section-heading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -245,21 +247,11 @@ export function HotspotAuthoringPanel(props: Props) {
       className="space-y-3 rounded-lg border bg-card/30 p-3"
       data-workbench-anchor={`${props.anchorPrefix}.hotspots`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="font-medium">{props.title}</h3>
-          <p className="text-xs text-muted-foreground">{t('hotspots.subtitle')}</p>
-        </div>
-        <Button
-          size="sm"
-          variant={addingRectangle ? 'secondary' : 'outline'}
-          aria-pressed={addingRectangle}
-          disabled={!addingRectangle && targetOptions.length === 0}
-          onClick={() => updateView({ tool: addingRectangle ? 'select' : 'draw-rect' })}
-        >
-          {addingRectangle ? t('hotspots.cancelAdd') : t('hotspots.add')}
-        </Button>
-      </div>
+      <EditorSectionHeading
+        title={props.title}
+        help={t('hotspots.subtitle')}
+        helpLabel={`About ${props.title}`}
+      />
       {addingRectangle ? (
         <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           {t('hotspots.addInstruction')}
@@ -303,21 +295,28 @@ export function HotspotAuthoringPanel(props: Props) {
           onDelete={(id) => props.onDelete(id)}
         />
       ) : null}
-      <div className="grid gap-3 @5xl:grid-cols-[14rem_1fr]">
-        <div className="space-y-1">
-          {props.hotspots.map((item) => (
-            <Button
-              key={item.id}
-              data-workbench-anchor={`${props.anchorPrefix}.hotspot.${item.id}`}
-              className="w-full justify-start"
-              variant={selected?.id === item.id ? 'secondary' : 'ghost'}
-              onClick={() => updateView({ selectedHotspotId: item.id })}
-            >
-              {item.label} <span className="ml-auto font-mono text-xs">{item.id}</span>
-            </Button>
-          ))}
-        </div>
-        {selected ? (
+      <CollectionMasterDetail
+        items={props.hotspots}
+        getKey={(item) => item.id}
+        selectedKey={selected?.id ?? null}
+        onSelectedKeyChange={(selectedHotspotId) => updateView({ selectedHotspotId })}
+        listAriaLabel={props.title}
+        emptyState={t('hotspots.selectPrompt')}
+        layoutClassName="gap-3 @5xl:grid-cols-[14rem_1fr]"
+        listAction={{
+          label: addingRectangle ? t('hotspots.cancelAdd') : t('hotspots.add'),
+          pressed: addingRectangle,
+          disabled: !addingRectangle && targetOptions.length === 0,
+          onClick: () => updateView({ tool: addingRectangle ? 'select' : 'draw-rect' }),
+        }}
+        getItemAnchor={(item) => `${props.anchorPrefix}.hotspot.${item.id}`}
+        getDeleteLabel={() => t('hotspots.delete')}
+        onDeleteItem={(item) => props.onDelete(item.id)}
+        getItemPresentation={(item) => ({
+          label: item.label,
+          trailing: <span className="font-mono">{item.id}</span>,
+        })}
+        renderDetail={(selected) => (
           <div className="grid gap-3 @3xl:grid-cols-2">
             <div>
               <Label>{t('hotspots.fields.id')}</Label>
@@ -539,14 +538,9 @@ export function HotspotAuthoringPanel(props: Props) {
                 />
               </div>
             ) : null}
-            <Button variant="destructive" onClick={() => props.onDelete(selected.id)}>
-              {t('hotspots.delete')}
-            </Button>
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">{t('hotspots.selectPrompt')}</p>
         )}
-      </div>
+      />
       <SearchSelectorDialog
         open={materialSelectorOpen}
         title={t('hotspots.selectMaterial')}
