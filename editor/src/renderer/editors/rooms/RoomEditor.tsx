@@ -380,6 +380,23 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   >(null);
   const [selectedCameraViewIndex, setSelectedCameraViewIndex] = useState(0);
   const [selectedAnchorIndex, setSelectedAnchorIndex] = useState(0);
+  const [selectedOverlayIndex, setSelectedOverlayIndex] = useState(0);
+  const [selectedCastIndex, setSelectedCastIndex] = useState(0);
+  const [selectedPropIndex, setSelectedPropIndex] = useState(0);
+  const [selectedEnvironmentIndex, setSelectedEnvironmentIndex] = useState(0);
+  const [contentEntitySelector, setContentEntitySelector] = useState<
+    | {
+        kind:
+          | 'overlay-layout'
+          | 'cast-character'
+          | 'prop-asset'
+          | 'prop-material'
+          | 'environment-asset'
+          | 'environment-material';
+        id: string;
+      }
+    | null
+  >(null);
   const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
   const [placementCount, setPlacementCount] = useState(1);
   const [placingInteractable, setPlacingInteractable] = useState<
@@ -441,6 +458,22 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         collections: ['rooms'],
         includeActions: false,
       }),
+    [selectorItems],
+  );
+  const layoutSelectorItems = useMemo(
+    () => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }),
+    [selectorItems],
+  );
+  const characterSelectorItems = useMemo(
+    () => filterSelectorItems(selectorItems, { collections: ['characters'], includeActions: false }),
+    [selectorItems],
+  );
+  const assetSelectorItems = useMemo(
+    () => filterSelectorItems(selectorItems, { collections: ['assets'], includeActions: false }),
+    [selectorItems],
+  );
+  const materialSelectorItems = useMemo(
+    () => filterSelectorItems(selectorItems, { collections: ['materials'], includeActions: false }),
     [selectorItems],
   );
   const interactableItems = useMemo(() => {
@@ -1070,6 +1103,49 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       </div>
     </div>
   );
+  const contentEntitySelectorItems =
+    contentEntitySelector?.kind === 'overlay-layout'
+      ? layoutSelectorItems
+      : contentEntitySelector?.kind === 'cast-character'
+        ? characterSelectorItems
+        : contentEntitySelector?.kind === 'prop-asset' ||
+            contentEntitySelector?.kind === 'environment-asset'
+          ? assetSelectorItems
+          : materialSelectorItems;
+  const contentEntitySelectorCurrentEntityId = (() => {
+    if (!contentEntitySelector) return null;
+    switch (contentEntitySelector.kind) {
+      case 'overlay-layout':
+        return data.overlays.find((item) => item.id === contentEntitySelector.id)?.layout.$ref.id ?? null;
+      case 'cast-character':
+        return data.cast.find((item) => item.id === contentEntitySelector.id)?.character.$ref.id ?? null;
+      case 'prop-asset':
+        return data.props.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ?? null;
+      case 'prop-material':
+        return data.props.find((item) => item.id === contentEntitySelector.id)?.material?.$ref.id ?? null;
+      case 'environment-asset':
+        return (
+          data.environments.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ?? null
+        );
+      case 'environment-material':
+        return (
+          data.environments.find((item) => item.id === contentEntitySelector.id)?.material.$ref.id ??
+          null
+        );
+    }
+  })();
+  const contentEntitySelectorTitle =
+    contentEntitySelector?.kind === 'overlay-layout'
+      ? 'Choose Layout'
+      : contentEntitySelector?.kind === 'cast-character'
+        ? 'Choose Character'
+        : contentEntitySelector?.kind === 'prop-asset' ||
+            contentEntitySelector?.kind === 'environment-asset'
+          ? 'Choose Asset'
+          : 'Choose Material';
+  const contentEntitySelectorSelectedId =
+    contentEntitySelectorItems.find((item) => item.entityId === contentEntitySelectorCurrentEntityId)
+      ?.id ?? null;
   return (
     <EditorPreviewSplit
       orientation={previewSplitOrientation}
@@ -2612,73 +2688,85 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         ) : null}
         {activeCategory === 'contents' ? (
           <>
-            <section
-              className="space-y-4 rounded-xl border bg-card/20 p-4"
-              data-workbench-anchor="room.overlays"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Overlays</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Layouts rendered over the room presentation.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={layouts.length === 0}
-                  onClick={() => {
-                    const layout = layouts[0];
-                    if (!layout) return;
-                    commit(
-                      {
-                        ...data,
-                        overlays: [
-                          ...data.overlays,
-                          {
-                            id: nextId(
-                              data.overlays.map((overlay) => overlay.id),
-                              'overlay',
-                            ),
-                            layout: roomLayoutRef(layout.id),
-                            condition: { kind: 'always' },
-                            visible: true,
-                            order: data.overlays.length,
-                          },
-                        ],
-                      },
-                      'Add room overlay',
-                    );
-                  }}
-                >
-                  <Plus data-icon="inline-start" />
-                  Add overlay
-                </Button>
-              </div>
-              {data.overlays.map((overlay) => (
-                <div
-                  key={overlay.id}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4"
-                >
-                  <Input
-                    value={overlay.id}
-                    onChange={(event) =>
-                      replaceOverlay(overlay.id, { id: event.currentTarget.value })
-                    }
-                  />
-                  <Select
-                    value={overlay.layout.$ref.id}
-                    onValueChange={(value) =>
-                      replaceOverlay(overlay.id, { layout: roomLayoutRef(String(value)) })
-                    }
-                  >
-                    {layouts.map((layout) => (
-                      <SelectItem key={layout.id} value={layout.id}>
-                        {layout.label}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <label className="flex items-center gap-2">
+            <CollectionMasterDetail
+              anchor="room.overlays"
+              title="Overlays"
+              description="Layout mounts rendered over the Room presentation. Use these for Room-local UI and other RmlUi presentation layers."
+              items={data.overlays}
+              getKey={(_, index) => String(index)}
+              selectedKey={
+                data.overlays.length > 0
+                  ? String(Math.min(selectedOverlayIndex, data.overlays.length - 1))
+                  : null
+              }
+              onSelectedKeyChange={(_, __, index) => setSelectedOverlayIndex(index)}
+              listAriaLabel="Room overlays"
+              emptyState="No overlays."
+              listAction={{
+                label: 'Add overlay',
+                icon: <Plus className="size-3.5" aria-hidden="true" />,
+                disabled: layouts.length === 0,
+                onClick: () => {
+                  const layout = layouts[0];
+                  if (!layout) return;
+                  setSelectedOverlayIndex(data.overlays.length);
+                  commit(
+                    {
+                      ...data,
+                      overlays: [
+                        ...data.overlays,
+                        {
+                          id: nextId(
+                            data.overlays.map((overlay) => overlay.id),
+                            'overlay',
+                          ),
+                          layout: roomLayoutRef(layout.id),
+                          condition: { kind: 'always' },
+                          visible: true,
+                          order: data.overlays.length,
+                        },
+                      ],
+                    },
+                    'Add room overlay',
+                  );
+                },
+              }}
+              getDeleteLabel={(overlay) => `Delete overlay ${overlay.id}`}
+              onDeleteItem={(_, index) => {
+                const nextOverlays = data.overlays.filter(
+                  (_, overlayIndex) => overlayIndex !== index,
+                );
+                setSelectedOverlayIndex(Math.max(0, Math.min(index, nextOverlays.length - 1)));
+                commit({ ...data, overlays: nextOverlays }, 'Delete room overlay');
+              }}
+              getItemPresentation={(overlay) => ({
+                label: overlay.id,
+                trailing: overlay.visible ? 'Visible' : 'Hidden',
+              })}
+              renderDetail={(overlay) => (
+                <div className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label>ID</Label>
+                    <Input
+                      value={overlay.id}
+                      onChange={(event) =>
+                        replaceOverlay(overlay.id, { id: event.currentTarget.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Layout</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-start font-normal"
+                      onClick={() => setContentEntitySelector({ kind: 'overlay-layout', id: overlay.id })}
+                    >
+                      {layouts.find((layout) => layout.id === overlay.layout.$ref.id)?.label ??
+                        overlay.layout.$ref.id}
+                    </Button>
+                  </div>
+                  <label className="flex items-end gap-2 pb-2">
                     <input
                       type="checkbox"
                       checked={overlay.visible}
@@ -2686,106 +2774,110 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         replaceOverlay(overlay.id, { visible: event.currentTarget.checked })
                       }
                     />
-                    Enabled
+                    Visible
                   </label>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      commit(
+                </div>
+              )}
+            />
+            <CollectionMasterDetail
+              anchor="room.cast"
+              title="Room cast"
+              description="Decorative Room-local Character occurrences. They affect presentation only and do not move or mutate persistent Character world state."
+              items={data.cast}
+              getKey={(_, index) => String(index)}
+              selectedKey={
+                data.cast.length > 0
+                  ? String(Math.min(selectedCastIndex, data.cast.length - 1))
+                  : null
+              }
+              onSelectedKeyChange={(_, __, index) => setSelectedCastIndex(index)}
+              listAriaLabel="Room cast"
+              emptyState="No cast entries."
+              listAction={{
+                label: 'Add cast',
+                icon: <Plus className="size-3.5" aria-hidden="true" />,
+                disabled: !characters[0] || !data.placements[0],
+                onClick: () => {
+                  if (!characters[0] || !data.placements[0]) return;
+                  setSelectedCastIndex(data.cast.length);
+                  commit(
+                    {
+                      ...data,
+                      cast: [
+                        ...data.cast,
                         {
-                          ...data,
-                          overlays: data.overlays.filter((item) => item.id !== overlay.id),
+                          id: nextId(
+                            data.cast.map((entry) => entry.id),
+                            'cast',
+                          ),
+                          character: { $ref: { collection: 'characters', id: characters[0].id } },
+                          condition: { kind: 'always' },
+                          placementId: data.placements[0].id,
+                          poseId: null,
+                          expressionId: null,
+                          idleId: null,
+                          visible: true,
+                          order: data.cast.length,
                         },
-                        'Delete room overlay',
-                      )
-                    }
-                  >
-                    Delete
-                  </Button>
-                </div>
-              ))}
-            </section>
-            <section
-              className="space-y-4 rounded-xl border bg-card/20 p-4"
-              data-workbench-anchor="room.cast"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Room cast</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Characters visible when this room is presented.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!characters[0] || !data.placements[0]}
-                  onClick={() => {
-                    if (!characters[0] || !data.placements[0]) return;
-                    commit(
-                      {
-                        ...data,
-                        cast: [
-                          ...data.cast,
-                          {
-                            id: nextId(
-                              data.cast.map((entry) => entry.id),
-                              'cast',
-                            ),
-                            character: { $ref: { collection: 'characters', id: characters[0].id } },
-                            condition: { kind: 'always' },
-                            placementId: data.placements[0].id,
-                            poseId: null,
-                            expressionId: null,
-                            idleId: null,
-                            visible: true,
-                            order: data.cast.length,
-                          },
-                        ],
-                      },
-                      'Add room cast entry',
-                    );
-                  }}
-                >
-                  <Plus data-icon="inline-start" />
-                  Add cast
-                </Button>
-              </div>
-              {data.cast.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4"
-                >
-                  <Input
-                    value={entry.id}
-                    onChange={(event) => replaceCast(entry.id, { id: event.currentTarget.value })}
-                  />
-                  <Select
-                    value={entry.character.$ref.id}
-                    onValueChange={(value) =>
-                      replaceCast(entry.id, {
-                        character: { $ref: { collection: 'characters', id: String(value) } },
-                      })
-                    }
-                  >
-                    {characters.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    value={entry.placementId}
-                    onValueChange={(value) => replaceCast(entry.id, { placementId: String(value) })}
-                  >
-                    {data.placements.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.id}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <label className="flex items-center gap-2">
+                      ],
+                    },
+                    'Add room cast entry',
+                  );
+                },
+              }}
+              getDeleteLabel={(entry) => `Delete cast entry ${entry.id}`}
+              onDeleteItem={(_, index) => {
+                const nextCast = data.cast.filter((_, castIndex) => castIndex !== index);
+                setSelectedCastIndex(Math.max(0, Math.min(index, nextCast.length - 1)));
+                commit({ ...data, cast: nextCast }, 'Delete room cast entry');
+              }}
+              getItemPresentation={(entry) => ({
+                label: entry.id,
+                secondary:
+                  characters.find((character) => character.id === entry.character.$ref.id)?.label ??
+                  entry.character.$ref.id,
+                trailing: entry.visible ? 'Visible' : 'Hidden',
+              })}
+              renderDetail={(entry) => (
+                <div className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4">
+                  <div className="space-y-1">
+                    <Label>ID</Label>
+                    <Input
+                      value={entry.id}
+                      onChange={(event) => replaceCast(entry.id, { id: event.currentTarget.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Character</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-start font-normal"
+                      onClick={() => setContentEntitySelector({ kind: 'cast-character', id: entry.id })}
+                    >
+                      {characters.find((item) => item.id === entry.character.$ref.id)?.label ??
+                        entry.character.$ref.id}
+                    </Button>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Placement</Label>
+                    <Select
+                      value={entry.placementId}
+                      onValueChange={(value) => replaceCast(entry.id, { placementId: String(value) })}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {data.placements.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <label className="flex items-end gap-2 pb-2">
                     <input
                       type="checkbox"
                       checked={entry.visible}
@@ -2795,28 +2887,34 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     />
                     Visible
                   </label>
-                  <Input
-                    placeholder="Pose ID"
-                    value={entry.poseId ?? ''}
-                    onChange={(event) =>
-                      replaceCast(entry.id, { poseId: event.currentTarget.value || null })
-                    }
-                  />
-                  <Input
-                    placeholder="Expression ID"
-                    value={entry.expressionId ?? ''}
-                    onChange={(event) =>
-                      replaceCast(entry.id, { expressionId: event.currentTarget.value || null })
-                    }
-                  />
-                  <Input
-                    placeholder="Idle ID"
-                    value={entry.idleId ?? ''}
-                    onChange={(event) =>
-                      replaceCast(entry.id, { idleId: event.currentTarget.value || null })
-                    }
-                  />
-                  <div className="@3xl:col-span-3">
+                  <div className="space-y-1">
+                    <Label>Pose ID</Label>
+                    <Input
+                      value={entry.poseId ?? ''}
+                      onChange={(event) =>
+                        replaceCast(entry.id, { poseId: event.currentTarget.value || null })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Expression ID</Label>
+                    <Input
+                      value={entry.expressionId ?? ''}
+                      onChange={(event) =>
+                        replaceCast(entry.id, { expressionId: event.currentTarget.value || null })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Idle ID</Label>
+                    <Input
+                      value={entry.idleId ?? ''}
+                      onChange={(event) =>
+                        replaceCast(entry.id, { idleId: event.currentTarget.value || null })
+                      }
+                    />
+                  </div>
+                  <div className="@3xl:col-span-4">
                     <RecursiveConditionEditor
                       value={entry.condition}
                       project={project}
@@ -2824,116 +2922,139 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       onChange={(condition) => replaceCast(entry.id, { condition })}
                     />
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      commit(
-                        { ...data, cast: data.cast.filter((item) => item.id !== entry.id) },
-                        'Delete room cast entry',
-                      )
-                    }
-                  >
-                    Delete
-                  </Button>
                 </div>
-              ))}
-            </section>
-            <section
-              className="space-y-4 rounded-xl border bg-card/20 p-4"
-              data-workbench-anchor="room.props"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Props</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Static visual elements placed within the room.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!data.placements[0] || (!assets[0] && !materials[0])}
-                  onClick={() => {
-                    if (!data.placements[0]) return;
-                    commit(
-                      {
-                        ...data,
-                        props: [
-                          ...data.props,
-                          {
-                            id: nextId(
-                              data.props.map((entry) => entry.id),
-                              'prop',
-                            ),
-                            condition: { kind: 'always' },
-                            placementId: data.placements[0].id,
-                            asset: assets[0] ? roomAssetRef(assets[0].id) : null,
-                            material:
-                              !assets[0] && materials[0] ? roomMaterialRef(materials[0].id) : null,
-                            visible: true,
-                            order: data.props.length,
-                          },
-                        ],
-                      },
-                      'Add room prop',
-                    );
-                  }}
-                >
-                  <Plus data-icon="inline-start" />
-                  Add prop
-                </Button>
-              </div>
-              {data.props.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4"
-                >
-                  <Input
-                    value={entry.id}
-                    onChange={(event) => replaceProp(entry.id, { id: event.currentTarget.value })}
-                  />
-                  <Select
-                    value={entry.placementId}
-                    onValueChange={(value) => replaceProp(entry.id, { placementId: String(value) })}
-                  >
-                    {data.placements.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.id}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    value={refValue(entry.asset)}
-                    onValueChange={(value) =>
-                      replaceProp(entry.id, {
-                        asset: value === '__none__' ? null : roomAssetRef(String(value)),
-                      })
-                    }
-                  >
-                    <SelectItem value="__none__">No asset</SelectItem>
-                    {assets.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    value={refValue(entry.material)}
-                    onValueChange={(value) =>
-                      replaceProp(entry.id, {
-                        material: value === '__none__' ? null : roomMaterialRef(String(value)),
-                      })
-                    }
-                  >
-                    <SelectItem value="__none__">No material</SelectItem>
-                    {materials.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <div className="@3xl:col-span-3">
+              )}
+            />
+            <CollectionMasterDetail
+              anchor="room.props"
+              title="Props"
+              description="Decorative, non-interactive Room visuals placed at authored placements. Use an Interactable instead when the object needs gameplay identity or interactions."
+              items={data.props}
+              getKey={(_, index) => String(index)}
+              selectedKey={
+                data.props.length > 0
+                  ? String(Math.min(selectedPropIndex, data.props.length - 1))
+                  : null
+              }
+              onSelectedKeyChange={(_, __, index) => setSelectedPropIndex(index)}
+              listAriaLabel="Room props"
+              emptyState="No props."
+              listAction={{
+                label: 'Add prop',
+                icon: <Plus className="size-3.5" aria-hidden="true" />,
+                disabled: !data.placements[0] || (!assets[0] && !materials[0]),
+                onClick: () => {
+                  if (!data.placements[0]) return;
+                  setSelectedPropIndex(data.props.length);
+                  commit(
+                    {
+                      ...data,
+                      props: [
+                        ...data.props,
+                        {
+                          id: nextId(
+                            data.props.map((entry) => entry.id),
+                            'prop',
+                          ),
+                          condition: { kind: 'always' },
+                          placementId: data.placements[0].id,
+                          asset: assets[0] ? roomAssetRef(assets[0].id) : null,
+                          material:
+                            !assets[0] && materials[0] ? roomMaterialRef(materials[0].id) : null,
+                          visible: true,
+                          order: data.props.length,
+                        },
+                      ],
+                    },
+                    'Add room prop',
+                  );
+                },
+              }}
+              getDeleteLabel={(entry) => `Delete prop ${entry.id}`}
+              onDeleteItem={(_, index) => {
+                const nextProps = data.props.filter((_, propIndex) => propIndex !== index);
+                setSelectedPropIndex(Math.max(0, Math.min(index, nextProps.length - 1)));
+                commit({ ...data, props: nextProps }, 'Delete room prop');
+              }}
+              getItemPresentation={(entry) => ({
+                label: entry.id,
+                secondary: entry.placementId,
+              })}
+              renderDetail={(entry) => (
+                <div className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4">
+                  <div className="space-y-1">
+                    <Label>ID</Label>
+                    <Input
+                      value={entry.id}
+                      onChange={(event) => replaceProp(entry.id, { id: event.currentTarget.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Placement</Label>
+                    <Select
+                      value={entry.placementId}
+                      onValueChange={(value) => replaceProp(entry.id, { placementId: String(value) })}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {data.placements.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Asset</Label>
+                    <div className="flex overflow-hidden rounded-md border bg-background">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-7 min-w-0 flex-1 justify-start rounded-none px-2 text-left font-normal"
+                        onClick={() => setContentEntitySelector({ kind: 'prop-asset', id: entry.id })}
+                      >
+                        {assets.find((item) => item.id === entry.asset?.$ref.id)?.label ?? 'Choose asset'}
+                      </Button>
+                      {entry.asset ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-7 rounded-none border-l px-2"
+                          onClick={() => replaceProp(entry.id, { asset: null })}
+                        >
+                          Clear
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Material</Label>
+                    <div className="flex overflow-hidden rounded-md border bg-background">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-7 min-w-0 flex-1 justify-start rounded-none px-2 text-left font-normal"
+                        onClick={() => setContentEntitySelector({ kind: 'prop-material', id: entry.id })}
+                      >
+                        {materials.find((item) => item.id === entry.material?.$ref.id)?.label ??
+                          'Choose material'}
+                      </Button>
+                      {entry.material ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-7 rounded-none border-l px-2"
+                          onClick={() => replaceProp(entry.id, { material: null })}
+                        >
+                          Clear
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="@3xl:col-span-4">
                     <RecursiveConditionEditor
                       value={entry.condition}
                       project={project}
@@ -2941,76 +3062,76 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       onChange={(condition) => replaceProp(entry.id, { condition })}
                     />
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      commit(
-                        { ...data, props: data.props.filter((item) => item.id !== entry.id) },
-                        'Delete room prop',
-                      )
-                    }
-                  >
-                    Delete
-                  </Button>
                 </div>
-              ))}
-            </section>
-            <section
-              className="space-y-4 rounded-xl border bg-card/20 p-4"
-              data-workbench-anchor="room.environments"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Environment loops</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Animated materials and shader layers that persist in this room.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!materials[0]}
-                  onClick={() => {
-                    const material = materials[0];
-                    if (!material) return;
-                    commit(
-                      {
-                        ...data,
-                        environments: [
-                          ...data.environments,
-                          {
-                            id: nextId(
-                              data.environments.map((entry) => entry.id),
-                              'environment',
-                            ),
-                            condition: { kind: 'always' },
-                            asset: assets[0] ? roomAssetRef(assets[0].id) : null,
-                            material: roomMaterialRef(material.id),
-                            bounds: { x: 0, y: 0, width: 1, height: 1 },
-                            plane: 'world-content',
-                            order: data.environments.length,
-                            clock: 'gameplay',
-                            scrollPerSecond: { x: 0, y: 0 },
-                            opacity: 1,
-                            visible: true,
-                          },
-                        ],
-                      },
-                      'Add room environment',
-                    );
-                  }}
-                >
-                  <Plus data-icon="inline-start" />
-                  Add environment
-                </Button>
-              </div>
-              {data.environments.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4"
-                >
-                  <div>
+              )}
+            />
+            <CollectionMasterDetail
+              anchor="room.environments"
+              title="Environment Layers"
+              description="Independent Room visual layers with their own bounds, material, opacity, presentation plane, clock, and UV scrolling. Use them for persistent effects such as fog, rain, water, or moving backgrounds."
+              items={data.environments}
+              getKey={(_, index) => String(index)}
+              selectedKey={
+                data.environments.length > 0
+                  ? String(Math.min(selectedEnvironmentIndex, data.environments.length - 1))
+                  : null
+              }
+              onSelectedKeyChange={(_, __, index) => setSelectedEnvironmentIndex(index)}
+              listAriaLabel="Environment layers"
+              emptyState="No environment layers."
+              listAction={{
+                label: 'Add environment',
+                icon: <Plus className="size-3.5" aria-hidden="true" />,
+                disabled: !materials[0],
+                onClick: () => {
+                  const material = materials[0];
+                  if (!material) return;
+                  setSelectedEnvironmentIndex(data.environments.length);
+                  commit(
+                    {
+                      ...data,
+                      environments: [
+                        ...data.environments,
+                        {
+                          id: nextId(
+                            data.environments.map((entry) => entry.id),
+                            'environment',
+                          ),
+                          condition: { kind: 'always' },
+                          asset: assets[0] ? roomAssetRef(assets[0].id) : null,
+                          material: roomMaterialRef(material.id),
+                          bounds: { x: 0, y: 0, width: 1, height: 1 },
+                          plane: 'world-content',
+                          order: data.environments.length,
+                          clock: 'gameplay',
+                          scrollPerSecond: { x: 0, y: 0 },
+                          opacity: 1,
+                          visible: true,
+                        },
+                      ],
+                    },
+                    'Add room environment',
+                  );
+                },
+              }}
+              getDeleteLabel={(entry) => `Delete environment ${entry.id}`}
+              onDeleteItem={(_, index) => {
+                const nextEnvironments = data.environments.filter(
+                  (_, environmentIndex) => environmentIndex !== index,
+                );
+                setSelectedEnvironmentIndex(
+                  Math.max(0, Math.min(index, nextEnvironments.length - 1)),
+                );
+                commit({ ...data, environments: nextEnvironments }, 'Delete room environment');
+              }}
+              getItemPresentation={(entry) => ({
+                label: entry.id,
+                secondary: entry.plane,
+                trailing: `${Math.round(entry.opacity * 100)}%`,
+              })}
+              renderDetail={(entry) => (
+                <div className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-4">
+                  <div className="space-y-1">
                     <Label>ID</Label>
                     <Input
                       value={entry.id}
@@ -3019,38 +3140,44 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       }
                     />
                   </div>
-                  <div>
+                  <div className="space-y-1">
                     <Label>Asset</Label>
-                    <Select
-                      value={refValue(entry.asset)}
-                      onValueChange={(value) =>
-                        replaceEnvironment(entry.id, {
-                          asset: value === '__none__' ? null : roomAssetRef(String(value)),
-                        })
-                      }
-                    >
-                      <SelectItem value="__none__">No asset</SelectItem>
-                      {assets.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </Select>
+                    <div className="flex overflow-hidden rounded-md border bg-background">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-7 min-w-0 flex-1 justify-start rounded-none px-2 text-left font-normal"
+                        onClick={() =>
+                          setContentEntitySelector({ kind: 'environment-asset', id: entry.id })
+                        }
+                      >
+                        {assets.find((item) => item.id === entry.asset?.$ref.id)?.label ?? 'Choose asset'}
+                      </Button>
+                      {entry.asset ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-7 rounded-none border-l px-2"
+                          onClick={() => replaceEnvironment(entry.id, { asset: null })}
+                        >
+                          Clear
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
-                  <div>
+                  <div className="space-y-1">
                     <Label>Material</Label>
-                    <Select
-                      value={entry.material.$ref.id}
-                      onValueChange={(value) =>
-                        replaceEnvironment(entry.id, { material: roomMaterialRef(String(value)) })
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-start font-normal"
+                      onClick={() =>
+                        setContentEntitySelector({ kind: 'environment-material', id: entry.id })
                       }
                     >
-                      {materials.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </Select>
+                      {materials.find((item) => item.id === entry.material.$ref.id)?.label ??
+                        entry.material.$ref.id}
+                    </Button>
                   </div>
                   <label className="flex items-end gap-2 pb-2">
                     <input
@@ -3062,7 +3189,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     />
                     Visible
                   </label>
-                  <div>
+                  <div className="space-y-1">
                     <Label>Plane</Label>
                     <Select
                       value={entry.plane}
@@ -3072,14 +3199,19 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         })
                       }
                     >
-                      {roomEnvironmentPlaneValues.map((plane) => (
-                        <SelectItem key={plane} value={plane}>
-                          {plane}
-                        </SelectItem>
-                      ))}
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roomEnvironmentPlaneValues.map((plane) => (
+                          <SelectItem key={plane} value={plane}>
+                            {plane}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
                   </div>
-                  <div>
+                  <div className="space-y-1">
                     <Label>Clock</Label>
                     <Select
                       value={entry.clock}
@@ -3089,14 +3221,19 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         })
                       }
                     >
-                      {roomEnvironmentClockValues.map((clock) => (
-                        <SelectItem key={clock} value={clock}>
-                          {clock}
-                        </SelectItem>
-                      ))}
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roomEnvironmentClockValues.map((clock) => (
+                          <SelectItem key={clock} value={clock}>
+                            {clock}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
                   </div>
-                  <div>
+                  <div className="space-y-1">
                     <Label>Order</Label>
                     <Input
                       value={String(entry.order)}
@@ -3107,7 +3244,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       }
                     />
                   </div>
-                  <div>
+                  <div className="space-y-1">
                     <Label>Opacity</Label>
                     <Input
                       value={String(entry.opacity)}
@@ -3122,7 +3259,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     />
                   </div>
                   {(['x', 'y', 'width', 'height'] as const).map((field) => (
-                    <div key={field}>
+                    <div key={field} className="space-y-1">
                       <Label>Bounds {field}</Label>
                       <Input
                         value={String(entry.bounds[field])}
@@ -3137,7 +3274,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       />
                     </div>
                   ))}
-                  <div>
+                  <div className="space-y-1">
                     <Label>Scroll X / sec</Label>
                     <Input
                       value={String(entry.scrollPerSecond.x)}
@@ -3151,7 +3288,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       }
                     />
                   </div>
-                  <div>
+                  <div className="space-y-1">
                     <Label>Scroll Y / sec</Label>
                     <Input
                       value={String(entry.scrollPerSecond.y)}
@@ -3165,7 +3302,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       }
                     />
                   </div>
-                  <div className="@3xl:col-span-3">
+                  <div className="@3xl:col-span-4">
                     <RecursiveConditionEditor
                       value={entry.condition}
                       project={project}
@@ -3173,24 +3310,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       onChange={(condition) => replaceEnvironment(entry.id, { condition })}
                     />
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      commit(
-                        {
-                          ...data,
-                          environments: data.environments.filter((item) => item.id !== entry.id),
-                        },
-                        'Delete room environment',
-                      )
-                    }
-                  >
-                    Delete
-                  </Button>
                 </div>
-              ))}
-            </section>
+              )}
+            />
           </>
         ) : null}
         {activeCategory === 'behavior' ? (
@@ -3292,6 +3414,45 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           </section>
         ) : null}
 
+        <SearchSelectorDialog
+          open={contentEntitySelector !== null}
+          title={contentEntitySelectorTitle}
+          placeholder="Search project entities..."
+          emptyMessage="No matching project entities."
+          items={contentEntitySelectorItems}
+          selectedId={contentEntitySelectorSelectedId}
+          onOpenChange={(open) => {
+            if (!open) setContentEntitySelector(null);
+          }}
+          onSelect={(item) => {
+            if (!contentEntitySelector || !item.entityId) return;
+            switch (contentEntitySelector.kind) {
+              case 'overlay-layout':
+                replaceOverlay(contentEntitySelector.id, { layout: roomLayoutRef(item.entityId) });
+                break;
+              case 'cast-character':
+                replaceCast(contentEntitySelector.id, {
+                  character: { $ref: { collection: 'characters', id: item.entityId } },
+                });
+                break;
+              case 'prop-asset':
+                replaceProp(contentEntitySelector.id, { asset: roomAssetRef(item.entityId) });
+                break;
+              case 'prop-material':
+                replaceProp(contentEntitySelector.id, { material: roomMaterialRef(item.entityId) });
+                break;
+              case 'environment-asset':
+                replaceEnvironment(contentEntitySelector.id, { asset: roomAssetRef(item.entityId) });
+                break;
+              case 'environment-material':
+                replaceEnvironment(contentEntitySelector.id, {
+                  material: roomMaterialRef(item.entityId),
+                });
+                break;
+            }
+            setContentEntitySelector(null);
+          }}
+        />
         <SearchSelectorDialog
           open={interactableSelectorOpen}
           title={t('roomComposition.placeInteractable')}
