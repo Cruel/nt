@@ -212,7 +212,7 @@
     "title": "Pré-visualização"
   },
   "reset": {
-    "action": "Redefinir todas as configurações",
+    "action": "Redefinir configurações",
     "dialog": {
       "confirm": "Redefinir todas",
       "description": "Isso restaura todas as categorias de configurações do editor aos valores padrão. Esta ação não pode ser desfeita.",

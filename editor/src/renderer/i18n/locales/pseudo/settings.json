@@ -212,7 +212,7 @@
     "title": "⟦Preview⟧"
   },
   "reset": {
-    "action": "⟦Reset All Settings⟧",
+    "action": "⟦Reset Settings⟧",
     "dialog": {
       "confirm": "⟦Reset All Settings⟧",
       "description": "⟦This restores every editor setting category to its default values. This action cannot be undone.⟧",

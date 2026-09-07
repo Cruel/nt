@@ -868,15 +868,18 @@ export function SettingsPage({
       onCategoryChange={setActiveCategory}
       navigationLabel={t('settings:categories.navigationLabel')}
       showActiveDescription={false}
+      sidebarFooterTooltip={t('settings:reset.action')}
       sidebarFooter={
         <Button
-          className="w-full justify-start"
+          className="h-8 w-full justify-start gap-2 overflow-hidden rounded-none border-0 px-2.5 text-xs leading-none text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground [&_svg:not([class*='size-'])]:size-4.5"
           variant="ghost"
           disabled={!userExportConfigLoaded || settingsAtDefaults}
           onClick={() => setResetDialogOpen(true)}
         >
           <RotateCcw />
-          {t('settings:reset.action')}
+          <span className="whitespace-nowrap leading-none transition-opacity duration-150 group-data-[collapsed=true]/sidebar:opacity-0">
+            {t('settings:reset.action')}
+          </span>
         </Button>
       }
       header={<PageHeader className="border-0 p-0" title={activeSettingsCategory.label} />}

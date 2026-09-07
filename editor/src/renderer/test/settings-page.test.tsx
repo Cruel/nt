@@ -199,7 +199,7 @@ describe('SettingsPage code editor theme selector', () => {
     });
     await renderSettingsPage();
 
-    const resetAction = screen.getByRole('button', { name: 'Reset All Settings' });
+    const resetAction = screen.getByRole('button', { name: 'Reset Settings' });
     expect(resetAction.closest('aside')).not.toBeNull();
     fireEvent.click(resetAction);
 
@@ -210,7 +210,7 @@ describe('SettingsPage code editor theme selector', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(usePreferencesStore.getState().theme).toBe('dark');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset All Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Settings' }));
     fireEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset All Settings' }),
     );
@@ -226,7 +226,7 @@ describe('SettingsPage code editor theme selector', () => {
     );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Reset All Settings' })).toBeDisabled(),
+      expect(screen.getByRole('button', { name: 'Reset Settings' })).toBeDisabled(),
     );
   });
 
@@ -239,7 +239,7 @@ describe('SettingsPage code editor theme selector', () => {
     );
 
     await renderSettingsPage();
-    const reset = screen.getByRole('button', { name: 'Reset All Settings' });
+    const reset = screen.getByRole('button', { name: 'Reset Settings' });
     expect(reset).toBeDisabled();
 
     resolveConfig({
@@ -267,7 +267,7 @@ describe('SettingsPage code editor theme selector', () => {
     });
     await renderSettingsPage();
 
-    const reset = await screen.findByRole('button', { name: 'Reset All Settings' });
+    const reset = await screen.findByRole('button', { name: 'Reset Settings' });
     expect(reset).toBeEnabled();
     fireEvent.click(reset);
     fireEvent.click(
@@ -513,7 +513,7 @@ describe('SettingsPage editor cache', () => {
     await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('Editor cache cleared.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset All Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Settings' }));
     fireEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset All Settings' }),
     );
