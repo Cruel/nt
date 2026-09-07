@@ -98,6 +98,7 @@ function sharedPreferencesSnapshot(state: ResettableEditorPreferences): NovelTea
     comfyUi: editorLocalComfyUiPreferences(state.comfyUiConfig),
     previewDisplay: state.previewDisplay,
     editorPreviewLayout: state.editorPreviewLayout,
+    showCategorizedEditorHeaders: state.showCategorizedEditorHeaders,
     exportPreferences: state.exportPreferences,
   };
 }
@@ -149,6 +150,9 @@ function sharedPreferencesState(
     editorPreviewLayout: normalizeEditorPreviewLayoutPreference(
       candidate.editorPreviewLayout ?? current.editorPreviewLayout,
     ),
+    ...(typeof candidate.showCategorizedEditorHeaders === 'boolean'
+      ? { showCategorizedEditorHeaders: candidate.showCategorizedEditorHeaders }
+      : {}),
     exportPreferences: normalizeExportPreferences(
       candidate.exportPreferences ?? current.exportPreferences,
     ),
@@ -168,6 +172,7 @@ export interface ResettableEditorPreferences {
   comfyUiConfig: ComfyUiConfig;
   previewDisplay: PreviewDisplayPreference;
   editorPreviewLayout: EditorPreviewLayoutPreference;
+  showCategorizedEditorHeaders: boolean;
   editorPreviewSplitSizes: EditorPreviewSplitSizes;
   exportPreferences: ExportPreferences;
 }
@@ -189,6 +194,7 @@ interface PreferencesState extends ResettableEditorPreferences {
   setComfyUiConfig: (patch: Partial<ComfyUiConfig>) => void;
   setPreviewDisplay: (preference: PreviewDisplayPreference) => void;
   setEditorPreviewLayout: (preference: EditorPreviewLayoutPreference) => void;
+  setShowCategorizedEditorHeaders: (show: boolean) => void;
   setEditorPreviewSplitSize: (
     orientation: keyof EditorPreviewSplitSizes,
     previewSize: number,
@@ -211,6 +217,7 @@ export function createDefaultEditorPreferences(): ResettableEditorPreferences {
     comfyUiConfig: defaultComfyUiConfig(),
     previewDisplay: { ...DEFAULT_PREVIEW_DISPLAY_PREFERENCE },
     editorPreviewLayout: 'automatic',
+    showCategorizedEditorHeaders: true,
     editorPreviewSplitSizes: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SIZES },
     exportPreferences: normalizeExportPreferences(DEFAULT_EXPORT_PREFERENCES),
   };
@@ -229,6 +236,7 @@ export function selectEditorPreferencesAreDefaults(state: ResettableEditorPrefer
     state.previewRmlUiRasterSnap === defaults.previewRmlUiRasterSnap &&
     state.defaultProjectDirectory === defaults.defaultProjectDirectory &&
     state.editorPreviewLayout === defaults.editorPreviewLayout &&
+    state.showCategorizedEditorHeaders === defaults.showCategorizedEditorHeaders &&
     JSON.stringify(state.comfyUiConfig) === JSON.stringify(defaults.comfyUiConfig) &&
     JSON.stringify(state.previewDisplay) === JSON.stringify(defaults.previewDisplay) &&
     JSON.stringify(state.editorPreviewSplitSizes) ===
@@ -268,6 +276,8 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ previewDisplay: normalizePreviewDisplayPreference(previewDisplay) }),
       setEditorPreviewLayout: (editorPreviewLayout) =>
         set({ editorPreviewLayout: normalizeEditorPreviewLayoutPreference(editorPreviewLayout) }),
+      setShowCategorizedEditorHeaders: (showCategorizedEditorHeaders) =>
+        set({ showCategorizedEditorHeaders }),
       setEditorPreviewSplitSize: (orientation, previewSize) =>
         set((state) => ({
           editorPreviewSplitSizes: normalizeEditorPreviewSplitSizes({

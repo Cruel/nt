@@ -174,6 +174,11 @@
     "testConnection": "⟦Test Connection⟧",
     "title": "⟦ComfyUI⟧"
   },
+  "interface": {
+    "categoryHeaders": "⟦Show category headers⟧",
+    "categoryHeadersDescription": "⟦Show category titles and descriptions above categorized editor content.⟧",
+    "title": "⟦Editor Interface⟧"
+  },
   "language": {
     "description": "⟦Controls the editor interface language.⟧",
     "effective": "⟦System currently resolves to {{language}}.⟧",
