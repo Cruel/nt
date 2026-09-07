@@ -174,6 +174,7 @@ export interface ResettableEditorPreferences {
 
 interface PreferencesState extends ResettableEditorPreferences {
   lastProjectPath: string | null;
+  categorizedEditorSidebarCollapsed: boolean;
   setTheme: (theme: Theme) => void;
   setLanguage: (language: EditorLanguage) => void;
   setCodeEditorTheme: (theme: CodeEditorThemeId) => void;
@@ -183,6 +184,7 @@ interface PreferencesState extends ResettableEditorPreferences {
   setPreviewFpsCap: (cap: number) => void;
   setPreviewRmlUiRasterSnap: (mode: RmlUiRasterSnapMode) => void;
   setLastProjectPath: (projectPath: string | null) => void;
+  setCategorizedEditorSidebarCollapsed: (collapsed: boolean) => void;
   setDefaultProjectDirectory: (projectDirectory: string | null) => void;
   setComfyUiConfig: (patch: Partial<ComfyUiConfig>) => void;
   setPreviewDisplay: (preference: PreviewDisplayPreference) => void;
@@ -240,6 +242,7 @@ export const usePreferencesStore = create<PreferencesState>()(
     (set) => ({
       ...createDefaultEditorPreferences(),
       lastProjectPath: null,
+      categorizedEditorSidebarCollapsed: false,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
@@ -251,6 +254,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       setPreviewRmlUiRasterSnap: (previewRmlUiRasterSnap) =>
         set({ previewRmlUiRasterSnap: normalizeRmlUiRasterSnapMode(previewRmlUiRasterSnap) }),
       setLastProjectPath: (lastProjectPath) => set({ lastProjectPath }),
+      setCategorizedEditorSidebarCollapsed: (categorizedEditorSidebarCollapsed) =>
+        set({ categorizedEditorSidebarCollapsed }),
       setDefaultProjectDirectory: (defaultProjectDirectory) => set({ defaultProjectDirectory }),
       setComfyUiConfig: (patch) =>
         set((state) => ({
@@ -283,6 +288,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       name: 'noveltea-preferences',
       partialize: (state) => ({
         lastProjectPath: state.lastProjectPath,
+        categorizedEditorSidebarCollapsed: state.categorizedEditorSidebarCollapsed,
         editorPreviewSplitSizes: state.editorPreviewSplitSizes,
       }),
       merge: (persisted, current) => {
@@ -295,6 +301,11 @@ export const usePreferencesStore = create<PreferencesState>()(
           ...(typeof persistedState.lastProjectPath === 'string' ||
           persistedState.lastProjectPath === null
             ? { lastProjectPath: persistedState.lastProjectPath }
+            : {}),
+          ...(typeof persistedState.categorizedEditorSidebarCollapsed === 'boolean'
+            ? {
+                categorizedEditorSidebarCollapsed: persistedState.categorizedEditorSidebarCollapsed,
+              }
             : {}),
           editorPreviewSplitSizes: normalizeEditorPreviewSplitSizes(
             persistedState.editorPreviewSplitSizes,

@@ -506,7 +506,50 @@
   },
   "sidebar": {
     "components": "Componentes",
-    "settings": "Configurações"
+    "settings": "Configurações",
+    "categorized": {
+      "collapse": "Recolher barra lateral",
+      "expand": "Expandir barra lateral",
+      "expandWhenWider": "Expandir a barra lateral quando o editor estiver mais largo",
+      "expandWhenWiderTooltip": "Expanda quando o editor estiver mais largo."
+    }
+  },
+  "roomEditor": {
+    "categories": {
+      "navigationLabel": "Categorias do editor de sala",
+      "general": {
+        "label": "Geral",
+        "description": "Identidade, descrição e apresentação do plano de fundo da sala."
+      },
+      "camera": {
+        "label": "Câmera",
+        "description": "Defina o espaço de apresentação do mundo, as vistas de câmera e as âncoras reutilizáveis."
+      },
+      "composition": {
+        "label": "Composição",
+        "description": "Posicione e organize instâncias de interagíveis e âncoras reutilizáveis."
+      },
+      "hotspots": {
+        "label": "Áreas interativas",
+        "description": "Defina regiões clicáveis no plano de fundo da sala."
+      },
+      "navigation": {
+        "label": "Navegação",
+        "description": "Conecte esta sala a outras salas por meio de saídas."
+      },
+      "contents": {
+        "label": "Conteúdo",
+        "description": "Configure sobreposições, elenco, objetos de cena e camadas ambientais."
+      },
+      "properties": {
+        "label": "Propriedades",
+        "description": "Defina o estado tipado local desta sala específica."
+      },
+      "behavior": {
+        "label": "Comportamento",
+        "description": "Configure condições da sala e mapeamentos congelados do Registro de Hooks."
+      }
+    }
   },
   "comfyuiWorkflows": {
     "title": "Fluxos de trabalho ComfyUI",

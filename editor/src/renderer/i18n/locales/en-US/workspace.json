@@ -466,7 +466,50 @@
   },
   "sidebar": {
     "components": "Components",
-    "settings": "Settings"
+    "settings": "Settings",
+    "categorized": {
+      "collapse": "Collapse sidebar",
+      "expand": "Expand sidebar",
+      "expandWhenWider": "Expand sidebar when the editor is wider",
+      "expandWhenWiderTooltip": "Expand when the editor is wider."
+    }
+  },
+  "roomEditor": {
+    "categories": {
+      "navigationLabel": "Room editor categories",
+      "general": {
+        "label": "General",
+        "description": "Room identity, description, and background presentation."
+      },
+      "camera": {
+        "label": "Camera",
+        "description": "Define the world presentation space, Camera Views, and reusable Anchors."
+      },
+      "composition": {
+        "label": "Composition",
+        "description": "Place and arrange Interactable instances and reusable anchors."
+      },
+      "hotspots": {
+        "label": "Hotspots",
+        "description": "Define clickable regions on the Room background."
+      },
+      "navigation": {
+        "label": "Navigation",
+        "description": "Connect this Room to other Rooms through exits."
+      },
+      "contents": {
+        "label": "Contents",
+        "description": "Configure overlays, cast, props, and environmental layers."
+      },
+      "properties": {
+        "label": "Properties",
+        "description": "Author typed state local to this exact Room."
+      },
+      "behavior": {
+        "label": "Behavior",
+        "description": "Configure Room guards and frozen Hook Registry mappings."
+      }
+    }
   },
   "comfyuiWorkflows": {
     "title": "ComfyUI Workflows",

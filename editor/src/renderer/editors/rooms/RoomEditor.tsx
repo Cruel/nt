@@ -173,55 +173,20 @@ type RoomEditorCategory =
   | 'properties'
   | 'behavior';
 
-const roomEditorCategories: readonly CategorizedEditorCategory<RoomEditorCategory>[] = [
-  {
-    id: 'general',
-    label: 'General',
-    description: 'Room identity, description, and background presentation.',
-    icon: Settings2,
-  },
-  {
-    id: 'camera',
-    label: 'Camera',
-    description: 'Define the world presentation space, Camera Views, and reusable Anchors.',
-    icon: Camera,
-  },
-  {
-    id: 'composition',
-    label: 'Composition',
-    description: 'Place and arrange Interactable instances and reusable anchors.',
-    icon: Boxes,
-  },
-  {
-    id: 'hotspots',
-    label: 'Hotspots',
-    description: 'Define clickable regions on the Room background.',
-    icon: MousePointerClick,
-  },
-  {
-    id: 'navigation',
-    label: 'Navigation',
-    description: 'Connect this Room to other Rooms through exits.',
-    icon: Waypoints,
-  },
-  {
-    id: 'contents',
-    label: 'Contents',
-    description: 'Configure overlays, cast, props, and environmental layers.',
-    icon: Layers3,
-  },
-  {
-    id: 'properties',
-    label: 'Properties',
-    description: 'Author typed state local to this exact Room.',
-    icon: Braces,
-  },
-  {
-    id: 'behavior',
-    label: 'Behavior',
-    description: 'Configure Room guards and frozen Hook Registry mappings.',
-    icon: Workflow,
-  },
+type RoomEditorCategoryDefinition = Pick<
+  CategorizedEditorCategory<RoomEditorCategory>,
+  'id' | 'icon'
+>;
+
+const roomEditorCategories: readonly RoomEditorCategoryDefinition[] = [
+  { id: 'general', icon: Settings2 },
+  { id: 'camera', icon: Camera },
+  { id: 'composition', icon: Boxes },
+  { id: 'hotspots', icon: MousePointerClick },
+  { id: 'navigation', icon: Waypoints },
+  { id: 'contents', icon: Layers3 },
+  { id: 'properties', icon: Braces },
+  { id: 'behavior', icon: Workflow },
 ];
 
 function isRoomEditorCategory(value: unknown): value is RoomEditorCategory {
@@ -861,25 +826,33 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       'Update room environment',
     );
   const categorizedRoomEditorCategories = roomEditorCategories.map((category) => {
+    const localizedCategory = {
+      ...category,
+      label: t(`roomEditor.categories.${category.id}.label`),
+      description: t(`roomEditor.categories.${category.id}.description`),
+    };
     switch (category.id) {
       case 'camera':
-        return { ...category, trailing: data.presentationSpace.views.length + data.anchors.length };
+        return {
+          ...localizedCategory,
+          trailing: data.presentationSpace.views.length + data.anchors.length,
+        };
       case 'composition':
-        return { ...category, trailing: data.placements.length };
+        return { ...localizedCategory, trailing: data.placements.length };
       case 'hotspots':
-        return { ...category, trailing: data.hotspots.length };
+        return { ...localizedCategory, trailing: data.hotspots.length };
       case 'navigation':
-        return { ...category, trailing: data.exits.length };
+        return { ...localizedCategory, trailing: data.exits.length };
       case 'contents':
         return {
-          ...category,
+          ...localizedCategory,
           trailing:
             data.overlays.length + data.cast.length + data.props.length + data.environments.length,
         };
       case 'properties':
-        return { ...category, trailing: record.localProperties?.length ?? 0 };
+        return { ...localizedCategory, trailing: record.localProperties?.length ?? 0 };
       default:
-        return category;
+        return localizedCategory;
     }
   });
   const activeRoomCategory =
@@ -908,7 +881,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         categories={categorizedRoomEditorCategories}
         activeCategory={activeCategory}
         onCategoryChange={setActiveCategory}
-        navigationLabel="Room editor categories"
+        navigationLabel={t('roomEditor.categories.navigationLabel')}
         contentRef={scrollRef}
         contentContainerClassName="max-w-6xl pb-8"
         header={
