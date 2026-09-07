@@ -66,7 +66,7 @@ describe('RoomEditor', () => {
     renderEditor();
 
     expect(screen.getByRole('navigation', { name: 'Room editor categories' })).toBeInTheDocument();
-    expect(screen.getByText('Room details')).toBeInTheDocument();
+    expect(screen.getByText('Display name')).toBeInTheDocument();
     expect(screen.queryByText('Lifecycle')).toBeNull();
 
     selectRoomCategory('Behavior');

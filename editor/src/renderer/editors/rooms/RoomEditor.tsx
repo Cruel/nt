@@ -884,25 +884,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         navigationLabel={t('roomEditor.categories.navigationLabel')}
         contentRef={scrollRef}
         contentContainerClassName="max-w-6xl pb-8"
-        header={
-          <header className="flex min-w-0 flex-wrap items-center gap-2.5">
-            <h2 className="truncate text-lg font-semibold">{activeRoomCategory.label}</h2>
-            <span className="truncate text-xs text-muted-foreground">{record.label}</span>
-            <Badge variant="outline" className="font-mono text-[10px]">
-              {roomId}
-            </Badge>
-          </header>
-        }
+        header={<h2 className="truncate text-lg font-semibold">{activeRoomCategory.label}</h2>}
       >
         {activeCategory === 'general' ? (
-          <section
-            className="overflow-hidden rounded-lg border bg-card/30"
-            data-workbench-anchor="room.summary"
-          >
-            <div className="border-b px-3 py-2.5">
-              <h3 className="text-sm font-semibold">Room details</h3>
-            </div>
-            <div className="p-3 pb-0">
+          <section className="space-y-3" data-workbench-anchor="room.summary">
+            <div>
               <GameplayArchetypeControls
                 project={project}
                 collection="rooms"
@@ -911,7 +897,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 kind="room"
               />
             </div>
-            <div className="grid gap-3 p-3 @3xl:grid-cols-2">
+            <div className="grid gap-3 @3xl:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Display name</Label>
                 <Input
@@ -933,7 +919,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </div>
             <div
               data-workbench-anchor="room.background"
-              className="grid gap-3 border-t bg-muted/10 p-3 @3xl:grid-cols-3"
+              className="grid gap-3 border-t pt-3 @3xl:grid-cols-3"
             >
               <div className="space-y-1.5 @3xl:col-span-3">
                 <Label>Background image</Label>
@@ -1519,8 +1505,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         ) : null}
 
         {activeCategory === 'camera' ? (
-          <div className="space-y-4" data-workbench-anchor="room.camera">
-            <section className="space-y-3 rounded-xl border bg-card/20 p-4">
+          <div className="space-y-3" data-workbench-anchor="room.camera">
+            <section className="space-y-2.5 border-b pb-3">
               <div>
                 <h3 className="text-sm font-semibold">World Presentation Space</h3>
                 <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1528,8 +1514,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   Camera View to authored bounds; Overscan allows framing outside them.
                 </p>
               </div>
-              <div className="grid gap-3 @3xl:grid-cols-3">
-                <div className="space-y-1.5">
+              <div className="grid gap-2.5 @3xl:grid-cols-3">
+                <div className="space-y-1">
                   <Label>Width</Label>
                   <Input
                     type="number"
@@ -1612,7 +1598,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </Select>
                 </div>
               </div>
-              <div className="flex items-center justify-between gap-3 border-t pt-3">
+              <div className="flex items-center justify-between gap-3 border-t pt-2.5">
                 <div>
                   <Label>Camera bounds</Label>
                   <p className="text-xs text-muted-foreground">
@@ -1646,9 +1632,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </Button>
               </div>
               {data.presentationSpace.bounds ? (
-                <div className="grid gap-3 @3xl:grid-cols-4">
+                <div className="grid gap-2.5 @3xl:grid-cols-4">
                   {(['x', 'y', 'width', 'height'] as const).map((field) => (
-                    <div key={field} className="space-y-1.5">
+                    <div key={field} className="space-y-1">
                       <Label>{field[0]!.toUpperCase() + field.slice(1)}</Label>
                       <Input
                         type="number"
@@ -1678,16 +1664,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               ) : null}
             </section>
 
-            <section className="space-y-3 rounded-xl border bg-card/20 p-4">
+            <section className="space-y-2.5 border-b pb-3">
               <div>
                 <h3 className="text-sm font-semibold">Default Camera View</h3>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Reconstructible framing used when no higher-precedence View is active.
                 </p>
               </div>
-              <div className="grid gap-3 @3xl:grid-cols-4">
+              <div className="grid gap-2.5 @3xl:grid-cols-4">
                 {(['x', 'y'] as const).map((axis) => (
-                  <div key={axis} className="space-y-1.5">
+                  <div key={axis} className="space-y-1">
                     <Label>Center {axis.toUpperCase()}</Label>
                     <Input
                       type="number"
@@ -1774,7 +1760,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
             </section>
 
-            <section className="space-y-3 rounded-xl border bg-card/20 p-4">
+            <section className="space-y-2.5 border-b pb-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold">Named Camera Views</h3>
@@ -1817,9 +1803,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {data.presentationSpace.views.map((entry, index) => (
                 <div
                   key={`${entry.id}-${index}`}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-6"
+                  className="grid gap-2 rounded-md border bg-background/50 p-2 @3xl:grid-cols-6"
                 >
-                  <div className="space-y-1.5 @3xl:col-span-2">
+                  <div className="space-y-1 @3xl:col-span-2">
                     <Label>View ID</Label>
                     <Input
                       value={entry.id}
@@ -1979,10 +1965,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               ))}
             </section>
 
-            <section
-              className="space-y-3 rounded-xl border bg-card/20 p-4"
-              data-workbench-anchor="room.anchors"
-            >
+            <section className="space-y-2.5" data-workbench-anchor="room.anchors">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold">Anchors</h3>
@@ -2018,9 +2001,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               {data.anchors.map((anchor, index) => (
                 <div
                   key={`${anchor.id}-${index}`}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 @3xl:grid-cols-6"
+                  className="grid gap-2 rounded-md border bg-background/50 p-2 @3xl:grid-cols-6"
                 >
-                  <div className="space-y-1.5 @3xl:col-span-2">
+                  <div className="space-y-1 @3xl:col-span-2">
                     <Label>Anchor ID</Label>
                     <Input
                       value={anchor.id}

@@ -393,6 +393,7 @@ export function SettingsPage({
   const codeEditorTheme = usePreferencesStore((s) => s.codeEditorTheme);
   const developerMode = usePreferencesStore((s) => s.developerMode);
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
+  const showCategorizedEditorHeaders = usePreferencesStore((s) => s.showCategorizedEditorHeaders);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const previewFpsCap = usePreferencesStore((s) => s.previewFpsCap);
   const previewRmlUiRasterSnap = usePreferencesStore((s) => s.previewRmlUiRasterSnap);
@@ -407,6 +408,9 @@ export function SettingsPage({
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
   const setDeveloperMode = usePreferencesStore((s) => s.setDeveloperMode);
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
+  const setShowCategorizedEditorHeaders = usePreferencesStore(
+    (s) => s.setShowCategorizedEditorHeaders,
+  );
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
   const setPreviewFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const setPreviewRmlUiRasterSnap = usePreferencesStore((s) => s.setPreviewRmlUiRasterSnap);
@@ -912,6 +916,29 @@ export function SettingsPage({
                   icon={Moon}
                   current={theme}
                   onSelect={setTheme}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card size="sm" data-workbench-anchor="settings.interface">
+            <CardHeader className="gap-0">
+              <CardTitle>{t('settings:interface.title')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between gap-6">
+                <div>
+                  <Label htmlFor="categorized-editor-headers">
+                    {t('settings:interface.categoryHeaders')}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:interface.categoryHeadersDescription')}
+                  </p>
+                </div>
+                <Switch
+                  id="categorized-editor-headers"
+                  checked={showCategorizedEditorHeaders}
+                  onCheckedChange={setShowCategorizedEditorHeaders}
                 />
               </div>
             </CardContent>

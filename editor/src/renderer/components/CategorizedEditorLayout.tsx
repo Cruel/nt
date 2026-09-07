@@ -63,6 +63,9 @@ export function CategorizedEditorLayout<Id extends string>({
   const { t } = useTranslation('workspace');
   const active = categories.find((category) => category.id === activeCategory) ?? categories[0];
   const sidebarCollapsed = usePreferencesStore((state) => state.categorizedEditorSidebarCollapsed);
+  const showCategorizedEditorHeaders = usePreferencesStore(
+    (state) => state.showCategorizedEditorHeaders,
+  );
   const setSidebarCollapsed = usePreferencesStore(
     (state) => state.setCategorizedEditorSidebarCollapsed,
   );
@@ -317,11 +320,22 @@ export function CategorizedEditorLayout<Id extends string>({
 
         <main ref={contentRef} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
           <div className={cn('mx-auto w-full max-w-5xl p-3 @xl:p-4', contentContainerClassName)}>
-            {header}
-            {showActiveDescription && active?.description ? (
-              <p className="mt-1 text-xs text-muted-foreground">{active.description}</p>
+            {showCategorizedEditorHeaders ? (
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1">
+                <div className="min-w-0">{header}</div>
+                {showActiveDescription && active?.description ? (
+                  <p className="min-w-0 text-left text-xs text-muted-foreground">
+                    {active.description}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
-            <div className="mt-3 space-y-2 [&_[data-slot=card]]:[--card-spacing:--spacing(3)]">
+            <div
+              className={cn(
+                'space-y-2 [&_[data-slot=card]]:[--card-spacing:--spacing(3)]',
+                showCategorizedEditorHeaders && 'mt-3',
+              )}
+            >
               {children}
             </div>
           </div>
