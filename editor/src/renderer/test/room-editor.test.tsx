@@ -646,13 +646,12 @@ describe('RoomEditor', () => {
     expect(
       directionSelector.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
-    expect(within(exitCard as HTMLElement).getByRole('option', { name: 'Always' })).toBeTruthy();
-    expect(within(exitCard as HTMLElement).getByRole('option', { name: 'All' })).toBeTruthy();
-    expect(within(exitCard as HTMLElement).getByRole('option', { name: 'Any' })).toBeTruthy();
-    expect(within(exitCard as HTMLElement).getByRole('option', { name: 'Not' })).toBeTruthy();
-    expect(
-      within(exitCard as HTMLElement).getByRole('option', { name: 'Lua predicate' }),
-    ).toBeTruthy();
+    fireEvent.click(within(exitCard as HTMLElement).getByRole('combobox'));
+    expect(screen.getByRole('option', { name: 'Always' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'All' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Any' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Not' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Lua predicate' })).toBeTruthy();
   });
   it('opens destination Rooms from the Exits heading', () => {
     const project = createAuthoringProject();

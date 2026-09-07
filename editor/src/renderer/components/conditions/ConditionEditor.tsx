@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectItem } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
 import type { AuthoringEditorProject } from '../../editors/interactions/InteractionProgramEditor';
 import type {
@@ -36,6 +36,19 @@ export interface ConditionEditorProps {
   scope?: ConditionEditorScope;
   compact?: boolean;
 }
+
+const conditionKindLabels: Record<Condition['kind'], string> = {
+  always: 'Always',
+  all: 'All',
+  any: 'Any',
+  not: 'Not',
+  'variable-comparison': 'Variable / Global Property',
+  'property-comparison': 'Identity Property',
+  'trait-presence': 'Trait presence',
+  'location-comparison': 'Location',
+  'inventory-quantity-comparison': 'Inventory quantity',
+  'lua-predicate': 'Lua predicate',
+};
 
 const comparisonOperators = [
   'equal',
@@ -956,20 +969,25 @@ export function RecursiveConditionEditor({
           onChange(defaultCondition(kind as Condition['kind'], project, scope))
         }
       >
-        <SelectItem value="always">Always</SelectItem>
-        <SelectItem value="all">All</SelectItem>
-        <SelectItem value="any">Any</SelectItem>
-        <SelectItem value="not">Not</SelectItem>
-        <SelectItem value="variable-comparison" disabled={!Object.keys(project.variables).length}>
-          Variable / Global Property
-        </SelectItem>
-        <SelectItem value="property-comparison">Identity Property</SelectItem>
-        <SelectItem value="trait-presence" disabled={!Object.keys(project.traits).length}>
-          Trait presence
-        </SelectItem>
-        <SelectItem value="location-comparison">Location</SelectItem>
-        <SelectItem value="inventory-quantity-comparison">Inventory quantity</SelectItem>
-        <SelectItem value="lua-predicate">Lua predicate</SelectItem>
+        <SelectTrigger className="w-full">
+          <SelectValue>{conditionKindLabels[value.kind]}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="always">Always</SelectItem>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="any">Any</SelectItem>
+          <SelectItem value="not">Not</SelectItem>
+          <SelectItem value="variable-comparison" disabled={!Object.keys(project.variables).length}>
+            Variable / Global Property
+          </SelectItem>
+          <SelectItem value="property-comparison">Identity Property</SelectItem>
+          <SelectItem value="trait-presence" disabled={!Object.keys(project.traits).length}>
+            Trait presence
+          </SelectItem>
+          <SelectItem value="location-comparison">Location</SelectItem>
+          <SelectItem value="inventory-quantity-comparison">Inventory quantity</SelectItem>
+          <SelectItem value="lua-predicate">Lua predicate</SelectItem>
+        </SelectContent>
       </Select>
 
       {value.kind === 'all' || value.kind === 'any' ? (
