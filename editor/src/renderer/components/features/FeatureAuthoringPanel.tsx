@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { CollectionMasterDetail } from '@/components/collection-master-detail';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -6,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { OwnerDefaultPropertiesEditor } from '@/components/properties/OwnerDefaultPropertiesEditor';
 import { OwnerLocalPropertiesEditor } from '@/components/properties/OwnerLocalPropertiesEditor';
-import { useTranslation } from 'react-i18next';
 import type { FeatureData } from '../../../shared/project-schema/authoring-features';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 
@@ -39,16 +40,33 @@ export function FeatureAuthoringPanel({
   onChange,
 }: Props) {
   const { t } = useTranslation('workspace');
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
     featureId: string;
     dependentOverrideCount: number;
     dependentReferenceCount: number;
   } | null>(null);
+  const activeFeature =
+    (selectedFeatureId ? features.find((feature) => feature.id === selectedFeatureId) : null) ??
+    features[0] ??
+    null;
+  const activeFeatureId = activeFeature?.id ?? null;
+
   const replace = (featureId: string, next: FeatureData, label: string) =>
     onChange(
       features.map((feature) => (feature.id === featureId ? next : feature)),
       label,
     );
+
+  const commitDelete = (featureId: string) => {
+    const index = features.findIndex((feature) => feature.id === featureId);
+    const nextFeatures = features.filter((candidate) => candidate.id !== featureId);
+    const nextSelected =
+      nextFeatures[Math.max(0, Math.min(index, nextFeatures.length - 1))]?.id ?? null;
+    setSelectedFeatureId(nextSelected);
+    onChange(nextFeatures, 'Delete Feature');
+  };
+
   const deleteFeature = (featureId: string) => {
     const dependentOverrideCount =
       anchorPrefix === 'interactable' && ownerId
@@ -63,28 +81,21 @@ export function FeatureAuthoringPanel({
       setPendingDelete({ featureId, dependentOverrideCount, dependentReferenceCount });
       return;
     }
-    onChange(
-      features.filter((candidate) => candidate.id !== featureId),
-      'Delete Feature',
-    );
+    commitDelete(featureId);
   };
 
   return (
-    <section
-      className="space-y-3 rounded-lg border bg-card/30 p-3"
-      data-workbench-anchor={`${anchorPrefix}.features`}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="font-medium">{t('features.title')}</h3>
-          <p className="text-xs text-muted-foreground">{t('features.subtitle')}</p>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => {
+    <>
+      <CollectionMasterDetail
+        anchor={`${anchorPrefix}.features`}
+        className="rounded-lg border bg-card/30 p-3"
+        title={t('features.title')}
+        description={t('features.subtitle')}
+        listAction={{
+          label: t('features.add'),
+          onClick: () => {
             const id = nextFeatureId(features);
+            setSelectedFeatureId(id);
             onChange(
               [
                 ...features,
@@ -99,21 +110,30 @@ export function FeatureAuthoringPanel({
               ],
               'Add Feature',
             );
-          }}
-        >
-          {t('features.add')}
-        </Button>
-      </div>
-      {features.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('features.empty')}</p>
-      ) : null}
-      <div className="space-y-3">
-        {features.map((feature) => (
-          <div
-            key={feature.id}
-            className="space-y-3 rounded-md border bg-background/50 p-3"
-            data-workbench-anchor={`${anchorPrefix}.feature.${feature.id}`}
-          >
+          },
+        }}
+        items={features}
+        getKey={(feature) => feature.id}
+        selectedKey={activeFeatureId}
+        onSelectedKeyChange={(featureId) => setSelectedFeatureId(featureId)}
+        listAriaLabel={t('features.title')}
+        emptyState={t('features.empty')}
+        getItemAnchor={(feature) => `${anchorPrefix}.feature.${feature.id}`}
+        onDeleteItem={(feature) => deleteFeature(feature.id)}
+        getDeleteLabel={() => t('features.delete')}
+        getItemPresentation={(feature) => {
+          const propertyCount =
+            propertyMode === 'value'
+              ? feature.localProperties.length
+              : feature.defaultProperties.length;
+          return {
+            label: feature.label,
+            secondary: <span className="font-mono">{feature.id}</span>,
+            trailing: `${propertyCount} prop${propertyCount === 1 ? '' : 's'}`,
+          };
+        }}
+        renderDetail={(feature) => (
+          <div className="space-y-3 rounded-md border bg-background/50 p-3">
             <div className="grid gap-3 @3xl:grid-cols-[12rem_1fr_auto] @3xl:items-end">
               <div>
                 <Label>{t('features.fields.id')}</Label>
@@ -132,9 +152,6 @@ export function FeatureAuthoringPanel({
                   }
                 />
               </div>
-              <Button type="button" variant="destructive" onClick={() => deleteFeature(feature.id)}>
-                {t('features.delete')}
-              </Button>
             </div>
 
             {propertyMode === 'value' ? (
@@ -190,8 +207,8 @@ export function FeatureAuthoringPanel({
               }
             />
           </div>
-        ))}
-      </div>
+        )}
+      />
       <Dialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
@@ -219,16 +236,12 @@ export function FeatureAuthoringPanel({
                 ? t('features.deleteBlockedClose')
                 : t('features.deleteDependentCancel')}
             </Button>
-            {!pendingDelete?.dependentReferenceCount ? (
+            {pendingDelete && pendingDelete.dependentReferenceCount === 0 ? (
               <Button
                 type="button"
                 variant="destructive"
                 onClick={() => {
-                  if (!pendingDelete) return;
-                  onChange(
-                    features.filter((candidate) => candidate.id !== pendingDelete.featureId),
-                    'Delete Feature',
-                  );
+                  commitDelete(pendingDelete.featureId);
                   setPendingDelete(null);
                 }}
               >
@@ -238,6 +251,6 @@ export function FeatureAuthoringPanel({
           </div>
         </DialogPopup>
       </Dialog>
-    </section>
+    </>
   );
 }

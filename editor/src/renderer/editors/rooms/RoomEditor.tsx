@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
+import { CollectionMasterDetail } from '@/components/collection-master-detail';
+import { EditorHelpIcon, EditorSectionHeading } from '@/components/editor-section-heading';
 import { HookRegistryResolutionInspector } from '@/components/HookRegistryResolutionInspector';
 import {
   AlertTriangle,
@@ -373,6 +375,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [destinationSelectorExitId, setDestinationSelectorExitId] = useState<string | null>(null);
   const [compositionBackgroundUrl, setCompositionBackgroundUrl] = useState<string | null>(null);
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
+  const [selectedPlacementInteractableId, setSelectedPlacementInteractableId] = useState<
+    string | null
+  >(null);
+  const [selectedCameraViewIndex, setSelectedCameraViewIndex] = useState(0);
+  const [selectedAnchorIndex, setSelectedAnchorIndex] = useState(0);
   const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
   const [placementCount, setPlacementCount] = useState(1);
   const [placingInteractable, setPlacingInteractable] = useState<
@@ -514,12 +521,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           instanceId: string;
           placementId?: string;
         };
-        const placementId =
-          payload.placementId ??
-          data.interactables.find((entry) => entry.interactable.$ref.id === payload.instanceId)
-            ?.placementId;
+        const occurrence = data.interactables.find(
+          (entry) => entry.interactable.$ref.id === payload.instanceId,
+        );
+        const placementId = payload.placementId ?? occurrence?.placementId;
         if (placementId && data.placements.some((placement) => placement.id === placementId)) {
           setSelectedPlacementId(placementId);
+          setSelectedPlacementInteractableId(occurrence?.id ?? null);
         }
       }
       return false;
@@ -751,9 +759,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     });
     setSelectedPlacementId(placementId);
   };
-  const selectedPlacementInteractables = selectedPlacementId
+  const activePlacement =
+    (selectedPlacementId
+      ? data.placements.find((placement) => placement.id === selectedPlacementId)
+      : null) ??
+    data.placements[0] ??
+    null;
+  const activePlacementId = activePlacement?.id ?? null;
+  const selectedPlacementInteractables = activePlacementId
     ? data.interactables
-        .filter((entry) => entry.placementId === selectedPlacementId)
+        .filter((entry) => entry.placementId === activePlacementId)
         .flatMap((entry) => {
           const instanceId = entry.interactable.$ref.id;
           const instance = project.interactableInstances[instanceId];
@@ -771,6 +786,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           ];
         })
     : [];
+  const activePlacementInteractable =
+    (selectedPlacementInteractableId
+      ? selectedPlacementInteractables.find((entry) => entry.id === selectedPlacementInteractableId)
+      : null) ??
+    selectedPlacementInteractables[0] ??
+    null;
   const referenceResolution = projectSettingsFromProject(project).display.referenceResolution;
   const placingInteractableData = placingInteractable
     ? parseInteractableData(project.interactables[placingInteractable.definitionId]?.data)
@@ -858,6 +879,197 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const activeRoomCategory =
     categorizedRoomEditorCategories.find((category) => category.id === activeCategory) ??
     categorizedRoomEditorCategories[0]!;
+  const activeCameraViewIndex =
+    data.presentationSpace.views.length === 0
+      ? -1
+      : Math.min(selectedCameraViewIndex, data.presentationSpace.views.length - 1);
+  const activeCameraView =
+    activeCameraViewIndex >= 0 ? data.presentationSpace.views[activeCameraViewIndex] : null;
+  const activeAnchorIndex =
+    data.anchors.length === 0 ? -1 : Math.min(selectedAnchorIndex, data.anchors.length - 1);
+  const activeAnchor = activeAnchorIndex >= 0 ? data.anchors[activeAnchorIndex] : null;
+  const replaceCameraView = (cameraView: NonNullable<typeof activeCameraView>, label: string) => {
+    if (activeCameraViewIndex < 0) return;
+    const views = data.presentationSpace.views.map((candidate, index) =>
+      index === activeCameraViewIndex ? cameraView : candidate,
+    );
+    commit({ ...data, presentationSpace: { ...data.presentationSpace, views } }, label);
+  };
+  const replaceAnchor = (anchor: NonNullable<typeof activeAnchor>, label: string) => {
+    if (activeAnchorIndex < 0) return;
+    commit(
+      {
+        ...data,
+        anchors: data.anchors.map((candidate, index) =>
+          index === activeAnchorIndex ? anchor : candidate,
+        ),
+      },
+      label,
+    );
+  };
+  const renderCameraViewDetail = (cameraView: NonNullable<typeof activeCameraView>) => (
+    <div className="rounded-md border bg-background/50 p-2.5">
+      <div className="flex items-center justify-between gap-2 border-b pb-2">
+        <div className="min-w-0">
+          <div className="truncate text-xs font-medium">View details</div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            Center {cameraView.view.center.x}, {cameraView.view.center.y} ·{' '}
+            {cameraView.view.zoom}× · {cameraView.view.rotationDegrees}°
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-2 pt-2 @3xl:grid-cols-5">
+        <div className="space-y-1 @3xl:col-span-2">
+          <Label>View ID</Label>
+          <Input
+            value={cameraView.id}
+            onChange={(event) =>
+              replaceCameraView(
+                { ...cameraView, id: event.currentTarget.value },
+                'Rename Camera View',
+              )
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Center X</Label>
+          <Input
+            type="number"
+            value={cameraView.view.center.x}
+            onChange={(event) =>
+              replaceCameraView(
+                {
+                  ...cameraView,
+                  view: {
+                    ...cameraView.view,
+                    center: {
+                      ...cameraView.view.center,
+                      x: numberValue(event.currentTarget.value, cameraView.view.center.x),
+                    },
+                  },
+                },
+                'Update Camera View',
+              )
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Center Y</Label>
+          <Input
+            type="number"
+            value={cameraView.view.center.y}
+            onChange={(event) =>
+              replaceCameraView(
+                {
+                  ...cameraView,
+                  view: {
+                    ...cameraView.view,
+                    center: {
+                      ...cameraView.view.center,
+                      y: numberValue(event.currentTarget.value, cameraView.view.center.y),
+                    },
+                  },
+                },
+                'Update Camera View',
+              )
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Zoom</Label>
+          <Input
+            type="number"
+            min={0.001}
+            step={0.05}
+            value={cameraView.view.zoom}
+            onChange={(event) =>
+              replaceCameraView(
+                {
+                  ...cameraView,
+                  view: {
+                    ...cameraView.view,
+                    zoom: Math.max(
+                      0.001,
+                      numberValue(event.currentTarget.value, cameraView.view.zoom),
+                    ),
+                  },
+                },
+                'Update Camera View zoom',
+              )
+            }
+          />
+        </div>
+        <div className="space-y-1 @3xl:col-start-5">
+          <Label>Rotation</Label>
+          <Input
+            type="number"
+            value={cameraView.view.rotationDegrees}
+            onChange={(event) =>
+              replaceCameraView(
+                {
+                  ...cameraView,
+                  view: {
+                    ...cameraView.view,
+                    rotationDegrees: numberValue(
+                      event.currentTarget.value,
+                      cameraView.view.rotationDegrees,
+                    ),
+                  },
+                },
+                'Update Camera View rotation',
+              )
+            }
+          />
+        </div>
+      </div>
+    </div>
+  );
+  const renderAnchorDetail = (anchor: NonNullable<typeof activeAnchor>) => (
+    <div className="rounded-md border bg-background/50 p-2.5">
+      <div className="flex items-center justify-between gap-2 border-b pb-2">
+        <div className="min-w-0">
+          <div className="truncate text-xs font-medium">Anchor details</div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {anchor.bounds.x}, {anchor.bounds.y} · {anchor.bounds.width} × {anchor.bounds.height}
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-2 pt-2 @3xl:grid-cols-6">
+        <div className="space-y-1 @3xl:col-span-2">
+          <Label>Anchor ID</Label>
+          <Input
+            value={anchor.id}
+            onChange={(event) =>
+              replaceAnchor({ ...anchor, id: event.currentTarget.value }, 'Rename Room Anchor')
+            }
+          />
+        </div>
+        {(['x', 'y', 'width', 'height'] as const).map((field) => (
+          <div key={field} className="space-y-1">
+            <Label>{field}</Label>
+            <Input
+              type="number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={anchor.bounds[field]}
+              onChange={(event) => {
+                const raw = numberValue(event.currentTarget.value, anchor.bounds[field]);
+                const value = Math.max(
+                  field === 'width' || field === 'height' ? 0.001 : 0,
+                  Math.min(1, raw),
+                );
+                replaceAnchor(
+                  { ...anchor, bounds: { ...anchor.bounds, [field]: value } },
+                  'Update Room Anchor bounds',
+                );
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
   return (
     <EditorPreviewSplit
       orientation={previewSplitOrientation}
@@ -1506,14 +1718,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
 
         {activeCategory === 'camera' ? (
           <div className="space-y-3" data-workbench-anchor="room.camera">
-            <section className="space-y-2.5 border-b pb-3">
-              <div>
-                <h3 className="text-sm font-semibold">World Presentation Space</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Logical world framing is independent of display resolution. Contain clamps the
-                  Camera View to authored bounds; Overscan allows framing outside them.
-                </p>
-              </div>
+            <section className="space-y-2.5">
+              <EditorSectionHeading
+                title="World Presentation Space"
+                help="Logical world framing is independent of display resolution. Contain clamps the Camera View to authored bounds; Overscan allows framing outside them."
+                helpLabel="About World Presentation Space"
+              />
               <div className="grid gap-2.5 @3xl:grid-cols-3">
                 <div className="space-y-1">
                   <Label>Width</Label>
@@ -1598,12 +1808,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </Select>
                 </div>
               </div>
-              <div className="flex items-center justify-between gap-3 border-t pt-2.5">
-                <div>
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-1.5">
                   <Label>Camera bounds</Label>
-                  <p className="text-xs text-muted-foreground">
+                  <EditorHelpIcon label="About Camera bounds">
                     Optional world-space rectangle used by the Contain policy.
-                  </p>
+                  </EditorHelpIcon>
                 </div>
                 <Button
                   size="sm"
@@ -1664,13 +1874,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               ) : null}
             </section>
 
-            <section className="space-y-2.5 border-b pb-3">
-              <div>
-                <h3 className="text-sm font-semibold">Default Camera View</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Reconstructible framing used when no higher-precedence View is active.
-                </p>
-              </div>
+            <section className="space-y-2.5">
+              <EditorSectionHeading
+                title="Default Camera View"
+                help="Reconstructible framing used when no higher-precedence View is active."
+                helpLabel="About Default Camera View"
+              />
               <div className="grid gap-2.5 @3xl:grid-cols-4">
                 {(['x', 'y'] as const).map((axis) => (
                   <div key={axis} className="space-y-1">
@@ -1760,322 +1969,116 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
             </section>
 
-            <section className="space-y-2.5 border-b pb-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Named Camera Views</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Reusable logical framing targets for presentation operations.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    commit(
-                      {
-                        ...data,
-                        presentationSpace: {
-                          ...data.presentationSpace,
-                          views: [
-                            ...data.presentationSpace.views,
-                            {
-                              id: nextId(
-                                data.presentationSpace.views.map((view) => view.id),
-                                'view',
-                              ),
-                              view: {
-                                center: { ...data.presentationSpace.defaultView.center },
-                                zoom: data.presentationSpace.defaultView.zoom,
-                                rotationDegrees: data.presentationSpace.defaultView.rotationDegrees,
-                              },
-                            },
-                          ],
-                        },
-                      },
-                      'Add Camera View',
-                    )
-                  }
-                >
-                  <Plus data-icon="inline-start" /> Add View
-                </Button>
-              </div>
-              {data.presentationSpace.views.map((entry, index) => (
-                <div
-                  key={`${entry.id}-${index}`}
-                  className="grid gap-2 rounded-md border bg-background/50 p-2 @3xl:grid-cols-6"
-                >
-                  <div className="space-y-1 @3xl:col-span-2">
-                    <Label>View ID</Label>
-                    <Input
-                      value={entry.id}
-                      onChange={(event) => {
-                        const views = data.presentationSpace.views.map((candidate, viewIndex) =>
-                          viewIndex === index
-                            ? { ...candidate, id: event.currentTarget.value }
-                            : candidate,
-                        );
-                        commit(
-                          { ...data, presentationSpace: { ...data.presentationSpace, views } },
-                          'Rename Camera View',
-                        );
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Center X</Label>
-                    <Input
-                      type="number"
-                      value={entry.view.center.x}
-                      onChange={(event) => {
-                        const views = data.presentationSpace.views.map((candidate, viewIndex) =>
-                          viewIndex === index
-                            ? {
-                                ...candidate,
-                                view: {
-                                  ...candidate.view,
-                                  center: {
-                                    ...candidate.view.center,
-                                    x: numberValue(
-                                      event.currentTarget.value,
-                                      candidate.view.center.x,
-                                    ),
-                                  },
-                                },
-                              }
-                            : candidate,
-                        );
-                        commit(
-                          { ...data, presentationSpace: { ...data.presentationSpace, views } },
-                          'Update Camera View',
-                        );
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Center Y</Label>
-                    <Input
-                      type="number"
-                      value={entry.view.center.y}
-                      onChange={(event) => {
-                        const views = data.presentationSpace.views.map((candidate, viewIndex) =>
-                          viewIndex === index
-                            ? {
-                                ...candidate,
-                                view: {
-                                  ...candidate.view,
-                                  center: {
-                                    ...candidate.view.center,
-                                    y: numberValue(
-                                      event.currentTarget.value,
-                                      candidate.view.center.y,
-                                    ),
-                                  },
-                                },
-                              }
-                            : candidate,
-                        );
-                        commit(
-                          { ...data, presentationSpace: { ...data.presentationSpace, views } },
-                          'Update Camera View',
-                        );
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Zoom</Label>
-                    <Input
-                      type="number"
-                      min={0.001}
-                      step={0.05}
-                      value={entry.view.zoom}
-                      onChange={(event) => {
-                        const views = data.presentationSpace.views.map((candidate, viewIndex) =>
-                          viewIndex === index
-                            ? {
-                                ...candidate,
-                                view: {
-                                  ...candidate.view,
-                                  zoom: Math.max(
-                                    0.001,
-                                    numberValue(event.currentTarget.value, candidate.view.zoom),
-                                  ),
-                                },
-                              }
-                            : candidate,
-                        );
-                        commit(
-                          { ...data, presentationSpace: { ...data.presentationSpace, views } },
-                          'Update Camera View zoom',
-                        );
-                      }}
-                    />
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <Label>Rotation</Label>
-                      <Input
-                        type="number"
-                        value={entry.view.rotationDegrees}
-                        onChange={(event) => {
-                          const views = data.presentationSpace.views.map((candidate, viewIndex) =>
-                            viewIndex === index
-                              ? {
-                                  ...candidate,
-                                  view: {
-                                    ...candidate.view,
-                                    rotationDegrees: numberValue(
-                                      event.currentTarget.value,
-                                      candidate.view.rotationDegrees,
-                                    ),
-                                  },
-                                }
-                              : candidate,
-                          );
-                          commit(
-                            { ...data, presentationSpace: { ...data.presentationSpace, views } },
-                            'Update Camera View rotation',
-                          );
-                        }}
-                      />
-                    </div>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`Delete Camera View ${entry.id}`}
-                      onClick={() =>
-                        commit(
-                          {
-                            ...data,
-                            presentationSpace: {
-                              ...data.presentationSpace,
-                              views: data.presentationSpace.views.filter(
-                                (_, viewIndex) => viewIndex !== index,
-                              ),
-                            },
-                          },
-                          'Delete Camera View',
-                        )
-                      }
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </section>
-
-            <section className="space-y-2.5" data-workbench-anchor="room.anchors">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Anchors</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Stable authored regions that Focus captures without live tracking.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    commit(
-                      {
-                        ...data,
-                        anchors: [
-                          ...data.anchors,
+            <CollectionMasterDetail
+              title="Named Camera Views"
+              description="Reusable logical framing targets for presentation operations."
+              items={data.presentationSpace.views}
+              getKey={(_, index) => String(index)}
+              selectedKey={activeCameraViewIndex >= 0 ? String(activeCameraViewIndex) : null}
+              onSelectedKeyChange={(_, __, index) => setSelectedCameraViewIndex(index)}
+              listAriaLabel="Named Camera Views"
+              emptyState="No named Camera Views."
+              listAction={{
+                label: 'Add View',
+                icon: <Plus className="size-3.5" aria-hidden="true" />,
+                onClick: () => {
+                  setSelectedCameraViewIndex(data.presentationSpace.views.length);
+                  commit(
+                    {
+                      ...data,
+                      presentationSpace: {
+                        ...data.presentationSpace,
+                        views: [
+                          ...data.presentationSpace.views,
                           {
                             id: nextId(
-                              data.anchors.map((anchor) => anchor.id),
-                              'anchor',
+                              data.presentationSpace.views.map((view) => view.id),
+                              'view',
                             ),
-                            bounds: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
+                            view: {
+                              center: { ...data.presentationSpace.defaultView.center },
+                              zoom: data.presentationSpace.defaultView.zoom,
+                              rotationDegrees: data.presentationSpace.defaultView.rotationDegrees,
+                            },
                           },
                         ],
                       },
-                      'Add Room Anchor',
-                    )
-                  }
-                >
-                  <Plus data-icon="inline-start" /> Add Anchor
-                </Button>
-              </div>
-              {data.anchors.map((anchor, index) => (
-                <div
-                  key={`${anchor.id}-${index}`}
-                  className="grid gap-2 rounded-md border bg-background/50 p-2 @3xl:grid-cols-6"
-                >
-                  <div className="space-y-1 @3xl:col-span-2">
-                    <Label>Anchor ID</Label>
-                    <Input
-                      value={anchor.id}
-                      onChange={(event) =>
-                        commit(
-                          {
-                            ...data,
-                            anchors: data.anchors.map((candidate, anchorIndex) =>
-                              anchorIndex === index
-                                ? { ...candidate, id: event.currentTarget.value }
-                                : candidate,
-                            ),
-                          },
-                          'Rename Room Anchor',
-                        )
-                      }
-                    />
-                  </div>
-                  {(['x', 'y', 'width', 'height'] as const).map((field) => (
-                    <div key={field} className="space-y-1.5">
-                      <Label>{field}</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={anchor.bounds[field]}
-                        onChange={(event) => {
-                          const raw = numberValue(event.currentTarget.value, anchor.bounds[field]);
-                          const value = Math.max(
-                            field === 'width' || field === 'height' ? 0.001 : 0,
-                            Math.min(1, raw),
-                          );
-                          commit(
-                            {
-                              ...data,
-                              anchors: data.anchors.map((candidate, anchorIndex) =>
-                                anchorIndex === index
-                                  ? {
-                                      ...candidate,
-                                      bounds: { ...candidate.bounds, [field]: value },
-                                    }
-                                  : candidate,
-                              ),
-                            },
-                            'Update Room Anchor bounds',
-                          );
-                        }}
-                      />
-                    </div>
-                  ))}
-                  <div className="flex items-end">
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`Delete Room Anchor ${anchor.id}`}
-                      onClick={() =>
-                        commit(
-                          {
-                            ...data,
-                            anchors: data.anchors.filter((_, anchorIndex) => anchorIndex !== index),
-                          },
-                          'Delete Room Anchor',
-                        )
-                      }
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </section>
+                    },
+                    'Add Camera View',
+                  );
+                },
+              }}
+              getDeleteLabel={(entry) => `Delete Camera View ${entry.id}`}
+              onDeleteItem={(_, index) => {
+                const nextViews = data.presentationSpace.views.filter(
+                  (_, viewIndex) => viewIndex !== index,
+                );
+                setSelectedCameraViewIndex(Math.max(0, Math.min(index, nextViews.length - 1)));
+                commit(
+                  {
+                    ...data,
+                    presentationSpace: {
+                      ...data.presentationSpace,
+                      views: nextViews,
+                    },
+                  },
+                  'Delete Camera View',
+                );
+              }}
+              getItemPresentation={(entry) => ({
+                label: entry.id,
+                trailing: `${entry.view.zoom}×`,
+              })}
+              renderDetail={renderCameraViewDetail}
+            />
+
+            <CollectionMasterDetail
+              anchor="room.anchors"
+              title="Anchors"
+              description="Stable authored regions that Focus captures without live tracking."
+              items={data.anchors}
+              getKey={(_, index) => String(index)}
+              selectedKey={activeAnchorIndex >= 0 ? String(activeAnchorIndex) : null}
+              onSelectedKeyChange={(_, __, index) => setSelectedAnchorIndex(index)}
+              listAriaLabel="Anchors"
+              emptyState="No anchors."
+              listAction={{
+                label: 'Add Anchor',
+                icon: <Plus className="size-3.5" aria-hidden="true" />,
+                onClick: () => {
+                  setSelectedAnchorIndex(data.anchors.length);
+                  commit(
+                    {
+                      ...data,
+                      anchors: [
+                        ...data.anchors,
+                        {
+                          id: nextId(
+                            data.anchors.map((anchor) => anchor.id),
+                            'anchor',
+                          ),
+                          bounds: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
+                        },
+                      ],
+                    },
+                    'Add Room Anchor',
+                  );
+                },
+              }}
+              getDeleteLabel={(anchor) => `Delete Room Anchor ${anchor.id}`}
+              onDeleteItem={(_, index) => {
+                const nextAnchors = data.anchors.filter(
+                  (_, anchorIndex) => anchorIndex !== index,
+                );
+                setSelectedAnchorIndex(Math.max(0, Math.min(index, nextAnchors.length - 1)));
+                commit({ ...data, anchors: nextAnchors }, 'Delete Room Anchor');
+              }}
+              getItemPresentation={(anchor) => ({
+                label: anchor.id,
+                trailing: `${anchor.bounds.width}×${anchor.bounds.height}`,
+              })}
+              renderDetail={renderAnchorDetail}
+            />
           </div>
         ) : null}
 
@@ -2232,7 +2235,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   bounds: placement.bounds,
                   occupants: placementOccupants(placement.id),
                 }))}
-                selectedId={selectedPlacementId}
+                selectedId={activePlacementId}
                 placementDraftLabel={
                   placingInteractable
                     ? placingInteractable.kind === 'instance'
@@ -2265,7 +2268,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   {t('roomComposition.dragPlacement')}
                 </p>
               ) : null}
-              {selectedPlacementId && placementOccupants(selectedPlacementId).length > 1 ? (
+              {activePlacementId && placementOccupants(activePlacementId).length > 1 ? (
                 <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                   <div>
@@ -2279,12 +2282,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => detachInteractable(interactable.id, selectedPlacementId!)}
+                          onClick={() => detachInteractable(interactable.id, activePlacementId!)}
                         >
                           {t('roomComposition.detach')}
                         </Button>
                         <Select
-                          value={selectedPlacementId ?? undefined}
+                          value={activePlacementId ?? undefined}
                           onValueChange={(placementId) => {
                             if (placementId)
                               moveInteractableToPlacement(interactable.id, placementId);
@@ -2306,172 +2309,175 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   </div>
                 </div>
               ) : null}
-              {selectedPlacementInteractables.map((interactable) => (
-                <div key={interactable.id} className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      Occurrence: {interactable.id}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        useCommandStore.getState().executeCommand({
-                          type: 'room.removeInteractableOccurrence',
-                          label: 'Remove Interactable occurrence',
-                          payload: { roomId, occurrenceId: interactable.id },
-                          originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                          persistencePolicy: 'manual-save',
-                        })
-                      }
-                    >
-                      Remove occurrence
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        useCommandStore.getState().executeCommand({
-                          type: 'room.unplaceInteractableInstance',
-                          label: 'Remove Interactable Instance from Room',
-                          payload: { instanceId: interactable.instanceId },
-                          originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                          persistencePolicy: 'manual-save',
-                        })
-                      }
-                    >
-                      Remove from Room
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() =>
-                        useCommandStore.getState().executeCommand({
-                          type: 'room.destroyInteractableInstance',
-                          label: 'Destroy Interactable Instance',
-                          payload: { instanceId: interactable.instanceId },
-                          originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                          persistencePolicy: 'manual-save',
-                        })
-                      }
-                    >
-                      Destroy Instance
-                    </Button>
-                  </div>
-                  <InteractableInstancePropertiesEditor
-                    compact
-                    project={project}
-                    instanceId={interactable.instanceId}
-                    instance={interactable.instance}
-                    onChange={(next, change) =>
-                      useCommandStore.getState().executeCommand({
-                        type: 'project.applyPatch',
-                        label: 'Update Interactable Instance Properties',
-                        payload: [
-                          {
-                            op: 'replace',
-                            path: `/interactableInstances/${escapePointerSegment(interactable.instanceId)}`,
-                            value: next,
-                          },
-                          ...(change
-                            ? renameOwnerLocalPropertyReferencePatches(
-                                project,
-                                { kind: 'interactable', id: interactable.instanceId },
-                                change.fromId,
-                                change.toId,
-                              )
-                            : []),
-                        ],
-                        originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                        persistencePolicy: 'manual-save',
-                      })
-                    }
-                  />
-                </div>
-              ))}
-            </section>
-            <section
-              className="space-y-4 rounded-xl border bg-card/20 p-4"
-              data-workbench-anchor="room.placements"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Placements</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Named regions used by cast, props, and interactions.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    commit(
-                      {
-                        ...data,
-                        placements: [
-                          ...data.placements,
-                          {
-                            id: nextId(
-                              data.placements.map((placement) => placement.id),
-                              'placement',
-                            ),
-                            bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-                            order: data.placements.length,
-                            presentation: { label: null, layout: null },
-                          },
-                        ],
-                      },
-                      'Add room placement',
-                    )
+              {selectedPlacementInteractables.length > 0 ? (
+                <CollectionMasterDetail
+                  title="Interactables in placement"
+                  items={selectedPlacementInteractables}
+                  getKey={(interactable) => interactable.id}
+                  selectedKey={activePlacementInteractable?.id ?? null}
+                  onSelectedKeyChange={(interactableId) =>
+                    setSelectedPlacementInteractableId(interactableId)
                   }
-                >
-                  <Plus data-icon="inline-start" />
-                  Add placement
-                </Button>
-              </div>
-              {data.placements.map((placement) => (
-                <div
-                  key={placement.id}
-                  data-workbench-anchor={`room.placement.${placement.id}`}
-                  className="space-y-4 rounded-lg border bg-background/60 p-4"
-                >
+                  listAriaLabel="Interactables in placement"
+                  emptyState="No Interactables in this placement."
+                  getItemPresentation={(interactable) => ({
+                    label: interactable.label,
+                    trailing: <span className="font-mono">{interactable.id}</span>,
+                  })}
+                  getDeleteLabel={(interactable) => `Remove occurrence ${interactable.id}`}
+                  onDeleteItem={(interactable) =>
+                    useCommandStore.getState().executeCommand({
+                      type: 'room.removeInteractableOccurrence',
+                      label: 'Remove Interactable occurrence',
+                      payload: { roomId, occurrenceId: interactable.id },
+                      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                      persistencePolicy: 'manual-save',
+                    })
+                  }
+                  renderDetail={(interactable) => (
+                    <div className="space-y-2 rounded-md border bg-background/50 p-3">
+                      <div className="text-xs text-muted-foreground">
+                        Occurrence: {interactable.id}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            useCommandStore.getState().executeCommand({
+                              type: 'room.unplaceInteractableInstance',
+                              label: 'Remove Interactable Instance from Room',
+                              payload: { instanceId: interactable.instanceId },
+                              originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                              persistencePolicy: 'manual-save',
+                            })
+                          }
+                        >
+                          Remove from Room
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() =>
+                            useCommandStore.getState().executeCommand({
+                              type: 'room.destroyInteractableInstance',
+                              label: 'Destroy Interactable Instance',
+                              payload: { instanceId: interactable.instanceId },
+                              originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                              persistencePolicy: 'manual-save',
+                            })
+                          }
+                        >
+                          Destroy Instance
+                        </Button>
+                      </div>
+                      <InteractableInstancePropertiesEditor
+                        compact
+                        project={project}
+                        instanceId={interactable.instanceId}
+                        instance={interactable.instance}
+                        onChange={(next, change) =>
+                          useCommandStore.getState().executeCommand({
+                            type: 'project.applyPatch',
+                            label: 'Update Interactable Instance Properties',
+                            payload: [
+                              {
+                                op: 'replace',
+                                path: `/interactableInstances/${escapePointerSegment(interactable.instanceId)}`,
+                                value: next,
+                              },
+                              ...(change
+                                ? renameOwnerLocalPropertyReferencePatches(
+                                    project,
+                                    { kind: 'interactable', id: interactable.instanceId },
+                                    change.fromId,
+                                    change.toId,
+                                  )
+                                : []),
+                            ],
+                            originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                            persistencePolicy: 'manual-save',
+                          })
+                        }
+                      />
+                    </div>
+                  )}
+                />
+              ) : null}
+            </section>
+            <CollectionMasterDetail
+              anchor="room.placements"
+              className="rounded-xl border bg-card/20 p-4"
+              title="Placements"
+              description="Named regions used by cast, props, and interactions."
+              listAction={{
+                label: 'Add placement',
+                icon: <Plus className="size-3.5" aria-hidden="true" />,
+                onClick: () => {
+                  const id = nextId(
+                    data.placements.map((placement) => placement.id),
+                    'placement',
+                  );
+                  setSelectedPlacementId(id);
+                  commit(
+                    {
+                      ...data,
+                      placements: [
+                        ...data.placements,
+                        {
+                          id,
+                          bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+                          order: data.placements.length,
+                          presentation: { label: null, layout: null },
+                        },
+                      ],
+                    },
+                    'Add room placement',
+                  );
+                },
+              }}
+              items={data.placements}
+              getKey={(placement) => placement.id}
+              selectedKey={activePlacementId}
+              onSelectedKeyChange={(placementId) => setSelectedPlacementId(placementId)}
+              listAriaLabel="Placements"
+              emptyState="No placements."
+              detailEmptyState="Add a placement to edit its position and presentation."
+              getItemAnchor={(placement) => `room.placement.${placement.id}`}
+              getDeleteLabel={(placement) => `Delete placement ${placement.id}`}
+              onDeleteItem={(placement) => {
+                const index = data.placements.findIndex((item) => item.id === placement.id);
+                const nextPlacements = data.placements.filter((item) => item.id !== placement.id);
+                const nextIndex = Math.max(0, Math.min(index, nextPlacements.length - 1));
+                setSelectedPlacementId(nextPlacements[nextIndex]?.id ?? null);
+                commit({ ...data, placements: nextPlacements }, 'Delete room placement');
+              }}
+              getItemPresentation={(placement) => {
+                const occupantCount = placementOccupants(placement.id).length;
+                return {
+                  label: placement.id,
+                  trailing: `${occupantCount} occupant${occupantCount === 1 ? '' : 's'}`,
+                };
+              }}
+              renderDetail={(placement) => (
+                <div className="space-y-4 rounded-lg border bg-background/60 p-4">
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div className="min-w-56 flex-1 space-y-1.5">
                       <Label htmlFor={`placement-${placement.id}-id`}>Placement ID</Label>
                       <Input
                         id={`placement-${placement.id}-id`}
                         value={placement.id}
-                        onChange={(event) =>
-                          replacePlacement(placement.id, { id: event.currentTarget.value })
-                        }
+                        onChange={(event) => {
+                          const nextId = event.currentTarget.value;
+                          setSelectedPlacementId(nextId);
+                          replacePlacement(placement.id, { id: nextId });
+                        }}
                       />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">
-                        {placementOccupants(placement.id).length} occupant
-                        {placementOccupants(placement.id).length === 1 ? '' : 's'}
-                      </Badge>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`Delete placement ${placement.id}`}
-                        onClick={() =>
-                          commit(
-                            {
-                              ...data,
-                              placements: data.placements.filter(
-                                (item) => item.id !== placement.id,
-                              ),
-                            },
-                            'Delete room placement',
-                          )
-                        }
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
+                    <Badge variant="outline">
+                      {placementOccupants(placement.id).length} occupant
+                      {placementOccupants(placement.id).length === 1 ? '' : 's'}
+                    </Badge>
                   </div>
 
                   <div className="space-y-2">
@@ -2600,8 +2606,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                   </div>
                 </div>
-              ))}
-            </section>
+              )}
+            />
           </>
         ) : null}
         {activeCategory === 'contents' ? (

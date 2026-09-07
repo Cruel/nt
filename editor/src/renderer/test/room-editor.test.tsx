@@ -41,7 +41,7 @@ function renderEditor() {
   );
 }
 function selectRoomCategory(
-  name: 'General' | 'Composition' | 'Hotspots' | 'Navigation' | 'Contents' | 'Behavior',
+  name: 'General' | 'Camera' | 'Composition' | 'Hotspots' | 'Navigation' | 'Contents' | 'Behavior',
 ) {
   const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
   fireEvent.click(within(navigation).getByRole('button', { name }));
@@ -78,6 +78,78 @@ describe('RoomEditor', () => {
     selectRoomCategory('Composition');
     expect(screen.getByText('Placements')).toBeInTheDocument();
   });
+  it('uses compact master-detail editors for Camera Views and Anchors', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.presentationSpace.views = [
+      {
+        id: 'wide',
+        view: { center: { x: 10, y: 20 }, zoom: 1, rotationDegrees: 0 },
+      },
+      {
+        id: 'close',
+        view: { center: { x: 30, y: 40 }, zoom: 2, rotationDegrees: 15 },
+      },
+    ];
+    room.anchors = [
+      { id: 'door', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+      { id: 'desk', bounds: { x: 0.5, y: 0.6, width: 0.2, height: 0.1 } },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    selectRoomCategory('Camera');
+    expect(screen.getByDisplayValue('wide')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('close')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^close2×$/i }));
+    expect(screen.getByDisplayValue('close')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('wide')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^desk0.2×0.1$/i }));
+    expect(screen.getByDisplayValue('desk')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('door')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add View' }));
+    expect(screen.getByDisplayValue('view')).toBeInTheDocument();
+    const updated = useProjectStore.getState().document;
+    expect(isAuthoringProject(updated)).toBe(true);
+    if (!isAuthoringProject(updated)) return;
+    expect(parseRoomData(updated.rooms.foyer?.data)?.presentationSpace.views).toHaveLength(3);
+  });
+
+  it('uses the shared master-detail editor for Placements', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'left-table',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        order: 0,
+        presentation: { label: null, layout: null },
+      },
+      {
+        id: 'right-door',
+        bounds: { x: 0.7, y: 0.2, width: 0.2, height: 0.4 },
+        order: 1,
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    selectRoomCategory('Composition');
+    const placements = screen.getByRole('group', { name: 'Placements' });
+    expect(screen.getByDisplayValue('left-table')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('right-door')).toBeNull();
+
+    fireEvent.click(within(placements).getByRole('button', { name: /^right-door0 occupants$/i }));
+    expect(screen.getByDisplayValue('right-door')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('left-table')).toBeNull();
+  });
+
   it('edits shared Gameplay Commands for every Room lifecycle command hook', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

@@ -18,6 +18,28 @@ function feature(): FeatureData {
 }
 
 describe('Feature Property authoring', () => {
+  it('uses the shared master-detail pattern to edit one Feature at a time', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    const second = { ...feature(), id: 'handle', label: 'Handle' };
+    render(
+      <FeatureAuthoringPanel
+        project={project}
+        features={[feature(), second]}
+        anchorPrefix="room"
+        propertyMode="value"
+        onChange={() => undefined}
+      />,
+    );
+
+    expect(screen.getByDisplayValue('surface')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('handle')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /handle/i }));
+    expect(screen.getByDisplayValue('handle')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('surface')).toBeNull();
+  });
+
   it('uses Value-mode Property authoring for a Room Feature', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
