@@ -78,6 +78,31 @@ describe('RoomEditor', () => {
     selectRoomCategory('Composition');
     expect(screen.getByText('Placements')).toBeInTheDocument();
   });
+  it('counts effective Room Properties from Traits in the category sidebar', () => {
+    const project = createAuthoringProject();
+    project.traits.inspectable = {
+      id: 'inspectable',
+      label: 'Inspectable',
+      ownerKinds: ['room'],
+      properties: [
+        { id: 'clue', type: 'string', nullable: false },
+        { id: 'examined', type: 'boolean', nullable: false, defaultValue: false },
+      ],
+    };
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      traits: ['inspectable'],
+      localProperties: [{ id: 'clue', type: 'string', nullable: false, value: 'portrait' }],
+      data: defaultRoomData('Foyer'),
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
+    expect(within(navigation).getByRole('button', { name: 'Properties' })).toHaveTextContent('2');
+  });
+
   it('uses compact master-detail editors for Camera Views and Anchors', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');

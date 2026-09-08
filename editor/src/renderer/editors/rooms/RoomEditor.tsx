@@ -384,19 +384,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [selectedCastIndex, setSelectedCastIndex] = useState(0);
   const [selectedPropIndex, setSelectedPropIndex] = useState(0);
   const [selectedEnvironmentIndex, setSelectedEnvironmentIndex] = useState(0);
-  const [contentEntitySelector, setContentEntitySelector] = useState<
-    | {
-        kind:
-          | 'overlay-layout'
-          | 'cast-character'
-          | 'prop-asset'
-          | 'prop-material'
-          | 'environment-asset'
-          | 'environment-material';
-        id: string;
-      }
-    | null
-  >(null);
+  const [contentEntitySelector, setContentEntitySelector] = useState<{
+    kind:
+      | 'overlay-layout'
+      | 'cast-character'
+      | 'prop-asset'
+      | 'prop-material'
+      | 'environment-asset'
+      | 'environment-material';
+    id: string;
+  } | null>(null);
   const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
   const [placementCount, setPlacementCount] = useState(1);
   const [placingInteractable, setPlacingInteractable] = useState<
@@ -465,7 +462,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     [selectorItems],
   );
   const characterSelectorItems = useMemo(
-    () => filterSelectorItems(selectorItems, { collections: ['characters'], includeActions: false }),
+    () =>
+      filterSelectorItems(selectorItems, { collections: ['characters'], includeActions: false }),
     [selectorItems],
   );
   const assetSelectorItems = useMemo(
@@ -879,6 +877,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       },
       'Update room environment',
     );
+  const effectiveRoomPropertyCount = new Set([
+    ...(record.localProperties ?? []).map((property) => property.id),
+    ...(inheritedPropertyConfiguration?.defaultProperties ?? []).map((property) => property.id),
+    ...(effectiveRecord?.traits ?? record.traits ?? []).flatMap(
+      (traitId) => project.traits[traitId]?.properties.map((property) => property.id) ?? [],
+    ),
+  ]).size;
   const categorizedRoomEditorCategories = roomEditorCategories.map((category) => {
     const localizedCategory = {
       ...category,
@@ -904,7 +909,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             data.overlays.length + data.cast.length + data.props.length + data.environments.length,
         };
       case 'properties':
-        return { ...localizedCategory, trailing: record.localProperties?.length ?? 0 };
+        return { ...localizedCategory, trailing: effectiveRoomPropertyCount };
       default:
         return localizedCategory;
     }
@@ -946,8 +951,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         <div className="min-w-0">
           <div className="truncate text-xs font-medium">View details</div>
           <div className="truncate text-[10px] text-muted-foreground">
-            Center {cameraView.view.center.x}, {cameraView.view.center.y} ·{' '}
-            {cameraView.view.zoom}× · {cameraView.view.rotationDegrees}°
+            Center {cameraView.view.center.x}, {cameraView.view.center.y} · {cameraView.view.zoom}×
+            · {cameraView.view.rotationDegrees}°
           </div>
         </div>
       </div>
@@ -1116,21 +1121,30 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     if (!contentEntitySelector) return null;
     switch (contentEntitySelector.kind) {
       case 'overlay-layout':
-        return data.overlays.find((item) => item.id === contentEntitySelector.id)?.layout.$ref.id ?? null;
+        return (
+          data.overlays.find((item) => item.id === contentEntitySelector.id)?.layout.$ref.id ?? null
+        );
       case 'cast-character':
-        return data.cast.find((item) => item.id === contentEntitySelector.id)?.character.$ref.id ?? null;
+        return (
+          data.cast.find((item) => item.id === contentEntitySelector.id)?.character.$ref.id ?? null
+        );
       case 'prop-asset':
-        return data.props.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ?? null;
+        return (
+          data.props.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ?? null
+        );
       case 'prop-material':
-        return data.props.find((item) => item.id === contentEntitySelector.id)?.material?.$ref.id ?? null;
+        return (
+          data.props.find((item) => item.id === contentEntitySelector.id)?.material?.$ref.id ?? null
+        );
       case 'environment-asset':
         return (
-          data.environments.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ?? null
+          data.environments.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ??
+          null
         );
       case 'environment-material':
         return (
-          data.environments.find((item) => item.id === contentEntitySelector.id)?.material.$ref.id ??
-          null
+          data.environments.find((item) => item.id === contentEntitySelector.id)?.material.$ref
+            .id ?? null
         );
     }
   })();
@@ -1144,8 +1158,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           ? 'Choose Asset'
           : 'Choose Material';
   const contentEntitySelectorSelectedId =
-    contentEntitySelectorItems.find((item) => item.entityId === contentEntitySelectorCurrentEntityId)
-      ?.id ?? null;
+    contentEntitySelectorItems.find(
+      (item) => item.entityId === contentEntitySelectorCurrentEntityId,
+    )?.id ?? null;
   return (
     <EditorPreviewSplit
       orientation={previewSplitOrientation}
@@ -1377,6 +1392,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               );
               setActiveBottomPanel('references');
             }}
+            anchor="room.properties"
           />
         ) : null}
 
@@ -2143,9 +2159,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               }}
               getDeleteLabel={(anchor) => `Delete Room Anchor ${anchor.id}`}
               onDeleteItem={(_, index) => {
-                const nextAnchors = data.anchors.filter(
-                  (_, anchorIndex) => anchorIndex !== index,
-                );
+                const nextAnchors = data.anchors.filter((_, anchorIndex) => anchorIndex !== index);
                 setSelectedAnchorIndex(Math.max(0, Math.min(index, nextAnchors.length - 1)));
                 commit({ ...data, anchors: nextAnchors }, 'Delete Room Anchor');
               }}
@@ -2760,7 +2774,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       type="button"
                       variant="outline"
                       className="w-full justify-start font-normal"
-                      onClick={() => setContentEntitySelector({ kind: 'overlay-layout', id: overlay.id })}
+                      onClick={() =>
+                        setContentEntitySelector({ kind: 'overlay-layout', id: overlay.id })
+                      }
                     >
                       {layouts.find((layout) => layout.id === overlay.layout.$ref.id)?.label ??
                         overlay.layout.$ref.id}
@@ -2853,7 +2869,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       type="button"
                       variant="outline"
                       className="w-full justify-start font-normal"
-                      onClick={() => setContentEntitySelector({ kind: 'cast-character', id: entry.id })}
+                      onClick={() =>
+                        setContentEntitySelector({ kind: 'cast-character', id: entry.id })
+                      }
                     >
                       {characters.find((item) => item.id === entry.character.$ref.id)?.label ??
                         entry.character.$ref.id}
@@ -2863,7 +2881,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     <Label>Placement</Label>
                     <Select
                       value={entry.placementId}
-                      onValueChange={(value) => replaceCast(entry.id, { placementId: String(value) })}
+                      onValueChange={(value) =>
+                        replaceCast(entry.id, { placementId: String(value) })
+                      }
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue />
@@ -2993,7 +3013,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     <Label>Placement</Label>
                     <Select
                       value={entry.placementId}
-                      onValueChange={(value) => replaceProp(entry.id, { placementId: String(value) })}
+                      onValueChange={(value) =>
+                        replaceProp(entry.id, { placementId: String(value) })
+                      }
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue />
@@ -3014,9 +3036,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         type="button"
                         variant="ghost"
                         className="h-7 min-w-0 flex-1 justify-start rounded-none px-2 text-left font-normal"
-                        onClick={() => setContentEntitySelector({ kind: 'prop-asset', id: entry.id })}
+                        onClick={() =>
+                          setContentEntitySelector({ kind: 'prop-asset', id: entry.id })
+                        }
                       >
-                        {assets.find((item) => item.id === entry.asset?.$ref.id)?.label ?? 'Choose asset'}
+                        {assets.find((item) => item.id === entry.asset?.$ref.id)?.label ??
+                          'Choose asset'}
                       </Button>
                       {entry.asset ? (
                         <Button
@@ -3037,7 +3062,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         type="button"
                         variant="ghost"
                         className="h-7 min-w-0 flex-1 justify-start rounded-none px-2 text-left font-normal"
-                        onClick={() => setContentEntitySelector({ kind: 'prop-material', id: entry.id })}
+                        onClick={() =>
+                          setContentEntitySelector({ kind: 'prop-material', id: entry.id })
+                        }
                       >
                         {materials.find((item) => item.id === entry.material?.$ref.id)?.label ??
                           'Choose material'}
@@ -3151,7 +3178,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           setContentEntitySelector({ kind: 'environment-asset', id: entry.id })
                         }
                       >
-                        {assets.find((item) => item.id === entry.asset?.$ref.id)?.label ?? 'Choose asset'}
+                        {assets.find((item) => item.id === entry.asset?.$ref.id)?.label ??
+                          'Choose asset'}
                       </Button>
                       {entry.asset ? (
                         <Button
@@ -3442,7 +3470,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 replaceProp(contentEntitySelector.id, { material: roomMaterialRef(item.entityId) });
                 break;
               case 'environment-asset':
-                replaceEnvironment(contentEntitySelector.id, { asset: roomAssetRef(item.entityId) });
+                replaceEnvironment(contentEntitySelector.id, {
+                  asset: roomAssetRef(item.entityId),
+                });
                 break;
               case 'environment-material':
                 replaceEnvironment(contentEntitySelector.id, {
