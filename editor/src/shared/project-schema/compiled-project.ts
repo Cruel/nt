@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { entityIdSchema } from './authoring-common';
+import { entityIdSchema, layoutContractIdSchema } from './authoring-common';
 import { imageSamplingValues } from './authoring-assets';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
@@ -1736,7 +1736,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     ...sceneInstructionCommon,
     kind: z.literal('wait-layout-signal'),
     owner: z.enum(['invocation', 'active-room', 'runtime-session']),
-    signalId: id,
+    signalId: layoutContractIdSchema,
     skippable: z.boolean(),
     slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']),
   }),
@@ -2203,7 +2203,13 @@ const compiledLayoutStateShapeSchema: z.ZodType<unknown> = z.lazy(() =>
     }),
     strict({
       defaultValue: compiledLayoutPersistableValueSchema.nullable(),
-      fields: z.array(strict({ id, required: z.boolean(), shape: compiledLayoutStateShapeSchema })),
+      fields: z.array(
+        strict({
+          id: layoutContractIdSchema,
+          required: z.boolean(),
+          shape: compiledLayoutStateShapeSchema,
+        }),
+      ),
       hasDefault: z.boolean(),
       nullable: z.boolean(),
       type: z.literal('object'),
@@ -2216,7 +2222,7 @@ const layoutResourceSchema = strict({
       strict({
         defaultValue: runtimeValueSchema.nullable(),
         hasDefault: z.boolean(),
-        id,
+        id: layoutContractIdSchema,
         nullable: z.boolean(),
         type: layoutContractValueTypeSchema,
       }),
@@ -2225,12 +2231,12 @@ const layoutResourceSchema = strict({
       strict({
         fields: z.array(
           strict({
-            id,
+            id: layoutContractIdSchema,
             required: z.boolean(),
             ...layoutContractValueShapeSchema.shape,
           }),
         ),
-        id,
+        id: layoutContractIdSchema,
       }),
     ),
     state: compiledLayoutStateShapeSchema.nullable(),

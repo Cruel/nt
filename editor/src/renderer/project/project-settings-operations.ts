@@ -1,6 +1,7 @@
 import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { toJsonValue, type JsonValue } from '@/project/json-value';
 import {
+  isSystemLayoutCompatible,
   layoutRecordRef,
   systemLayoutRoleValues,
   type SystemLayoutRole,
@@ -257,6 +258,21 @@ export function setProjectSystemLayoutPatches(
       patches: [],
       diagnostics: [error('Unknown system layout role.', '/settings/ui/systemLayouts')],
     };
+  }
+  const project = projectForCommand(document)!;
+  if (payload.layoutId !== null) {
+    const layout = project.layouts[payload.layoutId];
+    if (layout && !isSystemLayoutCompatible(layout.data)) {
+      return {
+        patches: [],
+        diagnostics: [
+          error(
+            `Layout '${payload.layoutId}' declares a custom Mount Contract and cannot be assigned to system role '${payload.role}'.`,
+            buildJsonPointer(['settings', 'ui', 'systemLayouts', payload.role]),
+          ),
+        ],
+      };
+    }
   }
   const patches: JsonPatchOperation[] = [];
   const documentValue = toJsonValue(document);

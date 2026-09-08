@@ -110,6 +110,10 @@ standalone_layout_definition(const core::editor::TypedEditorLayoutPreviewDocumen
         .contains_executable_rml_lua = false,
         .rcss_prefix = std::move(rcss_prefix),
         .standalone_fragment_host = fragment,
+        .synthetic_semantic_mount = true,
+        .contract = document.contract,
+        .preview_inputs = document.preview_inputs,
+        .preview_state = document.preview_state,
     };
 }
 
@@ -185,6 +189,10 @@ shader_layout_definition(const core::editor::TypedEditorShaderPreviewDocument& d
         .contains_executable_rml_lua = false,
         .rcss_prefix = {},
         .standalone_fragment_host = false,
+        .synthetic_semantic_mount = false,
+        .contract = {},
+        .preview_inputs = {},
+        .preview_state = std::nullopt,
     };
 }
 
@@ -1083,6 +1091,18 @@ bool FocusedPreviewPresenter::dispatch_layout_event(core::MountedLayoutOwner own
     return consumed;
 }
 
+bool FocusedPreviewPresenter::submit_focused_preview_input(const core::RuntimeInputMessage& input)
+{
+    return (m_committed.owner.kind == FocusedContentKind::Layout ||
+            m_committed.owner.kind == FocusedContentKind::Room) &&
+           m_dependencies.layouts.submit_focused_preview_input(input);
+}
+
+void FocusedPreviewPresenter::route_captured_runtime_input(core::RuntimeInputMessage input)
+{
+    (void)m_passive_input.submit_gameplay_input(std::move(input));
+}
+
 void FocusedPreviewPresenter::clear() noexcept
 {
     supersede_candidate();
@@ -1577,12 +1597,12 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
     m_dependencies.bind_input_sink(&m_passive_input);
     if (m_dependencies.retire_legacy_preview)
         m_dependencies.retire_legacy_preview();
-    m_dependencies.layouts.commit_focused_preview();
-    m_dependencies.world.reset();
-    m_dependencies.world_resources.clear();
     release_state(m_rollback);
     m_rollback = std::move(m_committed);
     m_committed = std::move(prepared_state);
+    m_dependencies.layouts.commit_focused_preview();
+    m_dependencies.world.reset();
+    m_dependencies.world_resources.clear();
     m_dependencies.complete(candidate.request, "applied", {});
 }
 
@@ -1622,7 +1642,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     }
     auto layout_result = m_dependencies.layouts.stage_focused_preview(
         candidate.mounted_layouts, m_dependencies.scripts, candidate.state.script_environment,
-        *layout_capabilities);
+        *layout_capabilities, decoded_id<core::RoomId>(candidate.document.room_id));
     if (!layout_result) {
         m_dependencies.complete(candidate.request, "failed", std::move(layout_result).error());
         release_state(candidate.state);

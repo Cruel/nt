@@ -292,7 +292,7 @@ export async function createEntity(
         cliDiagnostic(
           'CLI_USAGE',
           '/collection',
-          "Generic Asset creation is not supported; add/import Asset source files directly and run 'noveltea validate'.",
+          "Generic Asset creation is not supported; use 'noveltea asset import <path>'.",
         ),
       ],
     };

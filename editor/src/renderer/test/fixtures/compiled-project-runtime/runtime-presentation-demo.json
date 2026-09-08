@@ -15,7 +15,7 @@
         "anchors": [],
         "background": {
           "asset": null,
-          "color": null,
+          "color": "#204060",
           "fit": "cover",
           "material": null
         },
@@ -213,7 +213,14 @@
   },
   "properties": [],
   "resources": {
-    "assets": [],
+    "assets": [
+      {
+        "aliases": [],
+        "id": "demo-notification",
+        "kind": "audio",
+        "path": "audio/notification.mp3"
+      }
+    ],
     "layouts": [],
     "materialInterfaces": [],
     "scripts": [
@@ -226,7 +233,7 @@
       }
     ]
   },
-  "saveContract": "sc1:9c09f834528c055a434ef0248ed46f2e",
+  "saveContract": "sc1:e59aa1b5d1f3d53fb177894517300033",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

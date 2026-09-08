@@ -18,6 +18,7 @@ import {
   shaderCompileInputFingerprint,
 } from '../../shared/project-schema/authoring-shaders';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { buildFocusedRoomPreview } from '../preview/room-focused-preview-builder';
 
 function fixture() {
@@ -203,9 +204,44 @@ describe('graph-driven Room builder', () => {
         scriptEnabled: false,
         containsDedicatedLuaSource: false,
         containsExecutableRmlLua: false,
+        contract: null,
         scalePolicy: { ui: 'inherit', text: 'inherit' },
       },
     ]);
+  });
+
+  it('carries mounted Layout contracts into Room preview without standalone sample state', async () => {
+    const project = fixture();
+    const overlay = defaultLayoutData('Overlay', 'document');
+    overlay.target = 'room-overlay';
+    project.layouts.overlay = { id: 'overlay', label: 'Overlay', data: overlay };
+    project.rooms.bedroom!.data.overlays = [
+      {
+        id: 'status',
+        layout: { $ref: { collection: 'layouts', id: 'overlay' } },
+        condition: { kind: 'always' },
+        visible: true,
+        order: 3,
+      },
+    ];
+
+    const result = await build(project);
+    const mounted = result.data.layouts.find((layout) => layout.layoutId === 'overlay');
+    expect(mounted).toMatchObject({
+      instanceId: 'room-overlay:status',
+      mount: { kind: 'room-overlay', overlayId: 'status', order: 3, visible: true },
+      contract: {
+        inputs: [],
+        signals: [],
+        state: {
+          type: 'object',
+          nullable: false,
+          hasDefault: true,
+          defaultValue: { saved_count: 0 },
+        },
+      },
+    });
+    expect(mounted).not.toHaveProperty('sampleState');
   });
 
   it('is independent of unrelated collection insertion order', async () => {

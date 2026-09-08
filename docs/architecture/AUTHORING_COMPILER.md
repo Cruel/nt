@@ -88,9 +88,18 @@ gameplay JSON.
 `compileAuthoringProject` now strictly validates and publishes the complete wire value and canonical
 JSON together. Definition/resource tables are stable-ID sorted while authored semantic sequences stay
 in authored order. The checked-in corpus under
-`editor/src/renderer/test/fixtures/compiled-project-golden/` contains seven exact current-format decoder inputs:
-minimal, comprehensive, Trait/property/localization, resources, Scene program, Dialogue program, and Interaction program. The corpus covers every top-level definition/declaration/resource family, all specialized program discriminants, typed resource references, inline and asset-backed resource sources, every variable/property scalar type, Trait attachment/configuration, and nested stable IDs. `pnpm goldens:compiled-project` regenerates the documents from the sole compiler
-API; the test suite rejects byte drift and explicitly verifies the closed decoder vocabulary.
+`editor/src/renderer/test/fixtures/compiled-project-golden/` contains thirteen current-format decoder
+inputs: minimal, the canonical exploration/fast-forward/linear/flow/Layout-signal/vocabulary cases,
+comprehensive, Trait/property/localization, resources, Scene program, Dialogue program, and Interaction
+program. The repository stores these JSON documents pretty-printed for useful review, diff, and blame;
+tests parse each fixture and reserialize it through `serializeCompiledProjectWire` before comparing it
+with the compiler's compact canonical bytes. The corpus therefore still detects canonical byte drift
+without treating repository whitespace as part of the runtime contract. It covers every top-level
+definition/declaration/resource family, all specialized program discriminants, typed resource
+references, inline and asset-backed resource sources, every variable/property scalar type, Trait
+attachment/configuration, and nested stable IDs. `pnpm goldens:compiled-project` regenerates the
+documents from the sole compiler API; the test suite rejects semantic/canonical byte drift and
+explicitly verifies the closed decoder vocabulary.
 
 Tests also prove editor metadata and representative authoring collection insertion order cannot affect
 bytes, and that metadata-only project changes leave `saveContract` stable while executable changes

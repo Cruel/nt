@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -182,13 +183,34 @@ public:
     bool set_visible(const std::string& document_id, bool visible) override
     {
         calls.push_back(std::string(visible ? "show:" : "hide:") + document_id);
-        return documents.contains(document_id) && !fail_visibility;
+        if (!documents.contains(document_id) || fail_visibility)
+            return false;
+        if (visible)
+            visible_documents.insert(document_id);
+        else
+            visible_documents.erase(document_id);
+        if (visible && on_show)
+            on_show(document_id);
+        return true;
     }
 
     bool set_opacity(const std::string& document_id, float) override
     {
         calls.push_back("opacity:" + document_id);
         return documents.contains(document_id);
+    }
+
+    bool set_mount_context(const std::string& document_id,
+                           const presentation::RuntimeMountedLayout& layout) override
+    {
+        calls.push_back("mount-context:" + document_id);
+        mount_contexts.insert_or_assign(document_id, layout);
+        return true;
+    }
+
+    void clear_mount_context(const std::string& document_id) override
+    {
+        mount_contexts.erase(document_id);
     }
 
     bool apply_order(const std::vector<std::string>& ordered_document_ids) override
@@ -207,6 +229,7 @@ public:
             return false;
         }
         documents.erase(document_id);
+        visible_documents.erase(document_id);
         return true;
     }
 
@@ -268,6 +291,7 @@ public:
     bool fail_order = false;
     std::optional<std::string> fail_unload_once;
     std::unordered_set<std::string> documents;
+    std::unordered_set<std::string> visible_documents;
     std::vector<std::string> calls;
     std::vector<std::string> order;
     std::string loaded_rml;
@@ -284,6 +308,8 @@ public:
         core::LayoutScalePolicy scale_policy{};
     };
     std::vector<ContextPolicyCall> context_policies;
+    std::function<void(const std::string&)> on_show;
+    std::unordered_map<std::string, presentation::RuntimeMountedLayout> mount_contexts;
     std::vector<presentation::RuntimeSystemLayoutDocumentBinding> system_layout_documents;
     std::size_t system_layout_publication_count = 0;
 };
@@ -771,7 +797,7 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
          .lua = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline, .value = {}},
          .scale_policy = {},
          .order = 4,
-         .visible = true},
+         .visible = false},
     };
 
     REQUIRE(realizer.stage_focused_preview(layouts));
@@ -784,6 +810,8 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
     realizer.commit_focused_preview();
     CHECK(backend.order == std::vector<std::string>{"focused://candidate/1/hud/0",
                                                     "focused://candidate/1/overlay/1"});
+    CHECK(backend.visible_documents.contains("focused://candidate/1/hud/0"));
+    CHECK_FALSE(backend.visible_documents.contains("focused://candidate/1/overlay/1"));
 
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition> rejected_layouts{
         {.instance_id = "bad",
@@ -801,6 +829,219 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
     CHECK(backend.documents.contains("focused://candidate/1/hud/0"));
     CHECK(backend.documents.contains("focused://candidate/1/overlay/1"));
     CHECK_FALSE(backend.documents.contains("focused://candidate/2/bad/0"));
+}
+
+TEST_CASE("LayoutRealizer focused semantic Mount retains preview State across document rebuilds")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+
+    core::LayoutStateShape count_shape{
+        .type = core::LayoutStateShapeType::Integer,
+        .nullable = false,
+        .default_value = std::nullopt,
+        .items = {},
+        .fields = {},
+    };
+    core::LayoutStateShape state_shape{
+        .type = core::LayoutStateShapeType::Object,
+        .nullable = false,
+        .default_value = core::PersistableValue{core::PersistableValue::Object{
+            {"saved_count", core::PersistableValue{std::int64_t{0}}}}},
+        .items = {},
+        .fields = {core::LayoutStateObjectField{
+            .id = "saved_count", .required = true, .shape = {count_shape}}},
+    };
+
+    core::editor::TypedFocusedRoomLayoutDefinition layout;
+    layout.instance_id = "standalone-layout-preview";
+    layout.layout_id = "stateful-preview";
+    layout.source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored;
+    layout.layout_kind = core::editor::TypedFocusedRoomLayoutDefinition::LayoutKind::Document;
+    layout.mount_kind = core::editor::TypedFocusedRoomLayoutDefinition::MountKind::GameHud;
+    layout.source_url = "project:/__noveltea_inline_layout_stateful-preview.rml";
+    layout.rml = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                  .value = "<rml><body>first</body></rml>"};
+    layout.script_enabled = false;
+    layout.visible = true;
+    layout.synthetic_semantic_mount = true;
+    layout.contract.state = state_shape;
+    layout.preview_state = state_shape.default_value;
+
+    REQUIRE(realizer.stage_focused_preview({layout}));
+    REQUIRE(backend.mount_contexts.size() == 1);
+    const auto staged_document_id = backend.mount_contexts.begin()->first;
+    CHECK(std::find(backend.calls.begin(), backend.calls.end(), "show:" + staged_document_id) ==
+          backend.calls.end());
+    realizer.commit_focused_preview();
+    CHECK(std::find(backend.calls.begin(), backend.calls.end(), "show:" + staged_document_id) !=
+          backend.calls.end());
+    REQUIRE(backend.mount_contexts.size() == 1);
+    const auto initial_mount = backend.mount_contexts.begin()->second;
+    REQUIRE(initial_mount.semantic_owner);
+    REQUIRE(initial_mount.semantic_key);
+    REQUIRE(initial_mount.occurrence);
+    REQUIRE(realizer.submit_focused_preview_input(
+        core::RuntimeInputMessage{core::CommitLayoutStateInput{
+            *initial_mount.semantic_owner, *initial_mount.semantic_key, *initial_mount.occurrence,
+            core::LayoutStateScope::Session,
+            core::PersistableValue{core::PersistableValue::Object{
+                {"saved_count", core::PersistableValue{std::int64_t{4}}}}}}}));
+
+    SECTION("failed reseed preserves committed state")
+    {
+        auto rejected = layout;
+        rejected.preview_state = core::PersistableValue{core::PersistableValue::Object{
+            {"saved_count", core::PersistableValue{std::int64_t{9}}}}};
+        backend.fail_next_load = true;
+        CHECK_FALSE(realizer.stage_focused_preview({rejected}));
+    }
+    SECTION("failed shape change preserves committed state")
+    {
+        auto rejected = layout;
+        rejected.contract.state->fields.front().shape.front().type =
+            core::LayoutStateShapeType::Number;
+        backend.fail_next_load = true;
+        CHECK_FALSE(realizer.stage_focused_preview({rejected}));
+    }
+    SECTION("failed state removal preserves committed state")
+    {
+        auto rejected = layout;
+        rejected.contract.state.reset();
+        rejected.preview_state.reset();
+        backend.fail_next_load = true;
+        CHECK_FALSE(realizer.stage_focused_preview({rejected}));
+    }
+    SECTION("explicit rollback preserves committed state")
+    {
+        auto rejected = layout;
+        rejected.preview_state = core::PersistableValue{core::PersistableValue::Object{
+            {"saved_count", core::PersistableValue{std::int64_t{9}}}}};
+        REQUIRE(realizer.stage_focused_preview({rejected}));
+        realizer.rollback_focused_preview();
+    }
+    SECTION("ordinary rebuild preserves committed state") {}
+
+    layout.rml.value = "<rml><body>rebuilt</body></rml>";
+    REQUIRE(realizer.stage_focused_preview({layout}));
+    realizer.commit_focused_preview();
+    REQUIRE(backend.mount_contexts.size() == 1);
+    const auto rebuilt_mount = backend.mount_contexts.begin()->second;
+    CHECK(rebuilt_mount.occurrence != initial_mount.occurrence);
+    CHECK_FALSE(realizer.submit_focused_preview_input(core::RuntimeInputMessage{
+        core::ClearLayoutStateInput{*initial_mount.semantic_owner, *initial_mount.semantic_key,
+                                    *initial_mount.occurrence, core::LayoutStateScope::Session}}));
+    REQUIRE(rebuilt_mount.state_values.size() == 1);
+    REQUIRE(rebuilt_mount.state_values.front().value);
+    CHECK(*rebuilt_mount.state_values.front().value ==
+          core::PersistableValue{core::PersistableValue::Object{
+              {"saved_count", core::PersistableValue{std::int64_t{4}}}}});
+
+    layout.preview_state = core::PersistableValue{
+        core::PersistableValue::Object{{"saved_count", core::PersistableValue{std::int64_t{9}}}}};
+    REQUIRE(realizer.stage_focused_preview({layout}));
+    realizer.commit_focused_preview();
+    REQUIRE(backend.mount_contexts.size() == 1);
+    const auto reseeded_mount = backend.mount_contexts.begin()->second;
+    REQUIRE(reseeded_mount.state_values.size() == 1);
+    REQUIRE(reseeded_mount.state_values.front().value);
+    CHECK(*reseeded_mount.state_values.front().value ==
+          core::PersistableValue{core::PersistableValue::Object{
+              {"saved_count", core::PersistableValue{std::int64_t{9}}}}});
+
+    REQUIRE(reseeded_mount.semantic_owner);
+    REQUIRE(reseeded_mount.semantic_key);
+    REQUIRE(reseeded_mount.occurrence);
+    REQUIRE(realizer.submit_focused_preview_input(core::RuntimeInputMessage{
+        core::ClearLayoutStateInput{*reseeded_mount.semantic_owner, *reseeded_mount.semantic_key,
+                                    *reseeded_mount.occurrence, core::LayoutStateScope::Session}}));
+    const auto& cleared_mount = backend.mount_contexts.begin()->second;
+    REQUIRE(cleared_mount.state_values.size() == 1);
+    REQUIRE(cleared_mount.state_values.front().value);
+    CHECK(*cleared_mount.state_values.front().value ==
+          core::PersistableValue{core::PersistableValue::Object{
+              {"saved_count", core::PersistableValue{std::int64_t{0}}}}});
+}
+
+TEST_CASE("LayoutRealizer focused Room overlay Mount retains Room and Session State")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+
+    const auto room = core::RoomId::create("foyer");
+    REQUIRE(room);
+    core::LayoutStateShape state_shape{
+        .type = core::LayoutStateShapeType::Integer,
+        .nullable = false,
+        .default_value = core::PersistableValue{std::int64_t{0}},
+        .items = {},
+        .fields = {},
+    };
+
+    core::editor::TypedFocusedRoomLayoutDefinition layout;
+    layout.instance_id = "room-overlay:status";
+    layout.layout_id = "status-layout";
+    layout.source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored;
+    layout.layout_kind = core::editor::TypedFocusedRoomLayoutDefinition::LayoutKind::Document;
+    layout.mount_kind = core::editor::TypedFocusedRoomLayoutDefinition::MountKind::RoomOverlay;
+    layout.overlay_id = "status";
+    layout.source_url = "project:/__noveltea_inline_layout_status-layout.rml";
+    layout.rml = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                  .value = "<rml><body>status</body></rml>"};
+    layout.visible = false;
+    layout.synthetic_semantic_mount = true;
+    layout.contract.state = state_shape;
+    layout.preview_state = state_shape.default_value;
+
+    REQUIRE(realizer.stage_focused_preview({layout}, *room.value_if()));
+    realizer.commit_focused_preview();
+    REQUIRE(backend.mount_contexts.size() == 1);
+    const auto first_document_id = backend.mount_contexts.begin()->first;
+    CHECK_FALSE(backend.visible_documents.contains(first_document_id));
+    const auto first_mount = backend.mount_contexts.begin()->second;
+    CHECK(first_mount.mounted.policy.visibility == core::LayoutVisibility::Hidden);
+    REQUIRE(first_mount.semantic_owner);
+    REQUIRE(first_mount.semantic_key);
+    REQUIRE(first_mount.occurrence);
+    const auto* owner = std::get_if<core::RoomPresentationOwner>(&*first_mount.semantic_owner);
+    REQUIRE(owner != nullptr);
+    CHECK(owner->room == *room.value_if());
+    const auto* key = std::get_if<core::RoomOverlayLayoutMountKey>(&*first_mount.semantic_key);
+    REQUIRE(key != nullptr);
+    CHECK(key->room == *room.value_if());
+    CHECK(key->overlay.text() == "status");
+    REQUIRE(first_mount.state_values.size() == 2);
+    CHECK(first_mount.state_values[0].scope == core::LayoutStateScope::Room);
+    CHECK(first_mount.state_values[0].value == core::PersistableValue{std::int64_t{0}});
+    CHECK(first_mount.state_values[1].scope == core::LayoutStateScope::Session);
+    CHECK(first_mount.state_values[1].value == core::PersistableValue{std::int64_t{0}});
+
+    REQUIRE(realizer.submit_focused_preview_input(core::RuntimeInputMessage{
+        core::CommitLayoutStateInput{*first_mount.semantic_owner, *first_mount.semantic_key,
+                                     *first_mount.occurrence, core::LayoutStateScope::Room,
+                                     core::PersistableValue{std::int64_t{3}}}}));
+    const auto committed = backend.mount_contexts.begin()->second;
+    CHECK(committed.state_values[0].value == core::PersistableValue{std::int64_t{3}});
+    CHECK(committed.state_values[1].value == core::PersistableValue{std::int64_t{0}});
+
+    layout.rml.value = "<rml><body>rebuilt</body></rml>";
+    REQUIRE(realizer.stage_focused_preview({layout}, *room.value_if()));
+    realizer.commit_focused_preview();
+    REQUIRE(backend.mount_contexts.size() == 1);
+    CHECK_FALSE(backend.visible_documents.contains(backend.mount_contexts.begin()->first));
+    const auto rebuilt = backend.mount_contexts.begin()->second;
+    CHECK(rebuilt.mounted.policy.visibility == core::LayoutVisibility::Hidden);
+    REQUIRE(rebuilt.occurrence);
+    CHECK(rebuilt.occurrence != first_mount.occurrence);
+    REQUIRE(rebuilt.state_values.size() == 2);
+    CHECK(rebuilt.state_values[0].value == core::PersistableValue{std::int64_t{3}});
+    CHECK(rebuilt.state_values[1].value == core::PersistableValue{std::int64_t{0}});
+    CHECK_FALSE(realizer.submit_focused_preview_input(core::RuntimeInputMessage{
+        core::CommitLayoutStateInput{*first_mount.semantic_owner, *first_mount.semantic_key,
+                                     *first_mount.occurrence, core::LayoutStateScope::Room,
+                                     core::PersistableValue{std::int64_t{9}}}}));
 }
 
 TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candidates")
@@ -872,6 +1113,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
             [&](RuntimeUiInputSink* sink) {
                 bound_input_sink = sink;
                 ++input_bindings;
+                backend.calls.push_back("bind-input");
             },
         .retire_legacy_preview = [&]() { ++legacy_preview_retirements; },
         .active_shader_variant = []() -> std::string_view { return "glsl-120"; },
@@ -933,10 +1175,56 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {"lua", {{"kind", "inline"}, {"text", ""}}},
         {"script", {{"enabled", false}, {"namespace", nullptr}}},
         {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
+        {"contract",
+         {{"inputs", nlohmann::json::array({{{"id", "display_title"},
+                                             {"type", "string"},
+                                             {"nullable", false},
+                                             {"hasDefault", true},
+                                             {"defaultValue", "Default"}}})},
+          {"signals",
+           nlohmann::json::array({{{"id", "item_selected"},
+                                   {"fields", nlohmann::json::array({{{"id", "accepted_value"},
+                                                                      {"type", "boolean"},
+                                                                      {"nullable", false},
+                                                                      {"required", true}}})}}})},
+          {"state",
+           {{"type", "object"},
+            {"nullable", false},
+            {"hasDefault", true},
+            {"defaultValue", {{"saved_count", 0}}},
+            {"fields", nlohmann::json::array({{{"id", "saved_count"},
+                                               {"required", true},
+                                               {"shape",
+                                                {{"type", "integer"},
+                                                 {"nullable", false},
+                                                 {"hasDefault", false},
+                                                 {"defaultValue", nullptr}}}}})}}}}},
+        {"sampleState", {{"inputs", {{"display_title", "Preview"}}}}},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
+    };
+    std::size_t show_commits = 0;
+    backend.on_show = [&](const std::string& document_id) {
+        const auto found = backend.mount_contexts.find(document_id);
+        if (found == backend.mount_contexts.end())
+            return;
+        REQUIRE(bound_input_sink != nullptr);
+        const auto mount = found->second;
+        REQUIRE(mount.semantic_owner);
+        REQUIRE(mount.semantic_key);
+        REQUIRE(mount.occurrence);
+        CHECK(bound_input_sink->submit_gameplay_input(
+            core::RuntimeInputMessage{core::CommitLayoutStateInput{
+                *mount.semantic_owner, *mount.semantic_key, *mount.occurrence,
+                core::LayoutStateScope::Session,
+                core::PersistableValue{core::PersistableValue::Object{
+                    {"saved_count", core::PersistableValue{std::int64_t{2}}}}}}}));
+        CHECK(backend.mount_contexts.at(document_id).state_values.front().value ==
+              core::PersistableValue{core::PersistableValue::Object{
+                  {"saved_count", core::PersistableValue{std::int64_t{2}}}}});
+        ++show_commits;
     };
     REQUIRE(presenter.apply(
         make_request(core::editor::FocusedEditorDocumentKind::Layout, "layout", layout, 1)));
@@ -954,6 +1242,88 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                                                         [] { return true; }));
     CHECK(legacy_preview_retirements == 1);
     CHECK(backend.loaded_rml.find("standalone-preview-defaults") != std::string::npos);
+    const auto input_binding = std::find(backend.calls.begin(), backend.calls.end(), "bind-input");
+    const auto first_show =
+        std::find_if(backend.calls.begin(), backend.calls.end(), [](const auto& call) {
+            return call.starts_with("show:focused://candidate/");
+        });
+    REQUIRE(input_binding != backend.calls.end());
+    REQUIRE(first_show != backend.calls.end());
+    CHECK(input_binding < first_show);
+    REQUIRE(backend.mount_contexts.size() == 1);
+    const auto& [preview_document_id, preview_mount] = *backend.mount_contexts.begin();
+    REQUIRE(preview_mount.semantic_owner);
+    REQUIRE(preview_mount.semantic_key);
+    REQUIRE(preview_mount.occurrence);
+    REQUIRE(preview_mount.state_shape);
+    REQUIRE(preview_mount.inputs.size() == 1);
+    CHECK(preview_mount.inputs.front().input.text() == "display_title");
+    CHECK(std::get<std::string>(preview_mount.inputs.front().value) == "Preview");
+    REQUIRE(preview_mount.connected_signals.size() == 1);
+    CHECK(preview_mount.connected_signals.front().text() == "item_selected");
+    REQUIRE(preview_mount.state_values.size() == 1);
+    CHECK(preview_mount.state_values.front().scope == core::LayoutStateScope::Session);
+    REQUIRE(preview_mount.state_values.front().value);
+    CHECK(*preview_mount.state_values.front().value ==
+          core::PersistableValue{core::PersistableValue::Object{
+              {"saved_count", core::PersistableValue{std::int64_t{2}}}}});
+
+    CHECK(bound_input_sink->submit_gameplay_input(
+        core::RuntimeInputMessage{core::CommitLayoutStateInput{
+            *preview_mount.semantic_owner, *preview_mount.semantic_key, *preview_mount.occurrence,
+            core::LayoutStateScope::Session,
+            core::PersistableValue{core::PersistableValue::Object{
+                {"saved_count", core::PersistableValue{std::int64_t{4}}}}}}}));
+    REQUIRE(backend.mount_contexts.contains(preview_document_id));
+    const auto& committed_preview_mount = backend.mount_contexts.at(preview_document_id);
+    REQUIRE(committed_preview_mount.state_values.size() == 1);
+    REQUIRE(committed_preview_mount.state_values.front().value);
+    CHECK(*committed_preview_mount.state_values.front().value ==
+          core::PersistableValue{core::PersistableValue::Object{
+              {"saved_count", core::PersistableValue{std::int64_t{4}}}}});
+
+    presenter.route_captured_runtime_input(core::RuntimeInputMessage{core::CommitLayoutStateInput{
+        *preview_mount.semantic_owner, *preview_mount.semantic_key, *preview_mount.occurrence,
+        core::LayoutStateScope::Session,
+        core::PersistableValue{core::PersistableValue::Object{
+            {"saved_count", core::PersistableValue{std::int64_t{5}}}}}}});
+    REQUIRE(backend.mount_contexts.at(preview_document_id).state_values.front().value);
+    CHECK(*backend.mount_contexts.at(preview_document_id).state_values.front().value ==
+          core::PersistableValue{core::PersistableValue::Object{
+              {"saved_count", core::PersistableValue{std::int64_t{5}}}}});
+
+    const auto signal = core::LayoutSignalId::create("item_selected");
+    const auto field = core::LayoutSignalFieldId::create("accepted_value");
+    REQUIRE(signal);
+    REQUIRE(field);
+    CHECK(bound_input_sink->submit_gameplay_input(core::RuntimeInputMessage{
+        core::LayoutSignalInput{*preview_mount.semantic_owner,
+                                *preview_mount.semantic_key,
+                                *preview_mount.occurrence,
+                                *signal.value_if(),
+                                {{*field.value_if(), core::RuntimeValue{true}}}}}));
+    CHECK_FALSE(bound_input_sink->submit_gameplay_input(
+        core::RuntimeInputMessage{core::LayoutSignalInput{*preview_mount.semantic_owner,
+                                                          *preview_mount.semantic_key,
+                                                          *preview_mount.occurrence,
+                                                          *signal.value_if(),
+                                                          {}}}));
+
+    CHECK(show_commits == 1);
+    SECTION("show commits update the rebuilt document")
+    {
+        REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Layout,
+                                             "layout-rebuilt", layout, 2)));
+        presenter.update();
+        CHECK(show_commits == 2);
+        REQUIRE(backend.mount_contexts.size() == 1);
+        CHECK(backend.mount_contexts.begin()->second.state_values.front().value ==
+              core::PersistableValue{core::PersistableValue::Object{
+                  {"saved_count", core::PersistableValue{std::int64_t{2}}}}});
+        return;
+    }
+    SECTION("other focused owners remain passive") {}
+    backend.on_show = {};
 
     const nlohmann::json room = {
         {"schema", "noveltea.room-preview"},
@@ -1146,6 +1516,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
             {"scriptEnabled", dedicated},
             {"containsDedicatedLuaSource", dedicated},
             {"containsExecutableRmlLua", rml_lua},
+            {"contract",
+             {{"inputs", nlohmann::json::array()},
+              {"signals", nlohmann::json::array()},
+              {"state", nullptr}}},
             {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
         };
     };

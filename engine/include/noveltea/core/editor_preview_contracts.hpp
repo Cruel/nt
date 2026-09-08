@@ -125,6 +125,10 @@ struct TypedFocusedRoomLayoutDefinition {
     bool contains_executable_rml_lua = false;
     std::string rcss_prefix;
     bool standalone_fragment_host = false;
+    bool synthetic_semantic_mount = false;
+    LayoutContract contract;
+    std::vector<LayoutResolvedInput> preview_inputs;
+    std::optional<PersistableValue> preview_state;
 };
 
 struct TypedFocusedRoomLuaAdmission {
@@ -403,6 +407,9 @@ struct TypedEditorLayoutPreviewDocument {
     TypedEditorLayoutSourceComponent lua;
     bool script_enabled = true;
     std::optional<std::string> script_namespace;
+    LayoutContract contract;
+    std::vector<LayoutResolvedInput> preview_inputs;
+    std::optional<PersistableValue> preview_state;
     std::optional<ShaderMaterialProject> shader_materials;
     TypedEditorAuthoredPreviewEnvironment environment;
 };

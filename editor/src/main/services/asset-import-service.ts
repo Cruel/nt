@@ -11,8 +11,8 @@ import type {
 } from '../../shared/asset-import';
 import {
   assetFolderForKind,
-  defaultAssetIdFromFilename,
   inferAssetKindFromExtension,
+  sanitizeAssetFilename,
 } from '../../shared/project-schema/authoring-assets';
 import {
   PROJECT_WORKSPACE_ABSENT_REVISION,
@@ -25,13 +25,6 @@ import {
 
 function projectRootFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
-}
-
-export function sanitizeAssetFilename(filename: string): string {
-  const parsed = path.parse(filename);
-  const stem = defaultAssetIdFromFilename(parsed.name || filename);
-  const extension = parsed.ext.toLowerCase();
-  return `${stem}${extension}`;
 }
 
 function slashPath(value: string): string {

@@ -102,6 +102,88 @@ TEST_CASE("focused Room decoder admits the strict native contract")
     CHECK_FALSE(decode_editor_room_preview_document_text(open.dump()));
 }
 
+TEST_CASE("focused Room decoder carries mounted Layout contracts with runtime defaults")
+{
+    auto document = focused_room_document();
+    document["world"]["overlays"] = nlohmann::json::array({{{"overlayId", "status"},
+                                                            {"condition", {{"kind", "always"}}},
+                                                            {"layoutId", "status-layout"},
+                                                            {"visible", true},
+                                                            {"order", 2}}});
+    document["layouts"] = nlohmann::json::array(
+        {{{"instanceId", "room-overlay:status"},
+          {"layoutId", "status-layout"},
+          {"mount",
+           {{"kind", "room-overlay"}, {"overlayId", "status"}, {"order", 2}, {"visible", true}}},
+          {"source",
+           {{"kind", "authored"},
+            {"layoutKind", "document"},
+            {"templateId", nullptr},
+            {"sourceUrl", "project:/__noveltea_inline_layout_status-layout.rml"},
+            {"defaultParent", nullptr},
+            {"scopedStyles", true},
+            {"scriptNamespace", nullptr},
+            {"rml", {{"kind", "inline"}, {"text", "<rml><body/></rml>"}}},
+            {"rcss", {{"kind", "inline"}, {"text", ""}}},
+            {"lua", {{"kind", "inline"}, {"text", ""}}}}},
+          {"scriptEnabled", false},
+          {"containsDedicatedLuaSource", false},
+          {"containsExecutableRmlLua", false},
+          {"contract",
+           {{"inputs", nlohmann::json::array({{{"id", "title"},
+                                               {"type", "string"},
+                                               {"nullable", false},
+                                               {"hasDefault", true},
+                                               {"defaultValue", "Status"}}})},
+            {"signals", nlohmann::json::array()},
+            {"state",
+             {{"type", "integer"},
+              {"nullable", false},
+              {"hasDefault", true},
+              {"defaultValue", 0}}}}},
+          {"scalePolicy", {{"ui", "ignore"}, {"text", "inherit"}}}}});
+
+    auto result = decode_editor_room_preview_document_text(document.dump());
+    REQUIRE(result);
+    REQUIRE(result.value().layouts.size() == 1);
+    const auto& layout = result.value().layouts.front();
+    CHECK(layout.synthetic_semantic_mount);
+    REQUIRE(layout.contract.state);
+    CHECK(layout.contract.state->default_value == PersistableValue{std::int64_t{0}});
+    REQUIRE(layout.preview_state);
+    CHECK(*layout.preview_state == PersistableValue{std::int64_t{0}});
+    REQUIRE(layout.preview_inputs.size() == 1);
+    CHECK(layout.preview_inputs.front().input.text() == "title");
+    CHECK(std::get<std::string>(layout.preview_inputs.front().value) == "Status");
+
+    document["layouts"][0]["contract"]["inputs"][0]["hasDefault"] = false;
+    document["layouts"][0]["contract"]["inputs"][0]["defaultValue"] = nullptr;
+    CHECK_FALSE(decode_editor_room_preview_document_text(document.dump()));
+
+    for (const auto& malformed_contract : std::vector<nlohmann::json>{
+             {{"inputs", nlohmann::json::array()},
+              {"signals", nlohmann::json::array({nullptr})},
+              {"state", nullptr}},
+             {{"inputs", nlohmann::json::array()},
+              {"signals", nlohmann::json::array({{{"id", "selected"}}})},
+              {"state", nullptr}},
+             {{"inputs", nlohmann::json::array()},
+              {"signals",
+               nlohmann::json::array(
+                   {{{"id", "selected"}, {"fields", nlohmann::json::array({nullptr})}}})},
+              {"state", nullptr}}}) {
+        auto malformed = focused_room_document();
+        malformed["world"]["overlays"] = document["world"]["overlays"];
+        malformed["layouts"] = document["layouts"];
+        malformed["layouts"][0]["contract"] = malformed_contract;
+        CAPTURE(malformed_contract.dump());
+        const auto rejected = decode_editor_room_preview_document_text(malformed.dump());
+        CHECK_FALSE(rejected);
+        if (!rejected)
+            CHECK_FALSE(rejected.error().empty());
+    }
+}
+
 TEST_CASE("editor runtime input protocol decodes only closed typed inputs")
 {
     const nlohmann::json document = {{"schema", runtime_input_schema},
@@ -236,6 +318,18 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
           {"accessibility",
            {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}},
             {"textScale", {{"enabled", true}, {"minimum", 0.8}, {"maximum", 1.8}}}}}}}};
+    const auto layout_contract = nlohmann::json::parse(R"json({
+  "inputs": [
+    {"id":"display_title","type":"string","nullable":false,"hasDefault":true,"defaultValue":"Default"}
+  ],
+  "signals": [
+    {"id":"item_selected","fields":[{"id":"accepted_value","type":"boolean","nullable":false,"required":true}]}
+  ],
+  "state": {
+    "type":"object","nullable":false,"hasDefault":true,"defaultValue":{"saved_count":0},
+    "fields":[{"id":"saved_count","required":true,"shape":{"type":"integer","nullable":false,"hasDefault":false,"defaultValue":null}}]
+  }
+})json");
     const nlohmann::json layout = {
         {"schema", "noveltea.layout-preview"},
         {"contentMode", "layout"},
@@ -251,6 +345,9 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
         {"lua", {{"kind", "inline"}, {"text", "preview_value = 7"}}},
         {"script", {{"enabled", false}, {"namespace", nullptr}}},
         {"scalePolicy", {{"ui", "ignore"}, {"text", "inherit"}}},
+        {"contract", layout_contract},
+        {"sampleState",
+         {{"inputs", {{"display_title", "Sample"}}}, {"state", {{"saved_count", 3}}}}},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
@@ -277,6 +374,42 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
     CHECK(request->environment.project_display.world_raster_policy ==
           compiled::WorldRasterPolicy::Native);
     CHECK(request->environment.project_display.bar_color == "#123456");
+    REQUIRE(request->contract.inputs.size() == 1);
+    CHECK(request->contract.inputs.front().id.text() == "display_title");
+    REQUIRE(request->preview_inputs.size() == 1);
+    CHECK(request->preview_inputs.front().input.text() == "display_title");
+    CHECK(std::get<std::string>(request->preview_inputs.front().value) == "Sample");
+    REQUIRE(request->contract.signals.size() == 1);
+    CHECK(request->contract.signals.front().id.text() == "item_selected");
+    CHECK(request->contract.signals.front().fields.front().id.text() == "accepted_value");
+    REQUIRE(request->contract.state);
+    REQUIRE(request->preview_state);
+    CHECK(*request->preview_state == PersistableValue{PersistableValue::Object{
+                                         {"saved_count", PersistableValue{std::int64_t{3}}}}});
+
+    for (const auto& invalid_contract : std::vector<nlohmann::json>{
+             {{"inputs", nlohmann::json::array({nlohmann::json::object()})},
+              {"signals", nlohmann::json::array()},
+              {"state", nullptr}},
+             {{"inputs", nlohmann::json::array()},
+              {"signals", nlohmann::json::array({nullptr})},
+              {"state", nullptr}},
+             {{"inputs", nlohmann::json::array()},
+              {"signals", nlohmann::json::array({{{"id", "selected"}}})},
+              {"state", nullptr}},
+             {{"inputs", nlohmann::json::array()},
+              {"signals",
+               nlohmann::json::array(
+                   {{{"id", "selected"}, {"fields", nlohmann::json::array({{{"id", "value"}}})}}})},
+              {"state", nullptr}}}) {
+        auto malformed = layout;
+        malformed["contract"] = invalid_contract;
+        CAPTURE(invalid_contract.dump());
+        auto rejected = decode_editor_preview_document_text("layout-preview", malformed.dump());
+        CHECK_FALSE(rejected);
+        if (!rejected)
+            CHECK_FALSE(rejected.error().empty());
+    }
 
     auto shader = decode_editor_preview_document_text(
         "shader-preview",

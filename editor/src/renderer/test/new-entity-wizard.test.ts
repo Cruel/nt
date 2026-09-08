@@ -57,6 +57,25 @@ describe('new entity wizard registry', () => {
     );
   });
 
+  it('defaults new Layouts to the stateful document starter', () => {
+    const project = createAuthoringProject();
+    const definition = newEntityWizardDefinition('layouts');
+    expect(definition.defaultOptions?.(project)).toEqual({ layoutKind: 'document' });
+    const payload = definition.buildPayload({
+      project,
+      draft: draft('layouts', { layoutKind: 'document' }),
+    });
+    expect(payload.data).toMatchObject({
+      layoutKind: 'document',
+      contract: {
+        state: {
+          type: 'object',
+          defaultValue: { saved_count: 0 },
+        },
+      },
+    });
+  });
+
   it('builds material data with an optional shader reference', () => {
     const project = createAuthoringProject();
     project.shaders.sprite = { id: 'sprite', label: 'Sprite', data: {} as never };

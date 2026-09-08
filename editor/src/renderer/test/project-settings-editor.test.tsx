@@ -573,6 +573,26 @@ describe('ProjectSettingsEditor', () => {
     );
   });
 
+  it('offers only empty-contract layouts for system roles', async () => {
+    const document = project();
+    document.layouts.stateful = {
+      id: 'stateful',
+      label: 'Stateful UI',
+      data: defaultLayoutData('Stateful UI', 'document'),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Runtime');
+    fireEvent.click(screen.getByText('Built-in title screen'));
+    expect(await screen.findByText('Choose Title screen')).toBeInTheDocument();
+    expect(screen.getByText('Main Layout')).toBeInTheDocument();
+    expect(screen.queryByText('Stateful UI')).not.toBeInTheDocument();
+  });
+
   it('updates runtime defaults, title screen, and icon settings', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),

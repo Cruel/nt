@@ -10,6 +10,9 @@ namespace noveltea::core {
 #define NOVELTEA_DOMAIN_ID(name)                                                                   \
     struct name##Tag;                                                                              \
     using name = StrongId<name##Tag>
+#define NOVELTEA_DOMAIN_LOCAL_ID(name)                                                             \
+    struct name##Tag;                                                                              \
+    using name = StrongId<name##Tag, StrongIdSyntax::KebabOrSnakeCase>
 NOVELTEA_DOMAIN_ID(ProjectId);
 NOVELTEA_DOMAIN_ID(ArchetypeId);
 NOVELTEA_DOMAIN_ID(RoomId);
@@ -25,9 +28,9 @@ NOVELTEA_DOMAIN_ID(InteractionId);
 NOVELTEA_DOMAIN_ID(MapId);
 NOVELTEA_DOMAIN_ID(ScriptId);
 NOVELTEA_DOMAIN_ID(LayoutId);
-NOVELTEA_DOMAIN_ID(LayoutInputId);
-NOVELTEA_DOMAIN_ID(LayoutSignalId);
-NOVELTEA_DOMAIN_ID(LayoutSignalFieldId);
+NOVELTEA_DOMAIN_LOCAL_ID(LayoutInputId);
+NOVELTEA_DOMAIN_LOCAL_ID(LayoutSignalId);
+NOVELTEA_DOMAIN_LOCAL_ID(LayoutSignalFieldId);
 NOVELTEA_DOMAIN_ID(AssetId);
 NOVELTEA_DOMAIN_ID(MaterialId);
 NOVELTEA_DOMAIN_ID(PropertyId);

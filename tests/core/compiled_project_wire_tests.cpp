@@ -1133,6 +1133,63 @@ TEST_CASE("compiled image sampling is required and decodes explicitly")
     }
 }
 
+TEST_CASE("compiled Layout contract IDs allow snake_case without relaxing entity IDs")
+{
+    CHECK(LayoutInputId::create("display_title"));
+    CHECK(LayoutSignalId::create("item_selected"));
+    CHECK(LayoutSignalFieldId::create("was_accepted"));
+    CHECK_FALSE(LayoutId::create("layout_name"));
+
+    auto document = fixture("resources");
+    auto* layout = path_member(document, {"resources", "layouts", "0"});
+    REQUIRE(layout != nullptr);
+    auto* title_layout = path_member(document, {"settings", "systemLayouts", "0", "layout"});
+    REQUIRE(title_layout != nullptr);
+    *title_layout = nullptr;
+    (*layout)["contract"] = {
+        {"inputs", nlohmann::json::array({{{"id", "display_title"},
+                                           {"type", "string"},
+                                           {"nullable", false},
+                                           {"hasDefault", true},
+                                           {"defaultValue", "Inventory"}}})},
+        {"signals",
+         nlohmann::json::array({{{"id", "item_selected"},
+                                 {"fields", nlohmann::json::array({{{"id", "was_accepted"},
+                                                                    {"type", "boolean"},
+                                                                    {"nullable", false},
+                                                                    {"required", true}}})}}})},
+        {"state",
+         {{"type", "object"},
+          {"nullable", false},
+          {"hasDefault", true},
+          {"defaultValue", {{"saved_count", 0}}},
+          {"fields", nlohmann::json::array({{{"id", "saved_count"},
+                                             {"required", true},
+                                             {"shape",
+                                              {{"type", "integer"},
+                                               {"nullable", false},
+                                               {"hasDefault", false},
+                                               {"defaultValue", nullptr}}}}})}}},
+    };
+
+    auto result =
+        noveltea::core::decode_compiled_project(document, "layout-contract-snake-case.json");
+    if (!result)
+        for (const auto& diagnostic : result.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
+                                          << diagnostic.json_pointer);
+    REQUIRE(result);
+    const auto* decoded = result.value().find_layout(LayoutId::create("hud-assets").value());
+    REQUIRE(decoded != nullptr);
+    REQUIRE(decoded->contract.inputs.size() == 1);
+    CHECK(decoded->contract.inputs.front().id.text() == "display_title");
+    REQUIRE(decoded->contract.signals.size() == 1);
+    CHECK(decoded->contract.signals.front().id.text() == "item_selected");
+    CHECK(decoded->contract.signals.front().fields.front().id.text() == "was_accepted");
+    REQUIRE(decoded->contract.state);
+    CHECK(decoded->contract.state->fields.front().id == "saved_count");
+}
+
 TEST_CASE("compiled project public decoder rejects semantic linking failures")
 {
     SECTION("Gameplay Command result bindings retain their semantic type")

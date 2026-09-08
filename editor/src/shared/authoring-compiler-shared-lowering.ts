@@ -4,6 +4,7 @@ import {
   resolveGameplayInstanceRecord,
 } from './project-schema/authoring-archetypes';
 import { parseCharacterData } from './project-schema/authoring-characters';
+import { lowerLayoutContractForWire } from './layout-contract-lowering';
 import type { CompiledProjectWire, CompiledText } from './project-schema/compiled-project';
 import {
   COMPILED_PROJECT_SCHEMA,
@@ -22,7 +23,6 @@ import {
   parseLayoutData,
   resolveLayoutScalePolicy,
   type LayoutSourceData,
-  type LayoutStateShapeData,
 } from './project-schema/authoring-layouts';
 import { parseMapData } from './project-schema/authoring-maps';
 import { resolveMaterialData } from './project-schema/authoring-materials';
@@ -431,28 +431,6 @@ function compileLayoutSource(source: LayoutSourceData) {
   return { kind: 'inline' as const, text: source.sourceText };
 }
 
-function compileLayoutStateShape(shape: LayoutStateShapeData): unknown {
-  const common = {
-    type: shape.type,
-    nullable: shape.nullable,
-    hasDefault: Object.prototype.hasOwnProperty.call(shape, 'defaultValue'),
-    defaultValue: shape.defaultValue ?? null,
-  };
-  if (shape.type === 'array') return { ...common, items: compileLayoutStateShape(shape.items) };
-  if (shape.type === 'object')
-    return {
-      ...common,
-      fields: Object.entries(shape.fields)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([id, field]) => ({
-          id,
-          required: field.required,
-          shape: compileLayoutStateShape(field.shape),
-        })),
-    };
-  return common;
-}
-
 function compileEntrypoint(
   entrypoint: NonNullable<AuthoringProject['entrypoint']>,
 ): CompiledProjectWire['entrypoint'] {
@@ -520,31 +498,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   for (const [id, record] of sortedEntries(project.layouts)) {
     const data = requireData(parseLayoutData(record.data), `/layouts/${id}/data`);
     if (!data) continue;
-    const contract = {
-      inputs: Object.entries(data.contract.inputs)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([inputId, input]) => ({
-          id: inputId,
-          type: input.type,
-          nullable: input.nullable,
-          hasDefault: Object.prototype.hasOwnProperty.call(input, 'defaultValue'),
-          defaultValue: input.defaultValue ?? null,
-        })),
-      signals: Object.entries(data.contract.signals)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([signalId, signal]) => ({
-          id: signalId,
-          fields: Object.entries(signal.fields)
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([fieldId, field]) => ({
-              id: fieldId,
-              type: field.type,
-              nullable: field.nullable,
-              required: field.required,
-            })),
-        })),
-      state: data.contract.state ? compileLayoutStateShape(data.contract.state) : null,
-    };
+    const contract = lowerLayoutContractForWire(data.contract);
     layouts.push({
       id,
       kind: data.layoutKind,

@@ -126,7 +126,7 @@ Direct asset references currently appear in layouts, shader stages, material tex
 
 ## Defaults
 
-Assets are normally created by import rather than by generic empty entity creation. `assetDataFromImportMetadata()` creates data from import metadata and preserves fields such as kind, project-relative path, aliases, image sampling, MIME type, extension, size, hash, import timestamp, original name, original path, and preview thumbnail revision.
+Assets are normally created by import rather than by generic empty entity creation. The headless `noveltea asset import <path>...` command registers files already under `assets/` in place and copies other files into the appropriate Asset directory. `assetDataFromImportMetadata()` creates data from import metadata and preserves fields such as kind, project-relative path, aliases, image sampling, MIME type, extension, size, hash, import timestamp, original name, original path, and preview thumbnail revision.
 
 The import operation creates one authoring record per imported asset with:
 

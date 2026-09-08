@@ -218,7 +218,8 @@ struct LayoutSignalFieldValue {
         if (!shape.items.empty())
             return false;
         for (std::size_t index = 0; index < shape.fields.size(); ++index) {
-            if (shape.fields[index].id.empty() || shape.fields[index].shape.size() != 1 ||
+            if (!valid_strong_id(shape.fields[index].id, StrongIdSyntax::KebabOrSnakeCase) ||
+                shape.fields[index].shape.size() != 1 ||
                 !layout_state_shape_valid(shape.fields[index].shape.front()))
                 return false;
             for (std::size_t other = index + 1; other < shape.fields.size(); ++other) {

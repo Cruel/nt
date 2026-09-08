@@ -83,6 +83,32 @@ describe('project settings operations', () => {
     ).toEqual({ defaultFont: null });
   });
 
+  it('rejects assigning an existing Layout with a custom Mount Contract to a system role', () => {
+    const project = projectWithSettingsTargets();
+    project.layouts.stateful = {
+      id: 'stateful',
+      label: 'Stateful Layout',
+      data: defaultLayoutData('Stateful Layout', 'document'),
+    };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const result = executeCommand(state, {
+      type: 'project.setSystemLayout',
+      payload: { role: 'title', layoutId: 'stateful' },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.state.document).toEqual(state.document);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/settings/ui/systemLayouts/title',
+          message: expect.stringContaining('custom Mount Contract'),
+        }),
+      ]),
+    );
+  });
+
   it('stores representable invalid refs so validation can report each owning field', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     let result = executeCommand(state, {

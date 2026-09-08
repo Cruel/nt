@@ -29,7 +29,7 @@ namespace noveltea::core {
     return MountedLayoutPolicy{.plane = PresentationPlane::WorldOverlay,
                                .local_order = order,
                                .clock = LayoutClockDomain::Gameplay,
-                               .input = LayoutInputMode::None,
+                               .input = LayoutInputMode::Normal,
                                .gameplay_pause = GameplayPausePolicy::Continue,
                                .visibility =
                                    visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden,

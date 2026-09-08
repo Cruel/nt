@@ -16,6 +16,8 @@ Core authoring commands are:
 noveltea project create <directory> --name <project-name>
 noveltea validate
 noveltea usages <collection> <id>
+noveltea asset audit
+noveltea asset import <path>... [--dry-run]
 noveltea entity create <collection> <id> [--dry-run]
 noveltea entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]
 noveltea entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]
@@ -23,6 +25,8 @@ noveltea agent sync [--fix]
 ```
 
 `project create` accepts a new destination path that does not exist, including paths containing spaces, and rejects every existing file, directory, or symlink. It assembles and validates the complete initial workspace in a sibling staging directory before atomic activation. The editor uses the same creation service and project defaults. Creation does not generate `.noveltea/agent/`; run `agent sync` afterward.
+
+`asset import` accepts one or more files. Files already under the Project `assets/` directory are registered in place; other files are copied into the normal kind-specific Asset directory. Re-importing an already registered Project Asset path returns the existing Asset instead of creating a duplicate. `--json` returns the Asset ID and source path plus image metadata when applicable. `asset audit` lists files under `assets/` that do not have Asset records.
 
 ComfyUI workflow discovery is available headlessly:
 

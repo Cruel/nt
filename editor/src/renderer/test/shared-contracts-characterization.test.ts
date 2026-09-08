@@ -447,6 +447,7 @@ describe('shared contracts characterization', () => {
           scriptEnabled: false,
           containsDedicatedLuaSource: false,
           containsExecutableRmlLua: false,
+          contract: null,
           scalePolicy: { ui: 'inherit', text: 'inherit' },
         },
       ],

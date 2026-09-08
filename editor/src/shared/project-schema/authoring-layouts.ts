@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
+import { layoutContractIdSchema } from './authoring-common';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import { authoredRuntimeValueSchema } from './authoring-properties';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
@@ -225,7 +226,7 @@ export const layoutStateShapeSchema: z.ZodType<LayoutStateShapeData> = z.lazy(()
           nullable: z.boolean().default(false),
           fields: z
             .record(
-              z.string().min(1),
+              layoutContractIdSchema,
               z
                 .object({
                   required: z.boolean().default(true),
@@ -252,7 +253,7 @@ const layoutContractSignalSchema = z
   .object({
     fields: z
       .record(
-        z.string().min(1),
+        layoutContractIdSchema,
         layoutContractValueShapeSchema.extend({ required: z.boolean().default(true) }).strict(),
       )
       .default({}),
@@ -261,8 +262,8 @@ const layoutContractSignalSchema = z
 
 export const layoutContractDataSchema = z
   .object({
-    inputs: z.record(z.string().min(1), layoutContractInputSchema).default({}),
-    signals: z.record(z.string().min(1), layoutContractSignalSchema).default({}),
+    inputs: z.record(layoutContractIdSchema, layoutContractInputSchema).default({}),
+    signals: z.record(layoutContractIdSchema, layoutContractSignalSchema).default({}),
     state: layoutStateShapeSchema.optional(),
   })
   .strict();
@@ -357,11 +358,15 @@ const DEFAULT_RML_DOCUMENT_SOURCE = String.raw`<rml>
 <head>
   <title>Default UI</title>
 </head>
-<body>
+<body onshow="layout_preview.on_show(event, element, document)">
   <div class="noveltea-layout-preview">
     <h1>NovelTea Layout</h1>
     <p>Edit this RML, RCSS, and Lua to build runtime UI.</p>
-    <button id="layout-preview-counter" onclick="layout_preview.on_click(event, element, document)">Clicked 0 times</button>
+    <p>The Lua counter is not saved. Layout State is stored in NovelTea saves.</p>
+    <div class="noveltea-layout-actions">
+      <button id="layout-preview-lua-counter" onclick="layout_preview.on_lua_click(event, element, document)">Lua global: 0</button>
+      <button id="layout-preview-state-counter" onclick="layout_preview.on_state_click(event, element, document)">Saved Layout State: 0</button>
+    </div>
   </div>
 </body>
 </rml>
@@ -374,16 +379,85 @@ const DEFAULT_RML_FRAGMENT_SOURCE = String.raw`<div class="noveltea-layout-previ
 </div>
 `;
 
-const DEFAULT_RCSS_SOURCE = String.raw`.noveltea-layout-preview {
+const DEFAULT_RCSS_SOURCE = String.raw`body {
+  pointer-events: none;
+}
+
+.noveltea-layout-preview {
+  pointer-events: auto;
   margin: 48px;
   padding: 24px;
   background-color: rgba(15, 23, 42, 214);
   border-radius: 12px;
 }
+
+.noveltea-layout-actions {
+  display: flex;
+}
+
+.noveltea-layout-actions button + button {
+  margin-left: 8px;
+}
 `;
 
-const DEFAULT_LUA_SOURCE = String.raw`layout_preview = layout_preview or {}
-layout_preview.click_count = layout_preview.click_count or 0
+const DEFAULT_DOCUMENT_LUA_SOURCE = String.raw`layout_preview = layout_preview or {}
+layout_preview.lua_count = layout_preview.lua_count or 0
+
+local function saved_count()
+  local mount = Game.mount_context()
+  if not mount then
+    return nil, nil
+  end
+
+  local state = mount:state('session')
+  if not state then
+    return 0, mount
+  end
+  return state.saved_count or 0, mount
+end
+
+function layout_preview.render(document)
+  local lua_button = document:GetElementById('layout-preview-lua-counter')
+  if lua_button then
+    lua_button.inner_rml = 'Lua global: ' .. layout_preview.lua_count
+  end
+
+  local state_button = document:GetElementById('layout-preview-state-counter')
+  if state_button then
+    local count = saved_count()
+    if count == nil then
+      state_button.inner_rml = 'Saved Layout State: preview unavailable'
+    else
+      state_button.inner_rml = 'Saved Layout State: ' .. count
+    end
+  end
+end
+
+function layout_preview.on_show(event, element, document)
+  layout_preview.render(document)
+end
+
+function layout_preview.on_lua_click(event, element, document)
+  layout_preview.lua_count = layout_preview.lua_count + 1
+  layout_preview.render(document)
+end
+
+function layout_preview.on_state_click(event, element, document)
+  local count, mount = saved_count()
+  if count == nil or not mount then
+    element.inner_rml = 'Saved Layout State: preview unavailable'
+    return
+  end
+
+  local next_count = count + 1
+  if mount:commit_state('session', { saved_count = next_count }) then
+    element.inner_rml = 'Saved Layout State: ' .. next_count
+  end
+end
+`;
+
+const DEFAULT_FRAGMENT_LUA_SOURCE = String.raw`layout_preview = layout_preview or {}
+layout_preview.click_count = 0
 
 function layout_preview.on_click(event, element, document)
   layout_preview.click_count = layout_preview.click_count + 1
@@ -659,6 +733,24 @@ export function defaultLayoutData(
     layoutKind,
     displayName: label,
     target: 'default-ui',
+    contract:
+      layoutKind === 'document'
+        ? {
+            inputs: {},
+            signals: {},
+            state: {
+              type: 'object',
+              nullable: false,
+              fields: {
+                saved_count: {
+                  required: true,
+                  shape: { type: 'integer', nullable: false },
+                },
+              },
+              defaultValue: { saved_count: 0 },
+            },
+          }
+        : { inputs: {}, signals: {} },
     rml: {
       sourceMode: 'inline',
       sourceText:
@@ -666,11 +758,16 @@ export function defaultLayoutData(
       sourceAsset: null,
     },
     rcss: { sourceMode: 'inline', sourceText: DEFAULT_RCSS_SOURCE, sourceAsset: null },
-    lua: { sourceMode: 'inline', sourceText: DEFAULT_LUA_SOURCE, sourceAsset: null },
+    lua: {
+      sourceMode: 'inline',
+      sourceText:
+        layoutKind === 'fragment' ? DEFAULT_FRAGMENT_LUA_SOURCE : DEFAULT_DOCUMENT_LUA_SOURCE,
+      sourceAsset: null,
+    },
     script: { enabled: true, namespace: 'layout_preview' },
     mount: { defaultParent: 'nt-layout-preview-mount', scopedStyles: true },
     dependencies: { images: [], fonts: [], stylesheets: [], materials: [], scripts: [] },
-    sampleState: { projectTitle: 'NovelTea Layout' },
+    sampleState: layoutKind === 'document' ? { state: { saved_count: 0 } } : {},
     preview: { background: 'dark' },
   });
 }
@@ -764,6 +861,16 @@ export function getSystemLayoutSetting(
   return null;
 }
 
+export function isSystemLayoutCompatible(value: unknown): boolean {
+  const data = parseLayoutData(value);
+  return (
+    data !== null &&
+    Object.keys(data.contract.inputs).length === 0 &&
+    Object.keys(data.contract.signals).length === 0 &&
+    data.contract.state === undefined
+  );
+}
+
 export function validateSystemLayoutSettings(project: AuthoringProject): LayoutSchemaDiagnostic[] {
   const ui = project.settings.ui;
   if (ui === undefined) return [];
@@ -797,12 +904,7 @@ export function validateSystemLayoutSettings(project: AuthoringProject): LayoutS
       continue;
     }
     const data = parseLayoutData(layout.data);
-    if (
-      data &&
-      (Object.keys(data.contract.inputs).length > 0 ||
-        Object.keys(data.contract.signals).length > 0 ||
-        data.contract.state !== undefined)
-    ) {
+    if (data && !isSystemLayoutCompatible(data)) {
       diagnostics.push(
         diagnostic(
           `/settings/ui/systemLayouts/${role}/$ref`,

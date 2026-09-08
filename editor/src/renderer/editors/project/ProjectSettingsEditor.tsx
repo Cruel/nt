@@ -35,6 +35,7 @@ import {
 } from '../../../shared/project-schema/authoring-audio';
 import {
   getSystemLayoutSetting,
+  isSystemLayoutCompatible,
   systemLayoutRoleValues,
   type SystemLayoutRole,
 } from '../../../shared/project-schema/authoring-layouts';
@@ -1040,8 +1041,14 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     [selectorItems],
   );
   const layoutItems = useMemo(
-    () => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }),
-    [selectorItems],
+    () =>
+      filterSelectorItems(selectorItems, {
+        collections: ['layouts'],
+        includeActions: false,
+      }).filter(
+        (item) => item.entityId && isSystemLayoutCompatible(project?.layouts[item.entityId]?.data),
+      ),
+    [project, selectorItems],
   );
   const scriptItems = useMemo(
     () => filterSelectorItems(selectorItems, { collections: ['scripts'], includeActions: false }),
@@ -2448,7 +2455,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             : 'Choose system layout'
         }
         placeholder="Search layouts..."
-        emptyMessage="No layouts found."
+        emptyMessage="No compatible layouts found. System layouts require an empty Mount Contract."
         items={layoutItems}
         selectedId={
           systemLayoutSelectorRole

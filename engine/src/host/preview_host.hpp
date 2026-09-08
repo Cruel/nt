@@ -148,6 +148,7 @@ public:
     apply_focused_editor_document(core::editor::FocusedEditorDocumentRequest request);
     void update_focused_preview();
     void clear_focused_preview() noexcept;
+    void route_focused_runtime_input(core::RuntimeInputMessage input);
     [[nodiscard]] const FocusedContentOwnerState& focused_content_owner() const noexcept
     {
         return m_focused_presenter->committed_owner();

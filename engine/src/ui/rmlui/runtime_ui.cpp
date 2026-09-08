@@ -406,6 +406,8 @@ struct RuntimeUI::State {
     void show_game_document();
     bool dispatch_shell_command(const core::RuntimeShellCommand& command);
     bool dispatch_layout_typed_input(const core::RuntimeInputMessage& input);
+    void install_mount_context_lua_api();
+    void remove_mount_context_lua_api() noexcept;
     void install_shell_lua_api();
     void remove_shell_lua_api() noexcept;
     void refresh_text_log_map();
@@ -416,6 +418,15 @@ struct RuntimeUI::State {
     [[nodiscard]] Rml::ElementDocument*
     system_document(core::compiled::SystemLayoutRole role) const;
     [[nodiscard]] std::optional<std::string> mount_document(ContextKey key) const;
+    template<class Dispatch>
+    bool with_active_layout_mount_document(const std::string& id, Dispatch&& dispatch)
+    {
+        const auto previous = active_layout_mount_document;
+        active_layout_mount_document = id;
+        const bool result = dispatch();
+        active_layout_mount_document = previous;
+        return result;
+    }
     Rml::Context* context_for(ContextKey key);
     Rml::ElementDocument* document(const std::string& id) const;
     struct RuntimeInputListener final : Rml::EventListener {
@@ -572,7 +583,7 @@ bool RuntimeUI::State::dispatch_layout_typed_input(const core::RuntimeInputMessa
     return action_gateway && action_gateway->dispatch_layout_input(input);
 }
 
-void RuntimeUI::State::install_shell_lua_api()
+void RuntimeUI::State::install_mount_context_lua_api()
 {
     if (!lua_state)
         return;
@@ -585,11 +596,6 @@ void RuntimeUI::State::install_shell_lua_api()
         game = lua.create_table();
         lua["Game"] = game;
     }
-    sol::table shell = lua.create_table();
-
-    game.set_function("start", [this]() {
-        return dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}});
-    });
     lua_State* mount_lua_state = lua_state;
     const auto resolve_mount_context =
         [this](const sol::table& mount) -> const RuntimeUiLayoutMountContext* {
@@ -849,7 +855,26 @@ void RuntimeUI::State::install_shell_lua_api()
             });
         return sol::make_object(lua, std::move(mount));
     });
+}
 
+void RuntimeUI::State::install_shell_lua_api()
+{
+    if (!lua_state)
+        return;
+    sol::state_view lua(lua_state);
+    sol::table game;
+    const sol::object existing = lua["Game"];
+    if (existing.valid() && existing.get_type() == sol::type::table)
+        game = existing.as<sol::table>();
+    else {
+        game = lua.create_table();
+        lua["Game"] = game;
+    }
+    sol::table shell = lua.create_table();
+
+    game.set_function("start", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}});
+    });
     shell.set_function("pause", [this]() {
         return dispatch_shell_command(core::RuntimeShellCommand{core::OpenPauseShellCommand{}});
     });
@@ -996,11 +1021,18 @@ void RuntimeUI::State::remove_shell_lua_api() noexcept
         return;
     sol::state_view lua(lua_state);
     const sol::object game_object = lua["Game"];
-    if (game_object.valid() && game_object.get_type() == sol::type::table) {
-        auto game = game_object.as<sol::table>();
-        game["shell"] = sol::lua_nil;
-        game["mount_context"] = sol::lua_nil;
-    }
+    if (game_object.valid() && game_object.get_type() == sol::type::table)
+        game_object.as<sol::table>()["shell"] = sol::lua_nil;
+}
+
+void RuntimeUI::State::remove_mount_context_lua_api() noexcept
+{
+    if (!lua_state)
+        return;
+    sol::state_view lua(lua_state);
+    const sol::object game_object = lua["Game"];
+    if (game_object.valid() && game_object.get_type() == sol::type::table)
+        game_object.as<sol::table>()["mount_context"] = sol::lua_nil;
 }
 
 void RuntimeUI::State::refresh_text_log_map()
@@ -1101,6 +1133,7 @@ void RuntimeUI::cleanup_state()
         return;
     if (m_state->lua_state) {
         m_state->remove_shell_lua_api();
+        m_state->remove_mount_context_lua_api();
         m_state->lua_state = nullptr;
     }
     m_state->playback_driver.reset();
@@ -1166,6 +1199,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     }
     m_state->lua_state = script::detail::ScriptRuntimeAccess::state(*scripts);
     m_state->scripts = scripts;
+    m_state->install_mount_context_lua_api();
     if (!m_state->action_gateway)
         m_state->action_gateway =
             std::make_unique<ui::rmlui::RuntimeUiActionGateway>(m_state->typed_diagnostics);
@@ -1382,7 +1416,8 @@ bool RuntimeUI::load_document_for_layout(const std::string& id, const std::strin
         return false;
     const State::ContextKey key = ui::rmlui::make_lifecycle_context_key(
         policy, composition_group, owner, scale_policy, compatibility_group);
-    return m_state->document_registry->load_path(id, path, show, key);
+    return m_state->with_active_layout_mount_document(
+        id, [&]() { return m_state->document_registry->load_path(id, path, show, key); });
 }
 
 bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, const std::string& rml,
@@ -1397,7 +1432,9 @@ bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, cons
         return false;
     const State::ContextKey key = ui::rmlui::make_lifecycle_context_key(
         policy, composition_group, owner, scale_policy, compatibility_group);
-    return m_state->document_registry->load_memory(id, rml, source_url, show, key);
+    return m_state->with_active_layout_mount_document(id, [&]() {
+        return m_state->document_registry->load_memory(id, rml, source_url, show, key);
+    });
 }
 
 bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document, bool show,
@@ -1414,8 +1451,12 @@ bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_doc
     std::string runtime_document_path;
     if (builtin_document == RuntimeLayoutBuiltinDocument::GameHud && m_state->template_resolver)
         runtime_document_path = m_state->template_resolver->resolve_runtime_document();
-    const bool loaded = m_state->document_registry->load_builtin(builtin_document,
-                                                                 runtime_document_path, show, key);
+    const std::string document_id{
+        ui::rmlui::RmlUiDocumentRegistry::builtin_document_id(builtin_document)};
+    const bool loaded = m_state->with_active_layout_mount_document(document_id, [&]() {
+        return m_state->document_registry->load_builtin(builtin_document, runtime_document_path,
+                                                        show, key);
+    });
     if (loaded) {
         if (builtin_document == RuntimeLayoutBuiltinDocument::GameHud)
             m_state->refresh_game_hud_map();
@@ -1473,7 +1514,9 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
         return false;
     const State::ContextKey desired = ui::rmlui::make_lifecycle_context_key(
         policy, composition_group, owner, scale_policy, compatibility_group);
-    const bool applied = m_state->document_registry->recreate_in_context(document_id, desired);
+    const bool applied = m_state->with_active_layout_mount_document(document_id, [&]() {
+        return m_state->document_registry->recreate_in_context(document_id, desired);
+    });
     if (applied) {
         m_state->refresh_game_hud_map();
         m_state->refresh_text_log_map();
@@ -1518,7 +1561,8 @@ bool RuntimeUI::unload_document(const std::string& id)
 {
     if (!m_state || !m_state->document_registry)
         return false;
-    const bool unloaded = m_state->document_registry->unload(id);
+    const bool unloaded = m_state->with_active_layout_mount_document(
+        id, [&]() { return m_state->document_registry->unload(id); });
     if (unloaded)
         m_state->layout_mount_contexts.erase(id);
     return unloaded;
@@ -1533,15 +1577,19 @@ bool RuntimeUI::show_document(const std::string& id)
     // Settle model-driven geometry while hidden, then commit onshow style changes before rendering.
     if (!document || !context || !context->Update())
         return false;
-    if (!m_state->document_registry->show(id))
-        return false;
-    document->UpdateDocument();
-    return true;
+    return m_state->with_active_layout_mount_document(id, [&]() {
+        if (!m_state->document_registry->show(id))
+            return false;
+        document->UpdateDocument();
+        return true;
+    });
 }
 
 bool RuntimeUI::hide_document(const std::string& id)
 {
-    return m_state && m_state->document_registry && m_state->document_registry->hide(id);
+    return m_state && m_state->document_registry &&
+           m_state->with_active_layout_mount_document(
+               id, [&]() { return m_state->document_registry->hide(id); });
 }
 
 bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)

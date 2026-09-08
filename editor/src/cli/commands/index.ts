@@ -1,3 +1,5 @@
+import { assetAuditCommand } from './asset-audit-command';
+import { assetImportCommand } from './asset-import-command';
 import { entityCreateCommand } from './entity-create-command';
 import { entityDeleteCommand } from './entity-delete-command';
 import { entityRenameCommand } from './entity-rename-command';
@@ -22,6 +24,8 @@ const commands: readonly CliCommandDefinition[] = Object.freeze([
   packageExportCommand,
   platformProfilesCommand,
   platformExportCommand,
+  assetAuditCommand,
+  assetImportCommand,
   entityCreateCommand,
   entityRenameCommand,
   entityDeleteCommand,

@@ -79,6 +79,7 @@ function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
       width: number;
       height: number;
       hasAlpha: boolean;
+      orientation?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
       space?: string;
       alphaBounds?: { left: number; top: number; right: number; bottom: number };
     }>('image-inspect', { sourcePath });

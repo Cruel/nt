@@ -1,3 +1,4 @@
+#include "noveltea/core/layout_policies.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
@@ -845,6 +846,61 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     CHECK(input_sink.shell_commands == shell_commands_before_invalid);
 }
 
+TEST_CASE("RuntimeUI Mount Context remains available to focused environments created before input "
+          "binding")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    auto environment = fixture.scripts().create_environment();
+    REQUIRE(environment);
+
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+
+    const auto instance = noveltea::core::ScopedLayoutInstanceId::create("focused-stateful");
+    REQUIRE(instance);
+    const auto key = noveltea::core::MountedLayoutPresentationKey{
+        noveltea::core::ScopedLayoutMountKey{instance.value()}};
+    const auto owner = noveltea::core::PresentationOwner{noveltea::core::SessionPresentationOwner{
+        noveltea::core::PresentationSessionId::from_number(1)}};
+    const noveltea::core::LayoutStateShape count_shape{
+        .type = noveltea::core::LayoutStateShapeType::Integer,
+        .nullable = false,
+        .default_value = std::nullopt,
+        .items = {},
+        .fields = {}};
+    const noveltea::core::LayoutStateShape state_shape{
+        .type = noveltea::core::LayoutStateShapeType::Object,
+        .nullable = false,
+        .default_value = noveltea::core::PersistableValue{noveltea::core::PersistableValue::Object{
+            {"saved_count", noveltea::core::PersistableValue{std::int64_t{0}}}}},
+        .items = {},
+        .fields = {noveltea::core::LayoutStateObjectField{
+            .id = "saved_count", .required = true, .shape = {count_shape}}}};
+    ui.set_layout_mount_context(
+        "focused-state-doc",
+        noveltea::RuntimeUiLayoutMountContext{
+            owner,
+            key,
+            noveltea::core::LayoutMountOccurrenceId::from_number(1),
+            {},
+            {},
+            state_shape,
+            {{noveltea::core::LayoutStateScope::Session,
+              noveltea::core::PersistableValue{noveltea::core::PersistableValue::Object{
+                  {"saved_count", noveltea::core::PersistableValue{std::int64_t{0}}}}}}}});
+
+    auto activation = fixture.scripts().activate_environment(*environment.value_if());
+    REQUIRE(activation);
+    REQUIRE(luaL_dostring(fixture.lua_state(),
+                          "local m=assert(Game.mount_context('focused-state-doc')); "
+                          "local s=assert(m:state('session')); assert(s.saved_count==0); "
+                          "assert(m:commit_state('session', {saved_count=1}))") == LUA_OK);
+    CHECK(input_sink.gameplay_inputs == 1);
+}
+
 TEST_CASE("RuntimeUI Layout Slot Lua conversion accepts only declared persistable trees")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
@@ -996,6 +1052,79 @@ TEST_CASE("RuntimeUI Layout Slot Lua conversion accepts only declared persistabl
     CHECK(child->presentation_parent.key == key);
     CHECK(child->presentation_parent.occurrence ==
           noveltea::core::LayoutMountOccurrenceId::from_number(7));
+}
+
+TEST_CASE("RuntimeUI exposes the active Layout Mount Context during document show lifecycle")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+
+    REQUIRE(luaL_dostring(fixture.lua_state(), R"LUA(
+function layout_show_state(event, element, document)
+    local mount = Game.mount_context()
+    local value = document:GetElementById('state-value')
+    if not mount then
+        value.inner_rml = 'missing'
+        return
+    end
+    local state = mount:state('session')
+    value.inner_rml = state and tostring(state.saved_count) or 'missing'
+end
+)LUA") == LUA_OK);
+
+    const std::string kDocument = R"RML(
+<rml>
+<head><title>Layout Show State</title></head>
+<body onshow="layout_show_state(event, element, document)">
+  <div id="state-value">unset</div>
+</body>
+</rml>
+)RML";
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "layout-show-state", kDocument, "preview://layout-show-state.rml", false));
+
+    const auto instance = noveltea::core::ScopedLayoutInstanceId::create("show-state");
+    REQUIRE(instance);
+    const auto key = noveltea::core::MountedLayoutPresentationKey{
+        noveltea::core::ScopedLayoutMountKey{instance.value()}};
+    const auto owner = noveltea::core::PresentationOwner{noveltea::core::SessionPresentationOwner{
+        noveltea::core::PresentationSessionId::from_number(1)}};
+    const noveltea::core::LayoutStateShape count_shape{
+        .type = noveltea::core::LayoutStateShapeType::Integer,
+        .nullable = false,
+        .default_value = std::nullopt,
+        .items = {},
+        .fields = {}};
+    noveltea::core::LayoutStateShape state_shape{
+        .type = noveltea::core::LayoutStateShapeType::Object,
+        .nullable = false,
+        .default_value = noveltea::core::PersistableValue{noveltea::core::PersistableValue::Object{
+            {"saved_count", noveltea::core::PersistableValue{std::int64_t{0}}}}},
+        .items = {},
+        .fields = {noveltea::core::LayoutStateObjectField{
+            .id = "saved_count", .required = true, .shape = {count_shape}}}};
+    ui.set_layout_mount_context(
+        "layout-show-state",
+        noveltea::RuntimeUiLayoutMountContext{
+            owner,
+            key,
+            noveltea::core::LayoutMountOccurrenceId::from_number(3),
+            {},
+            {},
+            state_shape,
+            {{noveltea::core::LayoutStateScope::Session,
+              noveltea::core::PersistableValue{noveltea::core::PersistableValue::Object{
+                  {"saved_count", noveltea::core::PersistableValue{std::int64_t{7}}}}}}}});
+
+    REQUIRE(ui.show_document("layout-show-state"));
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver != nullptr);
+    auto* value = driver->element("layout-show-state", "state-value");
+    REQUIRE(value != nullptr);
+    CHECK(value->GetInnerRML() == "7");
 }
 
 TEST_CASE("RuntimeUI position hints derive activation advice from Trigger Context")
@@ -1275,6 +1404,62 @@ TEST_CASE("RuntimeUI keeps context-logical event coordinates and leaves on prese
     (void)ui.process_event(motion);
     CHECK_FALSE(action->IsPseudoClassSet("hover"));
     action->RemoveEventListener("mousemove", &coordinates);
+}
+
+TEST_CASE("RuntimeUI routes pointer clicks to gameplay WorldOverlay Layouts")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1920, 1080, 1920, 1080),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    const auto policy = noveltea::core::room_overlay_policy(0, true);
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "room-overlay", kDocument, "preview://room-overlay.rml", true, policy, 1,
+        noveltea::core::MountedLayoutOwner::Gameplay, {}, 0));
+
+    int activations = 0;
+    REQUIRE(RuntimeUiFacadeAccess::add_event_listener(ui, "room-overlay", "action", "click",
+                                                      [&activations]() { ++activations; }) != 0);
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* action = driver->element("room-overlay", "action");
+    REQUIRE(action);
+    const auto offset = action->GetAbsoluteOffset(Rml::BoxArea::Content);
+    const auto size = action->GetBox().GetSize(Rml::BoxArea::Content);
+    REQUIRE(size.x > 0.0f);
+    REQUIRE(size.y > 0.0f);
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = offset.x + size.x * 0.5f;
+    motion.motion.y = offset.y + size.y * 0.5f;
+    (void)ui.process_event(motion);
+
+    SDL_Event down{};
+    down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    down.button.button = SDL_BUTTON_LEFT;
+    down.button.x = motion.motion.x;
+    down.button.y = motion.motion.y;
+    (void)ui.process_event(down);
+
+    SDL_Event up{};
+    up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    up.button.button = SDL_BUTTON_LEFT;
+    up.button.x = motion.motion.x;
+    up.button.y = motion.motion.y;
+    (void)ui.process_event(up);
+
+    CHECK(activations == 1);
+    CHECK(input_sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Gameplay);
 }
 
 TEST_CASE("RuntimeUI input sink rebinding preserves gameplay revision and shell bindings")

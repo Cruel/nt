@@ -18,8 +18,26 @@ describe('authoring layouts schema', () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
 
-    expect(defaultLayoutData('Main UI').preview).toEqual({ background: 'dark' });
-    expect(defaultLayoutData('Main UI').contract).toEqual({ inputs: {}, signals: {} });
+    const defaults = defaultLayoutData('Main UI');
+    expect(defaults.preview).toEqual({ background: 'dark' });
+    expect(defaults.contract).toEqual({ inputs: {}, signals: {} });
+    expect(defaults.rcss.sourceText).toContain('body {\n  pointer-events: none;\n}');
+    expect(defaults.rcss.sourceText).toContain(
+      '.noveltea-layout-preview {\n  pointer-events: auto;',
+    );
+    const documentDefaults = defaultLayoutData('Main UI', 'document');
+    expect(documentDefaults.rml.sourceText).toContain(
+      'onshow="layout_preview.on_show(event, element, document)"',
+    );
+    expect(documentDefaults.rml.sourceText).toContain('Lua global: 0');
+    expect(documentDefaults.rml.sourceText).toContain('Saved Layout State: 0');
+    expect(documentDefaults.lua.sourceText).toContain("mount:state('session')");
+    expect(documentDefaults.lua.sourceText).toContain("mount:commit_state('session'");
+    expect(documentDefaults.contract.state).toMatchObject({
+      type: 'object',
+      defaultValue: { saved_count: 0 },
+    });
+    expect(documentDefaults.sampleState).toEqual({ state: { saved_count: 0 } });
     expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
     expect(layoutPreviewRevision(project, 'main')).toContain('main');
     expect(buildLayoutPreviewDocumentData(project, 'main')).toMatchObject({
@@ -29,7 +47,7 @@ describe('authoring layouts schema', () => {
       layoutKind: 'fragment',
       target: 'default-ui',
       scalePolicy: { ui: 'inherit', text: 'inherit' },
-      contract: { inputs: {}, signals: {} },
+      contract: { inputs: [], signals: [], state: null },
       rml: { sourceMode: 'inline' },
       rcss: { sourceMode: 'inline' },
       lua: { sourceMode: 'inline' },
