@@ -355,7 +355,7 @@ Asset and material refs use the standard `$ref` collection/id shape.
 `defaultLayoutData()` still creates a fragment layout by default for shared/schema callers. The editor New Layout wizard selects the document starter by default. Shared defaults include:
 
 - sample RML with a heading and explanatory text;
-- sample RCSS styling with a click-through document body and interactive content panel;
+- sample RCSS styling for the content panel; NovelTea's universal baseline already makes the document `body` click-through while restoring normal pointer events on authored elements;
 - script namespace `layout_preview`;
 - mount parent `nt-layout-preview-mount`;
 - target-derived UI/text scale inheritance;
