@@ -829,93 +829,91 @@ bool LayoutRealizer::submit_focused_preview_input(const core::RuntimeInputMessag
                             });
     };
 
-    return std::visit(
-        [&](const auto& value) -> bool {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, core::CommitLayoutStateInput>) {
-                const auto found = find_mount(value.owner, value.key, value.occurrence);
-                if (found == m_focused_committed_mounts.end() || !found->second.state_shape ||
-                    !found->second.semantic_key ||
-                    !core::persistable_value_matches(*found->second.state_shape, value.value))
-                    return false;
-                const auto state_key = focused_state_slot_key(*found->second.semantic_key);
-                auto slot = m_focused_preview_state.find(state_key);
-                if (slot == m_focused_preview_state.end() ||
-                    slot->second.shape != *found->second.state_shape)
-                    return false;
-                const auto slot_value = std::find_if(
-                    slot->second.values.begin(), slot->second.values.end(),
-                    [&](const auto& candidate) { return candidate.scope == value.scope; });
-                const auto mount_value = std::find_if(
-                    found->second.state_values.begin(), found->second.state_values.end(),
-                    [&](const auto& candidate) { return candidate.scope == value.scope; });
-                if (slot_value == slot->second.values.end() ||
-                    mount_value == found->second.state_values.end())
-                    return false;
-                slot_value->value = value.value;
-                mount_value->value = value.value;
-                return m_backend.set_mount_context(found->first, found->second);
-            } else if constexpr (std::is_same_v<T, core::ClearLayoutStateInput>) {
-                const auto found = find_mount(value.owner, value.key, value.occurrence);
-                if (found == m_focused_committed_mounts.end() || !found->second.state_shape ||
-                    !found->second.semantic_key)
-                    return false;
-                const auto state_key = focused_state_slot_key(*found->second.semantic_key);
-                auto slot = m_focused_preview_state.find(state_key);
-                if (slot == m_focused_preview_state.end() ||
-                    slot->second.shape != *found->second.state_shape)
-                    return false;
-                const auto slot_value = std::find_if(
-                    slot->second.values.begin(), slot->second.values.end(),
-                    [&](const auto& candidate) { return candidate.scope == value.scope; });
-                const auto mount_value = std::find_if(
-                    found->second.state_values.begin(), found->second.state_values.end(),
-                    [&](const auto& candidate) { return candidate.scope == value.scope; });
-                if (slot_value == slot->second.values.end() ||
-                    mount_value == found->second.state_values.end())
-                    return false;
-                slot_value->value = found->second.state_shape->default_value;
-                mount_value->value = found->second.state_shape->default_value;
-                return m_backend.set_mount_context(found->first, found->second);
-            } else if constexpr (std::is_same_v<T, core::LayoutSignalInput>) {
-                const auto found = find_mount(value.owner, value.key, value.occurrence);
-                if (found == m_focused_committed_mounts.end() ||
-                    std::find(found->second.connected_signals.begin(),
-                              found->second.connected_signals.end(),
-                              value.signal) == found->second.connected_signals.end())
-                    return false;
-                const auto contract = m_focused_committed_contracts.find(found->first);
-                if (contract == m_focused_committed_contracts.end())
-                    return false;
-                const auto definition = std::find_if(
-                    contract->second.signals.begin(), contract->second.signals.end(),
-                    [&](const auto& candidate) { return candidate.id == value.signal; });
-                if (definition == contract->second.signals.end())
-                    return false;
-                std::vector<core::LayoutSignalFieldId> seen;
-                seen.reserve(value.fields.size());
-                for (const auto& field : value.fields) {
-                    if (std::find(seen.begin(), seen.end(), field.field) != seen.end())
-                        return false;
-                    seen.push_back(field.field);
-                    const auto field_definition = std::find_if(
-                        definition->fields.begin(), definition->fields.end(),
-                        [&](const auto& candidate) { return candidate.id == field.field; });
-                    if (field_definition == definition->fields.end() ||
-                        !core::layout_contract_value_matches(field_definition->shape, field.value))
-                        return false;
-                }
-                for (const auto& field : definition->fields) {
-                    if (field.required &&
-                        std::find(seen.begin(), seen.end(), field.id) == seen.end())
-                        return false;
-                }
-                return true;
-            } else {
+    if (const auto* value = std::get_if<core::CommitLayoutStateInput>(&input)) {
+        const auto found = find_mount(value->owner, value->key, value->occurrence);
+        if (found == m_focused_committed_mounts.end() || !found->second.state_shape ||
+            !found->second.semantic_key ||
+            !core::persistable_value_matches(*found->second.state_shape, value->value))
+            return false;
+        const auto state_key = focused_state_slot_key(*found->second.semantic_key);
+        auto slot = m_focused_preview_state.find(state_key);
+        if (slot == m_focused_preview_state.end() ||
+            slot->second.shape != *found->second.state_shape)
+            return false;
+        const auto slot_value =
+            std::find_if(slot->second.values.begin(), slot->second.values.end(),
+                         [&](const auto& candidate) { return candidate.scope == value->scope; });
+        const auto mount_value =
+            std::find_if(found->second.state_values.begin(), found->second.state_values.end(),
+                         [&](const auto& candidate) { return candidate.scope == value->scope; });
+        if (slot_value == slot->second.values.end() ||
+            mount_value == found->second.state_values.end())
+            return false;
+        slot_value->value = value->value;
+        mount_value->value = value->value;
+        return m_backend.set_mount_context(found->first, found->second);
+    }
+
+    if (const auto* value = std::get_if<core::ClearLayoutStateInput>(&input)) {
+        const auto found = find_mount(value->owner, value->key, value->occurrence);
+        if (found == m_focused_committed_mounts.end() || !found->second.state_shape ||
+            !found->second.semantic_key)
+            return false;
+        const auto state_key = focused_state_slot_key(*found->second.semantic_key);
+        auto slot = m_focused_preview_state.find(state_key);
+        if (slot == m_focused_preview_state.end() ||
+            slot->second.shape != *found->second.state_shape)
+            return false;
+        const auto slot_value =
+            std::find_if(slot->second.values.begin(), slot->second.values.end(),
+                         [&](const auto& candidate) { return candidate.scope == value->scope; });
+        const auto mount_value =
+            std::find_if(found->second.state_values.begin(), found->second.state_values.end(),
+                         [&](const auto& candidate) { return candidate.scope == value->scope; });
+        if (slot_value == slot->second.values.end() ||
+            mount_value == found->second.state_values.end())
+            return false;
+        slot_value->value = found->second.state_shape->default_value;
+        mount_value->value = found->second.state_shape->default_value;
+        return m_backend.set_mount_context(found->first, found->second);
+    }
+
+    if (const auto* value = std::get_if<core::LayoutSignalInput>(&input)) {
+        const auto found = find_mount(value->owner, value->key, value->occurrence);
+        if (found == m_focused_committed_mounts.end() ||
+            std::find(found->second.connected_signals.begin(),
+                      found->second.connected_signals.end(),
+                      value->signal) == found->second.connected_signals.end())
+            return false;
+        const auto contract = m_focused_committed_contracts.find(found->first);
+        if (contract == m_focused_committed_contracts.end())
+            return false;
+        const auto definition =
+            std::find_if(contract->second.signals.begin(), contract->second.signals.end(),
+                         [&](const auto& candidate) { return candidate.id == value->signal; });
+        if (definition == contract->second.signals.end())
+            return false;
+        std::vector<core::LayoutSignalFieldId> seen;
+        seen.reserve(value->fields.size());
+        for (const auto& field : value->fields) {
+            if (std::find(seen.begin(), seen.end(), field.field) != seen.end())
                 return false;
-            }
-        },
-        input);
+            seen.push_back(field.field);
+            const auto field_definition =
+                std::find_if(definition->fields.begin(), definition->fields.end(),
+                             [&](const auto& candidate) { return candidate.id == field.field; });
+            if (field_definition == definition->fields.end() ||
+                !core::layout_contract_value_matches(field_definition->shape, field.value))
+                return false;
+        }
+        for (const auto& field : definition->fields) {
+            if (field.required && std::find(seen.begin(), seen.end(), field.id) == seen.end())
+                return false;
+        }
+        return true;
+    }
+
+    return false;
 }
 
 core::Result<void, core::Diagnostics>
