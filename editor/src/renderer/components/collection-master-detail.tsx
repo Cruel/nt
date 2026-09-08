@@ -117,9 +117,7 @@ function SelectableItemList<T>({
       aria-label={ariaLabel}
       className="overflow-hidden rounded-md border bg-muted/10"
     >
-      {footer ? (
-        <div className={cn(items.length > 0 && 'border-b')}>{footer}</div>
-      ) : null}
+      {footer ? <div className={cn(items.length > 0 && 'border-b')}>{footer}</div> : null}
       {items.map((item, index) => {
         const key = getKey(item, index);
         const selected = key === selectedKey;
@@ -234,12 +232,14 @@ export function CollectionMasterDetail<T>({
   useEffect(() => {
     const previousItemCount = previousItemCountRef.current;
     previousItemCountRef.current = items.length;
-    if (items.length <= previousItemCount || !selectedItem) return;
+    if (items.length <= previousItemCount || selectedIndex < 0) return;
 
     let innerFrame = 0;
     const outerFrame = window.requestAnimationFrame(() => {
       innerFrame = window.requestAnimationFrame(() => {
-        const detail = sectionRef.current?.querySelector<HTMLElement>('[data-master-detail-detail]');
+        const detail = sectionRef.current?.querySelector<HTMLElement>(
+          '[data-master-detail-detail]',
+        );
         if (!detail) return;
 
         let scrollContainer = detail.parentElement;

@@ -47,15 +47,14 @@ describe('collection master-detail', () => {
       scrollHeight: { configurable: true, value: 300 },
       clientHeight: { configurable: true, value: 100 },
     });
-    scrollContainer.getBoundingClientRect = () =>
-      ({ top: 0, bottom: 100, height: 100 } as DOMRect);
+    scrollContainer.getBoundingClientRect = () => ({ top: 0, bottom: 100, height: 100 }) as DOMRect;
 
     rerender(renderCollection([items[0]], 'first'));
     rerender(renderCollection([{ ...items[0] }], 'first'));
     const detail = scrollContainer.querySelector<HTMLElement>('[data-master-detail-detail]');
     expect(detail).not.toBeNull();
     if (!detail) return;
-    detail.getBoundingClientRect = () => ({ top: 80, bottom: 150, height: 70 } as DOMRect);
+    detail.getBoundingClientRect = () => ({ top: 80, bottom: 150, height: 70 }) as DOMRect;
 
     await waitFor(() => expect(scrollContainer.scrollTop).toBe(50));
   });
