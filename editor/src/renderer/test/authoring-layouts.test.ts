@@ -21,10 +21,8 @@ describe('authoring layouts schema', () => {
     const defaults = defaultLayoutData('Main UI');
     expect(defaults.preview).toEqual({ background: 'dark' });
     expect(defaults.contract).toEqual({ inputs: {}, signals: {} });
-    expect(defaults.rcss.sourceText).toContain('body {\n  pointer-events: none;\n}');
-    expect(defaults.rcss.sourceText).toContain(
-      '.noveltea-layout-preview {\n  pointer-events: auto;',
-    );
+    expect(defaults.rcss.sourceText).not.toContain('pointer-events');
+    expect(defaults.rcss.sourceText).toContain('.noveltea-layout-preview {\n  margin: 48px;');
     const documentDefaults = defaultLayoutData('Main UI', 'document');
     expect(documentDefaults.rml.sourceText).toContain(
       'onshow="layout_preview.on_show(event, element, document)"',

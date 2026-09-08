@@ -3,11 +3,16 @@
  * Engine-specific baseline changes belong here, never in rmlui-html4.rcss.
  */
 
+body > * {
+  pointer-events: auto;
+}
+
 body {
   width: 100%;
   height: 100%;
   color: #f8fafc;
   font-family: Liberation Sans;
+  pointer-events: none;
 }
 
 button {

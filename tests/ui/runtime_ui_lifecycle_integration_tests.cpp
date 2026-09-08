@@ -70,6 +70,9 @@ constexpr const char* kBaselineDocument = R"(
   <body id="baseline-body">
     <p id="baseline-paragraph">Baseline paragraph</p>
     <button id="baseline-button">Baseline button</button>
+    <div id="baseline-disabled" style="pointer-events: none;">
+      <span id="baseline-disabled-child">Disabled child</span>
+    </div>
   </body>
 </rml>
 )";
@@ -3198,11 +3201,20 @@ TEST_CASE("RuntimeUI applies universal RmlUi baselines below path and memory doc
     auto* paragraph = driver->element("baseline-path", "baseline-paragraph");
     auto* body = driver->element("baseline-path", "baseline-body");
     auto* button = driver->element("baseline-path", "baseline-button");
+    auto* disabled = driver->element("baseline-path", "baseline-disabled");
+    auto* disabled_child = driver->element("baseline-path", "baseline-disabled-child");
     REQUIRE(paragraph);
     REQUIRE(body);
     REQUIRE(button);
+    REQUIRE(disabled);
+    REQUIRE(disabled_child);
     CHECK(paragraph->GetComputedValues().display() == Rml::Style::Display::Block);
     CHECK(body->GetComputedValues().color() == Rml::Colourb(248, 250, 252, 255));
+    CHECK(body->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::None);
+    CHECK(paragraph->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::Auto);
+    CHECK(button->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::Auto);
+    CHECK(disabled->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::None);
+    CHECK(disabled_child->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::None);
     CHECK(button->GetComputedValues().background_color() == Rml::Colourb(51, 65, 85, 255));
 
     auto* override_paragraph = driver->element("baseline-memory", "override-paragraph");

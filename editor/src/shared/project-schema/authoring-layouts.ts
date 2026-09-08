@@ -379,12 +379,7 @@ const DEFAULT_RML_FRAGMENT_SOURCE = String.raw`<div class="noveltea-layout-previ
 </div>
 `;
 
-const DEFAULT_RCSS_SOURCE = String.raw`body {
-  pointer-events: none;
-}
-
-.noveltea-layout-preview {
-  pointer-events: auto;
+const DEFAULT_RCSS_SOURCE = String.raw`.noveltea-layout-preview {
   margin: 48px;
   padding: 24px;
   background-color: rgba(15, 23, 42, 214);
