@@ -794,8 +794,9 @@
       "inherited": "herdado",
       "noneAttached": "Nenhuma Trait anexada.",
       "selectLabel": "Trait a anexar",
-      "choose": "Escolher Trait",
-      "attach": "Anexar Trait"
+      "choose": "Selecionar uma Trait",
+      "attach": "Anexar Trait",
+      "attachButton": "Anexar"
     },
     "types": {
       "boolean": "Booleano",
@@ -806,7 +807,7 @@
     },
     "values": {
       "conflictingDefaults": "Defaults conflitantes",
-      "missing": "Ausente",
+      "missing": "Valor obrigatório ausente",
       "null": "null",
       "nullLabel": "Nulo",
       "emptyString": "Texto vazio"

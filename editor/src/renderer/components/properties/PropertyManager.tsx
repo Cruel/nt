@@ -178,29 +178,28 @@ export function PropertyManager(props: PropertyManagerProps) {
       ? (props.createSubmitLabel ?? props.addLabel ?? t('propertyManager.addProperty'))
       : t('propertyManager.saveChanges');
 
+  const addButton = props.onCreate ? (
+    <Button size="sm" variant="outline" onClick={openCreate}>
+      <Plus className="size-4" /> {props.addLabel ?? t('propertyManager.addProperty')}
+    </Button>
+  ) : null;
+
   return (
     <section
-      className={`space-y-3 rounded-md border ${props.compact ? 'p-2' : 'p-3'} ${props.className ?? ''}`}
+      className={`space-y-3 ${props.className ?? ''}`}
       data-workbench-anchor={props.anchor}
       data-property-manager-mode={props.modeMarker}
     >
-      {props.title || props.description || props.onCreate ? (
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            {props.title ? (
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold">{props.title}</h3>
-                {props.count ? <Badge variant="outline">{props.rows.length}</Badge> : null}
-              </div>
-            ) : null}
-            {props.description ? (
-              <p className="text-xs text-muted-foreground">{props.description}</p>
-            ) : null}
-          </div>
-          {props.onCreate ? (
-            <Button size="sm" variant={props.compact ? 'outline' : 'default'} onClick={openCreate}>
-              <Plus className="size-4" /> {props.addLabel ?? t('propertyManager.addProperty')}
-            </Button>
+      {props.title || props.description ? (
+        <div>
+          {props.title ? (
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold">{props.title}</h3>
+              {props.count ? <Badge variant="outline">{props.rows.length}</Badge> : null}
+            </div>
+          ) : null}
+          {props.description ? (
+            <p className="text-xs text-muted-foreground">{props.description}</p>
           ) : null}
         </div>
       ) : null}
@@ -224,6 +223,7 @@ export function PropertyManager(props: PropertyManagerProps) {
         propertyColumnLabel={props.propertyColumnLabel}
         valueColumnLabel={props.valueLabel}
         emptyLabel={props.emptyLabel}
+        emptyAction={props.rows.length === 0 ? addButton : undefined}
         onEdit={openRow}
         onReset={(row) => perform(() => props.onReset?.(row))}
         onDelete={openDelete}
@@ -235,6 +235,10 @@ export function PropertyManager(props: PropertyManagerProps) {
         onShowUsages={props.onShowUsages}
         rowAnchor={props.rowAnchor}
       />
+
+      {props.rows.length > 0 && addButton ? (
+        <div className="flex justify-center">{addButton}</div>
+      ) : null}
 
       {message && !editing ? <p className="text-xs text-destructive">{message}</p> : null}
 

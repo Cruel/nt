@@ -28,6 +28,17 @@ function ownershipFor(document: JsonValue, scriptSourcePaths: Readonly<Record<st
     : {};
 }
 
+function canonicalMutationPaths(paths: readonly string[]): JsonPointer[] {
+  const roots: JsonPointer[] = [];
+  for (const path of [...new Set(paths)].sort(
+    (left, right) => left.length - right.length || left.localeCompare(right),
+  )) {
+    if (roots.some((root) => root === path || path.startsWith(`${root}/`))) continue;
+    roots.push(path as JsonPointer);
+  }
+  return roots;
+}
+
 function changedProjectionFilesForPaths(input: {
   baselineDocument: JsonValue;
   candidateDocument: JsonValue;
@@ -39,8 +50,8 @@ function changedProjectionFilesForPaths(input: {
   const baseline = stripLocalEditorProjectState(input.baselineDocument) as JsonValue;
   const candidate = stripLocalEditorProjectState(input.candidateDocument) as JsonValue;
   const scopedValues = Object.fromEntries(
-    input.paths.flatMap((path) => {
-      const pointer = path as JsonPointer;
+    canonicalMutationPaths(input.paths).flatMap((pointer) => {
+      const path = pointer;
       const before = mutationValue(baseline, pointer);
       const after = mutationValue(candidate, pointer);
       const unchanged = before.exists

@@ -275,6 +275,26 @@ describe('RoomEditor', () => {
     expect(screen.getByText('Placements')).toBeInTheDocument();
   });
 
+  it('selects the Properties category for Room Property targets', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    act(() => {
+      invokeWorkbenchTargetHandler(tab.id, {
+        id: 'room.properties',
+        requestId: 2,
+      });
+    });
+
+    const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
+    expect(within(navigation).getByRole('button', { name: 'Properties' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
   it('reveals a hidden Instance Property target by selecting its placement first', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');

@@ -337,6 +337,9 @@ export function resolveProjectDiagnosticTarget(
       if (rowId)
         return rowTarget(tab, `room.hotspot.${rowId}`, { kind: 'room-hotspot', index, rowId });
     }
+    if (scope === 'traits' || scope === 'localProperties') {
+      return target(tab, 'room.properties');
+    }
     const anchor =
       scope === 'data'
         ? field === 'description'

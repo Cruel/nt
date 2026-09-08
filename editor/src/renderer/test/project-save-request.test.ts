@@ -54,6 +54,33 @@ describe('project save request ownership hints', () => {
     ).toEqual(['editor.json', 'project.json', 'records/rooms/foyer.json']);
   });
 
+  it('canonicalizes overlapping Trait metadata recovery paths', () => {
+    const baseline = createAuthoringProject();
+    const candidate = structuredClone(baseline);
+    candidate.traits.inspectable = {
+      id: 'inspectable',
+      label: 'Inspectable',
+      ownerKinds: ['room'],
+      properties: [],
+    };
+    candidate.editor.recordMetadata.traits = {
+      inspectable: { tags: [], color: '#64748b' },
+    };
+
+    expect(
+      buildRecoveryFileOwnershipHints({
+        recovery: recoveryFor('collection:traits', [
+          '/traits',
+          '/editor/recordMetadata/traits',
+          '/traits/inspectable',
+          '/editor/recordMetadata/traits/inspectable',
+        ]),
+        baselineDocument: toJsonValue(baseline),
+        candidateDocument: toJsonValue(candidate),
+      })['collection:traits'],
+    ).toEqual(['editor.json', 'traits.json']);
+  });
+
   it('uses traits.json for the Traits collection save unit', () => {
     const baseline = createAuthoringProject();
     const candidate = structuredClone(baseline);

@@ -20,4 +20,18 @@ describe('json patch helpers', () => {
     expect(applied.document).toEqual({ room: { foyer: ['foyer'] } });
     expect(applyJsonPatch(applied.document, applied.inversePatches).document).toEqual({ room: {} });
   });
+
+  it('rejects adding an object key that already exists even when the value matches', () => {
+    expect(() =>
+      applyJsonPatch({ editor: { recordMetadata: { traits: { inspectable: { tags: [] } } } } }, [
+        {
+          op: 'add',
+          path: '/editor/recordMetadata/traits/inspectable',
+          value: { tags: [] },
+        },
+      ]),
+    ).toThrow(
+      'Object key already exists for add operation: /editor/recordMetadata/traits/inspectable',
+    );
+  });
 });

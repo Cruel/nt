@@ -157,7 +157,6 @@ export function InteractableInstancePropertiesEditor({
           })),
           appearance: row.localOnly ? 'local-only' : 'normal',
           editMode: row.localOnly ? 'schema' : 'value',
-          actionLabel: row.localOnly ? undefined : 'Set Value',
           resettable: hasOverride,
           deletable: row.localOnly,
         };
@@ -371,7 +370,6 @@ export function InteractableInstanceFeatureOverridesEditor({
         })),
         appearance: 'normal',
         editMode: 'value',
-        actionLabel: 'Set Value',
         resettable: row.overridden,
         deletable: false,
       })),
