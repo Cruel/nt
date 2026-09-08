@@ -754,8 +754,9 @@
       "inherited": "inherited",
       "noneAttached": "No Traits attached.",
       "selectLabel": "Trait to attach",
-      "choose": "Choose Trait",
-      "attach": "Attach Trait"
+      "choose": "Select a Trait",
+      "attach": "Attach Trait",
+      "attachButton": "Attach"
     },
     "types": {
       "boolean": "Boolean",
@@ -766,7 +767,7 @@
     },
     "values": {
       "conflictingDefaults": "Conflicting Defaults",
-      "missing": "Missing",
+      "missing": "Required value missing",
       "null": "null",
       "nullLabel": "Null",
       "emptyString": "Empty string"

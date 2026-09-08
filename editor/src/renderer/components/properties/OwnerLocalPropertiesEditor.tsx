@@ -84,6 +84,7 @@ export function OwnerLocalPropertiesEditor({
   inheritedProperties = [],
   traitColorFor,
   onTraitStateChange,
+  anchor = 'properties.local',
 }: {
   ownerLabel: string;
   properties: readonly OwnerLocalProperty[];
@@ -100,6 +101,7 @@ export function OwnerLocalPropertiesEditor({
   inheritedProperties?: readonly InheritedDefaultProperty[];
   traitColorFor?: (traitId: string) => string | null;
   onTraitStateChange?: (state: OwnerPropertyTraitState) => void;
+  anchor?: string;
 }) {
   const sourcesByProperty = useMemo(
     () => traitSources(traits, attachedTraits),
@@ -168,7 +170,6 @@ export function OwnerLocalPropertiesEditor({
           color: traitColorFor?.(source.traitId) ?? null,
         })),
         editMode: 'value' as const,
-        actionLabel: 'Set Value',
         resettable: !!local,
       };
     });
@@ -280,11 +281,9 @@ export function OwnerLocalPropertiesEditor({
 
   return (
     <PropertyManager
-      title="Properties"
-      description={`Typed state local to ${ownerLabel}, including contracts supplied by attached Traits.`}
       valueLabel="Value"
       rows={rows}
-      emptyLabel="No local, inherited, or Trait Properties."
+      emptyLabel="No Properties defined."
       addLabel="Add Property"
       createTitle="Add Property"
       editDescription={(row) =>
@@ -337,7 +336,7 @@ export function OwnerLocalPropertiesEditor({
             }
           : undefined
       }
-      anchor="properties.local"
+      anchor={anchor}
       modeMarker="value"
     />
   );

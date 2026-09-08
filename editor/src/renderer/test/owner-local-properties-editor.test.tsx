@@ -62,6 +62,42 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
     expect(onShowUsages).toHaveBeenCalledWith('mood');
   });
 
+  it('shows required Trait values as errors without a redundant Set Value action', async () => {
+    const user = userEvent.setup();
+    const required: TraitDefinition = {
+      id: 'required',
+      label: 'Required',
+      ownerKinds: ['room'],
+      properties: [
+        {
+          id: 'clue',
+          label: 'Clue',
+          type: 'string',
+          nullable: false,
+        },
+      ],
+    };
+
+    render(
+      <OwnerLocalPropertiesEditor
+        ownerLabel="Room"
+        properties={[]}
+        onChange={vi.fn()}
+        traits={{ required }}
+        ownerKind="room"
+        attachedTraits={['required']}
+        onTraitStateChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Set Value' })).not.toBeInTheDocument();
+    const missing = screen.getByText('Required value missing');
+    expect(missing.closest('td')).toHaveAttribute('aria-invalid', 'true');
+
+    await user.click(screen.getByText('Clue'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('preserves an explicit local override as a standalone Property on last-source detach', async () => {
     const user = userEvent.setup();
     const onTraitStateChange = vi.fn();
@@ -137,7 +173,7 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
     );
 
     expect(screen.getByText('"local"')).toBeInTheDocument();
-    expect(screen.getByText('override')).toBeInTheDocument();
+    expect(screen.queryByText('override')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Reset mood' }));
     expect(onTraitStateChange).toHaveBeenCalledWith({
       traits: [],

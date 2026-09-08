@@ -211,6 +211,17 @@ describe('diagnostic navigation', () => {
     );
   });
 
+  it('routes Room Trait and local Property diagnostics to the Properties editor', () => {
+    const project = projectWithRecords();
+
+    expect(resolveProjectDiagnosticTarget(project, '/rooms/foyer/traits')?.target?.id).toBe(
+      'room.properties',
+    );
+    expect(
+      resolveProjectDiagnosticTarget(project, '/rooms/foyer/localProperties/0/value')?.target?.id,
+    ).toBe('room.properties');
+  });
+
   it('resolves a room-placed Instance Property diagnostic to the exact hidden Property row', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');

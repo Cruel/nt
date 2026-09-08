@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
   isAuthoringProject,
   type AuthoringProject,
@@ -440,7 +441,7 @@ function TraitMetadataFields({
   );
 }
 
-export function TraitsEditor({ tab: _tab }: WorkbenchEditorProps) {
+export function TraitsEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -457,6 +458,18 @@ export function TraitsEditor({ tab: _tab }: WorkbenchEditorProps) {
           )
         : [],
     [project],
+  );
+
+  useEffect(
+    () =>
+      registerWorkbenchTargetHandler(tab.id, 'traits.create', () => {
+        if (!project) return false;
+        setMetadataId('');
+        setMetadataDraft(newTraitDraft(project));
+        setMessage(null);
+        return true;
+      }),
+    [project, tab.id],
   );
 
   if (!project)
@@ -633,7 +646,11 @@ export function TraitsEditor({ tab: _tab }: WorkbenchEditorProps) {
             canMoveDown: index < trait.properties.length - 1,
           }));
           return (
-            <section key={traitId} className="rounded-lg border bg-card/20 p-3">
+            <section
+              key={traitId}
+              className="rounded-lg border bg-card/20 p-3"
+              data-workbench-anchor={`trait.${traitId}`}
+            >
               <div className="flex items-start justify-between gap-3">
                 <Button
                   variant="ghost"

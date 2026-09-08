@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   Braces,
+  CircleAlert,
   Hash,
   List,
   RotateCcw,
@@ -12,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTranslation } from 'react-i18next';
+import type { ReactNode } from 'react';
 import type { AuthoredRuntimeValue } from '../../../shared/project-schema/authoring-properties';
 import type { VariableType } from '../../../shared/project-schema/authoring-variables';
 
@@ -70,6 +72,7 @@ export function PropertyTable({
   propertyColumnLabel,
   valueColumnLabel,
   emptyLabel,
+  emptyAction,
   onEdit,
   onReset,
   onDelete,
@@ -81,6 +84,7 @@ export function PropertyTable({
   propertyColumnLabel?: string;
   valueColumnLabel: string;
   emptyLabel: string;
+  emptyAction?: ReactNode;
   onEdit: (row: PropertyManagerRow) => void;
   onReset: (row: PropertyManagerRow) => void;
   onDelete: (row: PropertyManagerRow) => void;
@@ -100,6 +104,19 @@ export function PropertyTable({
     return String(row.value);
   };
   const typeLabel = (type: VariableType) => t(`propertyManager.types.${type}`);
+  const propertyColumnWidthCh = Math.min(
+    32,
+    Math.max(
+      12,
+      resolvedPropertyColumnLabel.length,
+      ...rows.map((row) => Math.max((row.label || row.id).length, row.id.length)),
+    ),
+  );
+  const propertyColumnStyle = {
+    width: `${propertyColumnWidthCh}ch`,
+    minWidth: `${propertyColumnWidthCh}ch`,
+    maxWidth: `${propertyColumnWidthCh}ch`,
+  };
 
   return (
     <div className="overflow-hidden rounded border">
@@ -109,7 +126,9 @@ export function PropertyTable({
             <th className="w-px whitespace-nowrap px-3 py-2 text-center">
               {t('propertyManager.table.use')}
             </th>
-            <th className="whitespace-nowrap px-3 py-2">{resolvedPropertyColumnLabel}</th>
+            <th className="whitespace-nowrap px-3 py-2" style={propertyColumnStyle}>
+              {resolvedPropertyColumnLabel}
+            </th>
             <th className="w-px whitespace-nowrap px-2 py-2 text-center">
               {t('propertyManager.table.type')}
             </th>
@@ -123,8 +142,9 @@ export function PropertyTable({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
-                {emptyLabel}
+              <td colSpan={6} className="px-8 py-4 text-center text-sm text-muted-foreground">
+                <div>{emptyLabel}</div>
+                {emptyAction ? <div className="mt-2 flex justify-center">{emptyAction}</div> : null}
               </td>
             </tr>
           ) : null}
@@ -138,10 +158,12 @@ export function PropertyTable({
                 })
               : undefined;
             const editable = row.editMode !== null && row.editMode !== undefined;
+            const valueError = row.valueState === 'missing' || row.valueState === 'conflict';
+            const overridden = row.sourceLabel === 'override';
             return (
               <tr
                 key={row.id}
-                className={`group/row border-t align-middle ${editable ? 'cursor-pointer hover:bg-muted/30' : ''} ${row.appearance === 'local-only' ? 'bg-muted/15' : ''}`}
+                className={`group/row border-t bg-background align-middle ${editable ? 'cursor-pointer hover:bg-muted/30' : ''} ${row.appearance === 'local-only' ? 'bg-muted/15' : ''} ${valueError ? 'bg-destructive/5' : ''}`}
                 data-workbench-anchor={rowAnchor?.(row)}
                 onClick={() => editable && onEdit(row)}
               >
@@ -180,7 +202,10 @@ export function PropertyTable({
                     </span>
                   )}
                 </td>
-                <td className="max-w-64 whitespace-nowrap px-3 py-2">
+                <td
+                  className="overflow-hidden whitespace-nowrap px-3 py-2"
+                  style={propertyColumnStyle}
+                >
                   <div className="min-w-0">
                     <div className="truncate font-medium">{displayLabel}</div>
                     {displayLabel !== row.id ? (
@@ -209,24 +234,35 @@ export function PropertyTable({
                   </TooltipProvider>
                 </td>
                 <td
-                  className="max-w-64 truncate whitespace-nowrap px-3 py-2 font-mono text-xs"
+                  className="max-w-64 px-3 py-2 font-mono text-xs"
                   title={formatValue(row)}
+                  aria-invalid={valueError || undefined}
                 >
-                  {formatValue(row)}
-                  {row.sourceLabel ? (
-                    <span className="ml-2 font-sans text-muted-foreground">{row.sourceLabel}</span>
-                  ) : null}
+                  <div
+                    className={`flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap ${valueError ? 'font-medium text-destructive' : overridden ? 'font-semibold' : ''}`}
+                  >
+                    {valueError ? <CircleAlert className="size-3.5 shrink-0" /> : null}
+                    <span className="min-w-0 truncate">{formatValue(row)}</span>
+                    {row.sourceLabel && !overridden ? (
+                      <span
+                        className={`shrink-0 font-sans ${valueError ? 'text-destructive/80' : 'text-muted-foreground'}`}
+                      >
+                        {row.sourceLabel}
+                      </span>
+                    ) : null}
+                  </div>
                 </td>
-                <td className="truncate px-3 py-2 text-muted-foreground" title={row.description}>
-                  {row.description || '—'}
+                <td className="max-w-80 px-3 py-2 text-muted-foreground" title={row.description}>
+                  <div className="min-w-0 truncate whitespace-nowrap">{row.description || '—'}</div>
                 </td>
-                <td className="sticky right-0 w-px whitespace-nowrap bg-background/90 px-1 py-1 text-right">
-                  <div className="flex justify-end gap-0.5">
+                <td className="w-px whitespace-nowrap p-0 text-right">
+                  <div className="flex h-full items-stretch justify-end">
                     {onMove && (row.canMoveUp !== undefined || row.canMoveDown !== undefined) ? (
                       <>
                         <Button
                           size="icon-xs"
                           variant="ghost"
+                          className="h-auto min-h-10 w-9 rounded-none"
                           disabled={!row.canMoveUp}
                           aria-label={t('propertyManager.actions.moveUp', { id: row.id })}
                           onClick={(event) => {
@@ -239,6 +275,7 @@ export function PropertyTable({
                         <Button
                           size="icon-xs"
                           variant="ghost"
+                          className="h-auto min-h-10 w-9 rounded-none"
                           disabled={!row.canMoveDown}
                           aria-label={t('propertyManager.actions.moveDown', { id: row.id })}
                           onClick={(event) => {
@@ -254,6 +291,7 @@ export function PropertyTable({
                       <Button
                         size="icon-sm"
                         variant="ghost"
+                        className="h-auto min-h-10 w-9 rounded-none"
                         aria-label={t('propertyManager.actions.reset', { id: row.id })}
                         onClick={(event) => {
                           event.stopPropagation();
@@ -267,6 +305,7 @@ export function PropertyTable({
                       <Button
                         size="sm"
                         variant="ghost"
+                        className="h-auto min-h-10 rounded-none px-3"
                         onClick={(event) => {
                           event.stopPropagation();
                           onEdit(row);
@@ -279,7 +318,7 @@ export function PropertyTable({
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        className="text-destructive"
+                        className="h-auto min-h-10 w-9 rounded-none text-destructive"
                         aria-label={t('propertyManager.actions.delete', { label: displayLabel })}
                         onClick={(event) => {
                           event.stopPropagation();

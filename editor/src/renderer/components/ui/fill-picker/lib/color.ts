@@ -426,6 +426,14 @@ function compositeOnBg(fg: OklchColor, bg: OklchColor): OklchColor {
   };
 }
 
+export function contrastingTextColor(background: string): '#111111' | '#ffffff' | null {
+  const bg = parseColor(background);
+  const dark = parseColor('#111111');
+  const light = parseColor('#ffffff');
+  if (!bg || !dark || !light) return null;
+  return contrast(dark, bg).wcag >= contrast(light, bg).wcag ? '#111111' : '#ffffff';
+}
+
 export function contrast(fg: OklchColor, bg: OklchColor): ContrastResult {
   const composedFg = compositeOnBg(fg, { ...bg, alpha: 1 });
   const fgC = toRgb({ mode: 'oklch', ...oklchObj(composedFg) });

@@ -91,7 +91,7 @@ describe('Interactable Property editors', () => {
     );
 
     expect(screen.getByText('"instance"')).toBeInTheDocument();
-    expect(screen.getByText('override')).toBeInTheDocument();
+    expect(screen.queryByText('override')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Reset quality' }));
 
     expect(onChange).toHaveBeenCalledWith({
