@@ -308,7 +308,10 @@ std::optional<PersistableValue> preview_persistable_value(const nlohmann::json& 
         PersistableValue::Array array;
         array.reserve(value.size());
         for (std::size_t index = 0; index < value.size(); ++index) {
-            auto item = preview_persistable_value(value[index], diagnostics,
+            const auto* element = json_access::element(value, index);
+            if (element == nullptr)
+                return std::nullopt;
+            auto item = preview_persistable_value(*element, diagnostics,
                                                   std::string(path) + "/" + std::to_string(index),
                                                   limits, depth + 1);
             if (!item)
@@ -351,16 +354,16 @@ preview_layout_contract_value_type(const nlohmann::json& value, Diagnostics& dia
                                     std::string(path)));
         return std::nullopt;
     }
-    const auto type = value.get<std::string>();
-    if (type.size() > limits.max_string_bytes || !valid_utf8(type))
+    const auto type = json_access::get<std::string_view>(value);
+    if (!type || type->size() > limits.max_string_bytes || !valid_utf8(*type))
         return std::nullopt;
-    if (type == "boolean")
+    if (*type == "boolean")
         return LayoutContractValueType::Boolean;
-    if (type == "integer")
+    if (*type == "integer")
         return LayoutContractValueType::Integer;
-    if (type == "number")
+    if (*type == "number")
         return LayoutContractValueType::Number;
-    if (type == "string")
+    if (*type == "string")
         return LayoutContractValueType::String;
     diagnostics.push_back(error("editor_preview.invalid_layout_contract_type",
                                 "Layout contract value type is unsupported.", std::string(path)));
@@ -377,10 +380,10 @@ std::optional<Id> preview_layout_contract_id(const nlohmann::json& value, Diagno
                                     "Layout contract ID must be a string.", std::string(path)));
         return std::nullopt;
     }
-    auto text = value.get<std::string>();
-    if (text.size() > limits.max_string_bytes || !valid_utf8(text))
+    auto text = json_access::get<std::string>(value);
+    if (!text || text->size() > limits.max_string_bytes || !valid_utf8(*text))
         return std::nullopt;
-    auto id = Id::create(std::move(text));
+    auto id = Id::create(std::move(*text));
     if (!id) {
         diagnostics.push_back(error(
             "editor_preview.invalid_layout_contract_id",
@@ -408,13 +411,13 @@ preview_layout_state_shape(const nlohmann::json& value, Diagnostics& diagnostics
                                     "Layout State Shape must be an object.", std::string(path)));
         return std::nullopt;
     }
-    const auto type_it = value.find("type");
-    const auto nullable_it = value.find("nullable");
-    const auto has_default_it = value.find("hasDefault");
-    const auto default_it = value.find("defaultValue");
-    if (type_it == value.end() || nullable_it == value.end() || has_default_it == value.end() ||
-        default_it == value.end() || !type_it->is_string() || !nullable_it->is_boolean() ||
-        !has_default_it->is_boolean()) {
+    const auto* type_value = json_access::member(value, "type");
+    const auto* nullable_value = json_access::member(value, "nullable");
+    const auto* has_default_value = json_access::member(value, "hasDefault");
+    const auto* default_value = json_access::member(value, "defaultValue");
+    if (type_value == nullptr || nullable_value == nullptr || has_default_value == nullptr ||
+        default_value == nullptr || !type_value->is_string() || !nullable_value->is_boolean() ||
+        !has_default_value->is_boolean()) {
         diagnostics.push_back(error("editor_preview.layout_state_shape_required",
                                     "Layout State Shape requires type, nullable, hasDefault, and "
                                     "defaultValue.",
@@ -423,7 +426,7 @@ preview_layout_state_shape(const nlohmann::json& value, Diagnostics& diagnostics
     }
 
     LayoutStateShape shape;
-    const auto type = type_it->get<std::string>();
+    const auto type = *json_access::get<std::string_view>(*type_value);
     if (type == "boolean")
         shape.type = LayoutStateShapeType::Boolean;
     else if (type == "integer")
@@ -442,15 +445,15 @@ preview_layout_state_shape(const nlohmann::json& value, Diagnostics& diagnostics
                                     std::string(path) + "/type"));
         return std::nullopt;
     }
-    shape.nullable = nullable_it->get<bool>();
-    const bool has_default = has_default_it->get<bool>();
+    shape.nullable = *json_access::get<bool>(*nullable_value);
+    const bool has_default = *json_access::get<bool>(*has_default_value);
     if (has_default) {
         auto decoded = preview_persistable_value(
-            *default_it, diagnostics, std::string(path) + "/defaultValue", limits, depth + 1);
+            *default_value, diagnostics, std::string(path) + "/defaultValue", limits, depth + 1);
         if (!decoded)
             return std::nullopt;
         shape.default_value = std::move(*decoded);
-    } else if (!default_it->is_null()) {
+    } else if (!default_value->is_null()) {
         diagnostics.push_back(error("editor_preview.layout_state_default_presence",
                                     "Layout State Shape without a default must encode defaultValue "
                                     "as null.",
@@ -461,8 +464,8 @@ preview_layout_state_shape(const nlohmann::json& value, Diagnostics& diagnostics
     if (shape.type == LayoutStateShapeType::Array) {
         exact_fields(value, {"defaultValue", "hasDefault", "items", "nullable", "type"},
                      diagnostics, path);
-        const auto items = value.find("items");
-        if (items == value.end()) {
+        const auto* items = json_access::member(value, "items");
+        if (items == nullptr) {
             diagnostics.push_back(error("editor_preview.missing_field",
                                         "Array Layout State Shape requires items.",
                                         std::string(path) + "/items"));
@@ -476,8 +479,8 @@ preview_layout_state_shape(const nlohmann::json& value, Diagnostics& diagnostics
     } else if (shape.type == LayoutStateShapeType::Object) {
         exact_fields(value, {"defaultValue", "fields", "hasDefault", "nullable", "type"},
                      diagnostics, path);
-        const auto fields = value.find("fields");
-        if (fields == value.end() || !fields->is_array()) {
+        const auto* fields = json_access::member(value, "fields");
+        if (fields == nullptr || !fields->is_array()) {
             diagnostics.push_back(error("editor_preview.wrong_type",
                                         "Object Layout State Shape fields must be an array.",
                                         std::string(path) + "/fields"));
@@ -485,7 +488,10 @@ preview_layout_state_shape(const nlohmann::json& value, Diagnostics& diagnostics
         }
         std::set<std::string> seen;
         for (std::size_t index = 0; index < fields->size(); ++index) {
-            const auto& field = (*fields)[index];
+            const auto* field_value = json_access::element(*fields, index);
+            if (field_value == nullptr)
+                return std::nullopt;
+            const auto& field = *field_value;
             const auto field_path = std::string(path) + "/fields/" + std::to_string(index);
             if (!field.is_object()) {
                 diagnostics.push_back(error("editor_preview.wrong_type",
@@ -493,29 +499,29 @@ preview_layout_state_shape(const nlohmann::json& value, Diagnostics& diagnostics
                 return std::nullopt;
             }
             exact_fields(field, {"id", "required", "shape"}, diagnostics, field_path);
-            const auto id_it = field.find("id");
-            const auto required_it = field.find("required");
-            const auto child_it = field.find("shape");
-            if (id_it == field.end() || !id_it->is_string() || required_it == field.end() ||
-                !required_it->is_boolean() || child_it == field.end()) {
+            const auto* id_value = json_access::member(field, "id");
+            const auto* required_value = json_access::member(field, "required");
+            const auto* child_value = json_access::member(field, "shape");
+            if (id_value == nullptr || !id_value->is_string() || required_value == nullptr ||
+                !required_value->is_boolean() || child_value == nullptr) {
                 diagnostics.push_back(error("editor_preview.layout_state_field_required",
                                             "Layout State field requires id, required, and shape.",
                                             field_path));
                 return std::nullopt;
             }
-            const auto id = id_it->get<std::string>();
+            const auto id = *json_access::get<std::string>(*id_value);
             if (!valid_strong_id(id, StrongIdSyntax::KebabOrSnakeCase) || !seen.insert(id).second) {
                 diagnostics.push_back(error("editor_preview.invalid_layout_contract_id",
                                             "Layout State field ID is invalid or duplicated.",
                                             field_path + "/id"));
                 return std::nullopt;
             }
-            auto child = preview_layout_state_shape(*child_it, diagnostics, field_path + "/shape",
-                                                    limits, depth + 1);
+            auto child = preview_layout_state_shape(*child_value, diagnostics,
+                                                    field_path + "/shape", limits, depth + 1);
             if (!child)
                 return std::nullopt;
-            shape.fields.push_back(
-                LayoutStateObjectField{id, required_it->get<bool>(), {std::move(*child)}});
+            shape.fields.push_back(LayoutStateObjectField{
+                id, *json_access::get<bool>(*required_value), {std::move(*child)}});
         }
     } else {
         exact_fields(value, {"defaultValue", "hasDefault", "nullable", "type"}, diagnostics, path);
@@ -542,11 +548,11 @@ std::optional<LayoutContract> preview_layout_contract(const nlohmann::json& valu
         return std::nullopt;
     }
     exact_fields(value, {"inputs", "signals", "state"}, diagnostics, path);
-    const auto inputs_it = value.find("inputs");
-    const auto signals_it = value.find("signals");
-    const auto state_it = value.find("state");
-    if (inputs_it == value.end() || !inputs_it->is_array() || signals_it == value.end() ||
-        !signals_it->is_array() || state_it == value.end()) {
+    const auto* inputs_value = json_access::member(value, "inputs");
+    const auto* signals_value = json_access::member(value, "signals");
+    const auto* state_value = json_access::member(value, "state");
+    if (inputs_value == nullptr || !inputs_value->is_array() || signals_value == nullptr ||
+        !signals_value->is_array() || state_value == nullptr) {
         diagnostics.push_back(error("editor_preview.layout_contract_required",
                                     "Layout preview contract requires inputs, signals, and state.",
                                     std::string(path)));
@@ -555,8 +561,11 @@ std::optional<LayoutContract> preview_layout_contract(const nlohmann::json& valu
 
     LayoutContract contract;
     std::set<std::string> input_ids;
-    for (std::size_t index = 0; index < inputs_it->size(); ++index) {
-        const auto& input = (*inputs_it)[index];
+    for (std::size_t index = 0; index < inputs_value->size(); ++index) {
+        const auto* input_value = json_access::element(*inputs_value, index);
+        if (input_value == nullptr)
+            return std::nullopt;
+        const auto& input = *input_value;
         const auto input_path = std::string(path) + "/inputs/" + std::to_string(index);
         if (!input.is_object()) {
             diagnostics.push_back(error("editor_preview.wrong_type",
@@ -565,19 +574,19 @@ std::optional<LayoutContract> preview_layout_contract(const nlohmann::json& valu
         }
         exact_fields(input, {"defaultValue", "hasDefault", "id", "nullable", "type"}, diagnostics,
                      input_path);
-        const auto id_it = input.find("id");
-        const auto type_it = input.find("type");
-        const auto nullable_it = input.find("nullable");
-        const auto has_default_it = input.find("hasDefault");
-        const auto default_it = input.find("defaultValue");
-        if (id_it == input.end() || type_it == input.end() || nullable_it == input.end() ||
-            !nullable_it->is_boolean() || has_default_it == input.end() ||
-            !has_default_it->is_boolean() || default_it == input.end())
+        const auto* id_value = json_access::member(input, "id");
+        const auto* type_value = json_access::member(input, "type");
+        const auto* nullable_value = json_access::member(input, "nullable");
+        const auto* has_default_value = json_access::member(input, "hasDefault");
+        const auto* default_value = json_access::member(input, "defaultValue");
+        if (id_value == nullptr || type_value == nullptr || nullable_value == nullptr ||
+            !nullable_value->is_boolean() || has_default_value == nullptr ||
+            !has_default_value->is_boolean() || default_value == nullptr)
             return std::nullopt;
-        auto id = preview_layout_contract_id<LayoutInputId>(*id_it, diagnostics, input_path + "/id",
-                                                            limits);
-        auto type =
-            preview_layout_contract_value_type(*type_it, diagnostics, input_path + "/type", limits);
+        auto id = preview_layout_contract_id<LayoutInputId>(*id_value, diagnostics,
+                                                            input_path + "/id", limits);
+        auto type = preview_layout_contract_value_type(*type_value, diagnostics,
+                                                       input_path + "/type", limits);
         if (!id || !type)
             return std::nullopt;
         if (!input_ids.insert(id->text()).second) {
@@ -585,19 +594,19 @@ std::optional<LayoutContract> preview_layout_contract(const nlohmann::json& valu
                                         "Layout input ID is duplicated.", input_path + "/id"));
             return std::nullopt;
         }
-        LayoutContractValueShape shape{*type, nullable_it->get<bool>()};
-        std::optional<RuntimeValue> default_value;
-        if (has_default_it->get<bool>()) {
-            default_value =
-                runtime_value(*default_it, diagnostics, input_path + "/defaultValue", limits);
-            if (!default_value || !layout_contract_value_matches(shape, *default_value)) {
+        LayoutContractValueShape shape{*type, *json_access::get<bool>(*nullable_value)};
+        std::optional<RuntimeValue> decoded_default;
+        if (*json_access::get<bool>(*has_default_value)) {
+            decoded_default =
+                runtime_value(*default_value, diagnostics, input_path + "/defaultValue", limits);
+            if (!decoded_default || !layout_contract_value_matches(shape, *decoded_default)) {
                 diagnostics.push_back(
                     error("editor_preview.layout_contract_default_type",
                           "Layout input default does not match its declared type.",
                           input_path + "/defaultValue"));
                 return std::nullopt;
             }
-        } else if (!default_it->is_null()) {
+        } else if (!default_value->is_null()) {
             diagnostics.push_back(
                 error("editor_preview.layout_contract_default_presence",
                       "Layout input without a default must encode defaultValue as "
@@ -606,21 +615,24 @@ std::optional<LayoutContract> preview_layout_contract(const nlohmann::json& valu
             return std::nullopt;
         }
         contract.inputs.push_back(
-            LayoutInputDefinition{std::move(*id), shape, std::move(default_value)});
+            LayoutInputDefinition{std::move(*id), shape, std::move(decoded_default)});
     }
 
     std::set<std::string> signal_ids;
-    for (std::size_t index = 0; index < signals_it->size(); ++index) {
-        const auto& signal = (*signals_it)[index];
+    for (std::size_t index = 0; index < signals_value->size(); ++index) {
+        const auto* signal_value = json_access::element(*signals_value, index);
+        if (signal_value == nullptr)
+            return std::nullopt;
+        const auto& signal = *signal_value;
         const auto signal_path = std::string(path) + "/signals/" + std::to_string(index);
         if (!signal.is_object())
             return std::nullopt;
         exact_fields(signal, {"fields", "id"}, diagnostics, signal_path);
-        const auto id_it = signal.find("id");
-        const auto fields_it = signal.find("fields");
-        if (id_it == signal.end() || fields_it == signal.end() || !fields_it->is_array())
+        const auto* id_value = json_access::member(signal, "id");
+        const auto* fields_value = json_access::member(signal, "fields");
+        if (id_value == nullptr || fields_value == nullptr || !fields_value->is_array())
             return std::nullopt;
-        auto id = preview_layout_contract_id<LayoutSignalId>(*id_it, diagnostics,
+        auto id = preview_layout_contract_id<LayoutSignalId>(*id_value, diagnostics,
                                                              signal_path + "/id", limits);
         if (!id || !signal_ids.insert(id->text()).second) {
             diagnostics.push_back(error("editor_preview.duplicate_layout_contract_id",
@@ -630,23 +642,26 @@ std::optional<LayoutContract> preview_layout_contract(const nlohmann::json& valu
         }
         LayoutSignalDefinition definition{std::move(*id), {}};
         std::set<std::string> field_ids;
-        for (std::size_t field_index = 0; field_index < fields_it->size(); ++field_index) {
-            const auto& field = (*fields_it)[field_index];
+        for (std::size_t field_index = 0; field_index < fields_value->size(); ++field_index) {
+            const auto* field_value = json_access::element(*fields_value, field_index);
+            if (field_value == nullptr)
+                return std::nullopt;
+            const auto& field = *field_value;
             const auto field_path = signal_path + "/fields/" + std::to_string(field_index);
             if (!field.is_object())
                 return std::nullopt;
             exact_fields(field, {"id", "nullable", "required", "type"}, diagnostics, field_path);
-            const auto field_id_it = field.find("id");
-            const auto type_it = field.find("type");
-            const auto nullable_it = field.find("nullable");
-            const auto required_it = field.find("required");
-            if (field_id_it == field.end() || type_it == field.end() ||
-                nullable_it == field.end() || !nullable_it->is_boolean() ||
-                required_it == field.end() || !required_it->is_boolean())
+            const auto* field_id_value = json_access::member(field, "id");
+            const auto* type_value = json_access::member(field, "type");
+            const auto* nullable_value = json_access::member(field, "nullable");
+            const auto* required_value = json_access::member(field, "required");
+            if (field_id_value == nullptr || type_value == nullptr || nullable_value == nullptr ||
+                !nullable_value->is_boolean() || required_value == nullptr ||
+                !required_value->is_boolean())
                 return std::nullopt;
             auto field_id = preview_layout_contract_id<LayoutSignalFieldId>(
-                *field_id_it, diagnostics, field_path + "/id", limits);
-            auto field_type = preview_layout_contract_value_type(*type_it, diagnostics,
+                *field_id_value, diagnostics, field_path + "/id", limits);
+            auto field_type = preview_layout_contract_value_type(*type_value, diagnostics,
                                                                  field_path + "/type", limits);
             if (!field_id || !field_type || !field_ids.insert(field_id->text()).second) {
                 diagnostics.push_back(error("editor_preview.duplicate_layout_contract_id",
@@ -656,14 +671,14 @@ std::optional<LayoutContract> preview_layout_contract(const nlohmann::json& valu
             }
             definition.fields.push_back(
                 LayoutSignalFieldDefinition{std::move(*field_id),
-                                            {*field_type, nullable_it->get<bool>()},
-                                            required_it->get<bool>()});
+                                            {*field_type, *json_access::get<bool>(*nullable_value)},
+                                            *json_access::get<bool>(*required_value)});
         }
         contract.signals.push_back(std::move(definition));
     }
 
-    if (!state_it->is_null()) {
-        auto state = preview_layout_state_shape(*state_it, diagnostics,
+    if (!state_value->is_null()) {
+        auto state = preview_layout_state_shape(*state_value, diagnostics,
                                                 std::string(path) + "/state", limits);
         if (!state)
             return std::nullopt;
@@ -684,8 +699,8 @@ bool resolve_layout_preview_samples(const nlohmann::json& sample_state,
                                     "/sampleState"));
         return false;
     }
-    const auto inputs_it = sample_state.find("inputs");
-    if (inputs_it != sample_state.end() && !inputs_it->is_object()) {
+    const auto* inputs_value = json_access::member(sample_state, "inputs");
+    if (inputs_value != nullptr && !inputs_value->is_object()) {
         diagnostics.push_back(error("editor_preview.wrong_type",
                                     "sampleState.inputs must be an object.",
                                     "/sampleState/inputs"));
@@ -693,11 +708,8 @@ bool resolve_layout_preview_samples(const nlohmann::json& sample_state,
     }
     for (const auto& input : contract.inputs) {
         const nlohmann::json* sample = nullptr;
-        if (inputs_it != sample_state.end()) {
-            const auto found = inputs_it->find(input.id.text());
-            if (found != inputs_it->end())
-                sample = &*found;
-        }
+        if (inputs_value != nullptr)
+            sample = json_access::member(*inputs_value, input.id.text());
         if (sample != nullptr) {
             auto value = runtime_value(*sample, diagnostics,
                                        "/sampleState/inputs/" + input.id.text(), limits);
@@ -719,8 +731,8 @@ bool resolve_layout_preview_samples(const nlohmann::json& sample_state,
             return false;
         }
     }
-    if (inputs_it != sample_state.end()) {
-        for (const auto& [name, _] : inputs_it->items()) {
+    if (inputs_value != nullptr) {
+        for (const auto& [name, _] : inputs_value->items()) {
             const auto known =
                 std::find_if(contract.inputs.begin(), contract.inputs.end(),
                              [&](const auto& input) { return input.id.text() == name; });
@@ -734,8 +746,8 @@ bool resolve_layout_preview_samples(const nlohmann::json& sample_state,
         }
     }
 
-    const auto state_it = sample_state.find("state");
-    if (state_it != sample_state.end()) {
+    const auto* state_value = json_access::member(sample_state, "state");
+    if (state_value != nullptr) {
         if (!contract.state) {
             diagnostics.push_back(error("editor_preview.layout_state_sample_undeclared",
                                         "sampleState.state requires a declared Layout State Shape.",
@@ -743,7 +755,7 @@ bool resolve_layout_preview_samples(const nlohmann::json& sample_state,
             return false;
         }
         auto value =
-            preview_persistable_value(*state_it, diagnostics, "/sampleState/state", limits);
+            preview_persistable_value(*state_value, diagnostics, "/sampleState/state", limits);
         if (!value || !persistable_value_matches(*contract.state, *value)) {
             diagnostics.push_back(
                 error("editor_preview.layout_state_sample_type",
@@ -1990,8 +2002,8 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
             else
                 result.source_url = std::move(*value);
         }
-        const auto contract = document.find("contract");
-        if (contract != document.end()) {
+        const auto* contract = json_access::member(document, "contract");
+        if (contract != nullptr) {
             auto decoded_contract =
                 preview_layout_contract(*contract, diagnostics, "/contract", limits);
             if (!decoded_contract) {
@@ -2005,9 +2017,9 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
             }
             result.contract = std::move(*decoded_contract);
         }
-        const auto sample_state = document.find("sampleState");
+        const auto* sample_state = json_access::member(document, "sampleState");
         const nlohmann::json empty_sample_state = nlohmann::json::object();
-        const auto& sample = sample_state == document.end() ? empty_sample_state : *sample_state;
+        const auto& sample = sample_state == nullptr ? empty_sample_state : *sample_state;
         (void)resolve_layout_preview_samples(sample, result.contract, result, diagnostics, limits);
         auto environment = preview_authored_environment(document, diagnostics, limits);
         if (environment)
@@ -3766,14 +3778,14 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     diagnostics.push_back(error("editor_preview.invalid_enum",
                                                 "Room Layout source kind is unsupported.",
                                                 path + "/source/kind"));
-                const auto contract = layout.find("contract");
+                const auto* contract = json_access::member(layout, "contract");
                 if (decoded.source_kind ==
                     TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud) {
                     if (decoded.mount_kind !=
                             TypedFocusedRoomLayoutDefinition::MountKind::GameHud ||
                         decoded.layout_id || decoded.script_enabled ||
                         decoded.contains_dedicated_lua_source ||
-                        decoded.contains_executable_rml_lua || contract == layout.end() ||
+                        decoded.contains_executable_rml_lua || contract == nullptr ||
                         !contract->is_null()) {
                         diagnostics.push_back(error(
                             "editor_preview.invalid_builtin_game_hud",
@@ -3785,7 +3797,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                                                     "Authored focused Layout requires layoutId.",
                                                     path + "/layoutId"));
                     }
-                    if (contract == layout.end() || !contract->is_object()) {
+                    if (contract == nullptr || !contract->is_object()) {
                         diagnostics.push_back(
                             error("editor_preview.invalid_layout_contract",
                                   "Authored focused Room Layout requires its Mount Contract.",
@@ -3797,11 +3809,12 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                         const auto diagnostics_before_contract = diagnostics.size();
                         auto decoded_contract = preview_layout_contract(
                             *contract, diagnostics, path + "/contract", contract_limits);
-                        if (!decoded_contract && diagnostics.size() == diagnostics_before_contract) {
-                            diagnostics.push_back(error(
-                                "editor_preview.invalid_layout_contract",
-                                "Layout contract contains a missing, invalid, or oversized declaration.",
-                                path + "/contract"));
+                        if (!decoded_contract &&
+                            diagnostics.size() == diagnostics_before_contract) {
+                            diagnostics.push_back(error("editor_preview.invalid_layout_contract",
+                                                        "Layout contract contains a missing, "
+                                                        "invalid, or oversized declaration.",
+                                                        path + "/contract"));
                         }
                         if (decoded_contract) {
                             decoded.contract = std::move(*decoded_contract);
