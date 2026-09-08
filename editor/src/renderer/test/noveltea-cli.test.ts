@@ -8,6 +8,10 @@ import {
 } from '../../cli/agent-kit/source';
 import { syncNovelTeaAgentKit } from '../../cli/agent-sync';
 import {
+  configureImageInspectionService,
+  resetImageInspectionService,
+} from '../../main/services/image-inspection-service';
+import {
   NOVELTEA_CLI_HELP,
   NOVELTEA_CLI_VERSION,
   NOVELTEA_CLI_WORKSPACE_DIAGNOSTIC_CODES,
@@ -374,6 +378,133 @@ describe('NovelTea headless CLI', () => {
       success: true,
       exitCode: 0,
       version: NOVELTEA_CLI_VERSION,
+    });
+  });
+
+  it('imports an external image into the project Asset directory', async () => {
+    const value = fixture();
+    const source = '/imports/Forest Hero.PNG';
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    await value.fileSystem.writeBytesAtomic(source, bytes);
+    configureImageInspectionService(async () => ({
+      width: 640,
+      height: 360,
+      hasAlpha: true,
+      orientation: 6,
+    }));
+    try {
+      const result = await runNovelTeaCli(['--json', 'asset', 'import', source], options(value));
+
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        assets: [
+          {
+            assetId: 'forest-hero',
+            projectRelativePath: 'assets/images/forest-hero.png',
+            kind: 'image',
+            width: 640,
+            height: 360,
+            hasAlpha: true,
+            orientation: 6,
+            alreadyImported: false,
+          },
+        ],
+      });
+      expect(await value.fileSystem.readBytes(`${root}/assets/images/forest-hero.png`)).toEqual(
+        bytes,
+      );
+      const opened = await value.workspace.open(root);
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      expect(opened.snapshot.project.assets['forest-hero']?.data).toMatchObject({
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/forest-hero.png' },
+        imageMetadata: { width: 640, height: 360, hasAlpha: true, orientation: 6 },
+      });
+    } finally {
+      resetImageInspectionService();
+    }
+  });
+
+  it('registers an existing Asset-directory image in place and is idempotent', async () => {
+    const value = fixture();
+    const source = `${root}/assets/backgrounds/moon.png`;
+    await value.fileSystem.writeBytesAtomic(source, new Uint8Array([9, 8, 7]));
+    configureImageInspectionService(async () => ({ width: 320, height: 200, hasAlpha: false }));
+    try {
+      const first = await runNovelTeaCli(
+        ['--json', 'asset', 'import', 'assets/backgrounds/moon.png'],
+        options(value),
+      );
+      expect(first.exitCode).toBe(0);
+      expect(JSON.parse(first.stdout)).toMatchObject({
+        assets: [
+          {
+            assetId: 'moon',
+            projectRelativePath: 'assets/backgrounds/moon.png',
+            alreadyImported: false,
+          },
+        ],
+      });
+
+      const second = await runNovelTeaCli(
+        ['--json', 'asset', 'import', 'assets/backgrounds/moon.png'],
+        options(value),
+      );
+      expect(second.exitCode).toBe(0);
+      expect(JSON.parse(second.stdout)).toMatchObject({
+        assets: [
+          {
+            assetId: 'moon',
+            projectRelativePath: 'assets/backgrounds/moon.png',
+            alreadyImported: true,
+          },
+        ],
+      });
+      const opened = await value.workspace.open(root);
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      expect(Object.keys(opened.snapshot.project.assets)).toEqual(['moon']);
+    } finally {
+      resetImageInspectionService();
+    }
+  });
+
+  it('audits unregistered files under the Asset directory', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(`${root}/assets/text/tracked.txt`, 'tracked');
+    await value.fileSystem.writeTextAtomic(`${root}/assets/text/untracked.txt`, 'untracked');
+    const imported = await runNovelTeaCli(
+      ['--json', 'asset', 'import', 'assets/text/tracked.txt'],
+      options(value),
+    );
+    expect(imported.exitCode).toBe(0);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+    expect(audit.exitCode).toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      untrackedFiles: [{ projectRelativePath: 'assets/text/untracked.txt', kind: 'text' }],
+    });
+  });
+
+  it('reports an Asset-directory symlink escape as a semantic audit failure', async () => {
+    const value = fixture();
+    const escapedPath = `${root}/assets/text/escape.txt`;
+    await value.fileSystem.writeTextAtomic(escapedPath, 'outside');
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === escapedPath ? '/outside/escape.txt' : realpath(pathValue);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+    expect(audit.exitCode).not.toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'asset.audit.path_escape',
+          path: 'assets/text/escape.txt',
+          severity: 'error',
+        }),
+      ]),
     });
   });
 

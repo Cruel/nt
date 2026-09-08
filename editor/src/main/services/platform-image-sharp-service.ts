@@ -27,6 +27,7 @@ export function configureSharpPlatformImageService(): void {
       width: metadata.width,
       height: metadata.height,
       hasAlpha: metadata.hasAlpha ?? false,
+      orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
       space: metadata.space,
       ...(right >= 0 ? { alphaBounds: { left, top, right, bottom } } : {}),
     };

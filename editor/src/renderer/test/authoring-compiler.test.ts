@@ -1145,16 +1145,17 @@ describe('authoring compiler framework', () => {
   it('lowers typed Layout contracts deterministically without emitting empty contracts', () => {
     const project = validProject();
     const empty = defaultLayoutData('Empty', 'document');
+    empty.contract = { inputs: {}, signals: {} };
     const contracted = defaultLayoutData('Contracted', 'document');
     contracted.contract = {
       inputs: {
-        title: { type: 'string', nullable: false, defaultValue: 'Untitled' },
-        count: { type: 'integer', nullable: false },
+        display_title: { type: 'string', nullable: false, defaultValue: 'Untitled' },
+        item_count: { type: 'integer', nullable: false },
       },
       signals: {
-        confirm: {
+        item_selected: {
           fields: {
-            accepted: { type: 'boolean', nullable: false, required: true },
+            was_accepted: { type: 'boolean', nullable: false, required: true },
           },
         },
       },
@@ -1162,9 +1163,9 @@ describe('authoring compiler framework', () => {
         type: 'object',
         nullable: false,
         fields: {
-          page: { required: true, shape: { type: 'integer', nullable: false } },
+          page_index: { required: true, shape: { type: 'integer', nullable: false } },
         },
-        defaultValue: { page: 1 },
+        defaultValue: { page_index: 1 },
       },
     };
     project.layouts.empty = { id: 'empty', label: 'Empty', data: empty };
@@ -1181,34 +1182,34 @@ describe('authoring compiler framework', () => {
     expect(contractedLayout?.contract).toEqual({
       inputs: [
         {
-          id: 'count',
-          type: 'integer',
-          nullable: false,
-          hasDefault: false,
-          defaultValue: null,
-        },
-        {
-          id: 'title',
+          id: 'display_title',
           type: 'string',
           nullable: false,
           hasDefault: true,
           defaultValue: 'Untitled',
         },
+        {
+          id: 'item_count',
+          type: 'integer',
+          nullable: false,
+          hasDefault: false,
+          defaultValue: null,
+        },
       ],
       signals: [
         {
-          id: 'confirm',
-          fields: [{ id: 'accepted', type: 'boolean', nullable: false, required: true }],
+          id: 'item_selected',
+          fields: [{ id: 'was_accepted', type: 'boolean', nullable: false, required: true }],
         },
       ],
       state: {
         type: 'object',
         nullable: false,
         hasDefault: true,
-        defaultValue: { page: 1 },
+        defaultValue: { page_index: 1 },
         fields: [
           {
-            id: 'page',
+            id: 'page_index',
             required: true,
             shape: {
               type: 'integer',

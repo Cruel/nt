@@ -17,6 +17,8 @@ Commands:
   comfyui verify [<id>] [--server <url>]
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate
+  asset audit
+  asset import <path>... [--dry-run]
   entity create <collection> <id> [--dry-run]
   entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]
   entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]
@@ -51,5 +53,5 @@ Normal project editing policy:
   Run 'noveltea agent sync' before an agent session, then read '.noveltea/agent/GUIDE.md'.
   Edit record JSON, Lua, RML, and RCSS source files directly, then run 'noveltea validate'.
   Use semantic CLI commands only for operations that require project-wide dependency or transaction
-  semantics, such as create, rename, delete, and usages.
+  semantics, such as Asset import, create, rename, delete, and usages.
 `;

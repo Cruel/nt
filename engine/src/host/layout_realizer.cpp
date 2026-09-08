@@ -191,6 +191,22 @@ std::string source_path(const LayoutRealizationSource& source)
         source);
 }
 
+std::string focused_state_slot_key(const core::MountedLayoutPresentationKey& key)
+{
+    return std::visit(
+        [](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::ReservedLayoutMountKey>) {
+                return "reserved:" + std::to_string(static_cast<unsigned>(value.slot));
+            } else if constexpr (std::is_same_v<T, core::RoomOverlayLayoutMountKey>) {
+                return "room-overlay:" + value.room.text() + ":" + value.overlay.text();
+            } else {
+                return "scoped:" + value.instance.text();
+            }
+        },
+        key);
+}
+
 std::string sanitize_identifier(std::string value)
 {
     for (char& ch : value) {
@@ -429,7 +445,14 @@ void LayoutRealizer::clear_authored_preview() noexcept
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts)
 {
-    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr);
+    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr, nullptr);
+}
+
+core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
+    const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+    const core::RoomId& focused_room)
+{
+    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr, &focused_room);
 }
 
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
@@ -437,13 +460,21 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
     script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
     const runtime::RuntimeCapabilitySet& capabilities)
 {
-    return stage_focused_preview_impl(layouts, &scripts, environment, &capabilities);
+    return stage_focused_preview_impl(layouts, &scripts, environment, &capabilities, nullptr);
+}
+
+core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
+    const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+    script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
+    const runtime::RuntimeCapabilitySet& capabilities, const core::RoomId& focused_room)
+{
+    return stage_focused_preview_impl(layouts, &scripts, environment, &capabilities, &focused_room);
 }
 
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl(
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
     script::ScriptRuntime* scripts, script::ScriptEnvironmentHandle environment,
-    const runtime::RuntimeCapabilitySet* capabilities)
+    const runtime::RuntimeCapabilitySet* capabilities, const core::RoomId* focused_room)
 {
     rollback_focused_preview();
     script::ScriptRuntime::ScopedEnvironmentActivation activation;
@@ -508,27 +539,187 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
         const std::string document_id = "focused://candidate/" +
                                         std::to_string(m_focused_candidate_generation) + "/" +
                                         layout.instance_id + "/" + std::to_string(index);
+        m_focused_candidate_documents.push_back(document_id);
         const bool game_hud =
             layout.mount_kind == core::editor::TypedFocusedRoomLayoutDefinition::MountKind::GameHud;
-        auto policy = game_hud ? core::reserved_layout_policy(core::compiled::LayoutSlot::Hud)
-                               : core::room_overlay_policy(layout.order, layout.visible);
-        policy.visibility = core::LayoutVisibility::Hidden;
+        const auto committed_policy =
+            game_hud ? core::reserved_layout_policy(core::compiled::LayoutSlot::Hud)
+                     : core::room_overlay_policy(layout.order, layout.visible);
+        auto staging_policy = committed_policy;
+        staging_policy.visibility = core::LayoutVisibility::Hidden;
+        m_focused_candidate_visibility.insert_or_assign(document_id, committed_policy.visibility);
         const auto composition_group =
             layout_composition_group(game_hud ? core::PresentationCompositionGroup::Interface
                                               : core::PresentationCompositionGroup::World);
+
+        if (layout.synthetic_semantic_mount) {
+            if (!layout.layout_id) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_semantic_layout_missing",
+                      .message = "Synthetic focused Layout Mount requires a Layout ID",
+                      .source_path = layout.source_url}});
+            }
+            auto layout_id = core::LayoutId::create(*layout.layout_id);
+            if (!layout_id) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_semantic_identity_invalid",
+                      .message = "Synthetic focused Layout Mount identity is invalid",
+                      .source_path = layout.source_url}});
+            }
+
+            std::optional<core::PresentationOwner> semantic_owner;
+            std::optional<core::MountedLayoutPresentationKey> semantic_key;
+            if (focused_room != nullptr &&
+                layout.mount_kind ==
+                    core::editor::TypedFocusedRoomLayoutDefinition::MountKind::RoomOverlay) {
+                if (!layout.overlay_id) {
+                    rollback_focused_preview();
+                    return core::Result<void, core::Diagnostics>::failure(
+                        {{.code = "layout_realizer.focused_overlay_identity_missing",
+                          .message = "Focused Room overlay Layout requires an Overlay ID",
+                          .source_path = layout.source_url}});
+                }
+                auto overlay_id = core::RoomOverlayId::create(*layout.overlay_id);
+                if (!overlay_id) {
+                    rollback_focused_preview();
+                    return core::Result<void, core::Diagnostics>::failure(
+                        {{.code = "layout_realizer.focused_overlay_identity_invalid",
+                          .message = "Focused Room overlay identity is invalid",
+                          .source_path = layout.source_url}});
+                }
+                semantic_owner =
+                    core::PresentationOwner{core::RoomPresentationOwner{*focused_room}};
+                semantic_key = core::MountedLayoutPresentationKey{
+                    core::RoomOverlayLayoutMountKey{*focused_room, *overlay_id.value_if()}};
+            } else if (focused_room != nullptr && game_hud) {
+                semantic_owner = core::PresentationOwner{
+                    core::SessionPresentationOwner{core::PresentationSessionId::from_number(1)}};
+                semantic_key = core::MountedLayoutPresentationKey{
+                    core::ReservedLayoutMountKey{core::compiled::LayoutSlot::Hud}};
+            } else {
+                if (layout.mount_kind ==
+                    core::editor::TypedFocusedRoomLayoutDefinition::MountKind::RoomOverlay) {
+                    rollback_focused_preview();
+                    return core::Result<void, core::Diagnostics>::failure(
+                        {{.code = "layout_realizer.focused_room_context_missing",
+                          .message = "Focused Room overlay Layout requires a Room preview context",
+                          .source_path = layout.source_url}});
+                }
+                auto scoped =
+                    core::ScopedLayoutInstanceId::create("focused-preview-" + *layout.layout_id);
+                if (!scoped) {
+                    rollback_focused_preview();
+                    return core::Result<void, core::Diagnostics>::failure(
+                        {{.code = "layout_realizer.focused_semantic_identity_invalid",
+                          .message = "Synthetic focused Layout Mount identity is invalid",
+                          .source_path = layout.source_url}});
+                }
+                semantic_owner = core::PresentationOwner{
+                    core::SessionPresentationOwner{core::PresentationSessionId::from_number(1)}};
+                semantic_key = core::MountedLayoutPresentationKey{
+                    core::ScopedLayoutMountKey{std::move(*scoped.value_if())}};
+            }
+
+            if (!semantic_owner || !semantic_key) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_semantic_identity_invalid",
+                      .message = "Synthetic focused Layout Mount identity is incomplete",
+                      .source_path = layout.source_url}});
+            }
+            const auto state_key = focused_state_slot_key(*semantic_key);
+            std::vector<core::PresentationLayoutStateValue> state_values;
+            if (layout.contract.state) {
+                const std::vector<core::LayoutStateScope> scopes =
+                    std::holds_alternative<core::RoomPresentationOwner>(*semantic_owner)
+                        ? std::vector{core::LayoutStateScope::Room, core::LayoutStateScope::Session}
+                        : std::vector{core::LayoutStateScope::Session};
+                FocusedPreviewStateSlot candidate_slot{
+                    .layout_id = *layout.layout_id,
+                    .shape = *layout.contract.state,
+                    .seed = layout.preview_state,
+                    .values = {},
+                };
+                candidate_slot.values.reserve(scopes.size());
+                for (const auto scope : scopes)
+                    candidate_slot.values.push_back({scope, layout.preview_state});
+
+                const auto slot = m_focused_preview_state.find(state_key);
+                const bool same_scopes =
+                    slot != m_focused_preview_state.end() &&
+                    slot->second.values.size() == candidate_slot.values.size() &&
+                    std::equal(slot->second.values.begin(), slot->second.values.end(),
+                               candidate_slot.values.begin(),
+                               [](const auto& left, const auto& right) {
+                                   return left.scope == right.scope;
+                               });
+                if (slot != m_focused_preview_state.end() && same_scopes &&
+                    slot->second.layout_id == *layout.layout_id &&
+                    slot->second.shape == *layout.contract.state &&
+                    slot->second.seed == layout.preview_state)
+                    candidate_slot = slot->second;
+                state_values = candidate_slot.values;
+                m_focused_candidate_state.insert_or_assign(state_key, std::move(candidate_slot));
+            } else {
+                m_focused_candidate_state.insert_or_assign(state_key, std::nullopt);
+            }
+
+            std::vector<core::LayoutSignalId> connected_signals;
+            if (focused_room == nullptr) {
+                connected_signals.reserve(layout.contract.signals.size());
+                for (const auto& signal : layout.contract.signals)
+                    connected_signals.push_back(signal.id);
+            }
+
+            presentation::RuntimeMountedLayout semantic_mount{
+                .mounted = {.instance = core::MountedLayoutInstanceId::from_number(index + 1),
+                            .layout = std::move(*layout_id.value_if()),
+                            .owner = core::MountedLayoutOwner::Gameplay,
+                            .policy = committed_policy,
+                            .scale_overrides = {}},
+                .source = presentation::RuntimeLayoutProjectSource{},
+                .system_role = std::nullopt,
+                .semantic_owner = std::move(*semantic_owner),
+                .semantic_key = std::move(*semantic_key),
+                .occurrence =
+                    core::LayoutMountOccurrenceId::from_number(m_focused_candidate_generation),
+                .inputs = layout.preview_inputs,
+                .connected_signals = std::move(connected_signals),
+                .state_shape = layout.contract.state,
+                .state_values = std::move(state_values),
+                .material_parameters = {},
+                .material_camera_zoom = 1.0,
+                .trigger_context = std::nullopt,
+                .composition_group = game_hud ? core::PresentationCompositionGroup::Interface
+                                              : core::PresentationCompositionGroup::World,
+                .publication_revision = core::PresentationSnapshotRevision::from_number(0),
+            };
+            if (!m_backend.set_mount_context(document_id, semantic_mount)) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_mount_context_failed",
+                      .message = "Failed to publish synthetic focused Layout Mount Context",
+                      .source_path = layout.source_url}});
+            }
+            m_focused_candidate_mounts.insert_or_assign(document_id, std::move(semantic_mount));
+            m_focused_candidate_contracts.insert_or_assign(document_id, layout.contract);
+        }
+
         bool loaded = false;
         switch (layout.source_kind) {
         case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud:
-            loaded = m_backend.load_path(document_id, "system:/ui/runtime/runtime_game.rml", policy,
-                                         composition_group, core::MountedLayoutOwner::Gameplay,
-                                         layout.scale_policy, 0);
+            loaded = m_backend.load_path(
+                document_id, "system:/ui/runtime/runtime_game.rml", staging_policy,
+                composition_group, core::MountedLayoutOwner::Gameplay, layout.scale_policy, 0);
             break;
         case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored:
             loaded =
                 authored_document && !authored_document->empty() &&
-                m_backend.load_memory(document_id, *authored_document, layout.source_url, policy,
-                                      composition_group, core::MountedLayoutOwner::Gameplay,
-                                      layout.scale_policy, 0);
+                m_backend.load_memory(document_id, *authored_document, layout.source_url,
+                                      staging_policy, composition_group,
+                                      core::MountedLayoutOwner::Gameplay, layout.scale_policy, 0);
             break;
         }
         if (!loaded || !m_backend.set_visible(document_id, false)) {
@@ -538,9 +729,11 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                   .message = "Failed to stage focused Layout candidate",
                   .source_path = layout.source_url}});
         }
-        m_focused_candidate_documents.push_back(document_id);
     }
-    for (const auto& document_id : m_focused_candidate_documents) {
+    for (std::size_t index = 0; index < m_focused_candidate_documents.size(); ++index) {
+        if (layouts[index].synthetic_semantic_mount)
+            continue;
+        const auto& document_id = m_focused_candidate_documents[index];
         if (!m_backend.set_visible(document_id, true) ||
             !m_backend.set_visible(document_id, false)) {
             rollback_focused_preview();
@@ -560,31 +753,169 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
 
 void LayoutRealizer::commit_focused_preview() noexcept
 {
-    for (const auto& document_id : m_focused_candidate_documents)
-        (void)m_backend.set_visible(document_id, true);
-    for (const auto& document_id : m_focused_committed_documents)
-        if (m_backend.document_exists(document_id))
-            (void)m_backend.unload(document_id);
-    (void)m_backend.apply_order(m_focused_candidate_documents);
+    auto previous_documents = std::move(m_focused_committed_documents);
     m_focused_committed_documents = std::move(m_focused_candidate_documents);
     m_focused_candidate_documents.clear();
+    m_focused_committed_visibility = std::move(m_focused_candidate_visibility);
+    m_focused_candidate_visibility.clear();
+    m_focused_committed_mounts = std::move(m_focused_candidate_mounts);
+    m_focused_candidate_mounts.clear();
+    m_focused_committed_contracts = std::move(m_focused_candidate_contracts);
+    m_focused_candidate_contracts.clear();
+    std::unordered_map<std::string, FocusedPreviewStateSlot> next_preview_state;
+    next_preview_state.reserve(m_focused_candidate_state.size());
+    for (auto& [state_key, slot] : m_focused_candidate_state) {
+        if (slot)
+            next_preview_state.insert_or_assign(state_key, std::move(*slot));
+    }
+    m_focused_preview_state = std::move(next_preview_state);
+    m_focused_candidate_state.clear();
+
+    // Show handlers may commit state, so their exact mount and Slot must already be live.
+    for (const auto& document_id : m_focused_committed_documents) {
+        const auto visibility = m_focused_committed_visibility.find(document_id);
+        const bool visible = visibility != m_focused_committed_visibility.end() &&
+                             visibility->second == core::LayoutVisibility::Visible;
+        (void)m_backend.set_visible(document_id, visible);
+    }
+    for (const auto& document_id : previous_documents) {
+        m_backend.clear_mount_context(document_id);
+        if (m_backend.document_exists(document_id))
+            (void)m_backend.unload(document_id);
+    }
+    (void)m_backend.apply_order(m_focused_committed_documents);
 }
 
 void LayoutRealizer::rollback_focused_preview() noexcept
 {
-    for (const auto& document_id : m_focused_candidate_documents)
+    for (const auto& document_id : m_focused_candidate_documents) {
+        m_backend.clear_mount_context(document_id);
         if (m_backend.document_exists(document_id))
             (void)m_backend.unload(document_id);
+    }
     m_focused_candidate_documents.clear();
+    m_focused_candidate_visibility.clear();
+    m_focused_candidate_mounts.clear();
+    m_focused_candidate_contracts.clear();
+    m_focused_candidate_state.clear();
 }
 
 void LayoutRealizer::clear_focused_preview() noexcept
 {
     rollback_focused_preview();
-    for (const auto& document_id : m_focused_committed_documents)
+    for (const auto& document_id : m_focused_committed_documents) {
+        m_backend.clear_mount_context(document_id);
         if (m_backend.document_exists(document_id))
             (void)m_backend.unload(document_id);
+    }
     m_focused_committed_documents.clear();
+    m_focused_committed_visibility.clear();
+    m_focused_committed_mounts.clear();
+    m_focused_committed_contracts.clear();
+    m_focused_preview_state.clear();
+}
+
+bool LayoutRealizer::submit_focused_preview_input(const core::RuntimeInputMessage& input)
+{
+    const auto find_mount = [&](const core::PresentationOwner& owner,
+                                const core::MountedLayoutPresentationKey& key,
+                                core::LayoutMountOccurrenceId occurrence) {
+        return std::find_if(m_focused_committed_mounts.begin(), m_focused_committed_mounts.end(),
+                            [&](const auto& entry) {
+                                const auto& mount = entry.second;
+                                return mount.semantic_owner && *mount.semantic_owner == owner &&
+                                       mount.semantic_key && *mount.semantic_key == key &&
+                                       mount.occurrence && *mount.occurrence == occurrence;
+                            });
+    };
+
+    return std::visit(
+        [&](const auto& value) -> bool {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::CommitLayoutStateInput>) {
+                const auto found = find_mount(value.owner, value.key, value.occurrence);
+                if (found == m_focused_committed_mounts.end() || !found->second.state_shape ||
+                    !found->second.semantic_key ||
+                    !core::persistable_value_matches(*found->second.state_shape, value.value))
+                    return false;
+                const auto state_key = focused_state_slot_key(*found->second.semantic_key);
+                auto slot = m_focused_preview_state.find(state_key);
+                if (slot == m_focused_preview_state.end() ||
+                    slot->second.shape != *found->second.state_shape)
+                    return false;
+                const auto slot_value = std::find_if(
+                    slot->second.values.begin(), slot->second.values.end(),
+                    [&](const auto& candidate) { return candidate.scope == value.scope; });
+                const auto mount_value = std::find_if(
+                    found->second.state_values.begin(), found->second.state_values.end(),
+                    [&](const auto& candidate) { return candidate.scope == value.scope; });
+                if (slot_value == slot->second.values.end() ||
+                    mount_value == found->second.state_values.end())
+                    return false;
+                slot_value->value = value.value;
+                mount_value->value = value.value;
+                return m_backend.set_mount_context(found->first, found->second);
+            } else if constexpr (std::is_same_v<T, core::ClearLayoutStateInput>) {
+                const auto found = find_mount(value.owner, value.key, value.occurrence);
+                if (found == m_focused_committed_mounts.end() || !found->second.state_shape ||
+                    !found->second.semantic_key)
+                    return false;
+                const auto state_key = focused_state_slot_key(*found->second.semantic_key);
+                auto slot = m_focused_preview_state.find(state_key);
+                if (slot == m_focused_preview_state.end() ||
+                    slot->second.shape != *found->second.state_shape)
+                    return false;
+                const auto slot_value = std::find_if(
+                    slot->second.values.begin(), slot->second.values.end(),
+                    [&](const auto& candidate) { return candidate.scope == value.scope; });
+                const auto mount_value = std::find_if(
+                    found->second.state_values.begin(), found->second.state_values.end(),
+                    [&](const auto& candidate) { return candidate.scope == value.scope; });
+                if (slot_value == slot->second.values.end() ||
+                    mount_value == found->second.state_values.end())
+                    return false;
+                slot_value->value = found->second.state_shape->default_value;
+                mount_value->value = found->second.state_shape->default_value;
+                return m_backend.set_mount_context(found->first, found->second);
+            } else if constexpr (std::is_same_v<T, core::LayoutSignalInput>) {
+                const auto found = find_mount(value.owner, value.key, value.occurrence);
+                if (found == m_focused_committed_mounts.end() ||
+                    std::find(found->second.connected_signals.begin(),
+                              found->second.connected_signals.end(),
+                              value.signal) == found->second.connected_signals.end())
+                    return false;
+                const auto contract = m_focused_committed_contracts.find(found->first);
+                if (contract == m_focused_committed_contracts.end())
+                    return false;
+                const auto definition = std::find_if(
+                    contract->second.signals.begin(), contract->second.signals.end(),
+                    [&](const auto& candidate) { return candidate.id == value.signal; });
+                if (definition == contract->second.signals.end())
+                    return false;
+                std::vector<core::LayoutSignalFieldId> seen;
+                seen.reserve(value.fields.size());
+                for (const auto& field : value.fields) {
+                    if (std::find(seen.begin(), seen.end(), field.field) != seen.end())
+                        return false;
+                    seen.push_back(field.field);
+                    const auto field_definition = std::find_if(
+                        definition->fields.begin(), definition->fields.end(),
+                        [&](const auto& candidate) { return candidate.id == field.field; });
+                    if (field_definition == definition->fields.end() ||
+                        !core::layout_contract_value_matches(field_definition->shape, field.value))
+                        return false;
+                }
+                for (const auto& field : definition->fields) {
+                    if (field.required &&
+                        std::find(seen.begin(), seen.end(), field.id) == seen.end())
+                        return false;
+                }
+                return true;
+            } else {
+                return false;
+            }
+        },
+        input);
 }
 
 core::Result<void, core::Diagnostics>

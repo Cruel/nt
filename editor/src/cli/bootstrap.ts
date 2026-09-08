@@ -154,6 +154,7 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
         command[1] === 'run')) ||
     command[0] === 'validate' ||
     command[0] === 'usages' ||
+    (command[0] === 'asset' && (command[1] === 'audit' || command[1] === 'import')) ||
     (command[0] === 'entity' &&
       (command[1] === 'create' || command[1] === 'rename' || command[1] === 'delete')) ||
     (command[0] === 'shaders' && command[1] === 'compile') ||
@@ -177,6 +178,7 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
 export function novelTeaCliCommandNeedsZod(command: readonly string[]): boolean {
   if (command[0] === 'project' && command[1] === 'create') return true;
   if (command[0] === 'validate' || command[0] === 'usages') return true;
+  if (command[0] === 'asset') return command[1] === 'audit' || command[1] === 'import';
   if (command[0] === 'entity')
     return command[1] === 'create' || command[1] === 'rename' || command[1] === 'delete';
   if (command[0] === 'shaders') return command[1] === 'compile';

@@ -323,6 +323,73 @@ export const focusedLayoutSourceComponentSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('asset'), logicalPath: safeProjectLogicalPath }),
 ]);
 
+const focusedLayoutContractValueTypeSchema = z.enum(['boolean', 'integer', 'number', 'string']);
+const focusedLayoutPersistableValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.number().finite(),
+    z.string(),
+    z.array(focusedLayoutPersistableValueSchema),
+    z.record(z.string().min(1), focusedLayoutPersistableValueSchema),
+  ]),
+);
+const focusedLayoutStateShapeSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.discriminatedUnion('type', [
+    strict({
+      type: focusedLayoutContractValueTypeSchema,
+      nullable: z.boolean(),
+      hasDefault: z.boolean(),
+      defaultValue: focusedLayoutPersistableValueSchema.nullable(),
+    }),
+    strict({
+      type: z.literal('array'),
+      nullable: z.boolean(),
+      hasDefault: z.boolean(),
+      defaultValue: focusedLayoutPersistableValueSchema.nullable(),
+      items: focusedLayoutStateShapeSchema,
+    }),
+    strict({
+      type: z.literal('object'),
+      nullable: z.boolean(),
+      hasDefault: z.boolean(),
+      defaultValue: focusedLayoutPersistableValueSchema.nullable(),
+      fields: z.array(
+        strict({
+          id: z.string().min(1),
+          required: z.boolean(),
+          shape: focusedLayoutStateShapeSchema,
+        }),
+      ),
+    }),
+  ]),
+);
+const focusedLayoutContractSchema = strict({
+  inputs: z.array(
+    strict({
+      id: z.string().min(1),
+      type: focusedLayoutContractValueTypeSchema,
+      nullable: z.boolean(),
+      hasDefault: z.boolean(),
+      defaultValue: scalar,
+    }),
+  ),
+  signals: z.array(
+    strict({
+      id: z.string().min(1),
+      fields: z.array(
+        strict({
+          id: z.string().min(1),
+          type: focusedLayoutContractValueTypeSchema,
+          nullable: z.boolean(),
+          required: z.boolean(),
+        }),
+      ),
+    }),
+  ),
+  state: focusedLayoutStateShapeSchema.nullable(),
+});
+
 export const focusedRoomLayoutDefinitionSchema = strict({
   instanceId: z.string().min(1),
   layoutId: z.string().min(1).nullable(),
@@ -353,6 +420,7 @@ export const focusedRoomLayoutDefinitionSchema = strict({
   scriptEnabled: z.boolean(),
   containsDedicatedLuaSource: z.boolean(),
   containsExecutableRmlLua: z.boolean(),
+  contract: focusedLayoutContractSchema.nullable(),
   scalePolicy: strict({ ui: z.enum(['inherit', 'ignore']), text: z.enum(['inherit', 'ignore']) }),
 });
 
@@ -621,13 +689,16 @@ export const roomPreviewDocumentSchema = strict({
         layout.mount.kind !== 'game-hud' ||
         layout.scriptEnabled ||
         layout.containsDedicatedLuaSource ||
-        layout.containsExecutableRmlLua
+        layout.containsExecutableRmlLua ||
+        layout.contract !== null
       )
         issue(['layouts', index], 'Built-in Game HUD carries invalid authored Layout state.');
       return;
     }
     if (layout.layoutId === null)
       issue(['layouts', index, 'layoutId'], 'Authored Layout requires a layoutId.');
+    if (layout.contract === null)
+      issue(['layouts', index, 'contract'], 'Authored Layout requires its Mount Contract.');
     if (
       (layout.source.layoutKind === 'fragment') !==
       (layout.source.templateId === 'layout-fragment-host-v1')

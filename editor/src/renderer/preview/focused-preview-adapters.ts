@@ -15,6 +15,7 @@ import {
   type PreviewResourceManifestEntry,
   type PreviewRootKey,
 } from '../../shared/focused-preview-contracts';
+import { lowerLayoutContractForWire } from '../../shared/layout-contract-lowering';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
@@ -346,7 +347,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
         rcss: layoutSourceComponent(context.project, layout.rcss),
         lua: layoutSourceComponent(context.project, layout.lua),
         scalePolicy,
-        contract: layout.contract,
+        contract: lowerLayoutContractForWire(layout.contract),
         sampleState: layout.sampleState,
         environment: {
           profile: {

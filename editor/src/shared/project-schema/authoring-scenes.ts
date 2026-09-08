@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { entityIdSchema } from './authoring-common';
+import { entityIdSchema, layoutContractIdSchema } from './authoring-common';
 import {
   audioCausalityValues,
   audioLifetimeValues,
@@ -378,7 +378,7 @@ const waitStepSchema = z.discriminatedUnion('waitKind', [
     waitKind: z.literal('layout-signal'),
     owner: z.enum(scenePresentationOwnerValues),
     slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']),
-    signalId: entityIdSchema,
+    signalId: layoutContractIdSchema,
     skippable: z.boolean(),
   }),
 ]);

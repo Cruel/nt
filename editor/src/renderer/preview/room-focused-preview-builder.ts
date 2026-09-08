@@ -12,6 +12,7 @@ import type {
   RoomPreviewInputs,
 } from '../../shared/focused-preview-contracts';
 import { analyzeHookRegistry } from '../../shared/hook-registry-analysis';
+import { lowerLayoutContractForWire } from '../../shared/layout-contract-lowering';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
@@ -339,6 +340,7 @@ function buildLayouts(
         scriptEnabled: false,
         containsDedicatedLuaSource: false,
         containsExecutableRmlLua: false,
+        contract: null,
         scalePolicy: { ui: 'inherit', text: 'inherit' },
       });
       return;
@@ -373,6 +375,7 @@ function buildLayouts(
           ? new TextEncoder().encode(lua.text.replace(/^\uFEFF/, '')).byteLength > 0
           : true,
       containsExecutableRmlLua: layoutHasExecutableRmlLua(analyses, layoutId),
+      contract: lowerLayoutContractForWire(data.contract),
       scalePolicy: data.scalePolicy ?? { ui: 'inherit', text: 'inherit' },
     });
   };

@@ -1,3 +1,4 @@
+import { lowerLayoutContractForWire } from '../layout-contract-lowering';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
 import {
@@ -133,7 +134,7 @@ export function buildLayoutPreviewDocumentData(
     layoutKind: data.layoutKind,
     target: data.target,
     scalePolicy: resolveLayoutScalePolicy(data.target, data.scalePolicy),
-    contract: data.contract,
+    contract: lowerLayoutContractForWire(data.contract),
     rml: sourcePayload(project, data.rml),
     rcss: sourcePayload(project, data.rcss),
     lua: sourcePayload(project, data.lua),

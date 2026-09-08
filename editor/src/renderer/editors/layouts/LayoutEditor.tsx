@@ -38,6 +38,7 @@ import { projectSettingsFromProject } from '../../../shared/project-schema/autho
 import {
   defaultLayoutData,
   getSystemLayoutSetting,
+  isSystemLayoutCompatible,
   layoutContractDataSchema,
   layoutKindValues,
   layoutPreviewBackgroundValues,
@@ -306,6 +307,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   );
   const titleLayout = project ? getSystemLayoutSetting(project, 'title') : null;
   const isTitleLayout = !!layoutId && titleLayout?.$ref.id === layoutId;
+  const systemLayoutCompatible = isSystemLayoutCompatible(data);
   const sourceAssetOptions = useMemo(
     () =>
       project
@@ -501,13 +503,22 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
               dependencies, and live preview.
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setTitleSystemLayout(isTitleLayout ? null : activeLayoutId)}
-          >
-            {isTitleLayout ? 'Clear Title UI' : 'Set as Title UI'}
-          </Button>
+          <div className="space-y-1">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!isTitleLayout && !systemLayoutCompatible}
+              onClick={() => setTitleSystemLayout(isTitleLayout ? null : activeLayoutId)}
+            >
+              {isTitleLayout ? 'Clear Title UI' : 'Set as Title UI'}
+            </Button>
+            {!systemLayoutCompatible && (
+              <p className="max-w-xs text-xs text-muted-foreground">
+                System layouts cannot declare custom inputs, signals, or state. Use an empty Mount
+                Contract and update any Lua that depends on it before assigning this layout.
+              </p>
+            )}
+          </div>
         </div>
 
         {!parsedData ? (
@@ -632,11 +643,13 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                   }
                 >
                   <SelectItem value="__none__">Built-in title UI</SelectItem>
-                  {Object.entries(activeProject.layouts).map(([id, layout]) => (
-                    <SelectItem key={id} value={id}>
-                      {layout.label} ({id})
-                    </SelectItem>
-                  ))}
+                  {Object.entries(activeProject.layouts)
+                    .filter(([, layout]) => isSystemLayoutCompatible(layout.data))
+                    .map(([id, layout]) => (
+                      <SelectItem key={id} value={id}>
+                        {layout.label} ({id})
+                      </SelectItem>
+                    ))}
                 </Select>
               </div>
               <div className="space-y-1">
@@ -896,7 +909,14 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
               className="space-y-3 rounded border p-3"
               data-workbench-anchor="layout.sampleState"
             >
-              <h3 className="text-sm font-medium">Sample State JSON</h3>
+              <div>
+                <h3 className="text-sm font-medium">Sample State JSON</h3>
+                <p className="text-xs text-muted-foreground">
+                  Seed focused preview with contract inputs under <code>inputs</code> and Layout
+                  State under <code>state</code>. Preview State is editor-local and is never written
+                  to game saves.
+                </p>
+              </div>
               <SourceEditor
                 ref={sourceEditors.refFor('sampleState')}
                 language="json"

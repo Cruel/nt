@@ -28,7 +28,7 @@
   },
   "documents": {
     "CLI.md": {
-      "reviewed": "2026-08-16",
+      "reviewed": "2026-09-07",
       "strategy": "Curate only the public standalone CLI workflow and command boundaries that game-authoring agents need; keep implementation and release plumbing out.",
       "sources": [
         {
@@ -38,7 +38,7 @@
       ]
     },
     "GUIDE.md": {
-      "reviewed": "2026-08-26",
+      "reviewed": "2026-09-07",
       "strategy": "Route agents to the smallest authoring reference for each task and preserve only stable project-facing workflow rules.",
       "sources": [
         {
@@ -66,7 +66,7 @@
       ]
     },
     "docs/ASSETS_SHADERS.md": {
-      "reviewed": "2026-08-16",
+      "reviewed": "2026-09-07",
       "strategy": "Keep only author-visible asset, shader, and material invariants plus the supported shader compilation entrypoints.",
       "sources": [
         {

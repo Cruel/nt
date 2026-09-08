@@ -992,6 +992,11 @@ void PreviewHost::clear_focused_preview() noexcept
     m_dependencies.renderer.set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope::Runtime);
 }
 
+void PreviewHost::route_focused_runtime_input(core::RuntimeInputMessage input)
+{
+    m_focused_presenter->route_captured_runtime_input(std::move(input));
+}
+
 bool PreviewHost::request_screenshot(std::string path)
 {
     if (path.empty() || !m_dependencies.renderer.is_initialized() ||

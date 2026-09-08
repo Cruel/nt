@@ -402,7 +402,7 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     summary: 'RmlUi layout documents and fragments for runtime UI.',
     currentScope: 'Creates an inline document or fragment using existing defaults.',
     ...visual('layouts'),
-    defaultOptions: () => ({ layoutKind: 'fragment' }),
+    defaultOptions: () => ({ layoutKind: 'document' }),
     renderOptions: ({ draft, setOption }) => (
       <div className="space-y-1">
         <Label>Layout kind</Label>

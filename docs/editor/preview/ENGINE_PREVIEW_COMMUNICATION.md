@@ -116,8 +116,9 @@ preparation and must continue ticking.
 
 Focused Layout pointer events are dispatched through the committed focused Lua environment rather
 than through a running game session. Gameplay-owned Layout callbacks receive the restricted
-`GameplayLayoutEvent` capability profile used during focused realization. Gameplay-state inputs and
-shell commands remain passive or blocked in focused preview.
+`GameplayLayoutEvent` capability profile used during focused realization. Preview-local Layout State
+commits and clears are consumed by the focused semantic Mount, including Room-overlay Mounts in
+focused Room preview. Other gameplay-state inputs and shell commands remain passive or blocked.
 
 ## Electron IPC
 

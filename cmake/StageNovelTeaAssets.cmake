@@ -65,25 +65,8 @@ set(_compiled_package_tmp "${_tmp}/runtime_presentation_package_export")
 file(REMOVE_RECURSE "${_compiled_package_tmp}")
 file(MAKE_DIRECTORY "${_compiled_package_tmp}")
 file(COPY_FILE
-    "${CMAKE_CURRENT_LIST_DIR}/../editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json"
+    "${CMAKE_CURRENT_LIST_DIR}/../editor/src/renderer/test/fixtures/compiled-project-runtime/runtime-presentation-demo.json"
     "${_compiled_package_tmp}/game")
-file(READ "${_compiled_package_tmp}/game" _compiled_demo_game)
-string(REPLACE
-    "\"assets\":[]"
-    "\"assets\":[{\"aliases\":[],\"id\":\"demo-notification\",\"kind\":\"audio\",\"path\":\"audio/notification.mp3\"}]"
-    _compiled_demo_game
-    "${_compiled_demo_game}")
-string(REPLACE
-    "\"background\":{\"asset\":null,\"color\":null,\"fit\":\"cover\",\"material\":null}"
-    "\"background\":{\"asset\":null,\"color\":\"#204060\",\"fit\":\"cover\",\"material\":null}"
-    _compiled_demo_game
-    "${_compiled_demo_game}")
-string(REPLACE
-    "\"saveContract\":\"sc1:3a00b6888fd0dc16349f15985ba1cbea\""
-    "\"saveContract\":\"sc1:92ae23f3684d8ccda09c0da3fe01e7b1\""
-    _compiled_demo_game
-    "${_compiled_demo_game}")
-file(WRITE "${_compiled_package_tmp}/game" "${_compiled_demo_game}")
 file(MAKE_DIRECTORY "${_compiled_package_tmp}/audio")
 set(_compiled_package_notification_source
     "${CMAKE_CURRENT_LIST_DIR}/../apps/sandbox/assets/audio/notification.mp3")

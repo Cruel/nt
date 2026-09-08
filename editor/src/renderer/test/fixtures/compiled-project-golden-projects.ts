@@ -69,6 +69,19 @@ const sceneReference = (id: string) => ({ $ref: { collection: 'scenes' as const,
 const variableReference = (id: string) => ({ $ref: { collection: 'variables' as const, id } });
 const verbReference = (id: string) => ({ $ref: { collection: 'verbs' as const, id } });
 
+const GOLDEN_DOCUMENT_RML_SOURCE = `<rml>\n<head>\n  <title>Default UI</title>\n</head>\n<body>\n  <div class="noveltea-layout-preview">\n    <h1>NovelTea Layout</h1>\n    <p>Edit this RML, RCSS, and Lua to build runtime UI.</p>\n    <button id="layout-preview-counter" onclick="layout_preview.on_click(event, element, document)">Clicked 0 times</button>\n  </div>\n</body>\n</rml>\n`;
+const GOLDEN_DOCUMENT_RCSS_SOURCE = `body {\n  pointer-events: none;\n}\n\n.noveltea-layout-preview {\n  pointer-events: auto;\n  margin: 48px;\n  padding: 24px;\n  background-color: rgba(15, 23, 42, 214);\n  border-radius: 12px;\n}\n`;
+const GOLDEN_DOCUMENT_LUA_SOURCE = `layout_preview = layout_preview or {}\nlayout_preview.click_count = layout_preview.click_count or 0\n\nfunction layout_preview.on_click(event, element, document)\n  layout_preview.click_count = layout_preview.click_count + 1\n  element.inner_rml = 'Clicked ' .. layout_preview.click_count .. ' times'\nend\n`;
+
+function goldenDocumentLayoutData(label: string) {
+  const data = defaultLayoutData(label, 'document');
+  data.contract = { inputs: {}, signals: {} };
+  data.rml.sourceText = GOLDEN_DOCUMENT_RML_SOURCE;
+  data.rcss.sourceText = GOLDEN_DOCUMENT_RCSS_SOURCE;
+  data.lua.sourceText = GOLDEN_DOCUMENT_LUA_SOURCE;
+  return data;
+}
+
 function extensionOf(path: string): string {
   const index = path.lastIndexOf('.');
   return index >= 0 ? path.slice(index) : '';
@@ -131,6 +144,13 @@ export function minimalGoldenProject(): AuthoringProject {
   room.description = { markup: 'plain', source: { kind: 'inline', text: 'Minimal room.' } };
   project.rooms.start = { id: 'start', label: 'Start', data: room };
   project.entrypoint = { kind: 'room', id: 'start' };
+  return project;
+}
+
+export function runtimePresentationDemoProject(): AuthoringProject {
+  const project = minimalGoldenProject();
+  addAsset(project, 'demo-notification', 'audio', 'audio/notification.mp3');
+  project.rooms.start!.data.background.color = '#204060';
   return project;
 }
 
@@ -346,7 +366,7 @@ export function canonicalLayoutSignalGoldenProject(): AuthoringProject {
   const project = comprehensiveGoldenProject();
   renameProject(project, 'golden-canonical-layout-signal', 'Golden Canonical Layout Signal');
 
-  const statefulLayout = defaultLayoutData('Stateful Overlay', 'document');
+  const statefulLayout = goldenDocumentLayoutData('Stateful Overlay');
   statefulLayout.target = 'room-overlay';
   statefulLayout.contract = {
     inputs: {},
@@ -463,7 +483,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     data: material,
   };
 
-  const inlineLayout = defaultLayoutData('Inline HUD', 'document');
+  const inlineLayout = goldenDocumentLayoutData('Inline HUD');
   inlineLayout.target = 'default-ui';
   inlineLayout.dependencies = {
     images: [assetReference('image-main')],
@@ -2177,7 +2197,7 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
     data: selectorVerb,
   };
 
-  const statefulLayout = defaultLayoutData('Stateful Overlay', 'document');
+  const statefulLayout = goldenDocumentLayoutData('Stateful Overlay');
   statefulLayout.target = 'room-overlay';
   statefulLayout.contract = {
     inputs: {},

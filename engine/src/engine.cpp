@@ -2206,6 +2206,10 @@ void Engine::Impl::handle_events()
         }
 
         for (const auto& input : routed.runtime_inputs) {
+            if (focused_preview_active) {
+                m_preview_host.route_focused_runtime_input(input);
+                continue;
+            }
             auto dispatched = m_game_host.submit_runtime_input(input);
             if (!dispatched.accepted()) {
                 const std::string input_name = std::visit(

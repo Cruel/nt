@@ -93,6 +93,7 @@ export default defineConfig({
       'node_modules/**',
       'src/renderer/routeTree.gen.ts',
       'src/renderer/test/fixtures/compiled-project-golden/**',
+      'src/renderer/test/fixtures/compiled-project-runtime/**',
     ],
     printWidth: 100,
     semi: true,

@@ -122,6 +122,29 @@ bool decode_image(const std::filesystem::path& path, DecodedImage& decoded, std:
     return true;
 }
 
+std::uint8_t exif_orientation(bimg::Orientation::Enum orientation)
+{
+    switch (orientation) {
+    case bimg::Orientation::R0:
+        return 1;
+    case bimg::Orientation::HFlip:
+        return 2;
+    case bimg::Orientation::R180:
+        return 3;
+    case bimg::Orientation::VFlip:
+        return 4;
+    case bimg::Orientation::HFlipR270:
+        return 5;
+    case bimg::Orientation::R90:
+        return 6;
+    case bimg::Orientation::HFlipR90:
+        return 7;
+    case bimg::Orientation::R270:
+        return 8;
+    }
+    return 1;
+}
+
 nlohmann::json inspect_image(const nlohmann::json& request)
 {
     const auto source = request.value("sourcePath", std::string{});
@@ -155,6 +178,7 @@ nlohmann::json inspect_image(const nlohmann::json& request)
                                {"width", width},
                                {"height", height},
                                {"hasAlpha", decoded.container->m_hasAlpha},
+                               {"orientation", exif_orientation(decoded.container->m_orientation)},
                                {"space", "srgb"}};
     if (visible)
         response["alphaBounds"] =

@@ -182,6 +182,15 @@ export function defaultAssetIdFromFilename(filename: string): string {
   return /^[a-z]/.test(normalized) ? normalized : `asset-${normalized || 'file'}`;
 }
 
+export function sanitizeAssetFilename(filename: string): string {
+  const basename = filename.split(/[\\/]/).pop() ?? filename;
+  const extensionIndex = basename.lastIndexOf('.');
+  const hasExtension = extensionIndex > 0;
+  const stem = hasExtension ? basename.slice(0, extensionIndex) : basename;
+  const extension = hasExtension ? basename.slice(extensionIndex).toLowerCase() : '';
+  return `${defaultAssetIdFromFilename(stem || filename)}${extension}`;
+}
+
 export function normalizeAssetAlias(alias: string): string {
   return alias.trim().replace(/\s+/g, '-');
 }

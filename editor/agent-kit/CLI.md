@@ -9,6 +9,8 @@ Use `noveltea --help` for the installed command surface. The normal workflow is:
 
 Core semantic commands:
 
+- `noveltea asset audit`
+- `noveltea asset import <path>... [--dry-run]`
 - `noveltea entity create <collection> <id> [--dry-run]`
 - `noveltea entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]`
 - `noveltea entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]`

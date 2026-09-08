@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import {
   compiledProjectWireSchema,
+  serializeCompiledProjectWire,
   type CompiledProjectWire,
 } from '../../shared/project-schema/compiled-project';
 import {
@@ -22,11 +23,12 @@ import {
   sceneProgramGoldenProject,
 } from './fixtures/compiled-project-golden-projects';
 
-function golden(name: string): string {
-  return readFileSync(
+function goldenCanonicalJson(name: string): string {
+  const source = readFileSync(
     resolve('src/renderer/test/fixtures/compiled-project-golden', `${name}.json`),
     'utf8',
-  ).trimEnd();
+  );
+  return serializeCompiledProjectWire(JSON.parse(source));
 }
 
 function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWire {
@@ -43,7 +45,7 @@ function expectGolden(
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
   if (!result.ok) throw new Error('Golden project did not compile.');
-  expect(result.canonicalJson).toBe(golden(name));
+  expect(result.canonicalJson).toBe(goldenCanonicalJson(name));
   return result.project;
 }
 

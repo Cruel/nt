@@ -3546,7 +3546,7 @@ TEST_CASE("runtime Lua custom Layout mounts accept typed contract bindings and s
     REQUIRE(mounted->occurrence);
     CHECK(mounted->inputs.size() == 4);
     CHECK(mounted->connected_signals ==
-          std::vector<core::LayoutSignalId>{make_id<core::LayoutSignalIdTag>("confirm")});
+          std::vector<core::LayoutSignalId>{core::LayoutSignalId::create("confirm").value()});
     CHECK(std::ranges::any_of(mounted->inputs, [](const auto& input) {
         return input.input.text() == "count" &&
                std::holds_alternative<core::LayoutVariableBinding>(input.source);

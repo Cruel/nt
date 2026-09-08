@@ -242,6 +242,26 @@ describe('LayoutEditor', () => {
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setSystemLayout');
   });
 
+  it('prevents assigning the stateful document starter to a system role', async () => {
+    const project = createAuthoringProject();
+    project.layouts.main = {
+      id: 'main',
+      label: 'Stateful UI',
+      data: defaultLayoutData('Stateful UI', 'document'),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<LayoutEditor tab={tab} />);
+    expect(screen.getByRole('button', { name: 'Set as Title UI' })).toBeDisabled();
+    expect(
+      screen.getByText(/System layouts cannot declare custom inputs, signals, or state/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Stateful UI (main)' })).not.toBeInTheDocument();
+  });
+
   it('captures and restores tab state for scroll and local source draft', async () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };

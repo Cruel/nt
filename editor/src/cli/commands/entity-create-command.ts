@@ -12,7 +12,7 @@ export const entityCreateCommand: CliCommandDefinition = {
     const collection = requireAuthoringCollection(collectionValue!);
     if (collection === 'assets')
       throw new CliCommandUsageError(
-        "Generic Asset creation is not supported; add/import Asset source files directly and run 'noveltea validate'.",
+        "Generic Asset creation is not supported; use 'noveltea asset import <path>'.",
       );
     const dryRun = parsed.flags.has('--dry-run');
     return {

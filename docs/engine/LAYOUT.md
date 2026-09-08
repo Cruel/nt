@@ -164,8 +164,12 @@ The contract contains named scalar inputs, named semantic signals, and an option
 Shape. Input and signal-field types are `boolean`, `integer`, `number`, and `string`; declarations also
 state nullability, input defaults, and whether each signal field is required. State Shapes add arrays
 and strict objects recursively. A State Shape default must itself be a valid Persistable Value for the
-whole shape. Empty contracts are the implicit compiled default so existing Layouts do not acquire wire
-noise merely by being compiled.
+whole shape. Layout-local contract identifiers (input IDs, signal IDs, signal-field IDs, and object
+field IDs in State Shapes) begin with a lowercase letter and may use lowercase letters, numbers,
+hyphens, and underscores. This deliberately differs from project/domain entity IDs, which remain
+kebab-case only; script-facing names such as `saved_count` and `item_selected` are therefore valid.
+Empty contracts are the implicit compiled default so existing Layouts do not acquire wire noise merely
+by being compiled.
 
 Mount inputs are read-only. A Mount may supply an input from a literal value, a global Variable, an
 identity Property, or a standard engine facet. The current standard facets are runtime mode, current
@@ -320,7 +324,11 @@ interface LayoutDependencyData {
 
 ### Sample State
 
-`sampleState` is editor preview data injected for testing layout behavior. It must not be interpreted as saved runtime game state.
+`sampleState` is editor-only data used to seed a standalone Layout preview. `sampleState.inputs` supplies values for declared Mount Contract inputs, while `sampleState.state` seeds the preview's synthetic `session` Layout State Slot. Missing input samples use declared input defaults; inputs with neither a sample nor a default make focused preview invalid. Missing state uses the State Shape default when one exists.
+
+Focused Layout preview publishes a preview-only semantic Mount, so normal `Game.mount_context()` APIs work without a preview-specific Lua path. State commits and clears update an editor-local Slot that survives ordinary source/document rebuilds for the same Layout. Changing the State Shape or `sampleState.state`, clearing focused preview, or changing projects resets that preview Slot. Shape and seed changes take effect only when the candidate preview commits; rejected or superseded candidates leave the committed Slot untouched. The committed Mount, input route, and Slot are active before the document's `show` handlers run, so those handlers can commit or clear state. Each rebuilt document receives a fresh occurrence token. This state is never runtime save data.
+
+When an authored Layout is mounted inside focused Room preview, it uses that mount's semantic identity rather than standalone sample identity. Room overlays use the Layout Contract defaults and expose preview-local `room` and `session` State scopes through `Game.mount_context()`; standalone `sampleState` does not seed a Room mount. Ordinary rebuilds preserve state for the same Room/overlay identity, while removing or replacing that mount retires its preview state. Gameplay actions emitted by the Layout remain passive.
 
 ## References
 
@@ -344,19 +352,20 @@ Asset and material refs use the standard `$ref` collection/id shape.
 
 ## Defaults
 
-`defaultLayoutData()` creates a fragment layout by default. It includes:
+`defaultLayoutData()` still creates a fragment layout by default for shared/schema callers. The editor New Layout wizard selects the document starter by default. Shared defaults include:
 
-- sample RML fragment with a heading, paragraph, and button;
-- sample RCSS styling;
-- sample Lua click counter script;
+- sample RML with a heading and explanatory text;
+- sample RCSS styling with a click-through document body and interactive content panel;
 - script namespace `layout_preview`;
 - mount parent `nt-layout-preview-mount`;
 - target-derived UI/text scale inheritance;
 - empty dependency lists;
-- `sampleState.projectTitle` set to `NovelTea Layout`;
+- document `sampleState.state` seeded to `{ saved_count: 0 }` (fragment sample state is empty);
 - dark preview background.
 
-Document layout defaults include a full `<rml>`, `<head>`, and `<body>` wrapper.
+The document starter includes two counters. The Lua-global counter survives ordinary remounts only as frontend Lua state and is not serialized into NovelTea saves. The saved counter declares a Layout State Shape with `saved_count`, commits it in `session` scope through `Game.mount_context():commit_state(...)`, and reconstructs both button labels from current state in the document `show` lifecycle event. The same semantic Mount API works in focused Layout preview using its editor-local State Slot, while gameplay uses the runtime save-backed Slot.
+
+Explicit fragment defaults remain a simpler fragment-local click-counter example mounted into the internal preview host.
 
 ## Validation
 
@@ -395,6 +404,11 @@ At runtime, `RuntimeSystemLayouts` resolves each requested system role from the 
 When no project Layout is assigned, the engine uses a built-in fallback for title, game HUD,
 Command Builder, pause, save, load, settings, text log, and modal/confirmation. Debug overlay has no
 built-in fallback; projects that open it must assign a Layout.
+
+System roles use fixed engine contracts and cannot accept Layouts that declare custom inputs,
+signals, or a State Shape. Project Settings and the Layout editor offer only empty-contract Layouts
+for these roles. The stateful document starter is intended for custom Mounts; its Title UI assignment
+is disabled with guidance to remove its custom contract and update dependent Lua first.
 
 Authored and built-in system Layouts both mount through `RuntimeLayoutManager` with the same policy:
 

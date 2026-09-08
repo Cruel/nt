@@ -314,7 +314,11 @@ beforeEach(async () => {
   clearWorkbenchTabStates();
 
   const project = createAuthoringProject();
-  project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
+  project.layouts.main = {
+    id: 'main',
+    label: 'Main UI',
+    data: defaultLayoutData('Main UI', 'document'),
+  };
   project.rooms['room-a'] = { id: 'room-a', label: 'Room A', data: defaultRoomData('Room A') };
   useProjectStore.getState().loadProjectDocument({
     document: project,
@@ -355,6 +359,21 @@ describe('LayoutEditor persistent layout preview', () => {
         rml: expect.objectContaining({ kind: 'inline' }),
         rcss: expect.objectContaining({ kind: 'inline' }),
         lua: expect.objectContaining({ kind: 'inline' }),
+        contract: {
+          inputs: [],
+          signals: [],
+          state: expect.objectContaining({
+            type: 'object',
+            defaultValue: { saved_count: 0 },
+            fields: [
+              expect.objectContaining({
+                id: 'saved_count',
+                shape: expect.objectContaining({ type: 'integer' }),
+              }),
+            ],
+          }),
+        },
+        sampleState: { state: { saved_count: 0 } },
       }),
     });
     expect(payload?.revision).toEqual(expect.any(String));

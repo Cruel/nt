@@ -126,9 +126,13 @@ The exact cross-language decoder inputs live under
 - `interaction-program.json`.
 
 They are generated only through `compileAuthoringProject` by running
-`pnpm goldens:compiled-project` in `editor/`. Tests require byte-identical regeneration and verify that
-the corpus collectively covers the closed Scene, Dialogue, Interaction, text, condition, effect,
-flow-target, resource-source, location, matching, variable, property, and persistence vocabulary.
+`pnpm goldens:compiled-project` in `editor/`. The checked-in files are pretty-printed solely for
+repository review, diff, and blame quality. Tests parse them and reserialize them through
+`serializeCompiledProjectWire` before comparing against fresh compiler output, so the compact
+canonical runtime bytes remain the asserted contract while fixture whitespace is intentionally not
+part of it. The corpus collectively covers the closed Scene, Dialogue, Interaction, text, condition,
+effect, flow-target, resource-source, location, matching, variable, property, and persistence
+vocabulary.
 
 `decode_compiled_project` is the public native gameplay boundary. It consumes all seven
 canonical documents through strict internal DTOs, reuses the native strong-ID and closed primitive

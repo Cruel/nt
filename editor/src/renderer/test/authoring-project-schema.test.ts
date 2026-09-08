@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
+import { isValidLayoutContractId } from '../../shared/project-schema/authoring-common';
 import {
   createAuthoringProject,
   isAuthoringProject,
@@ -56,11 +57,17 @@ describe('authoring project schema', () => {
     ).toBe(false);
   });
 
-  it('validates entity id syntax', () => {
+  it('keeps entity IDs kebab-only while Layout contract IDs also allow snake_case', () => {
     expect(isValidEntityId('valid-id-2')).toBe(true);
     expect(isValidEntityId('2-bad')).toBe(false);
     expect(isValidEntityId('bad_id')).toBe(false);
     expect(isValidEntityId('bad/id')).toBe(false);
+
+    expect(isValidLayoutContractId('saved_count')).toBe(true);
+    expect(isValidLayoutContractId('saved-count')).toBe(true);
+    expect(isValidLayoutContractId('saved_count-2')).toBe(true);
+    expect(isValidLayoutContractId('Saved_count')).toBe(false);
+    expect(isValidLayoutContractId('saved__count')).toBe(false);
   });
 
   it('normalizes missing editor state and strips editor metadata', () => {

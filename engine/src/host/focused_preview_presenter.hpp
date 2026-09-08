@@ -76,6 +76,7 @@ public:
     [[nodiscard]] bool apply(core::editor::FocusedEditorDocumentRequest request);
     void update();
     void clear() noexcept;
+    void route_captured_runtime_input(core::RuntimeInputMessage input);
 
     [[nodiscard]] const FocusedContentOwnerState& committed_owner() const noexcept
     {
@@ -132,6 +133,8 @@ private:
 
         [[nodiscard]] bool submit_gameplay_input(core::RuntimeInputMessage input) override
         {
+            if (m_owner.submit_focused_preview_input(input))
+                return true;
             baseline.push_back(std::move(input));
             return false;
         }
@@ -167,6 +170,7 @@ private:
     void commit_non_room_candidate(assets::StructuredAssetLeaseSet leases);
     [[nodiscard]] bool dispatch_layout_event(core::MountedLayoutOwner owner,
                                              const std::function<bool()>& dispatch);
+    [[nodiscard]] bool submit_focused_preview_input(const core::RuntimeInputMessage& input);
 
     Dependencies m_dependencies;
     assets::MandatoryPublicationScope m_publication_scope;

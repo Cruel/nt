@@ -169,10 +169,14 @@ and the native display environment.
 
 The native `FocusedPreviewPresenter` prepares typed asset leases, an isolated Lua environment,
 focused query capabilities, Layout realizations, RuntimeUI values, passive input, and a complete
-`RuntimePresentationSnapshot`. World, Layout, UI, environment, and resource ownership commit as one
-focused-owner swap. A failed or superseded candidate releases its temporary state and cannot disturb
-the prior same-root visual. Room-to-Room and Room-to-Layout/Shader changes use the same pooled-host
-generation and freshness rules as other focused previews.
+`RuntimePresentationSnapshot`. Mounted authored Layouts receive their normal Mount Contract in the
+Room preview. Room overlays use Room-owned semantic Mount identity with preview-local `room` and
+`session` Layout State; state commits survive ordinary same-overlay preview rebuilds without becoming
+runtime save state. Gameplay actions emitted by Layout Lua remain passive in focused preview. World,
+Layout, UI, environment, and resource ownership commit as one focused-owner swap. A failed or
+superseded candidate releases its temporary state and cannot disturb the prior same-root visual.
+Room-to-Room and Room-to-Layout/Shader changes use the same pooled-host generation and freshness rules
+as other focused previews.
 
 The Room editor presents exit destinations through the shared searchable record selector filtered to
 Rooms, so large projects can find targets by room name, ID, or tag without rendering every Room in a

@@ -108,11 +108,19 @@ public:
         const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts);
     [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
         const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+        const core::RoomId& focused_room);
+    [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
+        const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
         script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
         const runtime::RuntimeCapabilitySet& capabilities);
+    [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
+        const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+        script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
+        const runtime::RuntimeCapabilitySet& capabilities, const core::RoomId& focused_room);
     void commit_focused_preview() noexcept;
     void rollback_focused_preview() noexcept;
     void clear_focused_preview() noexcept;
+    [[nodiscard]] bool submit_focused_preview_input(const core::RuntimeInputMessage& input);
     [[nodiscard]] static constexpr std::string_view authored_preview_document_id() noexcept
     {
         return "editor_authored_layout_preview";
@@ -170,14 +178,22 @@ private:
         bool load_required = false;
     };
 
+    struct FocusedPreviewStateSlot {
+        std::string layout_id;
+        core::LayoutStateShape shape;
+        std::optional<core::PersistableValue> seed;
+        std::vector<core::PresentationLayoutStateValue> values;
+    };
+
     using RealizedMap = std::unordered_map<std::uint64_t, RealizedLayout>;
+    using FocusedMountMap = std::unordered_map<std::string, presentation::RuntimeMountedLayout>;
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile(std::vector<presentation::RuntimeMountedLayout> desired, bool recreate);
     [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview_impl(
         const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
         script::ScriptRuntime* scripts, script::ScriptEnvironmentHandle environment,
-        const runtime::RuntimeCapabilitySet* capabilities);
+        const runtime::RuntimeCapabilitySet* capabilities, const core::RoomId* focused_room);
     [[nodiscard]] core::Result<PreparedSource, core::Diagnostics>
     prepare_source(const presentation::RuntimeMountedLayout& desired) const;
     [[nodiscard]] core::Result<core::LayoutScalePolicy, core::Diagnostics>
@@ -217,6 +233,15 @@ private:
     RealizedMap m_realized;
     std::vector<std::string> m_focused_committed_documents;
     std::vector<std::string> m_focused_candidate_documents;
+    std::unordered_map<std::string, core::LayoutVisibility> m_focused_committed_visibility;
+    std::unordered_map<std::string, core::LayoutVisibility> m_focused_candidate_visibility;
+    FocusedMountMap m_focused_committed_mounts;
+    FocusedMountMap m_focused_candidate_mounts;
+    std::unordered_map<std::string, core::LayoutContract> m_focused_committed_contracts;
+    std::unordered_map<std::string, core::LayoutContract> m_focused_candidate_contracts;
+    std::unordered_map<std::string, FocusedPreviewStateSlot> m_focused_preview_state;
+    std::unordered_map<std::string, std::optional<FocusedPreviewStateSlot>>
+        m_focused_candidate_state;
     std::uint64_t m_focused_candidate_generation = 0;
     bool m_require_resident_font_leases = true;
 };
