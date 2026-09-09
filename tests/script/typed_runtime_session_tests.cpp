@@ -1136,7 +1136,7 @@ TEST_CASE("failed Room recomposition republishes diagnostics with the prior comp
                                                      {"scope", "global"}}});
     document["definitions"]["rooms"][0]["description"] = {
         {"markup", "plain"},
-        {"source", {{"kind", "lua-expression"}, {"source", "room_description()"}}}};
+        {"source", {{"kind", "lua-expression"}, {"source", "return room_description()"}}}};
     auto project = decode_document(std::move(document), "room-recomposition-failure.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;

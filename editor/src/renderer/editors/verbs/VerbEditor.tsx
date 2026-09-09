@@ -42,7 +42,7 @@ function TextContentEditor({
       >
         <SelectItem value="inline">Inline</SelectItem>
         <SelectItem value="localized">Localized key</SelectItem>
-        <SelectItem value="lua-expression">Lua expression</SelectItem>
+        <SelectItem value="lua-expression">Lua string</SelectItem>
       </Select>
       <Input
         value={

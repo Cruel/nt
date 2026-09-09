@@ -68,7 +68,7 @@ void certify_text(core::Diagnostics& diagnostics, ScriptCertificationPort& scrip
                   const core::TextContent& text, const std::string& path)
 {
     if (const auto* lua = std::get_if<core::LuaTextExpression>(&text.source))
-        certify_chunk(diagnostics, scripts, lua->source, path, true);
+        certify_chunk(diagnostics, scripts, lua->source, path);
 }
 
 void certify_gameplay_commands(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,

@@ -708,7 +708,10 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       id: 'key-placement',
       bounds: { x: 0.1, y: 0.2, width: 0.2, height: 0.2 },
       presentation: {
-        label: { markup: 'plain', source: { kind: 'lua-expression', source: 'key_label()' } },
+        label: {
+          markup: 'plain',
+          source: { kind: 'lua-expression', source: 'return key_label()' },
+        },
         layout: roomLayoutRef('hud-inline'),
       },
     },
@@ -804,7 +807,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   };
   hall.description = {
     markup: 'plain',
-    source: { kind: 'lua-expression', source: 'hall_description()' },
+    source: { kind: 'lua-expression', source: 'return hall_description()' },
   };
   hall.overlays = [
     {
@@ -1175,7 +1178,10 @@ export function sceneProgramGoldenProject(): AuthoringProject {
     {
       ...defaultSceneStep('show-text'),
       id: 'lua-text',
-      text: { markup: 'plain', source: { kind: 'lua-expression', source: 'dynamic_line()' } },
+      text: {
+        markup: 'plain',
+        source: { kind: 'lua-expression', source: 'return dynamic_line()' },
+      },
       wait: 'input',
     },
     {
@@ -1276,7 +1282,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
           id: 'transition-option',
           label: {
             markup: 'plain',
-            source: { kind: 'lua-expression', source: 'transition_label()' },
+            source: { kind: 'lua-expression', source: 'return transition_label()' },
           },
           condition: { kind: 'lua-predicate', source: 'can_transition()' },
           effects: [{ id: 'prepare-transition', kind: 'run-lua', source: 'prepare_transition()' }],
@@ -1575,7 +1581,10 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
         },
         {
           ...defaultDialogueSegment('line', 'lua-line'),
-          text: { markup: 'plain', source: { kind: 'lua-expression', source: 'dialogue_line()' } },
+          text: {
+            markup: 'plain',
+            source: { kind: 'lua-expression', source: 'return dialogue_line()' },
+          },
           condition: { kind: 'lua-predicate', source: 'show_lua_line()' },
         },
         {
@@ -1631,7 +1640,7 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
       toBlockId: 'final',
       label: {
         markup: 'plain',
-        source: { kind: 'lua-expression', source: 'final_choice_label()' },
+        source: { kind: 'lua-expression', source: 'return final_choice_label()' },
       },
       condition: { kind: 'lua-predicate', source: 'can_finish_dialogue()' },
       effects: [{ id: 'choice-final-effect', kind: 'run-lua', source: 'finish_dialogue()' }],

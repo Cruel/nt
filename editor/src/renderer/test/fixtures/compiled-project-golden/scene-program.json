@@ -610,7 +610,7 @@
           "markup": "plain",
           "source": {
             "kind": "lua-expression",
-            "source": "hall_description()"
+            "source": "return hall_description()"
           }
         },
         "displayName": "Hall",
@@ -918,7 +918,7 @@
                 "markup": "plain",
                 "source": {
                   "kind": "lua-expression",
-                  "source": "key_label()"
+                  "source": "return key_label()"
                 }
               },
               "layout": {
@@ -1467,7 +1467,7 @@
                   "markup": "plain",
                   "source": {
                     "kind": "lua-expression",
-                    "source": "dynamic_line()"
+                    "source": "return dynamic_line()"
                   }
                 },
                 "wait": "input"
@@ -1671,7 +1671,7 @@
                       "markup": "plain",
                       "source": {
                         "kind": "lua-expression",
-                        "source": "transition_label()"
+                        "source": "return transition_label()"
                       }
                     },
                     "targetInstructionId": "transition"
@@ -3929,7 +3929,7 @@
       }
     ]
   },
-  "saveContract": "sc1:12e3339c49467f9e63dea9ec23f771ea",
+  "saveContract": "sc1:c9c03fbc3b3fda56d5efd54c186b6f72",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

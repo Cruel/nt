@@ -1417,6 +1417,14 @@ void ScriptRuntime::restore_environment(int previous_reference) noexcept
 }
 
 namespace {
+std::string string_chunk_expression(std::string_view source)
+{
+    std::string expression = "(function()\n";
+    expression += source;
+    expression += "\nend)()";
+    return expression;
+}
+
 template<class RuntimeImpl>
 core::Result<ScriptValue, ScriptError>
 run_in_environment(RuntimeImpl& impl, ScriptEnvironmentHandle environment, std::string_view source,
@@ -1548,8 +1556,8 @@ ScriptRuntime::invoke_in_environment(ScriptEnvironmentHandle environment,
                      : Result::failure(std::move(value).error());
     }
     if (request.result_kind == runtime::ScriptInvocationResultKind::String) {
-        auto value =
-            evaluate_string_in_environment(environment, request.source, request.chunk_name);
+        const auto expression = string_chunk_expression(request.source);
+        auto value = evaluate_string_in_environment(environment, expression, request.chunk_name);
         return value ? Result::success(runtime::ScriptInvocationCompleted{*value.value_if()})
                      : Result::failure(std::move(value).error());
     }
@@ -1624,7 +1632,8 @@ ScriptRuntime::invoke(const runtime::ScriptInvocationRequest& request,
                      : Result::failure(std::move(result).error());
     }
     case runtime::ScriptInvocationResultKind::String: {
-        auto result = evaluate_string(request.source, request.chunk_name);
+        const auto expression = string_chunk_expression(request.source);
+        auto result = evaluate_string(expression, request.chunk_name);
         const auto* value = result.value_if();
         return value ? Result::success(runtime::ScriptInvocationCompleted{*value})
                      : Result::failure(std::move(result).error());

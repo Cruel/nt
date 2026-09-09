@@ -81,7 +81,7 @@ exact Dialogue Flow invocation, so transient playback cannot outlive the convers
 it. Camera cues intentionally expose only short shake/punch/flash emphasis; multi-stage camera
 choreography remains Scene work.
 
-Text source is Inline, Localized key, or synchronous Lua expression; markup is Plain or ActiveText.
+Text source is Inline, Localized key, or Lua string; markup is Plain or ActiveText. A Lua string is a synchronous Lua chunk that must return a string, so it may use locals and control flow before its final `return`.
 Show-once state is keyed by Dialogue ID plus Segment ID.
 
 A Choice edge contains typed label text, an optional Condition, an ordered shared Gameplay Command

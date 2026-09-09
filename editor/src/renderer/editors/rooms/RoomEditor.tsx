@@ -303,39 +303,59 @@ function TextContentEditor({
       : value.source.kind === 'localized'
         ? value.source.key
         : value.source.source;
+  const sourceKindLabel =
+    value.source.kind === 'localized'
+      ? 'Localized key'
+      : value.source.kind === 'lua-expression'
+        ? 'Lua string'
+        : 'Inline';
+  const markupLabel = value.markup === 'active-text' ? 'ActiveText' : 'Plain';
   return (
     <div className="space-y-2">
-      <div className="grid gap-2 @3xl:grid-cols-[160px_140px_1fr]">
-        <Select
-          value={value.source.kind}
-          onValueChange={(kind) => {
-            const source =
-              kind === 'localized'
-                ? { kind: 'localized' as const, key: 'text-key' }
-                : kind === 'lua-expression'
-                  ? {
-                      kind: 'lua-expression' as const,
-                      source: 'return ""',
-                      additionalDependencies: { targets: [] },
-                    }
-                  : { kind: 'inline' as const, text: '' };
-            onChange({ ...value, source });
-          }}
-        >
-          <SelectItem value="inline">Inline</SelectItem>
-          <SelectItem value="localized">Localized key</SelectItem>
-          <SelectItem value="lua-expression">Lua expression</SelectItem>
-        </Select>
-        <Select
-          value={value.markup}
-          onValueChange={(markup) =>
-            onChange({ ...value, markup: markup as TextContent['markup'] })
-          }
-        >
-          <SelectItem value="active-text">ActiveText</SelectItem>
-          <SelectItem value="plain">Plain</SelectItem>
-        </Select>
-        <Input
+      <div className="grid min-w-0 gap-2 @3xl:grid-cols-[9rem_minmax(0,1fr)]">
+        <div className="grid gap-2">
+          <Select
+            value={value.source.kind}
+            onValueChange={(kind) => {
+              const source =
+                kind === 'localized'
+                  ? { kind: 'localized' as const, key: 'text-key' }
+                  : kind === 'lua-expression'
+                    ? {
+                        kind: 'lua-expression' as const,
+                        source: 'return ""',
+                        additionalDependencies: { targets: [] },
+                      }
+                    : { kind: 'inline' as const, text: '' };
+              onChange({ ...value, source });
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue>{sourceKindLabel}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inline">Inline</SelectItem>
+              <SelectItem value="localized">Localized key</SelectItem>
+              <SelectItem value="lua-expression">Lua string</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={value.markup}
+            onValueChange={(markup) =>
+              onChange({ ...value, markup: markup as TextContent['markup'] })
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue>{markupLabel}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active-text">ActiveText</SelectItem>
+              <SelectItem value="plain">Plain</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <textarea
+          className="min-h-16 w-full resize-y rounded-md border border-input bg-input/20 px-2 py-1.5 text-xs/relaxed outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
           value={sourceValue}
           onChange={(event) => {
             const nextValue = event.currentTarget.value;
@@ -1190,17 +1210,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         header={<h2 className="truncate text-lg font-semibold">{activeRoomCategory.label}</h2>}
       >
         {activeCategory === 'general' ? (
-          <section className="space-y-3" data-workbench-anchor="room.summary">
-            <div>
-              <GameplayArchetypeControls
-                project={project}
-                collection="rooms"
-                entityId={roomId}
-                record={record}
-                kind="room"
-              />
-            </div>
-            <div className="grid gap-3 @3xl:grid-cols-2">
+          <section className="space-y-5" data-workbench-anchor="room.summary">
+            <div className="grid gap-4 @5xl:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Display name</Label>
                 <Input
@@ -1210,146 +1221,170 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   }
                 />
               </div>
-              <div data-workbench-anchor="room.description" className="space-y-1.5 @3xl:col-span-2">
-                <Label>Description</Label>
-                <TextContentEditor
-                  value={data.description}
-                  onChange={(description) =>
-                    commit({ ...data, description }, 'Update room description')
-                  }
-                />
-              </div>
+              <GameplayArchetypeControls
+                project={project}
+                collection="rooms"
+                entityId={roomId}
+                record={record}
+                kind="room"
+                compact
+              />
             </div>
-            <div
-              data-workbench-anchor="room.background"
-              className="grid gap-3 border-t pt-3 @3xl:grid-cols-3"
-            >
-              <div className="space-y-1.5 @3xl:col-span-3">
-                <Label>Background image</Label>
-                <div className="flex min-h-16 items-stretch overflow-hidden rounded-lg border bg-background">
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center gap-3 p-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                    onClick={() => setBackgroundSelectorOpen(true)}
-                  >
-                    {selectedBackgroundItem?.preview?.kind === 'image' ? (
-                      <AssetImageThumbnail
-                        label={selectedBackgroundItem.preview.label}
-                        source={selectedBackgroundItem.preview.source}
-                        request={{ profile: 'wide' }}
-                        requestMode="eager"
-                        className="h-12 w-20"
-                      />
-                    ) : (
-                      <span className="flex h-12 w-20 shrink-0 items-center justify-center rounded border border-dashed bg-muted/20">
-                        <Image className="size-5 text-muted-foreground" aria-hidden="true" />
-                      </span>
-                    )}
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {selectedBackgroundItem?.title ?? 'Choose an image'}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {selectedBackgroundItem?.entityId ??
-                          `${imageAssetItems.length} image${imageAssetItems.length === 1 ? '' : 's'} available`}
-                      </span>
-                    </span>
-                  </button>
-                  {data.background.asset ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-auto rounded-none border-l px-3"
-                      onClick={() =>
-                        commit(
-                          { ...data, background: { ...data.background, asset: null } },
-                          'Clear room background',
-                        )
-                      }
-                    >
-                      Clear
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Material</Label>
-                <Select
-                  value={refValue(data.background.material)}
-                  onValueChange={(value) =>
-                    commit(
-                      {
-                        ...data,
-                        background: {
-                          ...data.background,
-                          material: value === '__none__' ? null : roomMaterialRef(String(value)),
-                        },
-                      },
-                      'Update room material',
-                    )
-                  }
-                >
-                  <SelectItem value="__none__">No material</SelectItem>
-                  {materials.map((material) => (
-                    <SelectItem key={material.id} value={material.id}>
-                      {material.label}
-                    </SelectItem>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Image fit</Label>
-                <div
-                  className="grid grid-cols-4 overflow-hidden rounded-md border bg-input/20"
-                  role="group"
-                  aria-label="Image fit"
-                >
-                  {roomBackgroundFitValues.map((fit) => {
-                    const selected = data.background.fit === fit;
-                    return (
+            <div data-workbench-anchor="room.description" className="space-y-1.5">
+              <Label>Description</Label>
+              <TextContentEditor
+                value={data.description}
+                onChange={(description) =>
+                  commit({ ...data, description }, 'Update room description')
+                }
+              />
+            </div>
+            <div data-workbench-anchor="room.background" className="space-y-3">
+              <EditorSectionHeading title="Background" />
+              <div className="grid items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_400px]">
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label>Image</Label>
+                    <div className="flex min-h-14 items-stretch overflow-hidden rounded-lg border bg-background">
                       <button
-                        key={fit}
                         type="button"
-                        aria-label={backgroundFitLabels[fit]}
-                        aria-pressed={selected}
-                        className="flex min-h-20 items-center justify-center border-r px-1.5 py-2 text-muted-foreground transition-colors last:border-r-0 hover:bg-muted/50 hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 aria-pressed:bg-accent aria-pressed:text-accent-foreground"
-                        onClick={() =>
+                        className="flex min-w-0 flex-1 items-center gap-3 p-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                        onClick={() => setBackgroundSelectorOpen(true)}
+                      >
+                        {selectedBackgroundItem?.preview?.kind === 'image' ? (
+                          <AssetImageThumbnail
+                            label={selectedBackgroundItem.preview.label}
+                            source={selectedBackgroundItem.preview.source}
+                            request={{ profile: 'wide' }}
+                            requestMode="eager"
+                            className="h-10 w-16"
+                          />
+                        ) : (
+                          <span className="flex h-10 w-16 shrink-0 items-center justify-center rounded border border-dashed bg-muted/20">
+                            <Image className="size-5 text-muted-foreground" aria-hidden="true" />
+                          </span>
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">
+                            {selectedBackgroundItem?.title ?? 'Choose an image'}
+                          </span>
+                          {selectedBackgroundItem?.entityId &&
+                          selectedBackgroundItem.entityId !== selectedBackgroundItem.title ? (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {selectedBackgroundItem.entityId}
+                            </span>
+                          ) : !selectedBackgroundItem ? (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {`${imageAssetItems.length} image${imageAssetItems.length === 1 ? '' : 's'} available`}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                      {data.background.asset ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-auto rounded-none border-l px-3"
+                          onClick={() =>
+                            commit(
+                              { ...data, background: { ...data.background, asset: null } },
+                              'Clear room background',
+                            )
+                          }
+                        >
+                          Clear
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 @3xl:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label>Material</Label>
+                      <Select
+                        value={refValue(data.background.material)}
+                        onValueChange={(value) =>
                           commit(
                             {
                               ...data,
                               background: {
                                 ...data.background,
-                                fit,
+                                material:
+                                  value === '__none__' ? null : roomMaterialRef(String(value)),
                               },
                             },
-                            'Update room background fit',
+                            'Update room material',
                           )
                         }
                       >
-                        <BackgroundFitOption fit={fit} />
-                      </button>
-                    );
-                  })}
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">No material</SelectItem>
+                          {materials.map((material) => (
+                            <SelectItem key={material.id} value={material.id}>
+                              {material.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Fallback color</Label>
+                      <ColorField
+                        value={data.background.color}
+                        ariaLabel="Fallback color"
+                        onValueChange={(color) =>
+                          commit(
+                            {
+                              ...data,
+                              background: {
+                                ...data.background,
+                                color,
+                              },
+                            },
+                            'Update room background color',
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Fallback color</Label>
-                <ColorField
-                  value={data.background.color}
-                  ariaLabel="Fallback color"
-                  onValueChange={(color) =>
-                    commit(
-                      {
-                        ...data,
-                        background: {
-                          ...data.background,
-                          color,
-                        },
-                      },
-                      'Update room background color',
-                    )
-                  }
-                />
+                <div className="space-y-1.5">
+                  <Label>Image fit</Label>
+                  <div
+                    className="grid grid-cols-4 overflow-hidden rounded-md border bg-input/20"
+                    role="group"
+                    aria-label="Image fit"
+                  >
+                    {roomBackgroundFitValues.map((fit) => {
+                      const selected = data.background.fit === fit;
+                      return (
+                        <button
+                          key={fit}
+                          type="button"
+                          aria-label={backgroundFitLabels[fit]}
+                          aria-pressed={selected}
+                          className="flex min-h-20 items-center justify-center border-r px-1.5 py-2 text-muted-foreground transition-colors last:border-r-0 hover:bg-muted/50 hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 aria-pressed:bg-accent aria-pressed:text-accent-foreground"
+                          onClick={() =>
+                            commit(
+                              {
+                                ...data,
+                                background: {
+                                  ...data.background,
+                                  fit,
+                                },
+                              },
+                              'Update room background fit',
+                            )
+                          }
+                        >
+                          <BackgroundFitOption fit={fit} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           </section>

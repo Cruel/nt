@@ -22,12 +22,14 @@ export function GameplayArchetypeControls({
   entityId,
   record,
   kind,
+  compact = false,
 }: {
   project: AuthoringProject;
   collection: GameplayInstanceCollection;
   entityId: string;
   record: AuthoringRecordBase;
   kind: GameplayInstanceKind;
+  compact?: boolean;
 }) {
   const { t } = useTranslation('workspace');
   const [selectorOpen, setSelectorOpen] = useState(false);
@@ -56,32 +58,47 @@ export function GameplayArchetypeControls({
     });
 
   return (
-    <div className="space-y-2 rounded-md border p-3">
+    <div className={compact ? 'space-y-1.5' : 'space-y-2 rounded-md border p-3'}>
       <div className="flex items-end gap-2">
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className={compact ? 'min-w-0 max-w-sm flex-1 space-y-1' : 'min-w-0 flex-1 space-y-1'}>
           <Label>Archetype</Label>
           <div className="flex overflow-hidden rounded-md border bg-background">
             <Button
               type="button"
               variant="ghost"
-              className="h-auto min-w-0 flex-1 justify-start rounded-none px-3 py-2 text-left"
+              className={
+                compact
+                  ? 'h-7 min-w-0 flex-1 justify-start rounded-none px-2 py-1 text-left text-xs'
+                  : 'h-auto min-w-0 flex-1 justify-start rounded-none px-3 py-2 text-left'
+              }
               onClick={() => setSelectorOpen(true)}
             >
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">
+                <span className={compact ? 'block truncate' : 'block truncate text-sm font-medium'}>
                   {selectedItem?.title ?? 'Choose archetype'}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {selectedItem?.entityId ??
-                    `${archetypeItems.length} compatible archetypes available`}
-                </span>
+                {!compact &&
+                selectedItem?.entityId &&
+                selectedItem.entityId !== selectedItem.title ? (
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {selectedItem.entityId}
+                  </span>
+                ) : !compact && !selectedItem ? (
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {`${archetypeItems.length} compatible archetypes available`}
+                  </span>
+                ) : null}
               </span>
             </Button>
             {attached ? (
               <Button
                 type="button"
                 variant="ghost"
-                className="h-auto rounded-none border-l px-3"
+                className={
+                  compact
+                    ? 'h-7 rounded-none border-l px-2 text-xs'
+                    : 'h-auto rounded-none border-l px-3'
+                }
                 onClick={() =>
                   void execute('gameplay-instance.setArchetype', 'Detach Archetype', {
                     collection,
@@ -95,11 +112,10 @@ export function GameplayArchetypeControls({
             ) : null}
           </div>
         </div>
-        {record.archetype ? (
+        {record.archetype && overrideCount > 0 ? (
           <Button
             type="button"
             variant="outline"
-            disabled={overrideCount === 0}
             onClick={() =>
               void execute(
                 'gameplay-instance.clearArchetypeOverrides',
@@ -115,17 +131,19 @@ export function GameplayArchetypeControls({
           </Button>
         ) : null}
       </div>
-      {record.archetype ? (
-        <p className="text-xs text-muted-foreground">
-          {overrideCount === 0
-            ? 'Using the Archetype configuration directly. Detaching materializes the current effective values.'
-            : `${overrideCount} authored override${overrideCount === 1 ? '' : 's'}. Resetting reveals the Archetype values.`}
-        </p>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          Attach one same-kind Archetype to reuse immutable configuration.
-        </p>
-      )}
+      {!compact ? (
+        record.archetype ? (
+          <p className="text-xs text-muted-foreground">
+            {overrideCount === 0
+              ? 'Using the Archetype configuration directly. Detaching materializes the current effective values.'
+              : `${overrideCount} authored override${overrideCount === 1 ? '' : 's'}. Resetting reveals the Archetype values.`}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Attach one same-kind Archetype to reuse immutable configuration.
+          </p>
+        )
+      ) : null}
       <SearchSelectorDialog
         open={selectorOpen}
         title={`Choose ${kind} Archetype`}
