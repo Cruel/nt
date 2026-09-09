@@ -173,6 +173,73 @@ describe('graph-driven Room builder', () => {
     });
   });
 
+  it('admits Interactable definitions separately from Room instance identities', async () => {
+    const project = fixture();
+    project.assets.masha = {
+      id: 'masha',
+      label: 'Masha sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/masha.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 3,
+        contentHash: `sha256:${'b'.repeat(64)}`,
+        imageMetadata: { width: 128, height: 256, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const masha = defaultInteractableData('Masha');
+    masha.presentation.sprite = { $ref: { collection: 'assets', id: 'masha' } };
+    masha.presentation.hotspots = {
+      kind: 'sprite-alpha',
+      hotspot: {
+        id: 'primary',
+        label: 'Masha',
+        condition: { kind: 'always' },
+        inputOrder: 0,
+        highlight: { kind: 'default' },
+        target: { kind: 'owner' },
+      },
+    };
+    project.interactables.masha = { id: 'masha', label: 'Masha', data: masha };
+    project.interactableInstances['masha-4'] = defaultInteractableInstanceData('masha-4', 'masha', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'bedroom' } },
+    });
+    project.rooms.bedroom!.data.interactables[0]!.id = 'z-key';
+    project.rooms.bedroom!.data.interactables.push({
+      id: 'masha-4',
+      interactable: { $ref: { registry: 'interactableInstances', id: 'masha-4' } },
+      condition: { kind: 'always' },
+      placementId: 'door',
+      visible: true,
+      order: 1,
+    });
+
+    const result = await build(project);
+    expect(result.data.world.interactables.map((item) => item.occurrenceId)).toEqual([
+      'masha-4',
+      'z-key',
+    ]);
+    expect(result.data.world.interactables.map((item) => item.order)).toEqual([1, 0]);
+    expect(result.data.luaAdmission.definitions).toContainEqual({
+      collection: 'interactables',
+      id: 'masha',
+    });
+    expect(result.data.luaAdmission.definitions).not.toContainEqual({
+      collection: 'interactables',
+      id: 'masha-4',
+    });
+    expect(result.data.luaAdmission.interactableLocationIds).toContain('masha-4');
+    expect(result.data.queryState.interactableLocations).toContainEqual({
+      interactableId: 'masha-4',
+      location: project.interactableInstances['masha-4']!.location,
+    });
+    expect(result.resources).toContainEqual(
+      expect.objectContaining({ resourceId: 'asset:masha', retainAlphaCoverage: true }),
+    );
+  });
+
   it('separates semantic Room presence from Character placement and Interactable occurrences', async () => {
     const result = await build();
     expect(result.data.room).toMatchObject({

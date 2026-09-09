@@ -19,6 +19,12 @@ import {
 import { ownerLocalPropertyReferences } from '@/project/owner-local-property-references';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import {
+  buildArchetypeDetailTabForRecord,
+  buildInteractableDetailTabForRecord,
+  buildTraitsEditorTab,
+} from '@/workbench/editor-registry';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { OwnerDefaultPropertiesEditor } from './OwnerDefaultPropertiesEditor';
 import { PropertyManager, type PropertyManagerRow } from './PropertyManager';
 import {
@@ -27,6 +33,55 @@ import {
   typedPropertyValueFromDraft,
   type TypedPropertyDraft,
 } from './TypedPropertyFields';
+
+function propertyOriginActions(
+  project: AuthoringProject,
+  instance: InteractableInstanceData,
+  source: 'definition' | 'archetype' | 'trait' | 'feature',
+  traitIds: readonly string[],
+): NonNullable<PropertyManagerRow['originActions']> {
+  const actions: Array<NonNullable<PropertyManagerRow['originActions']>[number]> = [];
+  for (const traitId of new Set(traitIds)) {
+    const trait = project.traits[traitId];
+    actions.push({
+      label: `Open source Trait '${trait?.label ?? traitId}'`,
+      onClick: () =>
+        navigateToWorkbenchTarget({
+          tab: buildTraitsEditorTab(),
+          target: { id: `trait.${traitId}`, block: 'center', flash: true },
+        }),
+    });
+  }
+  if (source === 'trait') return actions;
+  if (source === 'archetype') {
+    const definition = project.interactables[instance.definition.$ref.id];
+    const archetypeId = definition?.archetype?.$ref.id;
+    if (!archetypeId) return actions;
+    actions.push({
+      label: `Open source Archetype '${project.archetypes[archetypeId]?.label ?? archetypeId}'`,
+      onClick: () =>
+        navigateToWorkbenchTarget({
+          tab: buildArchetypeDetailTabForRecord(
+            archetypeId,
+            project.archetypes[archetypeId]?.label ?? archetypeId,
+          ),
+        }),
+    });
+    return actions;
+  }
+  const definitionId = instance.definition.$ref.id;
+  actions.push({
+    label: `Open source Interactable '${project.interactables[definitionId]?.label ?? definitionId}'`,
+    onClick: () =>
+      navigateToWorkbenchTarget({
+        tab: buildInteractableDetailTabForRecord(
+          definitionId,
+          project.interactables[definitionId]?.label ?? definitionId,
+        ),
+      }),
+  });
+  return actions;
+}
 
 function traitChoices(project: AuthoringProject, attached: readonly string[]) {
   return Object.entries(project.traits)
@@ -159,9 +214,12 @@ export function InteractableInstancePropertiesEditor({
           editMode: row.localOnly ? 'schema' : 'value',
           resettable: hasOverride,
           deletable: row.localOnly,
+          originActions: row.localOnly
+            ? undefined
+            : propertyOriginActions(project, instance, row.source, row.traitIds),
         };
       }),
-    [effectiveRows, project.editor.recordMetadata.traits, project.traits, usagesById],
+    [effectiveRows, instance, project, usagesById],
   );
 
   const withTraitSet = (traitIds: readonly string[]): InteractableInstanceData['traits'] => ({
@@ -372,8 +430,9 @@ export function InteractableInstanceFeatureOverridesEditor({
         editMode: 'value',
         resettable: row.overridden,
         deletable: false,
+        originActions: propertyOriginActions(project, instance, row.source, row.traitIds),
       })),
-    [effectiveRows, project.editor.recordMetadata.traits, project.traits],
+    [effectiveRows, instance, project],
   );
 
   const commitOverride = (

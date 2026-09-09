@@ -10,6 +10,7 @@ import {
   type TraitProperty,
 } from '../../../shared/project-schema/authoring-properties';
 import { PropertyManager, type PropertyManagerRow } from './PropertyManager';
+import { traitPropertyOriginActions } from './property-origin-navigation';
 import type { InheritedDefaultProperty } from './OwnerDefaultPropertiesEditor';
 import {
   newTypedPropertyDraft,
@@ -171,6 +172,10 @@ export function OwnerLocalPropertiesEditor({
         })),
         editMode: 'value' as const,
         resettable: !!local,
+        originActions: traitPropertyOriginActions(
+          sources.map((source) => source.traitId),
+          traits,
+        ),
       };
     });
     const localOnly = properties

@@ -561,12 +561,16 @@ function buildAdmissionAndState(
       });
     }
   }
-  for (const instance of room.interactables) {
-    const interactableId = instance.interactable.$ref.id;
-    definitions.set(`interactables:${interactableId}`, {
-      collection: 'interactables',
-      id: interactableId,
-    });
+  for (const occurrence of room.interactables) {
+    const interactableId = occurrence.interactable.$ref.id;
+    const instance = project.interactableInstances[interactableId];
+    if (instance) {
+      const definitionId = instance.definition.$ref.id;
+      definitions.set(`interactables:${definitionId}`, {
+        collection: 'interactables',
+        id: definitionId,
+      });
+    }
     interactableLocationIds.add(interactableId);
   }
   const compositionDraftCharacterIds = new Set<string>();
@@ -846,7 +850,7 @@ export async function buildFocusedRoomPreview(
 
   const persistentCharacters: RoomPreviewDocument['world']['persistentCharacters'] = [];
   const interactables = [...room.interactables]
-    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+    .sort((left, right) => left.id.localeCompare(right.id))
     .flatMap((occurrence) => {
       const instance = project.interactableInstances[occurrence.interactable.$ref.id];
       if (
@@ -1096,9 +1100,12 @@ export async function buildFocusedRoomPreview(
     visual.assets,
     new Set(
       interactables.flatMap((interactable) => {
-        const source = parseInteractableData(
-          recordForOwner(project, 'interactable', interactable.interactableId)?.data,
-        );
+        const instance = project.interactableInstances[interactable.interactableId];
+        const source = instance
+          ? parseInteractableData(
+              recordForOwner(project, 'interactable', instance.definition.$ref.id)?.data,
+            )
+          : null;
         return source?.presentation.hotspots.kind === 'sprite-alpha' && interactable.spriteAssetId
           ? [interactable.spriteAssetId]
           : [];

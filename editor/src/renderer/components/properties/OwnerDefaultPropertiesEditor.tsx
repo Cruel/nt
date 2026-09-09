@@ -9,6 +9,7 @@ import {
   type TraitProperty,
 } from '../../../shared/project-schema/authoring-properties';
 import { PropertyManager, type PropertyManagerRow } from './PropertyManager';
+import { traitPropertyOriginActions } from './property-origin-navigation';
 import {
   newTypedPropertyDraft,
   ownerDefaultPropertyFromDraft,
@@ -185,6 +186,7 @@ export function OwnerDefaultPropertiesEditor({
           actionLabel: row.inheritedSchema ? (local ? 'Edit Default' : 'Set Default') : undefined,
           resettable: !!local && row.inheritedSchema,
           deletable: !!local && !row.inheritedSchema,
+          originActions: traitPropertyOriginActions(row.traitIds, traits),
         };
       }),
     [effectiveRows, localById, traitColorFor, traits, usageCountFor],
