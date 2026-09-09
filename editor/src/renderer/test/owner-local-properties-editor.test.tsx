@@ -60,6 +60,10 @@ describe('OwnerLocalPropertiesEditor Trait provenance', () => {
     expect(useCell.getAttribute('style')).toContain('rgb(220, 38, 38)');
     await user.click(screen.getByRole('button', { name: '3 usages for mood' }));
     expect(onShowUsages).toHaveBeenCalledWith('mood');
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Different display label' }));
+    expect(screen.getByRole('menuitem', { name: "Open source Trait 'First'" })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: "Open source Trait 'Second'" })).toBeVisible();
   });
 
   it('shows required Trait values as errors without a redundant Set Value action', async () => {

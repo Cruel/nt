@@ -3,17 +3,25 @@ import {
   ArrowUp,
   Braces,
   CircleAlert,
+  ExternalLink,
   Hash,
   List,
+  MoreHorizontal,
   RotateCcw,
   Text,
   ToggleLeft,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTranslation } from 'react-i18next';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { AuthoredRuntimeValue } from '../../../shared/project-schema/authoring-properties';
 import type { VariableType } from '../../../shared/project-schema/authoring-variables';
 
@@ -42,6 +50,10 @@ export interface PropertyManagerRow {
   deletable?: boolean;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  originActions?: readonly {
+    label: string;
+    onClick: () => void;
+  }[];
 }
 
 function typeIcon(type: VariableType) {
@@ -50,6 +62,105 @@ function typeIcon(type: VariableType) {
   if (type === 'string') return Text;
   if (type === 'enum') return List;
   return Braces;
+}
+
+interface PropertyRowAction {
+  key: string;
+  label: string;
+  icon?: ReactNode;
+  disabled?: boolean;
+  destructive?: boolean;
+  textButton?: boolean;
+  onClick: () => void;
+}
+
+function PropertyRowActions({
+  actions,
+  displayLabel,
+}: {
+  actions: readonly PropertyRowAction[];
+  displayLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  if (actions.length === 0) return null;
+  if (actions.length === 1) {
+    const action = actions[0]!;
+    if (action.textButton) {
+      return (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-auto min-h-10 rounded-none px-3"
+          disabled={action.disabled}
+          onClick={action.onClick}
+        >
+          {action.label}
+        </Button>
+      );
+    }
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className={`h-auto min-h-10 w-9 rounded-none ${action.destructive ? 'text-destructive' : ''}`}
+                disabled={action.disabled}
+                aria-label={action.label}
+                onClick={action.onClick}
+              />
+            }
+          >
+            {action.icon}
+          </TooltipTrigger>
+          <TooltipContent>{action.label}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+  return (
+    <DropdownMenu
+      open={open}
+      onOpenChange={(nextOpen, eventDetails) => {
+        if (eventDetails.reason !== 'trigger-press') setOpen(nextOpen);
+      }}
+    >
+      <DropdownMenuTrigger
+        render={
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="h-auto min-h-10 w-9 rounded-none"
+            aria-label={`Actions for ${displayLabel}`}
+            onClick={() => setOpen((current) => !current)}
+          />
+        }
+      >
+        <MoreHorizontal className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-max min-w-64 max-w-96">
+        {actions.map((action) => (
+          <DropdownMenuItem
+            key={action.key}
+            className="min-w-0 whitespace-nowrap"
+            disabled={action.disabled}
+            variant={action.destructive ? 'destructive' : 'default'}
+            onClick={() => {
+              setOpen(false);
+              action.onClick();
+            }}
+          >
+            {action.icon}
+            <span className="min-w-0 max-w-80 truncate" title={action.label}>
+              {action.label}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 function provenanceBackground(sources: readonly PropertyManagerTraitSource[] | undefined) {
@@ -160,12 +271,68 @@ export function PropertyTable({
             const editable = row.editMode !== null && row.editMode !== undefined;
             const valueError = row.valueState === 'missing' || row.valueState === 'conflict';
             const overridden = row.sourceLabel === 'override';
+            const actions: PropertyRowAction[] = [];
+            if (onMove && (row.canMoveUp !== undefined || row.canMoveDown !== undefined)) {
+              actions.push(
+                {
+                  key: 'move-up',
+                  label: t('propertyManager.actions.moveUp', { id: row.id }),
+                  icon: <ArrowUp className="size-3" />,
+                  disabled: !row.canMoveUp,
+                  onClick: () => onMove(row, 'up'),
+                },
+                {
+                  key: 'move-down',
+                  label: t('propertyManager.actions.moveDown', { id: row.id }),
+                  icon: <ArrowDown className="size-3" />,
+                  disabled: !row.canMoveDown,
+                  onClick: () => onMove(row, 'down'),
+                },
+              );
+            }
+            for (const [index, originAction] of (row.originActions ?? []).entries()) {
+              actions.push({
+                key: `origin-${index}`,
+                label: originAction.label,
+                icon: <ExternalLink className="size-4" />,
+                onClick: originAction.onClick,
+              });
+            }
+            if (row.resettable) {
+              actions.push({
+                key: 'reset',
+                label: t('propertyManager.actions.reset', { id: row.id }),
+                icon: <RotateCcw className="size-4" />,
+                onClick: () => onReset(row),
+              });
+            }
+            if (row.actionLabel && editable) {
+              actions.push({
+                key: 'edit',
+                label: row.actionLabel,
+                textButton: true,
+                onClick: () => onEdit(row),
+              });
+            }
+            if (row.deletable) {
+              actions.push({
+                key: 'delete',
+                label: t('propertyManager.actions.delete', { label: displayLabel }),
+                icon: <Trash2 className="size-4" />,
+                destructive: true,
+                onClick: () => onDelete(row),
+              });
+            }
             return (
               <tr
                 key={row.id}
                 className={`group/row border-t bg-background align-middle ${editable ? 'cursor-pointer hover:bg-muted/30' : ''} ${row.appearance === 'local-only' ? 'bg-muted/15' : ''} ${valueError ? 'bg-destructive/5' : ''}`}
                 data-workbench-anchor={rowAnchor?.(row)}
-                onClick={() => editable && onEdit(row)}
+                onClick={(event) => {
+                  if (!editable) return;
+                  if ((event.target as Element).closest('button, [role="menuitem"]')) return;
+                  onEdit(row);
+                }}
               >
                 <td
                   className="w-px whitespace-nowrap px-3 py-2 text-center"
@@ -243,92 +410,13 @@ export function PropertyTable({
                   >
                     {valueError ? <CircleAlert className="size-3.5 shrink-0" /> : null}
                     <span className="min-w-0 truncate">{formatValue(row)}</span>
-                    {row.sourceLabel && !overridden ? (
-                      <span
-                        className={`shrink-0 font-sans ${valueError ? 'text-destructive/80' : 'text-muted-foreground'}`}
-                      >
-                        {row.sourceLabel}
-                      </span>
-                    ) : null}
                   </div>
                 </td>
                 <td className="max-w-80 px-3 py-2 text-muted-foreground" title={row.description}>
                   <div className="min-w-0 truncate whitespace-nowrap">{row.description || '—'}</div>
                 </td>
                 <td className="w-px whitespace-nowrap p-0 text-right">
-                  <div className="flex h-full items-stretch justify-end">
-                    {onMove && (row.canMoveUp !== undefined || row.canMoveDown !== undefined) ? (
-                      <>
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          className="h-auto min-h-10 w-9 rounded-none"
-                          disabled={!row.canMoveUp}
-                          aria-label={t('propertyManager.actions.moveUp', { id: row.id })}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onMove(row, 'up');
-                          }}
-                        >
-                          <ArrowUp className="size-3" />
-                        </Button>
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          className="h-auto min-h-10 w-9 rounded-none"
-                          disabled={!row.canMoveDown}
-                          aria-label={t('propertyManager.actions.moveDown', { id: row.id })}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onMove(row, 'down');
-                          }}
-                        >
-                          <ArrowDown className="size-3" />
-                        </Button>
-                      </>
-                    ) : null}
-                    {row.resettable ? (
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        className="h-auto min-h-10 w-9 rounded-none"
-                        aria-label={t('propertyManager.actions.reset', { id: row.id })}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onReset(row);
-                        }}
-                      >
-                        <RotateCcw className="size-4" />
-                      </Button>
-                    ) : null}
-                    {row.actionLabel && editable ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-auto min-h-10 rounded-none px-3"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onEdit(row);
-                        }}
-                      >
-                        {row.actionLabel}
-                      </Button>
-                    ) : null}
-                    {row.deletable ? (
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        className="h-auto min-h-10 w-9 rounded-none text-destructive"
-                        aria-label={t('propertyManager.actions.delete', { label: displayLabel })}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onDelete(row);
-                        }}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    ) : null}
-                  </div>
+                  <PropertyRowActions actions={actions} displayLabel={displayLabel} />
                 </td>
               </tr>
             );

@@ -92,7 +92,8 @@ describe('Interactable Property editors', () => {
 
     expect(screen.getByText('"instance"')).toBeInTheDocument();
     expect(screen.queryByText('override')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Reset quality' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Quality' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reset quality' }));
 
     expect(onChange).toHaveBeenCalledWith({
       ...instance,
@@ -272,7 +273,8 @@ describe('Interactable Property editors', () => {
     );
 
     expect(screen.getByText('"definition"')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Reset quality' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Quality' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reset quality' }));
     expect(onChange).toHaveBeenCalledWith({ properties: [], traits: [] });
   });
 
@@ -317,7 +319,8 @@ describe('Interactable Property editors', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Set Default' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Clue' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Set Default' }));
     const value = screen.getByDisplayValue('base');
     await user.clear(value);
     await user.type(value, 'specific');
