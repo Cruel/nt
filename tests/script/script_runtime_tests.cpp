@@ -485,7 +485,8 @@ TEST_CASE("Runtime and focused query providers produce equivalent condition and 
     REQUIRE(environment);
 
     const core::LuaPredicate condition{"Game.prop('count') == 0"};
-    const core::LuaTextExpression text{"'count=' .. Game.prop('count')"};
+    const core::LuaTextExpression text{
+        "local count = Game.prop('count')\nreturn 'count=' .. count"};
     auto runtime_condition = runtime_invoker.evaluate(condition);
     auto runtime_text = runtime_invoker.resolve(text);
     REQUIRE(runtime_condition);
@@ -670,7 +671,7 @@ TEST_CASE("ScriptRuntime rejects yields from immediate expression invocation for
     auto immediate_condition = invoker.evaluate(core::LuaPredicate{"2 + 2 == 4"});
     REQUIRE(immediate_condition);
     CHECK(immediate_condition.value());
-    auto immediate_text = invoker.resolve(core::LuaTextExpression{"'typed text'"});
+    auto immediate_text = invoker.resolve(core::LuaTextExpression{"return 'typed text'"});
     REQUIRE(immediate_text);
     CHECK(immediate_text.value() == "typed text");
 
@@ -678,7 +679,7 @@ TEST_CASE("ScriptRuntime rejects yields from immediate expression invocation for
     REQUIRE_FALSE(condition);
     CHECK(condition.error().code == script::ScriptErrorCode::YieldForbidden);
 
-    auto text = invoker.resolve(core::LuaTextExpression{"coroutine.yield()"});
+    auto text = invoker.resolve(core::LuaTextExpression{"return coroutine.yield()"});
     REQUIRE_FALSE(text);
     CHECK(text.error().code == script::ScriptErrorCode::YieldForbidden);
 }

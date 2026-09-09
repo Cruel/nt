@@ -117,7 +117,9 @@ TEST_CASE("typed execution kernel composes Scene primitives Lua waits and host s
     REQUIRE(lua_condition);
     CHECK(lua_condition.value());
 
-    auto text = kernel->resolve(core::LuaTextExpression{"'count=' .. Game.prop('count')"}, "en");
+    auto text = kernel->resolve(
+        core::LuaTextExpression{"local count = Game.prop('count')\nreturn 'count=' .. count"},
+        "en");
     REQUIRE(text);
     CHECK(text.value() == "count=9");
 

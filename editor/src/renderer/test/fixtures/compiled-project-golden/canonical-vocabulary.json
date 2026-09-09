@@ -1475,7 +1475,7 @@
           "markup": "plain",
           "source": {
             "kind": "lua-expression",
-            "source": "hall_description()"
+            "source": "return hall_description()"
           }
         },
         "displayName": "Hall",
@@ -1808,7 +1808,7 @@
                 "markup": "plain",
                 "source": {
                   "kind": "lua-expression",
-                  "source": "key_label()"
+                  "source": "return key_label()"
                 }
               },
               "layout": {
@@ -6006,7 +6006,7 @@
       }
     ]
   },
-  "saveContract": "sc1:b41c4e2375108e057a1a3913b174bb89",
+  "saveContract": "sc1:a378681b7769c6b5e325d34b94c36ea9",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

@@ -1418,8 +1418,9 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(completions.back() == std::pair<std::string, std::string>{"room-two", "applied"});
 
     auto lua_text_room = room;
-    lua_text_room["ui"]["description"]["source"] = {{"kind", "lua-expression"},
-                                                    {"source", "'focused text'"}};
+    lua_text_room["ui"]["description"]["source"] = {
+        {"kind", "lua-expression"},
+        {"source", "local prefix = 'focused'\nreturn prefix .. ' text'"}};
     REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
                                          "room-lua-text", lua_text_room, 6)));
     presenter.update();
@@ -1433,7 +1434,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     unadmitted_room["queryState"]["variables"] =
         nlohmann::json::array({{{"id", "secret"}, {"type", "integer"}, {"value", 7}}});
     unadmitted_room["ui"]["description"]["source"] = {
-        {"kind", "lua-expression"}, {"source", "tostring(assert(Game.prop('secret')))"}};
+        {"kind", "lua-expression"}, {"source", "return tostring(assert(Game.prop('secret')))"}};
     CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
                                              "room-unadmitted", unadmitted_room, 7)));
     CHECK(presenter.committed_owner().apply_sequence == 6);
