@@ -240,6 +240,20 @@ describe('graph-driven Room builder', () => {
     );
   });
 
+  it('uses the configured fallback locale when the default catalog lacks localized text', async () => {
+    const project = fixture();
+    delete project.localization.catalogs.en!['bedroom-description'];
+    project.localization.fallbackLocale = 'fr';
+    project.localization.catalogs.fr = { 'bedroom-description': 'Une chambre calme.' };
+
+    const result = await build(project);
+
+    expect(result.data.ui.description).toEqual({
+      markup: 'plain',
+      source: { kind: 'resolved', text: 'Une chambre calme.' },
+    });
+  });
+
   it('separates semantic Room presence from Character placement and Interactable occurrences', async () => {
     const result = await build();
     expect(result.data.room).toMatchObject({

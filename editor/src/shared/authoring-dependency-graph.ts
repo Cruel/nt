@@ -33,6 +33,7 @@ import type {
   AuthoringRecordBase,
   ReferenceTarget,
 } from './project-schema/authoring-project';
+import { resolveMessage } from './message-resolution';
 import { systemLayoutRoleValues } from './project-schema/authoring-layouts';
 import { isVariableRef } from './project-schema/authoring-variables';
 import type {
@@ -1165,15 +1166,11 @@ function scanStructuralReferences(
       : null;
   if (localizedKey) {
     const defaultLocale = project.localization.defaultLocale;
-    const fallbackLocale = project.localization.fallbackLocale;
-    const locales = [defaultLocale];
-    if (
-      project.localization.catalogs[defaultLocale]?.[localizedKey] === undefined &&
-      fallbackLocale !== null &&
-      fallbackLocale !== defaultLocale
-    ) {
-      locales.push(fallbackLocale);
-    }
+    const resolution = resolveMessage(project.localization, {
+      key: localizedKey,
+      locale: defaultLocale,
+    });
+    const locales = resolution.consultedLocales;
     const projectFields = [
       '/localization/defaultLocale',
       ...(locales.length > 1 ? ['/localization/fallbackLocale'] : []),
@@ -1222,11 +1219,14 @@ function collectDerivationDependencies(
   }
   if (!isRecord(value)) return;
   if (value.kind === 'localized' && typeof value.key === 'string') {
+    const resolution = resolveMessage(project.localization, {
+      key: value.key,
+      locale: project.localization.defaultLocale,
+    });
     dependencies.push({ kind: 'localization-lookup', key: value.key });
     dependencies.push({ kind: 'project-field', path: '/localization/defaultLocale' });
     if (
-      project.localization.catalogs[project.localization.defaultLocale]?.[value.key] ===
-        undefined &&
+      resolution.resolved?.locale !== project.localization.defaultLocale &&
       project.localization.fallbackLocale !== project.localization.defaultLocale
     ) {
       dependencies.push({ kind: 'project-field', path: '/localization/fallbackLocale' });

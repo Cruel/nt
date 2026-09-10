@@ -9,8 +9,10 @@ unverified in this noninteractive environment.
 
 The editor has one immutable authoring dependency graph for structural references, bounded Lua/RML
 evidence, usage queries, mutation impact, structural preflight, repair planning, and focused-preview
-closure. Focused invalidation evaluates the union of the previous and current graphs so removal or
-movement of a relationship invalidates both its old and new preview roots.
+closure. Localized-text dependency selection and focused Room text resolution use the same shared
+Message-resolution seam, so default/fallback catalog policy is not reimplemented by preview callers.
+Focused invalidation evaluates the union of the previous and current graphs so removal or movement of
+a relationship invalidates both its old and new preview roots.
 
 Ordinary delete is graph- and project-revision gated. The Project Explorer shows planned repairs,
 warnings, and required replacement selectors before confirmation. The command revalidates the current

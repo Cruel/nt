@@ -74,8 +74,10 @@ position and hit area are a nested `RoomPlacement`; its live location, visibilit
 are `InteractableState`.
 
 Assets and aliases, layouts, shaders/materials, script modules, and localization catalogs are runtime
-resources, not gameplay entities. They need no common entity interface. Script modules never autorun
-because they are present in a collection or package.
+resources, not gameplay entities. They need no common entity interface. Backend-neutral
+`MessageResolver` owns requested-locale → default-locale → configured-fallback lookup over compiled
+localization; runtime text evaluation delegates to that seam and adds execution diagnostics only when
+resolution fails. Script modules never autorun because they are present in a collection or package.
 
 The compiled project root owns project identity, runtime settings, feature flags, Bootstrap Module reference,
 entrypoint, definition collections, resource IDs, and lookup indexes. It is not an entity and cannot

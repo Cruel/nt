@@ -10,7 +10,11 @@ authored input.
 publication boundary used by editor validation, preview/runtime export, package/platform export, and
 the standalone project compiler. It delegates exclusively to `compileAuthoringProject` and publishes
 the validated compiled object together with the exact canonical gameplay JSON. Production consumers
-must not independently parse, lower, canonicalize, or serialize a compiled project.
+must not independently parse, lower, canonicalize, or serialize a compiled project. Localized text
+remains a semantic reference through compilation rather than being rendered into the current locale.
+The shared authoring Message-resolution seam owns requested/default/fallback lookup semantics for
+tooling that needs a concrete value, including focused preview and dependency invalidation, so those
+callers do not duplicate catalog-order policy.
 
 The compiler always runs named stages: normalization, semantic validation, symbol linking, lowering,
 resource collection, assembly, wire validation, and canonical serialization. During assembly it also
