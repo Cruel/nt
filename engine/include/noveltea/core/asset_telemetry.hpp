@@ -389,12 +389,20 @@ struct AssetProfilerOpaquePredictionFrontier {
     std::vector<std::string> reason_chain;
 };
 
+enum class AssetProfilerPredictionHorizonOutcome : std::uint8_t {
+    UsefulFrontierExhausted,
+    WarmBudgetExhausted,
+    StructuralLimitReached,
+};
+
 struct AssetProfilerPrefetchGenerationRecord {
     assets::PrefetchGenerationId generation;
     std::uint64_t timestamp_ns = 0;
     std::optional<core::PresentationSnapshotRevision> presentation_revision;
     std::uint64_t expected_next_count = 0;
     std::uint64_t possible_next_count = 0;
+    AssetProfilerPredictionHorizonOutcome horizon_outcome =
+        AssetProfilerPredictionHorizonOutcome::UsefulFrontierExhausted;
     std::vector<AssetProfilerPrefetchPlanEntry> prediction_plan;
     std::vector<AssetProfilerOpaquePredictionFrontier> opaque_frontiers;
     std::vector<AssetProfilerPrefetchSubmissionEntry> submitted_entries;

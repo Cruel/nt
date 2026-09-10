@@ -98,6 +98,7 @@ core::AssetProfilerPrefetchGenerationRecord generation_record()
         .timestamp_ns = beyond_javascript_safe_integer,
         .expected_next_count = beyond_javascript_safe_integer,
         .possible_next_count = 2,
+        .horizon_outcome = core::AssetProfilerPredictionHorizonOutcome::StructuralLimitReached,
         .prediction_plan =
             {{.cache_key = key,
               .prediction = core::PrefetchPredictionKind::ExpectedNext,
@@ -326,6 +327,8 @@ TEST_CASE("Editor asset profiler full JSON uses the current wire contract",
     CHECK(budget.at("warmAudioBytes") == "13");
     CHECK(payload.at("assets").at(0).at("jobId") == "9007199254740993");
     CHECK(payload.at("activePrefetchGeneration").at("generation") == "9007199254740993");
+    CHECK(payload.at("activePrefetchGeneration").at("horizonOutcome") ==
+          "structural-limit-reached");
     CHECK(payload.at("activePrefetchGeneration").at("predictionPlan").size() == 1);
     CHECK(payload.at("retainedChanges").at(1).at("kind") == "prefetch-generation-upsert");
     CHECK(payload.at("retainedChanges")

@@ -49,8 +49,11 @@ Each prefetch-generation upsert also carries `predictionPlan`, the exact normali
 the runtime planner consumed for that logical generation. Entries include Expected/Possible
 confidence, semantic execution distance/order, dependency priority, estimated residency cost and
 estimate kind, plus compact provenance chains rooted in foreground Flow, prospective Room entry, or
-resident Room context. This is derived, read-only runtime tooling data. The renderer may display it
-but must not recompute a competing live prediction plan from Project data.
+resident Room context. The generation also carries `horizonOutcome`, which distinguishes exhaustion
+of the useful reachable frontier, Warm-budget horizon pruning, and the structural safety limit.
+Per-candidate `submissionFailures` remain the finer-grained evidence for memory/admission rejection.
+This is derived, read-only runtime tooling data. The renderer may display it but must not recompute a
+competing live prediction plan from Project data.
 
 `prefetch-generation-released` records when the named logical generation was retired. Current-state
 consumers use `activePrefetchGeneration`; the release change remains ordered historical provenance

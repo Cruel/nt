@@ -1250,6 +1250,12 @@ struct MandatoryAssetGate::Impl {
         record.presentation_revision = presentation_revision;
         record.expected_next_count = report.expected_count;
         record.possible_next_count = report.possible_count;
+        record.horizon_outcome =
+            report.structural_limit_reached
+                ? core::AssetProfilerPredictionHorizonOutcome::StructuralLimitReached
+            : report.budget_exhausted
+                ? core::AssetProfilerPredictionHorizonOutcome::WarmBudgetExhausted
+                : core::AssetProfilerPredictionHorizonOutcome::UsefulFrontierExhausted;
         record.prediction_plan.reserve(report.ranked_candidates.size());
         for (const auto& candidate : report.ranked_candidates) {
             core::AssetProfilerPrefetchPlanEntry plan_entry;

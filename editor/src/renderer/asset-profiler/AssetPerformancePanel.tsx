@@ -420,6 +420,13 @@ function PredictionView() {
         </div>
         {liveGeneration ? (
           <div className="overflow-x-auto rounded border">
+            <div className="border-b px-2 py-1.5 text-[11px] text-muted-foreground">
+              {t('assetProfiler.prediction.horizonOutcomeLabel', {
+                outcome: t(
+                  `assetProfiler.prediction.horizonOutcomes.${liveGeneration.horizonOutcome}`,
+                ),
+              })}
+            </div>
             <table className="w-full min-w-[980px] text-left">
               <thead className="bg-muted/40 text-[10px] text-muted-foreground">
                 <tr>

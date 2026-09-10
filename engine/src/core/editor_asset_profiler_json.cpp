@@ -436,6 +436,20 @@ std::string_view prediction_root_name(AssetProfilerPredictionRoot value) noexcep
     return "flow-execution";
 }
 
+std::string_view
+prediction_horizon_outcome_name(AssetProfilerPredictionHorizonOutcome value) noexcept
+{
+    switch (value) {
+    case AssetProfilerPredictionHorizonOutcome::UsefulFrontierExhausted:
+        return "useful-frontier-exhausted";
+    case AssetProfilerPredictionHorizonOutcome::WarmBudgetExhausted:
+        return "warm-budget-exhausted";
+    case AssetProfilerPredictionHorizonOutcome::StructuralLimitReached:
+        return "structural-limit-reached";
+    }
+    return "useful-frontier-exhausted";
+}
+
 Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
 {
     Json prediction_plan = array_with_capacity(value.prediction_plan.size());
@@ -496,6 +510,7 @@ Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
                                              : Json(nullptr)},
                 {"expectedNextCount", decimal(value.expected_next_count)},
                 {"possibleNextCount", decimal(value.possible_next_count)},
+                {"horizonOutcome", prediction_horizon_outcome_name(value.horizon_outcome)},
                 {"predictionPlan", std::move(prediction_plan)},
                 {"opaqueFrontiers", std::move(opaque_frontiers)},
                 {"submittedEntries", std::move(submitted)},
