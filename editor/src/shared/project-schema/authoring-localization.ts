@@ -123,7 +123,7 @@ export const authoringLocalizationSchema = z
       }
     }
 
-    for (const [locale, translations] of Object.entries(localization.translations)) {
+    for (const locale of Object.keys(localization.translations)) {
       if (!Object.hasOwn(localization.locales, locale)) {
         context.addIssue({
           code: 'custom',
@@ -137,14 +137,6 @@ export const authoringLocalizationSchema = z
           path: ['translations', locale],
           message: 'Source locale text is stored on Messages, not as target translations.',
         });
-      }
-      for (const messageId of Object.keys(translations)) {
-        if (!Object.hasOwn(localization.messages, messageId))
-          context.addIssue({
-            code: 'custom',
-            path: ['translations', locale, messageId],
-            message: `Translation references unknown Message '${messageId}'.`,
-          });
       }
     }
   });

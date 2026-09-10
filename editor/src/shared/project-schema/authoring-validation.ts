@@ -1,5 +1,6 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
 import { collectAuthoringLuaSources } from '../authoring-source-analysis';
+import { structuredMessages } from '../authoring-structured-messages';
 import { analyzeHookRegistry } from '../hook-registry-analysis';
 import {
   authoringCollectionKeys,
@@ -97,7 +98,7 @@ function escapePathSegment(segment: string): string {
   return segment.replaceAll('~', '~0').replaceAll('/', '~1');
 }
 
-function validateNamedMessageReferences(
+function validateLocalizationReferences(
   project: AuthoringProject,
   diagnostics: ProjectValidationDiagnosticLike[],
 ): void {
@@ -127,6 +128,25 @@ function validateNamedMessageReferences(
       visit(child, `${path}/${escapePathSegment(key)}`);
   };
   visit(project, '');
+
+  const knownMessageIds = new Set([
+    ...Object.keys(project.localization.messages),
+    ...structuredMessages(project).map((message) => message.id),
+  ]);
+  for (const [locale, translations] of Object.entries(project.localization.translations)) {
+    for (const messageId of Object.keys(translations)) {
+      if (knownMessageIds.has(messageId)) continue;
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `/localization/translations/${escapePathSegment(locale)}/${escapePathSegment(messageId)}`,
+          `Translation references unknown Message '${messageId}'.`,
+          'Localization',
+          'localization.translation.message-missing',
+        ),
+      );
+    }
+  }
 }
 
 const propertyOwnerKindByCollection: Partial<Record<AuthoringCollectionKey, PropertyOwnerKind>> = {
@@ -1447,7 +1467,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   }
 
   const project = parsed.data;
-  validateNamedMessageReferences(project, diagnostics);
+  validateLocalizationReferences(project, diagnostics);
   for (const source of collectAuthoringLuaSources(project)) {
     if ((source.explicitDependencies?.length ?? 0) === 0 || source.supportsExplicitFallback)
       continue;

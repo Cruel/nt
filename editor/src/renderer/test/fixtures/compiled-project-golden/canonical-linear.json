@@ -12,7 +12,13 @@
           "kind": "return"
         },
         "defaultSpeaker": null,
-        "displayName": "Conversation",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 1,
+            "kind": "message"
+          }
+        },
         "id": "conversation",
         "mediaSlots": [],
         "program": {
@@ -34,8 +40,8 @@
                   "text": {
                     "markup": "plain",
                     "source": {
-                      "kind": "inline",
-                      "text": "A linear conversation."
+                      "id": 0,
+                      "kind": "message"
                     }
                   }
                 }
@@ -58,7 +64,13 @@
     "rooms": [],
     "scenes": [
       {
-        "displayName": "Opening",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 2,
+            "kind": "message"
+          }
+        },
         "id": "opening",
         "inputs": [],
         "outcomes": [],
@@ -276,7 +288,28 @@
   "localization": {
     "catalogs": [
       {
-        "entries": [],
+        "entries": [
+          {
+            "messageId": 0,
+            "value": "A linear conversation."
+          },
+          {
+            "messageId": 1,
+            "value": "Conversation"
+          },
+          {
+            "messageId": 2,
+            "value": "Opening"
+          },
+          {
+            "messageId": 3,
+            "value": "Start"
+          },
+          {
+            "messageId": 4,
+            "value": ""
+          }
+        ],
         "locale": "en"
       }
     ],
@@ -312,7 +345,7 @@
       }
     ]
   },
-  "saveContract": "sc1:a953a45b3cec19d95266f76b0e0b0dc5",
+  "saveContract": "sc1:9ccd4fd87018c8a67a4a5ac83c19b762",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
@@ -434,8 +467,20 @@
     "titleScreen": {
       "showAuthor": false,
       "showProjectTitle": true,
-      "startLabel": "Start",
-      "subtitle": "",
+      "startLabel": {
+        "markup": "plain",
+        "source": {
+          "id": 3,
+          "kind": "message"
+        }
+      },
+      "subtitle": {
+        "markup": "plain",
+        "source": {
+          "id": 4,
+          "kind": "message"
+        }
+      },
       "titleImage": null
     }
   },

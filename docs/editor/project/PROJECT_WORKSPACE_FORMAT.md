@@ -16,12 +16,20 @@ built-in Runtime Package policy and portable platform profiles. Profile selectio
 choices remain editor-local. `traits.json`, `localization.json`, and `editor.json` are required
 contextual fragments. `localization.json` owns the canonical Message model: one Source locale, one
 Supported Default locale, explicit Supported/work-in-progress locale metadata with optional parent
-locale inheritance, stable UUID Message identities, local/named Message source definitions, optional
-Message-level Context and Translator note guidance, and sparse target translations keyed by stable
-Message identity. Source prose is stored once on each Message and is not duplicated into per-locale
-target maps. The editor's Localization workspace owns `/localization` as the `project:localization`
-manual save unit, so language, Message, and translation edits use the same revisioned Project Workspace
-transaction/recovery path as other tracked project content. `traits.json` owns the self-contained Trait contracts;
+locale inheritance, stable UUID identities for explicit local/named Messages, optional Message-level
+Context and Translator note guidance, and sparse target translations keyed by stable Message identity.
+Schema-designated player-facing structured text remains colocated with its owning Room, Dialogue,
+Scene, Verb, Map, archetype, or other gameplay record. Those structured local Messages derive an
+opaque stable Message identity from semantic record/nested IDs plus the field role/path; source prose
+is therefore not copied into `localization.json`, does not participate in identity, and survives prose
+edits and stable-ID reordering without losing target translations. Ordinary IDs, record labels,
+developer notes, filenames, and generic gameplay strings are not localized merely because they are
+strings. Direct structured-file edits are discovered read-only from the same deterministic ownership
+rules; validation does not materialize tracking metadata or dirty the workspace. The editor's
+Localization workspace joins these derived Messages with explicit Messages for translation and usage
+views. `/localization` remains the `project:localization` manual save unit, so language, explicit
+Message, and target-translation edits use the same revisioned Project Workspace transaction/recovery
+path as other tracked project content. `traits.json` owns the self-contained Trait contracts;
 there is no top-level identity Property fragment. `editor.json` contains exactly collaborator-visible
 `chapters`, `tags`, and `recordMetadata`, including collaborator-visible Trait color metadata.
 

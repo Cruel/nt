@@ -2023,7 +2023,6 @@ TEST_CASE("detached awaited child publication retains its caller continuation")
 
         auto child = closing;
         child["id"] = "detached-child";
-        child["displayName"] = "Detached Child";
         child["program"]["events"] = scene_events(nlohmann::json::array({{{"id", "child-delay"},
                                                                           {"kind", "wait-duration"},
                                                                           {"durationMs", 1000},

@@ -14,7 +14,8 @@ import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { useProjectStore } from '@/project/project-store';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import { recordSaveUnitId, SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import type { SaveUnitId } from '@/project/save-unit-types';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   useWorkbenchEditorTabState,
@@ -29,6 +30,7 @@ import {
   type AuthoringMessage,
 } from '../../../shared/project-schema/authoring-localization';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { structuredMessages } from '../../../shared/authoring-structured-messages';
 
 type Surface = 'overview' | 'translations' | 'languages' | 'messages';
 
@@ -92,6 +94,13 @@ function messageLabel(message: AuthoringMessage, messageId: string) {
   return message.kind === 'named' ? message.key : message.source || messageId;
 }
 
+interface MessageView {
+  id: string;
+  message: AuthoringMessage;
+  sourcePath: string | null;
+  usageNote: string | null;
+}
+
 export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
@@ -151,17 +160,38 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         entry[1].kind === 'named',
     )
     .sort(([, a], [, b]) => a.key.localeCompare(b.key));
-  const allMessages = Object.entries(localization.messages).sort(([, a], [, b]) =>
-    messageLabel(a, '').localeCompare(messageLabel(b, '')),
+  const allMessages = [
+    ...Object.entries(localization.messages).map(
+      ([messageId, message]): MessageView => ({
+        id: messageId,
+        message,
+        sourcePath: `/localization/messages/${escapeJsonPointerToken(messageId)}/source`,
+        usageNote: null,
+      }),
+    ),
+    ...structuredMessages(project).map(
+      (occurrence): MessageView => ({
+        id: occurrence.id,
+        message: { kind: 'local', source: occurrence.source },
+        sourcePath: occurrence.sourcePath,
+        usageNote: occurrence.usageNote,
+      }),
+    ),
+  ].sort((left, right) =>
+    messageLabel(left.message, left.id).localeCompare(messageLabel(right.message, right.id)),
   );
   const sourceChangeBlocked = hasMeaningfulLocaleWork(localization.translations);
 
-  function run(label: string, patches: unknown[]) {
+  function run(
+    label: string,
+    patches: unknown[],
+    originSaveUnitId: SaveUnitId = SAVE_UNIT_IDS.localization,
+  ) {
     const result = executeCommand({
       type: 'project.applyPatch',
       label,
       payload: patches,
-      originSaveUnitId: SAVE_UNIT_IDS.localization,
+      originSaveUnitId,
       persistencePolicy: 'manual-save',
     });
     return (
@@ -310,6 +340,25 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         path: `/localization/messages/${escapeJsonPointerToken(messageId)}/${field}`,
       },
     ]);
+  }
+
+  function setSourceContent(view: MessageView, value: string) {
+    if (!view.sourcePath) return;
+    if (view.sourcePath.startsWith('/localization/messages/')) {
+      updateMessageField(view.id, view.message, 'source', value);
+      return;
+    }
+    const recordMatch = /^\/([^/]+)\/([^/]+)\//.exec(view.sourcePath);
+    const originSaveUnitId = view.sourcePath.startsWith('/settings/')
+      ? SAVE_UNIT_IDS.projectSettings
+      : recordMatch
+        ? recordSaveUnitId(recordMatch[1]!, recordMatch[2]!)
+        : SAVE_UNIT_IDS.localization;
+    run(
+      `Update source Message ${messageLabel(view.message, view.id)}`,
+      [{ op: 'replace', path: view.sourcePath, value }],
+      originSaveUnitId,
+    );
   }
 
   function setTranslation(messageId: string, value: string) {
@@ -737,7 +786,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               </div>
             ) : (
               <div className="space-y-3">
-                {allMessages.map(([messageId, message]) => {
+                {allMessages.map((view) => {
+                  const { id: messageId, message } = view;
                   const label = messageLabel(message, messageId);
                   const translated =
                     localization.translations[effectiveTargetLocale]?.[messageId] ?? '';
@@ -749,13 +799,17 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           {translated ? 'Translated' : 'Missing'}
                         </div>
                       </div>
-                      {(message.context || message.translatorNote) && (
+                      {(message.context || message.translatorNote || view.usageNote) && (
                         <div className="mb-3 text-xs text-muted-foreground">
                           {message.context ? `Context: ${message.context}` : ''}
-                          {message.context && message.translatorNote ? ' · ' : ''}
+                          {message.context && (message.translatorNote || view.usageNote)
+                            ? ' · '
+                            : ''}
                           {message.translatorNote
                             ? `Translator note: ${message.translatorNote}`
                             : ''}
+                          {message.translatorNote && view.usageNote ? ' · ' : ''}
+                          {view.usageNote ? `Used in: ${view.usageNote}` : ''}
                         </div>
                       )}
                       <div className="grid gap-3 @3xl:grid-cols-2">
@@ -767,14 +821,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             id={`source-${messageId}`}
                             key={`source:${messageId}:${message.source}`}
                             defaultValue={message.source}
-                            onBlur={(event) =>
-                              updateMessageField(
-                                messageId,
-                                message,
-                                'source',
-                                event.currentTarget.value,
-                              )
-                            }
+                            disabled={!view.sourcePath}
+                            onBlur={(event) => setSourceContent(view, event.currentTarget.value)}
                           />
                         </div>
                         <div className="space-y-1">

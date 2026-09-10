@@ -91,7 +91,6 @@ nlohmann::json scene_prediction_test_document()
          {"prediction-child", "prediction-detached", "prediction-horizon", "prediction-decision"}) {
         auto scene = document["definitions"]["scenes"][0];
         scene["id"] = scene_id;
-        scene["displayName"] = scene_id;
         scene["program"]["events"] = nlohmann::json::array();
         scene["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
         document["definitions"]["scenes"].push_back(std::move(scene));
@@ -3344,7 +3343,6 @@ TEST_CASE(
                                             std::pair{"location-false", "image-location-false"}}) {
         auto scene = document["definitions"]["scenes"][0];
         scene["id"] = scene_id;
-        scene["displayName"] = scene_id;
         scene["program"]["events"] = nlohmann::json::array();
         scene["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
         document["definitions"]["scenes"].push_back(std::move(scene));
@@ -4573,7 +4571,6 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
 
         auto idle = document["definitions"]["scenes"][0];
         idle["id"] = "prediction-idle";
-        idle["displayName"] = "prediction-idle";
         idle["program"]["events"] = nlohmann::json::array();
         idle["terminal"] = {{"kind", "continue-dialogue"},
                             {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}};
@@ -4581,7 +4578,6 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
 
         auto wave = document["definitions"]["scenes"][0];
         wave["id"] = "prediction-wave";
-        wave["displayName"] = "prediction-wave";
         wave["program"]["events"] = nlohmann::json::array();
         wave["terminal"] = {{"kind", "return"}, {"outcome", nullptr}};
         document["definitions"]["scenes"].push_back(std::move(wave));
@@ -4721,7 +4717,6 @@ TEST_CASE("mandatory gate deepens ordinary Room exits through Warm-budget-aware 
 
             auto room = room_template;
             room["id"] = room_id;
-            room["displayName"] = room_id;
             room["background"]["asset"] = nullptr;
             room["background"]["material"] = nullptr;
             const auto exit_condition =
@@ -4888,7 +4883,6 @@ TEST_CASE("rapid Room actions rank against multi-hop presentation on execution d
     const auto add_room = [&](std::string room_id, std::optional<std::string> target) {
         auto room = room_template;
         room["id"] = room_id;
-        room["displayName"] = room_id;
         room["background"]["asset"] = nullptr;
         room["background"]["material"] = nullptr;
         room["cast"] = nlohmann::json::array();

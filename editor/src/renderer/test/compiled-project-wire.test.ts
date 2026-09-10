@@ -45,8 +45,8 @@ function representativeWireFixture() {
         titleImage: null,
         showProjectTitle: true,
         showAuthor: false,
-        subtitle: '',
-        startLabel: 'Start',
+        subtitle: { markup: 'plain', source: { kind: 'message', id: 2 } },
+        startLabel: { markup: 'plain', source: { kind: 'message', id: 1 } },
       },
       systemLayouts: [{ role: 'game-hud', layout: { kind: 'layout', id: 'hud' } }],
       roomNavigationTransition: { kind: 'cut', durationMs: 0, color: null, skippable: true },
@@ -82,7 +82,16 @@ function representativeWireFixture() {
       sourceLocale: 'en',
       defaultLocale: 'en',
       locales: [{ locale: 'en', parentLocale: null, supported: true }],
-      catalogs: [{ locale: 'en', entries: [{ messageId: 0, value: 'Foyer' }] }],
+      catalogs: [
+        {
+          locale: 'en',
+          entries: [
+            { messageId: 0, value: 'Foyer' },
+            { messageId: 1, value: 'Start' },
+            { messageId: 2, value: '' },
+          ],
+        },
+      ],
     },
     resources: {
       assets: [
@@ -120,7 +129,7 @@ function representativeWireFixture() {
           traits: [],
           propertyAssignments: [],
           properties: [],
-          displayName: 'Hero',
+          displayName: { markup: 'plain', source: { kind: 'message', id: 0 } },
           dialogue: { name: 'Hero', nameColor: null, textColor: null, styleClass: '' },
           defaults: {
             profileId: 'stage',
@@ -169,7 +178,7 @@ function representativeWireFixture() {
           traits: [],
           propertyAssignments: [{ propertyId: 'mood', value: 'calm' }],
           properties: [],
-          displayName: 'Foyer',
+          displayName: { markup: 'plain', source: { kind: 'message', id: 0 } },
           background: {
             asset: { kind: 'asset', id: 'foyer-image' },
             material: null,
@@ -212,7 +221,7 @@ function representativeWireFixture() {
           id: 'key',
           traits: [],
           propertyAssignments: [],
-          displayName: 'Key',
+          displayName: { markup: 'plain', source: { kind: 'message', id: 0 } },
           stackable: false,
           stackLimit: null,
           properties: [],
@@ -273,7 +282,7 @@ function representativeWireFixture() {
       scenes: [
         {
           id: 'opening',
-          displayName: 'Opening',
+          displayName: { markup: 'plain', source: { kind: 'message', id: 0 } },
           stage: {
             kind: 'blank',
             background: { asset: null, material: null, color: '#000000', fit: 'cover' },
@@ -297,7 +306,7 @@ function representativeWireFixture() {
       dialogues: [
         {
           id: 'intro',
-          displayName: 'Intro',
+          displayName: { markup: 'plain', source: { kind: 'message', id: 0 } },
           defaultSpeaker: { kind: 'character', id: 'hero' },
           stageSlots: [],
           mediaSlots: [],
@@ -586,7 +595,7 @@ describe('compiled project wire', () => {
     const fixture = parseCompiledProjectWire(representativeWireFixture());
     fixture.definitions.scenes.push({
       id: 'after-opening',
-      displayName: 'After opening',
+      displayName: { markup: 'plain', source: { kind: 'message', id: 0 } },
       stage: {
         kind: 'blank',
         background: { asset: null, material: null, color: null, fit: 'cover' },

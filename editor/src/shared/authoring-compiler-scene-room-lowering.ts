@@ -65,8 +65,12 @@ const layoutRef = (ref: { $ref: { id: string } } | null) =>
 const characterRef = (ref: { $ref: { id: string } } | null) =>
   ref ? { kind: 'character' as const, id: ref.$ref.id } : null;
 
-function compileText(project: AuthoringProject, text: TextContent): CompiledText {
-  return compileMessageText(project.localization, text);
+function compileText(
+  project: AuthoringProject,
+  text: TextContent,
+  semanticPath?: string,
+): CompiledText {
+  return compileMessageText(project, text, semanticPath);
 }
 
 function compileSceneTerminal(
@@ -320,6 +324,7 @@ function compileInteractionSubject(
 
 function compileSceneStep(
   project: AuthoringProject,
+  sceneId: string,
   step: Exclude<SceneStepData, { type: 'comment' }>,
 ): SceneProgram['events'][number]['instruction'] {
   const base = common(step);
@@ -393,7 +398,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'show-text',
-        text: compileText(project, step.text),
+        text: compileText(project, step.text, `/scenes/${sceneId}/data/events/@${step.id}/text`),
         speaker: characterRef(step.speaker),
         wait: step.wait,
         autosaveSafePoint: step.autosaveSafePoint,
@@ -445,7 +450,13 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'gameplay-effect-batch',
-        operations: step.operations.map((command) => compileGameplayCommand(project, command)),
+        operations: step.operations.map((command) =>
+          compileGameplayCommand(
+            project,
+            command,
+            `/scenes/${sceneId}/data/events/@${step.id}/operations/@${command.id}`,
+          ),
+        ),
       };
     case 'runtime-world-transaction':
       return {
@@ -588,14 +599,26 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'choice',
-        prompt: step.prompt ? compileText(project, step.prompt) : null,
+        prompt: step.prompt
+          ? compileText(project, step.prompt, `/scenes/${sceneId}/data/events/@${step.id}/prompt`)
+          : null,
         options: step.options.map((option) => ({
           id: option.id,
-          label: compileText(project, option.label),
+          label: compileText(
+            project,
+            option.label,
+            `/scenes/${sceneId}/data/events/@${step.id}/options/@${option.id}/label`,
+          ),
           ...(option.condition === undefined
             ? {}
             : { condition: compileCondition(option.condition) }),
-          effects: option.effects.map((command) => compileGameplayCommand(project, command)),
+          effects: option.effects.map((command) =>
+            compileGameplayCommand(
+              project,
+              command,
+              `/scenes/${sceneId}/data/events/@${step.id}/options/@${option.id}/effects/@${command.id}`,
+            ),
+          ),
           targetInstructionId: option.targetStepId,
         })),
         autosaveSafePoint: step.autosaveSafePoint,
@@ -820,7 +843,7 @@ export function lowerSceneAndRoomPrograms(
             id: step.id,
             timeline: { ...step.timeline },
             completionDependencies: [...step.completionDependencies],
-            instruction: compileSceneStep(project, step),
+            instruction: compileSceneStep(project, scene.id, step),
           })),
       },
       terminal: compileSceneTerminal(data.terminal),
@@ -837,27 +860,57 @@ export function lowerSceneAndRoomPrograms(
         onRejected:
           data.exits
             .find((candidate) => candidate.id === exit.id)
-            ?.onRejected.map((command) => compileGameplayCommand(project, command)) ?? [],
+            ?.onRejected.map((command) =>
+              compileGameplayCommand(
+                project,
+                command,
+                `/rooms/${room.id}/data/exits/@${exit.id}/onRejected/@${command.id}`,
+              ),
+            ) ?? [],
       })),
       lifecycle: {
         ...room.lifecycle,
         beforeEnter: data.lifecycle.beforeEnter.map((command) =>
-          compileGameplayCommand(project, command),
+          compileGameplayCommand(
+            project,
+            command,
+            `/rooms/${room.id}/data/lifecycle/beforeEnter/@${command.id}`,
+          ),
         ),
         afterEnter: data.lifecycle.afterEnter.map((command) =>
-          compileGameplayCommand(project, command),
+          compileGameplayCommand(
+            project,
+            command,
+            `/rooms/${room.id}/data/lifecycle/afterEnter/@${command.id}`,
+          ),
         ),
         beforeLeave: data.lifecycle.beforeLeave.map((command) =>
-          compileGameplayCommand(project, command),
+          compileGameplayCommand(
+            project,
+            command,
+            `/rooms/${room.id}/data/lifecycle/beforeLeave/@${command.id}`,
+          ),
         ),
         afterLeave: data.lifecycle.afterLeave.map((command) =>
-          compileGameplayCommand(project, command),
+          compileGameplayCommand(
+            project,
+            command,
+            `/rooms/${room.id}/data/lifecycle/afterLeave/@${command.id}`,
+          ),
         ),
         onEnterRejected: data.lifecycle.onEnterRejected.map((command) =>
-          compileGameplayCommand(project, command),
+          compileGameplayCommand(
+            project,
+            command,
+            `/rooms/${room.id}/data/lifecycle/onEnterRejected/@${command.id}`,
+          ),
         ),
         onLeaveRejected: data.lifecycle.onLeaveRejected.map((command) =>
-          compileGameplayCommand(project, command),
+          compileGameplayCommand(
+            project,
+            command,
+            `/rooms/${room.id}/data/lifecycle/onLeaveRejected/@${command.id}`,
+          ),
         ),
       },
     };
@@ -876,27 +929,57 @@ export function lowerSceneAndRoomPrograms(
           onRejected:
             data.exits
               .find((candidate) => candidate.id === exit.id)
-              ?.onRejected.map((command) => compileGameplayCommand(project, command)) ?? [],
+              ?.onRejected.map((command) =>
+                compileGameplayCommand(
+                  project,
+                  command,
+                  `/archetypes/${archetype.id}/configuration/exits/@${exit.id}/onRejected/@${command.id}`,
+                ),
+              ) ?? [],
         })),
         lifecycle: {
           ...archetype.configuration.lifecycle,
           beforeEnter: data.lifecycle.beforeEnter.map((command) =>
-            compileGameplayCommand(project, command),
+            compileGameplayCommand(
+              project,
+              command,
+              `/archetypes/${archetype.id}/configuration/lifecycle/beforeEnter/@${command.id}`,
+            ),
           ),
           afterEnter: data.lifecycle.afterEnter.map((command) =>
-            compileGameplayCommand(project, command),
+            compileGameplayCommand(
+              project,
+              command,
+              `/archetypes/${archetype.id}/configuration/lifecycle/afterEnter/@${command.id}`,
+            ),
           ),
           beforeLeave: data.lifecycle.beforeLeave.map((command) =>
-            compileGameplayCommand(project, command),
+            compileGameplayCommand(
+              project,
+              command,
+              `/archetypes/${archetype.id}/configuration/lifecycle/beforeLeave/@${command.id}`,
+            ),
           ),
           afterLeave: data.lifecycle.afterLeave.map((command) =>
-            compileGameplayCommand(project, command),
+            compileGameplayCommand(
+              project,
+              command,
+              `/archetypes/${archetype.id}/configuration/lifecycle/afterLeave/@${command.id}`,
+            ),
           ),
           onEnterRejected: data.lifecycle.onEnterRejected.map((command) =>
-            compileGameplayCommand(project, command),
+            compileGameplayCommand(
+              project,
+              command,
+              `/archetypes/${archetype.id}/configuration/lifecycle/onEnterRejected/@${command.id}`,
+            ),
           ),
           onLeaveRejected: data.lifecycle.onLeaveRejected.map((command) =>
-            compileGameplayCommand(project, command),
+            compileGameplayCommand(
+              project,
+              command,
+              `/archetypes/${archetype.id}/configuration/lifecycle/onLeaveRejected/@${command.id}`,
+            ),
           ),
         },
       },

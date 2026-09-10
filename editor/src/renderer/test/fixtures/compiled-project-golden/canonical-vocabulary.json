@@ -14,7 +14,13 @@
           "styleClass": "",
           "textColor": null
         },
-        "displayName": "Character",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 40,
+            "kind": "message"
+          }
+        },
         "expressions": [
           {
             "id": "neutral",
@@ -65,7 +71,13 @@
     },
     {
       "configuration": {
-        "displayName": "Interactable",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 15,
+            "kind": "message"
+          }
+        },
         "features": [],
         "inventories": [],
         "presentation": {
@@ -97,11 +109,17 @@
         "description": {
           "markup": "active-text",
           "source": {
-            "kind": "inline",
-            "text": ""
+            "id": 31,
+            "kind": "message"
           }
         },
-        "displayName": "Room",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 39,
+            "kind": "message"
+          }
+        },
         "environments": [],
         "exits": [],
         "fallbackInteractablePlacementId": null,
@@ -170,7 +188,13 @@
           "styleClass": "",
           "textColor": null
         },
-        "displayName": "Hero",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 9,
+            "kind": "message"
+          }
+        },
         "expressions": [
           {
             "id": "neutral",
@@ -334,7 +358,13 @@
           "id": "hero",
           "kind": "character"
         },
-        "displayName": "Cue Vocabulary",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 32,
+            "kind": "message"
+          }
+        },
         "id": "cue-vocabulary",
         "mediaSlots": [
           {
@@ -526,8 +556,8 @@
                   "text": {
                     "markup": "plain",
                     "source": {
-                      "kind": "inline",
-                      "text": "ABCDE"
+                      "id": 33,
+                      "kind": "message"
                     }
                   }
                 },
@@ -585,7 +615,13 @@
           "kind": "end"
         },
         "defaultSpeaker": null,
-        "displayName": "Intro",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 55,
+            "kind": "message"
+          }
+        },
         "id": "intro",
         "mediaSlots": [],
         "program": {
@@ -607,7 +643,7 @@
                   "text": {
                     "markup": "active-text",
                     "source": {
-                      "id": 0,
+                      "id": 1,
                       "kind": "message"
                     }
                   }
@@ -627,7 +663,13 @@
     ],
     "interactables": [
       {
-        "displayName": "Coin",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 7,
+            "kind": "message"
+          }
+        },
         "features": [
           {
             "id": "face",
@@ -731,7 +773,13 @@
         "traits": []
       },
       {
-        "displayName": "Credits",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 50,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "credits",
         "inventories": [],
@@ -757,7 +805,13 @@
         ]
       },
       {
-        "displayName": "Dust",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 27,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "dust",
         "inventories": [],
@@ -776,7 +830,13 @@
         "traits": []
       },
       {
-        "displayName": "Key",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 6,
+            "kind": "message"
+          }
+        },
         "features": [
           {
             "id": "surface",
@@ -1034,7 +1094,7 @@
                   "message": {
                     "markup": "plain",
                     "source": {
-                      "id": 0,
+                      "id": 1,
                       "kind": "message"
                     }
                   }
@@ -1352,8 +1412,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "Hall"
+                "id": 46,
+                "kind": "message"
               }
             },
             "labelAnchor": {
@@ -1396,7 +1456,7 @@
             "label": {
               "markup": "plain",
               "source": {
-                "id": 3,
+                "id": 4,
                 "kind": "message"
               }
             },
@@ -1448,7 +1508,7 @@
           "title": {
             "markup": "plain",
             "source": {
-              "id": 1,
+              "id": 2,
               "kind": "message"
             }
           }
@@ -1478,7 +1538,13 @@
             "source": "return hall_description()"
           }
         },
-        "displayName": "Hall",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 56,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -1489,8 +1555,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "South"
+                "id": 20,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -1510,8 +1576,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "East"
+                "id": 8,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -1569,8 +1635,8 @@
               "label": {
                 "markup": "plain",
                 "source": {
-                  "kind": "inline",
-                  "text": "Coin"
+                  "id": 0,
+                  "kind": "message"
                 }
               },
               "layout": null
@@ -1634,11 +1700,17 @@
         "description": {
           "markup": "active-text",
           "source": {
-            "id": 2,
+            "id": 3,
             "kind": "message"
           }
         },
-        "displayName": "Start",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 53,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -1654,8 +1726,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "North"
+                "id": 28,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -1923,11 +1995,17 @@
         "description": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "A quiet tower."
+            "id": 43,
+            "kind": "message"
           }
         },
-        "displayName": "Tower",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 38,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -1938,8 +2016,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "West"
+                "id": 16,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -1997,7 +2075,13 @@
     ],
     "scenes": [
       {
-        "displayName": "Background Safe",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 52,
+            "kind": "message"
+          }
+        },
         "id": "background-safe",
         "inputs": [],
         "outcomes": [],
@@ -2038,7 +2122,13 @@
         }
       },
       {
-        "displayName": "Inherited Stage",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 58,
+            "kind": "message"
+          }
+        },
         "id": "inherited-return",
         "inputs": [],
         "outcomes": [
@@ -2060,8 +2150,8 @@
                 "text": {
                   "markup": "plain",
                   "source": {
-                    "kind": "inline",
-                    "text": "Inherited."
+                    "id": 23,
+                    "kind": "message"
                   }
                 },
                 "wait": "immediate"
@@ -2083,7 +2173,13 @@
         }
       },
       {
-        "displayName": "Opening",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 51,
+            "kind": "message"
+          }
+        },
         "id": "opening",
         "inputs": [],
         "outcomes": [],
@@ -2100,8 +2196,8 @@
                 "text": {
                   "markup": "plain",
                   "source": {
-                    "kind": "inline",
-                    "text": "Opening."
+                    "id": 37,
+                    "kind": "message"
                   }
                 },
                 "wait": "input"
@@ -2129,7 +2225,13 @@
         }
       },
       {
-        "displayName": "Canonical Vocabulary",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 54,
+            "kind": "message"
+          }
+        },
         "id": "vocabulary",
         "inputs": [],
         "outcomes": [],
@@ -2871,8 +2973,8 @@
         "actionText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Combine"
+            "id": 36,
+            "kind": "message"
           }
         },
         "availability": {
@@ -2885,8 +2987,8 @@
         "completedCommandText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Combine"
+            "id": 34,
+            "kind": "message"
           }
         },
         "defaultProgram": {
@@ -2904,15 +3006,15 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "first"
+                "id": 26,
+                "kind": "message"
               }
             },
             "prompt": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "first"
+                "id": 48,
+                "kind": "message"
               }
             },
             "selectors": [
@@ -2926,15 +3028,15 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "second"
+                "id": 44,
+                "kind": "message"
               }
             },
             "prompt": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "second"
+                "id": 35,
+                "kind": "message"
               }
             },
             "selectors": [
@@ -2949,8 +3051,8 @@
         "actionText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Inspect"
+            "id": 49,
+            "kind": "message"
           }
         },
         "availability": {
@@ -2962,8 +3064,8 @@
         "completedCommandText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Inspect"
+            "id": 18,
+            "kind": "message"
           }
         },
         "defaultProgram": {
@@ -2994,15 +3096,15 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "target"
+                "id": 19,
+                "kind": "message"
               }
             },
             "prompt": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "target"
+                "id": 25,
+                "kind": "message"
               }
             },
             "selectors": [
@@ -3017,8 +3119,8 @@
         "actionText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Look"
+            "id": 12,
+            "kind": "message"
           }
         },
         "availability": {
@@ -3028,8 +3130,8 @@
         "completedCommandText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Look"
+            "id": 14,
+            "kind": "message"
           }
         },
         "defaultProgram": {
@@ -3047,8 +3149,8 @@
         "actionText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Selector Vocabulary"
+            "id": 47,
+            "kind": "message"
           }
         },
         "availability": {
@@ -3060,8 +3162,8 @@
         "completedCommandText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Selector Vocabulary"
+            "id": 45,
+            "kind": "message"
           }
         },
         "defaultProgram": {
@@ -3079,15 +3181,15 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "subject"
+                "id": 10,
+                "kind": "message"
               }
             },
             "prompt": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "subject"
+                "id": 11,
+                "kind": "message"
               }
             },
             "selectors": [
@@ -3128,8 +3230,8 @@
         "actionText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Unlock"
+            "id": 41,
+            "kind": "message"
           }
         },
         "availability": {
@@ -3142,8 +3244,8 @@
         "completedCommandText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Unlock"
+            "id": 30,
+            "kind": "message"
           }
         },
         "defaultProgram": {
@@ -3170,15 +3272,15 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "target"
+                "id": 57,
+                "kind": "message"
               }
             },
             "prompt": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "target"
+                "id": 21,
+                "kind": "message"
               }
             },
             "selectors": [
@@ -3193,8 +3295,8 @@
         "actionText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Use"
+            "id": 42,
+            "kind": "message"
           }
         },
         "availability": {
@@ -3211,8 +3313,8 @@
         "completedCommandText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Use"
+            "id": 22,
+            "kind": "message"
           }
         },
         "defaultProgram": {
@@ -3243,15 +3345,15 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "target"
+                "id": 13,
+                "kind": "message"
               }
             },
             "prompt": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "target"
+                "id": 24,
+                "kind": "message"
               }
             },
             "selectors": [
@@ -5368,23 +5470,247 @@
         "entries": [
           {
             "messageId": 0,
-            "value": "Welcome."
+            "value": "Coin"
           },
           {
             "messageId": 1,
-            "value": "House Map"
+            "value": "Welcome."
           },
           {
             "messageId": 2,
-            "value": "The starting room."
+            "value": "House Map"
           },
           {
             "messageId": 3,
-            "value": "Tower"
+            "value": "The starting room."
           },
           {
             "messageId": 4,
+            "value": "Tower"
+          },
+          {
+            "messageId": 5,
             "value": "Choose a path."
+          },
+          {
+            "messageId": 6,
+            "value": "Key"
+          },
+          {
+            "messageId": 7,
+            "value": "Coin"
+          },
+          {
+            "messageId": 8,
+            "value": "East"
+          },
+          {
+            "messageId": 9,
+            "value": "Hero"
+          },
+          {
+            "messageId": 10,
+            "value": "subject"
+          },
+          {
+            "messageId": 11,
+            "value": "subject"
+          },
+          {
+            "messageId": 12,
+            "value": "Look"
+          },
+          {
+            "messageId": 13,
+            "value": "target"
+          },
+          {
+            "messageId": 14,
+            "value": "Look"
+          },
+          {
+            "messageId": 15,
+            "value": "Interactable"
+          },
+          {
+            "messageId": 16,
+            "value": "West"
+          },
+          {
+            "messageId": 17,
+            "value": "Character"
+          },
+          {
+            "messageId": 18,
+            "value": "Inspect"
+          },
+          {
+            "messageId": 19,
+            "value": "target"
+          },
+          {
+            "messageId": 20,
+            "value": "South"
+          },
+          {
+            "messageId": 21,
+            "value": "target"
+          },
+          {
+            "messageId": 22,
+            "value": "Use"
+          },
+          {
+            "messageId": 23,
+            "value": "Inherited."
+          },
+          {
+            "messageId": 24,
+            "value": "target"
+          },
+          {
+            "messageId": 25,
+            "value": "target"
+          },
+          {
+            "messageId": 26,
+            "value": "first"
+          },
+          {
+            "messageId": 27,
+            "value": "Dust"
+          },
+          {
+            "messageId": 28,
+            "value": "North"
+          },
+          {
+            "messageId": 29,
+            "value": "Hero"
+          },
+          {
+            "messageId": 30,
+            "value": "Unlock"
+          },
+          {
+            "messageId": 31,
+            "value": ""
+          },
+          {
+            "messageId": 32,
+            "value": "Cue Vocabulary"
+          },
+          {
+            "messageId": 33,
+            "value": "ABCDE"
+          },
+          {
+            "messageId": 34,
+            "value": "Combine"
+          },
+          {
+            "messageId": 35,
+            "value": "second"
+          },
+          {
+            "messageId": 36,
+            "value": "Combine"
+          },
+          {
+            "messageId": 37,
+            "value": "Opening."
+          },
+          {
+            "messageId": 38,
+            "value": "Tower"
+          },
+          {
+            "messageId": 39,
+            "value": "Room"
+          },
+          {
+            "messageId": 40,
+            "value": "Character"
+          },
+          {
+            "messageId": 41,
+            "value": "Unlock"
+          },
+          {
+            "messageId": 42,
+            "value": "Use"
+          },
+          {
+            "messageId": 43,
+            "value": "A quiet tower."
+          },
+          {
+            "messageId": 44,
+            "value": "second"
+          },
+          {
+            "messageId": 45,
+            "value": "Selector Vocabulary"
+          },
+          {
+            "messageId": 46,
+            "value": "Hall"
+          },
+          {
+            "messageId": 47,
+            "value": "Selector Vocabulary"
+          },
+          {
+            "messageId": 48,
+            "value": "first"
+          },
+          {
+            "messageId": 49,
+            "value": "Inspect"
+          },
+          {
+            "messageId": 50,
+            "value": "Credits"
+          },
+          {
+            "messageId": 51,
+            "value": "Opening"
+          },
+          {
+            "messageId": 52,
+            "value": "Background Safe"
+          },
+          {
+            "messageId": 53,
+            "value": "Start"
+          },
+          {
+            "messageId": 54,
+            "value": "Canonical Vocabulary"
+          },
+          {
+            "messageId": 55,
+            "value": "Intro"
+          },
+          {
+            "messageId": 56,
+            "value": "Hall"
+          },
+          {
+            "messageId": 57,
+            "value": "target"
+          },
+          {
+            "messageId": 58,
+            "value": "Inherited Stage"
+          },
+          {
+            "messageId": 59,
+            "value": "Start"
+          },
+          {
+            "messageId": 60,
+            "value": ""
           }
         ],
         "locale": "en"
@@ -5392,23 +5718,23 @@
       {
         "entries": [
           {
-            "messageId": 0,
+            "messageId": 1,
             "value": "Bienvenido."
           },
           {
-            "messageId": 1,
+            "messageId": 2,
             "value": "Mapa de la casa"
           },
           {
-            "messageId": 2,
+            "messageId": 3,
             "value": "La sala inicial."
           },
           {
-            "messageId": 3,
+            "messageId": 4,
             "value": "Torre"
           },
           {
-            "messageId": 4,
+            "messageId": 5,
             "value": "Elige un camino."
           }
         ],
@@ -6018,7 +6344,7 @@
       }
     ]
   },
-  "saveContract": "sc1:69caa721c30fbf870a5e1b1100ccb5db",
+  "saveContract": "sc1:5f51d8f6a4930fbcdb41214683a4fc88",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
@@ -6149,8 +6475,20 @@
     "titleScreen": {
       "showAuthor": false,
       "showProjectTitle": true,
-      "startLabel": "Start",
-      "subtitle": "",
+      "startLabel": {
+        "markup": "plain",
+        "source": {
+          "id": 59,
+          "kind": "message"
+        }
+      },
+      "subtitle": {
+        "markup": "plain",
+        "source": {
+          "id": 60,
+          "kind": "message"
+        }
+      },
       "titleImage": {
         "id": "image-main",
         "kind": "asset"

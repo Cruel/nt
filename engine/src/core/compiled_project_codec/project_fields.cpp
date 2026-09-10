@@ -570,11 +570,11 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                               ? decoder.boolean(*show_title_value,
                                                 pointer_child(title_pointer, "showProjectTitle"))
                               : std::nullopt;
-        auto start = start_value ? decoder.string(*start_value,
-                                                  pointer_child(title_pointer, "startLabel"), true)
+        auto start = start_value ? decode_text(decoder, *start_value,
+                                               pointer_child(title_pointer, "startLabel"))
                                  : std::nullopt;
-        auto subtitle = subtitle_value ? decoder.string(*subtitle_value,
-                                                        pointer_child(title_pointer, "subtitle"))
+        auto subtitle = subtitle_value ? decode_text(decoder, *subtitle_value,
+                                                     pointer_child(title_pointer, "subtitle"))
                                        : std::nullopt;
         std::optional<AssetId> image;
         bool image_ok = image_value != nullptr;

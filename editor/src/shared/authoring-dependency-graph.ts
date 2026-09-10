@@ -34,6 +34,7 @@ import type {
   ReferenceTarget,
 } from './project-schema/authoring-project';
 import { resolveMessage } from './message-resolution';
+import { structuredMessageById } from './authoring-structured-messages';
 import { systemLayoutRoleValues } from './project-schema/authoring-layouts';
 import { isVariableRef } from './project-schema/authoring-variables';
 import type {
@@ -1955,15 +1956,18 @@ function deriveStructuralContributionByKey(
       return null;
     const [locale, messageId] = parsed;
     const message = project.localization.messages[messageId];
+    const structuredMessage = message ? null : structuredMessageById(project, messageId);
     const exists =
       locale === project.localization.sourceLocale
-        ? message !== undefined
+        ? message !== undefined || structuredMessage !== null
         : project.localization.translations[locale]?.[messageId] !== undefined;
-    if (!message || !exists) return null;
+    if ((!message && !structuredMessage) || !exists) return null;
     const key = localizationMessageNodeKey(locale, messageId);
     const ownerPath =
       locale === project.localization.sourceLocale
-        ? buildJsonPointer(['localization', 'messages', messageId, 'source'])
+        ? message
+          ? buildJsonPointer(['localization', 'messages', messageId, 'source'])
+          : structuredMessage!.path
         : buildJsonPointer(['localization', 'translations', locale, messageId]);
     return {
       key: contributionKey,
@@ -1973,7 +1977,7 @@ function deriveStructuralContributionByKey(
           key,
           keyText: serializeAuthoringDependencyNodeKey(key),
           owningPath: ownerPath,
-          label: message.kind === 'named' ? message.key : messageId,
+          label: message?.kind === 'named' ? message.key : (structuredMessage?.source ?? messageId),
         },
       ],
       edges: [],

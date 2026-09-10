@@ -22,8 +22,14 @@
     "titleScreen": {
       "showProjectTitle": false,
       "showAuthor": false,
-      "subtitle": "",
-      "startLabel": "Start",
+      "subtitle": {
+        "markup": "plain",
+        "source": { "kind": "message", "id": 1 }
+      },
+      "startLabel": {
+        "markup": "plain",
+        "source": { "kind": "message", "id": 0 }
+      },
       "titleImage": null
     },
     "text": { "defaultFont": null },
@@ -77,7 +83,16 @@
     "sourceLocale": "en",
     "defaultLocale": "en",
     "locales": [{ "locale": "en", "parentLocale": null, "supported": true }],
-    "catalogs": [{ "locale": "en", "entries": [] }]
+    "catalogs": [
+      {
+        "locale": "en",
+        "entries": [
+          { "messageId": 0, "value": "Start" },
+          { "messageId": 1, "value": "" },
+          { "messageId": 2, "value": "Transition Probe" }
+        ]
+      }
+    ]
   },
   "resources": {
     "assets": [],
@@ -174,7 +189,10 @@
     "scenes": [
       {
         "id": "probe",
-        "displayName": "Transition Probe",
+        "displayName": {
+          "markup": "plain",
+          "source": { "kind": "message", "id": 2 }
+        },
         "inputs": [],
         "outcomes": [],
         "stage": {

@@ -1432,9 +1432,11 @@ describe('authoring compiler framework', () => {
         height: 960,
       },
     ]);
-    expect(draft.localization.catalogs).toEqual([
-      { locale: 'en', entries: [{ messageId: 0, value: 'Hello' }] },
-    ]);
+    expect(draft.localization.catalogs).toHaveLength(1);
+    expect(draft.localization.catalogs[0]?.locale).toBe('en');
+    expect(draft.localization.catalogs[0]?.entries.map((entry) => entry.value)).toEqual(
+      expect.arrayContaining(['Hello', 'Hero', 'Key', 'Opening', 'Intro']),
+    );
     expect(draft.localization).toMatchObject({
       sourceLocale: 'en',
       defaultLocale: 'en',
@@ -2026,7 +2028,7 @@ describe('authoring compiler framework', () => {
           kind: 'line',
           text: {
             markup: 'active-text',
-            source: { kind: 'inline', text: '[b]Hello[/b]' },
+            source: { kind: 'message', id: expect.any(Number) },
           },
           cues: [
             {
@@ -2313,7 +2315,7 @@ describe('authoring compiler framework', () => {
     expect(result.project.definitions.interactables).toEqual([
       {
         id: 'key',
-        displayName: 'Key',
+        displayName: { markup: 'plain', source: { kind: 'message', id: 1 } },
         stackable: false,
         stackLimit: null,
         features: [],

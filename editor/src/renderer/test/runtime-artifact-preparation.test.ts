@@ -79,8 +79,18 @@ describe('Prepared Runtime Artifact module', () => {
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
       definitions: {
         rooms: expect.arrayContaining([
-          expect.objectContaining({ id: 'foyer', displayName: 'Foyer' }),
-          expect.objectContaining({ id: 'kitchen', displayName: 'Kitchen' }),
+          expect.objectContaining({
+            id: 'foyer',
+            displayName: expect.objectContaining({
+              source: expect.objectContaining({ kind: 'message' }),
+            }),
+          }),
+          expect.objectContaining({
+            id: 'kitchen',
+            displayName: expect.objectContaining({
+              source: expect.objectContaining({ kind: 'message' }),
+            }),
+          }),
         ]),
       },
     });

@@ -2021,7 +2021,7 @@ std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::js
     const auto* program_value = decoder.member(value, "program", pointer);
     const auto* terminal_value = decoder.member(value, "terminal", pointer);
     auto display = display_value
-                       ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
+                       ? decode_text(decoder, *display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
     std::optional<SceneStage> stage;
     if (stage_value && stage_value->is_object()) {
