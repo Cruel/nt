@@ -25,6 +25,7 @@ export const SAVE_UNIT_IDS = {
   variableCollection: 'collection:variables',
   traitCollection: 'collection:traits',
   projectSettings: PROJECT_SETTINGS_SAVE_UNIT_ID,
+  localization: 'project:localization',
   platformExportProfiles: 'project:platform-export-profiles',
   projectChapters: 'project:chapters',
   projectTags: 'project:tags',
@@ -258,25 +259,31 @@ export function resolveSaveUnitForResource(
           kind: 'project-settings' as const,
           paths: PROJECT_SETTINGS_OWNED_PATHS,
         }
-      : editorType === 'platform-export' || editorType === 'platform-export-profiles'
+      : editorType === 'localization'
         ? {
-            id: SAVE_UNIT_IDS.platformExportProfiles,
+            id: SAVE_UNIT_IDS.localization,
             kind: 'project-tool' as const,
-            paths: ['/export/runtime', '/export/profiles'],
+            paths: ['/localization'],
           }
-        : editorType === 'project-chapters'
+        : editorType === 'platform-export' || editorType === 'platform-export-profiles'
           ? {
-              id: SAVE_UNIT_IDS.projectChapters,
+              id: SAVE_UNIT_IDS.platformExportProfiles,
               kind: 'project-tool' as const,
-              paths: ['/editor/chapters'],
+              paths: ['/export/runtime', '/export/profiles'],
             }
-          : editorType === 'project-tags'
+          : editorType === 'project-chapters'
             ? {
-                id: SAVE_UNIT_IDS.projectTags,
+                id: SAVE_UNIT_IDS.projectChapters,
                 kind: 'project-tool' as const,
-                paths: ['/editor/tags'],
+                paths: ['/editor/chapters'],
               }
-            : null;
+            : editorType === 'project-tags'
+              ? {
+                  id: SAVE_UNIT_IDS.projectTags,
+                  kind: 'project-tool' as const,
+                  paths: ['/editor/tags'],
+                }
+              : null;
   if (projectEditor) {
     return {
       status: 'savable',

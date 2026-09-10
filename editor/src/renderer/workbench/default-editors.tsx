@@ -5,6 +5,7 @@ import {
   FileCode,
   Image,
   Images,
+  Languages,
   Layers,
   ListChecks,
   MessageSquareText,
@@ -26,6 +27,7 @@ import { ImageGenerationEditor } from '@/editors/comfyui/ImageGenerationEditor';
 import { ComfyUiWorkflowsEditor } from '@/editors/comfyui/ComfyUiWorkflowsEditor';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
+import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
 import { PlaceholderEntityEditor } from '@/editors/placeholder/PlaceholderEntityEditor';
 import { InteractionEditor } from '@/editors/interactions/InteractionEditor';
@@ -228,6 +230,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Project Settings',
     icon: Settings,
     component: ProjectSettingsEditor,
+  },
+  {
+    type: 'localization',
+    label: 'Localization',
+    icon: Languages,
+    component: LocalizationEditor,
   },
   {
     type: 'platform-export',

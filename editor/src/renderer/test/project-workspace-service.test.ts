@@ -197,6 +197,10 @@ describe('ProjectWorkspaceService', () => {
     expect(opened.snapshot.saveUnitFileOwnership['collection:traits']?.files).toEqual([
       'traits.json',
     ]);
+    expect(opened.snapshot.saveUnitFileOwnership['project:localization']).toEqual({
+      files: ['localization.json'],
+      paths: ['/localization'],
+    });
     expect(opened.snapshot.saveUnitFileOwnership['workflow:play-recorder']?.paths).toEqual([
       '/tests',
       '/editor/recordMetadata/tests',

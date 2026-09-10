@@ -72,7 +72,7 @@ function contentSaveUnitForPath(path: string): string {
   if (['project', 'settings', 'bootstrapModule', 'entrypoint'].includes(root))
     return PROJECT_SETTINGS_SAVE_UNIT_ID;
   if (root === 'properties') return 'project:properties';
-  if (root === 'localization') return 'project:localization';
+  if (root === 'localization') return SAVE_UNIT_IDS.localization;
   if (root === 'editor') {
     if (segments[1] === 'chapters') return SAVE_UNIT_IDS.projectChapters;
     if (segments[1] === 'tags') return SAVE_UNIT_IDS.projectTags;

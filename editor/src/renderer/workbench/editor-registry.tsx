@@ -504,6 +504,18 @@ export function buildProjectSettingsTab(): WorkbenchTab {
   };
 }
 
+export function buildLocalizationTab(): WorkbenchTab {
+  return {
+    id: 'tab:localization',
+    title: 'Localization',
+    editorType: 'localization',
+    resource: {
+      kind: 'project',
+      stableId: 'project:localization',
+    },
+  };
+}
+
 export function buildPlatformExportTab(): WorkbenchTab {
   return {
     id: 'tab:platform-export',

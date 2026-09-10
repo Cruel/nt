@@ -47,6 +47,7 @@ const representativeResources: Record<string, WorkbenchResource> = {
   components: { kind: 'tool', stableId: 'utility:components' },
   settings: { kind: 'tool', stableId: 'utility:settings' },
   'project-settings': { kind: 'project', stableId: 'project:settings' },
+  localization: { kind: 'project', stableId: 'project:localization' },
   'platform-export': { kind: 'project', stableId: 'project:platform-export' },
   'project-chapters': { kind: 'project', stableId: 'project:chapters' },
   'project-tags': { kind: 'project', stableId: 'project:tags' },
@@ -100,6 +101,15 @@ describe('save-unit registry', () => {
     expect(resolution.descriptor.id).toBe('project:settings');
     expect(resolution.descriptor.ownedPaths).toEqual([...PROJECT_SETTINGS_OWNED_PATHS].sort());
     expect(resolution.descriptor.ownedPaths).not.toContain('');
+  });
+
+  it('maps Localization to the canonical localization save unit', () => {
+    expect(
+      resolveSaveUnitForResource(representativeResources.localization, 'localization', project),
+    ).toMatchObject({
+      status: 'savable',
+      descriptor: { id: 'project:localization', ownedPaths: ['/localization'] },
+    });
   });
 
   it('distinguishes collection-wide editors, non-content tools, and unsupported editors', () => {

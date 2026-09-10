@@ -8,6 +8,7 @@ import {
   FileCode,
   FilePlus2,
   FolderOpen,
+  Languages,
   MoreHorizontal,
   Palette,
   Search,
@@ -78,6 +79,7 @@ import {
   buildAssetsEditorTab,
   buildDefaultRecordTab,
   buildImageGenerationTab,
+  buildLocalizationTab,
   buildProjectChaptersTab,
   buildProjectSettingsTab,
   buildProjectTagsTab,
@@ -639,6 +641,9 @@ function ProjectHeading({ projectName }: { projectName: string }) {
             onClick={() => openTab(buildProjectSettingsTab())}
           >
             <Settings /> Project Settings…
+          </MenuItem>
+          <MenuItem className="whitespace-nowrap" onClick={() => openTab(buildLocalizationTab())}>
+            <Languages /> Localization…
           </MenuItem>
           <MenuItem
             className="whitespace-nowrap"
