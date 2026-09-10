@@ -120,6 +120,12 @@
       "roomProvenance": "Sala {{room}}",
       "exitProvenance": "Saída {{exit}}",
       "costSummary": "CPU {{cpu}} · GPU {{gpu}} · Áudio {{audio}} · estimativa {{kind}}",
+      "horizonOutcomeLabel": "Horizonte de previsão: {{outcome}}",
+      "horizonOutcomes": {
+        "useful-frontier-exhausted": "fronteira útil alcançável esgotada",
+        "warm-budget-exhausted": "interrompido pela capacidade de memória Warm",
+        "structural-limit-reached": "interrompido pelo limite estrutural de segurança"
+      },
       "predictionKinds": {
         "expected-next": "Próximo esperado",
         "possible-next": "Próximo possível"

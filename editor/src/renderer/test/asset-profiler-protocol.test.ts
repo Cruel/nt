@@ -83,6 +83,7 @@ const generationChange = {
     presentationRevision: '4',
     expectedNextCount: '1',
     possibleNextCount: '1',
+    horizonOutcome: 'warm-budget-exhausted',
     predictionPlan: [
       {
         cacheKey: key,
@@ -275,6 +276,27 @@ describe('asset profiler protocol', () => {
     ).toBe(true);
   });
 
+  it('accepts every prediction horizon outcome', () => {
+    for (const horizonOutcome of [
+      'useful-frontier-exhausted',
+      'warm-budget-exhausted',
+      'structural-limit-reached',
+    ] as const) {
+      expect(
+        isAssetProfilerWirePayload({
+          ...full,
+          activePrefetchGeneration: { ...generationChange.generation, horizonOutcome },
+          retainedChanges: [
+            {
+              ...generationChange,
+              generation: { ...generationChange.generation, horizonOutcome },
+            },
+          ],
+        }),
+      ).toBe(true);
+    }
+  });
+
   it('accepts logical prefetch-generation release changes', () => {
     expect(
       isAssetProfilerWirePayload({
@@ -363,6 +385,17 @@ describe('asset profiler protocol', () => {
               ...generationChange.generation,
               submittedEntries: [{ cacheKey: key, prediction: 0 }],
             },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      isAssetProfilerWirePayload({
+        ...full,
+        retainedChanges: [
+          {
+            ...generationChange,
+            generation: { ...generationChange.generation, horizonOutcome: 'unknown-outcome' },
           },
         ],
       }),

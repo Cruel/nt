@@ -115,6 +115,7 @@ describe('AssetPerformancePanel', () => {
           presentationRevision: '3',
           expectedNextCount: '1',
           possibleNextCount: '0',
+          horizonOutcome: 'useful-frontier-exhausted',
           predictionPlan: [
             {
               cacheKey: {
@@ -169,6 +170,9 @@ describe('AssetPerformancePanel', () => {
 
     render(<AssetPerformancePanel />);
 
+    expect(
+      screen.getByText('Prediction horizon: useful reachable frontier exhausted'),
+    ).toBeInTheDocument();
     expect(screen.getByText('texture|project:/intro.png|0')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(

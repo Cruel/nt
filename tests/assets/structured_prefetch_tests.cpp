@@ -2114,6 +2114,8 @@ TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
     CHECK(record.expected_next_count + record.possible_next_count ==
           record.submitted_entries.size() + record.submission_failures.size());
     CHECK(record.possible_next_count > 0);
+    CHECK(record.horizon_outcome ==
+          core::AssetProfilerPredictionHorizonOutcome::UsefulFrontierExhausted);
     CHECK(record.prediction_plan.size() == record.expected_next_count + record.possible_next_count);
     CHECK(std::ranges::all_of(record.submitted_entries, [](const auto& entry) {
         return entry.prediction == core::PrefetchPredictionKind::ExpectedNext ||
@@ -2259,6 +2261,8 @@ TEST_CASE("mandatory gate profiler reports planner Warm admission rejection",
     REQUIRE(sink.generations.size() == 1);
     const auto& record = sink.generations.front();
     CHECK(record.expected_next_count + record.possible_next_count > 0);
+    CHECK(record.horizon_outcome ==
+          core::AssetProfilerPredictionHorizonOutcome::WarmBudgetExhausted);
     CHECK_FALSE(record.prediction_plan.empty());
     CHECK(record.submitted_entries.empty());
     REQUIRE_FALSE(record.submission_failures.empty());

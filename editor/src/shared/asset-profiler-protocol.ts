@@ -179,12 +179,18 @@ export interface AssetProfilerOpaquePredictionFrontier {
   reasonChain: string[];
 }
 
+export type AssetProfilerPredictionHorizonOutcome =
+  | 'useful-frontier-exhausted'
+  | 'warm-budget-exhausted'
+  | 'structural-limit-reached';
+
 export interface AssetProfilerPrefetchGenerationRecord {
   generation: CanonicalDecimal;
   timestampNs: CanonicalDecimal;
   presentationRevision: CanonicalDecimal | null;
   expectedNextCount: CanonicalDecimal;
   possibleNextCount: CanonicalDecimal;
+  horizonOutcome: AssetProfilerPredictionHorizonOutcome;
   predictionPlan: AssetProfilerPrefetchPlanEntry[];
   opaqueFrontiers: AssetProfilerOpaquePredictionFrontier[];
   submittedEntries: AssetProfilerPrefetchSubmissionEntry[];
@@ -692,6 +698,7 @@ function isGeneration(value: unknown): value is AssetProfilerPrefetchGenerationR
       'presentationRevision',
       'expectedNextCount',
       'possibleNextCount',
+      'horizonOutcome',
       'predictionPlan',
       'opaqueFrontiers',
       'submittedEntries',
@@ -705,6 +712,9 @@ function isGeneration(value: unknown): value is AssetProfilerPrefetchGenerationR
     isNullableDecimal(value.presentationRevision) &&
     isCanonicalUnsignedDecimal(value.expectedNextCount) &&
     isCanonicalUnsignedDecimal(value.possibleNextCount) &&
+    (value.horizonOutcome === 'useful-frontier-exhausted' ||
+      value.horizonOutcome === 'warm-budget-exhausted' ||
+      value.horizonOutcome === 'structural-limit-reached') &&
     Array.isArray(value.predictionPlan) &&
     value.predictionPlan.every(isPredictionPlanEntry) &&
     Array.isArray(value.opaqueFrontiers) &&
