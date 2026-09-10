@@ -16,10 +16,16 @@ const localeDefinitionSchema = z
   })
   .strict();
 
+const messageGuidanceFields = {
+  context: z.string().optional(),
+  translatorNote: z.string().optional(),
+};
+
 const localMessageSchema = z
   .object({
     kind: z.literal('local'),
     source: z.string(),
+    ...messageGuidanceFields,
   })
   .strict();
 
@@ -28,6 +34,7 @@ const namedMessageSchema = z
     kind: z.literal('named'),
     key: namedMessageKeySchema,
     source: z.string(),
+    ...messageGuidanceFields,
   })
   .strict();
 

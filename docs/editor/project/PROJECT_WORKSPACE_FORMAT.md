@@ -16,9 +16,12 @@ built-in Runtime Package policy and portable platform profiles. Profile selectio
 choices remain editor-local. `traits.json`, `localization.json`, and `editor.json` are required
 contextual fragments. `localization.json` owns the canonical Message model: one Source locale, one
 Supported Default locale, explicit Supported/work-in-progress locale metadata with optional parent
-locale inheritance, stable UUID Message identities, local/named Message source definitions, and sparse
-target translations keyed by stable Message identity. Source prose is stored once on each Message and
-is not duplicated into per-locale target maps. `traits.json` owns the self-contained Trait contracts;
+locale inheritance, stable UUID Message identities, local/named Message source definitions, optional
+Message-level Context and Translator note guidance, and sparse target translations keyed by stable
+Message identity. Source prose is stored once on each Message and is not duplicated into per-locale
+target maps. The editor's Localization workspace owns `/localization` as the `project:localization`
+manual save unit, so language, Message, and translation edits use the same revisioned Project Workspace
+transaction/recovery path as other tracked project content. `traits.json` owns the self-contained Trait contracts;
 there is no top-level identity Property fragment. `editor.json` contains exactly collaborator-visible
 `chapters`, `tags`, and `recordMetadata`, including collaborator-visible Trait color metadata.
 
