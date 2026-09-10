@@ -51,6 +51,28 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('reports missing named Message references during semantic validation', () => {
+    const project = validProject();
+    project.rooms.foyer!.data.description.source = {
+      kind: 'localized',
+      key: 'room.missing-description',
+    };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'AUTHORING_LOCALIZATION_MESSAGE_REFERENCE_MISSING',
+        jsonPointer: '/rooms/foyer/data/description/source/key',
+      }),
+    );
+    expect(result.stages.find((stage) => stage.name === 'semantic-validation')).toEqual({
+      name: 'semantic-validation',
+      status: 'failed',
+    });
+  });
+
   it('lowers persisted supplemental prefetch intent into the generated prediction index', () => {
     const project = validProject();
     project.layouts.overlay = {
@@ -1337,7 +1359,11 @@ describe('authoring compiler framework', () => {
       kind: 'script-module',
       source: { kind: 'inline-lua', source: 'bootstrap()\nreturn {}\n' },
     };
-    project.localization.catalogs.en = { greeting: 'Hello' };
+    project.localization.messages['018f4f8c-9b5d-7ae2-9b36-4c8af613f001'] = {
+      kind: 'named',
+      key: 'common.greeting',
+      source: 'Hello',
+    };
 
     const result = lowerSharedAuthoringProject(project);
 
@@ -1407,8 +1433,13 @@ describe('authoring compiler framework', () => {
       },
     ]);
     expect(draft.localization.catalogs).toEqual([
-      { locale: 'en', entries: [{ key: 'greeting', value: 'Hello' }] },
+      { locale: 'en', entries: [{ messageId: 0, value: 'Hello' }] },
     ]);
+    expect(draft.localization).toMatchObject({
+      sourceLocale: 'en',
+      defaultLocale: 'en',
+      locales: [{ locale: 'en', parentLocale: null, supported: true }],
+    });
     expect(JSON.stringify(draft)).not.toContain('selection');
     expect(JSON.stringify(draft)).not.toContain('Tooling description');
     expect(JSON.stringify(draft)).not.toContain('Import metadata');

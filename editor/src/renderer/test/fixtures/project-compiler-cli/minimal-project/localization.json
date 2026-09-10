@@ -1,7 +1,12 @@
 {
+  "sourceLocale": "en",
   "defaultLocale": "en",
-  "fallbackLocale": null,
-  "catalogs": {
-    "en": {}
-  }
+  "locales": {
+    "en": {
+      "supported": true,
+      "parentLocale": null
+    }
+  },
+  "messages": {},
+  "translations": {}
 }

@@ -75,10 +75,10 @@ describe('authoring infrastructure', () => {
     );
   });
 
-  it('uses globally scoped variable IDs and validates localization catalogs', () => {
+  it('uses globally scoped variable IDs and validates locale declarations', () => {
     const project = createAuthoringProject();
     project.variables.route = { id: 'route', label: 'Route', data: defaultVariableData('string') };
-    project.localization = { defaultLocale: 'en', fallbackLocale: 'pt-BR', catalogs: { en: {} } };
+    project.localization.defaultLocale = 'pt-BR';
     expect(isAuthoringProject(project)).toBe(false);
     expect(
       isAuthoringProject({

@@ -20,7 +20,13 @@ describe('authoring project schema', () => {
       project: { id: 'demo-project', name: 'Demo Project' },
       bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
       entrypoint: null,
-      localization: { defaultLocale: 'en', fallbackLocale: null, catalogs: { en: {} } },
+      localization: {
+        sourceLocale: 'en',
+        defaultLocale: 'en',
+        locales: { en: { supported: true, parentLocale: null } },
+        messages: {},
+        translations: {},
+      },
       editor: { schema: EDITOR_PROJECT_STATE_SCHEMA, recordMetadata: {} },
     });
     for (const key of authoringCollectionKeys)
@@ -28,6 +34,68 @@ describe('authoring project schema', () => {
       else expect(project[key]).toEqual({});
     expect('objects' in project).toBe(false);
     expect('actions' in project).toBe(false);
+  });
+
+  it('accepts canonical local/named Messages and sparse target translations', () => {
+    const project = createAuthoringProject();
+    project.localization = {
+      sourceLocale: 'en',
+      defaultLocale: 'fr',
+      locales: {
+        en: { supported: true, parentLocale: null },
+        fr: { supported: true, parentLocale: null },
+        'pt-BR': { supported: false, parentLocale: null },
+      },
+      messages: {
+        '018f4f8c-9b5d-7ae2-9b36-4c8af613f012': { kind: 'local', source: 'Open' },
+        '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': {
+          kind: 'named',
+          key: 'room.foyer.title',
+          source: 'Foyer',
+        },
+      },
+      translations: {
+        fr: { '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': 'Hall' },
+      },
+    };
+
+    expect(isAuthoringProject(project)).toBe(true);
+    expect(
+      isAuthoringProject({
+        ...project,
+        localization: { ...project.localization, catalogs: { en: { greeting: 'Hello' } } },
+      }),
+    ).toBe(false);
+    expect(
+      isAuthoringProject({
+        ...project,
+        localization: {
+          ...project.localization,
+          messages: {
+            ...project.localization.messages,
+            '018f4f8c-9b5d-7ae2-9b36-4c8af613f014': {
+              kind: 'named',
+              key: 'legacy-key',
+              source: 'Legacy',
+            },
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects invalid locale policy and inheritance cycles', () => {
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: false, parentLocale: 'pt-BR' };
+    project.localization.locales['pt-BR'] = { supported: true, parentLocale: 'fr' };
+    project.localization.defaultLocale = 'fr';
+
+    expect(isAuthoringProject(project)).toBe(false);
+
+    project.localization.defaultLocale = 'en';
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales['pt-BR'] = { supported: false, parentLocale: 'fr' };
+    expect(isAuthoringProject(project)).toBe(true);
   });
 
   it('rejects the retired schemaVersion field, legacy collection names, and unknown root fields', () => {

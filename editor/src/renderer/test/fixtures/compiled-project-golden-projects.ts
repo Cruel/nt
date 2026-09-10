@@ -693,7 +693,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     fit: 'cover',
     color: '#101820',
   };
-  start.description = { markup: 'active-text', source: { kind: 'localized', key: 'room-start' } };
+  start.description = { markup: 'active-text', source: { kind: 'localized', key: 'room.start' } };
   start.overlays = [
     {
       id: 'start-overlay',
@@ -900,7 +900,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     segments: [
       {
         ...defaultDialogueSegment('line', 'intro-line'),
-        text: { markup: 'active-text', source: { kind: 'localized', key: 'dialogue-intro' } },
+        text: { markup: 'active-text', source: { kind: 'localized', key: 'dialogue.intro' } },
       },
     ],
   };
@@ -912,7 +912,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   const map = defaultMapData();
   map.presentation = {
-    title: { markup: 'plain', source: { kind: 'localized', key: 'map-title' } },
+    title: { markup: 'plain', source: { kind: 'localized', key: 'map.title' } },
     background: assetReference('image-main'),
     layout: layoutRecordRef('hud-inline'),
     initialMode: 'minimap',
@@ -973,7 +973,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
           ],
         },
       ],
-      label: { markup: 'plain', source: { kind: 'localized', key: 'room-tower' } },
+      label: { markup: 'plain', source: { kind: 'localized', key: 'room.tower' } },
       icon: null,
       style: null,
       labelAnchor: null,
@@ -1025,22 +1025,40 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   }
 
   project.localization.defaultLocale = 'en';
-  project.localization.fallbackLocale = 'es';
-  project.localization.catalogs = {
-    en: {
-      'dialogue-intro': 'Welcome.',
-      'map-title': 'House Map',
-      'room-start': 'The starting room.',
-      'room-tower': 'Tower',
-      'scene-choice': 'Choose a path.',
+  project.localization.locales.es = { supported: true, parentLocale: null };
+  project.localization.messages = {
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f101': {
+      kind: 'named',
+      key: 'dialogue.intro',
+      source: 'Welcome.',
     },
-    es: {
-      'dialogue-intro': 'Bienvenido.',
-      'map-title': 'Mapa de la casa',
-      'room-start': 'La sala inicial.',
-      'room-tower': 'Torre',
-      'scene-choice': 'Elige un camino.',
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f102': {
+      kind: 'named',
+      key: 'map.title',
+      source: 'House Map',
     },
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f103': {
+      kind: 'named',
+      key: 'room.start',
+      source: 'The starting room.',
+    },
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f104': {
+      kind: 'named',
+      key: 'room.tower',
+      source: 'Tower',
+    },
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f105': {
+      kind: 'named',
+      key: 'scene.choice',
+      source: 'Choose a path.',
+    },
+  };
+  project.localization.translations.es = {
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f101': 'Bienvenido.',
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f102': 'Mapa de la casa',
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f103': 'La sala inicial.',
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f104': 'Torre',
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f105': 'Elige un camino.',
   };
   project.scripts.bootstrap!.data = {
     kind: 'script-module',
@@ -1071,7 +1089,6 @@ export function traitPropertiesLocalizationGoldenProject(): AuthoringProject {
     'golden-trait-properties-localization',
     'Golden Trait Properties Localization',
   );
-  project.localization.fallbackLocale = 'en';
   project.rooms.hall!.localProperties = [
     { id: 'visit-count', label: 'Visit Count', type: 'integer', nullable: false, value: 7 },
   ];
@@ -1172,7 +1189,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
     {
       ...defaultSceneStep('show-text'),
       id: 'localized-text',
-      text: { markup: 'active-text', source: { kind: 'localized', key: 'dialogue-intro' } },
+      text: { markup: 'active-text', source: { kind: 'localized', key: 'dialogue.intro' } },
       wait: 'input',
     },
     {
@@ -1258,7 +1275,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
     {
       ...defaultSceneStep('choice'),
       id: 'choice',
-      prompt: { markup: 'active-text', source: { kind: 'localized', key: 'scene-choice' } },
+      prompt: { markup: 'active-text', source: { kind: 'localized', key: 'scene.choice' } },
       options: [
         {
           id: 'layout-option',
@@ -1567,7 +1584,7 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
         },
         {
           ...defaultDialogueSegment('line', 'localized-line'),
-          text: { markup: 'active-text', source: { kind: 'localized', key: 'dialogue-intro' } },
+          text: { markup: 'active-text', source: { kind: 'localized', key: 'dialogue.intro' } },
           condition: {
             kind: 'variable-comparison',
             variable: variableReference('count'),
@@ -1616,7 +1633,7 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
       kind: 'choice',
       fromBlockId: 'choice',
       toBlockId: 'redirect',
-      label: { markup: 'plain', source: { kind: 'localized', key: 'scene-choice' } },
+      label: { markup: 'plain', source: { kind: 'localized', key: 'scene.choice' } },
       condition: {
         kind: 'variable-comparison',
         variable: variableReference('flag'),
@@ -1998,7 +2015,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           {
             id: 'notify',
             kind: 'notify',
-            message: { markup: 'plain', source: { kind: 'localized', key: 'dialogue-intro' } },
+            message: { markup: 'plain', source: { kind: 'localized', key: 'dialogue.intro' } },
           },
         ],
         completion: { kind: 'return' },

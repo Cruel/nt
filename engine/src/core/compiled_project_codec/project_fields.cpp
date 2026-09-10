@@ -109,22 +109,66 @@ std::optional<Entrypoint> decode_entrypoint(Decoder& decoder, const nlohmann::js
 std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann::json& value,
                                                 std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"catalogs", "defaultLocale", "fallbackLocale"}))
+    if (!decoder.object(value, pointer, {"catalogs", "defaultLocale", "locales", "sourceLocale"}))
         return std::nullopt;
+    const auto* source_value = decoder.member(value, "sourceLocale", pointer);
     const auto* default_value = decoder.member(value, "defaultLocale", pointer);
-    const auto* fallback_value = decoder.member(value, "fallbackLocale", pointer);
+    const auto* locales_value = decoder.member(value, "locales", pointer);
     const auto* catalogs_value = decoder.member(value, "catalogs", pointer);
+    auto source_locale =
+        source_value
+            ? decoder.string(*source_value, pointer_child(pointer, "sourceLocale"), false, true)
+            : std::nullopt;
     auto default_locale =
         default_value
             ? decoder.string(*default_value, pointer_child(pointer, "defaultLocale"), false, true)
             : std::nullopt;
-    std::optional<std::string> fallback;
-    bool fallback_ok = fallback_value != nullptr;
-    if (fallback_value && !fallback_value->is_null()) {
-        fallback =
-            decoder.string(*fallback_value, pointer_child(pointer, "fallbackLocale"), false, true);
-        fallback_ok = fallback.has_value();
+    auto locales =
+        locales_value
+            ? decoder.array<LocaleDefinition>(
+                  *locales_value, pointer_child(pointer, "locales"),
+                  [&](const nlohmann::json& item,
+                      const std::string& item_pointer) -> std::optional<LocaleDefinition> {
+                      if (!decoder.object(item, item_pointer,
+                                          {"locale", "parentLocale", "supported"}))
+                          return std::nullopt;
+                      const auto* locale_value = decoder.member(item, "locale", item_pointer);
+                      const auto* parent_value = decoder.member(item, "parentLocale", item_pointer);
+                      const auto* supported_value = decoder.member(item, "supported", item_pointer);
+                      auto locale =
+                          locale_value
+                              ? decoder.string(*locale_value, pointer_child(item_pointer, "locale"),
+                                               false, true)
+                              : std::nullopt;
+                      std::optional<std::string> parent;
+                      bool parent_ok = parent_value != nullptr;
+                      if (parent_value && !parent_value->is_null()) {
+                          parent = decoder.string(*parent_value,
+                                                  pointer_child(item_pointer, "parentLocale"),
+                                                  false, true);
+                          parent_ok = parent.has_value();
+                      }
+                      auto supported =
+                          supported_value
+                              ? decoder.boolean(*supported_value,
+                                                pointer_child(item_pointer, "supported"))
+                              : std::nullopt;
+                      if (locale && parent_ok && supported)
+                          return LocaleDefinition{std::move(*locale), std::move(parent),
+                                                  *supported};
+                      return std::nullopt;
+                  })
+            : std::nullopt;
+    if (locales) {
+        std::unordered_set<std::string> locale_ids;
+        for (std::size_t index = 0; index < locales->size(); ++index) {
+            if (!locale_ids.insert((*locales)[index].locale).second)
+                decoder.error(k_code_duplicate, "Duplicate localization locale definition.",
+                              pointer_child(pointer_index(pointer_child(pointer, "locales"), index),
+                                            "locale"));
+        }
     }
+
     auto catalogs =
         catalogs_value
             ? decoder.array<LocalizationCatalog>(
@@ -148,40 +192,39 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                     [&](const nlohmann::json& entry,
                                         const std::string& entry_pointer)
                                         -> std::optional<LocalizationEntry> {
-                                        if (!decoder.object(entry, entry_pointer, {"key", "value"}))
+                                        if (!decoder.object(entry, entry_pointer,
+                                                            {"messageId", "value"}))
                                             return std::nullopt;
-                                        const auto* key_value =
-                                            decoder.member(entry, "key", entry_pointer);
+                                        const auto* id_value =
+                                            decoder.member(entry, "messageId", entry_pointer);
                                         const auto* text_value =
                                             decoder.member(entry, "value", entry_pointer);
-                                        auto key =
-                                            key_value
-                                                ? decoder.string(
-                                                      *key_value,
-                                                      pointer_child(entry_pointer, "key"), true)
-                                                : std::nullopt;
+                                        auto message_id =
+                                            id_value ? decoder.unsigned_integer<MessageId>(
+                                                           *id_value, pointer_child(entry_pointer,
+                                                                                    "messageId"))
+                                                     : std::nullopt;
                                         auto text = text_value
                                                         ? decoder.string(
                                                               *text_value,
                                                               pointer_child(entry_pointer, "value"))
                                                         : std::nullopt;
-                                        if (key && text)
-                                            return LocalizationEntry{std::move(*key),
-                                                                     std::move(*text)};
+                                        if (message_id && text)
+                                            return LocalizationEntry{*message_id, std::move(*text)};
                                         return std::nullopt;
                                     })
                               : std::nullopt;
                       if (entries) {
-                          std::unordered_set<std::string> keys;
+                          std::unordered_set<MessageId> ids;
                           for (std::size_t index = 0; index < entries->size(); ++index) {
-                              if (!keys.insert((*entries)[index].key).second)
+                              if (!ids.insert((*entries)[index].message_id).second)
                                   decoder.error(
                                       k_code_duplicate,
-                                      "Duplicate localization key '" + (*entries)[index].key + "'.",
+                                      "Duplicate Message ID in localization catalog.",
                                       pointer_child(
                                           pointer_index(pointer_child(catalog_pointer, "entries"),
                                                         index),
-                                          "key"));
+                                          "messageId"));
                           }
                       }
                       if (locale && entries)
@@ -190,19 +233,19 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                   })
             : std::nullopt;
     if (catalogs) {
-        std::unordered_set<std::string> locales;
+        std::unordered_set<std::string> catalog_locales;
         for (std::size_t index = 0; index < catalogs->size(); ++index) {
-            if (!locales.insert((*catalogs)[index].locale).second)
+            if (!catalog_locales.insert((*catalogs)[index].locale).second)
                 decoder.error(
-                    k_code_duplicate,
-                    "Duplicate localization locale '" + (*catalogs)[index].locale + "'.",
+                    k_code_duplicate, "Duplicate localization catalog locale.",
                     pointer_child(pointer_index(pointer_child(pointer, "catalogs"), index),
                                   "locale"));
         }
     }
-    if (!default_locale || !fallback_ok || !catalogs)
+    if (!source_locale || !default_locale || !locales || !catalogs)
         return std::nullopt;
-    return Localization{std::move(*default_locale), std::move(fallback), std::move(*catalogs)};
+    return Localization{std::move(*source_locale), std::move(*default_locale), std::move(*locales),
+                        std::move(*catalogs)};
 }
 
 std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann::json& value,

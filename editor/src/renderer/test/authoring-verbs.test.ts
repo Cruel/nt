@@ -94,35 +94,47 @@ describe('authoring verbs', () => {
     verb.slots = [
       {
         id: 'target',
-        label: { source: { kind: 'localized', key: 'target-label' }, markup: 'plain' },
-        prompt: { source: { kind: 'localized', key: 'target-prompt' }, markup: 'plain' },
+        label: { source: { kind: 'localized', key: 'verb.target.label' }, markup: 'plain' },
+        prompt: { source: { kind: 'localized', key: 'verb.target.prompt' }, markup: 'plain' },
         selectors: [{ kind: 'any-subject' }],
       },
     ];
     verb.bindingOrder = ['target'];
     verb.completedCommandText = {
-      source: { kind: 'localized', key: 'use-command' },
+      source: { kind: 'localized', key: 'verb.use.command' },
       markup: 'plain',
     };
     project.verbs.use = { id: 'use', label: 'Use', data: verb };
-    project.localization.catalogs.en = {
-      'target-label': 'Target {missing}',
-      'target-prompt': 'Choose {0}',
-      'use-command': 'Use {missing}',
+    project.localization.messages = {
+      '018f4f8c-9b5d-7ae2-9b36-4c8af613f031': {
+        kind: 'named',
+        key: 'verb.target.label',
+        source: 'Target {missing}',
+      },
+      '018f4f8c-9b5d-7ae2-9b36-4c8af613f032': {
+        kind: 'named',
+        key: 'verb.target.prompt',
+        source: 'Choose {0}',
+      },
+      '018f4f8c-9b5d-7ae2-9b36-4c8af613f033': {
+        kind: 'named',
+        key: 'verb.use.command',
+        source: 'Use {missing}',
+      },
     };
 
     expect(validateAuthoringProject(project)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: '/localization/catalogs/en/target-label',
+          path: '/localization/messages/018f4f8c-9b5d-7ae2-9b36-4c8af613f031/source',
           severity: 'error',
         }),
         expect.objectContaining({
-          path: '/localization/catalogs/en/target-prompt',
+          path: '/localization/messages/018f4f8c-9b5d-7ae2-9b36-4c8af613f032/source',
           severity: 'error',
         }),
         expect.objectContaining({
-          path: '/localization/catalogs/en/use-command',
+          path: '/localization/messages/018f4f8c-9b5d-7ae2-9b36-4c8af613f033/source',
           severity: 'error',
         }),
       ]),

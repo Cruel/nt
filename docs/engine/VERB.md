@@ -6,7 +6,7 @@ A `VerbDefinition` describes immutable interaction vocabulary through stable req
 
 Numeric arity and positional operand-role contracts are not part of the current authoring, compiled, runtime, preview, Lua, or test path. The number of required subjects is the number of declared slots, and binding identity is always the slot ID rather than an array position.
 
-Completed-command templates use named placeholders such as `Show {object} to {recipient}`. Placeholder names must be stable Verb slot IDs. Inline templates are validated directly; localized templates are validated against authored localization catalog values. Locale changes may reorder words freely without changing slot identity or `bindingOrder`.
+Completed-command templates use named placeholders such as `Show {object} to {recipient}`. Placeholder names must be stable Verb slot IDs. Inline templates are validated directly; Message-backed templates are validated against the source Message and every present target translation. Locale changes may reorder words freely without changing slot identity or `bindingOrder`.
 
 Verbs do not bind to Hotspots. Hotspots resolve pointer geometry to semantic subjects or Room Exits; when a Verb is invoked, its slot and selector rules apply regardless of how subjects were selected. Verb availability is checked by the canonical Interaction invocation path, not by a Hotspot-specific activation transaction.
 

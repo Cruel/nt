@@ -25,11 +25,11 @@ the structural compatibility graph while adding supported explicit tooling fallb
 adds warning-level lexical evidence and source diagnostics without adding `reference-integrity`
 facets or changing compiled gameplay bytes.
 
-Each record, property definition, localization key, or fixed project field owns one complete
-`AuthoringDependencyGraphContribution`. Replacing a contribution replaces its nodes, outgoing
-edges, diagnostics, derivation dependencies, and literal-occurrence storage as one unit. Assembly
-rebuilds immutable forward, reverse, ownership, derivation-key, and decoded-literal indexes in
-canonical order.
+Each record, property definition, localization Message realization, or fixed project field owns one
+complete `AuthoringDependencyGraphContribution`. Replacing a contribution replaces its nodes,
+outgoing edges, diagnostics, derivation dependencies, and literal-occurrence storage as one unit.
+Assembly rebuilds immutable forward, reverse, ownership, derivation-key, and decoded-literal indexes
+in canonical order.
 
 Canonical edge identity includes the source node, source path, target node, and semantic role.
 Generic and typed derivation of the same source/target relationship is merged once, with the typed
@@ -44,9 +44,10 @@ The structural graph contains:
 - Room placement and Room exit nested nodes;
 - property-definition nodes;
 - owner/property-value nodes used by explicit Lua fallback declarations;
-- localization-key nodes for exact default/fallback resolution;
+- localization-message nodes keyed by locale plus stable authoring Message identity for exact
+  Source/target realization dependencies;
 - fixed project-field nodes for startup, entrypoint, display, accessibility, default font, every
-  system Layout role, and localization selection.
+  system Layout role, and Source/Default localization selection.
 
 Semantic adapters upgrade current Asset, Variable, Shader, Material, Layout, Character, Room,
 Interactable, Script, settings, properties, localization, Scene, Dialogue, Map, Verb, Interaction,

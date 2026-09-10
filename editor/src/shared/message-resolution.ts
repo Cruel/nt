@@ -1,15 +1,15 @@
-export interface MessageLocalizationSource {
-  readonly defaultLocale: string;
-  readonly fallbackLocale: string | null;
-  readonly catalogs: Readonly<Record<string, Readonly<Record<string, string>> | undefined>>;
-}
+import type { AuthoringLocalization } from './project-schema/authoring-localization';
+
+export type MessageLocalizationSource = AuthoringLocalization;
 
 export interface MessageResolutionRequest {
-  readonly key: string;
+  readonly key?: string;
+  readonly messageId?: string;
   readonly locale?: string | null;
 }
 
 export interface ResolvedMessage {
+  readonly messageId: string;
   readonly text: string;
   readonly locale: string;
 }
@@ -19,20 +19,44 @@ export interface MessageResolution {
   readonly consultedLocales: readonly string[];
 }
 
+function resolveMessageId(
+  localization: MessageLocalizationSource,
+  request: MessageResolutionRequest,
+): string | null {
+  if (request.messageId && Object.hasOwn(localization.messages, request.messageId))
+    return request.messageId;
+  if (!request.key) return null;
+  for (const [messageId, message] of Object.entries(localization.messages))
+    if (message.kind === 'named' && message.key === request.key) return messageId;
+  return null;
+}
+
 export function resolveMessage(
   localization: MessageLocalizationSource,
   request: MessageResolutionRequest,
 ): MessageResolution {
-  const consultedLocales: string[] = [];
-  const candidates = [request.locale, localization.defaultLocale, localization.fallbackLocale];
+  const messageId = resolveMessageId(localization, request);
+  if (!messageId) return { resolved: null, consultedLocales: Object.freeze([]) };
 
-  for (const locale of candidates) {
-    if (!locale || consultedLocales.includes(locale)) continue;
+  const message = localization.messages[messageId]!;
+  const consultedLocales: string[] = [];
+  const firstLocale = request.locale || localization.defaultLocale;
+  let locale: string | null = firstLocale;
+  while (locale && locale !== localization.sourceLocale && !consultedLocales.includes(locale)) {
     consultedLocales.push(locale);
-    const text = localization.catalogs[locale]?.[request.key];
+    const text = localization.translations[locale]?.[messageId];
     if (text !== undefined)
-      return { resolved: { text, locale }, consultedLocales: Object.freeze(consultedLocales) };
+      return {
+        resolved: { messageId, text, locale },
+        consultedLocales: Object.freeze(consultedLocales),
+      };
+    locale = localization.locales[locale]?.parentLocale ?? null;
   }
 
-  return { resolved: null, consultedLocales: Object.freeze(consultedLocales) };
+  if (!consultedLocales.includes(localization.sourceLocale))
+    consultedLocales.push(localization.sourceLocale);
+  return {
+    resolved: { messageId, text: message.source, locale: localization.sourceLocale },
+    consultedLocales: Object.freeze(consultedLocales),
+  };
 }

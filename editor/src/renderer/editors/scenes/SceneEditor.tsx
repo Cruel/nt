@@ -1644,7 +1644,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             kind === 'inline'
                               ? { kind, text: '' }
                               : kind === 'localized'
-                                ? { kind, key: 'text-key' }
+                                ? { kind, key: 'text.key' }
                                 : { kind: 'lua-expression', source: 'return ""' },
                         },
                       })

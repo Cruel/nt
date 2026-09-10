@@ -238,8 +238,8 @@ export function serializeAuthoringDependencyNodeKey(key: AuthoringDependencyNode
       return JSON.stringify(['nested', key.ownerCollection, key.ownerId, key.family, key.id]);
     case 'trait-definition':
       return JSON.stringify(['trait-definition', key.id]);
-    case 'localization-key':
-      return JSON.stringify(['localization-key', key.locale, key.key]);
+    case 'localization-message':
+      return JSON.stringify(['localization-message', key.locale, key.messageId]);
     case 'project-field':
       return JSON.stringify(['project-field', key.path]);
   }
@@ -271,8 +271,11 @@ export function traitDefinitionNodeKey(id: string): AuthoringDependencyNodeKey {
   return Object.freeze({ kind: 'trait-definition', id });
 }
 
-export function localizationKeyNodeKey(locale: string, key: string): AuthoringDependencyNodeKey {
-  return Object.freeze({ kind: 'localization-key', locale, key });
+export function localizationMessageNodeKey(
+  locale: string,
+  messageId: string,
+): AuthoringDependencyNodeKey {
+  return Object.freeze({ kind: 'localization-message', locale, messageId });
 }
 
 export function projectFieldNodeKey(path: JsonPointer): AuthoringDependencyNodeKey {
@@ -291,8 +294,8 @@ export function traitDefinitionContributionKey(id: string): string {
   return `trait-definition:${JSON.stringify(id)}`;
 }
 
-export function localizationContributionKey(locale: string, key: string): string {
-  return `localization-key:${JSON.stringify([locale, key])}`;
+export function localizationMessageContributionKey(locale: string, messageId: string): string {
+  return `localization-message:${JSON.stringify([locale, messageId])}`;
 }
 
 export function serializeAuthoringDependencyDerivationDependency(
@@ -1173,7 +1176,7 @@ function scanStructuralReferences(
     const locales = resolution.consultedLocales;
     const projectFields = [
       '/localization/defaultLocale',
-      ...(locales.length > 1 ? ['/localization/fallbackLocale'] : []),
+      '/localization/sourceLocale',
     ] as JsonPointer[];
     for (const fieldPath of projectFields) {
       edges.push(
@@ -1185,16 +1188,37 @@ function scanStructuralReferences(
         }),
       );
     }
-    for (const locale of locales) {
-      const targetPath = buildJsonPointer(['localization', 'catalogs', locale, localizedKey]);
-      edges.push(
-        structuralEdge(source, localizationKeyNodeKey(locale, localizedKey), path, targetPath, {
-          role: 'localization-text',
-          facets: ['tooling-reference', 'preview-ui', 'validation'],
-          targetImpactPaths: [targetPath],
-          repair: { kind: 'blocked', reason: 'Localized text requires a catalog entry.' },
-        }),
-      );
+    if (resolution.resolved) {
+      for (const locale of locales) {
+        const targetPath =
+          locale === project.localization.sourceLocale
+            ? buildJsonPointer([
+                'localization',
+                'messages',
+                resolution.resolved.messageId,
+                'source',
+              ])
+            : buildJsonPointer([
+                'localization',
+                'translations',
+                locale,
+                resolution.resolved.messageId,
+              ]);
+        edges.push(
+          structuralEdge(
+            source,
+            localizationMessageNodeKey(locale, resolution.resolved.messageId),
+            path,
+            targetPath,
+            {
+              role: 'localization-text',
+              facets: ['tooling-reference', 'preview-ui', 'validation'],
+              targetImpactPaths: [targetPath],
+              repair: { kind: 'blocked', reason: 'Localized text requires a Message realization.' },
+            },
+          ),
+        );
+      }
     }
   }
   for (const [key, child] of Object.entries(structuralValue)) {
@@ -1225,12 +1249,8 @@ function collectDerivationDependencies(
     });
     dependencies.push({ kind: 'localization-lookup', key: value.key });
     dependencies.push({ kind: 'project-field', path: '/localization/defaultLocale' });
-    if (
-      resolution.resolved?.locale !== project.localization.defaultLocale &&
-      project.localization.fallbackLocale !== project.localization.defaultLocale
-    ) {
-      dependencies.push({ kind: 'project-field', path: '/localization/fallbackLocale' });
-    }
+    if (resolution.resolved?.locale === project.localization.sourceLocale)
+      dependencies.push({ kind: 'project-field', path: '/localization/sourceLocale' });
   }
   Object.values(value).forEach((child) =>
     collectDerivationDependencies(child, dependencies, project),
@@ -1840,9 +1860,9 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
       label: 'Default locale',
     },
     {
-      path: '/localization/fallbackLocale',
-      value: project.localization.fallbackLocale,
-      label: 'Fallback locale',
+      path: '/localization/sourceLocale',
+      value: project.localization.sourceLocale,
+      label: 'Source locale',
     },
     { path: '/bootstrapModule', value: project.bootstrapModule, label: 'Bootstrap Module' },
     { path: '/entrypoint', value: project.entrypoint, label: 'Entrypoint' },
@@ -1924,19 +1944,27 @@ function deriveStructuralContributionByKey(
       literalOccurrences: [],
     };
   }
-  if (contributionKey.startsWith('localization-key:')) {
-    const parsed = JSON.parse(contributionKey.slice('localization-key:'.length)) as unknown;
+  if (contributionKey.startsWith('localization-message:')) {
+    const parsed = JSON.parse(contributionKey.slice('localization-message:'.length)) as unknown;
     if (
       !Array.isArray(parsed) ||
       parsed.length !== 2 ||
       typeof parsed[0] !== 'string' ||
-      typeof parsed[1] !== 'string' ||
-      project.localization.catalogs[parsed[0]]?.[parsed[1]] === undefined
+      typeof parsed[1] !== 'string'
     )
       return null;
-    const [locale, keyName] = parsed;
-    const key = localizationKeyNodeKey(locale, keyName);
-    const ownerPath = buildJsonPointer(['localization', 'catalogs', locale, keyName]);
+    const [locale, messageId] = parsed;
+    const message = project.localization.messages[messageId];
+    const exists =
+      locale === project.localization.sourceLocale
+        ? message !== undefined
+        : project.localization.translations[locale]?.[messageId] !== undefined;
+    if (!message || !exists) return null;
+    const key = localizationMessageNodeKey(locale, messageId);
+    const ownerPath =
+      locale === project.localization.sourceLocale
+        ? buildJsonPointer(['localization', 'messages', messageId, 'source'])
+        : buildJsonPointer(['localization', 'translations', locale, messageId]);
     return {
       key: contributionKey,
       ownerPath,
@@ -1945,7 +1973,7 @@ function deriveStructuralContributionByKey(
           key,
           keyText: serializeAuthoringDependencyNodeKey(key),
           owningPath: ownerPath,
-          label: keyName,
+          label: message.kind === 'named' ? message.key : messageId,
         },
       ],
       edges: [],
@@ -2038,8 +2066,11 @@ export function enumerateAuthoringDependencyContributionKeys(
 ): readonly string[] {
   const keys: string[] = [];
   for (const id of Object.keys(project.traits)) keys.push(traitDefinitionContributionKey(id));
-  for (const [locale, catalog] of Object.entries(project.localization.catalogs))
-    for (const key of Object.keys(catalog)) keys.push(localizationContributionKey(locale, key));
+  for (const messageId of Object.keys(project.localization.messages))
+    keys.push(localizationMessageContributionKey(project.localization.sourceLocale, messageId));
+  for (const [locale, translations] of Object.entries(project.localization.translations))
+    for (const messageId of Object.keys(translations))
+      keys.push(localizationMessageContributionKey(locale, messageId));
   for (const field of projectFieldSpecs(project))
     keys.push(projectFieldContributionKey(field.path));
   for (const collection of authoringCollectionKeys)
@@ -2098,12 +2129,14 @@ export function buildAuthoringStructuralDependencyGraph(
   );
 }
 
-function luaTargetPath(target: AuthoringDependencyNodeKey): JsonPointer {
+function luaTargetPath(project: AuthoringProject, target: AuthoringDependencyNodeKey): JsonPointer {
   if (target.kind === 'record')
     return `/${target.collection}/${escapeJsonPointerSegment(target.id)}`;
   if (target.kind === 'trait-definition') return `/traits/${escapeJsonPointerSegment(target.id)}`;
-  if (target.kind === 'localization-key')
-    return buildJsonPointer(['localization', 'catalogs', target.locale, target.key]);
+  if (target.kind === 'localization-message')
+    return target.locale === project.localization.sourceLocale
+      ? buildJsonPointer(['localization', 'messages', target.messageId, 'source'])
+      : buildJsonPointer(['localization', 'translations', target.locale, target.messageId]);
   if (target.kind === 'project-field') return target.path;
   return buildJsonPointer([
     target.ownerCollection,
@@ -2330,7 +2363,7 @@ function addLuaEvidenceToContribution(
             descriptor.semanticOwner,
             ownerTarget,
             descriptor.sourcePath,
-            luaTargetPath(ownerTarget),
+            luaTargetPath(project, ownerTarget),
             {
               role: 'lua-explicit-reference',
               facets: ['tooling-reference', 'validation', ...previewFacet],
@@ -2356,7 +2389,7 @@ function addLuaEvidenceToContribution(
           descriptor.semanticOwner,
           target,
           descriptor.sourcePath,
-          luaTargetPath(target),
+          luaTargetPath(project, target),
           {
             role: 'lua-explicit-reference',
             facets,
@@ -2414,7 +2447,7 @@ function addLuaEvidenceToContribution(
               descriptor.semanticOwner,
               target,
               occurrence.sourcePath,
-              luaTargetPath(target),
+              luaTargetPath(project, target),
               {
                 role: exact ? 'lua-recognized-reference' : 'lua-possible-reference',
                 facets,

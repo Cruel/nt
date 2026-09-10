@@ -25,7 +25,7 @@ export type AuthoringDependencyNodeKey =
       id: string;
     }
   | { kind: 'trait-definition'; id: string }
-  | { kind: 'localization-key'; locale: string; key: string }
+  | { kind: 'localization-message'; locale: string; messageId: string }
   | { kind: 'project-field'; path: JsonPointer };
 export type DependencyImpactFacet =
   | 'reference-integrity'

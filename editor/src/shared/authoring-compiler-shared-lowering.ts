@@ -11,6 +11,7 @@ import {
   COMPILED_PROJECT_FORMAT_VERSION,
 } from './project-schema/compiled-project';
 import type { TextContent } from './project-schema/authoring-flow';
+import { compileLocalization, compileMessageText } from './authoring-message-lowering';
 import { compileCondition } from './authoring-condition-lowering';
 import type {
   FeatureData,
@@ -246,19 +247,6 @@ function roomRef(id: string) {
   return { kind: 'room' as const, id };
 }
 
-function compileText(text: TextContent): CompiledText {
-  const source = text.source;
-  return {
-    markup: text.markup,
-    source:
-      source.kind === 'inline'
-        ? { kind: 'inline', text: source.text }
-        : source.kind === 'localized'
-          ? { kind: 'localized', key: source.key }
-          : { kind: 'lua-expression', source: source.source },
-  };
-}
-
 function propertyAssignments(record: Partial<Pick<AuthoringRecordBase, 'localProperties'>>) {
   return (record.localProperties ?? []).map((property) => ({
     propertyId: property.id,
@@ -442,6 +430,8 @@ function compileEntrypoint(
 
 export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLoweringResult {
   const diagnostics: SharedLoweringDiagnostic[] = [];
+  const compileText = (text: TextContent): CompiledText =>
+    compileMessageText(project.localization, text);
   if (!project.entrypoint) {
     diagnostics.push({
       code: 'COMPILER_ENTRYPOINT_REQUIRED',
@@ -1597,14 +1587,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     archetypes,
     inventories: projectInventoryUsed ? [{ id: 'player', label: 'Player Inventory' }] : [],
     interactableInstances,
-    localization: {
-      defaultLocale: project.localization.defaultLocale,
-      fallbackLocale: project.localization.fallbackLocale,
-      catalogs: sortedEntries(project.localization.catalogs).map(([locale, entries]) => ({
-        locale,
-        entries: sortedEntries(entries).map(([key, value]) => ({ key, value })),
-      })),
-    },
+    localization: compileLocalization(project.localization),
     resources: { assets, layouts, materialInterfaces, scripts },
     definitions: {
       characters,

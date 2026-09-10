@@ -108,7 +108,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:897f85f601a2b7b80c624986da51f194");
+    CHECK(project.save_contract == "sc1:8a1f97573f20328543b97e671313e319");
     CHECK(project.properties.size() == 14);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -135,7 +135,77 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.rooms.front().placements.front().id.text() == "coin-placement");
     REQUIRE(project.maps.front().connections.front().exits.size() == 1);
     CHECK(project.maps.front().connections.front().exits.front().exit_id.text() == "north-exit");
-    CHECK(project.localization.catalogs.size() == 2);
+    CHECK(project.localization.source_locale == "en");
+    CHECK(project.localization.default_locale == "en");
+    REQUIRE(project.localization.locales.size() == 2);
+    CHECK(project.localization.locales[0].locale == "en");
+    CHECK(project.localization.locales[0].supported);
+    CHECK_FALSE(project.localization.locales[0].parent_locale);
+    CHECK(project.localization.locales[1].locale == "es");
+    REQUIRE(project.localization.catalogs.size() == 2);
+    REQUIRE(project.localization.catalogs[0].entries.size() == 5);
+    CHECK(project.localization.catalogs[0].entries[0].message_id == 0);
+    CHECK(project.localization.catalogs[0].entries[0].value == "Welcome.");
+}
+
+TEST_CASE("compiled project Message localization boundary is canonical and closed")
+{
+    SECTION("retired key catalog shape is rejected")
+    {
+        auto document = fixture("minimal");
+        document["localization"]["fallbackLocale"] = nullptr;
+        const auto result = decode_compiled_project(document, "retired-localization.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unknown_field"));
+    }
+
+    SECTION("default locale must be Supported")
+    {
+        auto document = fixture("comprehensive");
+        document["localization"]["locales"][0]["supported"] = false;
+        const auto result = decode_compiled_project(document, "unsupported-default-locale.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_localization_policy"));
+    }
+
+    SECTION("locale inheritance cycles are rejected")
+    {
+        auto document = fixture("comprehensive");
+        document["localization"]["locales"][0]["parentLocale"] = "es";
+        document["localization"]["locales"][1]["parentLocale"] = "en";
+        const auto result = decode_compiled_project(document, "locale-cycle.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_localization_policy"));
+    }
+
+    SECTION("target catalogs cannot invent Message IDs")
+    {
+        auto document = fixture("comprehensive");
+        document["localization"]["catalogs"][1]["entries"].push_back(
+            {{"messageId", 99}, {"value", "Unknown"}});
+        const auto result = decode_compiled_project(document, "unknown-target-message.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_message"));
+    }
+
+    SECTION("catalog locales must be declared")
+    {
+        auto document = fixture("comprehensive");
+        document["localization"]["catalogs"].push_back(
+            {{"locale", "de"}, {"entries", nlohmann::json::array()}});
+        const auto result = decode_compiled_project(document, "undeclared-catalog-locale.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_localization"));
+    }
+
+    SECTION("duplicate locale identities are rejected")
+    {
+        auto document = fixture("comprehensive");
+        document["localization"]["locales"].push_back(document["localization"]["locales"][0]);
+        const auto result = decode_compiled_project(document, "duplicate-locale.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.duplicate_id"));
+    }
 }
 
 TEST_CASE("compiled project Interactable Instance boundary is strict within the current format")

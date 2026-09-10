@@ -51,10 +51,16 @@ describe('ProjectWorkspaceService', () => {
     });
     first.traits = Object.fromEntries(entries.map((id) => [id, definition(id)]));
     second.traits = Object.fromEntries([...entries].reverse().map((id) => [id, definition(id)]));
-    first.localization.catalogs = Object.fromEntries(entries.map((id) => [id, { z: id, a: id }]));
-    second.localization.catalogs = Object.fromEntries(
-      [...entries].reverse().map((id) => [id, { a: id, z: id }]),
-    );
+    first.localization.locales = {
+      en: { supported: true, parentLocale: null },
+      ...Object.fromEntries(entries.map((id) => [id, { supported: false, parentLocale: null }])),
+    };
+    second.localization.locales = {
+      ...Object.fromEntries(
+        [...entries].reverse().map((id) => [id, { supported: false, parentLocale: null }]),
+      ),
+      en: { supported: true, parentLocale: null },
+    };
     first.layouts.main = {
       id: 'main',
       label: 'Main',

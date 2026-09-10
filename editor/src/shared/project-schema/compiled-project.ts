@@ -193,7 +193,7 @@ export const compiledInteractableMatcherSchema = strict({
 
 export const compiledTextSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
-  strict({ kind: z.literal('localized'), key: z.string().min(1) }),
+  strict({ kind: z.literal('message'), id: z.number().int().nonnegative() }),
   strict({ kind: z.literal('lua-expression'), source: z.string().min(1) }),
 ]);
 
@@ -2274,8 +2274,13 @@ const scriptResourceSchema = strict({
 });
 
 const localizationCatalogSchema = strict({
-  entries: z.array(strict({ key: z.string().min(1), value: z.string() })),
+  entries: z.array(strict({ messageId: z.number().int().nonnegative(), value: z.string() })),
   locale: z.string().check(z.trim(), z.minLength(1)),
+});
+const compiledLocaleSchema = strict({
+  locale: z.string().check(z.trim(), z.minLength(1)),
+  parentLocale: z.string().check(z.trim(), z.minLength(1)).nullable(),
+  supported: z.boolean(),
 });
 const runtimeSettingsSchema = strict({
   display: strict({
@@ -2375,7 +2380,8 @@ export const compiledProjectWireSchema = strict({
   localization: strict({
     catalogs: z.array(localizationCatalogSchema),
     defaultLocale: z.string().check(z.trim(), z.minLength(1)),
-    fallbackLocale: z.string().check(z.trim(), z.minLength(1)).nullable(),
+    sourceLocale: z.string().check(z.trim(), z.minLength(1)),
+    locales: z.array(compiledLocaleSchema),
   }),
   project: strict({
     author: z.string(),

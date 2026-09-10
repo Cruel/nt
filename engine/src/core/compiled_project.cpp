@@ -295,15 +295,18 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
             return false;
         }
     }
-    if (input.localization.default_locale.empty()) {
-        diagnostics = invalid_model("Default locale cannot be empty");
+    if (input.localization.source_locale.empty() || input.localization.default_locale.empty()) {
+        diagnostics = invalid_model("Source and Default locales cannot be empty");
         return false;
     }
+    for (const auto& locale : input.localization.locales) {
+        if (locale.locale.empty() || (locale.parent_locale && locale.parent_locale->empty())) {
+            diagnostics = invalid_model("Localization locale definition is invalid");
+            return false;
+        }
+    }
     for (const auto& catalog : input.localization.catalogs) {
-        if (catalog.locale.empty() || std::any_of(catalog.entries.begin(), catalog.entries.end(),
-                                                  [](const compiled::LocalizationEntry& entry) {
-                                                      return entry.key.empty();
-                                                  })) {
+        if (catalog.locale.empty()) {
             diagnostics = invalid_model("Localization catalog is invalid");
             return false;
         }

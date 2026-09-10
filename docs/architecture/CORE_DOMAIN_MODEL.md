@@ -73,11 +73,15 @@ mutable `ActorState`. An `InteractableDefinition` identifies one unique interact
 position and hit area are a nested `RoomPlacement`; its live location, visibility, and enabled state
 are `InteractableState`.
 
-Assets and aliases, layouts, shaders/materials, script modules, and localization catalogs are runtime
-resources, not gameplay entities. They need no common entity interface. Backend-neutral
-`MessageResolver` owns requested-locale → default-locale → configured-fallback lookup over compiled
-localization; runtime text evaluation delegates to that seam and adds execution diagnostics only when
-resolution fails. Script modules never autorun because they are present in a collection or package.
+Assets and aliases, layouts, shaders/materials, script modules, and compiled Message localization are
+runtime resources, not gameplay entities. They need no common entity interface. Project authoring owns
+opaque stable Message identities, while the Compiled Project remaps them deterministically to dense
+package-local `MessageId` values. `MessageRealizer` owns locale realization over the compiled locale
+inventory and sparse Message catalogs: it follows the requested locale's explicit parent chain and
+falls back to the Source locale. `MessageResolver` remains only the transitional #176 adapter onto
+that realization module. Runtime text evaluation delegates to the same realization path and adds
+execution diagnostics only when realization fails. Script modules never autorun because they are
+present in a collection or package.
 
 The compiled project root owns project identity, runtime settings, feature flags, Bootstrap Module reference,
 entrypoint, definition collections, resource IDs, and lookup indexes. It is not an entity and cannot

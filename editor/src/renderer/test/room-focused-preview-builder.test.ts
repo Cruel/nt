@@ -26,7 +26,7 @@ function fixture() {
   const room = defaultRoomData('Bedroom');
   room.description = {
     markup: 'plain',
-    source: { kind: 'localized', key: 'bedroom-description' },
+    source: { kind: 'localized', key: 'room.bedroom.description' },
   };
   room.placements = [
     {
@@ -50,7 +50,11 @@ function fixture() {
     },
   ];
   project.rooms.bedroom = { id: 'bedroom', label: 'Bedroom record', data: room };
-  project.localization.catalogs.en!['bedroom-description'] = 'A quiet bedroom.';
+  project.localization.messages['018f4f8c-9b5d-7ae2-9b36-4c8af613f040'] = {
+    kind: 'named',
+    key: 'room.bedroom.description',
+    source: 'A quiet bedroom.',
+  };
 
   const character = defaultCharacterData('Alice');
   character.initialWorldState.location = {
@@ -240,11 +244,16 @@ describe('graph-driven Room builder', () => {
     );
   });
 
-  it('uses the configured fallback locale when the default catalog lacks localized text', async () => {
+  it('uses locale inheritance when the default locale lacks a Message translation', async () => {
     const project = fixture();
-    delete project.localization.catalogs.en!['bedroom-description'];
-    project.localization.fallbackLocale = 'fr';
-    project.localization.catalogs.fr = { 'bedroom-description': 'Une chambre calme.' };
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f040';
+    project.localization.defaultLocale = 'fr-CA';
+    project.localization.locales = {
+      en: { supported: true, parentLocale: null },
+      fr: { supported: false, parentLocale: null },
+      'fr-CA': { supported: true, parentLocale: 'fr' },
+    };
+    project.localization.translations.fr = { [messageId]: 'Une chambre calme.' };
 
     const result = await build(project);
 

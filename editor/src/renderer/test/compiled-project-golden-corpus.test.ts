@@ -184,7 +184,7 @@ describe('compiled project cross-language golden corpus', () => {
       'feature',
       'layout',
       'line',
-      'localized',
+      'message',
       'lua-expression',
       'lua-predicate',
       'material',
@@ -614,6 +614,17 @@ describe('compiled project cross-language golden corpus', () => {
       hall: reordered.rooms.hall!,
       start: reordered.rooms.start!,
     };
+    reordered.localization.messages = Object.fromEntries(
+      Object.entries(reordered.localization.messages).reverse(),
+    );
+    reordered.localization.translations = Object.fromEntries(
+      Object.entries(reordered.localization.translations)
+        .reverse()
+        .map(([locale, messages]) => [
+          locale,
+          Object.fromEntries(Object.entries(messages).reverse()),
+        ]),
+    );
     reordered.editor.recordMetadata = {
       rooms: { hall: { color: '#000000', sortKey: '1', tags: [] } },
     };

@@ -79,9 +79,10 @@ function representativeWireFixture() {
     archetypes: [],
     inventories: [{ id: 'player', label: 'Player Inventory' }],
     localization: {
+      sourceLocale: 'en',
       defaultLocale: 'en',
-      fallbackLocale: null,
-      catalogs: [{ locale: 'en', entries: [{ key: 'foyer-title', value: 'Foyer' }] }],
+      locales: [{ locale: 'en', parentLocale: null, supported: true }],
+      catalogs: [{ locale: 'en', entries: [{ messageId: 0, value: 'Foyer' }] }],
     },
     resources: {
       assets: [
@@ -175,7 +176,7 @@ function representativeWireFixture() {
             fit: 'cover',
             color: null,
           },
-          description: { markup: 'plain', source: { kind: 'localized', key: 'foyer-title' } },
+          description: { markup: 'plain', source: { kind: 'message', id: 0 } },
           presentationSpace: {
             size: { width: 1920, height: 1080 },
             bounds: null,

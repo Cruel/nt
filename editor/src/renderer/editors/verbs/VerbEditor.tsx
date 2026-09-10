@@ -34,7 +34,7 @@ function TextContentEditor({
       <Select
         value={value.source.kind}
         onValueChange={(kind) => {
-          if (kind === 'localized') onChange({ ...value, source: { kind, key: 'text-key' } });
+          if (kind === 'localized') onChange({ ...value, source: { kind, key: 'text.key' } });
           else if (kind === 'lua-expression')
             onChange({ ...value, source: { kind, source: 'return ""' } });
           else onChange({ ...value, source: { kind: 'inline', text: '' } });

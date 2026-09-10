@@ -1,3 +1,4 @@
+#include <noveltea/core/message_realization.hpp>
 #include <noveltea/core/property_resolver.hpp>
 #include <noveltea/core/shared_evaluator.hpp>
 
@@ -62,12 +63,14 @@ CompiledProject make_project()
         .bootstrap_module = id<ScriptId>("bootstrap"),
         .save_contract = "sc1:00000000000000000000000000000000",
         .localization = {"en",
-                         std::string{"fr"},
+                         "en",
+                         {{"en", std::nullopt, true},
+                          {"fr", std::nullopt, true},
+                          {"de", std::string{"fr"}, true}},
                          {compiled::LocalizationCatalog{
-                              "en", {{"greeting", "Hello"}, {"default-only", "Default"}}},
-                          compiled::LocalizationCatalog{
-                              "fr", {{"greeting", "Bonjour"}, {"fallback-only", "Secours"}}},
-                          compiled::LocalizationCatalog{"de", {{"greeting", "Hallo"}}}}},
+                              "en", {{0, "Hello"}, {1, "Default"}, {2, "Fallback"}}},
+                          compiled::LocalizationCatalog{"fr", {{0, "Bonjour"}, {2, "Secours"}}},
+                          compiled::LocalizationCatalog{"de", {{0, "Hallo"}}}}},
         .properties = {global_property("flag", BooleanPropertyType{}, RuntimeValue{false}),
                        global_property("count", IntegerPropertyType{},
                                        RuntimeValue{std::int64_t{3}}),
@@ -196,15 +199,35 @@ TEST_CASE("shared text resolution handles inline locale fallback and script boun
     SharedPrimitiveEvaluator evaluator(project, state, executor);
 
     CHECK(evaluator.resolve(InlineText{"Direct"}, "de").value() == "Direct");
-    CHECK(evaluator.resolve(LocalizedTextKey{"greeting"}, "de").value() == "Hallo");
-    CHECK(evaluator.resolve(LocalizedTextKey{"default-only"}, "de").value() == "Default");
-    CHECK(evaluator.resolve(LocalizedTextKey{"fallback-only"}, "de").value() == "Secours");
-    auto missing = evaluator.resolve(LocalizedTextKey{"missing"}, "de");
+    CHECK(evaluator.resolve(MessageRef{0}, "de").value() == "Hallo");
+    CHECK(evaluator.resolve(MessageRef{1}, "de").value() == "Default");
+    CHECK(evaluator.resolve(MessageRef{2}, "de").value() == "Secours");
+    auto missing = evaluator.resolve(MessageRef{99}, "de");
     REQUIRE_FALSE(missing);
-    CHECK(missing.error().front().code == "execution.missing_localized_text");
+    CHECK(missing.error().front().code == "execution.missing_message");
     auto script = evaluator.resolve(LuaTextExpression{"return name"}, "en");
     REQUIRE_FALSE(script);
     CHECK(script.error().front().code == "execution.lua_text_requires_script_runtime");
+}
+
+TEST_CASE("Message realization follows valid locale chains longer than thirty-two hops")
+{
+    compiled::Localization localization;
+    localization.source_locale = "en";
+    localization.default_locale = "locale-39";
+    localization.locales.push_back({"en", std::nullopt, true});
+    for (int index = 0; index < 40; ++index) {
+        const auto locale = "locale-" + std::to_string(index);
+        const auto parent = index == 0 ? std::string{"en"} : "locale-" + std::to_string(index - 1);
+        localization.locales.push_back({locale, parent, true});
+    }
+    localization.catalogs.push_back({"en", {{0, "Source"}}});
+
+    const MessageRealizer realizer(localization);
+    const auto resolved = realizer.realize({0, "locale-39"});
+    REQUIRE(resolved);
+    CHECK(resolved->text == "Source");
+    CHECK(resolved->locale == "en");
 }
 
 TEST_CASE("engine waits create typed owner-bound logical state and complete or cancel exactly")

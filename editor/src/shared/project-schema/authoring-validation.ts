@@ -97,6 +97,38 @@ function escapePathSegment(segment: string): string {
   return segment.replaceAll('~', '~0').replaceAll('/', '~1');
 }
 
+function validateNamedMessageReferences(
+  project: AuthoringProject,
+  diagnostics: ProjectValidationDiagnosticLike[],
+): void {
+  const namedKeys = new Set(
+    Object.values(project.localization.messages)
+      .filter((message) => message.kind === 'named')
+      .map((message) => message.key),
+  );
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((child, index) => visit(child, `${path}/${index}`));
+      return;
+    }
+    if (value === null || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    if (record.kind === 'localized' && typeof record.key === 'string' && !namedKeys.has(record.key))
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${path}/key`,
+          `Named Message '${record.key}' does not exist.`,
+          'Localization',
+          'localization.message-reference.missing',
+        ),
+      );
+    for (const [key, child] of Object.entries(record))
+      visit(child, `${path}/${escapePathSegment(key)}`);
+  };
+  visit(project, '');
+}
+
 const propertyOwnerKindByCollection: Partial<Record<AuthoringCollectionKey, PropertyOwnerKind>> = {
   rooms: 'room',
   characters: 'character',
@@ -1415,6 +1447,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   }
 
   const project = parsed.data;
+  validateNamedMessageReferences(project, diagnostics);
   for (const source of collectAuthoringLuaSources(project)) {
     if ((source.explicitDependencies?.length ?? 0) === 0 || source.supportsExplicitFallback)
       continue;
@@ -1637,15 +1670,30 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
         ]),
       ].filter((template): template is NonNullable<typeof template> => template !== null);
       for (const template of localizedTemplates) {
-        for (const [locale, catalog] of Object.entries(project.localization.catalogs)) {
-          const text = catalog[template.key];
+        const namedMessage = Object.entries(project.localization.messages).find(
+          ([, candidate]) => candidate.kind === 'named' && candidate.key === template.key,
+        );
+        if (!namedMessage) continue;
+        const [messageId, sourceMessage] = namedMessage;
+        const sourceDiagnostic = template.validate(sourceMessage.source, slotIds);
+        if (sourceDiagnostic)
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `/localization/messages/${escapePathSegment(messageId)}/source`,
+              sourceDiagnostic,
+              'Verbs',
+            ),
+          );
+        for (const [locale, translations] of Object.entries(project.localization.translations)) {
+          const text = translations[messageId];
           if (text === undefined) continue;
           const message = template.validate(text, slotIds);
           if (message)
             diagnostics.push(
               diagnostic(
                 'error',
-                `/localization/catalogs/${escapePathSegment(locale)}/${escapePathSegment(template.key)}`,
+                `/localization/translations/${escapePathSegment(locale)}/${escapePathSegment(messageId)}`,
                 message,
                 'Verbs',
               ),

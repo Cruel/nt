@@ -319,7 +319,7 @@ function TextContentEditor({
             onValueChange={(kind) => {
               const source =
                 kind === 'localized'
-                  ? { kind: 'localized' as const, key: 'text-key' }
+                  ? { kind: 'localized' as const, key: 'text.key' }
                   : kind === 'lua-expression'
                     ? {
                         kind: 'lua-expression' as const,
