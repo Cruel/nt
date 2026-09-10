@@ -481,7 +481,6 @@ TEST_CASE("typed Dialogue Stage and Media Slots are self-contained retained pres
     hero["expressions"].push_back(std::move(angry));
     auto rival = hero;
     rival["id"] = "rival";
-    rival["displayName"] = "Rival";
     document["definitions"]["characters"].push_back(std::move(rival));
 
     auto& intro = definition_by_id(document["definitions"], "dialogues", "intro");

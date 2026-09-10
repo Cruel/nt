@@ -36,6 +36,10 @@ import {
 import { EDITOR_PROJECT_STATE_SCHEMA } from '../../shared/project-schema/editor-project-state';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import {
+  structuredMessageId,
+  structuredMessages,
+} from '../../shared/authoring-structured-messages';
+import {
   findUsages,
   type ReferenceIndex,
   type ReferenceUsage,
@@ -427,6 +431,37 @@ export function renameEntityIdPatches(
 
   const from = { collection: payload.collection, id: payload.fromId };
   const to = { collection: payload.collection, id: payload.toId };
+  const oldMessageBase = `${pathForRecord(payload.collection, payload.fromId)}${
+    payload.collection === 'archetypes' ? '/configuration' : '/data'
+  }`;
+  const newMessageBase = `${pathForRecord(payload.collection, payload.toId)}${
+    payload.collection === 'archetypes' ? '/configuration' : '/data'
+  }`;
+  const messageRemaps = structuredMessages(project)
+    .filter(
+      (message) => message.path === oldMessageBase || message.path.startsWith(`${oldMessageBase}/`),
+    )
+    .map((message) => ({
+      from: message.id,
+      to: structuredMessageId(`${newMessageBase}${message.path.slice(oldMessageBase.length)}`),
+    }));
+  for (const { from: fromMessageId, to: toMessageId } of messageRemaps) {
+    if (fromMessageId === toMessageId) continue;
+    for (const [locale, translations] of Object.entries(project.localization.translations)) {
+      if (!Object.hasOwn(translations, fromMessageId)) continue;
+      if (Object.hasOwn(translations, toMessageId)) {
+        return {
+          patches: [],
+          diagnostics: [
+            error(
+              `Cannot preserve localization while renaming: target Message '${toMessageId}' already has a ${locale} translation.`,
+              buildJsonPointer(['localization', 'translations', locale, toMessageId]),
+            ),
+          ],
+        };
+      }
+    }
+  }
   const renamedRecord = rewriteRecordReferences(
     { ...source, id: payload.toId, label: payload.label ?? source.label },
     from,
@@ -444,6 +479,18 @@ export function renameEntityIdPatches(
     pathForRecord(payload.collection, payload.toId),
     pathForRecord(payload.collection, payload.fromId),
   ];
+  for (const { from: fromMessageId, to: toMessageId } of messageRemaps) {
+    if (fromMessageId === toMessageId) continue;
+    for (const [locale, translations] of Object.entries(project.localization.translations)) {
+      const value = translations[fromMessageId];
+      if (value === undefined) continue;
+      const fromPath = buildJsonPointer(['localization', 'translations', locale, fromMessageId]);
+      const toPath = buildJsonPointer(['localization', 'translations', locale, toMessageId]);
+      patches.push({ op: 'add', path: toPath, value: toJsonValue(value) });
+      patches.push({ op: 'remove', path: fromPath });
+      affectedPaths.push(toPath, fromPath);
+    }
+  }
   for (const usage of findUsages(referenceIndex, from)) {
     if (usage.sourceCollection === payload.collection && usage.sourceId === payload.fromId)
       continue;

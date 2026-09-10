@@ -983,7 +983,7 @@ std::optional<DialogueDefinition> decode_dialogue(Decoder& decoder, const nlohma
     const auto* stage_slots_value = decoder.member(value, "stageSlots", pointer);
     const auto* media_slots_value = decoder.member(value, "mediaSlots", pointer);
     auto display = display_value
-                       ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
+                       ? decode_text(decoder, *display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
     std::optional<CharacterId> speaker;
     bool speaker_ok = speaker_value != nullptr;

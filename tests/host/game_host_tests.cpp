@@ -254,7 +254,6 @@ std::string navigable_compiled_project_fixture()
 
     auto hall = rooms.front();
     hall["id"] = "hall";
-    hall["displayName"] = "Hall";
     hall["description"] = {{"markup", "plain"},
                            {"source", {{"kind", "inline"}, {"text", "Hall room."}}}};
     hall["exits"] = nlohmann::json::array(
@@ -1251,7 +1250,8 @@ TEST_CASE("GameHost rolls back when initial predecessor realization fails")
     REQUIRE_FALSE(project.is_discarded());
     const auto baseline_fixture = project.dump();
     project["definitions"]["scenes"].push_back(
-        {{"displayName", "Startup Transition"},
+        {{"displayName",
+          {{"markup", "plain"}, {"source", {{"kind", "message"}, {"id", 1}}}}},
          {"id", "startup-transition"},
          {"inputs", nlohmann::json::array()},
          {"outcomes", nlohmann::json::array()},

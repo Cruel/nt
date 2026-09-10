@@ -4,7 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 const tab = {
   id: 'tab:localization',
@@ -121,6 +123,35 @@ describe('LocalizationEditor', () => {
       localization: { translations: Record<string, Record<string, string>> };
     };
     expect(afterClear.localization.translations.es?.[messageId]).toBeUndefined();
+  });
+
+  it('attributes structured source edits to the owning record save unit', async () => {
+    const user = userEvent.setup();
+    const project = loadProject();
+    const room = defaultRoomData('Foyer');
+    room.description = inlineTextContent('A quiet foyer.');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    const source = screen.getByDisplayValue('A quiet foyer.');
+    await user.clear(source);
+    await user.type(source, 'A renovated foyer.');
+    await user.tab();
+
+    expect(useCommandStore.getState().history.entries.at(-1)).toMatchObject({
+      originSaveUnitId: 'record:rooms:foyer',
+      persistencePolicy: 'manual-save',
+    });
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { data: { description: { source: { text: 'A renovated foyer.' } } } } },
+    });
   });
 
   it('blocks source-locale changes after target translation work exists', async () => {

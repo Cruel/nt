@@ -14,6 +14,10 @@ import type {
 import { analyzeHookRegistry } from '../../shared/hook-registry-analysis';
 import { lowerLayoutContractForWire } from '../../shared/layout-contract-lowering';
 import { resolveMessage } from '../../shared/message-resolution';
+import {
+  resolveStructuredMessageText,
+  structuredMessageForPath,
+} from '../../shared/authoring-structured-messages';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
@@ -212,7 +216,22 @@ function localizedText(project: AuthoringProject, key: string): string {
   return result.resolved?.text ?? '';
 }
 
-function focusedText(project: AuthoringProject, value: RoomData['description']): FocusedText {
+function focusedStructuredString(
+  project: AuthoringProject,
+  semanticPath: string,
+  fallback: string,
+) {
+  const message = structuredMessageForPath(project, semanticPath);
+  return message
+    ? resolveStructuredMessageText(project, message, project.localization.defaultLocale).text
+    : fallback;
+}
+
+function focusedText(
+  project: AuthoringProject,
+  value: RoomData['description'],
+  semanticPath?: string,
+): FocusedText {
   if (value.source.kind === 'lua-expression')
     return {
       markup: value.markup,
@@ -224,7 +243,9 @@ function focusedText(project: AuthoringProject, value: RoomData['description']):
       kind: 'resolved',
       text:
         value.source.kind === 'inline'
-          ? value.source.text
+          ? semanticPath
+            ? focusedStructuredString(project, semanticPath, value.source.text)
+            : value.source.text
           : localizedText(project, value.source.key),
     },
   };
@@ -906,7 +927,11 @@ export async function buildFocusedRoomPreview(
     room: {
       roomId,
       recordLabel: sourceRecord.label,
-      displayName: room.displayName,
+      displayName: focusedStructuredString(
+        project,
+        `/rooms/${roomId}/data/displayName`,
+        room.displayName,
+      ),
       visit: { visitIndex: 1, sourceRoomId: null, entryExitId: null },
     },
     luaAdmission: admission as RoomPreviewDocument['luaAdmission'],
@@ -935,7 +960,11 @@ export async function buildFocusedRoomPreview(
         bounds: placement.bounds,
         order: placement.order ?? 0,
         label: placement.presentation.label
-          ? focusedText(project, placement.presentation.label)
+          ? focusedText(
+              project,
+              placement.presentation.label,
+              `/rooms/${roomId}/data/placements/@${placement.id}/presentation/label`,
+            )
           : null,
         layoutId: placement.presentation.layout?.$ref.id ?? null,
       })),
@@ -1014,10 +1043,14 @@ export async function buildFocusedRoomPreview(
     },
     layouts,
     ui: {
-      description: focusedText(project, room.description),
+      description: focusedText(project, room.description, `/rooms/${roomId}/data/description`),
       exits: room.exits.map((item) => ({
         exitId: item.id,
-        label: item.label,
+        label: focusedStructuredString(
+          project,
+          `/rooms/${roomId}/data/exits/@${item.id}/label`,
+          item.label,
+        ),
         direction: item.direction,
         targetRoomId: item.target.$ref.id,
         condition: focusedCondition(item.condition),

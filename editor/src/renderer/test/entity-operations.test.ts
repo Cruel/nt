@@ -6,8 +6,10 @@ import {
   redoCommand,
 } from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
+import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { structuredMessageId } from '../../shared/authoring-structured-messages';
 
 function projectWithRooms() {
   const project = createAuthoringProject();
@@ -49,6 +51,31 @@ describe('authoring entity operations', () => {
       entrypoint: { kind: 'room', id: 'entry-hall' },
       rooms: { 'entry-hall': { id: 'entry-hall' }, hall: { id: 'hall' } },
     });
+    expect(undoCommand(result.state).state.document).toEqual(state.document);
+  });
+
+  it('preserves structured Message translations across a known record ID rename', () => {
+    const project = projectWithRooms();
+    project.rooms.foyer!.data.description = inlineTextContent('A quiet foyer.');
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    const oldMessageId = structuredMessageId('/rooms/foyer/data/description');
+    const newMessageId = structuredMessageId('/rooms/entry-hall/data/description');
+    project.localization.translations.fr = { [oldMessageId]: 'Un foyer tranquille.' };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const result = executeCommand(state, {
+      type: 'entity.renameId',
+      payload: { collection: 'rooms', fromId: 'foyer', toId: 'entry-hall' },
+    });
+
+    expect(result.ok).toBe(true);
+    const translations = (
+      result.state.document as {
+        localization: { translations: Record<string, Record<string, string>> };
+      }
+    ).localization.translations.fr!;
+    expect(translations[newMessageId]).toBe('Un foyer tranquille.');
+    expect(translations[oldMessageId]).toBeUndefined();
     expect(undoCommand(result.state).state.document).toEqual(state.document);
   });
 

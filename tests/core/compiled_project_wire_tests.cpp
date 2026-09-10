@@ -108,7 +108,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:8a1f97573f20328543b97e671313e319");
+    CHECK(project.save_contract == "sc1:d9f3bc46876a991cbc2af9b63d9033d8");
     CHECK(project.properties.size() == 14);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -143,9 +143,17 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK_FALSE(project.localization.locales[0].parent_locale);
     CHECK(project.localization.locales[1].locale == "es");
     REQUIRE(project.localization.catalogs.size() == 2);
-    REQUIRE(project.localization.catalogs[0].entries.size() == 5);
+    REQUIRE(project.localization.catalogs[0].entries.size() == 28);
     CHECK(project.localization.catalogs[0].entries[0].message_id == 0);
-    CHECK(project.localization.catalogs[0].entries[0].value == "Welcome.");
+    CHECK(project.localization.catalogs[0].entries[0].value == "Coin");
+    CHECK(project.localization.catalogs[0].entries[1].message_id == 1);
+    CHECK(project.localization.catalogs[0].entries[1].value == "Welcome.");
+    CHECK(project.localization.catalogs[0].entries[26].value == "Start");
+    CHECK(project.localization.catalogs[0].entries[27].value.empty());
+    REQUIRE(std::holds_alternative<MessageRef>(project.settings.title_screen.start_label.source));
+    CHECK(std::get<MessageRef>(project.settings.title_screen.start_label.source).id == 26);
+    REQUIRE(std::holds_alternative<MessageRef>(project.settings.title_screen.subtitle.source));
+    CHECK(std::get<MessageRef>(project.settings.title_screen.subtitle.source).id == 27);
 }
 
 TEST_CASE("compiled project Message localization boundary is canonical and closed")

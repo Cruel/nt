@@ -19,7 +19,13 @@
           "styleClass": "",
           "textColor": null
         },
-        "displayName": "Hero",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 9,
+            "kind": "message"
+          }
+        },
         "expressions": [
           {
             "id": "neutral",
@@ -135,7 +141,13 @@
     "dialogues": [],
     "interactables": [
       {
-        "displayName": "Coin",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 7,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "coin",
         "inventories": [
@@ -165,7 +177,13 @@
         "traits": []
       },
       {
-        "displayName": "Credits",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 18,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "credits",
         "inventories": [],
@@ -191,7 +209,13 @@
         ]
       },
       {
-        "displayName": "Dust",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 12,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "dust",
         "inventories": [],
@@ -210,7 +234,13 @@
         "traits": []
       },
       {
-        "displayName": "Key",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 6,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "key",
         "inventories": [
@@ -381,8 +411,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "Hall"
+                "id": 17,
+                "kind": "message"
               }
             },
             "labelAnchor": {
@@ -425,7 +455,7 @@
             "label": {
               "markup": "plain",
               "source": {
-                "id": 3,
+                "id": 4,
                 "kind": "message"
               }
             },
@@ -477,7 +507,7 @@
           "title": {
             "markup": "plain",
             "source": {
-              "id": 1,
+              "id": 2,
               "kind": "message"
             }
           }
@@ -507,7 +537,13 @@
             "source": "return hall_description()"
           }
         },
-        "displayName": "Hall",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 20,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -518,8 +554,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "South"
+                "id": 11,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -539,8 +575,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "East"
+                "id": 8,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -598,8 +634,8 @@
               "label": {
                 "markup": "plain",
                 "source": {
-                  "kind": "inline",
-                  "text": "Coin"
+                  "id": 0,
+                  "kind": "message"
                 }
               },
               "layout": null
@@ -663,11 +699,17 @@
         "description": {
           "markup": "active-text",
           "source": {
-            "id": 2,
+            "id": 3,
             "kind": "message"
           }
         },
-        "displayName": "Start",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 19,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -683,8 +725,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "North"
+                "id": 13,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -873,11 +915,17 @@
         "description": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "A quiet tower."
+            "id": 16,
+            "kind": "message"
           }
         },
-        "displayName": "Tower",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 15,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -888,8 +936,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "West"
+                "id": 10,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -1382,23 +1430,95 @@
         "entries": [
           {
             "messageId": 0,
-            "value": "Welcome."
+            "value": "Coin"
           },
           {
             "messageId": 1,
-            "value": "House Map"
+            "value": "Welcome."
           },
           {
             "messageId": 2,
-            "value": "The starting room."
+            "value": "House Map"
           },
           {
             "messageId": 3,
-            "value": "Tower"
+            "value": "The starting room."
           },
           {
             "messageId": 4,
+            "value": "Tower"
+          },
+          {
+            "messageId": 5,
             "value": "Choose a path."
+          },
+          {
+            "messageId": 6,
+            "value": "Key"
+          },
+          {
+            "messageId": 7,
+            "value": "Coin"
+          },
+          {
+            "messageId": 8,
+            "value": "East"
+          },
+          {
+            "messageId": 9,
+            "value": "Hero"
+          },
+          {
+            "messageId": 10,
+            "value": "West"
+          },
+          {
+            "messageId": 11,
+            "value": "South"
+          },
+          {
+            "messageId": 12,
+            "value": "Dust"
+          },
+          {
+            "messageId": 13,
+            "value": "North"
+          },
+          {
+            "messageId": 14,
+            "value": "Hero"
+          },
+          {
+            "messageId": 15,
+            "value": "Tower"
+          },
+          {
+            "messageId": 16,
+            "value": "A quiet tower."
+          },
+          {
+            "messageId": 17,
+            "value": "Hall"
+          },
+          {
+            "messageId": 18,
+            "value": "Credits"
+          },
+          {
+            "messageId": 19,
+            "value": "Start"
+          },
+          {
+            "messageId": 20,
+            "value": "Hall"
+          },
+          {
+            "messageId": 21,
+            "value": "Start"
+          },
+          {
+            "messageId": 22,
+            "value": ""
           }
         ],
         "locale": "en"
@@ -1406,23 +1526,23 @@
       {
         "entries": [
           {
-            "messageId": 0,
+            "messageId": 1,
             "value": "Bienvenido."
           },
           {
-            "messageId": 1,
+            "messageId": 2,
             "value": "Mapa de la casa"
           },
           {
-            "messageId": 2,
+            "messageId": 3,
             "value": "La sala inicial."
           },
           {
-            "messageId": 3,
+            "messageId": 4,
             "value": "Torre"
           },
           {
-            "messageId": 4,
+            "messageId": 5,
             "value": "Elige un camino."
           }
         ],
@@ -1897,7 +2017,7 @@
       }
     ]
   },
-  "saveContract": "sc1:9b152a318874db6b3a1bd3219c1770af",
+  "saveContract": "sc1:313b23c447c83cb62de8af149b72abea",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
@@ -2028,8 +2148,20 @@
     "titleScreen": {
       "showAuthor": false,
       "showProjectTitle": true,
-      "startLabel": "Start",
-      "subtitle": "",
+      "startLabel": {
+        "markup": "plain",
+        "source": {
+          "id": 21,
+          "kind": "message"
+        }
+      },
+      "subtitle": {
+        "markup": "plain",
+        "source": {
+          "id": 22,
+          "kind": "message"
+        }
+      },
       "titleImage": {
         "id": "image-main",
         "kind": "asset"

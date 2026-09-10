@@ -64,7 +64,7 @@ struct PropertyDeclaration {
 
 struct CharacterDefinition {
     PropertyBearingDefinition<CharacterId> identity;
-    std::string display_name;
+    TextContent display_name;
     std::vector<OwnerPropertyContract> properties;
     CharacterDialoguePresentation dialogue;
     CharacterDefaults defaults;
@@ -96,7 +96,7 @@ struct RoomLifecycle {
 };
 struct RoomDefinition {
     PropertyBearingDefinition<RoomId> identity;
-    std::string display_name;
+    TextContent display_name;
     std::vector<OwnerPropertyContract> properties;
     TextContent description;
     BackgroundPresentation background;
@@ -118,7 +118,7 @@ struct RoomDefinition {
 
 struct InteractableDefinition {
     PropertyBearingDefinition<InteractableDefinitionId> identity;
-    std::string display_name;
+    TextContent display_name;
     bool stackable = false;
     std::optional<std::uint64_t> stack_limit;
     std::vector<OwnerPropertyContract> properties;
@@ -172,7 +172,7 @@ struct InteractionDefinition {
 };
 struct SceneDefinition {
     DefinitionIdentity<SceneId> identity;
-    std::string display_name;
+    TextContent display_name;
     SceneStage stage;
     std::vector<SceneInputDefinition> inputs;
     std::vector<SceneOutcomeDefinition> outcomes;
@@ -181,7 +181,7 @@ struct SceneDefinition {
 };
 struct DialogueDefinition {
     DefinitionIdentity<DialogueId> identity;
-    std::string display_name;
+    TextContent display_name;
     std::optional<CharacterId> default_speaker;
     std::vector<DialogueStageSlotDefinition> stage_slots;
     std::vector<DialogueMediaSlotDefinition> media_slots;
@@ -194,6 +194,26 @@ struct MapDefinition {
     std::vector<MapConnection> connections;
     std::vector<MapLocation> locations;
     MapPresentation presentation;
+};
+
+struct TitleScreenSettings {
+    bool show_author;
+    bool show_project_title;
+    TextContent start_label;
+    TextContent subtitle;
+    std::optional<AssetId> title_image;
+};
+
+struct RuntimeSettings {
+    DisplaySettings display;
+    AccessibilitySettings accessibility;
+    std::vector<SystemLayout> system_layouts;
+    TextSettings text;
+    TitleScreenSettings title_screen;
+    RoomNavigationTransition room_navigation_transition;
+    AudioMixSettings audio;
+    InventorySettings inventory;
+    InteractionPresentationSettings interaction;
 };
 
 struct SharedProject {

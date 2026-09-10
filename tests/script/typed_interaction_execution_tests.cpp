@@ -541,8 +541,6 @@ TEST_CASE("named Verb slots allow the same live subject to bind more than once")
     use["availability"] = {{"kind", "always"}};
     const auto second_slot = use["slots"][0];
     use["slots"][0]["id"] = "source";
-    use["slots"][0]["label"]["source"]["text"] = "source";
-    use["slots"][0]["prompt"]["source"]["text"] = "source";
     use["slots"].push_back(second_slot);
     use["bindingOrder"] = nlohmann::json::array({"source", "target"});
     definition(document, "interactions", "actions")["rules"] = nlohmann::json::array();

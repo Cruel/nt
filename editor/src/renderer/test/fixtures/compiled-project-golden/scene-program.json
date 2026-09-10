@@ -19,7 +19,13 @@
           "styleClass": "",
           "textColor": null
         },
-        "displayName": "Hero",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 10,
+            "kind": "message"
+          }
+        },
         "expressions": [
           {
             "id": "neutral",
@@ -138,7 +144,13 @@
           "kind": "end"
         },
         "defaultSpeaker": null,
-        "displayName": "Arrival",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 8,
+            "kind": "message"
+          }
+        },
         "id": "arrival",
         "mediaSlots": [
           {
@@ -172,8 +184,8 @@
                   "text": {
                     "markup": "active-text",
                     "source": {
-                      "kind": "inline",
-                      "text": ""
+                      "id": 14,
+                      "kind": "message"
                     }
                   }
                 }
@@ -194,7 +206,13 @@
           "kind": "end"
         },
         "defaultSpeaker": null,
-        "displayName": "Intro",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 29,
+            "kind": "message"
+          }
+        },
         "id": "intro",
         "mediaSlots": [],
         "program": {
@@ -216,7 +234,7 @@
                   "text": {
                     "markup": "active-text",
                     "source": {
-                      "id": 0,
+                      "id": 1,
                       "kind": "message"
                     }
                   }
@@ -236,7 +254,13 @@
     ],
     "interactables": [
       {
-        "displayName": "Coin",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 7,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "coin",
         "inventories": [
@@ -266,7 +290,13 @@
         "traits": []
       },
       {
-        "displayName": "Credits",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 26,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "credits",
         "inventories": [],
@@ -292,7 +322,13 @@
         ]
       },
       {
-        "displayName": "Dust",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 16,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "dust",
         "inventories": [],
@@ -311,7 +347,13 @@
         "traits": []
       },
       {
-        "displayName": "Key",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 6,
+            "kind": "message"
+          }
+        },
         "features": [],
         "id": "key",
         "inventories": [
@@ -487,8 +529,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "Hall"
+                "id": 25,
+                "kind": "message"
               }
             },
             "labelAnchor": {
@@ -531,7 +573,7 @@
             "label": {
               "markup": "plain",
               "source": {
-                "id": 3,
+                "id": 4,
                 "kind": "message"
               }
             },
@@ -583,7 +625,7 @@
           "title": {
             "markup": "plain",
             "source": {
-              "id": 1,
+              "id": 2,
               "kind": "message"
             }
           }
@@ -613,7 +655,13 @@
             "source": "return hall_description()"
           }
         },
-        "displayName": "Hall",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 30,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -624,8 +672,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "South"
+                "id": 15,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -645,8 +693,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "East"
+                "id": 9,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -758,8 +806,8 @@
               "label": {
                 "markup": "plain",
                 "source": {
-                  "kind": "inline",
-                  "text": "Coin"
+                  "id": 0,
+                  "kind": "message"
                 }
               },
               "layout": null
@@ -823,11 +871,17 @@
         "description": {
           "markup": "active-text",
           "source": {
-            "id": 2,
+            "id": 3,
             "kind": "message"
           }
         },
-        "displayName": "Start",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 28,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -843,8 +897,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "North"
+                "id": 17,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -1033,11 +1087,17 @@
         "description": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "A quiet tower."
+            "id": 22,
+            "kind": "message"
           }
         },
-        "displayName": "Tower",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 20,
+            "kind": "message"
+          }
+        },
         "exits": [
           {
             "condition": {
@@ -1048,8 +1108,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "kind": "inline",
-                "text": "West"
+                "id": 13,
+                "kind": "message"
               }
             },
             "onRejected": [],
@@ -1259,7 +1319,13 @@
     ],
     "scenes": [
       {
-        "displayName": "Closing",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 19,
+            "kind": "message"
+          }
+        },
         "id": "closing",
         "inputs": [],
         "outcomes": [],
@@ -1276,8 +1342,8 @@
                 "text": {
                   "markup": "plain",
                   "source": {
-                    "kind": "inline",
-                    "text": "Closing."
+                    "id": 23,
+                    "kind": "message"
                   }
                 },
                 "wait": "input"
@@ -1312,7 +1378,13 @@
         }
       },
       {
-        "displayName": "Opening",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 27,
+            "kind": "message"
+          }
+        },
         "id": "opening",
         "inputs": [],
         "outcomes": [],
@@ -1420,8 +1492,8 @@
                 "text": {
                   "markup": "plain",
                   "source": {
-                    "kind": "inline",
-                    "text": "Inline text."
+                    "id": 24,
+                    "kind": "message"
                   }
                 },
                 "wait": "immediate"
@@ -1443,7 +1515,7 @@
                 "text": {
                   "markup": "active-text",
                   "source": {
-                    "id": 0,
+                    "id": 1,
                     "kind": "message"
                   }
                 },
@@ -1648,8 +1720,8 @@
                     "label": {
                       "markup": "plain",
                       "source": {
-                        "kind": "inline",
-                        "text": "Show layout"
+                        "id": 21,
+                        "kind": "message"
                       }
                     },
                     "targetInstructionId": "layout"
@@ -1680,7 +1752,7 @@
                 "prompt": {
                   "markup": "active-text",
                   "source": {
-                    "id": 4,
+                    "id": 5,
                     "kind": "message"
                   }
                 }
@@ -1901,8 +1973,8 @@
         "actionText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Look"
+            "id": 11,
+            "kind": "message"
           }
         },
         "availability": {
@@ -1912,8 +1984,8 @@
         "completedCommandText": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Look"
+            "id": 12,
+            "kind": "message"
           }
         },
         "defaultProgram": {
@@ -3405,23 +3477,135 @@
         "entries": [
           {
             "messageId": 0,
-            "value": "Welcome."
+            "value": "Coin"
           },
           {
             "messageId": 1,
-            "value": "House Map"
+            "value": "Welcome."
           },
           {
             "messageId": 2,
-            "value": "The starting room."
+            "value": "House Map"
           },
           {
             "messageId": 3,
-            "value": "Tower"
+            "value": "The starting room."
           },
           {
             "messageId": 4,
+            "value": "Tower"
+          },
+          {
+            "messageId": 5,
             "value": "Choose a path."
+          },
+          {
+            "messageId": 6,
+            "value": "Key"
+          },
+          {
+            "messageId": 7,
+            "value": "Coin"
+          },
+          {
+            "messageId": 8,
+            "value": "Arrival"
+          },
+          {
+            "messageId": 9,
+            "value": "East"
+          },
+          {
+            "messageId": 10,
+            "value": "Hero"
+          },
+          {
+            "messageId": 11,
+            "value": "Look"
+          },
+          {
+            "messageId": 12,
+            "value": "Look"
+          },
+          {
+            "messageId": 13,
+            "value": "West"
+          },
+          {
+            "messageId": 14,
+            "value": ""
+          },
+          {
+            "messageId": 15,
+            "value": "South"
+          },
+          {
+            "messageId": 16,
+            "value": "Dust"
+          },
+          {
+            "messageId": 17,
+            "value": "North"
+          },
+          {
+            "messageId": 18,
+            "value": "Hero"
+          },
+          {
+            "messageId": 19,
+            "value": "Closing"
+          },
+          {
+            "messageId": 20,
+            "value": "Tower"
+          },
+          {
+            "messageId": 21,
+            "value": "Show layout"
+          },
+          {
+            "messageId": 22,
+            "value": "A quiet tower."
+          },
+          {
+            "messageId": 23,
+            "value": "Closing."
+          },
+          {
+            "messageId": 24,
+            "value": "Inline text."
+          },
+          {
+            "messageId": 25,
+            "value": "Hall"
+          },
+          {
+            "messageId": 26,
+            "value": "Credits"
+          },
+          {
+            "messageId": 27,
+            "value": "Opening"
+          },
+          {
+            "messageId": 28,
+            "value": "Start"
+          },
+          {
+            "messageId": 29,
+            "value": "Intro"
+          },
+          {
+            "messageId": 30,
+            "value": "Hall"
+          },
+          {
+            "messageId": 31,
+            "value": "Start"
+          },
+          {
+            "messageId": 32,
+            "value": ""
           }
         ],
         "locale": "en"
@@ -3429,23 +3613,23 @@
       {
         "entries": [
           {
-            "messageId": 0,
+            "messageId": 1,
             "value": "Bienvenido."
           },
           {
-            "messageId": 1,
+            "messageId": 2,
             "value": "Mapa de la casa"
           },
           {
-            "messageId": 2,
+            "messageId": 3,
             "value": "La sala inicial."
           },
           {
-            "messageId": 3,
+            "messageId": 4,
             "value": "Torre"
           },
           {
-            "messageId": 4,
+            "messageId": 5,
             "value": "Elige un camino."
           }
         ],
@@ -3941,7 +4125,7 @@
       }
     ]
   },
-  "saveContract": "sc1:3fa019c4d0c61ab6e3c7d35455bb6832",
+  "saveContract": "sc1:8d7282f4b1567c2a937bd44442f35dbe",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
@@ -4072,8 +4256,20 @@
     "titleScreen": {
       "showAuthor": false,
       "showProjectTitle": true,
-      "startLabel": "Start",
-      "subtitle": "",
+      "startLabel": {
+        "markup": "plain",
+        "source": {
+          "id": 31,
+          "kind": "message"
+        }
+      },
+      "subtitle": {
+        "markup": "plain",
+        "source": {
+          "id": 32,
+          "kind": "message"
+        }
+      },
       "titleImage": {
         "id": "image-main",
         "kind": "asset"

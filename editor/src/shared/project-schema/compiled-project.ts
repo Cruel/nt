@@ -1147,7 +1147,7 @@ const characterDefinitionSchema = strict({
     styleClass: z.string(),
     textColor: z.string().nullable(),
   }),
-  displayName: z.string(),
+  displayName: compiledTextSchema,
   expressions: z.array(characterExpressionSchema),
   appearances: z.array(characterAppearanceSchema),
   gestures: z.array(characterGestureSchema).optional(),
@@ -1247,7 +1247,7 @@ const roomDefinitionSchema = strict({
     material: materialReferenceSchema.nullable(),
   }),
   description: compiledTextSchema,
-  displayName: z.string(),
+  displayName: compiledTextSchema,
   presentationSpace: roomPresentationSpaceSchema,
   anchors: z.array(roomAnchorSchema),
   exits: z.array(roomExitSchema),
@@ -1343,7 +1343,7 @@ const interactableLocationSchema = z.discriminatedUnion('kind', [
 ]);
 const interactableDefinitionSchema = strict({
   ...propertyBearingDefinition,
-  displayName: z.string(),
+  displayName: compiledTextSchema,
   stackable: z.boolean(),
   stackLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
   properties: z.array(ownerPropertyContractSchema),
@@ -1870,7 +1870,7 @@ const compiledSceneTerminalSchema = z.discriminatedUnion('kind', [
 ]);
 const sceneDefinitionSchema = strict({
   id,
-  displayName: z.string(),
+  displayName: compiledTextSchema,
   stage: sceneStageSchema,
   inputs: z.array(compiledSceneInputDefinitionSchema),
   outcomes: z.array(compiledSceneOutcomeDefinitionSchema),
@@ -2063,7 +2063,7 @@ const dialogueDefinitionSchema = strict({
   id,
   completion: compiledFlowTargetSchema,
   defaultSpeaker: characterReferenceSchema.nullable(),
-  displayName: z.string(),
+  displayName: compiledTextSchema,
   stageSlots: z.array(
     strict({
       id,
@@ -2348,8 +2348,8 @@ const runtimeSettingsSchema = strict({
   titleScreen: strict({
     showAuthor: z.boolean(),
     showProjectTitle: z.boolean(),
-    startLabel: z.string().min(1),
-    subtitle: z.string(),
+    startLabel: compiledTextSchema,
+    subtitle: compiledTextSchema,
     titleImage: assetReferenceSchema.nullable(),
   }),
 });

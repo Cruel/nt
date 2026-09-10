@@ -500,7 +500,10 @@ describe('Archetype authoring semantics', () => {
     const room = lowered.draft?.definitions.rooms.find((candidate) => candidate.id === 'start');
     expect(room).toMatchObject({
       id: 'start',
-      displayName: 'Compiled inherited room',
+      displayName: expect.objectContaining({
+        markup: 'plain',
+        source: expect.objectContaining({ kind: 'message' }),
+      }),
       background: { fit: 'contain', color: '#123456' },
     });
     expect(lowered.draft?.archetypes).toEqual([
@@ -508,7 +511,10 @@ describe('Archetype authoring semantics', () => {
         id: 'room-base',
         instanceKind: 'room',
         configuration: expect.objectContaining({
-          displayName: 'Compiled inherited room',
+          displayName: expect.objectContaining({
+            markup: 'plain',
+            source: expect.objectContaining({ kind: 'message' }),
+          }),
           background: expect.objectContaining({ fit: 'contain' }),
         }),
       }),

@@ -23,11 +23,17 @@
         "description": {
           "markup": "plain",
           "source": {
-            "kind": "inline",
-            "text": "Minimal room."
+            "id": 0,
+            "kind": "message"
           }
         },
-        "displayName": "Start",
+        "displayName": {
+          "markup": "plain",
+          "source": {
+            "id": 1,
+            "kind": "message"
+          }
+        },
         "exits": [],
         "fallbackInteractablePlacementId": null,
         "features": [],
@@ -197,7 +203,24 @@
   "localization": {
     "catalogs": [
       {
-        "entries": [],
+        "entries": [
+          {
+            "messageId": 0,
+            "value": "Minimal room."
+          },
+          {
+            "messageId": 1,
+            "value": "Start"
+          },
+          {
+            "messageId": 2,
+            "value": "Start"
+          },
+          {
+            "messageId": 3,
+            "value": ""
+          }
+        ],
         "locale": "en"
       }
     ],
@@ -240,7 +263,7 @@
       }
     ]
   },
-  "saveContract": "sc1:e59aa1b5d1f3d53fb177894517300033",
+  "saveContract": "sc1:bcf309c75ad7534d4fee9ad77a3708d9",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
@@ -362,8 +385,20 @@
     "titleScreen": {
       "showAuthor": false,
       "showProjectTitle": true,
-      "startLabel": "Start",
-      "subtitle": "",
+      "startLabel": {
+        "markup": "plain",
+        "source": {
+          "id": 2,
+          "kind": "message"
+        }
+      },
+      "subtitle": {
+        "markup": "plain",
+        "source": {
+          "id": 3,
+          "kind": "message"
+        }
+      },
       "titleImage": null
     }
   },

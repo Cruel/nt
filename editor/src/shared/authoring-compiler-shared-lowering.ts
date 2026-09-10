@@ -430,8 +430,10 @@ function compileEntrypoint(
 
 export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLoweringResult {
   const diagnostics: SharedLoweringDiagnostic[] = [];
-  const compileText = (text: TextContent): CompiledText =>
-    compileMessageText(project.localization, text);
+  const compileText = (text: TextContent, semanticPath?: string): CompiledText =>
+    compileMessageText(project, text, semanticPath);
+  const compileStructuredString = (value: string, semanticPath: string): CompiledText =>
+    compileText({ markup: 'plain', source: { kind: 'inline', text: value } }, semanticPath);
   if (!project.entrypoint) {
     diagnostics.push({
       code: 'COMPILER_ENTRYPOINT_REQUIRED',
@@ -542,7 +544,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           : [];
         return compileConcreteOwnerContracts(inherited, record.localProperties ?? []);
       })(),
-      displayName: data.displayName,
+      displayName: compileStructuredString(data.displayName, `/characters/${id}/data/displayName`),
       dialogue: { ...data.dialogue },
       defaults: {
         profileId: data.defaults.profileId,
@@ -690,14 +692,14 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           : [];
         return compileConcreteOwnerContracts(inherited, record.localProperties ?? []);
       })(),
-      displayName: data.displayName,
+      displayName: compileStructuredString(data.displayName, `/rooms/${id}/data/displayName`),
       background: {
         asset: assetRef(data.background.asset),
         material: materialRef(data.background.material),
         fit: data.background.fit,
         color: data.background.color,
       },
-      description: compileText(data.description),
+      description: compileText(data.description, `/rooms/${id}/data/description`),
       presentationSpace: {
         size: { ...data.presentationSpace.size },
         bounds: data.presentationSpace.bounds ? { ...data.presentationSpace.bounds } : null,
@@ -729,7 +731,12 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         bounds: { ...placement.bounds },
         order: placement.order ?? index,
         presentation: {
-          label: placement.presentation.label ? compileText(placement.presentation.label) : null,
+          label: placement.presentation.label
+            ? compileText(
+                placement.presentation.label,
+                `/rooms/${id}/data/placements/@${placement.id}/presentation/label`,
+              )
+            : null,
           layout: layoutRef(placement.presentation.layout),
         },
       })),
@@ -800,7 +807,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       })),
       exits: data.exits.map((exit) => ({
         id: exit.id,
-        label: compileText({ markup: 'plain', source: { kind: 'inline', text: exit.label } }),
+        label: compileText(
+          { markup: 'plain', source: { kind: 'inline', text: exit.label } },
+          `/rooms/${id}/data/exits/@${exit.id}/label`,
+        ),
         direction: exit.direction,
         target: roomRef(exit.target.$ref.id),
         condition: compileCondition(exit.condition),
@@ -833,7 +843,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       id,
       traits: [...(effectiveRecord.traits ?? [])].sort(),
       propertyAssignments: [],
-      displayName: data.displayName,
+      displayName: compileStructuredString(
+        data.displayName,
+        `/interactables/${id}/data/displayName`,
+      ),
       stackable: data.stackable,
       stackLimit: data.stackLimit,
       properties: definitionProperties
@@ -911,13 +924,16 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         ...definitionBase(id),
         slots: data.slots.map((slot) => ({
           id: slot.id,
-          label: compileText(slot.label),
-          prompt: compileText(slot.prompt),
+          label: compileText(slot.label, `/verbs/${id}/data/slots/@${slot.id}/label`),
+          prompt: compileText(slot.prompt, `/verbs/${id}/data/slots/@${slot.id}/prompt`),
           selectors: slot.selectors.map(compileSubjectSelector),
         })),
         bindingOrder: [...data.bindingOrder],
-        actionText: compileText(data.actionText),
-        completedCommandText: compileText(data.completedCommandText),
+        actionText: compileText(data.actionText, `/verbs/${id}/data/actionText`),
+        completedCommandText: compileText(
+          data.completedCommandText,
+          `/verbs/${id}/data/completedCommandText`,
+        ),
         offers: data.offers.map((offer) => ({
           id: offer.id,
           slotId: offer.slotId,
@@ -940,7 +956,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     if (!data) continue;
     scenes.push({
       ...definitionBase(id),
-      displayName: data.displayName,
+      displayName: compileStructuredString(data.displayName, `/scenes/${id}/data/displayName`),
       inputs: data.inputs.map((input) => ({
         id: input.id,
         label: input.label,
@@ -976,7 +992,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     if (data)
       dialogues.push({
         ...definitionBase(id),
-        displayName: data.displayName,
+        displayName: compileStructuredString(data.displayName, `/dialogues/${id}/data/displayName`),
         defaultSpeaker: characterRef(data.defaultSpeaker),
         stageSlots: [],
         mediaSlots: [],
@@ -994,7 +1010,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     maps.push({
       ...definitionBase(id),
       presentation: {
-        title: data.presentation.title ? compileText(data.presentation.title) : null,
+        title: data.presentation.title
+          ? compileText(data.presentation.title, `/maps/${id}/data/presentation/title`)
+          : null,
         background: assetRef(data.presentation.background),
         layout: layoutRef(data.presentation.layout),
         initialMode: data.presentation.initialMode,
@@ -1005,7 +1023,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         regions: location.regions.map((region) => ({
           points: region.points.map((point) => ({ ...point })),
         })),
-        label: location.label ? compileText(location.label) : null,
+        label: location.label
+          ? compileText(location.label, `/maps/${id}/data/locations/@${location.id}/label`)
+          : null,
         icon: assetRef(location.icon),
         style: location.style,
         labelAnchor: location.labelAnchor ? { ...location.labelAnchor } : null,
@@ -1028,7 +1048,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           })),
           sourceLocationId: locationByRoom.get(sourceRoom) ?? '',
           targetLocationId: locationByRoom.get(sourceExit?.target.$ref.id ?? '') ?? '',
-          label: connection.label ? compileText(connection.label) : null,
+          label: connection.label
+            ? compileText(connection.label, `/maps/${id}/data/connections/@${connection.id}/label`)
+            : null,
           icon: assetRef(connection.icon),
           style: connection.style,
           visibility: compileCondition(connection.visibility),
@@ -1066,14 +1088,17 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       };
       const declared = {
         ...identity,
-        displayName: data.displayName,
+        displayName: compileStructuredString(
+          data.displayName,
+          `/archetypes/${id}/configuration/displayName`,
+        ),
         background: {
           asset: assetRef(data.background.asset),
           material: materialRef(data.background.material),
           fit: data.background.fit,
           color: data.background.color,
         },
-        description: compileText(data.description),
+        description: compileText(data.description, `/archetypes/${id}/configuration/description`),
         presentationSpace: {
           size: { ...data.presentationSpace.size },
           bounds: data.presentationSpace.bounds ? { ...data.presentationSpace.bounds } : null,
@@ -1095,7 +1120,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         anchors: data.anchors.map((anchor) => ({ id: anchor.id, bounds: { ...anchor.bounds } })),
         exits: data.exits.map((exit) => ({
           id: exit.id,
-          label: compileText({ markup: 'plain', source: { kind: 'inline', text: exit.label } }),
+          label: compileText(
+            { markup: 'plain', source: { kind: 'inline', text: exit.label } },
+            `/archetypes/${id}/configuration/exits/@${exit.id}/label`,
+          ),
           direction: exit.direction,
           target: roomRef(exit.target.$ref.id),
           condition: compileCondition(exit.condition),
@@ -1175,7 +1203,12 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           bounds: { ...placement.bounds },
           order: placement.order ?? index,
           presentation: {
-            label: placement.presentation.label ? compileText(placement.presentation.label) : null,
+            label: placement.presentation.label
+              ? compileText(
+                  placement.presentation.label,
+                  `/archetypes/${id}/configuration/placements/@${placement.id}/presentation/label`,
+                )
+              : null,
             layout: layoutRef(placement.presentation.layout),
           },
         })),
@@ -1207,7 +1240,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           properties: configuration.defaultProperties.map((property) =>
             compileOwnerContract(property, true),
           ),
-          displayName: data.displayName,
+          displayName: compileStructuredString(
+            data.displayName,
+            `/archetypes/${id}/configuration/displayName`,
+          ),
           dialogue: { ...data.dialogue },
           defaults: {
             profileId: data.defaults.profileId,
@@ -1344,7 +1380,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           properties: configuration.defaultProperties.map((property) =>
             compileOwnerContract(property, true),
           ),
-          displayName: data.displayName,
+          displayName: compileStructuredString(
+            data.displayName,
+            `/archetypes/${id}/configuration/displayName`,
+          ),
           stackable: data.stackable,
           stackLimit: data.stackLimit,
           features: data.features.map((feature) => compileFeature(feature, 'default')),
@@ -1569,8 +1608,14 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         titleImage: assetRef(settings.titleScreen.titleImage),
         showProjectTitle: settings.titleScreen.showProjectTitle,
         showAuthor: settings.titleScreen.showAuthor,
-        subtitle: settings.titleScreen.subtitle,
-        startLabel: settings.titleScreen.startLabel,
+        subtitle: compileStructuredString(
+          settings.titleScreen.subtitle,
+          '/settings/titleScreen/subtitle',
+        ),
+        startLabel: compileStructuredString(
+          settings.titleScreen.startLabel,
+          '/settings/titleScreen/startLabel',
+        ),
       },
       roomNavigationTransition: compileRoomNavigationTransition(
         settings.presentation.roomNavigationTransition,
@@ -1587,7 +1632,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     archetypes,
     inventories: projectInventoryUsed ? [{ id: 'player', label: 'Player Inventory' }] : [],
     interactableInstances,
-    localization: compileLocalization(project.localization),
+    localization: compileLocalization(project),
     resources: { assets, layouts, materialInterfaces, scripts },
     definitions: {
       characters,

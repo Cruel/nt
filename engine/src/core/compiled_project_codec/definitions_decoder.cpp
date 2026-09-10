@@ -328,7 +328,7 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
     const auto* inventories_value = decoder.member(value, "inventories", pointer);
     const auto* initial_world_value = decoder.member(value, "initialWorldState", pointer);
     auto display = display_value
-                       ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
+                       ? decode_text(decoder, *display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
     auto properties = properties_value
                           ? decode_owner_contracts(decoder, *properties_value,
@@ -1434,7 +1434,7 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     const auto* environments_value = json_access::member(value, "environments");
     const auto* script_hooks_value = decoder.member(value, "scriptHooks", pointer);
     auto display = display_value
-                       ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
+                       ? decode_text(decoder, *display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
     auto properties = properties_value
                           ? decode_owner_contracts(decoder, *properties_value,
@@ -2348,7 +2348,7 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
     const auto* stackable_value = decoder.member(value, "stackable", pointer);
     const auto* stack_limit_value = decoder.member(value, "stackLimit", pointer);
     auto display = display_value
-                       ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
+                       ? decode_text(decoder, *display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
     auto stackable = stackable_value
                          ? decoder.boolean(*stackable_value, pointer_child(pointer, "stackable"))

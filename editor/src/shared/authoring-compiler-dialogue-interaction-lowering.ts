@@ -40,8 +40,12 @@ export interface CompleteProgramLoweringResult {
   draft?: CompiledProjectWire;
 }
 
-function compileText(project: AuthoringProject, text: TextContent): CompiledText {
-  return compileMessageText(project.localization, text);
+function compileText(
+  project: AuthoringProject,
+  text: TextContent,
+  semanticPath?: string,
+): CompiledText {
+  return compileMessageText(project, text, semanticPath);
 }
 
 function compileFlowTarget(target: FlowTarget): CompiledFlowTarget {
@@ -107,18 +111,23 @@ function compileDialogueLineText(
   project: AuthoringProject,
   text: TextContent,
   cues: readonly DialogueLineCue[],
+  semanticPath: string,
 ): CompiledText {
-  if (text.source.kind !== 'inline') return compileText(project, text);
-  return compileText(project, {
-    ...text,
-    source: {
-      kind: 'inline',
-      text:
-        text.markup === 'active-text'
-          ? renderActiveTextFromDialogueCues(text.source.text, cues)
-          : text.source.text,
+  if (text.source.kind !== 'inline') return compileText(project, text, semanticPath);
+  return compileText(
+    project,
+    {
+      ...text,
+      source: {
+        kind: 'inline',
+        text:
+          text.markup === 'active-text'
+            ? renderActiveTextFromDialogueCues(text.source.text, cues)
+            : text.source.text,
+      },
     },
-  });
+    semanticPath,
+  );
 }
 
 function compileDialogueSemanticCue(
@@ -180,6 +189,7 @@ function compileDialogueSemanticCue(
 export function compileGameplayCommand(
   project: AuthoringProject,
   command: GameplayCommand,
+  semanticPath: string,
 ): CompiledGameplayCommand {
   switch (command.kind) {
     case 'set-global-property':
@@ -373,7 +383,7 @@ export function compileGameplayCommand(
       return {
         id: command.id,
         kind: command.kind,
-        message: compileText(project, command.message),
+        message: compileText(project, command.message, `${semanticPath}/message`),
       };
     case 'call-scene':
       return {
@@ -395,8 +405,12 @@ export function compileGameplayCommand(
         kind: command.kind,
         condition: compileCondition(command.condition),
         // oxlint-disable-next-line unicorn/no-thenable -- `then` is the canonical Gameplay Command wire field.
-        then: command.then.map((child) => compileGameplayCommand(project, child)),
-        else: command.else.map((child) => compileGameplayCommand(project, child)),
+        then: command.then.map((child) =>
+          compileGameplayCommand(project, child, `${semanticPath}/then/@${child.id}`),
+        ),
+        else: command.else.map((child) =>
+          compileGameplayCommand(project, child, `${semanticPath}/else/@${child.id}`),
+        ),
       };
   }
 }
@@ -404,9 +418,12 @@ export function compileGameplayCommand(
 function compileInteractionProgram(
   project: AuthoringProject,
   program: AuthoringInteractionProgram,
+  semanticPath: string,
 ): InteractionProgram {
   return {
-    instructions: program.instructions.map((command) => compileGameplayCommand(project, command)),
+    instructions: program.instructions.map((command) =>
+      compileGameplayCommand(project, command, `${semanticPath}/instructions/@${command.id}`),
+    ),
     completion: compileFlowTarget(program.completion),
     outcome: program.outcome,
   };
@@ -480,7 +497,12 @@ export function lowerDialogueAndInteractionPrograms(
             id: segment.id,
             kind: 'line',
             speaker: segment.speaker ? { kind: 'character', id: segment.speaker.$ref.id } : null,
-            text: compileDialogueLineText(project, segment.text, segment.cues),
+            text: compileDialogueLineText(
+              project,
+              segment.text,
+              segment.cues,
+              `/dialogues/${dialogue.id}/data/blocks/@${block.id}/segments/@${segment.id}/text`,
+            ),
             cues: segment.cues
               .filter(
                 (
@@ -498,7 +520,13 @@ export function lowerDialogueAndInteractionPrograms(
             ...(segment.condition === undefined
               ? {}
               : { condition: compileCondition(segment.condition) }),
-            effects: segment.effects.map((command) => compileGameplayCommand(project, command)),
+            effects: segment.effects.map((command) =>
+              compileGameplayCommand(
+                project,
+                command,
+                `/dialogues/${dialogue.id}/data/blocks/@${block.id}/segments/@${segment.id}/effects/@${command.id}`,
+              ),
+            ),
             showOnce: segment.showOnce,
             logged: segment.logged,
             autosaveSafePoint: segment.autosaveSafePoint,
@@ -542,11 +570,21 @@ export function lowerDialogueAndInteractionPrograms(
                 kind: 'choice' as const,
                 fromBlockId: edge.fromBlockId,
                 toBlockId: edge.toBlockId,
-                label: compileText(project, edge.label),
+                label: compileText(
+                  project,
+                  edge.label,
+                  `/dialogues/${dialogue.id}/data/edges/@${edge.id}/label`,
+                ),
                 ...(edge.condition === undefined
                   ? {}
                   : { condition: compileCondition(edge.condition) }),
-                effects: edge.effects.map((command) => compileGameplayCommand(project, command)),
+                effects: edge.effects.map((command) =>
+                  compileGameplayCommand(
+                    project,
+                    command,
+                    `/dialogues/${dialogue.id}/data/edges/@${edge.id}/effects/@${command.id}`,
+                  ),
+                ),
                 logged: edge.logged,
                 autosaveSafePoint: edge.autosaveSafePoint,
               },
@@ -576,7 +614,11 @@ export function lowerDialogueAndInteractionPrograms(
           : { condition: compileCondition(data.offers[index].condition) }),
       })),
       availability: compileCondition(data.availability),
-      defaultProgram: compileInteractionProgram(project, data.defaultProgram),
+      defaultProgram: compileInteractionProgram(
+        project,
+        data.defaultProgram,
+        `/verbs/${verb.id}/data/defaultProgram`,
+      ),
     });
   }
 
@@ -613,7 +655,11 @@ export function lowerDialogueAndInteractionPrograms(
               },
         guard: compileCondition(rule.guard),
         priority: rule.priority,
-        program: compileInteractionProgram(project, rule.program),
+        program: compileInteractionProgram(
+          project,
+          rule.program,
+          `/interactions/${interaction.id}/data/rules/@${rule.id}/program`,
+        ),
       })),
     });
   }
@@ -629,6 +675,7 @@ export function lowerDialogueAndInteractionPrograms(
             undefinedInteractionProgram: compileInteractionProgram(
               project,
               project.undefinedInteractionProgram,
+              '/undefinedInteractionProgram',
             ),
           }),
       definitions: { ...partial.definitions, dialogues, interactions, verbs },
