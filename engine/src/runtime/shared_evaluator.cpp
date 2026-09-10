@@ -1,4 +1,5 @@
 #include "noveltea/core/shared_evaluator.hpp"
+#include "noveltea/core/message_resolution.hpp"
 #include "noveltea/core/property_resolver.hpp"
 #include "noveltea/runtime/runtime_world.hpp"
 
@@ -440,20 +441,6 @@ const std::vector<TraitId>* effective_traits(runtime::RuntimeWorld& world,
         owner);
 }
 
-const std::string* localized_value(const compiled::Localization& localization,
-                                   std::string_view locale, std::string_view key) noexcept
-{
-    const auto catalog = std::find_if(
-        localization.catalogs.begin(), localization.catalogs.end(),
-        [locale](const compiled::LocalizationCatalog& value) { return value.locale == locale; });
-    if (catalog == localization.catalogs.end())
-        return nullptr;
-    const auto entry =
-        std::find_if(catalog->entries.begin(), catalog->entries.end(),
-                     [key](const compiled::LocalizationEntry& value) { return value.key == key; });
-    return entry == catalog->entries.end() ? nullptr : &entry->value;
-}
-
 } // namespace
 
 Result<bool, Diagnostics>
@@ -732,24 +719,9 @@ SharedPrimitiveEvaluator::resolve(const TextSource& source, std::string_view run
             if constexpr (std::is_same_v<T, InlineText>) {
                 return Result<std::string, Diagnostics>::success(value.value);
             } else if constexpr (std::is_same_v<T, LocalizedTextKey>) {
-                const auto& localization = m_project.localization();
-                if (!runtime_locale.empty()) {
-                    if (const auto* resolved =
-                            localized_value(localization, runtime_locale, value.value))
-                        return Result<std::string, Diagnostics>::success(*resolved);
-                }
-                if (runtime_locale != localization.default_locale) {
-                    if (const auto* resolved =
-                            localized_value(localization, localization.default_locale, value.value))
-                        return Result<std::string, Diagnostics>::success(*resolved);
-                }
-                if (localization.fallback_locale &&
-                    runtime_locale != *localization.fallback_locale &&
-                    localization.default_locale != *localization.fallback_locale) {
-                    if (const auto* resolved = localized_value(
-                            localization, *localization.fallback_locale, value.value))
-                        return Result<std::string, Diagnostics>::success(*resolved);
-                }
+                const MessageResolver resolver(m_project.localization());
+                if (const auto resolved = resolver.resolve({value.value, runtime_locale}))
+                    return Result<std::string, Diagnostics>::success(std::string(resolved->text));
                 return Result<std::string, Diagnostics>::failure(evaluation_error(
                     "execution.missing_localized_text",
                     "Localized text key '" + value.value + "' is unavailable for runtime locale '" +

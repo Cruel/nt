@@ -13,6 +13,7 @@ import type {
 } from '../../shared/focused-preview-contracts';
 import { analyzeHookRegistry } from '../../shared/hook-registry-analysis';
 import { lowerLayoutContractForWire } from '../../shared/layout-contract-lowering';
+import { resolveMessage } from '../../shared/message-resolution';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
@@ -204,12 +205,11 @@ function focusedCondition(value: RoomData['overlays'][number]['condition']): Foc
 }
 
 function localizedText(project: AuthoringProject, key: string): string {
-  const localization = project.localization;
-  const primary = localization.catalogs[localization.defaultLocale]?.[key];
-  if (primary !== undefined) return primary;
-  if (localization.fallbackLocale)
-    return localization.catalogs[localization.fallbackLocale]?.[key] ?? '';
-  return '';
+  const result = resolveMessage(project.localization, {
+    key,
+    locale: project.localization.defaultLocale,
+  });
+  return result.resolved?.text ?? '';
 }
 
 function focusedText(project: AuthoringProject, value: RoomData['description']): FocusedText {
