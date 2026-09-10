@@ -741,6 +741,7 @@ if(TARGET noveltea-sandbox)
     )
     set_tests_properties(noveltea_layout_scale_readback_capture PROPERTIES
         RUN_SERIAL TRUE
+        TIMEOUT 60
         LABELS "gpu;presentation;world;rmlui;layout-scale"
     )
     add_test(
