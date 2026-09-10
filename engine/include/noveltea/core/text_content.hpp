@@ -11,15 +11,16 @@ struct InlineText {
     std::string value;
     auto operator<=>(const InlineText&) const = default;
 };
-struct LocalizedTextKey {
-    std::string value;
-    auto operator<=>(const LocalizedTextKey&) const = default;
+using MessageId = std::uint32_t;
+struct MessageRef {
+    MessageId id = 0;
+    auto operator<=>(const MessageRef&) const = default;
 };
 struct LuaTextExpression {
     std::string source;
     auto operator<=>(const LuaTextExpression&) const = default;
 };
-using TextSource = std::variant<InlineText, LocalizedTextKey, LuaTextExpression>;
+using TextSource = std::variant<InlineText, MessageRef, LuaTextExpression>;
 enum class TextMarkup : std::uint8_t {
     Plain,
     ActiveText

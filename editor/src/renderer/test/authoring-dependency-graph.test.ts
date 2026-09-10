@@ -16,7 +16,7 @@ import {
   findNestedAuthoringDependencyTarget,
   findPreviewRootsImpactedByPathUnion,
   findPreviewRootsImpactedByPaths,
-  localizationKeyNodeKey,
+  localizationMessageNodeKey,
   nestedNodeKey,
   outgoingAuthoringDependencies,
   recordNodeKey,
@@ -711,11 +711,21 @@ describe('authoring structural dependency graph and queries', () => {
     }
   });
 
-  it('derives localization fallback relationships without a global identity Property node', () => {
+  it('derives Message locale fallback relationships without a global identity Property node', () => {
     const project = createAuthoringProject();
-    project.localization.defaultLocale = 'en';
-    project.localization.fallbackLocale = 'fr';
-    project.localization.catalogs = { en: {}, fr: { 'room.foyer': 'Foyer' } };
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f010';
+    project.localization.defaultLocale = 'fr-CA';
+    project.localization.locales = {
+      en: { supported: true, parentLocale: null },
+      fr: { supported: false, parentLocale: null },
+      'fr-CA': { supported: true, parentLocale: 'fr' },
+    };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'room.foyer',
+      source: 'Foyer source',
+    };
+    project.localization.translations.fr = { [messageId]: 'Foyer' };
     const data = defaultRoomData();
     data.description = {
       source: { kind: 'localized', key: 'room.foyer' },
@@ -735,16 +745,16 @@ describe('authoring structural dependency graph and queries', () => {
       [...fallbackGraph.nodesByKey.keys()].some((key) => key.includes('property-definition')),
     ).toBe(false);
     expect(
-      findAuthoringDependencyUsages(fallbackGraph, localizationKeyNodeKey('en', 'room.foyer')),
+      findAuthoringDependencyUsages(fallbackGraph, localizationMessageNodeKey('fr-CA', messageId)),
     ).toContainEqual(expect.objectContaining({ role: 'localization-text' }));
     expect(
-      findAuthoringDependencyUsages(fallbackGraph, localizationKeyNodeKey('fr', 'room.foyer')),
+      findAuthoringDependencyUsages(fallbackGraph, localizationMessageNodeKey('fr', messageId)),
     ).toContainEqual(expect.objectContaining({ role: 'localization-text' }));
 
-    project.localization.catalogs.en!['room.foyer'] = 'Foyer';
+    project.localization.translations['fr-CA'] = { [messageId]: 'Foyer canadien' };
     const defaultGraph = buildAuthoringStructuralDependencyGraph(project);
     expect(
-      findAuthoringDependencyUsages(defaultGraph, localizationKeyNodeKey('fr', 'room.foyer')),
+      findAuthoringDependencyUsages(defaultGraph, localizationMessageNodeKey('fr', messageId)),
     ).toEqual([]);
   });
 

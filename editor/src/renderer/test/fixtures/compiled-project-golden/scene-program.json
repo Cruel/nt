@@ -216,8 +216,8 @@
                   "text": {
                     "markup": "active-text",
                     "source": {
-                      "key": "dialogue-intro",
-                      "kind": "localized"
+                      "id": 0,
+                      "kind": "message"
                     }
                   }
                 }
@@ -531,8 +531,8 @@
             "label": {
               "markup": "plain",
               "source": {
-                "key": "room-tower",
-                "kind": "localized"
+                "id": 3,
+                "kind": "message"
               }
             },
             "labelAnchor": null,
@@ -583,8 +583,8 @@
           "title": {
             "markup": "plain",
             "source": {
-              "key": "map-title",
-              "kind": "localized"
+              "id": 1,
+              "kind": "message"
             }
           }
         }
@@ -823,8 +823,8 @@
         "description": {
           "markup": "active-text",
           "source": {
-            "key": "room-start",
-            "kind": "localized"
+            "id": 2,
+            "kind": "message"
           }
         },
         "displayName": "Start",
@@ -1443,8 +1443,8 @@
                 "text": {
                   "markup": "active-text",
                   "source": {
-                    "key": "dialogue-intro",
-                    "kind": "localized"
+                    "id": 0,
+                    "kind": "message"
                   }
                 },
                 "wait": "input"
@@ -1680,8 +1680,8 @@
                 "prompt": {
                   "markup": "active-text",
                   "source": {
-                    "key": "scene-choice",
-                    "kind": "localized"
+                    "id": 4,
+                    "kind": "message"
                   }
                 }
               },
@@ -3404,23 +3404,23 @@
       {
         "entries": [
           {
-            "key": "dialogue-intro",
+            "messageId": 0,
             "value": "Welcome."
           },
           {
-            "key": "map-title",
+            "messageId": 1,
             "value": "House Map"
           },
           {
-            "key": "room-start",
+            "messageId": 2,
             "value": "The starting room."
           },
           {
-            "key": "room-tower",
+            "messageId": 3,
             "value": "Tower"
           },
           {
-            "key": "scene-choice",
+            "messageId": 4,
             "value": "Choose a path."
           }
         ],
@@ -3429,23 +3429,23 @@
       {
         "entries": [
           {
-            "key": "dialogue-intro",
+            "messageId": 0,
             "value": "Bienvenido."
           },
           {
-            "key": "map-title",
+            "messageId": 1,
             "value": "Mapa de la casa"
           },
           {
-            "key": "room-start",
+            "messageId": 2,
             "value": "La sala inicial."
           },
           {
-            "key": "room-tower",
+            "messageId": 3,
             "value": "Torre"
           },
           {
-            "key": "scene-choice",
+            "messageId": 4,
             "value": "Elige un camino."
           }
         ],
@@ -3453,7 +3453,19 @@
       }
     ],
     "defaultLocale": "en",
-    "fallbackLocale": "es"
+    "locales": [
+      {
+        "locale": "en",
+        "parentLocale": null,
+        "supported": true
+      },
+      {
+        "locale": "es",
+        "parentLocale": null,
+        "supported": true
+      }
+    ],
+    "sourceLocale": "en"
   },
   "project": {
     "author": "NovelTea",
@@ -3929,7 +3941,7 @@
       }
     ]
   },
-  "saveContract": "sc1:c9c03fbc3b3fda56d5efd54c186b6f72",
+  "saveContract": "sc1:3fa019c4d0c61ab6e3c7d35455bb6832",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

@@ -1,6 +1,7 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/flow_executor.hpp>
 #include <noveltea/core/layout_policies.hpp>
+#include <noveltea/core/message_realization.hpp>
 #include <noveltea/core/property_resolver.hpp>
 #include <noveltea/presentation/presentation_operation_requests.hpp>
 #include <noveltea/presentation/room_presentation.hpp>
@@ -23,6 +24,25 @@ using noveltea::runtime::RuntimeWorld;
 
 namespace {
 template<class Id> Id id(const char* value) { return std::move(Id::create(value)).value(); }
+
+std::string resolve_text(const CompiledProject& project, const TextSource& source)
+{
+    return std::visit(
+        [&project](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, InlineText>)
+                return value.value;
+            else if constexpr (std::is_same_v<T, MessageRef>) {
+                const MessageRealizer realizer(project.localization());
+                const auto realized =
+                    realizer.realize({value.id, project.localization().default_locale});
+                REQUIRE(realized);
+                return std::string(realized->text);
+            } else
+                return value.source;
+        },
+        source);
+}
 
 CompiledProject fixture()
 {
@@ -192,16 +212,8 @@ ResolvedRoomPresentation resolve_room(const CompiledProject& project, SessionSta
     auto resolved = resolver.resolve(
         project, world, state, *state.room_visit(),
         [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
-        [](const TextSource& source) {
-            return Result<std::string, Diagnostics>::success(std::visit(
-                [](const auto& value) -> std::string {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, LuaTextExpression>)
-                        return value.source;
-                    else
-                        return value.value;
-                },
-                source));
+        [&project](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(resolve_text(project, source));
         });
     REQUIRE(resolved);
     return std::move(resolved).value().presentation;
@@ -338,16 +350,8 @@ TEST_CASE("staged Scene Room composition is visual-only and nested Stage unwind 
     auto staged = resolver.resolve(
         project, world, state, staged_visit,
         [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
-        [](const TextSource& source) {
-            return Result<std::string, Diagnostics>::success(std::visit(
-                [](const auto& value) -> std::string {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, LuaTextExpression>)
-                        return value.source;
-                    else
-                        return value.value;
-                },
-                source));
+        [&project](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(resolve_text(project, source));
         },
         &composition, RoomPresentationResolveMode::StagedScene);
     REQUIRE(staged);
@@ -560,17 +564,8 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
     auto resolution = resolver.resolve(
         project, world, state, *state.room_visit(),
         [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
-        [](const TextSource& source) {
-            return Result<std::string, Diagnostics>::success(std::visit(
-                [](const auto& value) -> std::string {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, LuaTextExpression>) {
-                        return value.source;
-                    } else {
-                        return value.value;
-                    }
-                },
-                source));
+        [&project](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(resolve_text(project, source));
         });
     REQUIRE(resolution);
     auto focused_baseline = RoomPresentationSnapshotProjector::project(
@@ -605,16 +600,8 @@ TEST_CASE(
             return Result<bool, Diagnostics>::success(
                 std::holds_alternative<Always>(condition.value));
         },
-        [](const TextSource& source) {
-            return Result<std::string, Diagnostics>::success(std::visit(
-                [](const auto& value) -> std::string {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, LuaTextExpression>)
-                        return value.source;
-                    else
-                        return value.value;
-                },
-                source));
+        [&project](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(resolve_text(project, source));
         });
     REQUIRE(resolution);
     REQUIRE(resolution.value().presentation.hotspots.size() == 3);

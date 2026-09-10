@@ -14,9 +14,13 @@ The Instance registry is not an Explorer collection and is not persisted under `
 Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
 built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
 choices remain editor-local. `traits.json`, `localization.json`, and `editor.json` are required
-contextual fragments. `traits.json` owns the self-contained Trait contracts; there is no top-level
-identity Property fragment. `editor.json` contains exactly collaborator-visible `chapters`, `tags`,
-and `recordMetadata`, including collaborator-visible Trait color metadata.
+contextual fragments. `localization.json` owns the canonical Message model: one Source locale, one
+Supported Default locale, explicit Supported/work-in-progress locale metadata with optional parent
+locale inheritance, stable UUID Message identities, local/named Message source definitions, and sparse
+target translations keyed by stable Message identity. Source prose is stored once on each Message and
+is not duplicated into per-locale target maps. `traits.json` owns the self-contained Trait contracts;
+there is no top-level identity Property fragment. `editor.json` contains exactly collaborator-visible
+`chapters`, `tags`, and `recordMetadata`, including collaborator-visible Trait color metadata.
 
 Records live under `records/<collection>/<id>.json`; Layouts instead live under
 `records/layouts/<id>/layout.json`. IDs are canonical file identity and must match the stored record

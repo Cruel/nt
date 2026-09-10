@@ -190,6 +190,7 @@ describe('authoritative project publication', () => {
   });
 
   it('executes value-dependent classifiers from old and new admitted values', () => {
+    const messageId = '11111111-1111-4111-8111-111111111111';
     const indexes = {
       contributionKeysByOwnerPath: new Map([['/rooms/foyer', ['record:rooms:foyer']]]),
       contributionKeysByDerivationKey: new Map([
@@ -200,7 +201,16 @@ describe('authoritative project publication', () => {
     const previousProject = {
       rooms: { foyer: { localProperties: [{ id: 'mood', value: 'calm' }] } },
       assets: { background: { data: { contentHash: `sha256:${'0'.repeat(64)}` } } },
-      localization: { defaultLocale: 'en', catalogs: { en: { 'room.foyer': 'Foyer' } } },
+      localization: {
+        sourceLocale: 'en',
+        defaultLocale: 'en',
+        locales: {
+          en: { supported: true, parentLocale: null },
+          fr: { supported: true, parentLocale: null },
+        },
+        messages: { [messageId]: { kind: 'named', key: 'room.foyer', source: 'Foyer' } },
+        translations: { fr: { [messageId]: 'Entry hall' } },
+      },
     };
     const project = {
       rooms: {
@@ -213,8 +223,14 @@ describe('authoritative project publication', () => {
       },
       assets: { background: { data: { contentHash: `sha256:${'1'.repeat(64)}` } } },
       localization: {
+        sourceLocale: 'en',
         defaultLocale: 'fr',
-        catalogs: { en: { 'room.foyer': 'Entry hall' }, fr: { 'room.foyer': 'Vestibule' } },
+        locales: {
+          en: { supported: true, parentLocale: null },
+          fr: { supported: true, parentLocale: null },
+        },
+        messages: { [messageId]: { kind: 'named', key: 'room.foyer', source: 'Foyer' } },
+        translations: { fr: { [messageId]: 'Vestibule' } },
       },
     };
     expect(
@@ -240,7 +256,7 @@ describe('authoritative project publication', () => {
       symbolProjectionOwnerKeys: [],
     });
     expect(
-      classifyAuthoringGraphMutation(['/localization/catalogs/en/room.foyer'], indexes, {
+      classifyAuthoringGraphMutation([`/localization/translations/fr/${messageId}`], indexes, {
         previousProject,
         project,
       }),

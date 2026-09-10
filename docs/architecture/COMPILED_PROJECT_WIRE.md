@@ -14,6 +14,15 @@ material data, are typed discriminated references; generic collection/id
 references, authoring collection maps, legacy Object/Action names, comments, categories, tags, and
 editor state are not legal fields.
 
+Compiled localization contains `sourceLocale`, `defaultLocale`, an explicit locale inventory with
+`parentLocale` and `supported`, and one sparse catalog per declared locale. Catalog entries are
+`{messageId, value}` pairs where `messageId` is a dense package-local unsigned integer assigned
+deterministically from stable authoring Message identity. Authoring UUIDs and named semantic keys are
+not runtime wire identity. Compiled text that refers to localization uses `{kind: "message", id}`;
+the retired `{kind: "localized", key}` and `fallbackLocale`/key-value catalog shapes are invalid at
+the current format version. Runtime realization follows explicit locale parents and then the Source
+locale.
+
 The compiler may additionally publish a `flowPrediction` section containing immutable generated
 optimization metadata. It is runtime-blind and non-authoritative: gameplay execution continues to
 use the ordinary compiled Scene/Dialogue/Room definitions, while speculative loading may consume the

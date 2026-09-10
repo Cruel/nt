@@ -307,12 +307,12 @@ private:
 
     void validate_text(const TextContent& text, const std::string& path)
     {
-        const auto* localized = std::get_if<LocalizedTextKey>(&text.source);
-        if (localized && !m_default_localization_keys.contains(localized->value))
-            error("compiled_project.unresolved_localization",
-                  "Localized text key '" + localized->value +
-                      "' is absent from the default locale catalog.",
-                  path + "/source/key");
+        const auto* message = std::get_if<MessageRef>(&text.source);
+        if (message && !m_message_ids.contains(message->id))
+            error("compiled_project.unresolved_message",
+                  "Message ID '" + std::to_string(message->id) +
+                      "' is absent from the source locale catalog.",
+                  path + "/source/id");
     }
 
     void validate_condition(const Condition& condition, const std::string& path,
@@ -1483,24 +1483,91 @@ private:
 
     void validate_localization()
     {
-        const LocalizationCatalog* default_catalog = nullptr;
-        bool fallback_found = !m_input.localization.fallback_locale.has_value();
-        for (const auto& catalog : m_input.localization.catalogs) {
-            if (catalog.locale == m_input.localization.default_locale)
-                default_catalog = &catalog;
-            if (m_input.localization.fallback_locale &&
-                catalog.locale == *m_input.localization.fallback_locale)
-                fallback_found = true;
-        }
-        if (!default_catalog)
-            error("compiled_project.unresolved_localization", "Default locale has no catalog.",
+        const auto locale_exists = [&](std::string_view locale) {
+            return std::any_of(
+                m_input.localization.locales.begin(), m_input.localization.locales.end(),
+                [locale](const LocaleDefinition& value) { return value.locale == locale; });
+        };
+        const auto catalog_for = [&](std::string_view locale) -> const LocalizationCatalog* {
+            const auto found = std::find_if(
+                m_input.localization.catalogs.begin(), m_input.localization.catalogs.end(),
+                [locale](const LocalizationCatalog& value) { return value.locale == locale; });
+            return found == m_input.localization.catalogs.end() ? nullptr : &*found;
+        };
+
+        if (!locale_exists(m_input.localization.source_locale))
+            error("compiled_project.unresolved_localization", "Source locale is not declared.",
+                  "/localization/sourceLocale");
+        if (!locale_exists(m_input.localization.default_locale))
+            error("compiled_project.unresolved_localization", "Default locale is not declared.",
                   "/localization/defaultLocale");
+        else {
+            const auto default_definition = std::find_if(
+                m_input.localization.locales.begin(), m_input.localization.locales.end(),
+                [&](const LocaleDefinition& value) {
+                    return value.locale == m_input.localization.default_locale;
+                });
+            if (default_definition != m_input.localization.locales.end() &&
+                !default_definition->supported)
+                error("compiled_project.invalid_localization_policy",
+                      "Default locale must be Supported.", "/localization/defaultLocale");
+        }
+
+        const auto* source_catalog = catalog_for(m_input.localization.source_locale);
+        if (!source_catalog)
+            error("compiled_project.unresolved_localization",
+                  "Source locale has no Message catalog.", "/localization/sourceLocale");
         else
-            for (const auto& entry : default_catalog->entries)
-                m_default_localization_keys.insert(entry.key);
-        if (!fallback_found)
-            error("compiled_project.unresolved_localization", "Fallback locale has no catalog.",
-                  "/localization/fallbackLocale");
+            for (const auto& entry : source_catalog->entries)
+                m_message_ids.insert(entry.message_id);
+
+        for (std::size_t index = 0; index < m_input.localization.locales.size(); ++index) {
+            const auto& locale = m_input.localization.locales[index];
+            if (!catalog_for(locale.locale))
+                error("compiled_project.unresolved_localization", "Declared locale has no catalog.",
+                      "/localization/locales/" + std::to_string(index) + "/locale");
+            if (locale.parent_locale && !locale_exists(*locale.parent_locale))
+                error("compiled_project.unresolved_localization", "Parent locale is not declared.",
+                      "/localization/locales/" + std::to_string(index) + "/parentLocale");
+
+            std::unordered_set<std::string_view> visited;
+            const LocaleDefinition* current = &locale;
+            while (current != nullptr && current->parent_locale) {
+                if (!visited.insert(current->locale).second) {
+                    error("compiled_project.invalid_localization_policy",
+                          "Locale inheritance contains a cycle.",
+                          "/localization/locales/" + std::to_string(index) + "/parentLocale");
+                    break;
+                }
+                const auto parent = std::find_if(m_input.localization.locales.begin(),
+                                                 m_input.localization.locales.end(),
+                                                 [&](const LocaleDefinition& value) {
+                                                     return value.locale == *current->parent_locale;
+                                                 });
+                current = parent == m_input.localization.locales.end() ? nullptr : &*parent;
+            }
+        }
+
+        if (source_catalog) {
+            for (std::size_t catalog_index = 0;
+                 catalog_index < m_input.localization.catalogs.size(); ++catalog_index) {
+                const auto& catalog = m_input.localization.catalogs[catalog_index];
+                if (!locale_exists(catalog.locale))
+                    error("compiled_project.unresolved_localization",
+                          "Message catalog locale is not declared.",
+                          "/localization/catalogs/" + std::to_string(catalog_index) + "/locale");
+                if (catalog.locale == m_input.localization.source_locale)
+                    continue;
+                for (std::size_t entry_index = 0; entry_index < catalog.entries.size();
+                     ++entry_index) {
+                    if (!m_message_ids.contains(catalog.entries[entry_index].message_id))
+                        error("compiled_project.unresolved_message",
+                              "Localized catalog entry references an unknown source Message ID.",
+                              "/localization/catalogs/" + std::to_string(catalog_index) +
+                                  "/entries/" + std::to_string(entry_index) + "/messageId");
+                }
+            }
+        }
     }
 
     void validate_root_and_resources()
@@ -4369,7 +4436,7 @@ private:
 
     const CompiledProjectInput& m_input;
     Diagnostics m_diagnostics;
-    std::unordered_set<std::string> m_default_localization_keys;
+    std::unordered_set<MessageId> m_message_ids;
 #define MAP(member, id_type) std::unordered_map<id_type, std::size_t> m_##member
     MAP(properties, PropertyId);
     MAP(traits, TraitId);

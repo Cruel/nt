@@ -281,7 +281,14 @@
       }
     ],
     "defaultLocale": "en",
-    "fallbackLocale": null
+    "locales": [
+      {
+        "locale": "en",
+        "parentLocale": null,
+        "supported": true
+      }
+    ],
+    "sourceLocale": "en"
   },
   "project": {
     "author": "",

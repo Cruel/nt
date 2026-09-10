@@ -1955,7 +1955,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                             ...activeSegment.text,
                             source:
                               kind === 'localized'
-                                ? { kind, key: 'text-key' }
+                                ? { kind, key: 'text.key' }
                                 : kind === 'lua-expression'
                                   ? { kind, source: 'return ""' }
                                   : { kind: 'inline', text: '' },

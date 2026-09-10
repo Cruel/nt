@@ -1029,7 +1029,7 @@ describe('typed source registry and graph evidence', () => {
 
     const room = defaultRoomData('Shared');
     room.description = {
-      source: { kind: 'localized', key: 'greeting' },
+      source: { kind: 'localized', key: 'common.greeting' },
       markup: 'plain',
     };
     project.rooms.shared = {
@@ -1040,8 +1040,11 @@ describe('typed source registry and graph evidence', () => {
       traits: [],
     } as never;
     project.localization.defaultLocale = 'en';
-    project.localization.fallbackLocale = 'en';
-    project.localization.catalogs.en = { greeting: 'Hello' };
+    project.localization.messages['018f4f8c-9b5d-7ae2-9b36-4c8af613f020'] = {
+      kind: 'named',
+      key: 'common.greeting',
+      source: 'Hello',
+    };
 
     const shader = defaultShaderData('Effect');
     shader.stages[0] = {
@@ -1148,7 +1151,7 @@ describe('typed source registry and graph evidence', () => {
     );
     const localizationKey = serializeAuthoringDependencyDerivationDependency({
       kind: 'localization-lookup',
-      key: 'greeting',
+      key: 'common.greeting',
     });
     expect(contributionSet.contributionKeysByDerivationKey.get(localizationKey)).toContain(roomKey);
   });

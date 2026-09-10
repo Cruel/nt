@@ -4,6 +4,7 @@ import type {
   SceneProgram,
 } from './project-schema/compiled-project';
 import type { TextContent } from './project-schema/authoring-flow';
+import { compileMessageText } from './authoring-message-lowering';
 import { compileCondition } from './authoring-condition-lowering';
 import { compileGameplayCommand } from './authoring-compiler-dialogue-interaction-lowering';
 import type { AuthoringProject } from './project-schema/authoring-project';
@@ -64,17 +65,8 @@ const layoutRef = (ref: { $ref: { id: string } } | null) =>
 const characterRef = (ref: { $ref: { id: string } } | null) =>
   ref ? { kind: 'character' as const, id: ref.$ref.id } : null;
 
-function compileText(text: TextContent): CompiledText {
-  const source = text.source;
-  return {
-    markup: text.markup,
-    source:
-      source.kind === 'inline'
-        ? { kind: 'inline', text: source.text }
-        : source.kind === 'localized'
-          ? { kind: 'localized', key: source.key }
-          : { kind: 'lua-expression', source: source.source },
-  };
+function compileText(project: AuthoringProject, text: TextContent): CompiledText {
+  return compileMessageText(project.localization, text);
 }
 
 function compileSceneTerminal(
@@ -401,7 +393,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'show-text',
-        text: compileText(step.text),
+        text: compileText(project, step.text),
         speaker: characterRef(step.speaker),
         wait: step.wait,
         autosaveSafePoint: step.autosaveSafePoint,
@@ -453,7 +445,7 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'gameplay-effect-batch',
-        operations: step.operations.map(compileGameplayCommand),
+        operations: step.operations.map((command) => compileGameplayCommand(project, command)),
       };
     case 'runtime-world-transaction':
       return {
@@ -596,14 +588,14 @@ function compileSceneStep(
       return {
         ...base,
         kind: 'choice',
-        prompt: step.prompt ? compileText(step.prompt) : null,
+        prompt: step.prompt ? compileText(project, step.prompt) : null,
         options: step.options.map((option) => ({
           id: option.id,
-          label: compileText(option.label),
+          label: compileText(project, option.label),
           ...(option.condition === undefined
             ? {}
             : { condition: compileCondition(option.condition) }),
-          effects: option.effects.map(compileGameplayCommand),
+          effects: option.effects.map((command) => compileGameplayCommand(project, command)),
           targetInstructionId: option.targetStepId,
         })),
         autosaveSafePoint: step.autosaveSafePoint,
@@ -845,16 +837,28 @@ export function lowerSceneAndRoomPrograms(
         onRejected:
           data.exits
             .find((candidate) => candidate.id === exit.id)
-            ?.onRejected.map(compileGameplayCommand) ?? [],
+            ?.onRejected.map((command) => compileGameplayCommand(project, command)) ?? [],
       })),
       lifecycle: {
         ...room.lifecycle,
-        beforeEnter: data.lifecycle.beforeEnter.map(compileGameplayCommand),
-        afterEnter: data.lifecycle.afterEnter.map(compileGameplayCommand),
-        beforeLeave: data.lifecycle.beforeLeave.map(compileGameplayCommand),
-        afterLeave: data.lifecycle.afterLeave.map(compileGameplayCommand),
-        onEnterRejected: data.lifecycle.onEnterRejected.map(compileGameplayCommand),
-        onLeaveRejected: data.lifecycle.onLeaveRejected.map(compileGameplayCommand),
+        beforeEnter: data.lifecycle.beforeEnter.map((command) =>
+          compileGameplayCommand(project, command),
+        ),
+        afterEnter: data.lifecycle.afterEnter.map((command) =>
+          compileGameplayCommand(project, command),
+        ),
+        beforeLeave: data.lifecycle.beforeLeave.map((command) =>
+          compileGameplayCommand(project, command),
+        ),
+        afterLeave: data.lifecycle.afterLeave.map((command) =>
+          compileGameplayCommand(project, command),
+        ),
+        onEnterRejected: data.lifecycle.onEnterRejected.map((command) =>
+          compileGameplayCommand(project, command),
+        ),
+        onLeaveRejected: data.lifecycle.onLeaveRejected.map((command) =>
+          compileGameplayCommand(project, command),
+        ),
       },
     };
   });
@@ -872,16 +876,28 @@ export function lowerSceneAndRoomPrograms(
           onRejected:
             data.exits
               .find((candidate) => candidate.id === exit.id)
-              ?.onRejected.map(compileGameplayCommand) ?? [],
+              ?.onRejected.map((command) => compileGameplayCommand(project, command)) ?? [],
         })),
         lifecycle: {
           ...archetype.configuration.lifecycle,
-          beforeEnter: data.lifecycle.beforeEnter.map(compileGameplayCommand),
-          afterEnter: data.lifecycle.afterEnter.map(compileGameplayCommand),
-          beforeLeave: data.lifecycle.beforeLeave.map(compileGameplayCommand),
-          afterLeave: data.lifecycle.afterLeave.map(compileGameplayCommand),
-          onEnterRejected: data.lifecycle.onEnterRejected.map(compileGameplayCommand),
-          onLeaveRejected: data.lifecycle.onLeaveRejected.map(compileGameplayCommand),
+          beforeEnter: data.lifecycle.beforeEnter.map((command) =>
+            compileGameplayCommand(project, command),
+          ),
+          afterEnter: data.lifecycle.afterEnter.map((command) =>
+            compileGameplayCommand(project, command),
+          ),
+          beforeLeave: data.lifecycle.beforeLeave.map((command) =>
+            compileGameplayCommand(project, command),
+          ),
+          afterLeave: data.lifecycle.afterLeave.map((command) =>
+            compileGameplayCommand(project, command),
+          ),
+          onEnterRejected: data.lifecycle.onEnterRejected.map((command) =>
+            compileGameplayCommand(project, command),
+          ),
+          onLeaveRejected: data.lifecycle.onLeaveRejected.map((command) =>
+            compileGameplayCommand(project, command),
+          ),
         },
       },
     };

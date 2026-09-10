@@ -83,16 +83,22 @@ struct ProjectIdentity {
 using Entrypoint = std::variant<RoomId, SceneId, DialogueId>;
 
 struct LocalizationEntry {
-    std::string key;
+    MessageId message_id = 0;
     std::string value;
 };
 struct LocalizationCatalog {
     std::string locale;
     std::vector<LocalizationEntry> entries;
 };
+struct LocaleDefinition {
+    std::string locale;
+    std::optional<std::string> parent_locale;
+    bool supported = false;
+};
 struct Localization {
+    std::string source_locale;
     std::string default_locale;
-    std::optional<std::string> fallback_locale;
+    std::vector<LocaleDefinition> locales;
     std::vector<LocalizationCatalog> catalogs;
 };
 

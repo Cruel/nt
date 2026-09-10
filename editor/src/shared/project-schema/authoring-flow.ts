@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
+import { namedMessageKeySchema } from './authoring-localization';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -60,7 +61,7 @@ export const flowTargetSchema = z.discriminatedUnion('kind', [
 
 export const textSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
-  strict({ kind: z.literal('localized'), key: entityIdSchema }),
+  strict({ kind: z.literal('localized'), key: namedMessageKeySchema }),
   strict({
     kind: z.literal('lua-expression'),
     source: z.string().min(1),

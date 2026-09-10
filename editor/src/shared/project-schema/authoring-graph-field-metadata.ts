@@ -140,6 +140,19 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'oonnsssssssssovssnoonoonnnnnnoyop';
 
 const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
+  // #197 replaces detached localization catalogs with canonical Message identity, locale policy,
+  // and sparse target storage. Default locale preserves its prior reviewed slot; the replacement
+  // leaves all participate in localization reverse impact without shifting unrelated legacy effects.
+  [
+    /^\/localization\/locales\/\*\/(?:parentLocale|supported)$/,
+    valueDependent('localization-catalog-entry'),
+  ],
+  [
+    /^\/localization\/messages\/\*\/(?:key|kind|source)$/,
+    valueDependent('localization-catalog-entry'),
+  ],
+  [/^\/localization\/sourceLocale$/, valueDependent('localization-catalog-entry')],
+  [/^\/localization\/translations\/\*\/\*$/, valueDependent('localization-catalog-entry')],
   // #157 adds persisted supplemental prefetch intent. Every hint leaf changes the generated Flow
   // Prediction Index and therefore the owning Project tooling/runtime optimization projection.
   [/^\/prefetchHints(?:\/|$)/, OWNER],
@@ -692,6 +705,10 @@ const legacySchemaLeafPaths = [
         roomLifecycleGameplayCommandEffect(path) === undefined,
     )
     .map(preservedReviewedPath),
+  // #197 replaces the old detached locale catalog and fallback selector at the preserved authoring
+  // schema version. Keep their reviewed slots solely to retain graph-effect alignment.
+  '/localization/catalogs/*/*' as JsonPointer,
+  '/localization/fallbackLocale' as JsonPointer,
   // The assembled AuthoringProject no longer owns a compatibility epoch. Preserve its retired
   // top-level version leaf only for alignment with the reviewed pre-refactor graph-effect sequence.
   '/schemaVersion' as JsonPointer,
@@ -946,7 +963,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: '3f6d0d11',
+    localization: '50a7f5ad',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

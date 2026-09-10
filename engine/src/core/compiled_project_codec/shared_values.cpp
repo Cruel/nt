@@ -106,7 +106,7 @@ std::optional<TextContent> decode_text(Decoder& decoder, const nlohmann::json& v
                       : std::nullopt;
     std::optional<TextSource> source;
     if (source_value && decoder.object(*source_value, pointer_child(pointer, "source"),
-                                       {"kind", "text", "key", "source"})) {
+                                       {"id", "kind", "text", "source"})) {
         const auto source_pointer = pointer_child(pointer, "source");
         const auto* kind_value = decoder.member(*source_value, "kind", source_pointer);
         auto kind = kind_value ? decoder.string(*kind_value, pointer_child(source_pointer, "kind"))
@@ -119,14 +119,14 @@ std::optional<TextContent> decode_text(Decoder& decoder, const nlohmann::json& v
                             : std::nullopt;
             if (text)
                 source = InlineText{std::move(*text)};
-        } else if (kind && *kind == "localized") {
-            decoder.object(*source_value, source_pointer, {"kind", "key"});
-            const auto* key_value = decoder.member(*source_value, "key", source_pointer);
-            auto key = key_value
-                           ? decoder.string(*key_value, pointer_child(source_pointer, "key"), true)
-                           : std::nullopt;
-            if (key)
-                source = LocalizedTextKey{std::move(*key)};
+        } else if (kind && *kind == "message") {
+            decoder.object(*source_value, source_pointer, {"id", "kind"});
+            const auto* id_value = decoder.member(*source_value, "id", source_pointer);
+            auto message_id = id_value ? decoder.unsigned_integer<MessageId>(
+                                             *id_value, pointer_child(source_pointer, "id"))
+                                       : std::nullopt;
+            if (message_id)
+                source = MessageRef{*message_id};
         } else if (kind && *kind == "lua-expression") {
             decoder.object(*source_value, source_pointer, {"kind", "source"});
             const auto* lua_value = decoder.member(*source_value, "source", source_pointer);

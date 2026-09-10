@@ -52,6 +52,17 @@ function reverseDependencyOwners(
   return sorted(indexes.contributionKeysByDerivationKey?.get(JSON.stringify(dependency)) ?? []);
 }
 
+function namedMessageKey(root: unknown, messageId: string): string | null {
+  const localization = valuePresence(root, '/localization').value;
+  if (!localization || typeof localization !== 'object') return null;
+  const messages = (localization as Record<string, unknown>).messages;
+  if (!messages || typeof messages !== 'object') return null;
+  const message = (messages as Record<string, unknown>)[messageId];
+  if (!message || typeof message !== 'object') return null;
+  const record = message as Record<string, unknown>;
+  return record.kind === 'named' && typeof record.key === 'string' ? record.key : null;
+}
+
 function incrementalImpact(
   contributionKeys: readonly string[],
   sourceAnalysisOwnerKeys: readonly string[] = [],
@@ -86,14 +97,43 @@ function valueDependentImpact(
     return incrementalImpact(owners, owners);
   }
   if (classify === 'localization-catalog-entry') {
-    const key = segments[3];
-    if (!key) return { kind: 'full-rebuild', reason: 'classifier-fallback' };
-    const previous = valuePresence(context.previousProject, path);
-    const next = valuePresence(context.project, path);
-    if (previous.present && next.present) return { kind: 'graph-stable' };
-    if (!previous.present && !next.present)
+    if (segments[1] === 'translations') {
+      const messageId = segments[3];
+      if (!messageId) return { kind: 'full-rebuild', reason: 'classifier-fallback' };
+      const previous = valuePresence(context.previousProject, path);
+      const next = valuePresence(context.project, path);
+      if (previous.present && next.present) return { kind: 'graph-stable' };
+      if (!previous.present && !next.present)
+        return { kind: 'full-rebuild', reason: 'classifier-fallback' };
+      const keys = [
+        namedMessageKey(context.previousProject, messageId),
+        namedMessageKey(context.project, messageId),
+      ].filter((key): key is string => key !== null);
+      return incrementalImpact(
+        keys.flatMap((key) => reverseDependencyOwners(['localization-lookup', key], indexes)),
+      );
+    }
+    if (segments[1] === 'messages') {
+      const messageId = segments[2];
+      const field = segments[3];
+      if (!messageId || !field) return { kind: 'full-rebuild', reason: 'classifier-fallback' };
+      if (field === 'source') return { kind: 'graph-stable' };
+      if (field === 'key') {
+        const keys = [
+          namedMessageKey(context.previousProject, messageId),
+          namedMessageKey(context.project, messageId),
+        ].filter((key): key is string => key !== null);
+        return incrementalImpact(
+          keys.flatMap((key) => reverseDependencyOwners(['localization-lookup', key], indexes)),
+        );
+      }
       return { kind: 'full-rebuild', reason: 'classifier-fallback' };
-    return incrementalImpact(reverseDependencyOwners(['localization-lookup', key], indexes));
+    }
+    if (segments[1] === 'locales') {
+      if (segments[3] === 'supported') return { kind: 'graph-stable' };
+      return { kind: 'full-rebuild', reason: 'classifier-fallback' };
+    }
+    return { kind: 'full-rebuild', reason: 'classifier-fallback' };
   }
   if (classify === 'property-assignment') {
     const previous = valuePresence(context.previousProject, path);
@@ -162,7 +202,7 @@ export function classifyAuthoringGraphMutation(
 ): AuthoringDependencyGraphMutationImpact {
   const impacts = affectedPaths.map((path) => {
     if (path === '/') return { kind: 'full-rebuild', reason: 'root-change' } as const;
-    if (path === '/localization/defaultLocale' || path === '/localization/fallbackLocale')
+    if (path === '/localization/defaultLocale' || path === '/localization/sourceLocale')
       return incrementalImpact(reverseDependencyOwners(['project-field', path], indexes));
     const classification = classifyAuthoringGraphInputPath(path);
     return classification

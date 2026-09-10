@@ -74,8 +74,9 @@
   "archetypes": [],
   "interactableInstances": [],
   "localization": {
+    "sourceLocale": "en",
     "defaultLocale": "en",
-    "fallbackLocale": null,
+    "locales": [{ "locale": "en", "parentLocale": null, "supported": true }],
     "catalogs": [{ "locale": "en", "entries": [] }]
   },
   "resources": {

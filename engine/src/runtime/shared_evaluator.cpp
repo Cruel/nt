@@ -1,5 +1,5 @@
 #include "noveltea/core/shared_evaluator.hpp"
-#include "noveltea/core/message_resolution.hpp"
+#include "noveltea/core/message_realization.hpp"
 #include "noveltea/core/property_resolver.hpp"
 #include "noveltea/runtime/runtime_world.hpp"
 
@@ -718,14 +718,15 @@ SharedPrimitiveEvaluator::resolve(const TextSource& source, std::string_view run
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, InlineText>) {
                 return Result<std::string, Diagnostics>::success(value.value);
-            } else if constexpr (std::is_same_v<T, LocalizedTextKey>) {
-                const MessageResolver resolver(m_project.localization());
-                if (const auto resolved = resolver.resolve({value.value, runtime_locale}))
+            } else if constexpr (std::is_same_v<T, MessageRef>) {
+                const MessageRealizer realizer(m_project.localization());
+                if (const auto resolved = realizer.realize({value.id, runtime_locale}))
                     return Result<std::string, Diagnostics>::success(std::string(resolved->text));
                 return Result<std::string, Diagnostics>::failure(evaluation_error(
-                    "execution.missing_localized_text",
-                    "Localized text key '" + value.value + "' is unavailable for runtime locale '" +
-                        std::string(runtime_locale) + "' and its configured fallbacks"));
+                    "execution.missing_message", "Message '" + std::to_string(value.id) +
+                                                     "' is unavailable for runtime locale '" +
+                                                     std::string(runtime_locale) +
+                                                     "' and its locale/source fallback chain"));
             } else {
                 return Result<std::string, Diagnostics>::failure(evaluation_error(
                     "execution.lua_text_requires_script_runtime",

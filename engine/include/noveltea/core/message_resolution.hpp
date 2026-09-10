@@ -1,6 +1,6 @@
 #pragma once
 
-#include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/message_realization.hpp"
 
 #include <optional>
 #include <string_view>
@@ -8,19 +8,19 @@
 namespace noveltea::core {
 
 struct MessageResolutionRequest {
-    std::string_view key;
+    MessageId message_id = 0;
     std::string_view locale;
 };
 
-struct ResolvedMessage {
-    std::string_view text;
-    std::string_view locale;
-};
+using ResolvedMessage = RealizedMessage;
 
+// Transitional #176 seam. MessageRealizer owns localization policy; this adapter keeps existing
+// callers on that single realization path while the remaining consumers move to first-class
+// Messages.
 class MessageResolver {
 public:
     explicit MessageResolver(const compiled::Localization& localization) noexcept
-        : m_localization(localization)
+        : m_realizer(localization)
     {
     }
 
@@ -28,7 +28,7 @@ public:
     resolve(const MessageResolutionRequest& request) const noexcept;
 
 private:
-    const compiled::Localization& m_localization;
+    MessageRealizer m_realizer;
 };
 
 } // namespace noveltea::core
