@@ -6,6 +6,7 @@ import { packageMessageIds } from './authoring-message-lowering';
 import { resolveMessage } from './message-resolution';
 import { parseJsonPointer } from './json-pointer';
 import type { AuthoringProject } from './project-schema/authoring-project';
+import { messagePlaceholderNames } from './project-schema/authoring-localization';
 import {
   localizationOwnerKey,
   localizationSourceKey,
@@ -220,9 +221,36 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
           trackingSource.source,
           trackingOccurrence,
         ).messageId;
+        const placeholderNames = messagePlaceholderNames(occurrence.source);
+        if (placeholderNames.length > 0 && occurrence.runtimeArgsStartUtf16 === undefined) {
+          diagnostics.push({
+            code: 'authoring.localization.lua_message_arguments_missing',
+            path: descriptor.sourcePath,
+            message: `Text.tr source requires runtime arguments: ${placeholderNames.join(', ')}.`,
+          });
+          return;
+        }
+        if (
+          occurrence.runtimeArgumentNames !== undefined &&
+          occurrence.runtimeArgumentNames.join('\u0000') !== placeholderNames.join('\u0000')
+        ) {
+          diagnostics.push({
+            code: 'authoring.localization.lua_message_arguments_mismatch',
+            path: descriptor.sourcePath,
+            message: 'Text.tr literal argument table must match the source placeholder names.',
+          });
+          return;
+        }
         lowered.localization.messages[stableMessageId] = {
           kind: 'local',
           source: occurrence.source,
+          ...(placeholderNames.length === 0
+            ? {}
+            : {
+                arguments: Object.fromEntries(
+                  placeholderNames.map((name) => [name, 'printable'] as const),
+                ),
+              }),
           ...(occurrence.context === undefined ? {} : { context: occurrence.context }),
           ...(occurrence.translatorNote === undefined
             ? {}
@@ -237,6 +265,29 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
             message: `Text.msg references unknown named Message '${occurrence.source}'.`,
           });
           return;
+        }
+        const namedMessage = lowered.localization.messages[stableMessageId];
+        if (namedMessage?.kind === 'named') {
+          const expectedArgumentNames = Object.keys(namedMessage.arguments ?? {}).sort();
+          if (expectedArgumentNames.length > 0 && occurrence.runtimeArgsStartUtf16 === undefined) {
+            diagnostics.push({
+              code: 'authoring.localization.lua_message_arguments_missing',
+              path: descriptor.sourcePath,
+              message: `Text.msg('${occurrence.source}') requires runtime Message arguments.`,
+            });
+            return;
+          }
+          if (
+            occurrence.runtimeArgumentNames !== undefined &&
+            occurrence.runtimeArgumentNames.join('\u0000') !== expectedArgumentNames.join('\u0000')
+          ) {
+            diagnostics.push({
+              code: 'authoring.localization.lua_message_arguments_mismatch',
+              path: descriptor.sourcePath,
+              message: `Text.msg('${occurrence.source}') literal argument table must match its declared Message arguments.`,
+            });
+            return;
+          }
         }
       }
       pending.push({

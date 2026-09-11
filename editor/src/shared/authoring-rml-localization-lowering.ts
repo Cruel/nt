@@ -1,4 +1,5 @@
 import type { AuthoringProject } from './project-schema/authoring-project';
+import { messagePlaceholderNames } from './project-schema/authoring-localization';
 import {
   localizationOwnerKey,
   localizationSourceKey,
@@ -383,6 +384,7 @@ export function lowerRmlLocalization(
       validateInlineMarkup(node.content, basePath, diagnostics);
     }
 
+    const boundArgumentNames = new Set<string>();
     for (const candidate of node.attributes) {
       const name = candidate.name.toLowerCase();
       if (name === 'key' || name === 'id' || name === 'class' || name === 'style') continue;
@@ -393,10 +395,33 @@ export function lowerRmlLocalization(
           path: basePath,
           message: `Localization argument binding '${candidate.name}' must use arg-<name>.`,
         });
+        continue;
       }
+      boundArgumentNames.add(candidate.name.slice(4));
     }
 
     if (stableId === null) continue;
+    const stableMessage = project.localization.messages[stableId];
+    const expectedArgumentNames = new Set(
+      key && stableMessage
+        ? Object.keys(stableMessage.arguments ?? {})
+        : messagePlaceholderNames(node.content),
+    );
+    for (const name of expectedArgumentNames)
+      if (!boundArgumentNames.has(name))
+        diagnostics.push({
+          code: 'authoring.localization.rml_argument_missing',
+          path: basePath,
+          message: `Localization argument '${name}' requires an arg-${name} binding.`,
+        });
+    for (const name of boundArgumentNames)
+      if (!expectedArgumentNames.has(name))
+        diagnostics.push({
+          code: 'authoring.localization.rml_argument_unknown',
+          path: basePath,
+          message: `Localization binding arg-${name} does not match a declared Message argument.`,
+        });
+
     const packageId = packageIds.get(stableId);
     if (packageId === undefined) {
       diagnostics.push({

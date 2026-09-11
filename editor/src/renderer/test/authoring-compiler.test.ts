@@ -94,14 +94,15 @@ describe('authoring compiler framework', () => {
     project.localization.messages['11111111-1111-4111-8111-111111111111'] = {
       kind: 'named',
       key: 'ui.start',
-      source: 'Start',
+      source: 'Start {count}',
+      arguments: { count: 'integer' },
     };
     project.scripts.bootstrap!.data.source = {
       kind: 'inline-lua',
       source: `
-        local local_text = Text.tr("Hello", { name = "Ada" }, { context = "Greeting" })
+        local local_text = Text.tr("Hello {name}", { name = "Ada" }, { context = "Greeting" })
         local named_text = Text.msg("ui.start", { count = 2 })
-        local nested_text = Text.tr("Outer", { inner = Text.msg("ui.start") })
+        local nested_text = Text.tr("Outer {inner}", { inner = Text.msg("ui.start", { count = 3 }) })
         local alias = Text.tr
         local untouched = alias("Not managed")
         return { local_text = local_text, named_text = named_text, nested_text = nested_text, untouched = untouched }
@@ -117,16 +118,27 @@ describe('authoring compiler framework', () => {
     )!.source;
     expect(source.kind).toBe('inline-lua');
     if (source.kind !== 'inline-lua') return;
-    expect(source.source).not.toContain('Text.tr("Hello"');
+    expect(source.source).not.toContain('Text.tr("Hello {name}"');
     expect(source.source).not.toContain('Text.msg("ui.start"');
-    expect(source.source).not.toContain('"Hello"');
+    expect(source.source).not.toContain('"Hello {name}"');
     expect(source.source).not.toContain('Greeting');
     expect(source.source).toMatch(/Text\.__message\(\d+, \{ name = "Ada" \}, nil\)/);
     expect(source.source).toMatch(/Text\.__message\(\d+, \{ count = 2 \}\)/);
-    expect(source.source).toMatch(/Text\.__message\(\d+, \{ inner = Text\.__message\(\d+\) \}\)/);
+    expect(source.source).toMatch(
+      /Text\.__message\(\d+, \{ inner = Text\.__message\(\d+, \{ count = 3 \}\) \}\)/,
+    );
     expect(source.source).toContain('alias("Not managed")');
-    expect(result.project.localization.catalogs[0]?.entries.map((entry) => entry.value)).toContain(
-      'Hello',
+    expect(result.project.localization.catalogs[0]?.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          value: 'Hello {name}',
+          arguments: [{ name: 'name', type: 'printable' }],
+        }),
+        expect.objectContaining({
+          value: 'Start {count}',
+          arguments: [{ name: 'count', type: 'integer' }],
+        }),
+      ]),
     );
   });
 
@@ -136,6 +148,7 @@ describe('authoring compiler framework', () => {
       kind: 'named',
       key: 'ui.items',
       source: 'Items: {count}',
+      arguments: { count: 'integer' },
     };
     const layout = defaultLayoutData('Localized HUD', 'document');
     layout.rml.sourceText = `<rml><head></head><body data-model="noveltea">

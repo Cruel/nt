@@ -7,6 +7,7 @@ import {
   structuredMessages,
 } from './authoring-structured-messages';
 import { collectRmlLocalMessages } from './authoring-rml-localization-lowering';
+import { messagePlaceholderNames } from './project-schema/authoring-localization';
 
 function sortedEntries<T>(record: Readonly<Record<string, T>>): [string, T][] {
   return Object.entries(record).sort(([left], [right]) =>
@@ -71,6 +72,7 @@ export function compileLocalization(
 ): CompiledProjectWire['localization'] {
   const localization = project.localization;
   const ids = packageMessageIds(project);
+  const rmlLocalIds = new Set(collectRmlLocalMessages(project).map((message) => message.id));
   const sourceValues = new Map<string, string>([
     ...sortedEntries(localization.messages).map(
       ([stableId, message]) => [stableId, message.source] as const,
@@ -78,10 +80,19 @@ export function compileLocalization(
     ...structuredMessages(project).map((message) => [message.id, message.source] as const),
     ...collectRmlLocalMessages(project).map((message) => [message.id, message.source] as const),
   ]);
-  const sourceMessages = allMessageIds(project).map((stableId) => ({
-    stableId,
-    value: sourceValues.get(stableId)!,
-  }));
+  const sourceMessages = allMessageIds(project).map((stableId) => {
+    const value = sourceValues.get(stableId)!;
+    const explicitArguments = localization.messages[stableId]?.arguments;
+    const arguments_ = explicitArguments
+      ? sortedEntries(explicitArguments).map(([name, type]) => ({ name, type }))
+      : rmlLocalIds.has(stableId)
+        ? messagePlaceholderNames(value).map((name) => ({ name, type: 'printable' as const }))
+        : [];
+    return { stableId, value, arguments: arguments_ };
+  });
+  const sourceArgumentContracts = new Map(
+    sourceMessages.map((message) => [message.stableId, message.arguments] as const),
+  );
   return {
     sourceLocale: localization.sourceLocale,
     defaultLocale: localization.defaultLocale,
@@ -94,15 +105,20 @@ export function compileLocalization(
       locale,
       entries:
         locale === localization.sourceLocale
-          ? sourceMessages.map(({ stableId, value }) => ({
+          ? sourceMessages.map(({ stableId, value, arguments: arguments_ }) => ({
               messageId: ids.get(stableId)!,
               value,
+              ...(arguments_.length === 0 ? {} : { arguments: arguments_ }),
             }))
           : sortedEntries(localization.translations[locale] ?? {}).map(
-              ([stableId, translation]) => ({
-                messageId: ids.get(stableId)!,
-                value: translation.text,
-              }),
+              ([stableId, translation]) => {
+                const arguments_ = sourceArgumentContracts.get(stableId) ?? [];
+                return {
+                  messageId: ids.get(stableId)!,
+                  value: translation.text,
+                  ...(arguments_.length === 0 ? {} : { arguments: arguments_ }),
+                };
+              },
             ),
     })),
   };

@@ -23,11 +23,20 @@ metadata.
 The authoring compiler replaces recognized calls with package-local `Text.__message(messageId, args?)`
 references, removes the managed source/key/translator metadata from the compiled Lua payload, and
 leaves all unrelated Lua untouched. `Text.__message` is compiler/runtime ABI rather than authored API
-and resolves through the canonical `MessageRealizer`. Focused Room preview runs the same managed-call
-lowering and injects only the referenced default-locale Message realizations into its isolated Lua
-sources, so authored `Text.tr`/`Text.msg` calls are not executed as a separate preview API. Runtime
-arguments are retained by lowering but are not interpreted until the parameterized-Message contract
-is implemented; localization lowering is not a general Lua parser, formatter, optimizer, or minifier.
+and resolves through the canonical `MessageRealizer`. The second argument is exclusively the runtime
+Message-argument table; the third `Text.tr` argument is exclusively static translator metadata, and
+`nil` may occupy the second slot when only metadata is needed. Literal argument tables are checked
+against the Message placeholder contract when their names are statically readable. Runtime values may
+be strings, finite numbers, integers, booleans for printable arguments, or the narrower value admitted
+by a declared `string`, `number`, `integer`, or `plural-number` argument. Formatting and placeholder
+realization happen only in `MessageRealizer`; Lua does not implement locale formatting itself.
+
+Focused Room preview still uses the same narrow managed-call lowering and injects the referenced
+default-locale Message source into its isolated Lua source rather than exposing authored `Text.tr` or
+`Text.msg` at runtime. Localization lowering remains a narrow source transform, not a general Lua
+parser, formatter, optimizer, or minifier. A causal Dialogue/ActiveText Lua expression is evaluated at
+the occurrence boundary; the realized string therefore captures the argument values for that semantic
+presentation occurrence instead of becoming a live binding that can change later.
 
 Typed Message-valued Properties expose an opaque Message reference to Lua rather than the authored
 semantic key or a localized string. `Text.msg_ref(messageRef, args?)` accepts only that typed runtime

@@ -59,7 +59,11 @@ function simpleView(
   sourcePath: string | null,
   usageNote: string | null,
 ): LocalizationMessageWorkflowView {
-  const sourceFingerprint = fingerprint('semantic', message.source);
+  const argumentContract = Object.entries(message.arguments ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, type]) => `${name}:${type}`)
+    .join('|');
+  const sourceFingerprint = fingerprint('semantic', `${message.source}\u0000${argumentContract}`);
   return {
     id,
     kind: message.kind,

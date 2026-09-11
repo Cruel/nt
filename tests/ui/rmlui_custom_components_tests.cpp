@@ -39,19 +39,25 @@ TEST_CASE("RmlUi nt-tr re-realizes the same live element through MessageRealizer
         .locales = {{.locale = "en", .parent_locale = std::nullopt, .supported = true},
                     {.locale = "es", .parent_locale = std::nullopt, .supported = true}},
         .catalogs = {
-            {.locale = "en", .entries = {{.message_id = 7, .value = "Hello <em>friend</em>"}}},
-            {.locale = "es", .entries = {{.message_id = 7, .value = "Hola <em>amiga</em>"}}}}};
+            {.locale = "en",
+             .entries = {{.message_id = 7,
+                          .value = "Hello <em>{name}</em>",
+                          .arguments = {{"name", compiled::MessageArgumentType::String}}}}},
+            {.locale = "es",
+             .entries = {{.message_id = 7,
+                          .value = "Hola <em>{name}</em>",
+                          .arguments = {{"name", compiled::MessageArgumentType::String}}}}}}};
     const MessageRealizer realizer(localization);
     NtTrElement element("nt-tr");
     element.SetAttribute("message", "7");
-    element.SetAttribute("arg-name", "{{ gameplay.player_name }}");
+    element.SetAttribute("arg-name", "Ada");
 
     REQUIRE(element.realize(realizer, "en"));
-    CHECK(element.GetInnerRML() == "Hello <em>friend</em>");
-    CHECK(element.GetAttribute<Rml::String>("arg-name", "") == "{{ gameplay.player_name }}");
+    CHECK(element.GetInnerRML() == "Hello <em>Ada</em>");
 
+    element.SetAttribute("arg-name", "Lucia");
     REQUIRE(element.realize(realizer, "es"));
-    CHECK(element.GetInnerRML() == "Hola <em>amiga</em>");
+    CHECK(element.GetInnerRML() == "Hola <em>Lucia</em>");
     CHECK(element.GetAttribute<Rml::String>("message", "") == "7");
 }
 

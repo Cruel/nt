@@ -50,6 +50,51 @@ int panic_handler(lua_State* state)
     return 0;
 }
 
+std::optional<std::vector<core::MessageArgument>> message_arguments_from_lua(lua_State* state,
+                                                                             int index)
+{
+    if (lua_isnoneornil(state, index))
+        return std::vector<core::MessageArgument>{};
+    if (!lua_istable(state, index))
+        return std::nullopt;
+
+    std::vector<core::MessageArgument> arguments;
+    const int table_index = lua_absindex(state, index);
+    lua_pushnil(state);
+    while (lua_next(state, table_index) != 0) {
+        if (lua_type(state, -2) != LUA_TSTRING) {
+            lua_pop(state, 2);
+            return std::nullopt;
+        }
+        std::size_t key_size = 0;
+        const char* key = lua_tolstring(state, -2, &key_size);
+        core::MessageArgumentValue value;
+        switch (lua_type(state, -1)) {
+        case LUA_TSTRING: {
+            std::size_t size = 0;
+            const char* text = lua_tolstring(state, -1, &size);
+            value = std::string{text, size};
+            break;
+        }
+        case LUA_TNUMBER:
+            if (lua_isinteger(state, -1))
+                value = static_cast<std::int64_t>(lua_tointeger(state, -1));
+            else
+                value = static_cast<double>(lua_tonumber(state, -1));
+            break;
+        case LUA_TBOOLEAN:
+            value = lua_toboolean(state, -1) != 0;
+            break;
+        default:
+            lua_pop(state, 2);
+            return std::nullopt;
+        }
+        arguments.push_back({std::string{key, key_size}, std::move(value)});
+        lua_pop(state, 1);
+    }
+    return arguments;
+}
+
 std::string lua_value_message(lua_State* state, int index)
 {
     const char* message = lua_tostring(state, index);
@@ -725,9 +770,13 @@ int ScriptRuntime::managed_message_callback(lua_State* state)
     if (raw_id < 0 ||
         static_cast<std::uint64_t>(raw_id) > std::numeric_limits<core::MessageId>::max())
         return luaL_error(state, "Managed Message ID is out of range");
+    const auto arguments = message_arguments_from_lua(state, 2);
+    if (!arguments)
+        return luaL_error(state, "Managed Message arguments must be a table of printable values");
     const core::MessageRealizer realizer(*runtime->m_impl->localization);
-    const auto realized = realizer.realize(
-        {static_cast<core::MessageId>(raw_id), runtime->m_impl->localization->default_locale});
+    const auto realized =
+        realizer.realize({static_cast<core::MessageId>(raw_id),
+                          runtime->m_impl->localization->default_locale, *arguments});
     if (!realized)
         return luaL_error(state, "Managed Message could not be realized");
     lua_pushlstring(state, realized->text.data(), realized->text.size());
@@ -742,11 +791,12 @@ int ScriptRuntime::message_ref_callback(lua_State* state)
     auto reference = sol::stack::check_get<RuntimeMessageReference>(state, 1);
     if (!reference)
         return luaL_error(state, "Text.msg_ref requires a typed Message reference");
-    if (!lua_isnoneornil(state, 2) && !lua_istable(state, 2))
-        return luaL_error(state, "Text.msg_ref arguments must be a table when provided");
+    const auto arguments = message_arguments_from_lua(state, 2);
+    if (!arguments)
+        return luaL_error(state, "Text.msg_ref arguments must be a table of printable values");
     const core::MessageRealizer realizer(*runtime->m_impl->localization);
     const auto realized = realizer.realize(
-        {reference->value.id, runtime->m_impl->localization->default_locale});
+        {reference->value.id, runtime->m_impl->localization->default_locale, *arguments});
     if (!realized)
         return luaL_error(state, "Message reference could not be realized");
     lua_pushlstring(state, realized->text.data(), realized->text.size());

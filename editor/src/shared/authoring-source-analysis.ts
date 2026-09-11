@@ -806,6 +806,7 @@ export interface ManagedLuaLocalizationOccurrence {
   source: string;
   runtimeArgsStartUtf16?: number;
   runtimeArgsEndUtf16?: number;
+  runtimeArgumentNames?: readonly string[];
   metadataStartUtf16?: number;
   metadataEndUtf16?: number;
   context?: string;
@@ -838,6 +839,51 @@ function directCallArguments(
     current.push(token);
   }
   return null;
+}
+
+function staticRuntimeArgumentNames(tokens: readonly LuaScanToken[]): readonly string[] | null {
+  if (tokens.length === 0) return Object.freeze([]);
+  if (tokens.length === 1 && tokens[0]?.kind === 'identifier' && tokens[0].value === 'nil')
+    return Object.freeze([]);
+  const first = tokens[0];
+  const last = tokens.at(-1);
+  if (
+    first?.kind !== 'punctuation' ||
+    first.value !== '{' ||
+    last?.kind !== 'punctuation' ||
+    last.value !== '}'
+  )
+    return null;
+
+  const names: string[] = [];
+  let index = 1;
+  while (index < tokens.length - 1) {
+    while (true) {
+      const separator = tokens[index];
+      if (separator?.kind !== 'punctuation' || (separator.value !== ',' && separator.value !== ';'))
+        break;
+      index += 1;
+    }
+    if (index >= tokens.length - 1) break;
+    const key = tokens[index];
+    const equals = tokens[index + 1];
+    if (key?.kind !== 'identifier' || equals?.kind !== 'punctuation' || equals.value !== '=')
+      return null;
+    names.push(key.value);
+    index += 2;
+    let depth = 0;
+    while (index < tokens.length - 1) {
+      const token = tokens[index]!;
+      if (token.kind === 'punctuation') {
+        if (token.value === '(' || token.value === '{' || token.value === '[') depth += 1;
+        else if (token.value === ')' || token.value === '}' || token.value === ']') depth -= 1;
+        if (depth === 0 && (token.value === ',' || token.value === ';')) break;
+      }
+      index += 1;
+    }
+    if (index < tokens.length - 1) index += 1;
+  }
+  return Object.freeze(names.sort());
 }
 
 function staticTranslatorMetadata(
@@ -979,8 +1025,11 @@ export function analyzeManagedLuaLocalization(source: string): {
         ? {
             runtimeArgsStartUtf16: runtimeArgs![0]!.start,
             runtimeArgsEndUtf16: runtimeArgs!.at(-1)!.end,
+            ...(staticRuntimeArgumentNames(runtimeArgs!) === null
+              ? {}
+              : { runtimeArgumentNames: staticRuntimeArgumentNames(runtimeArgs!)! }),
           }
-        : {}),
+        : { runtimeArgumentNames: Object.freeze([]) }),
       ...(member.value === 'tr' && args.length >= 3 && (args[2]?.length ?? 0) > 0
         ? {
             metadataStartUtf16: args[2]![0]!.start,

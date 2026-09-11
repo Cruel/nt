@@ -139,7 +139,8 @@ public:
         if (id.text() == "count")
             return core::Result<core::RuntimeValue, core::Diagnostics>::success(std::int64_t{2});
         if (id.text() == "message")
-            return core::Result<core::RuntimeValue, core::Diagnostics>::success(core::MessageRef{0});
+            return core::Result<core::RuntimeValue, core::Diagnostics>::success(
+                core::MessageRef{0});
         return core::Result<core::RuntimeValue, core::Diagnostics>::failure(
             {{.code = "test.unadmitted", .message = "Global Property is not admitted"}});
     }
@@ -546,17 +547,21 @@ TEST_CASE("ScriptRuntime realizes compiler-lowered managed Message references")
     const auto project = load_script_project();
     REQUIRE(fixture.runtime.prepare_project_modules(project));
 
-    auto value =
-        fixture.runtime.evaluate_string("Text.__message(0, { ignored = true })", "managed-message");
+    auto value = fixture.runtime.evaluate_string("Text.__message(0)", "managed-message");
     REQUIRE(value);
     CHECK(value.value() == "Coin");
+
+    auto unexpected_arguments = fixture.runtime.evaluate_string(
+        "Text.__message(0, { ignored = true })", "managed-message-unexpected-arguments");
+    REQUIRE_FALSE(unexpected_arguments);
 
     auto public_helper = fixture.runtime.evaluate_bool("Text.tr == nil and Text.msg == nil",
                                                        "managed-message-public-shape");
     REQUIRE(public_helper);
     CHECK(public_helper.value());
 
-    auto arbitrary_key = fixture.runtime.evaluate_string("Text.msg_ref('ui.coin')", "message-ref-string");
+    auto arbitrary_key =
+        fixture.runtime.evaluate_string("Text.msg_ref('ui.coin')", "message-ref-string");
     REQUIRE_FALSE(arbitrary_key);
 }
 

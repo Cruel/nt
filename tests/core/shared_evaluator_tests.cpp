@@ -230,6 +230,37 @@ TEST_CASE("Message realization follows valid locale chains longer than thirty-tw
     CHECK(resolved->locale == "en");
 }
 
+TEST_CASE("Message realization validates typed arguments and formats values for the active locale")
+{
+    compiled::Localization localization;
+    localization.source_locale = "en";
+    localization.default_locale = "en";
+    localization.locales = {{"en", std::nullopt, true}, {"de", std::nullopt, true}};
+    const std::vector<compiled::MessageArgumentDefinition> arguments = {
+        {"name", compiled::MessageArgumentType::String},
+        {"count", compiled::MessageArgumentType::Integer},
+        {"score", compiled::MessageArgumentType::Number},
+    };
+    localization.catalogs = {
+        {"en", {{7, "{name}: {count} / {score}", arguments}}},
+        {"de", {{7, "{score} Punkte für {name}; Anzahl {count}", arguments}}},
+    };
+
+    const MessageRealizer realizer(localization);
+    const auto realized = realizer.realize(
+        {7,
+         "de",
+         {{"name", std::string{"Ada"}}, {"count", std::int64_t{12345}}, {"score", 1234.5}}});
+    REQUIRE(realized);
+    CHECK(realized->text == "1.234,5 Punkte für Ada; Anzahl 12.345");
+    CHECK(realized->locale == "de");
+
+    CHECK_FALSE(
+        realizer.realize({7, "de", {{"name", std::string{"Ada"}}, {"count", std::int64_t{1}}}}));
+    CHECK_FALSE(realizer.realize(
+        {7, "de", {{"name", std::string{"Ada"}}, {"count", 1.0}, {"score", 2.0}}}));
+}
+
 TEST_CASE("engine waits create typed owner-bound logical state and complete or cancel exactly")
 {
     const auto project = make_project();

@@ -195,12 +195,16 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                         const std::string& entry_pointer)
                                         -> std::optional<LocalizationEntry> {
                                         if (!decoder.object(entry, entry_pointer,
-                                                            {"messageId", "value"}))
+                                                            {"arguments", "messageId", "value"}))
                                             return std::nullopt;
                                         const auto* id_value =
                                             decoder.member(entry, "messageId", entry_pointer);
                                         const auto* text_value =
                                             decoder.member(entry, "value", entry_pointer);
+                                        const auto* arguments_value =
+                                            entry.contains("arguments")
+                                                ? decoder.member(entry, "arguments", entry_pointer)
+                                                : nullptr;
                                         auto message_id =
                                             id_value ? decoder.unsigned_integer<MessageId>(
                                                            *id_value, pointer_child(entry_pointer,
@@ -211,8 +215,69 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                                               *text_value,
                                                               pointer_child(entry_pointer, "value"))
                                                         : std::nullopt;
-                                        if (message_id && text)
-                                            return LocalizationEntry{*message_id, std::move(*text)};
+                                        std::optional<std::vector<MessageArgumentDefinition>>
+                                            arguments{std::vector<MessageArgumentDefinition>{}};
+                                        if (arguments_value) {
+                                            arguments = decoder.array<MessageArgumentDefinition>(
+                                                *arguments_value,
+                                                pointer_child(entry_pointer, "arguments"),
+                                                [&](const nlohmann::json& argument,
+                                                    const std::string& argument_pointer)
+                                                    -> std::optional<MessageArgumentDefinition> {
+                                                    if (!decoder.object(argument, argument_pointer,
+                                                                        {"name", "type"}))
+                                                        return std::nullopt;
+                                                    const auto* name_value = decoder.member(
+                                                        argument, "name", argument_pointer);
+                                                    const auto* type_value = decoder.member(
+                                                        argument, "type", argument_pointer);
+                                                    auto name =
+                                                        name_value
+                                                            ? decoder.string(
+                                                                  *name_value,
+                                                                  pointer_child(argument_pointer,
+                                                                                "name"),
+                                                                  false, true)
+                                                            : std::nullopt;
+                                                    auto type =
+                                                        type_value
+                                                            ? decoder.string(
+                                                                  *type_value,
+                                                                  pointer_child(argument_pointer,
+                                                                                "type"),
+                                                                  false, true)
+                                                            : std::nullopt;
+                                                    if (!name || !type)
+                                                        return std::nullopt;
+                                                    MessageArgumentType decoded_type;
+                                                    if (*type == "printable")
+                                                        decoded_type =
+                                                            MessageArgumentType::Printable;
+                                                    else if (*type == "string")
+                                                        decoded_type = MessageArgumentType::String;
+                                                    else if (*type == "number")
+                                                        decoded_type = MessageArgumentType::Number;
+                                                    else if (*type == "integer")
+                                                        decoded_type = MessageArgumentType::Integer;
+                                                    else if (*type == "plural-number")
+                                                        decoded_type =
+                                                            MessageArgumentType::PluralNumber;
+                                                    else {
+                                                        decoder.error(
+                                                            k_code_variant,
+                                                            "Unknown Message argument type '" +
+                                                                *type + "'.",
+                                                            pointer_child(argument_pointer,
+                                                                          "type"));
+                                                        return std::nullopt;
+                                                    }
+                                                    return MessageArgumentDefinition{
+                                                        std::move(*name), decoded_type};
+                                                });
+                                        }
+                                        if (message_id && text && arguments)
+                                            return LocalizationEntry{*message_id, std::move(*text),
+                                                                     std::move(*arguments)};
                                         return std::nullopt;
                                     })
                               : std::nullopt;

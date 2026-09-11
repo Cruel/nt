@@ -7,6 +7,7 @@ import {
   isValidEntityId,
   parseAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
+import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   EDITOR_PROJECT_STATE_SCHEMA,
   stripEditorProjectState,
@@ -55,18 +56,28 @@ describe('authoring project schema', () => {
         '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': {
           kind: 'named',
           key: 'room.foyer.title',
-          source: 'Foyer',
+          source: 'Foyer {count}',
+          arguments: { count: 'integer' },
         },
       },
       structuredMessageIds: {},
       sourceMessageTracking: {},
       orphanedMessages: {},
       translations: {
-        fr: { '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': testTranslation('Hall') },
+        fr: { '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': testTranslation('{count} Hall') },
       },
     };
 
     expect(isAuthoringProject(project)).toBe(true);
+    const brokenPlaceholder = structuredClone(project);
+    brokenPlaceholder.localization.translations.fr!['018f4f8c-9b5d-7ae2-9b36-4c8af613f013']!.text =
+      'Hall';
+    expect(isAuthoringProject(brokenPlaceholder)).toBe(true);
+    expect(validateAuthoringProject(brokenPlaceholder)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'localization.translation.placeholder-missing' }),
+      ]),
+    );
     const withoutStructuredOwnership = structuredClone(project) as unknown as {
       localization: Record<string, unknown>;
     };

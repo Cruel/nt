@@ -82,9 +82,22 @@ struct ProjectIdentity {
 };
 using Entrypoint = std::variant<RoomId, SceneId, DialogueId>;
 
+enum class MessageArgumentType : std::uint8_t {
+    Printable,
+    String,
+    Number,
+    Integer,
+    PluralNumber
+};
+struct MessageArgumentDefinition {
+    std::string name;
+    MessageArgumentType type = MessageArgumentType::Printable;
+    bool operator==(const MessageArgumentDefinition&) const = default;
+};
 struct LocalizationEntry {
     MessageId message_id = 0;
     std::string value;
+    std::vector<MessageArgumentDefinition> arguments;
 };
 struct LocalizationCatalog {
     std::string locale;
