@@ -6,6 +6,7 @@ import {
   structuredMessageForText,
   structuredMessages,
 } from './authoring-structured-messages';
+import { collectRmlLocalMessages } from './authoring-rml-localization-lowering';
 
 function sortedEntries<T>(record: Readonly<Record<string, T>>): [string, T][] {
   return Object.entries(record).sort(([left], [right]) =>
@@ -24,6 +25,7 @@ function allMessageIds(project: AuthoringProject): string[] {
     ...structured
       .filter((message) => !message.path.startsWith('/settings/'))
       .map((message) => message.id),
+    ...collectRmlLocalMessages(project).map((message) => message.id),
   ].sort();
   return [...existingFamilies, ...settingsMessages];
 }
@@ -74,6 +76,7 @@ export function compileLocalization(
       ([stableId, message]) => [stableId, message.source] as const,
     ),
     ...structuredMessages(project).map((message) => [message.id, message.source] as const),
+    ...collectRmlLocalMessages(project).map((message) => [message.id, message.source] as const),
   ]);
   const sourceMessages = allMessageIds(project).map((stableId) => ({
     stableId,

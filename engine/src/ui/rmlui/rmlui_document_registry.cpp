@@ -538,6 +538,18 @@ bool RmlUiDocumentRegistry::has_visible_document(Rml::Context* context) const no
     });
 }
 
+void RmlUiDocumentRegistry::for_each_document(
+    const std::function<void(Rml::ElementDocument&)>& visitor) const
+{
+    if (!visitor)
+        return;
+    for (const auto& [id, record] : m_documents) {
+        (void)id;
+        if (record.document)
+            visitor(*record.document);
+    }
+}
+
 std::uintptr_t RmlUiDocumentRegistry::add_event_listener(const std::string& document_id,
                                                          const std::string& element_id,
                                                          const std::string& event,

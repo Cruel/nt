@@ -297,6 +297,19 @@ Rml::Element* find_first_tag(Rml::ElementDocument& doc, const char* tag)
     return elements.empty() ? nullptr : elements.front();
 }
 
+void realize_message_elements(Rml::ElementDocument& document,
+                              const core::compiled::Localization& localization,
+                              std::string_view locale)
+{
+    const core::MessageRealizer realizer(localization);
+    Rml::ElementList elements;
+    document.GetElementsByTagName(elements, "nt-tr");
+    for (auto* element : elements) {
+        if (auto* translation = rmlui_dynamic_cast<ui::rmlui::NtTrElement*>(element))
+            (void)translation->realize(realizer, locale);
+    }
+}
+
 Rml::Element* find_ancestor_tag(Rml::Element* element, const char* tag)
 {
     for (auto* current = element; current; current = current->GetParentNode()) {
@@ -411,6 +424,8 @@ struct RuntimeUI::State {
     void install_shell_lua_api();
     void remove_shell_lua_api() noexcept;
     void refresh_text_log_map();
+    void refresh_message_elements(Rml::ElementDocument& document);
+    void refresh_message_elements();
     void refresh_data_model_shell();
     void refresh_action_gateway_shell_slots();
     [[nodiscard]] std::optional<std::string>
@@ -455,8 +470,25 @@ struct RuntimeUI::State {
     core::Diagnostics typed_diagnostics;
     lua_State* lua_state = nullptr;
     script::ScriptRuntime* scripts = nullptr;
+    const core::compiled::Localization* message_localization = nullptr;
+    std::string message_locale;
     std::string typed_notification;
 };
+
+void RuntimeUI::State::refresh_message_elements(Rml::ElementDocument& document)
+{
+    if (!message_localization)
+        return;
+    realize_message_elements(document, *message_localization, message_locale);
+}
+
+void RuntimeUI::State::refresh_message_elements()
+{
+    if (!document_registry || !message_localization)
+        return;
+    document_registry->for_each_document(
+        [this](Rml::ElementDocument& document) { refresh_message_elements(document); });
+}
 
 void RuntimeUI::State::refresh_data_model_shell()
 {
@@ -1401,8 +1433,14 @@ void RuntimeUI::shutdown()
 bool ui::rmlui::RuntimeUiFacadeAccess::load_document(RuntimeUI& runtime_ui, const std::string& id,
                                                      const std::string& path, bool show)
 {
-    return runtime_ui.m_state && runtime_ui.m_state->document_registry &&
-           runtime_ui.m_state->document_registry->load_path(id, path, show);
+    if (!runtime_ui.m_state || !runtime_ui.m_state->document_registry)
+        return false;
+    const bool loaded = runtime_ui.m_state->document_registry->load_path(id, path, show);
+    if (loaded) {
+        if (auto* document = runtime_ui.m_state->document(id))
+            runtime_ui.m_state->refresh_message_elements(*document);
+    }
+    return loaded;
 }
 
 bool RuntimeUI::load_document_for_layout(const std::string& id, const std::string& path, bool show,
@@ -1416,8 +1454,13 @@ bool RuntimeUI::load_document_for_layout(const std::string& id, const std::strin
         return false;
     const State::ContextKey key = ui::rmlui::make_lifecycle_context_key(
         policy, composition_group, owner, scale_policy, compatibility_group);
-    return m_state->with_active_layout_mount_document(
+    const bool loaded = m_state->with_active_layout_mount_document(
         id, [&]() { return m_state->document_registry->load_path(id, path, show, key); });
+    if (loaded) {
+        if (auto* document = m_state->document(id))
+            m_state->refresh_message_elements(*document);
+    }
+    return loaded;
 }
 
 bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, const std::string& rml,
@@ -1432,9 +1475,14 @@ bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, cons
         return false;
     const State::ContextKey key = ui::rmlui::make_lifecycle_context_key(
         policy, composition_group, owner, scale_policy, compatibility_group);
-    return m_state->with_active_layout_mount_document(id, [&]() {
+    const bool loaded = m_state->with_active_layout_mount_document(id, [&]() {
         return m_state->document_registry->load_memory(id, rml, source_url, show, key);
     });
+    if (loaded) {
+        if (auto* document = m_state->document(id))
+            m_state->refresh_message_elements(*document);
+    }
+    return loaded;
 }
 
 bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document, bool show,
@@ -1458,6 +1506,8 @@ bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_doc
                                                         show, key);
     });
     if (loaded) {
+        if (auto* document = m_state->document(document_id))
+            m_state->refresh_message_elements(*document);
         if (builtin_document == RuntimeLayoutBuiltinDocument::GameHud)
             m_state->refresh_game_hud_map();
         else
@@ -1531,8 +1581,15 @@ bool ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(RuntimeUI& runt
                                                                  const std::string& source_url,
                                                                  bool show)
 {
-    return runtime_ui.m_state && runtime_ui.m_state->document_registry &&
-           runtime_ui.m_state->document_registry->load_memory(id, rml, source_url, show);
+    if (!runtime_ui.m_state || !runtime_ui.m_state->document_registry)
+        return false;
+    const bool loaded =
+        runtime_ui.m_state->document_registry->load_memory(id, rml, source_url, show);
+    if (loaded) {
+        if (auto* document = runtime_ui.m_state->document(id))
+            runtime_ui.m_state->refresh_message_elements(*document);
+    }
+    return loaded;
 }
 
 bool ui::rmlui::RuntimeUiFacadeAccess::hide_document(RuntimeUI& runtime_ui, const std::string& id)
@@ -1907,6 +1964,25 @@ core::ActiveTextPresentationPhase RuntimeUI::active_text_presentation_phase() co
     return m_state && m_state->active_text_presenter
                ? m_state->active_text_presenter->presentation_phase()
                : core::ActiveTextPresentationPhase::Stable;
+}
+
+void RuntimeUI::bind_message_localization(const core::compiled::Localization& localization,
+                                          std::string runtime_locale)
+{
+    if (!m_state)
+        return;
+    m_state->message_localization = &localization;
+    m_state->message_locale =
+        runtime_locale.empty() ? localization.default_locale : std::move(runtime_locale);
+    m_state->refresh_message_elements();
+}
+
+void RuntimeUI::clear_message_localization() noexcept
+{
+    if (!m_state)
+        return;
+    m_state->message_localization = nullptr;
+    m_state->message_locale.clear();
 }
 
 void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)

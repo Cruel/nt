@@ -3,6 +3,7 @@
 #include <noveltea/core/feature_view.hpp>
 
 #include "ui/rmlui/rmlui_custom_components.hpp"
+#include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/runtime_ui_lifecycle_fixture.hpp"
 
 #include <string>
@@ -25,6 +26,64 @@ TEST_CASE("RmlUi custom component casts are checked")
         CHECK(rmlui_dynamic_cast<NtActiveTextElement*>(map_base) == nullptr);
         CHECK(rmlui_dynamic_cast<Rml::Element*>(active_base) == active_base);
     }
+}
+
+TEST_CASE("RmlUi nt-tr re-realizes the same live element through MessageRealizer")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+
+    const compiled::Localization localization{
+        .source_locale = "en",
+        .default_locale = "en",
+        .locales = {{.locale = "en", .parent_locale = std::nullopt, .supported = true},
+                    {.locale = "es", .parent_locale = std::nullopt, .supported = true}},
+        .catalogs = {
+            {.locale = "en", .entries = {{.message_id = 7, .value = "Hello <em>friend</em>"}}},
+            {.locale = "es", .entries = {{.message_id = 7, .value = "Hola <em>amiga</em>"}}}}};
+    const MessageRealizer realizer(localization);
+    NtTrElement element("nt-tr");
+    element.SetAttribute("message", "7");
+    element.SetAttribute("arg-name", "{{ gameplay.player_name }}");
+
+    REQUIRE(element.realize(realizer, "en"));
+    CHECK(element.GetInnerRML() == "Hello <em>friend</em>");
+    CHECK(element.GetAttribute<Rml::String>("arg-name", "") == "{{ gameplay.player_name }}");
+
+    REQUIRE(element.realize(realizer, "es"));
+    CHECK(element.GetInnerRML() == "Hola <em>amiga</em>");
+    CHECK(element.GetAttribute<Rml::String>("message", "") == "7");
+}
+
+TEST_CASE("RuntimeUI re-realizes mounted nt-tr elements when the locale binding changes")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+
+    const compiled::Localization localization{
+        .source_locale = "en",
+        .default_locale = "en",
+        .locales = {{.locale = "en", .parent_locale = std::nullopt, .supported = true},
+                    {.locale = "es", .parent_locale = std::nullopt, .supported = true}},
+        .catalogs = {{.locale = "en",
+                      .entries = {{.message_id = 7, .value = "<span id='english'>Hello</span>"}}},
+                     {.locale = "es",
+                      .entries = {{.message_id = 7, .value = "<span id='spanish'>Hola</span>"}}}}};
+    auto& runtime_ui = fixture.runtime_ui();
+    runtime_ui.bind_message_localization(localization, "en");
+    REQUIRE(ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(
+        runtime_ui, "localized",
+        "<rml><head></head><body><nt-tr message='7'></nt-tr></body></rml>"));
+
+    const auto english_listener = ui::rmlui::RuntimeUiFacadeAccess::add_event_listener(
+        runtime_ui, "localized", "english", "click", [] {});
+    REQUIRE(english_listener != 0);
+
+    runtime_ui.bind_message_localization(localization, "es");
+    const auto spanish_listener = ui::rmlui::RuntimeUiFacadeAccess::add_event_listener(
+        runtime_ui, "localized", "spanish", "click", [] {});
+    CHECK(spanish_listener != 0);
+    CHECK(runtime_ui.has_document("localized"));
 }
 
 TEST_CASE("RmlUi typed component snapshots tolerate empty runtime state")

@@ -1071,6 +1071,8 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         auto bound = m_layout_realizer.bind_session(project, generation);
         if (!bound)
             return core::Result<void, core::Diagnostics>::failure(std::move(bound).error());
+        m_runtime_ui.bind_message_localization(project.localization(),
+                                               std::string(game.runtime_locale()));
         m_presentation_layouts.bind_project(project);
         auto snapshot_backend = m_game_host.runtime_presentation().bind_snapshot_backend(
             [this](const core::RuntimePresentationSnapshot& snapshot) {
@@ -1149,6 +1151,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_world_presentation_resources.clear();
         m_presentation_layouts.clear_session();
         m_layout_realizer.clear_session();
+        m_runtime_ui.clear_message_localization();
     };
     hooks.detach_current_resources = detach_resources;
     hooks.commit_candidate_resources =
@@ -2647,6 +2650,7 @@ bool Engine::Impl::shutdown()
         m_pointer_valid = false;
         m_pending_debug_ui_commands.clear();
         m_preview_host.stop_all_preview_audio();
+        m_runtime_ui.clear_message_localization();
         m_game_host.shutdown();
         m_shutdown_finalized = true;
         return true;
@@ -2657,6 +2661,7 @@ bool Engine::Impl::shutdown()
     }
     m_checkpoint_thumbnail_captures.reset();
     m_screenshot_service.reset();
+    m_runtime_ui.clear_message_localization();
     m_game_host.shutdown();
     m_game_host.runtime_layouts().bind_document_host(nullptr);
     m_layout_realizer.clear_session();

@@ -92,6 +92,63 @@ describe('authoring compiler framework', () => {
     );
   });
 
+  it('lowers live RML nt-tr local and named Messages without authoring source metadata leakage', () => {
+    const project = validProject();
+    project.localization.messages['11111111-1111-4111-8111-111111111111'] = {
+      kind: 'named',
+      key: 'ui.items',
+      source: 'Items: {count}',
+    };
+    const layout = defaultLayoutData('Localized HUD', 'document');
+    layout.rml.sourceText = `<rml><head></head><body data-model="noveltea">
+      <p><nt-tr class="greeting">Hello <em>traveler</em>.</nt-tr></p>
+      <nt-tr key="ui.items" arg-count="{{ gameplay.inventory.items.size() }}"/>
+    </body></rml>`;
+    project.layouts.localized = { id: 'localized', label: 'Localized HUD', data: layout };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const compiled = result.project.resources.layouts.find((item) => item.id === 'localized')!;
+    expect(compiled.rml.kind).toBe('inline');
+    if (compiled.rml.kind !== 'inline') return;
+    expect(compiled.rml.text).toMatch(/<nt-tr class="greeting" message="\d+"><\/nt-tr>/u);
+    expect(compiled.rml.text).toMatch(
+      /<nt-tr\s+arg-count="\{\{ gameplay\.inventory\.items\.size\(\) \}\}"\s+message="\d+"><\/nt-tr>/u,
+    );
+    expect(compiled.rml.text).not.toContain('key="ui.items"');
+    expect(compiled.rml.text).not.toContain('Hello <em>traveler</em>.');
+    expect(result.project.localization.catalogs[0]?.entries.map((entry) => entry.value)).toEqual(
+      expect.arrayContaining(['Hello <em>traveler</em>.', 'Items: {count}']),
+    );
+  });
+
+  it('rejects nested or interactive RML content inside nt-tr', () => {
+    const project = validProject();
+    const nested = defaultLayoutData('Invalid localized HUD', 'document');
+    nested.rml.sourceText = `<rml><head></head><body>
+      <nt-tr>Outer <nt-tr>Inner</nt-tr></nt-tr>
+      <nt-tr><button onclick="act()">Click</button></nt-tr>
+      <nt-tr><nt-case value="one">One</nt-case></nt-tr>
+    </body></rml>`;
+    project.layouts['invalid-localized'] = {
+      id: 'invalid-localized',
+      label: 'Invalid localized HUD',
+      data: nested,
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        'authoring.localization.rml_nested_message',
+        'authoring.localization.rml_unsupported_content',
+        'authoring.localization.rml_inline_case_unsupported',
+      ]),
+    );
+  });
+
   it('reports missing named Message references during semantic validation', () => {
     const project = validProject();
     project.rooms.foyer!.data.description.source = {
