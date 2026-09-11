@@ -403,7 +403,7 @@ nlohmann::json encode_dialogue_position(const DialogueFramePosition& value)
             {"nextEffect", value.next_effect},
             {"awaitingCompletion", value.awaiting_completion},
             {"nextCue", value.next_cue},
-            {"revealOffset", value.reveal_offset},
+            {"revealProgress", value.reveal_progress},
             {"effectCommand", encode_optional_id(value.effect_command)}};
 }
 
@@ -412,7 +412,7 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
 {
     if (!d.object(value, pointer,
                   {"block", "segment", "edge", "stage", "nextEffect", "awaitingCompletion",
-                   "nextCue", "revealOffset", "effectCommand"}))
+                   "nextCue", "revealProgress", "effectCommand"}))
         return std::nullopt;
     const auto* block = d.member(value, "block", pointer);
     const auto* segment = d.member(value, "segment", pointer);
@@ -421,7 +421,7 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
     const auto* effect = d.member(value, "nextEffect", pointer);
     const auto* awaiting = d.member(value, "awaitingCompletion", pointer);
     const auto* next_cue = d.member(value, "nextCue", pointer);
-    const auto* reveal_offset = d.member(value, "revealOffset", pointer);
+    const auto* reveal_progress = d.member(value, "revealProgress", pointer);
     const auto* effect_command = d.member(value, "effectCommand", pointer);
     auto block_id = block ? d.id<DialogueBlockId>(*block, child(pointer, "block")) : std::nullopt;
     auto segment_id = segment
@@ -438,10 +438,10 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
     auto next_cue_index =
         next_cue ? d.unsigned_integer<std::size_t>(*next_cue, child(pointer, "nextCue"))
                  : std::nullopt;
-    auto reveal_value =
-        reveal_offset
-            ? d.unsigned_integer<std::uint64_t>(*reveal_offset, child(pointer, "revealOffset"))
-            : std::nullopt;
+    auto reveal_value = reveal_progress
+                            ? decode_finite_number(d, *reveal_progress,
+                                                   child(pointer, "revealProgress"))
+                            : std::nullopt;
     auto effect_command_id = effect_command ? d.optional_id<InteractionInstructionId>(
                                                   *effect_command, child(pointer, "effectCommand"))
                                             : Decoder::OptionalId<InteractionInstructionId>{};

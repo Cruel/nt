@@ -1,7 +1,7 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
 import { collectAuthoringLuaSources } from '../authoring-source-analysis';
 import { localizationMessageWorkflowViews } from '../authoring-localization-workflow';
-import { structuredMessages } from '../authoring-structured-messages';
+import { dialogueMessageCueUsages, structuredMessages } from '../authoring-structured-messages';
 import { analyzeHookRegistry } from '../hook-registry-analysis';
 import {
   authoringCollectionKeys,
@@ -241,6 +241,23 @@ function validateLocalizationReferences(
       ),
     );
   }
+  const dialogueCueContracts = new Map<string, string>();
+  for (const usage of dialogueMessageCueUsages(project)) {
+    const contract = JSON.stringify(usage.cues);
+    const previous = dialogueCueContracts.get(usage.messageId);
+    if (previous !== undefined && previous !== contract)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          usage.path,
+          'Every Dialogue usage of one Message must use the same source Cue IDs, order, and positions.',
+          'Localization',
+          'localization.dialogue-message.cue-contract-conflict',
+        ),
+      );
+    else dialogueCueContracts.set(usage.messageId, contract);
+  }
+
   const sourceMessages = new Map(
     localizationMessageWorkflowViews(project).map((message) => [message.id, message] as const),
   );
@@ -332,6 +349,63 @@ function validateLocalizationReferences(
               'localization.translation.placeholder-undeclared',
             ),
           );
+
+      if (message.dialogueCues !== undefined) {
+        const targetCues = translation.dialogueCues ?? [];
+        const requiredIds = message.dialogueCues.map((cue) => cue.id);
+        const targetIds = targetCues.map((cue) => cue.id);
+        if (JSON.stringify(targetIds) !== JSON.stringify(requiredIds))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${translationPath}/dialogueCues`,
+              'Translation must preserve every required Dialogue Cue exactly once and in semantic order.',
+              'Localization',
+              'localization.translation.dialogue-cue-contract-mismatch',
+            ),
+          );
+        const textLength = Array.from(translation.text).length;
+        let previous: { offset: number; order: number } | null = null;
+        for (let index = 0; index < targetCues.length; index += 1) {
+          const placement = targetCues[index]!;
+          if (placement.position.offset > textLength)
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `${translationPath}/dialogueCues/${index}/position/offset`,
+                `Dialogue Cue offset ${placement.position.offset} exceeds translated text length ${textLength}.`,
+                'Localization',
+                'localization.translation.dialogue-cue-offset-out-of-range',
+              ),
+            );
+          if (
+            previous &&
+            (placement.position.offset < previous.offset ||
+              (placement.position.offset === previous.offset &&
+                placement.position.order <= previous.order))
+          )
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `${translationPath}/dialogueCues/${index}/position`,
+                'Dialogue Cue placements must remain strictly ordered by offset and order.',
+                'Localization',
+                'localization.translation.dialogue-cue-placement-order',
+              ),
+            );
+          previous = placement.position;
+        }
+      } else if (translation.dialogueCues !== undefined) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${translationPath}/dialogueCues`,
+            'Translation cannot introduce Dialogue Cue placements for a Message without semantic Cues.',
+            'Localization',
+            'localization.translation.dialogue-cue-unexpected',
+          ),
+        );
+      }
     }
   }
 }

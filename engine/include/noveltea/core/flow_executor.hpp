@@ -139,7 +139,7 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     advance_dialogue_reveal(const DialogueId& dialogue,
                             const DialogueFramePosition& expected_position, std::size_t next_cue,
-                            std::uint64_t reveal_offset);
+                            double reveal_progress);
     [[nodiscard]] Result<AudioFlowBlockerHandle, Diagnostics> allocate_audio_completion_handle();
     [[nodiscard]] Result<PresentationFlowBlockerHandle, Diagnostics>
     allocate_presentation_completion_handle();

@@ -5601,6 +5601,71 @@
             "value": "Cue Vocabulary"
           },
           {
+            "dialogueCues": [
+              {
+                "id": "expression",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                }
+              },
+              {
+                "id": "stage",
+                "position": {
+                  "offset": 1,
+                  "order": 0
+                }
+              },
+              {
+                "id": "media",
+                "position": {
+                  "offset": 2,
+                  "order": 0
+                }
+              },
+              {
+                "id": "voice",
+                "position": {
+                  "offset": 3,
+                  "order": 0
+                }
+              },
+              {
+                "id": "gesture",
+                "position": {
+                  "offset": 3,
+                  "order": 1
+                }
+              },
+              {
+                "id": "sound",
+                "position": {
+                  "offset": 4,
+                  "order": 0
+                }
+              },
+              {
+                "id": "camera-shake",
+                "position": {
+                  "offset": 5,
+                  "order": 0
+                }
+              },
+              {
+                "id": "camera-punch",
+                "position": {
+                  "offset": 5,
+                  "order": 1
+                }
+              },
+              {
+                "id": "camera-flash",
+                "position": {
+                  "offset": 5,
+                  "order": 2
+                }
+              }
+            ],
             "messageId": 33,
             "value": "ABCDE"
           },

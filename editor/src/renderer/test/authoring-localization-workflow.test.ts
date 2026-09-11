@@ -12,6 +12,12 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import {
+  defaultDialogueBlock,
+  defaultDialogueData,
+  defaultDialogueSegment,
+} from '../../shared/project-schema/authoring-dialogues';
 
 describe('localization workflow state', () => {
   it('derives linguistic freshness separately from guidance attention', () => {
@@ -71,6 +77,101 @@ describe('localization workflow state', () => {
     const target = localizationTargetWorkflowView(changed, 'fr', updated);
     expect(target.freshness).toBe('current');
     expect(target.attention).toEqual(['presentation']);
+  });
+
+  it('treats source Dialogue Cue movement as presentation attention while preserving target placement', () => {
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    const dialogue = defaultDialogueData('Localized cues');
+    const line = defaultDialogueSegment('line', 'line');
+    line.text = { source: { kind: 'inline', text: 'ABCDE' }, markup: 'active-text' };
+    line.cues = [
+      {
+        id: 'camera',
+        kind: 'camera',
+        position: { offset: 4, order: 0 },
+        emphasis: {
+          kind: 'flash',
+          color: '#ffffff',
+          opacity: 1,
+          durationMs: 100,
+          skippable: true,
+          waitForCompletion: false,
+        },
+      },
+    ];
+    dialogue.blocks = [{ ...defaultDialogueBlock('sequence', 'start'), segments: [line] }];
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
+    const messageId = structuredMessageForPath(
+      project,
+      '/dialogues/intro/data/blocks/@start/segments/@line/text',
+    )!.id;
+    const original = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: {
+        ...createLocalizationTranslation(original, 'ABCDEFGHIJ'),
+        dialogueCues: [{ id: 'camera', position: { offset: 2, order: 0 } }],
+      },
+    };
+
+    const changed = structuredClone(project);
+    const changedLine = changed.dialogues.intro!.data.blocks[0]!;
+    if (changedLine.type !== 'sequence' || changedLine.segments[0]?.type !== 'line') return;
+    changedLine.segments[0].cues[0]!.position.offset = 3;
+    const updated = localizationMessageWorkflowView(changed, messageId)!;
+    const target = localizationTargetWorkflowView(changed, 'fr', updated);
+    expect(target.freshness).toBe('current');
+    expect(target.attention).toEqual(['presentation']);
+    expect(target.translation?.dialogueCues).toEqual([
+      { id: 'camera', position: { offset: 2, order: 0 } },
+    ]);
+  });
+
+  it('projects Dialogue Cue contracts onto named Messages and rejects incompatible reuse', () => {
+    const project = createAuthoringProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f039';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'dialogue.shared.line',
+      source: 'ABCDE',
+    };
+    const dialogue = defaultDialogueData('Named cues');
+    const first = defaultDialogueSegment('line', 'first');
+    first.text = {
+      source: { kind: 'localized', key: 'dialogue.shared.line' },
+      markup: 'active-text',
+    };
+    first.cues = [
+      {
+        id: 'camera',
+        kind: 'camera',
+        position: { offset: 2, order: 0 },
+        emphasis: {
+          kind: 'flash',
+          color: '#ffffff',
+          opacity: 1,
+          durationMs: 100,
+          skippable: true,
+          waitForCompletion: false,
+        },
+      },
+    ];
+    const second = structuredClone(first);
+    second.id = 'second';
+    second.cues[0]!.position.offset = 3;
+    dialogue.blocks = [{ ...defaultDialogueBlock('sequence', 'start'), segments: [first, second] }];
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
+
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    expect(view.dialogueCues).toEqual([{ id: 'camera', position: { offset: 2, order: 0 } }]);
+    expect(createLocalizationTranslation(view, 'Traduit').dialogueCues).toEqual([
+      { id: 'camera', position: { offset: 2, order: 0 } },
+    ]);
+    expect(validateAuthoringProject(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'localization.dialogue-message.cue-contract-conflict' }),
+      ]),
+    );
   });
 
   it('inherits sparse whole-Message targets across locale chains and preserves explicit use-source intent', () => {

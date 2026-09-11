@@ -49,6 +49,9 @@ public:
     [[nodiscard]] const std::vector<compiled::MessageArgumentDefinition>*
     argument_definitions(MessageId message_id) const noexcept;
 
+    [[nodiscard]] const compiled::LocalizationEntry*
+    resolved_entry(MessageId message_id, std::string_view locale) const noexcept;
+
     [[nodiscard]] std::optional<RealizedMessage>
     realize(const MessageRealizationRequest& request) const;
 

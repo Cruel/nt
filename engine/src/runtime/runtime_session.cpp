@@ -2,6 +2,7 @@
 
 #include "noveltea/runtime/runtime_executor.hpp"
 
+#include "noveltea/core/message_realization.hpp"
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 
 #include <algorithm>
@@ -15,6 +16,83 @@ namespace noveltea::runtime {
 namespace {
 
 template<class> inline constexpr bool always_false = false;
+
+std::uint64_t utf8_codepoint_count(std::string_view value) noexcept
+{
+    std::uint64_t count = 0;
+    for (const unsigned char byte : value)
+        if ((byte & 0xc0u) != 0x80u)
+            ++count;
+    return count;
+}
+
+core::DialogueCueId dialogue_cue_id(const core::compiled::DialogueSemanticCue& cue)
+{
+    return std::visit([](const auto& value) { return value.id; }, cue);
+}
+
+const core::compiled::DialogueLineSegment*
+find_dialogue_line(const core::CompiledProject& project, const core::DialogueFrame& frame)
+{
+    if (!frame.position.segment)
+        return nullptr;
+    const auto* dialogue = project.find_dialogue(frame.dialogue);
+    if (!dialogue)
+        return nullptr;
+    for (const auto& candidate : dialogue->program.blocks) {
+        const auto* sequence = std::get_if<core::compiled::DialogueSequenceBlock>(&candidate);
+        if (!sequence || sequence->id != frame.position.block)
+            continue;
+        for (const auto& segment : sequence->segments) {
+            const auto* line = std::get_if<core::compiled::DialogueLineSegment>(&segment);
+            if (line && line->id == *frame.position.segment)
+                return line;
+        }
+    }
+    return nullptr;
+}
+
+const core::compiled::ShowTextInstruction*
+find_scene_text(const core::CompiledProject& project, const core::SceneFrame& frame)
+{
+    if (!frame.position.next_step ||
+        !std::holds_alternative<core::SceneInstructionCompletionPosition>(frame.position.substate))
+        return nullptr;
+    const auto* scene = project.find_scene(frame.scene);
+    if (!scene)
+        return nullptr;
+    for (const auto& instruction : scene->program.instructions) {
+        const auto* text = std::get_if<core::compiled::ShowTextInstruction>(&instruction);
+        if (text && text->id == *frame.position.next_step)
+            return text;
+    }
+    return nullptr;
+}
+
+double dialogue_cue_progress(const core::compiled::DialogueLineSegment& line,
+                             const core::compiled::DialogueSemanticCue& cue,
+                             const core::CompiledProject& project, std::string_view locale,
+                             std::string_view realized_text)
+{
+    std::uint64_t offset = std::visit([](const auto& value) { return value.position.offset; }, cue);
+    if (const auto* message = std::get_if<core::MessageRef>(&line.text.source)) {
+        const core::MessageRealizer realizer(project.localization());
+        if (const auto* entry = realizer.resolved_entry(message->id, locale)) {
+            const auto id = dialogue_cue_id(cue);
+            const auto placement = std::ranges::find_if(
+                entry->dialogue_cues,
+                [&](const core::compiled::LocalizedDialogueCuePlacement& candidate) {
+                    return candidate.id == id;
+                });
+            if (placement != entry->dialogue_cues.end())
+                offset = placement->offset;
+        }
+    }
+    const auto length = utf8_codepoint_count(realized_text);
+    if (length == 0)
+        return 0.0;
+    return std::clamp(static_cast<double>(offset) / static_cast<double>(length), 0.0, 1.0);
+}
 
 bool has_blocking_diagnostic(const core::Diagnostics& diagnostics) noexcept
 {
@@ -1433,7 +1511,7 @@ core::Diagnostics RuntimeSession::complete_presentation(
         if (cancel)
             return {};
         return advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
-            wait.frame, wait.dialogue, wait.segment, wait.target_offset, wait.skipping});
+            wait.frame, wait.dialogue, wait.segment, wait.target_progress, wait.skipping});
     }
     auto result = cancel ? m_kernel->cancel(owner, core::AnyFlowBlockerHandle{completion})
                          : m_kernel->complete(owner, core::AnyFlowBlockerHandle{completion});
@@ -1478,7 +1556,7 @@ core::Diagnostics RuntimeSession::complete_audio(core::AudioOperationId operatio
             if (cancel)
                 return {};
             return advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
-                wait.frame, wait.dialogue, wait.segment, wait.target_offset, wait.skipping});
+                wait.frame, wait.dialogue, wait.segment, wait.target_progress, wait.skipping});
         }
     }
     m_pending_audio.reset();
@@ -1523,9 +1601,10 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
         frame->position.stage != core::DialogueFramePosition::Stage::ApplySegmentEffects)
         return {diagnostic("runtime.stale_dialogue_reveal",
                            "Dialogue reveal progress targets a stale line occurrence")};
-    if (input.offset < frame->position.reveal_offset)
+    if (!std::isfinite(input.progress) || input.progress < 0.0 || input.progress > 1.0 ||
+        input.progress < frame->position.reveal_progress)
         return {diagnostic("runtime.invalid_dialogue_reveal_progress",
-                           "Dialogue reveal progress must be monotonic")};
+                           "Dialogue reveal progress must be finite, normalized, and monotonic")};
 
     const auto* dialogue = m_project.find_dialogue(frame->dialogue);
     if (dialogue == nullptr)
@@ -1556,13 +1635,16 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
     const auto speaker = line->speaker ? line->speaker
                                        : (sequence->default_speaker ? sequence->default_speaker
                                                                     : dialogue->default_speaker);
+    const auto realized_text = m_kernel->state().presented_text()
+                                   ? std::string_view{m_kernel->state().presented_text()->text}
+                                   : std::string_view{};
 
     while (frame->position.next_cue < line->cues.size()) {
         const std::size_t cue_index = frame->position.next_cue;
         const auto& cue = line->cues[cue_index];
-        const auto cue_offset =
-            std::visit([](const auto& value) { return value.position.offset; }, cue);
-        if (cue_offset > input.offset)
+        const auto cue_progress =
+            dialogue_cue_progress(*line, cue, m_project, m_runtime_locale, realized_text);
+        if (cue_progress > input.progress)
             break;
 
         const bool suppress = std::visit(
@@ -1601,7 +1683,7 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
         const auto before = frame->position;
         auto advanced = m_kernel->flow().advance_dialogue_reveal(
             frame->dialogue, before, cue_index + 1,
-            std::max(frame->position.reveal_offset, cue_offset));
+            std::max(frame->position.reveal_progress, cue_progress));
         if (!advanced)
             return std::move(advanced).error();
         record_structural_mutation();
@@ -1646,7 +1728,7 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
             if (completion) {
                 m_pending_audio = operation;
                 m_dialogue_audio_wait = DialogueAudioWait{
-                    {frame->frame_id, frame->dialogue, input.segment, input.offset, input.skipping},
+                    {frame->frame_id, frame->dialogue, input.segment, input.progress, input.skipping},
                     *completion};
                 return {};
             }
@@ -1686,7 +1768,7 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
             if (completion) {
                 m_pending_audio = operation;
                 m_dialogue_audio_wait = DialogueAudioWait{
-                    {frame->frame_id, frame->dialogue, input.segment, input.offset, input.skipping},
+                    {frame->frame_id, frame->dialogue, input.segment, input.progress, input.skipping},
                     *completion};
                 return {};
             }
@@ -1790,15 +1872,15 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
             m_pending_presentation =
                 PendingPresentationCompletion{operation_id, frame->frame_id, *completion, false};
             m_dialogue_presentation_wait = DialoguePresentationWait{
-                {frame->frame_id, frame->dialogue, input.segment, input.offset, input.skipping},
+                {frame->frame_id, frame->dialogue, input.segment, input.progress, input.skipping},
                 *completion};
             return {};
         }
     }
 
-    if (frame->position.reveal_offset < input.offset) {
+    if (frame->position.reveal_progress < input.progress) {
         auto advanced = m_kernel->flow().advance_dialogue_reveal(
-            frame->dialogue, frame->position, frame->position.next_cue, input.offset);
+            frame->dialogue, frame->position, frame->position.next_cue, input.progress);
         if (!advanced)
             return std::move(advanced).error();
         record_structural_mutation();
@@ -2448,13 +2530,55 @@ RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
     }
 
     const auto previous_locale = m_runtime_locale;
+    const auto previous_presented_text = m_kernel->state().presented_text();
     m_dispatch_active = true;
     m_transaction_budget_outcome = {};
     m_session_replacement_request.reset();
     m_runtime_locale = std::move(locale);
+
+    if (!m_kernel->state().flow_stack().empty()) {
+        auto refresh_presented_message = [&](const core::TextSource& source) {
+            if (!std::holds_alternative<core::MessageRef>(source))
+                return;
+            auto realized = m_kernel->resolve(source, m_runtime_locale);
+            if (!realized) {
+                core::append_diagnostics(result.diagnostics,
+                                         as_diagnostics(std::move(realized).error()));
+                return;
+            }
+            const auto* text = realized.value_if();
+            auto presented = m_kernel->state().presented_text();
+            if (!text || !presented)
+                return;
+            presented->text = *text;
+            auto refreshed = m_kernel->state().present_text(m_project, *presented);
+            if (!refreshed)
+                core::append_diagnostics(result.diagnostics, std::move(refreshed).error());
+        };
+
+        if (auto* frame = std::get_if<core::DialogueFrame>(&m_kernel->state().flow_stack().back())) {
+            const auto* line = find_dialogue_line(m_project, *frame);
+            if (line && frame->position.stage == core::DialogueFramePosition::Stage::ApplySegmentEffects) {
+                refresh_presented_message(line->text.source);
+                if (result.diagnostics.empty()) {
+                    core::append_diagnostics(
+                        result.diagnostics,
+                        advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
+                            frame->frame_id, frame->dialogue, *frame->position.segment,
+                            frame->position.reveal_progress, false}));
+                }
+            }
+        } else if (const auto* frame =
+                       std::get_if<core::SceneFrame>(&m_kernel->state().flow_stack().back())) {
+            if (const auto* text = find_scene_text(m_project, *frame))
+                refresh_presented_message(text->text.source);
+        }
+    }
+
     m_force_publication = true;
     WorkResult work;
-    project_publication(work, result);
+    if (result.diagnostics.empty())
+        project_publication(work, result);
     core::append_diagnostics(result.diagnostics, settle_transaction());
     result.events = std::move(work.events);
     if (result.publication)
@@ -2462,6 +2586,8 @@ RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
             m_checkpoint_service.observation(m_kernel->state()));
     if (!result.diagnostics.empty()) {
         m_runtime_locale = previous_locale;
+        if (previous_presented_text)
+            (void)m_kernel->state().present_text(m_project, *previous_presented_text);
         m_force_publication = true;
         result.publication.reset();
         result.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -2619,7 +2745,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                     advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
                                         dialogue->frame_id, dialogue->dialogue,
                                         *dialogue->position.segment,
-                                        std::numeric_limits<std::uint64_t>::max(), true});
+                                        1.0, true});
                                 if (!result.diagnostics.empty() || m_dialogue_audio_wait ||
                                     m_dialogue_presentation_wait)
                                     return;
@@ -2681,7 +2807,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
                                     dialogue->frame_id, dialogue->dialogue,
                                     *dialogue->position.segment,
-                                    std::numeric_limits<std::uint64_t>::max(), true});
+                                    1.0, true});
                             if (!result.diagnostics.empty() || m_dialogue_audio_wait ||
                                 m_dialogue_presentation_wait)
                                 return;

@@ -1696,6 +1696,33 @@ private:
                       "Default locale must be Supported.", "/localization/defaultLocale");
         }
 
+        const auto validate_dialogue_cues = [&](const LocalizationEntry& entry,
+                                                const std::string& entry_path) {
+            std::uint64_t text_length = 0;
+            for (const unsigned char byte : entry.value)
+                if ((byte & 0xc0u) != 0x80u)
+                    ++text_length;
+            std::optional<std::pair<std::uint64_t, std::uint64_t>> previous;
+            std::unordered_set<DialogueCueId> ids;
+            for (std::size_t cue_index = 0; cue_index < entry.dialogue_cues.size(); ++cue_index) {
+                const auto& cue = entry.dialogue_cues[cue_index];
+                const auto cue_path = entry_path + "/dialogueCues/" + std::to_string(cue_index);
+                if (!ids.insert(cue.id).second)
+                    error("compiled_project.duplicate_dialogue_cue_placement",
+                          "Localized Dialogue Cue placement IDs must be unique.", cue_path + "/id");
+                if (cue.offset > text_length)
+                    error("compiled_project.invalid_dialogue_cue_placement",
+                          "Localized Dialogue Cue offset exceeds Message text length.",
+                          cue_path + "/position/offset");
+                const auto current = std::pair{cue.offset, cue.order};
+                if (previous && current <= *previous)
+                    error("compiled_project.invalid_dialogue_cue_placement",
+                          "Localized Dialogue Cue placements must be strictly ordered.",
+                          cue_path + "/position");
+                previous = current;
+            }
+        };
+
         const auto* source_catalog = catalog_for(m_input.localization.source_locale);
         if (!source_catalog)
             error("compiled_project.unresolved_localization",
@@ -1722,6 +1749,7 @@ private:
                 const auto entry_path =
                     "/localization/catalogs/source/entries/" + std::to_string(entry_index);
                 validate_pattern(entry, entry_path, m_input.localization.source_locale);
+                validate_dialogue_cues(entry, entry_path);
                 const auto placeholders =
                     entry.pattern ? pattern_placeholders(entry) : message_placeholders(entry.value);
                 for (const auto& placeholder : placeholders)
@@ -1793,6 +1821,16 @@ private:
                               "Localized Message argument contract must match the source Message.",
                               entry_path + "/arguments");
                     validate_pattern(entry, entry_path, catalog.locale);
+                    validate_dialogue_cues(entry, entry_path);
+                    if (entry.dialogue_cues.size() != source_entry->dialogue_cues.size() ||
+                        !std::equal(entry.dialogue_cues.begin(), entry.dialogue_cues.end(),
+                                    source_entry->dialogue_cues.begin(),
+                                    [](const auto& target, const auto& source) {
+                                        return target.id == source.id;
+                                    }))
+                        error("compiled_project.invalid_dialogue_cue_contract",
+                              "Localized Dialogue Cue placements must preserve source Cue IDs and semantic order.",
+                              entry_path + "/dialogueCues");
                     if (entry.pattern.has_value() != source_entry->pattern.has_value())
                         error("compiled_project.invalid_message_pattern",
                               "Localized Message pattern presence must match the source Message.",

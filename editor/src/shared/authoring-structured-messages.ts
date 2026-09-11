@@ -1,5 +1,7 @@
 import type { AuthoringProject } from './project-schema/authoring-project';
 import type { TextContent } from './project-schema/authoring-flow';
+import { parseDialogueData } from './project-schema/authoring-dialogues';
+import type { DialogueCuePlacement } from './project-schema/authoring-localization';
 import {
   resolveArchetypeConfiguration,
   resolveGameplayInstanceRecord,
@@ -12,6 +14,13 @@ export interface StructuredMessageOccurrence {
   sourcePath: string | null;
   usageNote: string;
   text?: TextContent;
+  dialogueCues?: readonly DialogueCuePlacement[];
+}
+
+export interface DialogueMessageCueUsage {
+  messageId: string;
+  path: string;
+  cues: readonly DialogueCuePlacement[];
 }
 
 interface StructuredMessageIndex {
@@ -165,6 +174,29 @@ function buildIndex(project: AuthoringProject): StructuredMessageIndex {
       const base = `/${collection}/${escapePointer(recordId)}/data`;
       registerTopLevelStrings(record.data, base);
       visit(record.data, base);
+      if (collection === 'dialogues') {
+        const dialogue = parseDialogueData(record.data);
+        if (!dialogue) continue;
+        for (const block of dialogue.blocks) {
+          if (block.type !== 'sequence') continue;
+          for (const segment of block.segments) {
+            if (segment.type !== 'line') continue;
+            const textPath = `${base}/blocks/@${escapePointer(block.id)}/segments/@${escapePointer(segment.id)}/text`;
+            const occurrence = byPath.get(textPath);
+            if (!occurrence) continue;
+            const dialogueCues = segment.cues
+              .filter((cue) => cue.kind !== 'active-text' && cue.kind !== 'invalid-markup')
+              .map((cue) => ({ id: cue.id, position: { ...cue.position } }))
+              .sort(
+                (left, right) =>
+                  left.position.offset - right.position.offset ||
+                  left.position.order - right.position.order ||
+                  left.id.localeCompare(right.id),
+              );
+            if (dialogueCues.length > 0) occurrence.dialogueCues = Object.freeze(dialogueCues);
+          }
+        }
+      }
     }
   }
   for (const [archetypeId] of Object.entries(project.archetypes)) {
@@ -215,6 +247,60 @@ export function structuredMessageForPath(
 ): StructuredMessageOccurrence | null {
   structuredMessages(project);
   return indexCache.get(project)?.byPath.get(path) ?? null;
+}
+
+export function dialogueMessageCueUsages(
+  project: AuthoringProject,
+): readonly DialogueMessageCueUsage[] {
+  structuredMessages(project);
+  const namedIds = new Map(
+    Object.entries(project.localization.messages).flatMap(([messageId, message]) =>
+      message.kind === 'named' ? [[message.key, messageId] as const] : [],
+    ),
+  );
+  const usages: DialogueMessageCueUsage[] = [];
+  for (const [dialogueId, record] of Object.entries(project.dialogues)) {
+    const dialogue = parseDialogueData(record.data);
+    if (!dialogue) continue;
+    const base = `/dialogues/${escapePointer(dialogueId)}/data`;
+    for (const block of dialogue.blocks) {
+      if (block.type !== 'sequence') continue;
+      for (const segment of block.segments) {
+        if (segment.type !== 'line') continue;
+        const path = `${base}/blocks/@${escapePointer(block.id)}/segments/@${escapePointer(segment.id)}/text`;
+        const messageId =
+          segment.text.source.kind === 'inline'
+            ? indexCache.get(project)?.byPath.get(path)?.id
+            : segment.text.source.kind === 'localized'
+              ? namedIds.get(segment.text.source.key)
+              : undefined;
+        if (!messageId) continue;
+        const cues = Object.freeze(
+          segment.cues
+            .filter((cue) => cue.kind !== 'active-text' && cue.kind !== 'invalid-markup')
+            .map((cue) => ({ id: cue.id, position: { ...cue.position } }))
+            .sort(
+              (left, right) =>
+                left.position.offset - right.position.offset ||
+                left.position.order - right.position.order ||
+                left.id.localeCompare(right.id),
+            ),
+        );
+        usages.push({ messageId, path, cues });
+      }
+    }
+  }
+  return Object.freeze(usages.sort((left, right) => left.path.localeCompare(right.path)));
+}
+
+export function dialogueMessageCueContracts(
+  project: AuthoringProject,
+): ReadonlyMap<string, readonly DialogueCuePlacement[]> {
+  const contracts = new Map<string, readonly DialogueCuePlacement[]>();
+  for (const usage of dialogueMessageCueUsages(project))
+    if (usage.cues.length > 0 && !contracts.has(usage.messageId))
+      contracts.set(usage.messageId, usage.cues);
+  return contracts;
 }
 
 export function resolveStructuredMessageText(

@@ -38,6 +38,7 @@ import {
 import {
   namedMessageKeySchema,
   type AuthoringMessage,
+  type LocalizationTranslation,
 } from '../../../shared/project-schema/authoring-localization';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -594,6 +595,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     }
     if (existing?.text === value) return;
     const translation = createLocalizationTranslation(view, value, 'human');
+    if (existing?.dialogueCues !== undefined)
+      translation.dialogueCues = existing.dialogueCues.map((cue) => structuredClone(cue));
     if (!localeTranslations) {
       run(`Translate Message to ${locale}`, [
         { op: 'add', path: localePath, value: { [view.id]: translation } },
@@ -603,6 +606,49 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     run(`Translate Message to ${locale}`, [
       { op: existing === undefined ? 'add' : 'replace', path: messagePath, value: translation },
     ]);
+  }
+
+  function setDialogueCuePosition(
+    view: MessageView,
+    cueId: string,
+    field: 'offset' | 'order',
+    value: number,
+  ) {
+    const locale = effectiveTargetLocale;
+    const existing = localization.translations[locale]?.[view.id];
+    if (!locale || !existing || existing.useSource || !view.dialogueCues) return;
+    const cues = (existing.dialogueCues ?? view.dialogueCues).map((cue) => structuredClone(cue));
+    const index = cues.findIndex((cue) => cue.id === cueId);
+    if (index < 0) return;
+    if (cues[index]!.position[field] === value && existing.dialogueCues !== undefined) return;
+    cues[index]!.position[field] = value;
+    const path = `${translationRecordPath(locale, view.id)}/dialogueCues`;
+    run(`Place ${locale} Dialogue Cue`, [
+      { op: existing.dialogueCues === undefined ? 'add' : 'replace', path, value: cues },
+    ]);
+  }
+
+  function dialogueCuesReviewable(view: MessageView, translation: LocalizationTranslation) {
+    if (!view.dialogueCues) return translation.dialogueCues === undefined;
+    const cues = translation.dialogueCues ?? [];
+    if (
+      cues.length !== view.dialogueCues.length ||
+      cues.some((cue, index) => cue.id !== view.dialogueCues![index]?.id)
+    )
+      return false;
+    const textLength = Array.from(translation.text).length;
+    let previous: { offset: number; order: number } | null = null;
+    for (const cue of cues) {
+      if (cue.position.offset > textLength) return false;
+      if (
+        previous &&
+        (cue.position.offset < previous.offset ||
+          (cue.position.offset === previous.offset && cue.position.order <= previous.order))
+      )
+        return false;
+      previous = cue.position;
+    }
+    return true;
   }
 
   function acceptTranslation(view: MessageView) {
@@ -622,7 +668,13 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   function reviewTranslation(view: MessageView) {
     const locale = effectiveTargetLocale;
     const existing = localization.translations[locale]?.[view.id];
-    if (!locale || !existing || existing.sourceFingerprint !== view.sourceFingerprint) return;
+    if (
+      !locale ||
+      !existing ||
+      existing.sourceFingerprint !== view.sourceFingerprint ||
+      !dialogueCuesReviewable(view, existing)
+    )
+      return;
     const path = translationRecordPath(locale, view.id);
     run(`Review ${locale} translation`, [
       {
@@ -1770,6 +1822,89 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             disabled={effective.inherited || translation?.useSource}
                             onBlur={(event) => setTranslation(view, event.currentTarget.value)}
                           />
+                          {view.dialogueCues &&
+                            view.dialogueCues.length > 0 &&
+                            translation &&
+                            !translation.useSource && (
+                              <div className="space-y-2 rounded-md border p-2">
+                                <div className="text-xs font-medium text-muted-foreground">
+                                  Dialogue Cue placements
+                                </div>
+                                {view.dialogueCues.map((sourceCue) => {
+                                  const cue =
+                                    translation.dialogueCues?.find(
+                                      (candidate) => candidate.id === sourceCue.id,
+                                    ) ?? sourceCue;
+                                  return (
+                                    <div
+                                      key={`${sourceCue.id}:${cue.position.offset}:${cue.position.order}`}
+                                      className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem] items-end gap-2"
+                                    >
+                                      <div
+                                        className="min-w-0 truncate text-xs"
+                                        title={sourceCue.id}
+                                      >
+                                        {sourceCue.id}
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-[11px]">Offset</Label>
+                                        <Input
+                                          type="number"
+                                          min={0}
+                                          step={1}
+                                          aria-label={`Cue ${sourceCue.id} offset`}
+                                          defaultValue={cue.position.offset}
+                                          disabled={effective.inherited || !localTranslation}
+                                          onBlur={(event) => {
+                                            const value = Number.parseInt(
+                                              event.currentTarget.value,
+                                              10,
+                                            );
+                                            if (Number.isInteger(value) && value >= 0)
+                                              setDialogueCuePosition(
+                                                view,
+                                                sourceCue.id,
+                                                'offset',
+                                                value,
+                                              );
+                                          }}
+                                        />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-[11px]">Order</Label>
+                                        <Input
+                                          type="number"
+                                          min={0}
+                                          step={1}
+                                          aria-label={`Cue ${sourceCue.id} order`}
+                                          defaultValue={cue.position.order}
+                                          disabled={effective.inherited || !localTranslation}
+                                          onBlur={(event) => {
+                                            const value = Number.parseInt(
+                                              event.currentTarget.value,
+                                              10,
+                                            );
+                                            if (Number.isInteger(value) && value >= 0)
+                                              setDialogueCuePosition(
+                                                view,
+                                                sourceCue.id,
+                                                'order',
+                                                value,
+                                              );
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {!dialogueCuesReviewable(view, translation) && (
+                                  <p className="text-xs text-destructive">
+                                    Cue placements must preserve every Cue in semantic order and
+                                    stay within the translated text.
+                                  </p>
+                                )}
+                              </div>
+                            )}
                           <div className="flex flex-wrap gap-2 pt-1">
                             {effective.inherited && (
                               <Button
@@ -1819,7 +1954,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                   variant="outline"
                                   disabled={
                                     translation.sourceFingerprint !== view.sourceFingerprint ||
-                                    translation.review === 'reviewed'
+                                    translation.review === 'reviewed' ||
+                                    !dialogueCuesReviewable(view, translation)
                                   }
                                   onClick={() => reviewTranslation(view)}
                                 >

@@ -75,6 +75,8 @@ private:
     assets::AssetSourceGeneration m_font_generation;
     ActiveTextLayout m_layout;
     std::string m_content_key;
+    std::string m_realization_key;
+    double m_overall_reveal_progress = 0.0;
     double m_time_seconds = 0.0;
     bool m_direct_render_enabled = true;
 };

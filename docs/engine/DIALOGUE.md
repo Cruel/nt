@@ -42,8 +42,11 @@ A Line contains typed text, an optional Character speaker override, ordered type
 optional typed Condition, an ordered shared Gameplay Command effect program, show-once policy,
 logging policy, and an
 autosave-safe-point flag. Speaker resolution is line override, then Sequence-block default, then
-Dialogue default. Cue IDs are stable within the Dialogue. Every cue has a Unicode code-point text
-offset plus an explicit order for deterministic same-position sequencing.
+Dialogue default. Cue IDs and semantic ordering are stable within the Dialogue. The source Line stores
+Unicode code-point positions plus explicit same-position order. Localized Message realizations may
+replace those positions per locale while preserving the exact required Cue IDs and semantic order;
+translations with missing, duplicate, reordered, or out-of-range placements remain editable but
+cannot be Reviewed.
 
 The cue stream has distinct typed classes for ActiveText presentation tokens and semantic Dialogue
 cues. Semantic cues cover speaker Expression changes, Stage mutations, Media mutations, Character
@@ -183,11 +186,15 @@ program ends.
 
 Each Dialogue frame initializes every Stage/Media Slot from the immutable definition, including a
 direct Dialogue entrypoint with no Scene caller. Semantic line cues are compiled in position/order
-sequence and crossed in that deterministic cross-type order as ActiveText reveal reaches each Unicode
-code-point position. RuntimeUI reports reveal progress through one typed runtime input carrying the
-exact Dialogue frame, segment, logical offset, and whether the advance is a skip. The runtime cursor
-advances a cue before issuing its external one-shot/finite operation, so replayed progress,
-completion, cancellation, and checkpoint reconstruction cannot execute the same cue twice.
+sequence and crossed in that deterministic cross-type order as ActiveText reveal reaches each
+locale-resolved Cue position. RuntimeUI reports a normalized overall reveal fraction through one typed
+runtime input carrying the exact Dialogue frame, segment, and whether the advance is a skip. Runtime
+maps each pending semantic Cue through the active Message realization instead of persisting a
+locale-specific text offset. The runtime cursor advances a Cue before issuing its external
+one-shot/finite operation, so replayed progress, locale replacement, completion, cancellation, and
+checkpoint reconstruction cannot execute the same Cue twice. If a locale change moves a pending Cue
+behind the preserved normalized reveal fraction, it becomes due immediately and is crossed exactly
+once under the new realization.
 
 Stage/Media mutations and speaker Expression changes commit through `FlowExecutor`. Gesture cues use
 the semantic Character Gesture presentation operation from `CHARACTER.md`; Voice/SFX use typed Audio
@@ -258,6 +265,6 @@ tests/core/save_state_tests.cpp
 
 - **Authoring:** collection-specific graph record with strict blocks/segments/edges, Stage/Media Slot declarations, positioned typed Line cues, entry block, settings, and completion target. ActiveText/semantic source markup is a reversible view over the same cue array.
 - **Compiled:** linked immutable `DialogueDefinition`/`DialogueProgram` with Stage/Media Slot defaults, ordered semantic Line cues including Voice/SFX/Gesture/Camera policy, ActiveText-only runtime text, redirects, ordered choices, and safe points. The already-selected compiled-project schema version remains unchanged. The current-version wire shape requires the #93 Stage/Media Slot arrays and the positioned `cues` array; the replaced same-version Line `presentation` shape is rejected rather than treated as compatibility input.
-- **Mutable:** Dialogue frame cursor including `nextCue`/`revealOffset`, retained Stage/Media Slot values, show-once/history/visit state, and waits in `SessionState`; the Dialogue definition itself has no Property/Trait state. Stage/Media Slot state and the logical cue cursor are serialized with the Dialogue frame and semantically revalidated against immutable Character/Asset/Slot/cue content during save decode/restore. External cue realization state is never saved.
+- **Mutable:** Dialogue frame cursor including semantic `nextCue` plus normalized `revealProgress`, retained Stage/Media Slot values, show-once/history/visit state, and waits in `SessionState`; the Dialogue definition itself has no Property/Trait state. Stage/Media Slot state and the locale-neutral cue cursor/progress are serialized with the Dialogue frame and semantically revalidated against immutable Character/Asset/Slot/cue content during save decode/restore. Locale-specific Cue offsets and external cue realization state are never saved.
 - **Tooling only:** graph coordinates, viewport, selection, collapsed state, preview settings,
   Comment blocks/segments, categories, tags, colors, and sort keys.

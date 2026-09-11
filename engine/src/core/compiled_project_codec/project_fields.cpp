@@ -298,9 +298,9 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                     [&](const nlohmann::json& entry,
                                         const std::string& entry_pointer)
                                         -> std::optional<LocalizationEntry> {
-                                        if (!decoder.object(
-                                                entry, entry_pointer,
-                                                {"arguments", "messageId", "pattern", "value"}))
+                                        if (!decoder.object(entry, entry_pointer,
+                                                            {"arguments", "dialogueCues",
+                                                             "messageId", "pattern", "value"}))
                                             return std::nullopt;
                                         const auto* id_value =
                                             decoder.member(entry, "messageId", entry_pointer);
@@ -313,6 +313,10 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                         const auto* pattern_value =
                                             entry.contains("pattern")
                                                 ? decoder.member(entry, "pattern", entry_pointer)
+                                                : nullptr;
+                                        const auto* dialogue_cues_value =
+                                            entry.contains("dialogueCues")
+                                                ? decoder.member(entry, "dialogueCues", entry_pointer)
                                                 : nullptr;
                                         auto message_id =
                                             id_value ? decoder.unsigned_integer<MessageId>(
@@ -392,10 +396,80 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                             if (!pattern)
                                                 return std::nullopt;
                                         }
-                                        if (message_id && text && arguments)
+                                        std::optional<std::vector<LocalizedDialogueCuePlacement>>
+                                            dialogue_cues{
+                                                std::vector<LocalizedDialogueCuePlacement>{}};
+                                        if (dialogue_cues_value) {
+                                            dialogue_cues =
+                                                decoder.array<LocalizedDialogueCuePlacement>(
+                                                    *dialogue_cues_value,
+                                                    pointer_child(entry_pointer, "dialogueCues"),
+                                                    [&](const nlohmann::json& placement,
+                                                        const std::string& placement_pointer)
+                                                        -> std::optional<
+                                                            LocalizedDialogueCuePlacement> {
+                                                        if (!decoder.object(placement,
+                                                                            placement_pointer,
+                                                                            {"id", "position"}))
+                                                            return std::nullopt;
+                                                        const auto* cue_id_value = decoder.member(
+                                                            placement, "id", placement_pointer);
+                                                        const auto* position_value = decoder.member(
+                                                            placement, "position",
+                                                            placement_pointer);
+                                                        auto cue_id =
+                                                            cue_id_value
+                                                                ? decoder.id<DialogueCueId>(
+                                                                      *cue_id_value,
+                                                                      pointer_child(
+                                                                          placement_pointer, "id"))
+                                                                : std::nullopt;
+                                                        if (!position_value ||
+                                                            !decoder.object(*position_value,
+                                                                            pointer_child(
+                                                                                placement_pointer,
+                                                                                "position"),
+                                                                            {"offset", "order"}))
+                                                            return std::nullopt;
+                                                        const auto position_pointer = pointer_child(
+                                                            placement_pointer, "position");
+                                                        const auto* offset_value = decoder.member(
+                                                            *position_value, "offset",
+                                                            position_pointer);
+                                                        const auto* order_value = decoder.member(
+                                                            *position_value, "order",
+                                                            position_pointer);
+                                                        auto offset =
+                                                            offset_value
+                                                                ? decoder.unsigned_integer<
+                                                                      std::uint64_t>(
+                                                                      *offset_value,
+                                                                      pointer_child(
+                                                                          position_pointer,
+                                                                          "offset"))
+                                                                : std::nullopt;
+                                                        auto order =
+                                                            order_value
+                                                                ? decoder.unsigned_integer<
+                                                                      std::uint64_t>(
+                                                                      *order_value,
+                                                                      pointer_child(
+                                                                          position_pointer,
+                                                                          "order"))
+                                                                : std::nullopt;
+                                                        return cue_id && offset && order
+                                                                   ? std::optional{
+                                                                         LocalizedDialogueCuePlacement{
+                                                                             *cue_id, *offset,
+                                                                             *order}}
+                                                                   : std::nullopt;
+                                                    });
+                                        }
+                                        if (message_id && text && arguments && dialogue_cues)
                                             return LocalizationEntry{*message_id, std::move(*text),
                                                                      std::move(*arguments),
-                                                                     std::move(pattern)};
+                                                                     std::move(pattern),
+                                                                     std::move(*dialogue_cues)};
                                         return std::nullopt;
                                     })
                               : std::nullopt;

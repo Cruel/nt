@@ -2659,6 +2659,7 @@ core::Result<core::SceneView, core::Diagnostics> RuntimeExecutor::scene_view() c
             background = candidate.background;
     }
     core::SceneView view{.scene = frame->scene,
+                         .text_step = m_state.presented_text() ? frame->position.next_step : std::nullopt,
                          .background = std::move(background),
                          .actors = {},
                          .text = m_state.presented_text(),

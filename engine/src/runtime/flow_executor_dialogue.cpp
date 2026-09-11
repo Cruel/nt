@@ -1,6 +1,7 @@
 #include "noveltea/core/flow_executor.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <utility>
 
@@ -329,7 +330,7 @@ FlowExecutor::apply_dialogue_cues(const DialogueId& dialogue,
 Result<void, Diagnostics>
 FlowExecutor::advance_dialogue_reveal(const DialogueId& dialogue,
                                       const DialogueFramePosition& expected_position,
-                                      std::size_t next_cue, std::uint64_t reveal_offset)
+                                      std::size_t next_cue, double reveal_progress)
 {
     if (m_state.m_execution_fault)
         return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
@@ -339,11 +340,12 @@ FlowExecutor::advance_dialogue_reveal(const DialogueId& dialogue,
     if (frame == nullptr || frame->dialogue != dialogue || frame->position != expected_position)
         return fail(execution_error("execution.stale_dialogue_position",
                                     "Dialogue reveal progress does not match the active position"));
-    if (next_cue < frame->position.next_cue || reveal_offset < frame->position.reveal_offset)
+    if (!std::isfinite(reveal_progress) || reveal_progress < frame->position.reveal_progress ||
+        reveal_progress < 0.0 || reveal_progress > 1.0 || next_cue < frame->position.next_cue)
         return fail(execution_error("execution.invalid_dialogue_reveal_progress",
-                                    "Dialogue reveal progress must be monotonic"));
+                                    "Dialogue reveal progress must be finite, normalized, and monotonic"));
     frame->position.next_cue = next_cue;
-    frame->position.reveal_offset = reveal_offset;
+    frame->position.reveal_progress = reveal_progress;
     return Result<void, Diagnostics>::success();
 }
 

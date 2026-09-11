@@ -126,8 +126,12 @@ leaves the previous active locale authoritative. The repository-owned RmlUi exte
 `SetFallbackFontFamilies(...)`, which replaces fallback priority among already-loaded families
 without recreating contexts or documents. After a successful commit, RuntimeUI rebinds localization
 and re-realizes every mounted `<nt-tr>` occurrence in place, causing live bound arguments to be read
-again from the current data model. The shell model publishes pending and completed success/failure
-state for custom Settings Layouts.
+again from the current data model. ActiveText uses a semantic occurrence key rather than realized text
+bytes: locale replacement keeps playback instance, elapsed effect time, alpha/fade state, and
+normalized overall reveal progress, then reshapes the new text and derives its current page/local
+reveal from that normalized progress. Active Dialogue text is re-realized in place; already-crossed
+semantic Cues stay consumed while pending Cues use the target locale's positions. The shell model
+publishes pending and completed success/failure state for custom Settings Layouts.
 
 ## Universal RCSS Baseline
 

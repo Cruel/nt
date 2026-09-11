@@ -568,7 +568,7 @@ TEST_CASE("Dialogue Handoff identity and payload round-trip through save restore
     CHECK(std::get<std::string>(*restored_scene.dialogue_handoff->payload) == "payload");
 }
 
-TEST_CASE("Dialogue cue cursor round-trips and rejects incoherent reveal progress")
+TEST_CASE("Dialogue cue cursor round-trips independently of locale-specific cue positions")
 {
     const auto project = load_fixture("dialogue-program.json", [](nlohmann::json& document) {
         for (auto& dialogue : document["definitions"]["dialogues"]) {
@@ -609,7 +609,7 @@ TEST_CASE("Dialogue cue cursor round-trips and rejects incoherent reveal progres
                                          0,
                                          false};
     REQUIRE(flow.mark_dialogue_wait(dialogue, presenting, awaiting));
-    REQUIRE(flow.advance_dialogue_reveal(dialogue, awaiting, 1, 2));
+    REQUIRE(flow.advance_dialogue_reveal(dialogue, awaiting, 1, 0.4));
 
     auto snapshot = make_save_state(project, state);
     REQUIRE(snapshot);
@@ -617,7 +617,7 @@ TEST_CASE("Dialogue cue cursor round-trips and rejects incoherent reveal progres
     REQUIRE(encoded);
     REQUIRE(encoded.value()["flowStack"].size() == 1);
     CHECK(encoded.value()["flowStack"][0]["position"]["nextCue"] == 1);
-    CHECK(encoded.value()["flowStack"][0]["position"]["revealOffset"] == 2);
+    CHECK(encoded.value()["flowStack"][0]["position"]["revealProgress"] == 0.4);
 
     auto decoded = decode_save_state(project, encoded.value(), "dialogue-cue-cursor-save.json");
     REQUIRE(decoded);
@@ -626,19 +626,21 @@ TEST_CASE("Dialogue cue cursor round-trips and rejects incoherent reveal progres
     const auto* restored_frame = std::get_if<DialogueFrame>(&restored.value().flow_stack().back());
     REQUIRE(restored_frame != nullptr);
     CHECK(restored_frame->position.next_cue == 1);
-    CHECK(restored_frame->position.reveal_offset == 2);
+    CHECK(restored_frame->position.reveal_progress == Catch::Approx(0.4));
 
-    auto crossed_past_reveal = encoded.value();
-    crossed_past_reveal["flowStack"][0]["position"]["nextCue"] = 2;
-    crossed_past_reveal["flowStack"][0]["position"]["revealOffset"] = 2;
-    CHECK_FALSE(
-        decode_save_state(project, crossed_past_reveal, "dialogue-cue-crossed-past-reveal.json"));
+    auto locale_shifted_cursor = encoded.value();
+    locale_shifted_cursor["flowStack"][0]["position"]["nextCue"] = 2;
+    locale_shifted_cursor["flowStack"][0]["position"]["revealProgress"] = 0.4;
+    CHECK(decode_save_state(project, locale_shifted_cursor, "dialogue-cue-locale-shifted.json"));
 
-    auto unreached_before_reveal = encoded.value();
-    unreached_before_reveal["flowStack"][0]["position"]["nextCue"] = 0;
-    unreached_before_reveal["flowStack"][0]["position"]["revealOffset"] = 3;
-    CHECK_FALSE(decode_save_state(project, unreached_before_reveal,
-                                  "dialogue-cue-unreached-before-reveal.json"));
+    auto pending_after_progress = encoded.value();
+    pending_after_progress["flowStack"][0]["position"]["nextCue"] = 0;
+    pending_after_progress["flowStack"][0]["position"]["revealProgress"] = 0.6;
+    CHECK(decode_save_state(project, pending_after_progress, "dialogue-cue-pending-after-progress.json"));
+
+    auto invalid_progress = encoded.value();
+    invalid_progress["flowStack"][0]["position"]["revealProgress"] = 1.1;
+    CHECK_FALSE(decode_save_state(project, invalid_progress, "dialogue-cue-invalid-progress.json"));
 }
 
 TEST_CASE("current save-state round-trips the Project undefined Interaction fallback stage")
