@@ -192,6 +192,48 @@ describe('LocalizationEditor', () => {
     });
   });
 
+  it('suggests identical local source and promotes selected usages to one named Message', async () => {
+    const user = userEvent.setup();
+    const project = loadProject();
+    const first = defaultRoomData('First');
+    first.description = inlineTextContent('Same words');
+    const second = defaultRoomData('Second');
+    second.description = inlineTextContent('Same words');
+    project.rooms.first = { id: 'first', label: 'First', data: first };
+    project.rooms.second = { id: 'second', label: 'Second', data: second };
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    expect(screen.getAllByText(/Matching local Messages: 1/i).length).toBeGreaterThan(0);
+
+    await user.click(screen.getAllByRole('button', { name: 'Promote to named Message' })[0]!);
+    await user.type(screen.getByLabelText('Promotion key for Same words'), 'ui.shared.same');
+    const candidate = screen.getAllByRole('checkbox')[0]!;
+    await user.click(candidate);
+    await user.click(screen.getByRole('button', { name: 'Promote and link' }));
+
+    const updated = useProjectStore.getState().document as AuthoringProject;
+    expect(updated.rooms.first!.data.description.source).toEqual({
+      kind: 'localized',
+      key: 'ui.shared.same',
+    });
+    expect(updated.rooms.second!.data.description.source).toEqual({
+      kind: 'localized',
+      key: 'ui.shared.same',
+    });
+    expect(Object.values(updated.localization.messages)).toContainEqual({
+      kind: 'named',
+      key: 'ui.shared.same',
+      source: 'Same words',
+    });
+  });
+
   it('attributes structured source edits to the owning record save unit', async () => {
     const user = userEvent.setup();
     const project = loadProject();

@@ -89,6 +89,20 @@
     "relinkPreservesWork": "Relink “{{source}}” · preserves work",
     "disappeared": "The source occurrence disappeared. Applying reconciliation will preserve valuable work as Orphaned and discard valueless tracking bookkeeping."
   },
+  "localizationMessageReuse": {
+    "sharedSourceImpact": "Source edits affect every reference to this named Message.",
+    "identicalHint": "Matching local Messages: {{count}}. Equal source text remains independent unless you explicitly link selected usages.",
+    "promoteHint": "Promote this local Message when its meaning should be reusable by a semantic key.",
+    "semanticKey": "Semantic key",
+    "promotionKeyAria": "Promotion key for {{label}}",
+    "linkSelected": "Link selected identical usages",
+    "unsupportedRefactor": "no supported automatic refactor path",
+    "promoteAndLink": "Promote and link",
+    "cancel": "Cancel",
+    "promote": "Promote to named Message",
+    "invalidKey": "Enter a valid semantic key.",
+    "commandLabel": "Promote Message to {{key}}"
+  },
   "assetProfiler": {
     "tabs": {
       "overview": "Overview",

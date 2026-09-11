@@ -50,7 +50,12 @@ Orphaned storage, and garbage-collect valueless stale tracking. Validation, prev
 and passive editor watching do not
 materialize tracking metadata or dirty the workspace. The editor's
 Localization workspace joins these derived Messages with explicit Messages for translation and usage
-views. Human material edits through the Localization workspace create current Human + Needs review
+views. Identical local source text is only an informational reuse hint. Promotion to a named Message
+keeps the canonical stable Message ID and target/review/provenance work, then rewrites only explicitly
+selected supported structured, managed Lua, and RML usages to the named key in one Project mutation.
+Conflicting target work blocks linking instead of being discarded. Named-key rename similarly updates
+all recognized structured named references, managed `Text.msg` calls, RML `<nt-tr key>` references,
+and typed Message Property values without retaining an old-key alias. Human material edits through the Localization workspace create current Human + Needs review
 content; reviewing unchanged AI content preserves AI origin. Accepting an unchanged target against a
 new source fingerprint advances freshness without changing review. `/localization` remains the
 `project:localization` manual save unit, so language, explicit Message, and target-translation edits
