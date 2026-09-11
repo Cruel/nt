@@ -45,6 +45,7 @@ When a task materially changes behavior, update the narrowest relevant document 
 - `docs/` contains current architecture, build, runtime, UI, rendering, editor, migration, and archive notes.
 - `docs/archive/` contains historical reports that must not be treated as current implementation direction.
 - `refs/` contains local read-only clones used solely as migration/implementation reference. Currently: `NovelTea/` (old engine), `bgfx/`, `bimg/`, `bx/`, and `RmlUi/` (upstream library snapshots).
+- `rmlui-bgfx/` is a separate local project/worktree. Do not delete it, clean it up, or treat it as generated build output from this repository.
 
 ## Non-Negotiable Migration Rules
 
