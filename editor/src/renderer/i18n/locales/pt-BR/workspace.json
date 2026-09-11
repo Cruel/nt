@@ -89,6 +89,20 @@
     "relinkPreservesWork": "Vincular novamente “{{source}}” · preserva o trabalho",
     "disappeared": "A ocorrência da fonte desapareceu. Aplicar a reconciliação preservará trabalho valioso como Órfão e descartará o rastreamento sem valor."
   },
+  "localizationMessageReuse": {
+    "sharedSourceImpact": "As edições no texto de origem afetam todas as referências a esta Mensagem nomeada.",
+    "identicalHint": "Mensagens locais correspondentes: {{count}}. Texto de origem igual continua independente, a menos que você vincule explicitamente os usos selecionados.",
+    "promoteHint": "Promova esta Mensagem local quando seu significado precisar ser reutilizável por uma chave semântica.",
+    "semanticKey": "Chave semântica",
+    "promotionKeyAria": "Chave de promoção para {{label}}",
+    "linkSelected": "Vincular usos idênticos selecionados",
+    "unsupportedRefactor": "sem caminho de refatoração automática compatível",
+    "promoteAndLink": "Promover e vincular",
+    "cancel": "Cancelar",
+    "promote": "Promover para Mensagem nomeada",
+    "invalidKey": "Insira uma chave semântica válida.",
+    "commandLabel": "Promover Mensagem para {{key}}"
+  },
   "assetProfiler": {
     "tabs": {
       "overview": "Visão geral",

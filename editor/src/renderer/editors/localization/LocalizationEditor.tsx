@@ -15,7 +15,12 @@ import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { useProjectStore } from '@/project/project-store';
-import { renameMessageValueReferencePatches } from '@/project/localization-message-operations';
+import {
+  canPromoteLocalMessage,
+  identicalSourceReuseCandidates,
+  promoteAndLinkLocalMessages,
+  renameMessageValueReferencePatches,
+} from '@/project/localization-message-operations';
 import { recordSaveUnitId, SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import type { SaveUnitId } from '@/project/save-unit-types';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -136,6 +141,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const [creatingMessage, setCreatingMessage] = useState(false);
   const [messageDraft, setMessageDraft] = useState<MessageDraft>(emptyDraft);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const [promotionDraft, setPromotionDraft] = useState<{
+    messageId: string;
+    key: string;
+    selectedIds: string[];
+  } | null>(null);
+  const [promotionError, setPromotionError] = useState<string | null>(null);
   const [reconciliationDecisions, setReconciliationDecisions] = useState<Record<string, string>>(
     {},
   );
@@ -372,6 +383,29 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         path: `/localization/messages/${escapeJsonPointerToken(messageId)}/${field}`,
       },
     ]);
+  }
+
+  function promoteMessage() {
+    if (!promotionDraft) return;
+    const key = promotionDraft.key.trim();
+    const parsed = namedMessageKeySchema.safeParse(key);
+    if (!parsed.success) {
+      setPromotionError(t('localizationMessageReuse.invalidKey'));
+      return;
+    }
+    const result = promoteAndLinkLocalMessages(
+      project!,
+      promotionDraft.messageId,
+      key,
+      promotionDraft.selectedIds,
+    );
+    if (!result.ok) {
+      setPromotionError(result.message);
+      return;
+    }
+    const error = run(t('localizationMessageReuse.commandLabel', { key }), [...result.patches]);
+    setPromotionError(error);
+    if (!error) setPromotionDraft(null);
   }
 
   function setSourceContent(view: MessageView, value: string) {
@@ -944,6 +978,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       <div className="text-xs font-medium text-muted-foreground">
                         Used in · {usages.length}
                       </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {t('localizationMessageReuse.sharedSourceImpact')}
+                      </div>
                       {usages.length > 0 ? (
                         <div className="mt-1 space-y-0.5 font-mono text-xs text-muted-foreground">
                           {usages.slice(0, 5).map((path) => (
@@ -1005,6 +1042,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     : translation.sourceFingerprint === view.sourceFingerprint
                       ? 'Current'
                       : 'Outdated';
+                  const reuseCandidates =
+                    message.kind === 'local'
+                      ? identicalSourceReuseCandidates(project, messageId)
+                      : [];
+                  const promotable = canPromoteLocalMessage(project, messageId);
                   const attention = translation
                     ? [
                         translation.acknowledgedPresentationFingerprint !== undefined &&
@@ -1041,6 +1083,118 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             : ''}
                           {message.translatorNote && view.usageNote ? ' · ' : ''}
                           {view.usageNote ? `Used in: ${view.usageNote}` : ''}
+                        </div>
+                      )}
+                      {message.kind === 'local' && promotable && (
+                        <div className="mb-3 rounded border bg-muted/30 p-3 text-xs">
+                          {reuseCandidates.length > 0 ? (
+                            <p className="text-muted-foreground">
+                              {t('localizationMessageReuse.identicalHint', {
+                                count: reuseCandidates.length,
+                              })}
+                            </p>
+                          ) : (
+                            <p className="text-muted-foreground">
+                              {t('localizationMessageReuse.promoteHint')}
+                            </p>
+                          )}
+                          {promotionDraft?.messageId === messageId ? (
+                            <div className="mt-3 space-y-3">
+                              <div className="space-y-1">
+                                <Label htmlFor={`promotion-key-${messageId}`}>
+                                  {t('localizationMessageReuse.semanticKey')}
+                                </Label>
+                                <Input
+                                  id={`promotion-key-${messageId}`}
+                                  aria-label={t('localizationMessageReuse.promotionKeyAria', {
+                                    label,
+                                  })}
+                                  value={promotionDraft.key}
+                                  onChange={(event) => {
+                                    const key = event.currentTarget.value;
+                                    setPromotionDraft((current) =>
+                                      current && current.messageId === messageId
+                                        ? { ...current, key }
+                                        : current,
+                                    );
+                                  }}
+                                  placeholder="ui.shared.message"
+                                />
+                              </div>
+                              {reuseCandidates.length > 0 && (
+                                <div className="space-y-1">
+                                  <div className="font-medium">
+                                    {t('localizationMessageReuse.linkSelected')}
+                                  </div>
+                                  {reuseCandidates.map((candidate) => (
+                                    <label
+                                      key={candidate.id}
+                                      className="flex items-start gap-2 text-muted-foreground"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={promotionDraft.selectedIds.includes(candidate.id)}
+                                        disabled={!candidate.rewriteable}
+                                        onChange={(event) => {
+                                          const checked = event.currentTarget.checked;
+                                          setPromotionDraft((current) => {
+                                            if (!current || current.messageId !== messageId)
+                                              return current;
+                                            return {
+                                              ...current,
+                                              selectedIds: checked
+                                                ? [...current.selectedIds, candidate.id]
+                                                : current.selectedIds.filter(
+                                                    (candidateId) => candidateId !== candidate.id,
+                                                  ),
+                                            };
+                                          });
+                                        }}
+                                      />
+                                      <span>
+                                        {candidate.usageNote ?? candidate.id}
+                                        {!candidate.rewriteable
+                                          ? ` · ${t('localizationMessageReuse.unsupportedRefactor')}`
+                                          : ''}
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                              {promotionError && (
+                                <p className="text-destructive">{promotionError}</p>
+                              )}
+                              <div className="flex gap-2">
+                                <Button type="button" size="sm" onClick={promoteMessage}>
+                                  {t('localizationMessageReuse.promoteAndLink')}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setPromotionDraft(null);
+                                    setPromotionError(null);
+                                  }}
+                                >
+                                  {t('localizationMessageReuse.cancel')}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="mt-2"
+                              onClick={() => {
+                                setPromotionError(null);
+                                setPromotionDraft({ messageId, key: '', selectedIds: [] });
+                              }}
+                            >
+                              {t('localizationMessageReuse.promote')}
+                            </Button>
+                          )}
                         </div>
                       )}
                       <div className="grid gap-3 @3xl:grid-cols-2">
