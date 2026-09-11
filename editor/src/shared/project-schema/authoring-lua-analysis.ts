@@ -5,7 +5,7 @@ import { isRegisteredLuaExplicitFallbackOwner } from './authoring-lua-source-reg
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-export const AUTHORING_SOURCE_ANALYZER_VERSION = 'lua-rml-v1' as const;
+export const AUTHORING_SOURCE_ANALYZER_VERSION = 'lua-rml-v2' as const;
 export const LUA_REFERENCE_ANALYSIS_LIMITS = {
   maxSourceBytes: 4 * 1024 * 1024,
   maxSnapshotBytes: 64 * 1024 * 1024,
@@ -108,6 +108,34 @@ export interface AuthoringLiteralOccurrence {
   literalKind: 'single-quoted' | 'double-quoted' | 'long-bracket';
   sourceKind: EmbeddedLuaSourceKind;
 }
+export interface OwnerNeutralManagedLuaMessageOccurrence {
+  kind: 'local' | 'named';
+  sourceUrl: string;
+  sourceContentHash: `sha256:${string}`;
+  regionOrdinal: number;
+  callStartUtf16: number;
+  callEndUtf16: number;
+  memberStartUtf16: number;
+  memberEndUtf16: number;
+  line: number;
+  column: number;
+  sourceLiteral: OwnerNeutralLiteralOccurrence;
+  source: string;
+  runtimeArgsStartUtf16?: number;
+  runtimeArgsEndUtf16?: number;
+  metadataStartUtf16?: number;
+  metadataEndUtf16?: number;
+  context?: string;
+  translatorNote?: string;
+}
+export interface AuthoringManagedLuaMessageOccurrence extends Omit<
+  OwnerNeutralManagedLuaMessageOccurrence,
+  'sourceLiteral'
+> {
+  sourcePath: string;
+  sourceAssetId?: string;
+  sourceLiteral: AuthoringLiteralOccurrence;
+}
 export interface LuaReferenceOccurrence<TTarget = unknown> extends AuthoringLiteralOccurrence {
   confidence: 'lexical' | 'api-context';
   candidateTargets: readonly TTarget[];
@@ -134,6 +162,7 @@ export interface AuthoringSourceContentArtifact {
   sourceContentFingerprint: `sha256:${string}`;
   regions: readonly OwnerNeutralEmbeddedLuaSourceRegion[];
   literalOccurrences: readonly OwnerNeutralLiteralOccurrence[];
+  managedMessageOccurrences: readonly OwnerNeutralManagedLuaMessageOccurrence[];
   diagnostics: readonly OwnerNeutralSourceDiagnostic[];
   complete: boolean;
 }
@@ -145,6 +174,7 @@ export interface AuthoringSourceAnalysisArtifact<TDiagnostic = unknown> {
   sourceAssetIds: readonly string[];
   regions: readonly EmbeddedLuaSourceRegion[];
   literalOccurrences: readonly AuthoringLiteralOccurrence[];
+  managedMessageOccurrences: readonly AuthoringManagedLuaMessageOccurrence[];
   diagnostics: readonly TDiagnostic[];
   complete: boolean;
 }

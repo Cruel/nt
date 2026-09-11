@@ -12,6 +12,7 @@ import type {
   RoomPreviewInputs,
 } from '../../shared/focused-preview-contracts';
 import { analyzeHookRegistry } from '../../shared/hook-registry-analysis';
+import { lowerManagedLuaLocalizationForFocusedPreview } from '../../shared/authoring-lua-localization-lowering';
 import { lowerLayoutContractForWire } from '../../shared/layout-contract-lowering';
 import { resolveMessage } from '../../shared/message-resolution';
 import {
@@ -837,8 +838,25 @@ async function resourceManifest(
 export async function buildFocusedRoomPreview(
   options: BuildFocusedRoomPreviewOptions,
 ): Promise<FocusedRoomPreviewBuildResult> {
-  const { project, projectSessionId, roomId, graph, sourceAnalysis, activeShaderVariant } = options;
+  const {
+    project: authoredProject,
+    projectSessionId,
+    roomId,
+    graph,
+    sourceAnalysis,
+    activeShaderVariant,
+  } = options;
   const diagnostics: Diagnostic[] = [];
+  const managedLua = lowerManagedLuaLocalizationForFocusedPreview(authoredProject);
+  const project = managedLua.project;
+  diagnostics.push(
+    ...managedLua.diagnostics.map((item) => ({
+      severity: 'error' as const,
+      code: item.code,
+      path: item.path,
+      message: item.message,
+    })),
+  );
   const sourceRecord = project.rooms[roomId];
   const record = recordForOwner(project, 'room', roomId);
   const room = parseRoomData(record?.data);

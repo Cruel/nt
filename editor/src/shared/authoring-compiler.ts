@@ -32,6 +32,7 @@ import { lowerSharedAuthoringProject } from './authoring-compiler-shared-lowerin
 import { lowerSceneAndRoomPrograms } from './authoring-compiler-scene-room-lowering';
 import { lowerDialogueAndInteractionPrograms } from './authoring-compiler-dialogue-interaction-lowering';
 import { compileFlowPredictionIndex } from './flow-prediction-index-compiler';
+import { lowerManagedLuaLocalization } from './authoring-lua-localization-lowering';
 
 export const compilerStageNames = [
   'normalize',
@@ -585,19 +586,29 @@ function lowerAuthoringProject(
   project: AuthoringProject,
   _symbols: AuthoringSymbolTables,
 ): LoweringResult {
-  const shared = lowerSharedAuthoringProject(project);
-  const diagnostics = shared.diagnostics.map((diagnostic) =>
+  const managedLua = lowerManagedLuaLocalization(project);
+  const loweringProject = managedLua.project;
+  const shared = lowerSharedAuthoringProject(loweringProject);
+  const diagnostics = managedLua.diagnostics.map((diagnostic) =>
     makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
   );
+  diagnostics.push(
+    ...shared.diagnostics.map((diagnostic) =>
+      makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
+    ),
+  );
   if (shared.draft) {
-    const programs = lowerSceneAndRoomPrograms(project, shared.draft);
+    const programs = lowerSceneAndRoomPrograms(loweringProject, shared.draft);
     diagnostics.push(
       ...programs.diagnostics.map((diagnostic) =>
         makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
       ),
     );
     if (programs.draft) {
-      const remainingPrograms = lowerDialogueAndInteractionPrograms(project, programs.draft);
+      const remainingPrograms = lowerDialogueAndInteractionPrograms(
+        loweringProject,
+        programs.draft,
+      );
       diagnostics.push(
         ...remainingPrograms.diagnostics.map((diagnostic) =>
           makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),

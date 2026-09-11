@@ -1,4 +1,5 @@
 #include "noveltea/script/script_runtime.hpp"
+#include "noveltea/core/message_realization.hpp"
 #include "noveltea/script/runtime_script_api.hpp"
 
 #include "script/lua/sol_access.hpp"
@@ -10,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -435,6 +437,7 @@ struct ScriptRuntime::Impl {
     bool bootstrap_complete = false;
     bool hooks_frozen = false;
     bool game_ready_running = false;
+    std::optional<core::compiled::Localization> localization;
 
     lua_State* thread(int reference)
     {
@@ -545,6 +548,11 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     lua_pushcclosure(state, &ScriptRuntime::project_hook_register_callback, 1);
     lua_setfield(state, -2, "register");
     lua_setglobal(state, "hooks");
+    lua_newtable(state);
+    lua_pushlightuserdata(state, this);
+    lua_pushcclosure(state, &ScriptRuntime::managed_message_callback, 1);
+    lua_setfield(state, -2, "__message");
+    lua_setglobal(state, "Text");
     m_impl->runtime_api = std::make_unique<RuntimeScriptApi>();
     bind_typed_script_host(m_impl->lua.lua_state(), m_impl->runtime_api.get());
     m_impl->initialized = true;
@@ -646,6 +654,7 @@ void ScriptRuntime::clear_project_modules() noexcept
     }
     m_impl->project_modules.clear();
     m_impl->bootstrap_module.reset();
+    m_impl->localization.reset();
     m_impl->project_hooks.clear();
     m_impl->bootstrap_running = false;
     m_impl->bootstrap_complete = false;
@@ -663,6 +672,7 @@ ScriptRuntime::prepare_project_modules(const core::CompiledProject& project)
 
     clear_project_modules();
     m_impl->runtime_api->clear_capabilities();
+    m_impl->localization = project.localization();
     for (const auto& resource : project.scripts()) {
         Impl::ProjectModule module;
         if (const auto* inline_source =
@@ -701,6 +711,24 @@ ScriptRuntime::prepare_project_modules(const core::CompiledProject& project)
         }
     }
     return Result::success();
+}
+
+int ScriptRuntime::managed_message_callback(lua_State* state)
+{
+    auto* runtime = static_cast<ScriptRuntime*>(lua_touserdata(state, lua_upvalueindex(1)));
+    if (runtime == nullptr || runtime->m_impl == nullptr || !runtime->m_impl->localization)
+        return luaL_error(state, "Managed Message localization is unavailable");
+    const lua_Integer raw_id = luaL_checkinteger(state, 1);
+    if (raw_id < 0 ||
+        static_cast<std::uint64_t>(raw_id) > std::numeric_limits<core::MessageId>::max())
+        return luaL_error(state, "Managed Message ID is out of range");
+    const core::MessageRealizer realizer(*runtime->m_impl->localization);
+    const auto realized = realizer.realize(
+        {static_cast<core::MessageId>(raw_id), runtime->m_impl->localization->default_locale});
+    if (!realized)
+        return luaL_error(state, "Managed Message could not be realized");
+    lua_pushlstring(state, realized->text.data(), realized->text.size());
+    return 1;
 }
 
 int ScriptRuntime::project_import_callback(lua_State* state)

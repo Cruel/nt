@@ -73,6 +73,47 @@ layout-main]=]
     ]);
   });
 
+  it('recognizes only direct managed Lua localization calls without executing Lua', async () => {
+    const source = String.raw`
+      local one = Text . tr ( "Hello", { player = Game.player() }, { context = "Greeting", note = 'Shown once' } )
+      local two = Text.msg -- comment
+        ("ui.start", { count = 2 })
+      local alias = Text.tr
+      local ignored = alias("Not managed")
+      local constructed = Text.tr("Not " .. "managed")
+      local dynamic = Text.msg(message_key)
+      local nested = Text.tr("Outer", { inner = Text.msg("ui.start") })
+    `;
+    const artifact = await analyzeAuthoringSourceContent({
+      sourceUrl: 'authoring:inline-lua',
+      text: source,
+      kind: 'lua',
+    });
+
+    expect(
+      artifact.managedMessageOccurrences.map((occurrence) => ({
+        kind: occurrence.kind,
+        source: occurrence.source,
+        context: occurrence.context,
+        translatorNote: occurrence.translatorNote,
+      })),
+    ).toEqual([
+      {
+        kind: 'local',
+        source: 'Hello',
+        context: 'Greeting',
+        translatorNote: 'Shown once',
+      },
+      { kind: 'named', source: 'ui.start', context: undefined, translatorNote: undefined },
+      { kind: 'local', source: 'Outer', context: undefined, translatorNote: undefined },
+      { kind: 'named', source: 'ui.start', context: undefined, translatorNote: undefined },
+    ]);
+    expect(artifact.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'authoring.localization.lua_source_literal',
+      'authoring.localization.lua_named_key_literal',
+    ]);
+  });
+
   it('retains useful literals from malformed source and marks it incomplete', () => {
     const result = lexLuaStringLiterals(`local good = 'room-main'\nlocal bad = "unterminated`);
     expect(result.complete).toBe(false);
@@ -292,6 +333,37 @@ describe('typed source registry and graph evidence', () => {
     } as never;
     return project;
   }
+
+  it('projects Text.msg as an exact localization dependency instead of lexical string evidence', async () => {
+    const project = fixture();
+    project.localization.messages['11111111-1111-4111-8111-111111111111'] = {
+      kind: 'named',
+      key: 'ui.start',
+      source: 'Start',
+    };
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: `return { label = Text.msg("ui.start") }`,
+    };
+    delete project.scripts.main;
+    delete project.assets['script-file'];
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: { entriesByAssetId: new Map() },
+    });
+    const edges = [...graph.edgesById.values()].filter(
+      (edge) => edge.sourcePath === '/scripts/bootstrap/data/source/source',
+    );
+    expect(
+      edges.some(
+        (edge) =>
+          edge.role === 'localization-text' &&
+          edge.target.kind === 'localization-message' &&
+          edge.target.messageId === '11111111-1111-4111-8111-111111111111',
+      ),
+    ).toBe(true);
+    expect(edges.some((edge) => edge.role === 'lua-possible-reference')).toBe(false);
+  });
 
   it('enumerates exact owners and excludes Shader source from Lua ownership', () => {
     const project = fixture();

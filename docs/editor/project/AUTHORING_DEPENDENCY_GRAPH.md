@@ -158,7 +158,12 @@ publishes revision-matched immutable graph snapshots. Persistent content-analysi
 cached by project instance and exact logical source identity; semantic owner projection is cached
 separately so symbol-table changes can reproject affected owners without rereading or relexing
 unchanged bytes. Source reads are bounded across inline text and cache hits before new IPC work is
-issued. Physical source artifacts are deduplicated while retaining distinct owner provenance.
+issued. Physical source artifacts are deduplicated while retaining distinct owner provenance. The same
+source-analysis artifact also records direct managed Lua `Text.tr`/`Text.msg` occurrences separately
+from generic string literals. Named `Text.msg` calls project exact `localization-text` edges to the
+resolved Message/locale records, while their key literals are excluded from ambiguous lexical-reference
+evidence; local `Text.tr` occurrences remain first-class analysis data for localization status/sync
+without inventing durable free-form identity in the dependency graph.
 
 Overlapping asynchronous mutations accumulate old/new path impact and indexed owner work until one
 current snapshot can be published. Stale reads, source analysis, owner projection, and whole-build

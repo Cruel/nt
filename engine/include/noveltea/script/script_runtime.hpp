@@ -178,6 +178,7 @@ private:
                         std::optional<std::string_view> requester = std::nullopt);
     static int project_import_callback(lua_State* state);
     static int project_hook_register_callback(lua_State* state);
+    static int managed_message_callback(lua_State* state);
     void clear_project_modules() noexcept;
 
     struct Impl;

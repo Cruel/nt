@@ -51,6 +51,47 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('narrowly lowers direct managed Lua localization calls to package Message references', () => {
+    const project = validProject();
+    project.localization.messages['11111111-1111-4111-8111-111111111111'] = {
+      kind: 'named',
+      key: 'ui.start',
+      source: 'Start',
+    };
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: `
+        local local_text = Text.tr("Hello", { name = "Ada" }, { context = "Greeting" })
+        local named_text = Text.msg("ui.start", { count = 2 })
+        local nested_text = Text.tr("Outer", { inner = Text.msg("ui.start") })
+        local alias = Text.tr
+        local untouched = alias("Not managed")
+        return { local_text = local_text, named_text = named_text, nested_text = nested_text, untouched = untouched }
+      `,
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const source = result.project.resources.scripts.find(
+      (script) => script.id === 'bootstrap',
+    )!.source;
+    expect(source.kind).toBe('inline-lua');
+    if (source.kind !== 'inline-lua') return;
+    expect(source.source).not.toContain('Text.tr("Hello"');
+    expect(source.source).not.toContain('Text.msg("ui.start"');
+    expect(source.source).not.toContain('"Hello"');
+    expect(source.source).not.toContain('Greeting');
+    expect(source.source).toMatch(/Text\.__message\(\d+, \{ name = "Ada" \}, nil\)/);
+    expect(source.source).toMatch(/Text\.__message\(\d+, \{ count = 2 \}\)/);
+    expect(source.source).toMatch(/Text\.__message\(\d+, \{ inner = Text\.__message\(\d+\) \}\)/);
+    expect(source.source).toContain('alias("Not managed")');
+    expect(result.project.localization.catalogs[0]?.entries.map((entry) => entry.value)).toContain(
+      'Hello',
+    );
+  });
+
   it('reports missing named Message references during semantic validation', () => {
     const project = validProject();
     project.rooms.foyer!.data.description.source = {
@@ -71,6 +112,22 @@ describe('authoring compiler framework', () => {
       name: 'semantic-validation',
       status: 'failed',
     });
+  });
+
+  it('rejects dynamic managed Lua Message source/key forms instead of guessing', () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: `local key = "ui.start"\nreturn { Text.tr("a" .. "b"), Text.msg(key) }`,
+    };
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        'authoring.localization.lua_source_literal',
+        'authoring.localization.lua_named_key_literal',
+      ]),
+    );
   });
 
   it('lowers persisted supplemental prefetch intent into the generated prediction index', () => {
