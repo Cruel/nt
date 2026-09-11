@@ -795,7 +795,7 @@ export interface ManagedLuaLocalizationDiagnostic {
 }
 
 export interface ManagedLuaLocalizationOccurrence {
-  kind: 'local' | 'named';
+  kind: 'local' | 'named' | 'plural' | 'select';
   callStartUtf16: number;
   callEndUtf16: number;
   memberStartUtf16: number;
@@ -807,6 +807,11 @@ export interface ManagedLuaLocalizationOccurrence {
   runtimeArgsStartUtf16?: number;
   runtimeArgsEndUtf16?: number;
   runtimeArgumentNames?: readonly string[];
+  selectorStartUtf16?: number;
+  selectorEndUtf16?: number;
+  casesStartUtf16?: number;
+  casesEndUtf16?: number;
+  cases?: Readonly<Record<string, string>>;
   metadataStartUtf16?: number;
   metadataEndUtf16?: number;
   context?: string;
@@ -886,6 +891,70 @@ function staticRuntimeArgumentNames(tokens: readonly LuaScanToken[]): readonly s
   return Object.freeze(names.sort());
 }
 
+function staticMessageCases(
+  tokens: readonly LuaScanToken[],
+): Readonly<Record<string, LiteralToken>> | null {
+  const first = tokens[0];
+  const last = tokens.at(-1);
+  if (
+    first?.kind !== 'punctuation' ||
+    first.value !== '{' ||
+    last?.kind !== 'punctuation' ||
+    last.value !== '}'
+  )
+    return null;
+
+  const cases: Record<string, LiteralToken> = {};
+  let index = 1;
+  while (index < tokens.length - 1) {
+    while (true) {
+      const separator = tokens[index];
+      if (separator?.kind !== 'punctuation' || (separator.value !== ',' && separator.value !== ';'))
+        break;
+      index += 1;
+    }
+    if (index >= tokens.length - 1) break;
+
+    let key: string | null = null;
+    const candidate = tokens[index];
+    if (candidate?.kind === 'identifier') {
+      key = candidate.value;
+      index += 1;
+    } else if (candidate?.kind === 'punctuation' && candidate.value === '[') {
+      const literalKey = tokens[index + 1];
+      const closeBracket = tokens[index + 2];
+      if (
+        literalKey?.kind !== 'string' ||
+        closeBracket?.kind !== 'punctuation' ||
+        closeBracket.value !== ']'
+      )
+        return null;
+      key = literalKey.literal.decodedValue;
+      index += 3;
+    } else return null;
+
+    const equals = tokens[index];
+    const value = tokens[index + 1];
+    if (
+      !key ||
+      Object.hasOwn(cases, key) ||
+      equals?.kind !== 'punctuation' ||
+      equals.value !== '=' ||
+      value?.kind !== 'string'
+    )
+      return null;
+    cases[key] = value.literal;
+    index += 2;
+    if (index < tokens.length - 1) {
+      const separator = tokens[index];
+      if (separator?.kind !== 'punctuation' || (separator.value !== ',' && separator.value !== ';'))
+        return null;
+      index += 1;
+    }
+  }
+  return Object.freeze(cases);
+}
+
 function staticTranslatorMetadata(
   tokens: readonly LuaScanToken[],
 ): { context?: string; translatorNote?: string } | null {
@@ -958,7 +1027,10 @@ export function analyzeManagedLuaLocalization(source: string): {
       dot?.kind !== 'punctuation' ||
       dot.value !== '.' ||
       member?.kind !== 'identifier' ||
-      (member.value !== 'tr' && member.value !== 'msg') ||
+      (member.value !== 'tr' &&
+        member.value !== 'msg' &&
+        member.value !== 'plural' &&
+        member.value !== 'select') ||
       open?.kind !== 'punctuation' ||
       open.value !== '('
     )
@@ -976,11 +1048,86 @@ export function analyzeManagedLuaLocalization(source: string): {
         ...location,
       });
     const args = parsed.args;
-    const expectedMaximum = member.value === 'tr' ? 3 : 2;
-    if (args.length < 1 || args.length > expectedMaximum) {
+    const isSelector = member.value === 'plural' || member.value === 'select';
+    const expectedMaximum = member.value === 'msg' ? 2 : 3;
+    const expectedMinimum = isSelector ? 2 : 1;
+    if (args.length < expectedMinimum || args.length > expectedMaximum) {
       fail('arity', `Text.${member.value} has an unsupported argument count.`);
       continue;
     }
+    if (isSelector) {
+      const selector = args[0] ?? [];
+      if (selector.length === 0) {
+        fail('selector_missing', `Text.${member.value} requires a selector value.`);
+        continue;
+      }
+      const parsedCases = staticMessageCases(args[1] ?? []);
+      if (!parsedCases) {
+        fail(
+          'cases_static',
+          `Text.${member.value} cases must be a literal table with literal string branches.`,
+        );
+        continue;
+      }
+      if (!Object.hasOwn(parsedCases, 'other')) {
+        fail('cases_other_required', `Text.${member.value} requires an 'other' case.`);
+        continue;
+      }
+      if (
+        member.value === 'plural' &&
+        Object.keys(parsedCases).some(
+          (key) => !['zero', 'one', 'two', 'few', 'many', 'other'].includes(key),
+        )
+      ) {
+        fail(
+          'plural_case_invalid',
+          'Text.plural cases may only use CLDR zero/one/two/few/many/other categories.',
+        );
+        continue;
+      }
+      let metadata: { context?: string; translatorNote?: string } = {};
+      if (args.length >= 3) {
+        const parsedMetadata = staticTranslatorMetadata(args[2] ?? []);
+        if (!parsedMetadata) {
+          fail(
+            'metadata_static',
+            `Text.${member.value} translator metadata must be a literal table containing only literal context/note values.`,
+          );
+          continue;
+        }
+        metadata = parsedMetadata;
+      }
+      const other = parsedCases.other!;
+      occurrences.push({
+        kind: member.value === 'plural' ? 'plural' : 'select',
+        callStartUtf16: text.start,
+        callEndUtf16: tokens[parsed.closeIndex]!.end,
+        memberStartUtf16: member.start,
+        memberEndUtf16: member.end,
+        ...location,
+        sourceLiteral: other,
+        source: other.decodedValue,
+        selectorStartUtf16: selector[0]!.start,
+        selectorEndUtf16: selector.at(-1)!.end,
+        casesStartUtf16: args[1]![0]!.start,
+        casesEndUtf16: args[1]!.at(-1)!.end,
+        cases: Object.freeze(
+          Object.fromEntries(
+            Object.entries(parsedCases).map(([key, literal]) => [key, literal.decodedValue]),
+          ),
+        ),
+        runtimeArgumentNames: Object.freeze(['value']),
+        ...(args.length >= 3 && (args[2]?.length ?? 0) > 0
+          ? {
+              metadataStartUtf16: args[2]![0]!.start,
+              metadataEndUtf16: args[2]!.at(-1)!.end,
+            }
+          : {}),
+        ...metadata,
+      });
+      continue;
+    }
+
     const first = args[0];
     if (first?.length !== 1 || first[0]?.kind !== 'string') {
       fail(

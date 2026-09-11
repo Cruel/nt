@@ -6,7 +6,10 @@ import { packageMessageIds } from './authoring-message-lowering';
 import { resolveMessage } from './message-resolution';
 import { parseJsonPointer } from './json-pointer';
 import type { AuthoringProject } from './project-schema/authoring-project';
-import { messagePlaceholderNames } from './project-schema/authoring-localization';
+import {
+  messagePlaceholderNames,
+  type MessagePattern,
+} from './project-schema/authoring-localization';
 import {
   localizationOwnerKey,
   localizationSourceKey,
@@ -25,10 +28,14 @@ export interface ManagedLuaLoweringDiagnostic {
 type PendingOccurrence = {
   sourcePath: string;
   stableMessageId: string;
+  kind: 'local' | 'named' | 'plural' | 'select';
   memberStartUtf16: number;
   memberEndUtf16: number;
-  sourceStartUtf16: number;
-  sourceEndUtf16: number;
+  sourceStartUtf16?: number;
+  sourceEndUtf16?: number;
+  selectorStartUtf16?: number;
+  selectorEndUtf16?: number;
+  casesEndUtf16?: number;
   metadataStartUtf16?: number;
   metadataEndUtf16?: number;
 };
@@ -205,7 +212,11 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
 
     analyzed.occurrences.forEach((occurrence, ordinal) => {
       let stableMessageId: string | null = null;
-      if (occurrence.kind === 'local') {
+      if (
+        occurrence.kind === 'local' ||
+        occurrence.kind === 'plural' ||
+        occurrence.kind === 'select'
+      ) {
         const trackingSource = trackingSources.get(descriptor.sourcePath);
         const trackingOccurrence = trackingSource?.source.occurrences[ordinal];
         if (!trackingSource || !trackingOccurrence) {
@@ -221,41 +232,74 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
           trackingSource.source,
           trackingOccurrence,
         ).messageId;
-        const placeholderNames = messagePlaceholderNames(occurrence.source);
-        if (placeholderNames.length > 0 && occurrence.runtimeArgsStartUtf16 === undefined) {
-          diagnostics.push({
-            code: 'authoring.localization.lua_message_arguments_missing',
-            path: descriptor.sourcePath,
-            message: `Text.tr source requires runtime arguments: ${placeholderNames.join(', ')}.`,
-          });
-          return;
+        if (occurrence.kind === 'plural' || occurrence.kind === 'select') {
+          const cases = occurrence.cases ?? {};
+          const invalidPlaceholder = Object.entries(cases).find(([, text]) =>
+            messagePlaceholderNames(text).some((name) => name !== 'value'),
+          );
+          if (invalidPlaceholder) {
+            diagnostics.push({
+              code: 'authoring.localization.lua_selector_placeholder_invalid',
+              path: descriptor.sourcePath,
+              message: `Text.${occurrence.kind} branches may only interpolate the selector as '{value}'.`,
+            });
+            return;
+          }
+          lowered.localization.messages[stableMessageId] = {
+            kind: 'local',
+            source: occurrence.source,
+            arguments: {
+              value: occurrence.kind === 'plural' ? 'plural-number' : 'string',
+            },
+            pattern: {
+              kind: occurrence.kind,
+              argument: 'value',
+              cases: Object.fromEntries(
+                Object.entries(cases).map(([key, text]) => [key, { kind: 'text' as const, text }]),
+              ),
+            },
+            ...(occurrence.context === undefined ? {} : { context: occurrence.context }),
+            ...(occurrence.translatorNote === undefined
+              ? {}
+              : { translatorNote: occurrence.translatorNote }),
+          };
+        } else {
+          const placeholderNames = messagePlaceholderNames(occurrence.source);
+          if (placeholderNames.length > 0 && occurrence.runtimeArgsStartUtf16 === undefined) {
+            diagnostics.push({
+              code: 'authoring.localization.lua_message_arguments_missing',
+              path: descriptor.sourcePath,
+              message: `Text.tr source requires runtime arguments: ${placeholderNames.join(', ')}.`,
+            });
+            return;
+          }
+          if (
+            occurrence.runtimeArgumentNames !== undefined &&
+            occurrence.runtimeArgumentNames.join('\u0000') !== placeholderNames.join('\u0000')
+          ) {
+            diagnostics.push({
+              code: 'authoring.localization.lua_message_arguments_mismatch',
+              path: descriptor.sourcePath,
+              message: 'Text.tr literal argument table must match the source placeholder names.',
+            });
+            return;
+          }
+          lowered.localization.messages[stableMessageId] = {
+            kind: 'local',
+            source: occurrence.source,
+            ...(placeholderNames.length === 0
+              ? {}
+              : {
+                  arguments: Object.fromEntries(
+                    placeholderNames.map((name) => [name, 'printable'] as const),
+                  ),
+                }),
+            ...(occurrence.context === undefined ? {} : { context: occurrence.context }),
+            ...(occurrence.translatorNote === undefined
+              ? {}
+              : { translatorNote: occurrence.translatorNote }),
+          };
         }
-        if (
-          occurrence.runtimeArgumentNames !== undefined &&
-          occurrence.runtimeArgumentNames.join('\u0000') !== placeholderNames.join('\u0000')
-        ) {
-          diagnostics.push({
-            code: 'authoring.localization.lua_message_arguments_mismatch',
-            path: descriptor.sourcePath,
-            message: 'Text.tr literal argument table must match the source placeholder names.',
-          });
-          return;
-        }
-        lowered.localization.messages[stableMessageId] = {
-          kind: 'local',
-          source: occurrence.source,
-          ...(placeholderNames.length === 0
-            ? {}
-            : {
-                arguments: Object.fromEntries(
-                  placeholderNames.map((name) => [name, 'printable'] as const),
-                ),
-              }),
-          ...(occurrence.context === undefined ? {} : { context: occurrence.context }),
-          ...(occurrence.translatorNote === undefined
-            ? {}
-            : { translatorNote: occurrence.translatorNote }),
-        };
       } else {
         stableMessageId = namedMessageIds.get(occurrence.source) ?? null;
         if (!stableMessageId) {
@@ -293,10 +337,19 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
       pending.push({
         sourcePath: descriptor.sourcePath,
         stableMessageId,
+        kind: occurrence.kind,
         memberStartUtf16: occurrence.memberStartUtf16,
         memberEndUtf16: occurrence.memberEndUtf16,
-        sourceStartUtf16: occurrence.sourceLiteral.regionStartUtf16,
-        sourceEndUtf16: occurrence.sourceLiteral.regionEndUtf16,
+        ...(occurrence.kind === 'plural' || occurrence.kind === 'select'
+          ? {
+              selectorStartUtf16: occurrence.selectorStartUtf16,
+              selectorEndUtf16: occurrence.selectorEndUtf16,
+              casesEndUtf16: occurrence.casesEndUtf16,
+            }
+          : {
+              sourceStartUtf16: occurrence.sourceLiteral.regionStartUtf16,
+              sourceEndUtf16: occurrence.sourceLiteral.regionEndUtf16,
+            }),
         ...(occurrence.metadataStartUtf16 === undefined
           ? {}
           : {
@@ -336,21 +389,57 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
         });
         continue;
       }
-      edits.push(
-        {
-          startUtf16: occurrence.memberStartUtf16,
-          endUtf16: occurrence.memberEndUtf16,
-          replacement: '__message',
-        },
-        {
+      edits.push({
+        startUtf16: occurrence.memberStartUtf16,
+        endUtf16: occurrence.memberEndUtf16,
+        replacement: '__message',
+      });
+      if (occurrence.kind === 'plural' || occurrence.kind === 'select') {
+        if (
+          occurrence.selectorStartUtf16 === undefined ||
+          occurrence.selectorEndUtf16 === undefined ||
+          occurrence.casesEndUtf16 === undefined
+        ) {
+          diagnostics.push({
+            code: 'authoring.localization.lua_message_lowering_failed',
+            path: sourcePath,
+            message: `Text.${occurrence.kind} selector spans were unavailable during lowering.`,
+          });
+          continue;
+        }
+        edits.push(
+          {
+            startUtf16: occurrence.selectorStartUtf16,
+            endUtf16: occurrence.selectorStartUtf16,
+            replacement: `${id}, { value = `,
+          },
+          {
+            startUtf16: occurrence.selectorEndUtf16,
+            endUtf16: occurrence.casesEndUtf16,
+            replacement: preserveRemovedNewlines(
+              original.slice(occurrence.selectorEndUtf16, occurrence.casesEndUtf16),
+              ' }',
+            ),
+          },
+        );
+      } else {
+        if (occurrence.sourceStartUtf16 === undefined || occurrence.sourceEndUtf16 === undefined) {
+          diagnostics.push({
+            code: 'authoring.localization.lua_message_lowering_failed',
+            path: sourcePath,
+            message: 'Managed Lua Message source span was unavailable during lowering.',
+          });
+          continue;
+        }
+        edits.push({
           startUtf16: occurrence.sourceStartUtf16,
           endUtf16: occurrence.sourceEndUtf16,
           replacement: preserveRemovedNewlines(
             original.slice(occurrence.sourceStartUtf16, occurrence.sourceEndUtf16),
             String(id),
           ),
-        },
-      );
+        });
+      }
       if (occurrence.metadataStartUtf16 !== undefined && occurrence.metadataEndUtf16 !== undefined)
         edits.push({
           startUtf16: occurrence.metadataStartUtf16,
@@ -402,6 +491,26 @@ function luaQuotedString(value: string): string {
   return `${result}"`;
 }
 
+function luaMessagePattern(pattern: MessagePattern): string {
+  if (pattern.kind === 'text') return `{kind="text",text=${luaQuotedString(pattern.text)}}`;
+  const cases = Object.entries(pattern.cases)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, branch]) => `[${luaQuotedString(key)}]=${luaMessagePattern(branch)}`)
+    .join(',');
+  return `{kind=${luaQuotedString(pattern.kind)},argument=${luaQuotedString(pattern.argument)},cases={${cases}}}`;
+}
+
+function focusedPreviewMessagePattern(
+  project: AuthoringProject,
+  messageId: string,
+  resolvedLocale: string,
+): MessagePattern | undefined {
+  const source = project.localization.messages[messageId];
+  if (!source) return undefined;
+  if (resolvedLocale === project.localization.sourceLocale) return source.pattern;
+  return project.localization.translations[resolvedLocale]?.[messageId]?.pattern;
+}
+
 /**
  * Focused preview executes authored Lua without a Compiled Project catalog. Reuse the production
  * lowering, then install a tiny per-source realization table for only the lowered Message IDs.
@@ -424,13 +533,35 @@ export function lowerManagedLuaLocalizationForFocusedPreview(project: AuthoringP
       messageId,
       locale: lowered.project.localization.defaultLocale,
     }).resolved;
-    entries.push(`[${packageId}]=${luaQuotedString(resolved?.text ?? message.source)}`);
+    const text = resolved?.text ?? message.source;
+    const pattern = focusedPreviewMessagePattern(
+      lowered.project,
+      messageId,
+      resolved?.locale ?? lowered.project.localization.sourceLocale,
+    );
+    entries.push(
+      `[${packageId}]={text=${luaQuotedString(text)}${pattern ? `,pattern=${luaMessagePattern(pattern)}` : ''}}`,
+    );
   }
+  const language = lowered.project.localization.defaultLocale.split('-')[0]!.toLowerCase();
   const prelude =
-    `local __noveltea_messages={${entries.join(',')}};` +
+    `local __noveltea_messages={${entries.join(',')}};local __noveltea_lang=${luaQuotedString(language)};` +
+    'local function __noveltea_plural(v)local n=math.abs(tonumber(v) or 0);local i=math.floor(n);local int=n==i;local m10=i%10;local m100=i%100;local l=__noveltea_lang;' +
+    "if l=='zh' or l=='ja' or l=='ko' or l=='th' or l=='vi' or l=='id' or l=='ms' then return 'other' end;" +
+    "if l=='ar' then if n==0 then return 'zero' elseif n==1 then return 'one' elseif n==2 then return 'two' elseif n%100>=3 and n%100<=10 then return 'few' elseif n%100>=11 and n%100<=99 then return 'many' else return 'other' end end;" +
+    "if l=='ru' or l=='uk' or l=='be' then if not int then return 'other' elseif m10==1 and m100~=11 then return 'one' elseif m10>=2 and m10<=4 and (m100<12 or m100>14) then return 'few' else return 'many' end end;" +
+    "if l=='pl' then if not int then return 'other' elseif i==1 then return 'one' elseif m10>=2 and m10<=4 and (m100<12 or m100>14) then return 'few' else return 'many' end end;" +
+    "if l=='cs' or l=='sk' then if not int then return 'many' elseif i==1 then return 'one' elseif i>=2 and i<=4 then return 'few' else return 'other' end end;" +
+    "if l=='sl' then if not int then return 'few' elseif m100==1 then return 'one' elseif m100==2 then return 'two' elseif m100==3 or m100==4 then return 'few' else return 'other' end end;" +
+    "if l=='lt' then if not int then return 'many' elseif m10==1 and (m100<11 or m100>19) then return 'one' elseif m10>=2 and m10<=9 and (m100<11 or m100>19) then return 'few' else return 'other' end end;" +
+    "if l=='ro' then if int and i==1 then return 'one' elseif not int or n==0 or (m100>=2 and m100<=19) then return 'few' else return 'other' end end;" +
+    "if l=='he' then if int and i==1 then return 'one' elseif int and i==2 then return 'two' else return 'other' end end;" +
+    "if l=='fr' or l=='pt' then return int and (i==0 or i==1) and 'one' or 'other' end;return int and i==1 and 'one' or 'other' end;" +
+    "local function __noveltea_interp(text,args)local a=text:gsub('{{','\\1'):gsub('}}','\\2');a=a:gsub('{([%a_][%w_-]*)}',function(k)local v=args[k];if v==nil then error('Managed Message argument is missing: '..k) end;return tostring(v) end);return a:gsub('\\1','{'):gsub('\\2','}') end;" +
+    "local function __noveltea_realize(node,args)while node.kind~='text' do local v=args[node.argument];if v==nil then error('Managed Message selector argument is missing: '..node.argument) end;local key=node.kind=='plural' and __noveltea_plural(v) or tostring(v);node=node.cases[key] or node.cases.other;if node==nil then error('Managed Message selector has no fallback') end end;return __noveltea_interp(node.text,args) end;" +
     'local __noveltea_Text=Text;local Text=setmetatable({},{__index=__noveltea_Text});' +
-    'Text.__message=function(id)local value=__noveltea_messages[id];' +
-    "if value==nil then error('Managed Message could not be realized') end;return value end;";
+    'Text.__message=function(id,args)local message=__noveltea_messages[id];' +
+    "if message==nil then error('Managed Message could not be realized') end;args=args or {};return message.pattern and __noveltea_realize(message.pattern,args) or __noveltea_interp(message.text,args) end;";
   for (const sourcePath of lowered.managedSourcePaths) {
     const source = valueAtPointer(lowered.project, sourcePath);
     if (typeof source === 'string')

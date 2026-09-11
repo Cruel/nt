@@ -80,12 +80,16 @@ package-local `MessageId` values. Compiled Messages may also carry a stable name
 the initial value types are printable, string, number, integer, and plural-number. `MessageRealizer`
 owns locale realization over the compiled locale inventory and sparse Message catalogs: it follows the
 requested locale's explicit parent chain, falls back to the Source locale, validates supplied argument
-values, performs locale-aware value formatting, and substitutes required placeholders. Translators may
-reorder placeholders but compiled target catalogs must preserve the source Message's structural
-argument contract. `MessageResolver` remains only the transitional #176 adapter onto that realization
-module. Runtime text evaluation, Lua, and live RmlUi localization delegate to the same realization path
-instead of implementing formatting policy independently. Script modules never autorun because they are
-present in a collection or package.
+values, performs locale-aware value formatting, and substitutes required placeholders. A compiled
+Message may additionally carry a recursive `text` / `plural` / `select` pattern. Plural selectors use
+the active locale's CLDR cardinal categories; generic selectors use exact string matching and require
+an `other` branch. The pattern model is recursive from its first version so one named Message may use
+multiple selectors, while local Lua plural/select helpers deliberately lower to the single-selector
+subset. Translators may reorder placeholders and selector structure, but compiled target catalogs must
+preserve the source Message's argument/selector contract. `MessageResolver` remains only the
+transitional #176 adapter onto that realization module. Runtime text evaluation, Lua, and live RmlUi
+localization delegate to the same realization path instead of implementing formatting policy
+independently. Script modules never autorun because they are present in a collection or package.
 
 The compiled project root owns project identity, runtime settings, feature flags, Bootstrap Module reference,
 entrypoint, definition collections, resource IDs, and lookup indexes. It is not an entity and cannot

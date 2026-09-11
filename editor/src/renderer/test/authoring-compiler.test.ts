@@ -142,6 +142,147 @@ describe('authoring compiler framework', () => {
     );
   });
 
+  it('lowers literal Lua plural/select helpers into managed Message patterns', () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: `
+        local plural = Text.plural(count, { one = "{value} item", other = "{value} items" }, { context = "Inventory count" })
+        local selected = Text.select(gender, { female = "She", ["non-binary"] = "They", other = "They" })
+        return { plural = plural, selected = selected }
+      `,
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const source = result.project.resources.scripts.find(
+      (script) => script.id === 'bootstrap',
+    )!.source;
+    expect(source.kind).toBe('inline-lua');
+    if (source.kind !== 'inline-lua') return;
+    expect(source.source).not.toContain('Text.plural');
+    expect(source.source).not.toContain('Text.select');
+    expect(source.source).toMatch(/Text\.__message\(\d+, \{ value = count \}, nil\)/u);
+    expect(source.source).toMatch(/Text\.__message\(\d+, \{ value = gender \}\)/u);
+    expect(result.project.localization.catalogs[0]?.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          arguments: [{ name: 'value', type: 'plural-number' }],
+          pattern: expect.objectContaining({ nodes: expect.any(Array), root: 0 }),
+        }),
+        expect.objectContaining({
+          arguments: [{ name: 'value', type: 'string' }],
+          pattern: expect.objectContaining({ nodes: expect.any(Array), root: 0 }),
+        }),
+      ]),
+    );
+  });
+
+  it('rejects non-literal managed Lua selector cases instead of executing or guessing them', () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: `local cases = { one = "one", other = "other" }\nreturn Text.plural(count, cases)`,
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'authoring.localization.lua_cases_static' }),
+      ]),
+    );
+  });
+
+  it('compiles nested selectors on named Messages for RML without inline case grammar', () => {
+    const project = validProject();
+    project.localization.messages['11111111-1111-4111-8111-111111111111'] = {
+      kind: 'named',
+      key: 'ui.inventory.summary',
+      source: '{count} items',
+      arguments: { count: 'plural-number', gender: 'string' },
+      pattern: {
+        kind: 'plural',
+        argument: 'count',
+        cases: {
+          one: {
+            kind: 'select',
+            argument: 'gender',
+            cases: {
+              female: { kind: 'text', text: '{count} item for her' },
+              other: { kind: 'text', text: '{count} item' },
+            },
+          },
+          other: { kind: 'text', text: '{count} items' },
+        },
+      },
+    };
+    const layout = defaultLayoutData('Inventory HUD', 'document');
+    layout.rml.sourceText = `<rml><head></head><body data-model="noveltea">
+      <nt-tr key="ui.inventory.summary" arg-count="{{ gameplay.inventory.items.size() }}" arg-gender="{{ gameplay.player.gender }}"/>
+    </body></rml>`;
+    project.layouts.inventory = { id: 'inventory', label: 'Inventory HUD', data: layout };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+    const entry = result.project.localization.catalogs[0]?.entries.find(
+      (candidate) => candidate.pattern,
+    );
+    expect(entry?.pattern?.nodes.map((node) => node.kind)).toEqual(
+      expect.arrayContaining(['plural', 'select', 'text']),
+    );
+  });
+
+  it('requires target plural categories for the target locale', () => {
+    const project = validProject();
+    const messageId = '11111111-1111-4111-8111-111111111111';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.inventory.count',
+      source: '{count} items',
+      arguments: { count: 'plural-number' },
+      pattern: {
+        kind: 'plural',
+        argument: 'count',
+        cases: {
+          one: { kind: 'text', text: '{count} item' },
+          other: { kind: 'text', text: '{count} items' },
+        },
+      },
+    };
+    project.localization.locales.ru = { supported: true, parentLocale: null };
+    project.localization.translations.ru = {
+      [messageId]: {
+        text: '{count} предметов',
+        pattern: {
+          kind: 'plural',
+          argument: 'count',
+          cases: {
+            one: { kind: 'text', text: '{count} предмет' },
+            other: { kind: 'text', text: '{count} предметов' },
+          },
+        },
+        sourceFingerprint: 'fnv1a:00000000000000000000000000000000',
+        origin: 'human',
+        review: 'needs-review',
+      },
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'AUTHORING_LOCALIZATION_TRANSLATION_PLURAL_CATEGORY_MISSING',
+        }),
+      ]),
+    );
+  });
+
   it('lowers live RML nt-tr local and named Messages without authoring source metadata leakage', () => {
     const project = validProject();
     project.localization.messages['11111111-1111-4111-8111-111111111111'] = {

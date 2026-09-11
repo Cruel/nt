@@ -1526,6 +1526,157 @@ private:
                 [locale](const LocalizationCatalog& value) { return value.locale == locale; });
             return found == m_input.localization.catalogs.end() ? nullptr : &*found;
         };
+        const auto pattern_placeholders = [&](const LocalizationEntry& entry) {
+            std::unordered_set<std::string> result;
+            if (!entry.pattern)
+                return result;
+            for (const auto& node : entry.pattern->nodes) {
+                if (node.kind != MessagePatternNodeKind::Text)
+                    continue;
+                const auto placeholders = message_placeholders(node.text);
+                result.insert(placeholders.begin(), placeholders.end());
+            }
+            return result;
+        };
+        const auto pattern_contract = [&](const LocalizationEntry& entry) {
+            std::vector<std::string> result;
+            if (!entry.pattern)
+                return result;
+            for (const auto& node : entry.pattern->nodes) {
+                if (node.kind == MessagePatternNodeKind::Text)
+                    continue;
+                std::string signature =
+                    node.kind == MessagePatternNodeKind::Plural ? "plural:" : "select:";
+                signature += node.argument;
+                if (node.kind == MessagePatternNodeKind::Select) {
+                    std::vector<std::string_view> keys;
+                    keys.reserve(node.cases.size());
+                    for (const auto& message_case : node.cases)
+                        keys.push_back(message_case.key);
+                    std::sort(keys.begin(), keys.end());
+                    for (const auto key : keys) {
+                        signature.push_back(':');
+                        signature.append(key);
+                    }
+                }
+                result.push_back(std::move(signature));
+            }
+            std::sort(result.begin(), result.end());
+            return result;
+        };
+        const auto required_plural_categories = [](std::string_view locale) {
+            const auto separator = locale.find('-');
+            const auto language = locale.substr(0, separator);
+            if (language == "zh" || language == "ja" || language == "ko" || language == "th" ||
+                language == "vi" || language == "id" || language == "ms")
+                return std::vector<std::string_view>{"other"};
+            if (language == "ar")
+                return std::vector<std::string_view>{"zero", "one", "two", "few", "many", "other"};
+            if (language == "ru" || language == "uk" || language == "be" || language == "pl" ||
+                language == "cs" || language == "sk" || language == "lt")
+                return std::vector<std::string_view>{"one", "few", "many", "other"};
+            if (language == "sl")
+                return std::vector<std::string_view>{"one", "two", "few", "other"};
+            if (language == "ro")
+                return std::vector<std::string_view>{"one", "few", "other"};
+            if (language == "he")
+                return std::vector<std::string_view>{"one", "two", "other"};
+            return std::vector<std::string_view>{"one", "other"};
+        };
+        const auto validate_pattern = [&](const LocalizationEntry& entry, const std::string& path,
+                                          std::string_view locale) {
+            if (!entry.pattern)
+                return;
+            const auto& pattern = *entry.pattern;
+            if (pattern.nodes.empty()) {
+                error("compiled_project.invalid_message_pattern",
+                      "Message pattern must contain at least one node.", path + "/pattern/nodes");
+                return;
+            }
+            if (pattern.root >= pattern.nodes.size())
+                error("compiled_project.invalid_message_pattern",
+                      "Message pattern root is out of range.", path + "/pattern/root");
+
+            std::vector<std::uint8_t> colors(pattern.nodes.size());
+            std::function<void(std::uint32_t)> visit = [&](std::uint32_t index) {
+                if (index >= pattern.nodes.size())
+                    return;
+                if (colors[index] == 1) {
+                    error("compiled_project.invalid_message_pattern",
+                          "Message pattern contains a selector cycle.",
+                          path + "/pattern/nodes/" + std::to_string(index));
+                    return;
+                }
+                if (colors[index] == 2)
+                    return;
+                colors[index] = 1;
+                const auto& node = pattern.nodes[index];
+                const auto node_path = path + "/pattern/nodes/" + std::to_string(index);
+                if (node.kind == MessagePatternNodeKind::Text) {
+                    if (!node.argument.empty() || !node.cases.empty())
+                        error("compiled_project.invalid_message_pattern",
+                              "Text Message pattern nodes cannot declare selector data.",
+                              node_path);
+                    colors[index] = 2;
+                    return;
+                }
+                if (!node.text.empty())
+                    error("compiled_project.invalid_message_pattern",
+                          "Selector Message pattern nodes cannot declare text.", node_path);
+                const auto argument = std::find_if(
+                    entry.arguments.begin(), entry.arguments.end(),
+                    [&](const auto& candidate) { return candidate.name == node.argument; });
+                const auto expected = node.kind == MessagePatternNodeKind::Plural
+                                          ? MessageArgumentType::PluralNumber
+                                          : MessageArgumentType::String;
+                if (argument == entry.arguments.end() || argument->type != expected)
+                    error("compiled_project.invalid_message_pattern",
+                          "Message selector argument has an incompatible declared type.",
+                          node_path + "/argument");
+                std::unordered_set<std::string> keys;
+                bool has_other = false;
+                for (std::size_t case_index = 0; case_index < node.cases.size(); ++case_index) {
+                    const auto& message_case = node.cases[case_index];
+                    const auto case_path = node_path + "/cases/" + std::to_string(case_index);
+                    if (!keys.insert(message_case.key).second)
+                        error("compiled_project.invalid_message_pattern",
+                              "Message selector case keys must be unique.", case_path + "/key");
+                    has_other |= message_case.key == "other";
+                    if (node.kind == MessagePatternNodeKind::Plural && message_case.key != "zero" &&
+                        message_case.key != "one" && message_case.key != "two" &&
+                        message_case.key != "few" && message_case.key != "many" &&
+                        message_case.key != "other")
+                        error("compiled_project.invalid_message_pattern",
+                              "Plural Message case key is not a CLDR cardinal category.",
+                              case_path + "/key");
+                    if (message_case.node >= pattern.nodes.size())
+                        error("compiled_project.invalid_message_pattern",
+                              "Message selector case target is out of range.", case_path + "/node");
+                    else
+                        visit(message_case.node);
+                }
+                if (!has_other)
+                    error("compiled_project.invalid_message_pattern",
+                          "Message selector requires an 'other' fallback case.",
+                          node_path + "/cases");
+                if (node.kind == MessagePatternNodeKind::Plural) {
+                    for (const auto category : required_plural_categories(locale))
+                        if (!keys.contains(std::string(category)))
+                            error("compiled_project.invalid_message_pattern",
+                                  "Plural Message is missing category '" + std::string(category) +
+                                      "' required by locale '" + std::string(locale) + "'.",
+                                  node_path + "/cases");
+                }
+                colors[index] = 2;
+            };
+            if (pattern.root < pattern.nodes.size())
+                visit(pattern.root);
+            for (std::size_t index = 0; index < colors.size(); ++index)
+                if (colors[index] == 0)
+                    error("compiled_project.invalid_message_pattern",
+                          "Message pattern contains an unreachable node.",
+                          path + "/pattern/nodes/" + std::to_string(index));
+        };
 
         if (!locale_exists(m_input.localization.source_locale))
             error("compiled_project.unresolved_localization", "Source locale is not declared.",
@@ -1568,13 +1719,16 @@ private:
                         error("compiled_project.invalid_message_argument",
                               "Message argument names must be unique.", argument_path);
                 }
-                const auto placeholders = message_placeholders(entry.value);
+                const auto entry_path =
+                    "/localization/catalogs/source/entries/" + std::to_string(entry_index);
+                validate_pattern(entry, entry_path, m_input.localization.source_locale);
+                const auto placeholders =
+                    entry.pattern ? pattern_placeholders(entry) : message_placeholders(entry.value);
                 for (const auto& placeholder : placeholders)
                     if (!argument_names.contains(placeholder))
                         error("compiled_project.invalid_message_argument",
                               "Message placeholder requires a declared argument.",
-                              "/localization/catalogs/source/entries/" +
-                                  std::to_string(entry_index) + "/value");
+                              entry_path + (entry.pattern ? "/pattern" : "/value"));
             }
         }
 
@@ -1638,11 +1792,26 @@ private:
                         error("compiled_project.invalid_message_argument",
                               "Localized Message argument contract must match the source Message.",
                               entry_path + "/arguments");
-                    if (message_placeholders(entry.value) !=
-                        message_placeholders(source_entry->value))
+                    validate_pattern(entry, entry_path, catalog.locale);
+                    if (entry.pattern.has_value() != source_entry->pattern.has_value())
+                        error("compiled_project.invalid_message_pattern",
+                              "Localized Message pattern presence must match the source Message.",
+                              entry_path + "/pattern");
+                    else if (entry.pattern && source_entry->pattern &&
+                             pattern_contract(entry) != pattern_contract(*source_entry))
+                        error("compiled_project.invalid_message_pattern",
+                              "Localized Message selector contract must match the source Message.",
+                              entry_path + "/pattern");
+                    const auto entry_placeholders = entry.pattern
+                                                        ? pattern_placeholders(entry)
+                                                        : message_placeholders(entry.value);
+                    const auto source_placeholders =
+                        source_entry->pattern ? pattern_placeholders(*source_entry)
+                                              : message_placeholders(source_entry->value);
+                    if (entry_placeholders != source_placeholders)
                         error("compiled_project.invalid_message_argument",
                               "Localized Message must preserve the source placeholder contract.",
-                              entry_path + "/value");
+                              entry_path + (entry.pattern ? "/pattern" : "/value"));
                 }
             }
         }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <limits>
 
 namespace noveltea::core {
 namespace {
@@ -202,6 +203,189 @@ std::optional<std::string> interpolate(const compiled::LocalizationEntry& entry,
     return output;
 }
 
+std::string_view primary_language(std::string_view locale) noexcept
+{
+    const auto separator = locale.find('-');
+    return locale.substr(0, separator);
+}
+
+std::string plural_category(const MessageArgumentValue& value, std::string_view locale)
+{
+    double number = 0.0;
+    bool integer_value = false;
+    std::uint64_t integer = 0;
+    if (const auto* exact = std::get_if<std::int64_t>(&value)) {
+        number = static_cast<double>(*exact);
+        integer_value = true;
+        integer = *exact < 0 ? static_cast<std::uint64_t>(-(*exact + 1)) + 1
+                             : static_cast<std::uint64_t>(*exact);
+    } else if (const auto* real = std::get_if<double>(&value); real && std::isfinite(*real)) {
+        number = *real;
+        const auto absolute = std::fabs(*real);
+        const auto truncated = std::trunc(absolute);
+        integer_value = truncated == absolute &&
+                        truncated <= static_cast<double>(std::numeric_limits<std::uint64_t>::max());
+        if (integer_value)
+            integer = static_cast<std::uint64_t>(truncated);
+    } else {
+        return "other";
+    }
+
+    const auto absolute_number = std::fabs(number);
+    const auto mod10 = integer % 10;
+    const auto mod100 = integer % 100;
+    const auto language = primary_language(locale);
+
+    if (language == "zh" || language == "ja" || language == "ko" || language == "th" ||
+        language == "vi" || language == "id" || language == "ms")
+        return "other";
+    if (language == "ar") {
+        if (absolute_number == 0.0)
+            return "zero";
+        if (absolute_number == 1.0)
+            return "one";
+        if (absolute_number == 2.0)
+            return "two";
+        const auto n100 = std::fmod(absolute_number, 100.0);
+        if (n100 >= 3.0 && n100 <= 10.0)
+            return "few";
+        if (n100 >= 11.0 && n100 <= 99.0)
+            return "many";
+        return "other";
+    }
+    if (language == "ru" || language == "uk" || language == "be") {
+        if (!integer_value)
+            return "other";
+        if (mod10 == 1 && mod100 != 11)
+            return "one";
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
+            return "few";
+        return "many";
+    }
+    if (language == "pl") {
+        if (!integer_value)
+            return "other";
+        if (integer == 1)
+            return "one";
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
+            return "few";
+        return "many";
+    }
+    if (language == "cs" || language == "sk") {
+        if (!integer_value)
+            return "many";
+        if (integer == 1)
+            return "one";
+        if (integer >= 2 && integer <= 4)
+            return "few";
+        return "other";
+    }
+    if (language == "sl") {
+        if (!integer_value)
+            return "few";
+        if (mod100 == 1)
+            return "one";
+        if (mod100 == 2)
+            return "two";
+        if (mod100 == 3 || mod100 == 4)
+            return "few";
+        return "other";
+    }
+    if (language == "lt") {
+        if (!integer_value)
+            return "many";
+        if (mod10 == 1 && (mod100 < 11 || mod100 > 19))
+            return "one";
+        if (mod10 >= 2 && mod10 <= 9 && (mod100 < 11 || mod100 > 19))
+            return "few";
+        return "other";
+    }
+    if (language == "ro") {
+        if (integer_value && integer == 1)
+            return "one";
+        if (!integer_value || absolute_number == 0.0 || (mod100 >= 2 && mod100 <= 19))
+            return "few";
+        return "other";
+    }
+    if (language == "he") {
+        if (integer_value && integer == 1)
+            return "one";
+        if (integer_value && integer == 2)
+            return "two";
+        return "other";
+    }
+    if (language == "fr" || language == "pt")
+        return integer_value && (integer == 0 || integer == 1) ? "one" : "other";
+    return integer_value && integer == 1 ? "one" : "other";
+}
+
+const MessageArgument* find_argument(const std::vector<MessageArgument>& arguments,
+                                     std::string_view name) noexcept
+{
+    const auto found = std::find_if(arguments.begin(), arguments.end(),
+                                    [&](const auto& argument) { return argument.name == name; });
+    return found == arguments.end() ? nullptr : &*found;
+}
+
+std::optional<std::string> realize_pattern(const compiled::LocalizationEntry& entry,
+                                           const std::vector<MessageArgument>& arguments,
+                                           std::string_view locale)
+{
+    if (!entry.pattern || entry.pattern->nodes.empty() ||
+        entry.pattern->root >= entry.pattern->nodes.size())
+        return std::nullopt;
+
+    std::uint32_t node_index = entry.pattern->root;
+    for (std::size_t depth = 0; depth <= entry.pattern->nodes.size(); ++depth) {
+        if (node_index >= entry.pattern->nodes.size())
+            return std::nullopt;
+        const auto& node = entry.pattern->nodes[node_index];
+        if (node.kind == compiled::MessagePatternNodeKind::Text) {
+            auto leaf = entry;
+            leaf.value = node.text;
+            leaf.pattern.reset();
+            return interpolate(leaf, arguments, locale);
+        }
+
+        const auto* argument = find_argument(arguments, node.argument);
+        if (!argument)
+            return std::nullopt;
+        std::string key;
+        if (node.kind == compiled::MessagePatternNodeKind::Plural) {
+            const auto definition = std::find_if(
+                entry.arguments.begin(), entry.arguments.end(),
+                [&](const auto& candidate) { return candidate.name == node.argument; });
+            if (definition == entry.arguments.end() ||
+                definition->type != compiled::MessageArgumentType::PluralNumber)
+                return std::nullopt;
+            key = plural_category(argument->value, locale);
+        } else {
+            const auto definition = std::find_if(
+                entry.arguments.begin(), entry.arguments.end(),
+                [&](const auto& candidate) { return candidate.name == node.argument; });
+            if (definition == entry.arguments.end() ||
+                definition->type != compiled::MessageArgumentType::String)
+                return std::nullopt;
+            const auto* selected = std::get_if<std::string>(&argument->value);
+            if (!selected)
+                return std::nullopt;
+            key = *selected;
+        }
+
+        const auto exact = std::find_if(node.cases.begin(), node.cases.end(),
+                                        [&](const auto& item) { return item.key == key; });
+        const auto fallback = std::find_if(node.cases.begin(), node.cases.end(),
+                                           [](const auto& item) { return item.key == "other"; });
+        if (exact != node.cases.end())
+            node_index = exact->node;
+        else if (fallback != node.cases.end())
+            node_index = fallback->node;
+        else
+            return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 const std::vector<compiled::MessageArgumentDefinition>*
@@ -220,7 +404,8 @@ MessageRealizer::realize(const MessageRealizationRequest& request) const
     const auto maximum_hops = m_localization.locales.size() + 1;
     for (std::size_t hops = 0; !locale.empty() && hops < maximum_hops; ++hops) {
         if (const auto* entry = find_message(m_localization, locale, request.message_id)) {
-            auto text = interpolate(*entry, request.arguments, locale);
+            auto text = entry->pattern ? realize_pattern(*entry, request.arguments, locale)
+                                       : interpolate(*entry, request.arguments, locale);
             if (!text)
                 return std::nullopt;
             return RealizedMessage{std::move(*text), locale};

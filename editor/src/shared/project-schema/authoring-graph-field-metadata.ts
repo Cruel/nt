@@ -152,6 +152,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     valueDependent('localization-catalog-entry'),
   ],
   [/^\/localization\/messages\/\*\/arguments\/\*$/, valueDependent('localization-catalog-entry')],
+  // #209 adds recursive plural/select Message grammar. Every selector/case/text leaf changes the
+  // compiled localization catalog and therefore participates in the same reverse-impact family.
+  [/^\/localization\/messages\/\*\/pattern(?:\/|$)/, valueDependent('localization-catalog-entry')],
   [/^\/localization\/messages\/\*\/(?:context|translatorNote)$/, NONE],
   [/^\/localization\/structuredMessageIds\/\*$/, valueDependent('localization-catalog-entry')],
   [
@@ -163,6 +166,10 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/localization\/translations\/\*\/\*$/, valueDependent('localization-catalog-entry')],
   [
     /^\/localization\/translations\/\*\/\*\/(?:acknowledgedGuidanceFingerprint|acknowledgedPresentationFingerprint|model|origin|provider|review|sourceFingerprint|text)$/,
+    valueDependent('localization-catalog-entry'),
+  ],
+  [
+    /^\/localization\/translations\/\*\/\*\/pattern(?:\/|$)/,
     valueDependent('localization-catalog-entry'),
   ],
   // #157 adds persisted supplemental prefetch intent. Every hint leaf changes the generated Flow
@@ -978,7 +985,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: '34ead015',
+    localization: '467b8215',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

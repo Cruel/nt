@@ -7,12 +7,37 @@ import {
   structuredMessages,
 } from './authoring-structured-messages';
 import { collectRmlLocalMessages } from './authoring-rml-localization-lowering';
-import { messagePlaceholderNames } from './project-schema/authoring-localization';
+import {
+  messagePlaceholderNames,
+  type MessagePattern,
+} from './project-schema/authoring-localization';
 
 function sortedEntries<T>(record: Readonly<Record<string, T>>): [string, T][] {
   return Object.entries(record).sort(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
   );
+}
+
+type CompiledPattern = NonNullable<
+  CompiledProjectWire['localization']['catalogs'][number]['entries'][number]['pattern']
+>;
+
+function compileMessagePattern(pattern: MessagePattern): CompiledPattern {
+  const nodes: CompiledPattern['nodes'] = [];
+  const append = (current: MessagePattern): number => {
+    const index = nodes.length;
+    nodes.push({ kind: 'text', text: '' });
+    if (current.kind === 'text') {
+      nodes[index] = { kind: 'text', text: current.text };
+      return index;
+    }
+    const cases = Object.entries(current.cases)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, branch]) => ({ key, node: append(branch) }));
+    nodes[index] = { kind: current.kind, argument: current.argument, cases };
+    return index;
+  };
+  return { root: append(pattern), nodes };
 }
 
 function allMessageIds(project: AuthoringProject): string[] {
@@ -82,13 +107,21 @@ export function compileLocalization(
   ]);
   const sourceMessages = allMessageIds(project).map((stableId) => {
     const value = sourceValues.get(stableId)!;
-    const explicitArguments = localization.messages[stableId]?.arguments;
+    const authoredMessage = localization.messages[stableId];
+    const explicitArguments = authoredMessage?.arguments;
     const arguments_ = explicitArguments
       ? sortedEntries(explicitArguments).map(([name, type]) => ({ name, type }))
       : rmlLocalIds.has(stableId)
         ? messagePlaceholderNames(value).map((name) => ({ name, type: 'printable' as const }))
         : [];
-    return { stableId, value, arguments: arguments_ };
+    return {
+      stableId,
+      value,
+      arguments: arguments_,
+      ...(authoredMessage?.pattern
+        ? { pattern: compileMessagePattern(authoredMessage.pattern) }
+        : {}),
+    };
   });
   const sourceArgumentContracts = new Map(
     sourceMessages.map((message) => [message.stableId, message.arguments] as const),
@@ -105,9 +138,10 @@ export function compileLocalization(
       locale,
       entries:
         locale === localization.sourceLocale
-          ? sourceMessages.map(({ stableId, value, arguments: arguments_ }) => ({
+          ? sourceMessages.map(({ stableId, value, arguments: arguments_, ...patternFields }) => ({
               messageId: ids.get(stableId)!,
               value,
+              ...patternFields,
               ...(arguments_.length === 0 ? {} : { arguments: arguments_ }),
             }))
           : sortedEntries(localization.translations[locale] ?? {}).map(
@@ -116,6 +150,9 @@ export function compileLocalization(
                 return {
                   messageId: ids.get(stableId)!,
                   value: translation.text,
+                  ...(translation.pattern
+                    ? { pattern: compileMessagePattern(translation.pattern) }
+                    : {}),
                   ...(arguments_.length === 0 ? {} : { arguments: arguments_ }),
                 };
               },

@@ -14,10 +14,12 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
   bound attribute values every time the element is realized, coerces them according to that compiled
   contract, and passes the typed values to `MessageRealizer`. Locale-aware value formatting and
   placeholder substitution remain owned by `MessageRealizer`; changing the bound locale therefore
-  re-realizes mounted elements with current bindings without remounting their Layout. The v1 inline
-  presentation subset is text plus `span`, `em`, `strong`, `b`, `i`, `u`, `s`,
-  and `br`, with `class`/`style` on those inline tags. Nested `nt-tr`, arbitrary interactive/layout
-  subtrees, and inline `nt-case` grammar are rejected.
+  re-realizes mounted elements with current bindings without remounting their Layout. Named Messages
+  may use recursive plural/select patterns and multiple selectors; `nt-tr` supplies their current bound
+  arguments and does not implement a second grammar. The v1 inline presentation subset is text plus
+  `span`, `em`, `strong`, `b`, `i`, `u`, `s`, and `br`, with `class`/`style` on those inline tags.
+  Nested `nt-tr`, arbitrary interactive/layout subtrees, and inline `nt-case` grammar are rejected;
+  complex grammar is defined on the referenced named Message instead.
 - `nt-active-text`: registered as a C++ RmlUi element. It is a layout/input host rather than a glyph
   markup renderer. It binds typed Room/Dialogue/Scene text state, drives deterministic reveal and
   alpha playback through the coordinator-owned typed presentation lifecycle, and preserves

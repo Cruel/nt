@@ -32,7 +32,12 @@ import {
   validateInteractionResolverProject,
 } from './authoring-interactions';
 import { validateLayoutData, validateSystemLayoutSettings } from './authoring-layouts';
-import { messagePlaceholderNames } from './authoring-localization';
+import {
+  messagePatternPlaceholderNames,
+  messagePatternPluralCategoryGaps,
+  messagePatternSelectorSignatures,
+  messagePlaceholderNames,
+} from './authoring-localization';
 import { validateMaterialData } from './authoring-materials';
 import { validateMapData } from './authoring-maps';
 import {
@@ -229,8 +234,55 @@ function validateLocalizationReferences(
       }
       const message = sourceMessages.get(messageId);
       if (!message) continue;
-      const sourcePlaceholders = new Set(messagePlaceholderNames(message.source));
-      const targetPlaceholders = new Set(messagePlaceholderNames(translation.text));
+      if (!!message.pattern !== !!translation.pattern) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            translationPath,
+            message.pattern
+              ? 'Translation must provide the Message selector pattern.'
+              : 'Translation cannot introduce selector grammar absent from the source Message.',
+            'Localization',
+            'localization.translation.pattern-mismatch',
+          ),
+        );
+      }
+      if (translation.pattern)
+        for (const gap of messagePatternPluralCategoryGaps(translation.pattern, locale))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${translationPath}/pattern`,
+              `Plural selector '${gap.argument}' requires '${gap.category}' for locale '${locale}'.`,
+              'Localization',
+              'localization.translation.plural-category-missing',
+            ),
+          );
+      if (
+        message.pattern &&
+        translation.pattern &&
+        JSON.stringify(messagePatternSelectorSignatures(message.pattern)) !==
+          JSON.stringify(messagePatternSelectorSignatures(translation.pattern))
+      )
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${translationPath}/pattern`,
+            'Translation must preserve the source Message selector contract.',
+            'Localization',
+            'localization.translation.selector-contract-mismatch',
+          ),
+        );
+      const sourcePlaceholders = new Set(
+        message.pattern
+          ? messagePatternPlaceholderNames(message.pattern)
+          : messagePlaceholderNames(message.source),
+      );
+      const targetPlaceholders = new Set(
+        translation.pattern
+          ? messagePatternPlaceholderNames(translation.pattern)
+          : messagePlaceholderNames(translation.text),
+      );
       for (const placeholder of sourcePlaceholders)
         if (!targetPlaceholders.has(placeholder))
           diagnostics.push(

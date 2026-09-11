@@ -19,6 +19,8 @@ export interface LocalizationMessageWorkflowView {
   readonly kind: 'local' | 'named';
   readonly key?: string;
   readonly source: string;
+  readonly arguments?: AuthoringMessage['arguments'];
+  readonly pattern?: AuthoringMessage['pattern'];
   readonly context?: string;
   readonly translatorNote?: string;
   readonly sourcePath: string | null;
@@ -47,6 +49,18 @@ function fingerprint(prefix: string, value: string): string {
   return localizationTrackingFingerprint(`${prefix}\u0000${value}`);
 }
 
+function patternFingerprintValue(pattern: AuthoringMessage['pattern']): string {
+  if (!pattern) return '';
+  if (pattern.kind === 'text') return JSON.stringify(['text', pattern.text]);
+  return JSON.stringify([
+    pattern.kind,
+    pattern.argument,
+    Object.entries(pattern.cases)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, branch]) => [key, patternFingerprintValue(branch)]),
+  ]);
+}
+
 function guidanceFingerprint(
   message: Pick<AuthoringMessage, 'context' | 'translatorNote'>,
 ): string {
@@ -63,19 +77,28 @@ function simpleView(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, type]) => `${name}:${type}`)
     .join('|');
-  const sourceFingerprint = fingerprint('semantic', `${message.source}\u0000${argumentContract}`);
+  const patternContract = patternFingerprintValue(message.pattern);
+  const sourceFingerprint = fingerprint(
+    'semantic',
+    `${message.source}\u0000${argumentContract}\u0000${patternContract}`,
+  );
   return {
     id,
     kind: message.kind,
     ...(message.kind === 'named' ? { key: message.key } : {}),
     source: message.source,
+    ...(message.arguments === undefined ? {} : { arguments: message.arguments }),
+    ...(message.pattern === undefined ? {} : { pattern: message.pattern }),
     ...(message.context === undefined ? {} : { context: message.context }),
     ...(message.translatorNote === undefined ? {} : { translatorNote: message.translatorNote }),
     sourcePath,
     sourceEditPath: sourcePath,
     usageNote,
     sourceFingerprint,
-    presentationFingerprint: fingerprint('presentation', message.source),
+    presentationFingerprint: fingerprint(
+      'presentation',
+      `${message.source}\u0000${patternContract}`,
+    ),
     guidanceFingerprint: guidanceFingerprint(message),
   };
 }
@@ -114,7 +137,7 @@ export function localizationMessageWorkflowViews(
 
   for (const source of collectManagedLuaLocalizationSources(project)) {
     source.occurrences.forEach((occurrence, ordinal) => {
-      if (occurrence.kind !== 'local') return;
+      if (occurrence.kind === 'named') return;
       const candidate = source.source.occurrences[ordinal];
       if (!candidate) return;
       const id = resolveLocalizationSourceIdentity(
@@ -122,9 +145,28 @@ export function localizationMessageWorkflowViews(
         source.source,
         candidate,
       ).messageId;
+      const selectorKind =
+        occurrence.kind === 'plural' || occurrence.kind === 'select' ? occurrence.kind : null;
       const message: AuthoringMessage = {
         kind: 'local',
         source: occurrence.source,
+        ...(selectorKind
+          ? {
+              arguments: {
+                value: selectorKind === 'plural' ? ('plural-number' as const) : ('string' as const),
+              },
+              pattern: {
+                kind: selectorKind,
+                argument: 'value',
+                cases: Object.fromEntries(
+                  Object.entries(occurrence.cases ?? {}).map(([key, text]) => [
+                    key,
+                    { kind: 'text' as const, text },
+                  ]),
+                ),
+              },
+            }
+          : {}),
         ...(occurrence.context === undefined ? {} : { context: occurrence.context }),
         ...(occurrence.translatorNote === undefined
           ? {}

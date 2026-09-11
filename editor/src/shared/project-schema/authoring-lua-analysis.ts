@@ -5,7 +5,7 @@ import { isRegisteredLuaExplicitFallbackOwner } from './authoring-lua-source-reg
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-export const AUTHORING_SOURCE_ANALYZER_VERSION = 'lua-rml-v2' as const;
+export const AUTHORING_SOURCE_ANALYZER_VERSION = 'lua-rml-v3' as const;
 export const LUA_REFERENCE_ANALYSIS_LIMITS = {
   maxSourceBytes: 4 * 1024 * 1024,
   maxSnapshotBytes: 64 * 1024 * 1024,
@@ -109,7 +109,7 @@ export interface AuthoringLiteralOccurrence {
   sourceKind: EmbeddedLuaSourceKind;
 }
 export interface OwnerNeutralManagedLuaMessageOccurrence {
-  kind: 'local' | 'named';
+  kind: 'local' | 'named' | 'plural' | 'select';
   sourceUrl: string;
   sourceContentHash: `sha256:${string}`;
   regionOrdinal: number;
@@ -123,6 +123,11 @@ export interface OwnerNeutralManagedLuaMessageOccurrence {
   source: string;
   runtimeArgsStartUtf16?: number;
   runtimeArgsEndUtf16?: number;
+  selectorStartUtf16?: number;
+  selectorEndUtf16?: number;
+  casesStartUtf16?: number;
+  casesEndUtf16?: number;
+  cases?: Readonly<Record<string, string>>;
   metadataStartUtf16?: number;
   metadataEndUtf16?: number;
   context?: string;
