@@ -30,6 +30,7 @@ struct SceneLayoutView {
 
 struct SceneView {
     SceneId scene;
+    std::optional<SceneStepId> text_step;
     std::optional<compiled::BackgroundPresentation> background;
     std::vector<ActorView> actors;
     std::optional<PresentedTextState> text;
@@ -42,7 +43,7 @@ struct DialogueView {
     FlowFrameId frame;
     DialogueId dialogue;
     std::optional<DialogueSegmentId> segment;
-    std::uint64_t reveal_offset = 0;
+    double reveal_progress = 0.0;
     std::optional<PresentedTextState> line;
     std::optional<DialogueChoiceState> choice;
     struct StageSlot {

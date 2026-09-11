@@ -46,7 +46,7 @@ struct AdvanceDialogueRevealInput {
     FlowFrameId frame;
     DialogueId dialogue;
     DialogueSegmentId segment;
-    std::uint64_t offset = 0;
+    double progress = 0.0;
     bool skipping = false;
     auto operator<=>(const AdvanceDialogueRevealInput&) const = default;
 };

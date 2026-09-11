@@ -93,7 +93,7 @@ struct DialogueFramePosition {
     std::size_t next_effect = 0;
     bool awaiting_completion = false;
     std::size_t next_cue = 0;
-    std::uint64_t reveal_offset = 0;
+    double reveal_progress = 0.0;
     std::optional<InteractionInstructionId> effect_command;
 
     DialogueFramePosition(
@@ -101,12 +101,12 @@ struct DialogueFramePosition {
         std::optional<DialogueEdgeId> edge_value = std::nullopt,
         Stage stage_value = Stage::EnterBlock, std::size_t next_effect_value = 0,
         bool awaiting_completion_value = false, std::size_t next_cue_value = 0,
-        std::uint64_t reveal_offset_value = 0,
+        double reveal_progress_value = 0.0,
         std::optional<InteractionInstructionId> effect_command_value = std::nullopt)
         : block(std::move(block_value)), segment(std::move(segment_value)),
           edge(std::move(edge_value)), stage(stage_value), next_effect(next_effect_value),
           awaiting_completion(awaiting_completion_value), next_cue(next_cue_value),
-          reveal_offset(reveal_offset_value), effect_command(std::move(effect_command_value))
+          reveal_progress(reveal_progress_value), effect_command(std::move(effect_command_value))
     {
     }
 

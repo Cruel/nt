@@ -2062,7 +2062,7 @@ TEST_CASE("mandatory gate ignores Dialogue reveal microstate when reconciling pr
     const auto live_generation = gate.active_prefetch_generation_on_owner();
     REQUIRE(live_generation);
 
-    root.position.reveal_offset = 2;
+    root.position.reveal_progress = 0.4;
     CHECK(gate.update_active_dialogue_prediction_on_owner(&root).empty());
     CHECK(gate.active_prefetch_generation_on_owner() == live_generation);
 

@@ -20,8 +20,16 @@ core::RichTextDocument active_text_document(const core::TypedRuntimeUIViewState&
 
 std::string active_text_content_key(const core::TypedRuntimeUIViewState& state)
 {
-    const auto document = active_text_document(state);
-    return state.mode + ":" + document.plain_text;
+    if (state.dialogue && state.dialogue->line && state.dialogue->segment)
+        return state.mode + ":dialogue:" + std::to_string(state.dialogue->frame.number()) + ":" +
+               state.dialogue->segment->text();
+    if (state.scene && state.scene->text && state.scene->text_step)
+        return state.mode + ":scene:" + state.scene->scene.text() + ":" +
+               state.scene->text_step->text();
+    if (state.room)
+        return state.mode + ":room:" + state.room->room.text() + ":" +
+               std::to_string(state.room->visits);
+    return {};
 }
 
 ActiveTextPlaybackInput playback_input(const core::TypedRuntimeUIViewState& state,
@@ -30,7 +38,7 @@ ActiveTextPlaybackInput playback_input(const core::TypedRuntimeUIViewState& stat
     const auto document = active_text_document(state);
     const auto page = active_text_document_page(document, page_index);
     return ActiveTextPlaybackInput{
-        .body_key = state.mode + ":" + document.plain_text + ":page:" + std::to_string(page_index),
+        .body_key = active_text_content_key(state),
         .glyph_count = text::utf8_grapheme_count(page.plain_text),
         .delta_seconds = delta_seconds,
         .awaiting_continue = state.can_continue,
@@ -46,6 +54,55 @@ std::uint64_t utf8_codepoint_count(std::string_view value) noexcept
     return count;
 }
 
+double active_text_overall_progress(const core::RichTextDocument& document, std::size_t page_index,
+                                    float page_progress)
+{
+    const auto page_count = active_text_page_count(document);
+    page_index = std::min(page_index, page_count - 1u);
+    std::uint64_t revealed = 0;
+    std::uint64_t total = 0;
+    for (std::size_t page = 0; page < page_count; ++page) {
+        const auto page_text = active_text_document_page(document, page).plain_text;
+        const auto page_length = utf8_codepoint_count(page_text);
+        total += page_length;
+        if (page < page_index)
+            revealed += page_length;
+    }
+    ActiveTextLayoutOptions options;
+    options.page_index = page_index;
+    options.reveal_progress = page_progress;
+    revealed += utf8_codepoint_count(active_text_visible_text(document, options));
+    return total == 0 ? 1.0
+                      : std::clamp(static_cast<double>(revealed) / static_cast<double>(total), 0.0,
+                                   1.0);
+}
+
+void remap_active_text_progress(const core::RichTextDocument& document, double overall_progress,
+                                std::size_t& page_index, float& page_progress)
+{
+    const auto page_count = active_text_page_count(document);
+    std::uint64_t total = 0;
+    for (std::size_t page = 0; page < page_count; ++page)
+        total += utf8_codepoint_count(active_text_document_page(document, page).plain_text);
+    const double target = std::clamp(overall_progress, 0.0, 1.0) * static_cast<double>(total);
+    std::uint64_t prefix = 0;
+    page_index = 0;
+    for (std::size_t page = 0; page < page_count; ++page) {
+        const auto length = utf8_codepoint_count(active_text_document_page(document, page).plain_text);
+        if (page + 1u == page_count || target <= static_cast<double>(prefix + length)) {
+            page_index = page;
+            page_progress = length == 0
+                                ? 1.0f
+                                : static_cast<float>(std::clamp(
+                                      (target - static_cast<double>(prefix)) /
+                                          static_cast<double>(length),
+                                      0.0, 1.0));
+            return;
+        }
+        prefix += length;
+    }
+}
+
 std::optional<core::RuntimeInputMessage>
 dialogue_reveal_input(const core::TypedRuntimeUIViewState* view, std::size_t page_index,
                       float reveal_progress, bool skipping)
@@ -53,20 +110,12 @@ dialogue_reveal_input(const core::TypedRuntimeUIViewState* view, std::size_t pag
     if (view == nullptr || !view->dialogue || !view->dialogue->line || !view->dialogue->segment)
         return std::nullopt;
     const auto document = active_text_document(*view);
-    const auto page_count = active_text_page_count(document);
-    page_index = std::min(page_index, page_count - 1u);
-    std::uint64_t offset = 0;
-    for (std::size_t page = 0; page < page_index; ++page)
-        offset += utf8_codepoint_count(active_text_document_page(document, page).plain_text);
-    ActiveTextLayoutOptions options;
-    options.page_index = page_index;
-    options.reveal_progress = reveal_progress;
-    offset += utf8_codepoint_count(active_text_visible_text(document, options));
-    if (offset <= view->dialogue->reveal_offset)
+    const double progress = active_text_overall_progress(document, page_index, reveal_progress);
+    if (progress <= view->dialogue->reveal_progress)
         return std::nullopt;
     return core::RuntimeInputMessage{
         core::AdvanceDialogueRevealInput{view->dialogue->frame, view->dialogue->dialogue,
-                                         *view->dialogue->segment, offset, skipping}};
+                                         *view->dialogue->segment, progress, skipping}};
 }
 
 bool interactable_available(const core::TypedRuntimeUIViewState& view,
@@ -188,9 +237,24 @@ std::optional<core::RuntimeInputMessage>
 ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float delta_seconds)
 {
     const std::string content_key = view ? active_text_content_key(*view) : std::string{};
-    if (!content_key.empty() && content_key != m_content_key)
+    const auto document = view ? active_text_document(*view) : core::RichTextDocument{};
+    const std::string realization_key = document.plain_text;
+    const bool same_occurrence = !content_key.empty() && content_key == m_content_key;
+    const bool realization_changed = view && same_occurrence && realization_key != m_realization_key;
+    const double preserved_progress =
+        realization_changed
+            ? (view->dialogue ? std::clamp(view->dialogue->reveal_progress, 0.0, 1.0)
+                              : m_overall_reveal_progress)
+            : 0.0;
+    if (!content_key.empty() && content_key != m_content_key) {
         m_page_index = 0;
+        m_overall_reveal_progress = 0.0;
+    } else if (realization_changed) {
+        remap_active_text_progress(document, preserved_progress, m_page_index,
+                                   m_playback.reveal_progress);
+    }
     m_content_key = content_key;
+    m_realization_key = realization_key;
 
     const auto previous_instance = m_playback.instance_id;
     ActiveTextPlaybackInput input;
@@ -199,11 +263,17 @@ ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float de
     else
         input.delta_seconds = delta_seconds;
     m_playback = update_active_text_playback(m_playback, input, m_playback_config);
+    if (realization_changed && previous_instance == 0)
+        remap_active_text_progress(document, preserved_progress, m_page_index,
+                                   m_playback.reveal_progress);
     if (m_playback.instance_id != previous_instance) {
         m_time_seconds = 0.0;
     } else if (delta_seconds > 0.0f) {
         m_time_seconds += static_cast<double>(delta_seconds);
     }
+    if (view)
+        m_overall_reveal_progress =
+            active_text_overall_progress(document, m_page_index, m_playback.reveal_progress);
     return dialogue_reveal_input(view, m_page_index, m_playback.reveal_progress, false);
 }
 
@@ -294,6 +364,9 @@ ActiveTextPresenter::activate(const core::TypedRuntimeUIViewState* view, float x
 
     if (m_playback.can_skip_reveal) {
         m_playback = skip_active_text_reveal(m_playback);
+        if (view)
+            m_overall_reveal_progress = active_text_overall_progress(
+                active_text_document(*view), m_page_index, m_playback.reveal_progress);
         activation.local_state_changed = true;
         activation.input =
             dialogue_reveal_input(view, m_page_index, m_playback.reveal_progress, true);
@@ -303,6 +376,9 @@ ActiveTextPresenter::activate(const core::TypedRuntimeUIViewState* view, float x
         if (m_page_index + 1u < m_page_count) {
             ++m_page_index;
             m_playback = {};
+            if (view)
+                m_overall_reveal_progress =
+                    active_text_overall_progress(active_text_document(*view), m_page_index, 0.0f);
             m_time_seconds = 0.0;
             activation.local_state_changed = true;
         } else {

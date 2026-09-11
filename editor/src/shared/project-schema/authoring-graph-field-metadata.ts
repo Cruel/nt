@@ -172,6 +172,12 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/localization\/translations\/\*\/\*\/pattern(?:\/|$)/,
     valueDependent('localization-catalog-entry'),
   ],
+  // #214 stores target-locale Dialogue Cue placements alongside translated Message text. Cue IDs
+  // preserve semantic identity/order while offsets and tie-break order affect locale realization.
+  [
+    /^\/localization\/translations\/\*\/\*\/dialogueCues(?:\/|$)/,
+    valueDependent('localization-catalog-entry'),
+  ],
   // #157 adds persisted supplemental prefetch intent. Every hint leaf changes the generated Flow
   // Prediction Index and therefore the owning Project tooling/runtime optimization projection.
   [/^\/prefetchHints(?:\/|$)/, OWNER],
@@ -990,7 +996,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: '9ed625e2',
+    localization: 'e31f9a7a',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

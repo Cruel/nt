@@ -120,7 +120,7 @@ private:
         core::FlowFrameId frame;
         core::DialogueId dialogue;
         core::DialogueSegmentId segment;
-        std::uint64_t target_offset = 0;
+        double target_progress = 0.0;
         bool skipping = false;
     };
     struct DialogueAudioWait : DialogueCueWait {

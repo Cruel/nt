@@ -223,10 +223,23 @@ const localizationWorkflowFingerprintSchema = z
   .string()
   .regex(/^fnv1a:[0-9a-f]{32}$/u, 'Localization workflow fingerprint is invalid.');
 
+export const dialogueCuePlacementSchema = z
+  .object({
+    id: z.string().min(1),
+    position: z
+      .object({
+        offset: z.number().int().nonnegative(),
+        order: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const localizationTranslationRecordSchema = z
   .object({
     text: z.string(),
     pattern: messagePatternSchema.optional(),
+    dialogueCues: z.array(dialogueCuePlacementSchema).optional(),
     sourceFingerprint: localizationWorkflowFingerprintSchema,
     origin: z.enum(['human', 'ai', 'imported', 'unknown']),
     review: z.enum(['needs-review', 'reviewed']),
@@ -461,6 +474,7 @@ export const authoringLocalizationSchema = z
   });
 
 export type AuthoringMessage = z.infer<typeof authoringMessageSchema>;
+export type DialogueCuePlacement = z.infer<typeof dialogueCuePlacementSchema>;
 export type LocalizationTranslation = z.infer<typeof localizationTranslationRecordSchema>;
 export type SourceMessageTrackingOccurrence = z.infer<typeof sourceMessageTrackingOccurrenceSchema>;
 export type SourceMessageTrackingEntry = z.infer<typeof sourceMessageTrackingEntrySchema>;

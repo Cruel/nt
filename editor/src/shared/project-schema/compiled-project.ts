@@ -2313,6 +2313,17 @@ const localizationCatalogSchema = strict({
       messageId: z.number().int().nonnegative(),
       value: z.string(),
       pattern: compiledMessagePatternSchema.optional(),
+      dialogueCues: z
+        .array(
+          strict({
+            id: z.string().min(1),
+            position: strict({
+              offset: z.number().int().nonnegative(),
+              order: z.number().int().nonnegative(),
+            }),
+          }),
+        )
+        .optional(),
       arguments: z
         .array(
           strict({

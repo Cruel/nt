@@ -11,11 +11,17 @@ import {
 } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
+  defaultDialogueBlock,
+  defaultDialogueData,
+  defaultDialogueSegment,
+} from '../../shared/project-schema/authoring-dialogues';
+import {
   createLocalizationTranslation,
   localizationMessageWorkflowView,
   localizationMessageWorkflowViews,
 } from '../../shared/authoring-localization-workflow';
 import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
+import { structuredMessageForPath } from '../../shared/authoring-structured-messages';
 import { testTranslation } from './fixtures/localization-workflow';
 
 const tab = {
@@ -559,6 +565,60 @@ describe('LocalizationEditor', () => {
     expect(ids).toContain(messageId);
     expect(document.localization.translations.fr?.[messageId]?.text).toBe('Original traduit');
     expect(document.localization.orphanedMessages).toEqual({});
+  });
+
+  it('keeps invalid localized Dialogue Cue placements editable but blocks review', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.es = { supported: true, parentLocale: null, fontStack: null };
+    const dialogue = defaultDialogueData('Localized cues');
+    const line = defaultDialogueSegment('line', 'line');
+    line.text = { source: { kind: 'inline', text: 'ABCDE' }, markup: 'active-text' };
+    line.cues = [
+      {
+        id: 'camera',
+        kind: 'camera',
+        position: { offset: 4, order: 0 },
+        emphasis: {
+          kind: 'flash',
+          color: '#ffffff',
+          opacity: 1,
+          durationMs: 100,
+          skippable: true,
+          waitForCompletion: false,
+        },
+      },
+    ];
+    dialogue.blocks = [{ ...defaultDialogueBlock('sequence', 'start'), segments: [line] }];
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
+    const message = structuredMessageForPath(
+      project,
+      '/dialogues/intro/data/blocks/@start/segments/@line/text',
+    )!;
+    const workflow = localizationMessageWorkflowView(project, message.id)!;
+    project.localization.translations.es = {
+      [message.id]: {
+        ...createLocalizationTranslation(workflow, 'Traducido'),
+        dialogueCues: [{ id: 'camera', position: { offset: 99, order: 0 } }],
+      },
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    expect(screen.getByLabelText('Cue camera offset')).toHaveValue(99);
+    expect(screen.getByText(/Cue placements must preserve every Cue/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled();
+
+    const offset = screen.getByLabelText('Cue camera offset');
+    await user.clear(offset);
+    await user.type(offset, '2');
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeEnabled();
   });
 
   it('blocks source-locale changes after target translation work exists', async () => {

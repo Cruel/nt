@@ -519,6 +519,16 @@ MessageRealizer::argument_definitions(MessageId message_id) const noexcept
     return nullptr;
 }
 
+const compiled::LocalizationEntry*
+MessageRealizer::resolved_entry(MessageId message_id, std::string_view locale) const noexcept
+{
+    const auto requested = locale.empty() ? std::string_view{m_localization.default_locale} : locale;
+    if (const auto negotiated = supported_locale(m_localization, requested))
+        if (const auto* entry = find_message(m_localization, *negotiated, message_id))
+            return entry;
+    return find_message(m_localization, m_localization.source_locale, message_id);
+}
+
 std::optional<RealizedMessage>
 MessageRealizer::realize(const MessageRealizationRequest& request) const
 {

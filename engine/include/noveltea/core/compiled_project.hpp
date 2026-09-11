@@ -116,11 +116,18 @@ struct MessagePattern {
     std::vector<MessagePatternNode> nodes;
     bool operator==(const MessagePattern&) const = default;
 };
+struct LocalizedDialogueCuePlacement {
+    DialogueCueId id;
+    std::uint64_t offset = 0;
+    std::uint64_t order = 0;
+    auto operator<=>(const LocalizedDialogueCuePlacement&) const = default;
+};
 struct LocalizationEntry {
     MessageId message_id = 0;
     std::string value;
     std::vector<MessageArgumentDefinition> arguments;
     std::optional<MessagePattern> pattern;
+    std::vector<LocalizedDialogueCuePlacement> dialogue_cues;
 };
 struct LocalizationCatalog {
     std::string locale;

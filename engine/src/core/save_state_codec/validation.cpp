@@ -625,19 +625,21 @@ bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
         (position.edge &&
          (!edge ||
           std::visit([&position](const auto& item) { return item.from_block_id != position.block; },
-                     *edge))))
+                     *edge))) ||
+        !std::isfinite(position.reveal_progress) || position.reveal_progress < 0.0 ||
+        position.reveal_progress > 1.0)
         return false;
     switch (position.stage) {
     case DialogueFramePosition::Stage::EnterBlock:
     case DialogueFramePosition::Stage::Complete:
         return !position.segment && !position.edge && position.next_effect == 0 &&
                !position.awaiting_completion && position.next_cue == 0 &&
-               position.reveal_offset == 0 && !position.effect_command;
+               position.reveal_progress == 0 && !position.effect_command;
     case DialogueFramePosition::Stage::PresentSegment:
         return segment && !position.edge && position.next_effect == 0 &&
                (!position.awaiting_completion ||
                 std::holds_alternative<compiled::DialogueRunLuaSegment>(*segment)) &&
-               position.next_cue == 0 && position.reveal_offset == 0 && !position.effect_command;
+               position.next_cue == 0 && position.reveal_progress == 0 && !position.effect_command;
     case DialogueFramePosition::Stage::ApplySegmentEffects: {
         const auto* line = segment ? std::get_if<compiled::DialogueLineSegment>(segment) : nullptr;
         if (!line || position.edge || position.next_effect > line->effects.size() ||
@@ -645,32 +647,23 @@ bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
             position.next_cue > line->cues.size() ||
             !valid_nested_effect_cursor(line->effects, position))
             return false;
-        const auto cue_offset = [](const compiled::DialogueSemanticCue& cue) {
-            return std::visit([](const auto& value) { return value.position.offset; }, cue);
-        };
-        if (position.next_cue > 0 &&
-            cue_offset(line->cues[position.next_cue - 1]) > position.reveal_offset)
-            return false;
-        if (position.next_cue < line->cues.size() &&
-            cue_offset(line->cues[position.next_cue]) < position.reveal_offset)
-            return false;
         return true;
     }
     case DialogueFramePosition::Stage::PresentChoices:
         return std::holds_alternative<compiled::DialogueChoiceBlock>(*block) && !position.segment &&
                !position.edge && position.next_effect == 0 && position.next_cue == 0 &&
-               position.reveal_offset == 0 && !position.effect_command;
+               position.reveal_progress == 0 && !position.effect_command;
     case DialogueFramePosition::Stage::ApplyChoiceEffects: {
         const auto* choice = edge ? std::get_if<compiled::DialogueChoiceEdge>(edge) : nullptr;
         return choice && !position.segment && position.next_effect <= choice->effects.size() &&
                (!position.awaiting_completion || position.next_effect < choice->effects.size()) &&
-               position.next_cue == 0 && position.reveal_offset == 0 &&
+               position.next_cue == 0 && position.reveal_progress == 0 &&
                valid_nested_effect_cursor(choice->effects, position);
     }
     case DialogueFramePosition::Stage::FollowEdge:
         return edge && !position.segment && position.next_effect == 0 &&
                !position.awaiting_completion && position.next_cue == 0 &&
-               position.reveal_offset == 0 && !position.effect_command;
+               position.reveal_progress == 0 && !position.effect_command;
     }
     return false;
 }

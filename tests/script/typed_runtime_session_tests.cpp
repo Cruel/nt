@@ -380,6 +380,51 @@ core::CompiledProject make_dialogue_cue_project(nlohmann::json cues, std::string
     return decode_document(std::move(document), std::move(source_name));
 }
 
+core::CompiledProject make_localized_dialogue_cue_project()
+{
+    auto document = load_document("dialogue-program.json");
+    const auto cue = nlohmann::json{{"id", "localized-sfx"},
+                                    {"kind", "sound-effect"},
+                                    {"position", {{"offset", 8}, {"order", 0}}},
+                                    {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+                                    {"pausePolicy", "gameplay"},
+                                    {"gain", 1.0},
+                                    {"pan", 0.0},
+                                    {"waitForCompletion", false},
+                                    {"causality", "causal"},
+                                    {"synchronized", false},
+                                    {"skipBehavior", "play"}};
+    for (auto& dialogue : document["definitions"]["dialogues"]) {
+        if (dialogue["id"] != "intro")
+            continue;
+        auto& line = dialogue["program"]["blocks"][0]["segments"][0];
+        line["cues"] = nlohmann::json::array({cue});
+        line["text"] = {{"markup", "active-text"},
+                        {"source", {{"kind", "message"}, {"id", 23}}}};
+    }
+    for (auto& catalog : document["localization"]["catalogs"]) {
+        if (catalog["locale"] == "en") {
+            for (auto& entry : catalog["entries"]) {
+                if (entry["messageId"] != 23)
+                    continue;
+                entry["value"] = "0123456789";
+                entry["dialogueCues"] = nlohmann::json::array(
+                    {{{"id", "localized-sfx"}, {"position", {{"offset", 8}, {"order", 0}}}}});
+            }
+        } else if (catalog["locale"] == "es") {
+            catalog["entries"].push_back(
+                {{"messageId", 23},
+                 {"value", "abcdefghij"},
+                 {"dialogueCues",
+                  nlohmann::json::array({{{"id", "localized-sfx"},
+                                          {"position", {{"offset", 2}, {"order", 0}}}}})}});
+        }
+    }
+    document["entrypoint"] = {{"kind", "dialogue"},
+                              {"dialogue", {{"kind", "dialogue"}, {"id", "intro"}}}};
+    return decode_document(std::move(document), "localized-dialogue-cues.json");
+}
+
 template<class T> core::StrongId<T> make_id(std::string value)
 {
     auto id = core::StrongId<T>::create(std::move(value));
@@ -709,6 +754,64 @@ TEST_CASE(
     CHECK(rejected.disposition == runtime::RuntimeInputDisposition::Failed);
     CHECK(diagnostics_have_code(rejected.diagnostics, "runtime.locale_unsupported"));
     CHECK(fixture.session->runtime_locale() == "es");
+}
+
+TEST_CASE("locale commit re-realizes active Dialogue text and fires newly due Cues exactly once")
+{
+    auto project = make_localized_dialogue_cue_project();
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&sources}));
+    prepare_project_scripts(runtime, project);
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    const auto& initial = published_view(started);
+    REQUIRE(initial.dialogue);
+    REQUIRE(initial.dialogue->segment);
+    REQUIRE(initial.dialogue->line);
+    CHECK(initial.dialogue->line->text == "0123456789");
+    const auto frame = initial.dialogue->frame;
+    const auto dialogue = initial.dialogue->dialogue;
+    const auto segment = *initial.dialogue->segment;
+
+    auto halfway = session->dispatch(core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 0.5, false}});
+    REQUIRE(halfway.diagnostics.empty());
+    CHECK(presentation.audio_operations.empty());
+
+    auto changed = session->commit_locale("es");
+    REQUIRE(changed.diagnostics.empty());
+    REQUIRE(changed.publication);
+    REQUIRE(changed.publication->gameplay_ui.dialogue);
+    REQUIRE(changed.publication->gameplay_ui.dialogue->line);
+    CHECK(changed.publication->gameplay_ui.dialogue->line->text == "abcdefghij");
+    CHECK(changed.publication->gameplay_ui.dialogue->reveal_progress == Catch::Approx(0.5));
+    REQUIRE(presentation.audio_operations.size() == 1);
+    CHECK(presentation.audio_operations.back().purpose == core::compiled::AudioPurpose::SoundEffect);
+
+    auto unchanged = session->commit_locale("es");
+    REQUIRE(unchanged.diagnostics.empty());
+    CHECK(presentation.audio_operations.size() == 1);
+
+    auto restored_source = session->commit_locale("en");
+    REQUIRE(restored_source.diagnostics.empty());
+    REQUIRE(restored_source.publication);
+    REQUIRE(restored_source.publication->gameplay_ui.dialogue);
+    REQUIRE(restored_source.publication->gameplay_ui.dialogue->line);
+    CHECK(restored_source.publication->gameplay_ui.dialogue->line->text == "0123456789");
+    CHECK(restored_source.publication->gameplay_ui.dialogue->reveal_progress == Catch::Approx(0.5));
+    CHECK(presentation.audio_operations.size() == 1);
+
+    auto completed = session->dispatch(core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 1.0, false}});
+    REQUIRE(completed.diagnostics.empty());
+    CHECK(presentation.audio_operations.size() == 1);
 }
 
 TEST_CASE("checkpoint restore uses the current runtime locale rather than saved locale state")
@@ -4091,7 +4194,7 @@ TEST_CASE("Dialogue reveal crosses audio cues exactly once and resumes after can
     const auto segment = *start_view.dialogue->segment;
 
     auto first = session->dispatch(core::RuntimeInputMessage{
-        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 1, false}});
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 0.2, false}});
     REQUIRE(first.diagnostics.empty());
     REQUIRE(presentation.audio_operations.size() == 1);
     CHECK(presentation.audio_operations.front().purpose ==
@@ -4106,12 +4209,12 @@ TEST_CASE("Dialogue reveal crosses audio cues exactly once and resumes after can
     CHECK(cue_owner->dialogue == dialogue);
 
     auto repeated = session->dispatch(core::RuntimeInputMessage{
-        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 1, false}});
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 0.2, false}});
     REQUIRE(repeated.diagnostics.empty());
     CHECK(presentation.audio_operations.size() == 1);
 
     auto voice = session->dispatch(core::RuntimeInputMessage{
-        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 5, false}});
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 1.0, false}});
     REQUIRE(voice.diagnostics.empty());
     REQUIRE(presentation.audio_operations.size() == 2);
     const auto awaited = presentation.audio_operations.back();
@@ -4123,7 +4226,7 @@ TEST_CASE("Dialogue reveal crosses audio cues exactly once and resumes after can
     REQUIRE(std::holds_alternative<core::AudioFlowBlockerHandle>(*awaited.completion));
 
     auto while_waiting = session->dispatch(core::RuntimeInputMessage{
-        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 5, false}});
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 1.0, false}});
     REQUIRE(while_waiting.diagnostics.empty());
     CHECK(presentation.audio_operations.size() == 2);
 
@@ -4133,7 +4236,7 @@ TEST_CASE("Dialogue reveal crosses audio cues exactly once and resumes after can
     CHECK(presentation.audio_operations.size() == 2);
 
     auto resumed = session->dispatch(core::RuntimeInputMessage{
-        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 5, false}});
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 1.0, false}});
     REQUIRE(resumed.diagnostics.empty());
     REQUIRE(presentation.audio_operations.size() == 3);
     CHECK(presentation.audio_operations.back().purpose ==
@@ -4225,7 +4328,7 @@ TEST_CASE("Dialogue camera cue emits one typed finite operation at its reveal po
     REQUIRE(view.dialogue);
     REQUIRE(view.dialogue->segment);
     const auto reveal = core::AdvanceDialogueRevealInput{
-        view.dialogue->frame, view.dialogue->dialogue, *view.dialogue->segment, 1, false};
+        view.dialogue->frame, view.dialogue->dialogue, *view.dialogue->segment, 0.2, false};
     auto crossed = session->dispatch(core::RuntimeInputMessage{reveal});
     REQUIRE(crossed.diagnostics.empty());
     REQUIRE(presentation.presentation_operations.size() == 1);

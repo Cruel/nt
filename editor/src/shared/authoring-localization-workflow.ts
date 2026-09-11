@@ -1,9 +1,10 @@
 import type { AuthoringProject } from './project-schema/authoring-project';
 import type {
   AuthoringMessage,
+  DialogueCuePlacement,
   LocalizationTranslation,
 } from './project-schema/authoring-localization';
-import { structuredMessages } from './authoring-structured-messages';
+import { dialogueMessageCueContracts, structuredMessages } from './authoring-structured-messages';
 import { collectManagedLuaLocalizationSources } from './authoring-lua-localization-lowering';
 import { collectRmlLocalizationSources } from './authoring-rml-localization-lowering';
 import {
@@ -26,6 +27,7 @@ export interface LocalizationMessageWorkflowView {
   readonly sourcePath: string | null;
   readonly sourceEditPath: string | null;
   readonly usageNote: string | null;
+  readonly dialogueCues?: readonly DialogueCuePlacement[];
   readonly sourceFingerprint: string;
   readonly presentationFingerprint: string;
   readonly guidanceFingerprint: string;
@@ -78,15 +80,20 @@ function simpleView(
   message: AuthoringMessage,
   sourcePath: string | null,
   usageNote: string | null,
+  dialogueCues?: readonly DialogueCuePlacement[],
 ): LocalizationMessageWorkflowView {
   const argumentContract = Object.entries(message.arguments ?? {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, type]) => `${name}:${type}`)
     .join('|');
   const patternContract = patternFingerprintValue(message.pattern);
+  const cueContract = (dialogueCues ?? []).map((cue) => cue.id).join('|');
+  const cuePresentation = (dialogueCues ?? [])
+    .map((cue) => `${cue.id}:${cue.position.offset}:${cue.position.order}`)
+    .join('|');
   const sourceFingerprint = fingerprint(
     'semantic',
-    `${message.source}\u0000${argumentContract}\u0000${patternContract}`,
+    `${message.source}\u0000${argumentContract}\u0000${patternContract}\u0000${cueContract}`,
   );
   return {
     id,
@@ -100,10 +107,11 @@ function simpleView(
     sourcePath,
     sourceEditPath: sourcePath,
     usageNote,
+    ...(dialogueCues === undefined ? {} : { dialogueCues }),
     sourceFingerprint,
     presentationFingerprint: fingerprint(
       'presentation',
-      `${message.source}\u0000${patternContract}`,
+      `${message.source}\u0000${patternContract}\u0000${cuePresentation}`,
     ),
     guidanceFingerprint: guidanceFingerprint(message),
   };
@@ -113,6 +121,7 @@ export function localizationMessageWorkflowViews(
   project: AuthoringProject,
 ): readonly LocalizationMessageWorkflowView[] {
   const views = new Map<string, LocalizationMessageWorkflowView>();
+  const dialogueCueContracts = dialogueMessageCueContracts(project);
   for (const [id, message] of Object.entries(project.localization.messages))
     views.set(
       id,
@@ -121,12 +130,19 @@ export function localizationMessageWorkflowViews(
         message,
         `/localization/messages/${id.replaceAll('~', '~0').replaceAll('/', '~1')}/source`,
         null,
+        dialogueCueContracts.get(id),
       ),
     );
 
   for (const occurrence of structuredMessages(project)) {
     const message: AuthoringMessage = { kind: 'local', source: occurrence.source };
-    const view = simpleView(occurrence.id, message, occurrence.sourcePath, occurrence.usageNote);
+    const view = simpleView(
+      occurrence.id,
+      message,
+      occurrence.sourcePath,
+      occurrence.usageNote,
+      occurrence.dialogueCues,
+    );
     views.set(
       occurrence.id,
       occurrence.text
@@ -134,7 +150,11 @@ export function localizationMessageWorkflowViews(
             ...view,
             presentationFingerprint: fingerprint(
               'presentation',
-              `${occurrence.text.markup}\u0000${occurrence.source}`,
+              `${occurrence.text.markup}\u0000${occurrence.source}\u0000${(
+                occurrence.dialogueCues ?? []
+              )
+                .map((cue) => `${cue.id}:${cue.position.offset}:${cue.position.order}`)
+                .join('|')}`,
             ),
           }
         : view,
@@ -282,6 +302,9 @@ export function createLocalizationTranslation(
     review: options.review ?? 'needs-review',
     acknowledgedPresentationFingerprint: message.presentationFingerprint,
     acknowledgedGuidanceFingerprint: message.guidanceFingerprint,
+    ...(message.dialogueCues === undefined
+      ? {}
+      : { dialogueCues: message.dialogueCues.map((cue) => structuredClone(cue)) }),
     ...(options.provider === undefined ? {} : { provider: options.provider }),
     ...(options.model === undefined ? {} : { model: options.model }),
   };

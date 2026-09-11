@@ -2,6 +2,7 @@ import type { TextContent } from './project-schema/authoring-flow';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import type { CompiledProjectWire, CompiledText } from './project-schema/compiled-project';
 import {
+  dialogueMessageCueContracts,
   structuredMessageForPath,
   structuredMessageForText,
   structuredMessages,
@@ -108,13 +109,15 @@ export function compileLocalization(
   const localization = project.localization;
   const ids = packageMessageIds(project);
   const rmlLocalIds = new Set(collectRmlLocalMessages(project).map((message) => message.id));
+  const structured = structuredMessages(project);
   const sourceValues = new Map<string, string>([
     ...sortedEntries(localization.messages).map(
       ([stableId, message]) => [stableId, message.source] as const,
     ),
-    ...structuredMessages(project).map((message) => [message.id, message.source] as const),
+    ...structured.map((message) => [message.id, message.source] as const),
     ...collectRmlLocalMessages(project).map((message) => [message.id, message.source] as const),
   ]);
+  const sourceDialogueCues = dialogueMessageCueContracts(project);
   const sourceMessages = allMessageIds(project).map((stableId) => {
     const value = sourceValues.get(stableId)!;
     const authoredMessage = localization.messages[stableId];
@@ -124,6 +127,7 @@ export function compileLocalization(
       : rmlLocalIds.has(stableId)
         ? messagePlaceholderNames(value).map((name) => ({ name, type: 'printable' as const }))
         : [];
+    const dialogueCues = sourceDialogueCues.get(stableId);
     return {
       stableId,
       value,
@@ -131,6 +135,9 @@ export function compileLocalization(
       ...(authoredMessage?.pattern
         ? { pattern: compileMessagePattern(authoredMessage.pattern) }
         : {}),
+      ...(dialogueCues === undefined
+        ? {}
+        : { dialogueCues: dialogueCues.map((cue) => structuredClone(cue)) }),
     };
   });
   const sourceArgumentContracts = new Map(
@@ -163,10 +170,10 @@ export function compileLocalization(
       locale,
       entries:
         locale === localization.sourceLocale
-          ? sourceMessages.map(({ stableId, value, arguments: arguments_, ...patternFields }) => ({
+          ? sourceMessages.map(({ stableId, value, arguments: arguments_, ...entryFields }) => ({
               messageId: ids.get(stableId)!,
               value,
-              ...patternFields,
+              ...entryFields,
               ...(arguments_.length === 0 ? {} : { arguments: arguments_ }),
             }))
           : allMessageIds(project).flatMap((stableId) => {
@@ -179,6 +186,9 @@ export function compileLocalization(
                   messageId: ids.get(stableId)!,
                   value: target.text,
                   ...(target.pattern ? { pattern: compileMessagePattern(target.pattern) } : {}),
+                  ...(target.dialogueCues === undefined
+                    ? {}
+                    : { dialogueCues: target.dialogueCues.map((cue) => structuredClone(cue)) }),
                   ...(arguments_.length === 0 ? {} : { arguments: arguments_ }),
                 },
               ];

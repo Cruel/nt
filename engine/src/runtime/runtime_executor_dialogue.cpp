@@ -751,7 +751,7 @@ RuntimeExecutor::dialogue_view(const core::DialogueFrame& frame) const
     core::DialogueView view{.frame = frame.frame_id,
                             .dialogue = frame.dialogue,
                             .segment = frame.position.segment,
-                            .reveal_offset = frame.position.reveal_offset,
+                            .reveal_progress = frame.position.reveal_progress,
                             .line = m_state.presented_text(),
                             .choice = std::nullopt,
                             .stage_slots = {},
