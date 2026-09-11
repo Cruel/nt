@@ -263,6 +263,36 @@ describe('graph-driven Room builder', () => {
     });
   });
 
+  it('prepares managed Lua Messages for focused preview without authored localization literals', async () => {
+    const project = fixture();
+    const messageId = '11111111-1111-4111-8111-111111111111';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.preview-message',
+      source: 'Preview message',
+    };
+    project.localization.locales.fr = { supported: true, parentLocale: null };
+    project.localization.defaultLocale = 'fr';
+    project.localization.translations.fr = { [messageId]: 'Message aperçu' };
+    project.rooms.bedroom!.data.description = {
+      markup: 'plain',
+      source: {
+        kind: 'lua-expression',
+        source: 'return Text.msg("ui.preview-message")',
+      },
+    };
+
+    const result = await build(project);
+    const source = result.data.ui.description.source;
+    expect(source.kind).toBe('lua-expression');
+    if (source.kind !== 'lua-expression') return;
+    expect(source.source).toContain('local Text=setmetatable');
+    expect(source.source).toContain('Text.__message(');
+    expect(source.source).toContain('Message aperçu');
+    expect(source.source).not.toContain('Preview message');
+    expect(source.source).not.toContain('ui.preview-message');
+  });
+
   it('separates semantic Room presence from Character placement and Interactable occurrences', async () => {
     const result = await build();
     expect(result.data.room).toMatchObject({

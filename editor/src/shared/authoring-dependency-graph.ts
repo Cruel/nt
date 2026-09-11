@@ -2417,7 +2417,78 @@ function addLuaEvidenceToContribution(
         derivationDependencies.push({ kind: 'source-asset', assetId: sourceAssetId });
       diagnostics.push(...analysis.diagnostics);
       literals.push(...analysis.literalOccurrences);
+      const managedLiteralKeys = new Set(
+        analysis.managedMessageOccurrences.map(
+          (occurrence) =>
+            `${occurrence.regionOrdinal}:${occurrence.sourceLiteral.regionStartUtf16}:${occurrence.sourceLiteral.regionEndUtf16}`,
+        ),
+      );
+      for (const occurrence of analysis.managedMessageOccurrences) {
+        if (occurrence.kind !== 'named') continue;
+        const descriptor =
+          descriptors.find((item) => item.sourcePath === occurrence.sourcePath) ??
+          descriptors.find((item) => item.sourceKind === 'rml' && item.layoutId !== undefined);
+        if (!descriptor) continue;
+        const resolution = resolveMessage(project.localization, {
+          key: occurrence.source,
+          locale: project.localization.defaultLocale,
+        });
+        if (!resolution.resolved) {
+          diagnostics.push({
+            severity: 'error',
+            code: 'authoring.localization.lua_named_message_missing',
+            path: occurrence.sourcePath,
+            message: `Text.msg references unknown named Message '${occurrence.source}'.`,
+          });
+          continue;
+        }
+        for (const locale of resolution.consultedLocales) {
+          const targetPath =
+            locale === project.localization.sourceLocale
+              ? buildJsonPointer([
+                  'localization',
+                  'messages',
+                  resolution.resolved.messageId,
+                  'source',
+                ])
+              : buildJsonPointer([
+                  'localization',
+                  'translations',
+                  locale,
+                  resolution.resolved.messageId,
+                ]);
+          const facets: DependencyImpactFacet[] = ['tooling-reference', 'validation'];
+          if (descriptor.focusedAdmission && descriptor.focusedFacet)
+            facets.push(descriptor.focusedFacet);
+          edges.push(
+            structuralEdge(
+              descriptor.semanticOwner,
+              localizationMessageNodeKey(locale, resolution.resolved.messageId),
+              occurrence.sourcePath,
+              targetPath,
+              {
+                role: 'localization-text',
+                facets,
+                targetImpactPaths:
+                  facets.includes('preview-visual') || facets.includes('preview-ui')
+                    ? [targetPath]
+                    : [],
+                repair: {
+                  kind: 'blocked',
+                  reason: 'Managed Lua Message realization is compiler-owned.',
+                },
+              },
+            ),
+          );
+        }
+      }
       for (const occurrence of analysis.literalOccurrences) {
+        if (
+          managedLiteralKeys.has(
+            `${occurrence.regionOrdinal}:${occurrence.regionStartUtf16}:${occurrence.regionEndUtf16}`,
+          )
+        )
+          continue;
         const region = analysis.regions.find(
           (candidate) =>
             candidate.regionOrdinal === occurrence.regionOrdinal &&

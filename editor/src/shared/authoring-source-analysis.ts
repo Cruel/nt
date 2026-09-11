@@ -16,6 +16,7 @@ import {
   type LuaSourceSnapshot,
   type OwnerNeutralEmbeddedLuaSourceRegion,
   type OwnerNeutralLiteralOccurrence,
+  type OwnerNeutralManagedLuaMessageOccurrence,
   type OwnerNeutralSourceDiagnostic,
 } from './project-schema/authoring-lua-analysis';
 import type { AuthoringProject } from './project-schema/authoring-project';
@@ -783,6 +784,38 @@ function splitDirectCallArguments(
   tokens: readonly LuaScanToken[],
   openIndex: number,
 ): readonly (readonly LuaScanToken[])[] | null {
+  return directCallArguments(tokens, openIndex)?.args ?? null;
+}
+
+export interface ManagedLuaLocalizationDiagnostic {
+  code: string;
+  message: string;
+  line: number;
+  column: number;
+}
+
+export interface ManagedLuaLocalizationOccurrence {
+  kind: 'local' | 'named';
+  callStartUtf16: number;
+  callEndUtf16: number;
+  memberStartUtf16: number;
+  memberEndUtf16: number;
+  line: number;
+  column: number;
+  sourceLiteral: LiteralToken;
+  source: string;
+  runtimeArgsStartUtf16?: number;
+  runtimeArgsEndUtf16?: number;
+  metadataStartUtf16?: number;
+  metadataEndUtf16?: number;
+  context?: string;
+  translatorNote?: string;
+}
+
+function directCallArguments(
+  tokens: readonly LuaScanToken[],
+  openIndex: number,
+): { args: readonly (readonly LuaScanToken[])[]; closeIndex: number } | null {
   const args: LuaScanToken[][] = [];
   let current: LuaScanToken[] = [];
   let depth = 1;
@@ -794,7 +827,7 @@ function splitDirectCallArguments(
         depth -= 1;
         if (depth === 0) {
           args.push(current);
-          return args;
+          return { args, closeIndex: index };
         }
       } else if (token.value === ',' && depth === 1) {
         args.push(current);
@@ -805,6 +838,159 @@ function splitDirectCallArguments(
     current.push(token);
   }
   return null;
+}
+
+function staticTranslatorMetadata(
+  tokens: readonly LuaScanToken[],
+): { context?: string; translatorNote?: string } | null {
+  if (tokens.length === 0) return {};
+  if (tokens.length === 1 && tokens[0]?.kind === 'identifier' && tokens[0].value === 'nil')
+    return {};
+  const firstToken = tokens[0];
+  const lastToken = tokens.at(-1);
+  if (
+    firstToken?.kind !== 'punctuation' ||
+    firstToken.value !== '{' ||
+    lastToken?.kind !== 'punctuation' ||
+    lastToken.value !== '}'
+  )
+    return null;
+  const result: { context?: string; translatorNote?: string } = {};
+  let index = 1;
+  while (index < tokens.length - 1) {
+    while (true) {
+      const separator = tokens[index];
+      if (separator?.kind !== 'punctuation' || (separator.value !== ',' && separator.value !== ';'))
+        break;
+      index += 1;
+    }
+    if (index >= tokens.length - 1) break;
+    const key = tokens[index];
+    const equals = tokens[index + 1];
+    const value = tokens[index + 2];
+    if (
+      key?.kind !== 'identifier' ||
+      (key.value !== 'context' && key.value !== 'note') ||
+      equals?.kind !== 'punctuation' ||
+      equals.value !== '=' ||
+      value?.kind !== 'string'
+    )
+      return null;
+    if (key.value === 'context') {
+      if (result.context !== undefined) return null;
+      result.context = value.literal.decodedValue;
+    } else {
+      if (result.translatorNote !== undefined) return null;
+      result.translatorNote = value.literal.decodedValue;
+    }
+    index += 3;
+    if (index < tokens.length - 1) {
+      const separator = tokens[index];
+      if (separator?.kind !== 'punctuation' || (separator.value !== ',' && separator.value !== ';'))
+        return null;
+      index += 1;
+    }
+  }
+  return result;
+}
+
+export function analyzeManagedLuaLocalization(source: string): {
+  occurrences: readonly ManagedLuaLocalizationOccurrence[];
+  diagnostics: readonly ManagedLuaLocalizationDiagnostic[];
+} {
+  const tokens = scanLua(source).tokens;
+  const occurrences: ManagedLuaLocalizationOccurrence[] = [];
+  const diagnostics: ManagedLuaLocalizationDiagnostic[] = [];
+  for (let index = 0; index < tokens.length - 3; index += 1) {
+    const text = tokens[index];
+    const dot = tokens[index + 1];
+    const member = tokens[index + 2];
+    const open = tokens[index + 3];
+    if (
+      text?.kind !== 'identifier' ||
+      text.value !== 'Text' ||
+      dot?.kind !== 'punctuation' ||
+      dot.value !== '.' ||
+      member?.kind !== 'identifier' ||
+      (member.value !== 'tr' && member.value !== 'msg') ||
+      open?.kind !== 'punctuation' ||
+      open.value !== '('
+    )
+      continue;
+    const previous = tokens[index - 1];
+    if (previous?.kind === 'punctuation' && (previous.value === '.' || previous.value === ':'))
+      continue;
+    const parsed = directCallArguments(tokens, index + 3);
+    if (!parsed) continue;
+    const location = locationAt(source, text.start);
+    const fail = (suffix: string, message: string) =>
+      diagnostics.push({
+        code: `authoring.localization.lua_${suffix}`,
+        message,
+        ...location,
+      });
+    const args = parsed.args;
+    const expectedMaximum = member.value === 'tr' ? 3 : 2;
+    if (args.length < 1 || args.length > expectedMaximum) {
+      fail('arity', `Text.${member.value} has an unsupported argument count.`);
+      continue;
+    }
+    const first = args[0];
+    if (first?.length !== 1 || first[0]?.kind !== 'string') {
+      fail(
+        member.value === 'tr' ? 'source_literal' : 'named_key_literal',
+        member.value === 'tr'
+          ? 'Text.tr requires a direct string literal as its source argument.'
+          : 'Text.msg requires a direct string literal named Message key.',
+      );
+      continue;
+    }
+    let metadata: { context?: string; translatorNote?: string } = {};
+    if (member.value === 'tr' && args.length >= 3) {
+      const parsedMetadata = staticTranslatorMetadata(args[2] ?? []);
+      if (!parsedMetadata) {
+        fail(
+          'metadata_static',
+          'Text.tr translator metadata must be a literal table containing only literal context/note values.',
+        );
+        continue;
+      }
+      metadata = parsedMetadata;
+    }
+    const runtimeArgs = args.length >= 2 ? args[1] : undefined;
+    const hasRuntimeArgs =
+      runtimeArgs !== undefined &&
+      runtimeArgs.length > 0 &&
+      !(
+        runtimeArgs.length === 1 &&
+        runtimeArgs[0]?.kind === 'identifier' &&
+        runtimeArgs[0].value === 'nil'
+      );
+    occurrences.push({
+      kind: member.value === 'tr' ? 'local' : 'named',
+      callStartUtf16: text.start,
+      callEndUtf16: tokens[parsed.closeIndex]!.end,
+      memberStartUtf16: member.start,
+      memberEndUtf16: member.end,
+      ...location,
+      sourceLiteral: first[0].literal,
+      source: first[0].literal.decodedValue,
+      ...(hasRuntimeArgs
+        ? {
+            runtimeArgsStartUtf16: runtimeArgs![0]!.start,
+            runtimeArgsEndUtf16: runtimeArgs!.at(-1)!.end,
+          }
+        : {}),
+      ...(member.value === 'tr' && args.length >= 3 && (args[2]?.length ?? 0) > 0
+        ? {
+            metadataStartUtf16: args[2]![0]!.start,
+            metadataEndUtf16: args[2]!.at(-1)!.end,
+          }
+        : {}),
+      ...metadata,
+    });
+  }
+  return { occurrences: Object.freeze(occurrences), diagnostics: Object.freeze(diagnostics) };
 }
 
 function nestedStringRegions(region: RawRegion, parentOrdinal: number): RawRegion[] {
@@ -864,6 +1050,7 @@ export async function analyzeAuthoringSourceContent(input: {
       sourceContentFingerprint: fingerprint,
       regions: [],
       literalOccurrences: [],
+      managedMessageOccurrences: [],
       diagnostics: [
         {
           code: 'authoring.lua.source_limit',
@@ -899,6 +1086,7 @@ export async function analyzeAuthoringSourceContent(input: {
   }
   const regions: OwnerNeutralEmbeddedLuaSourceRegion[] = [];
   const literals: OwnerNeutralLiteralOccurrence[] = [];
+  const managedMessages: OwnerNeutralManagedLuaMessageOccurrence[] = [];
   let complete = extracted.complete;
   const diagnostics: OwnerNeutralSourceDiagnostic[] = extracted.diagnostics.map((diagnostic) => ({
     ...diagnostic,
@@ -937,12 +1125,44 @@ export async function analyzeAuthoringSourceContent(input: {
         regionOrdinal,
         sourceKind: region.kind,
       });
+    const managed = analyzeManagedLuaLocalization(region.text);
+    for (const diagnostic of managed.diagnostics)
+      diagnostics.push({
+        code: diagnostic.code,
+        severity: 'error',
+        message: diagnostic.message,
+        sourceUrl: region.sourceUrl,
+        regionOrdinal,
+        line: region.line + diagnostic.line - 1,
+        column: diagnostic.line === 1 ? region.column + diagnostic.column - 1 : diagnostic.column,
+      });
+    for (const occurrence of managed.occurrences) {
+      const literal = occurrence.sourceLiteral;
+      managedMessages.push({
+        ...occurrence,
+        line: region.line + occurrence.line - 1,
+        column: occurrence.line === 1 ? region.column + occurrence.column - 1 : occurrence.column,
+        sourceUrl: region.sourceUrl,
+        sourceContentHash: contentHash,
+        regionOrdinal,
+        sourceLiteral: {
+          ...literal,
+          line: region.line + literal.line - 1,
+          column: literal.line === 1 ? region.column + literal.column - 1 : literal.column,
+          sourceUrl: region.sourceUrl,
+          sourceContentHash: contentHash,
+          regionOrdinal,
+          sourceKind: region.kind,
+        },
+      });
+    }
   });
   return {
     analyzerVersion: AUTHORING_SOURCE_ANALYZER_VERSION,
     sourceContentFingerprint: fingerprint,
     regions: Object.freeze(regions),
     literalOccurrences: Object.freeze(literals),
+    managedMessageOccurrences: Object.freeze(managedMessages),
     diagnostics: Object.freeze(diagnostics),
     complete,
   };
@@ -954,6 +1174,8 @@ export async function bindAuthoringSourceOwner(
 ): Promise<AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>> {
   const regions: EmbeddedLuaSourceRegion[] = [];
   const literals: AuthoringLiteralOccurrence[] = [];
+  const managedMessages: import('./project-schema/authoring-lua-analysis').AuthoringManagedLuaMessageOccurrence[] =
+    [];
   const diagnostics: AuthoringDependencyGraphDiagnostic[] = [];
   for (const artifact of artifacts) {
     regions.push(
@@ -969,6 +1191,18 @@ export async function bindAuthoringSourceOwner(
         ...literal,
         sourcePath: descriptor.sourcePath,
         sourceAssetId: descriptor.sourceAssetId,
+      })),
+    );
+    managedMessages.push(
+      ...artifact.managedMessageOccurrences.map((occurrence) => ({
+        ...occurrence,
+        sourcePath: descriptor.sourcePath,
+        sourceAssetId: descriptor.sourceAssetId,
+        sourceLiteral: {
+          ...occurrence.sourceLiteral,
+          sourcePath: descriptor.sourcePath,
+          sourceAssetId: descriptor.sourceAssetId,
+        },
       })),
     );
     diagnostics.push(
@@ -1000,6 +1234,7 @@ export async function bindAuthoringSourceOwner(
     sourceAssetIds: descriptor.sourceAssetId ? [descriptor.sourceAssetId] : [],
     regions: Object.freeze(regions),
     literalOccurrences: Object.freeze(literals),
+    managedMessageOccurrences: Object.freeze(managedMessages),
     diagnostics: Object.freeze(diagnostics),
     complete: artifacts.every((artifact) => artifact.complete),
   };
@@ -1069,6 +1304,7 @@ export async function analyzeAuthoringSources(
     ),
     regions: [],
     literalOccurrences: [],
+    managedMessageOccurrences: [],
     diagnostics: [{ code, severity: 'warning', message, sourceUrl }],
     complete: false,
   });
@@ -1359,6 +1595,15 @@ export async function analyzeAuthoringSources(
                 ...literal,
                 sourceKind: 'rml-script-src',
               })),
+              managedMessageOccurrences: childArtifact.managedMessageOccurrences.map(
+                (occurrence) => ({
+                  ...occurrence,
+                  sourceLiteral: {
+                    ...occurrence.sourceLiteral,
+                    sourceKind: 'rml-script-src',
+                  },
+                }),
+              ),
             }))
           )
             break;

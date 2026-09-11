@@ -537,6 +537,24 @@ TEST_CASE("Runtime and focused query providers produce equivalent condition and 
     fixture.runtime.destroy_environment(environment.value());
 }
 
+TEST_CASE("ScriptRuntime realizes compiler-lowered managed Message references")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    const auto project = load_script_project();
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+
+    auto value =
+        fixture.runtime.evaluate_string("Text.__message(0, { ignored = true })", "managed-message");
+    REQUIRE(value);
+    CHECK(value.value() == "Coin");
+
+    auto public_helper = fixture.runtime.evaluate_bool("Text.tr == nil and Text.msg == nil",
+                                                       "managed-message-public-shape");
+    REQUIRE(public_helper);
+    CHECK(public_helper.value());
+}
+
 TEST_CASE("ScriptRuntime evaluates typed basic values")
 {
     RuntimeFixture fixture;

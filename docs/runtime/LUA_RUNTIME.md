@@ -5,10 +5,29 @@
 Lua is the only runtime scripting language. `ScriptRuntime` owns the sandboxed Lua VM; OS, IO,
 debug, package loading, `require`, `dofile`, and `loadfile` are unavailable by default.
 
-Lua source remains opaque to the TypeScript authoring compiler after structural validation. Native
-Lua certification runs for preview/export readiness and again during compiled package load. Invalid
-inline or asset-backed Lua prevents publication/session construction and reports structured
-diagnostics without executing the script.
+Lua source remains opaque to the TypeScript authoring compiler after structural validation except
+for the managed localization syntax described below. Native Lua certification runs for
+preview/export readiness and again during compiled package load. Invalid inline or asset-backed Lua
+prevents publication/session construction and reports structured diagnostics without executing the
+script.
+
+### Managed localization calls
+
+Direct `Text.tr(sourceLiteral, args?, metadata?)` and `Text.msg(namedKeyLiteral, args?)` calls are the
+one narrow syntax-aware authoring transform. The source analyzer recognizes them token-wise, so
+whitespace and comments do not matter, but aliases, constructed source/key expressions, and dynamic
+named keys are not inferred as managed localization. `Text.tr` metadata is a literal table whose
+`context` and `note` values are read statically; tooling never executes Lua to discover localization
+metadata.
+
+The authoring compiler replaces recognized calls with package-local `Text.__message(messageId, args?)`
+references, removes the managed source/key/translator metadata from the compiled Lua payload, and
+leaves all unrelated Lua untouched. `Text.__message` is compiler/runtime ABI rather than authored API
+and resolves through the canonical `MessageRealizer`. Focused Room preview runs the same managed-call
+lowering and injects only the referenced default-locale Message realizations into its isolated Lua
+sources, so authored `Text.tr`/`Text.msg` calls are not executed as a separate preview API. Runtime
+arguments are retained by lowering but are not interpreted until the parameterized-Message contract
+is implemented; localization lowering is not a general Lua parser, formatter, optimizer, or minifier.
 
 ## Gameplay Gateway
 
