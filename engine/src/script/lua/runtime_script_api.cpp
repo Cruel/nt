@@ -1185,6 +1185,11 @@ core::Result<bool, core::Diagnostics> RuntimeScriptApi::gameplay_paused() const
                         gateway->gameplay_paused());
 }
 
+core::Result<std::string, core::Diagnostics> RuntimeScriptApi::locale() const
+{
+    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Game, "locale query", gateway->locale());
+}
+
 #undef NOVELTEA_WITH_QUERY
 #undef NOVELTEA_WITH_COMMAND
 

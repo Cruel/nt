@@ -119,6 +119,16 @@ with `AssetManager` during refresh, and releases/reissues the request after comp
 configuration or project replacement advances the generation. Initialization order is therefore not
 relied upon to keep the font alive.
 
+Runtime locale changes keep mounted documents and their local/focus state intact. The owner-frame
+transition first prepares the target font environment, then commits the typed runtime publication and
+Message locale together; failure before commit restores the previous font fallback ordering and
+leaves the previous active locale authoritative. The repository-owned RmlUi extension exposes
+`SetFallbackFontFamilies(...)`, which replaces fallback priority among already-loaded families
+without recreating contexts or documents. After a successful commit, RuntimeUI rebinds localization
+and re-realizes every mounted `<nt-tr>` occurrence in place, causing live bound arguments to be read
+again from the current data model. The shell model publishes pending and completed success/failure
+state for custom Settings Layouts.
+
 ## Universal RCSS Baseline
 
 Every RmlUi `ElementDocument` instantiated through NovelTea's RuntimeUI document registry receives

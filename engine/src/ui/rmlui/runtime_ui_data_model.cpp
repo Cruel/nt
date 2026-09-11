@@ -772,6 +772,32 @@ struct SaveSlotProjection {
     std::string get_thumbnail_url() { return thumbnail_url; }
 };
 
+struct LocaleOptionProjection {
+    std::string locale;
+    std::string native_name;
+    std::string display_name;
+    bool right_to_left = false;
+    bool active = false;
+    std::string get_locale() { return locale; }
+    std::string get_native_name() { return native_name; }
+    std::string get_display_name() { return display_name; }
+    bool get_right_to_left() { return right_to_left; }
+    bool get_active() { return active; }
+};
+
+struct LocaleChangeResultProjection {
+    bool available = false;
+    bool succeeded = false;
+    std::string requested_locale;
+    std::string diagnostic_code;
+    std::string message;
+    bool get_available() { return available; }
+    bool get_succeeded() { return succeeded; }
+    std::string get_requested_locale() { return requested_locale; }
+    std::string get_diagnostic_code() { return diagnostic_code; }
+    std::string get_message() { return message; }
+};
+
 struct ConfirmationProjection {
     bool active = false;
     std::string prompt;
@@ -785,6 +811,10 @@ struct ShellProjection {
     bool game_active = false;
     std::string status;
     SettingsProjection settings;
+    std::string active_locale;
+    std::vector<LocaleOptionProjection> locales;
+    bool locale_change_pending = false;
+    LocaleChangeResultProjection locale_change_result;
     CheckpointProjection checkpoint;
     std::vector<SaveSlotProjection> save_slots;
     ConfirmationProjection confirmation;
@@ -793,6 +823,10 @@ struct ShellProjection {
     bool get_game_active() { return game_active; }
     std::string get_status() { return status; }
     SettingsProjection& get_settings() { return settings; }
+    std::string get_active_locale() { return active_locale; }
+    std::vector<LocaleOptionProjection>& get_locales() { return locales; }
+    bool get_locale_change_pending() { return locale_change_pending; }
+    LocaleChangeResultProjection& get_locale_change_result() { return locale_change_result; }
     CheckpointProjection& get_checkpoint() { return checkpoint; }
     std::vector<SaveSlotProjection>& get_save_slots() { return save_slots; }
     ConfirmationProjection& get_confirmation() { return confirmation; }
@@ -1007,13 +1041,29 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(SaveSlotProjection, thumbnail_available),
             NT_MEMBER(SaveSlotProjection, thumbnail_url));
         ok &= c.RegisterArray<std::vector<SaveSlotProjection>>();
+        ok &= register_struct<LocaleOptionProjection>(
+            c, NT_MEMBER(LocaleOptionProjection, locale),
+            NT_MEMBER(LocaleOptionProjection, native_name),
+            NT_MEMBER(LocaleOptionProjection, display_name),
+            NT_MEMBER(LocaleOptionProjection, right_to_left),
+            NT_MEMBER(LocaleOptionProjection, active));
+        ok &= c.RegisterArray<std::vector<LocaleOptionProjection>>();
+        ok &= register_struct<LocaleChangeResultProjection>(
+            c, NT_MEMBER(LocaleChangeResultProjection, available),
+            NT_MEMBER(LocaleChangeResultProjection, succeeded),
+            NT_MEMBER(LocaleChangeResultProjection, requested_locale),
+            NT_MEMBER(LocaleChangeResultProjection, diagnostic_code),
+            NT_MEMBER(LocaleChangeResultProjection, message));
         ok &= register_struct<ConfirmationProjection>(c, NT_MEMBER(ConfirmationProjection, active),
                                                       NT_MEMBER(ConfirmationProjection, prompt));
         ok &= register_struct<ShellProjection>(
             c, NT_MEMBER(ShellProjection, available), NT_MEMBER(ShellProjection, screen),
             NT_MEMBER(ShellProjection, game_active), NT_MEMBER(ShellProjection, status),
-            NT_MEMBER(ShellProjection, settings), NT_MEMBER(ShellProjection, checkpoint),
-            NT_MEMBER(ShellProjection, save_slots), NT_MEMBER(ShellProjection, confirmation));
+            NT_MEMBER(ShellProjection, settings), NT_MEMBER(ShellProjection, active_locale),
+            NT_MEMBER(ShellProjection, locales), NT_MEMBER(ShellProjection, locale_change_pending),
+            NT_MEMBER(ShellProjection, locale_change_result),
+            NT_MEMBER(ShellProjection, checkpoint), NT_MEMBER(ShellProjection, save_slots),
+            NT_MEMBER(ShellProjection, confirmation));
 #undef NT_MEMBER
         return ok;
     }
@@ -1161,6 +1211,11 @@ struct RuntimeUiDataModel::Impl {
             "shell_set_text_scale", callback([this](const auto& args) {
                 return gateway.dispatch_shell_command(core::RuntimeShellCommand{
                     core::SetRuntimeTextScaleShellCommand{event_arg<double>(args, 0)}});
+            }));
+        ok &= c.BindEventCallback(
+            "shell_set_locale", callback([this](const auto& args) {
+                return gateway.dispatch_shell_command(core::RuntimeShellCommand{
+                    core::RequestRuntimeLocaleShellCommand{event_arg<std::string>(args, 0)}});
             }));
         ok &= c.BindEventCallback("shell_confirm", callback([this](const auto&) {
                                       return gateway.dispatch_shell_command(
@@ -1490,6 +1545,24 @@ void RuntimeUiDataModel::set_shell(const core::RuntimeShellViewState& view,
                                view.accessibility.text_scale.minimum,
                                core::RuntimeUserSettings::default_text_scale,
                                view.accessibility.text_scale.maximum};
+    out.active_locale = view.locale.active_locale;
+    out.locale_change_pending = view.locale_change_pending;
+    if (view.locale_change_result) {
+        out.locale_change_result = {
+            .available = true,
+            .succeeded = view.locale_change_result->succeeded,
+            .requested_locale = view.locale_change_result->requested_locale,
+            .diagnostic_code = view.locale_change_result->diagnostic_code,
+            .message = view.locale_change_result->message,
+        };
+    }
+    for (const auto& locale : view.locale.available_locales) {
+        out.locales.push_back({.locale = locale.locale,
+                               .native_name = locale.native_name,
+                               .display_name = locale.display_name,
+                               .right_to_left = locale.right_to_left,
+                               .active = locale.locale == view.locale.active_locale});
+    }
     if (view.checkpoint) {
         const auto& checkpoint = *view.checkpoint;
         auto& target = out.checkpoint;

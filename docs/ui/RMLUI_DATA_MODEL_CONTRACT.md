@@ -131,6 +131,14 @@ choice presentation underneath it.
 | `shell.settings.text_scale.minimum` | number | Project text-scale minimum. |
 | `shell.settings.text_scale.default_value` | number | Runtime default text scale. |
 | `shell.settings.text_scale.maximum` | number | Project text-scale maximum. |
+| `shell.active_locale` | string | Current committed runtime locale. |
+| `shell.locales` | array | Packaged Supported locale options with native/display names, directionality, and active state. |
+| `shell.locale_change_pending` | bool | A locale transition has been accepted but has not committed or failed yet. |
+| `shell.locale_change_result.available` | bool | A locale request has completed since the last request began. |
+| `shell.locale_change_result.succeeded` | bool | The completed locale request committed successfully. |
+| `shell.locale_change_result.requested_locale` | string | Locale tag requested by the completed request. |
+| `shell.locale_change_result.diagnostic_code` | string | Stable failure code, empty after success. |
+| `shell.locale_change_result.message` | string | Diagnostic detail for custom Settings UI, empty after success. |
 | `shell.checkpoint.available` | bool | A checkpoint observation exists. |
 | `shell.checkpoint.ready` | bool | Current checkpoint can be captured. |
 | `shell.checkpoint.retained` | bool | A retained revision exists. |
@@ -160,7 +168,13 @@ URL below `project:/generated/shell/`; bytes remain native virtual-file resource
 values. Save RML filters autosave declaratively; Load RML may render all slots and exposes Load only
 for occupied slots.
 
-Clearing the shell resets its scalars, nested scale/checkpoint/confirmation state, and slot array.
+Each `shell.locales[]` entry contains `locale`, `native_name`, `display_name`, `right_to_left`, and
+`active`. Locale changes are result-bearing asynchronous presentation-environment transitions: the
+old `shell.active_locale` remains authoritative while `locale_change_pending` is true, then the
+result becomes available after commit or failure. A failed result does not change the active locale.
+
+Clearing the shell resets its scalars, locale/result state, nested scale/checkpoint/confirmation state,
+and arrays.
 
 ## Model Callbacks
 
@@ -192,6 +206,7 @@ shell_save_slot(number)
 shell_load_slot(kind, number)
 shell_set_ui_scale(value)
 shell_set_text_scale(value)
+shell_set_locale(locale)
 shell_confirm()
 shell_cancel()
 ```
@@ -199,7 +214,8 @@ shell_cancel()
 `ui_choose` accepts only `scene` or `dialogue`. `ui_toggle_subject` accepts only `character` or
 `interactable`. `shell_save_slot` accepts only manual slots exposed by the current shell slot state.
 `shell_load_slot` accepts `autosave` only with number zero or `manual` with an exposed manual slot,
-and the selected slot must currently be occupied. Invalid kinds, hidden/unexposed or empty slots,
+and the selected slot must currently be occupied. `shell_set_locale` accepts only a packaged Supported
+locale and requests an asynchronous locale-environment transition; it is not a gameplay mutation. Invalid kinds, hidden/unexposed or empty slots,
 numbers, stale IDs, hidden/disabled targets, disallowed Layout contexts, and malformed arguments do
 not dispatch typed commands.
 

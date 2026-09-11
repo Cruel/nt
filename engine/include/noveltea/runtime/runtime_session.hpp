@@ -39,6 +39,8 @@ public:
 
     [[nodiscard]] RuntimeDispatchResult dispatch(const core::RuntimeInputMessage& input);
     [[nodiscard]] RuntimeDispatchResult publish_initial_state();
+    [[nodiscard]] RuntimeDispatchResult commit_locale(std::string locale);
+    [[nodiscard]] std::string_view runtime_locale() const noexcept { return m_runtime_locale; }
     [[nodiscard]] core::PresentationOperationId allocate_presentation_operation_id() noexcept
     {
         assert_owner_thread();

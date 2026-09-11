@@ -48,6 +48,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void finish_frame_timing_sample();
     void service_normal_frame_jobs();
     void service_loading_frame_jobs();
+    void service_pending_runtime_locale_change();
     void poll_tooling_postprocess_assets();
     void begin_job_shutdown();
     bool service_job_shutdown();
@@ -88,6 +89,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     [[nodiscard]] core::Result<void, core::Diagnostics> set_runtime_ui_scale(double scale) override;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_runtime_text_scale(double scale) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_runtime_locale_change(std::string locale) override;
     [[nodiscard]] core::RuntimeShellViewState
     build_runtime_shell_view(core::RuntimeShellScreen screen,
                              const std::optional<core::RuntimeShellConfirmation>& confirmation,
@@ -168,6 +171,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     DebugUI m_debug_ui;
     host::DebugUiCommandExecutor m_debug_ui_command_executor;
     std::vector<host::DebugUiCommand> m_pending_debug_ui_commands;
+    std::optional<std::string> m_pending_runtime_locale_change;
+    std::optional<core::RuntimeLocaleChangeResultView> m_runtime_locale_change_result;
     bool m_initialized = false;
     bool m_running = false;
     bool m_job_shutdown_started = false;

@@ -20,6 +20,7 @@ import {
   structuredMessageForPath,
 } from '../../shared/authoring-structured-messages';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
+import { effectivePreviewLocale } from '../../shared/preview-locale';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   gameplayInstanceKindForCollection,
@@ -212,7 +213,7 @@ function focusedCondition(value: RoomData['overlays'][number]['condition']): Foc
 function localizedText(project: AuthoringProject, key: string): string {
   const result = resolveMessage(project.localization, {
     key,
-    locale: project.localization.defaultLocale,
+    locale: effectivePreviewLocale(project),
   });
   return result.resolved?.text ?? '';
 }
@@ -224,7 +225,7 @@ function focusedStructuredString(
 ) {
   const message = structuredMessageForPath(project, semanticPath);
   return message
-    ? resolveStructuredMessageText(project, message, project.localization.defaultLocale).text
+    ? resolveStructuredMessageText(project, message, effectivePreviewLocale(project)).text
     : fallback;
 }
 

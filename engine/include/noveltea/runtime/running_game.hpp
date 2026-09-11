@@ -56,6 +56,7 @@ public:
 
     [[nodiscard]] const core::LoadedCompiledPackage& package() const noexcept { return m_package; }
     [[nodiscard]] std::string_view runtime_locale() const noexcept { return m_runtime_locale; }
+    [[nodiscard]] RuntimeDispatchResult commit_locale(std::string locale);
     [[nodiscard]] RuntimeSession& session() noexcept { return *m_session; }
     [[nodiscard]] const RuntimeSession& session() const noexcept { return *m_session; }
     [[nodiscard]] core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>

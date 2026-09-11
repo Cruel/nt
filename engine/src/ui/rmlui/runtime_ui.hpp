@@ -52,6 +52,8 @@ public:
                     script::ScriptRuntime* scripts, const ShaderMaterialProject* shader_materials,
                     ui::rmlui::ActiveTextPresenterShaper active_text_shaper,
                     bool headless_render = false);
+    [[nodiscard]] bool prepare_fonts(const assets::FontAssetConfig& config);
+    [[nodiscard]] bool activate_font_fallbacks(const assets::FontAssetConfig& config);
     [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);

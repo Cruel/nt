@@ -68,7 +68,7 @@ struct GameHostAdvanceInput {
 
 struct GameHostLoadRequest {
     std::string logical_path;
-    std::string runtime_locale = "en";
+    std::string runtime_locale{};
     bool load_title_screen = true;
     bool stop_runtime_after_load = true;
 };
@@ -135,6 +135,7 @@ public:
                           const GameHostLoadHooks& hooks);
     [[nodiscard]] HostRuntimeDispatchResult
     submit_runtime_input(core::RuntimeInputMessage input) override;
+    [[nodiscard]] HostRuntimeDispatchResult commit_runtime_locale(std::string locale);
     [[nodiscard]] HostRuntimeDispatchResult submit_runtime_input(GameSessionGeneration generation,
                                                                  core::RuntimeInputMessage input);
     [[nodiscard]] bool submit_runtime_ui_shell_command(core::RuntimeShellCommand command);

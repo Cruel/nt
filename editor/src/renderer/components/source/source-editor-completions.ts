@@ -166,6 +166,7 @@ export const luaRuntimeCompletions: Completion[] = [
   'Game.pause',
   'Game.resume',
   'Game.paused',
+  'Game.locale',
   'audio',
   'audio.play',
   'audio.play_and_wait',

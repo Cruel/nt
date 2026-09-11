@@ -1,4 +1,5 @@
 #include "noveltea/runtime/runtime_executor.hpp"
+#include "noveltea/core/runtime_locale.hpp"
 
 #include <algorithm>
 #include <type_traits>
@@ -327,9 +328,18 @@ RuntimeExecutor::activate_map_connection(const core::MapId& map,
 core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>
 RuntimeExecutor::runtime_ui_view(std::string_view runtime_locale)
 {
+    core::RuntimeLocaleView locale_view{
+        .active_locale = std::string(runtime_locale),
+        .available_locales = {},
+    };
+    for (const auto& locale : m_project.localization().locales) {
+        if (locale.supported)
+            locale_view.available_locales.push_back(core::runtime_locale_option(locale.locale));
+    }
     core::TypedRuntimeUIViewState view{.mode = runtime_mode_name(m_state),
                                        .gameplay_paused = m_state.gameplay_paused(),
                                        .effective_gameplay_pause = {},
+                                       .locale = std::move(locale_view),
                                        .scene = std::nullopt,
                                        .dialogue = std::nullopt,
                                        .room = std::nullopt,

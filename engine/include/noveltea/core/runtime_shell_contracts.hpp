@@ -47,9 +47,20 @@ struct RuntimeShellSaveSlotView {
     bool operator==(const RuntimeShellSaveSlotView&) const = default;
 };
 
+struct RuntimeLocaleChangeResultView {
+    std::string requested_locale;
+    bool succeeded = false;
+    std::string diagnostic_code;
+    std::string message;
+    bool operator==(const RuntimeLocaleChangeResultView&) const = default;
+};
+
 struct RuntimeShellViewState {
     RuntimeShellScreen screen = RuntimeShellScreen::None;
     RuntimeUserSettings settings = RuntimeUserSettings::defaults();
+    RuntimeLocaleView locale;
+    bool locale_change_pending = false;
+    std::optional<RuntimeLocaleChangeResultView> locale_change_result;
     compiled::AccessibilitySettings accessibility{
         .ui_scale = {.enabled = false, .minimum = 1.0, .maximum = 1.0},
         .text_scale = {.enabled = false, .minimum = 1.0, .maximum = 1.0},
@@ -111,6 +122,10 @@ struct SetRuntimeTextScaleShellCommand {
     double scale = RuntimeUserSettings::default_text_scale;
     auto operator<=>(const SetRuntimeTextScaleShellCommand&) const = default;
 };
+struct RequestRuntimeLocaleShellCommand {
+    std::string locale;
+    auto operator<=>(const RequestRuntimeLocaleShellCommand&) const = default;
+};
 struct ConfirmShellCommand {
     auto operator<=>(const ConfirmShellCommand&) const = default;
 };
@@ -124,6 +139,7 @@ using RuntimeShellCommand =
                  OpenTextLogShellCommand, OpenDebugShellCommand, CloseShellScreenCommand,
                  RequestReturnToTitleShellCommand, RequestQuitShellCommand, SaveShellSlotCommand,
                  RequestLoadShellSlotCommand, SetRuntimeUiScaleShellCommand,
-                 SetRuntimeTextScaleShellCommand, ConfirmShellCommand, CancelShellCommand>;
+                 SetRuntimeTextScaleShellCommand, RequestRuntimeLocaleShellCommand,
+                 ConfirmShellCommand, CancelShellCommand>;
 
 } // namespace noveltea::core

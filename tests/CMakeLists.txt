@@ -89,6 +89,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_tests_properties(noveltea_rmlui_font_raster_default PROPERTIES
         LABELS "rmlui;dependency;patch;font-raster-scale")
 
+    add_executable(noveltea_rmlui_dynamic_fallback_patch_tests
+        cmake/rmlui_dynamic_fallback_patch_tests.cpp)
+    target_compile_definitions(noveltea_rmlui_dynamic_fallback_patch_tests PRIVATE
+        NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        NOVELTEA_EXPECTED_RMLUI_PATCH_REVISION="${NOVELTEA_RMLUI_PATCH_REVISION}")
+    target_link_libraries(noveltea_rmlui_dynamic_fallback_patch_tests PRIVATE RmlUi::Core)
+    add_test(
+        NAME noveltea_rmlui_dynamic_fallback_patch
+        COMMAND noveltea_rmlui_dynamic_fallback_patch_tests)
+    set_tests_properties(noveltea_rmlui_dynamic_fallback_patch PROPERTIES
+        LABELS "rmlui;dependency;patch;font-fallback")
+
     add_executable(noveltea_rmlui_lua_event_listener_state_tests
         cmake/rmlui_lua_event_listener_state_tests.cpp)
     target_compile_definitions(noveltea_rmlui_lua_event_listener_state_tests PRIVATE
@@ -109,6 +121,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND "$<TARGET_FILE:noveltea_rmlui_text_scale_patch_tests>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_font_raster_scale_patch_tests>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_font_raster_default_tests>"
+        COMMAND "$<TARGET_FILE:noveltea_rmlui_dynamic_fallback_patch_tests>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_lua_event_listener_state_tests>"
         DEPENDS
             noveltea_rmlui_patch_framework_test
@@ -116,8 +129,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             noveltea_rmlui_text_scale_patch_tests
             noveltea_rmlui_font_raster_scale_patch_tests
             noveltea_rmlui_font_raster_default_tests
+            noveltea_rmlui_dynamic_fallback_patch_tests
             noveltea_rmlui_lua_event_listener_state_tests
-        COMMENT "Verifying the repository-owned RmlUi presentation, font-raster, and Lua-listener extensions"
+        COMMENT "Verifying the repository-owned RmlUi presentation, font-raster, dynamic-fallback, and Lua-listener extensions"
         VERBATIM)
 endif()
 

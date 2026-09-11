@@ -89,6 +89,7 @@ The current capability surface includes:
 - `noveltea.presentation.set_environment`, `clear_environment`, `stop_environments`, and
   `environment` for scoped, reconstructible long-lived visual modes;
 - `Game.pause`, `Game.resume`, and `Game.paused` for semantic gameplay pause;
+- `Game.locale()` for the current runtime locale; locale selection is shell/player preference state rather than a gameplay mutation and is not restored from save data;
 - `audio.play`, `audio.play_and_wait`, `audio.stop`, and `audio.stop_and_wait` for transient
   playback;
 - `audio.play_ui` for explicitly disposable UI-only sound;

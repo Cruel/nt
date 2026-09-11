@@ -245,6 +245,15 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     clear_layout(core::compiled::LayoutSlot slot);
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
+    [[nodiscard]] core::Result<std::string, core::Diagnostics> locale() const
+    {
+        if (m_services == nullptr)
+            return core::Result<std::string, core::Diagnostics>::failure(
+                {{.code = "runtime.gateway_services_unavailable",
+                  .message = "Locale query requires active runtime services"}});
+        return core::Result<std::string, core::Diagnostics>::success(
+            m_services->current_view().locale.active_locale);
+    }
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
 
     [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(

@@ -73,6 +73,27 @@ struct FakeSystemLayoutHost final : RuntimeSystemLayoutHost {
         return core::Result<void, core::Diagnostics>::success();
     }
 
+    core::Result<void, core::Diagnostics> request_runtime_locale_change(std::string locale) override
+    {
+        requested_locales.push_back(locale);
+        if (!accept_locale_requests) {
+            locale_change_pending = false;
+            locale_change_result = core::RuntimeLocaleChangeResultView{
+                .requested_locale = std::move(locale),
+                .succeeded = false,
+                .diagnostic_code = "runtime_shell.locale_unsupported",
+                .message = "Unsupported locale",
+            };
+            return core::Result<void, core::Diagnostics>::failure({{
+                .code = "runtime_shell.locale_unsupported",
+                .message = "Unsupported locale",
+            }});
+        }
+        locale_change_pending = true;
+        locale_change_result.reset();
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
     core::RuntimeShellViewState
     build_runtime_shell_view(core::RuntimeShellScreen screen,
                              const std::optional<core::RuntimeShellConfirmation>& confirmation,
@@ -81,6 +102,8 @@ struct FakeSystemLayoutHost final : RuntimeSystemLayoutHost {
         auto view = core::RuntimeShellViewState{};
         view.screen = screen;
         view.settings = settings;
+        view.locale_change_pending = locale_change_pending;
+        view.locale_change_result = locale_change_result;
         view.confirmation = confirmation;
         view.game_active = game_active;
         return view;
@@ -106,7 +129,11 @@ struct FakeSystemLayoutHost final : RuntimeSystemLayoutHost {
 
     std::uint64_t next_instance = 1;
     bool accept_inputs = true;
+    bool accept_locale_requests = true;
     bool quit_requested = false;
+    bool locale_change_pending = false;
+    std::optional<core::RuntimeLocaleChangeResultView> locale_change_result;
+    std::vector<std::string> requested_locales;
     core::compiled::AccessibilitySettings accessibility{
         .ui_scale = {.enabled = true, .minimum = 0.8, .maximum = 1.5},
         .text_scale = {.enabled = true, .minimum = 1.0, .maximum = 2.0},
@@ -245,6 +272,24 @@ TEST_CASE("system Layout workflow routes typed save load and settings commands")
         layouts.dispatch(core::RuntimeShellCommand{core::SetRuntimeTextScaleShellCommand{1.25}}));
     CHECK(host.settings.ui_scale() == 1.2);
     CHECK(host.settings.text_scale() == 1.25);
+    REQUIRE(
+        layouts.dispatch(core::RuntimeShellCommand{core::RequestRuntimeLocaleShellCommand{"es"}}));
+    REQUIRE(host.requested_locales.size() == 1);
+    CHECK(host.requested_locales.front() == "es");
+    REQUIRE_FALSE(host.publications.empty());
+    CHECK(host.publications.back().locale_change_pending);
+    CHECK_FALSE(host.publications.back().locale_change_result.has_value());
+    CHECK_FALSE(host.dispatched<core::SetVariableDebugInput>());
+
+    host.accept_locale_requests = false;
+    const auto locale_rejected =
+        layouts.dispatch(core::RuntimeShellCommand{core::RequestRuntimeLocaleShellCommand{"de"}});
+    REQUIRE_FALSE(locale_rejected);
+    REQUIRE(host.publications.back().locale_change_result.has_value());
+    CHECK_FALSE(host.publications.back().locale_change_result->succeeded);
+    CHECK(host.publications.back().locale_change_result->requested_locale == "de");
+    CHECK(host.publications.back().locale_change_result->diagnostic_code ==
+          "runtime_shell.locale_unsupported");
 
     const auto rejected =
         layouts.dispatch(core::RuntimeShellCommand{core::SetRuntimeUiScaleShellCommand{2.0}});

@@ -48,6 +48,13 @@ Focused Room preview uses the current `noveltea.room-preview` document and is pa
 contains no hotspot values and it does not install world hotspot input. Play preview uses the normal
 runtime projection and world controller in the same preview executable.
 
+Localization owns one editor-local **Preview Locale** selection under local editor state. Focused
+previews and Play resolve against that selection instead of mutating the Project Source or Default
+locale. Any declared locale, including work-in-progress/non-Supported locales, may be selected for
+preview; Play enables that locale only in its detached compilation input so the tracked Project locale
+policy remains unchanged. Removing the selected locale falls back to the Project Default. Preview
+Locale is not part of runtime package/export preparation.
+
 Finite presentation in Play preview uses the same `PresentationCoordinator` and typed renderer
 backend as packaged playback. Runtime load/reset/project replacement terminates in-flight
 background, actor, Layout, and world-composition realization, then reconciles the newly published
