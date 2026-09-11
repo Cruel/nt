@@ -221,12 +221,27 @@ struct CommandBuilderView {
     bool operator==(const CommandBuilderView&) const = default;
 };
 
+struct RuntimeLocaleOptionView {
+    std::string locale;
+    std::string native_name;
+    std::string display_name;
+    bool right_to_left = false;
+    bool operator==(const RuntimeLocaleOptionView&) const = default;
+};
+
+struct RuntimeLocaleView {
+    std::string active_locale;
+    std::vector<RuntimeLocaleOptionView> available_locales;
+    bool operator==(const RuntimeLocaleView&) const = default;
+};
+
 struct TypedRuntimeUIViewState {
     std::string mode;
     // Authored/session source reported by Game.paused() and persisted by the runtime policy.
     bool gameplay_paused = false;
     // Derived shell/Layout/platform fact. This is presentation/runtime-loop state, not save state.
     EffectiveGameplayPause effective_gameplay_pause;
+    RuntimeLocaleView locale;
     std::optional<SceneView> scene;
     std::optional<DialogueView> dialogue;
     std::optional<RoomView> room;

@@ -10,7 +10,7 @@ This reference is curated against this exact NovelTea profile:
 
 - RmlUi version label: `6.3-dev`
 - pinned RmlUi commit: `c6744d15bda5e9df7ad9c1f8eae937157e7ed309`
-- NovelTea RmlUi patch revision: `6c-feature-calc-lua-listener-state-1`
+- NovelTea RmlUi patch revision: `6d-dynamic-fallback-fonts-1`
 - `RMLUI_MATH_EXPRESSIONS`: enabled
 - registered built-in properties: 99
 - registered built-in shorthands: 20

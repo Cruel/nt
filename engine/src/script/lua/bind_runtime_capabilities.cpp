@@ -2575,6 +2575,13 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
         return value ? ObjectResult{sol::make_object(view, *value), nil(view)}
                      : failure(view, result.error());
     });
+    game.set_function("locale", [api](sol::this_state state) -> ObjectResult {
+        sol::state_view view(state);
+        auto result = api->locale();
+        const auto* value = result.value_if();
+        return value ? ObjectResult{sol::make_object(view, *value), nil(view)}
+                     : failure(view, result.error());
+    });
 }
 
 void clear_runtime_capabilities(lua_State* state)

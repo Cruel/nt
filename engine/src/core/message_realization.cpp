@@ -77,6 +77,12 @@ constexpr std::array kSystemMessages{
     SystemMessageDefinition{kSystemMessageIdBase + 32, "noveltea.confirmation.load",
                             "Load this save? Current unsaved progress will be lost.",
                             "Carregar este salvamento? O progresso atual não salvo será perdido."},
+    SystemMessageDefinition{kSystemMessageIdBase + 33, "noveltea.settings.language", "Language",
+                            "Idioma"},
+    SystemMessageDefinition{kSystemMessageIdBase + 34, "noveltea.status.language_updated",
+                            "Language updated.", "Idioma atualizado."},
+    SystemMessageDefinition{kSystemMessageIdBase + 35, "noveltea.status.language_change_failed",
+                            "Unable to change language.", "Não foi possível alterar o idioma."},
 };
 
 const SystemMessageDefinition* find_system_message(MessageId id) noexcept

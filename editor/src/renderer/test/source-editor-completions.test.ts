@@ -57,6 +57,7 @@ describe('SourceEditor language completion metadata', () => {
         'noveltea.presentation.environment',
         'noveltea.text_log.append',
         'Game.pause',
+        'Game.locale',
         'audio.play_and_wait',
         'math.randomseed',
         'print',

@@ -47,6 +47,9 @@ const definitions = [
   [30, 'noveltea.confirmation.return_to_title'],
   [31, 'noveltea.confirmation.quit'],
   [32, 'noveltea.confirmation.load'],
+  [33, 'noveltea.settings.language'],
+  [34, 'noveltea.status.language_updated'],
+  [35, 'noveltea.status.language_change_failed'],
 ] as const;
 
 export const systemMessageDefinitions: readonly SystemMessageDefinition[] = Object.freeze(

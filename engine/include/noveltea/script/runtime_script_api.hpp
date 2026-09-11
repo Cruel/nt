@@ -358,6 +358,7 @@ public:
                        runtime::RuntimePresentationOwnerScope owner_scope,
                        std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
+    [[nodiscard]] core::Result<std::string, core::Diagnostics> locale() const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
     [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(
         core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,

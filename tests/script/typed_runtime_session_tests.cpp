@@ -683,6 +683,55 @@ void prepare_project_scripts(ScriptRuntime& runtime, const core::CompiledProject
     REQUIRE(runtime.freeze_project_hooks());
 }
 
+TEST_CASE(
+    "runtime locale commit republishes supported locale metadata without replacing the session")
+{
+    Fixture fixture;
+    auto started = dispatch_settled(*fixture.session, core::StartRuntimeInput{});
+    REQUIRE(started.diagnostics.empty());
+    const auto& initial = published_view(started);
+    CHECK(initial.locale.active_locale == "en");
+    REQUIRE(initial.locale.available_locales.size() == 2);
+    CHECK(initial.locale.available_locales[0].locale == "en");
+    CHECK(initial.locale.available_locales[0].native_name == "English");
+    CHECK(initial.locale.available_locales[0].display_name == "English");
+    CHECK(initial.locale.available_locales[1].locale == "es");
+    CHECK(initial.locale.available_locales[1].native_name == "Español");
+    CHECK(initial.locale.available_locales[1].display_name == "Spanish");
+
+    auto changed = fixture.session->commit_locale("es");
+    REQUIRE(changed.diagnostics.empty());
+    REQUIRE(changed.publication);
+    CHECK(changed.publication->gameplay_ui.locale.active_locale == "es");
+    CHECK(fixture.session->runtime_locale() == "es");
+
+    auto rejected = fixture.session->commit_locale("de");
+    CHECK(rejected.disposition == runtime::RuntimeInputDisposition::Failed);
+    CHECK(diagnostics_have_code(rejected.diagnostics, "runtime.locale_unsupported"));
+    CHECK(fixture.session->runtime_locale() == "es");
+}
+
+TEST_CASE("checkpoint restore uses the current runtime locale rather than saved locale state")
+{
+    Fixture fixture;
+    REQUIRE(dispatch_settled(*fixture.session, core::StartRuntimeInput{}).diagnostics.empty());
+    REQUIRE(fixture.session->commit_locale("es").diagnostics.empty());
+
+    auto saved = dispatch_settled(*fixture.session,
+                                  core::SaveRuntimeInput{.slot = core::TypedSaveSlotId::manual(1)});
+    REQUIRE(saved.diagnostics.empty());
+
+    auto restored = runtime::RuntimeSession::restore(
+        fixture.project, fixture.script_port, test_support::presentation_model(),
+        fixture.presentation, fixture.saves, test_support::save_codec(),
+        core::TypedSaveSlotId::manual(1), "en", fixture.runtime_budget);
+    REQUIRE(restored);
+    auto publication = (*restored.value_if())->publish_initial_state();
+    REQUIRE(publication.diagnostics.empty());
+    REQUIRE(publication.publication);
+    CHECK(publication.publication->gameplay_ui.locale.active_locale == "en");
+}
+
 TEST_CASE("runtime publication carries authoritative non-global prediction condition facts")
 {
     Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
@@ -3685,6 +3734,24 @@ TEST_CASE("Layout event capability profiles admit gameplay presentation and deny
             const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
             return scoped != nullptr && scoped->instance.text() == "forbidden-menu";
         }));
+}
+
+TEST_CASE("runtime Lua exposes the active locale as a read-only Game query")
+{
+    Fixture fixture;
+    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    REQUIRE(execute_session_lua(fixture, "locale_value = assert(Game.locale())", "typed-locale"));
+    auto initial = fixture.runtime.evaluate_string("locale_value", "typed-locale-value");
+    REQUIRE(initial);
+    CHECK(initial.value() == "en");
+
+    REQUIRE(fixture.session->commit_locale("es").diagnostics.empty());
+    REQUIRE(
+        execute_session_lua(fixture, "locale_value = assert(Game.locale())", "typed-locale-es"));
+    auto changed = fixture.runtime.evaluate_string("locale_value", "typed-locale-es-value");
+    REQUIRE(changed);
+    CHECK(changed.value() == "es");
 }
 
 TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")

@@ -687,7 +687,10 @@ Game.autosave() -> ok, error
 Game.pause() -> ok, error
 Game.resume() -> ok, error
 Game.paused() -> boolean, error
+Game.locale() -> locale_tag, error
 ```
+
+`Game.locale()` is a read-only query for the active runtime locale. Locale selection belongs to player/shell preference surfaces rather than gameplay mutation APIs, and loading a save does not restore a saved locale.
 
 `Game.choose` and `Game.navigate` are deliberately **zero-based**, despite ordinary Lua sequence conventions. They index the current effective runtime choices/navigation entries, so stale or out-of-range indices fail.
 

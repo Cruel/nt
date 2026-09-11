@@ -266,6 +266,24 @@ describe('graph-driven Room builder', () => {
     });
   });
 
+  it('uses the editor-local Preview Locale without changing the Project Default locale', async () => {
+    const project = fixture();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f040';
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.translations.fr = {
+      [messageId]: testTranslation('Une chambre calme.'),
+    };
+    project.editor.previewLocale = 'fr';
+
+    const result = await build(project);
+
+    expect(project.localization.defaultLocale).toBe('en');
+    expect(result.data.ui.description).toEqual({
+      markup: 'plain',
+      source: { kind: 'resolved', text: 'Une chambre calme.' },
+    });
+  });
+
   it('prepares managed Lua Messages for focused preview without authored localization literals', async () => {
     const project = fixture();
     const messageId = '11111111-1111-4111-8111-111111111111';

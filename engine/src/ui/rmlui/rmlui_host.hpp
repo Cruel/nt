@@ -84,6 +84,8 @@ public:
     RmlUiHost& operator=(const RmlUiHost&) = delete;
 
     [[nodiscard]] bool initialize(const Config& config);
+    [[nodiscard]] bool prepare_fonts(const assets::FontAssetConfig& config);
+    [[nodiscard]] bool activate_font_fallbacks(const assets::FontAssetConfig& config);
     [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
     void shutdown();
 

@@ -367,7 +367,9 @@ RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvoc
     : m_project(project), m_scripts(scripts), m_presentation_model(presentation_model),
       m_presentation(presentation), m_checkpoint_service(project, saves, save_codec),
       m_kernel(std::move(kernel)), m_runtime_budget(runtime_budget),
-      m_runtime_locale(std::move(runtime_locale)), m_owner_thread(std::this_thread::get_id())
+      m_runtime_locale(runtime_locale.empty() ? project.localization().default_locale
+                                              : std::move(runtime_locale)),
+      m_owner_thread(std::this_thread::get_id())
 {
     m_kernel->gateway().bind_services(this);
     m_kernel->bind_scene_event_dependency_checker([this](const core::FlowFrameId& owner,
@@ -2412,6 +2414,61 @@ RuntimeDispatchResult RuntimeSession::dispatch(const core::RuntimeInputMessage& 
         m_session_replacement_request.reset();
     } else {
         result.session_replacement_request = std::move(m_session_replacement_request);
+    }
+    result.budget = m_transaction_budget_outcome;
+    m_transaction_impacts.clear();
+    m_transaction_elapsed = std::chrono::milliseconds{0};
+    m_dispatch_active = false;
+    return result;
+}
+
+RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
+{
+    assert_owner_thread();
+    runtime::RuntimeDispatchResult result;
+    if (m_dispatch_active) {
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        result.diagnostics.push_back(diagnostic("runtime.reentrant_locale_commit",
+                                                "Runtime locale cannot commit during dispatch"));
+        return result;
+    }
+    const auto supported = std::ranges::find_if(
+        m_project.localization().locales, [&](const core::compiled::LocaleDefinition& candidate) {
+            return candidate.supported && candidate.locale == locale;
+        });
+    if (supported == m_project.localization().locales.end()) {
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        result.diagnostics.push_back(diagnostic(
+            "runtime.locale_unsupported", "Requested locale is not a packaged Supported locale"));
+        return result;
+    }
+    if (locale == m_runtime_locale) {
+        result.disposition = runtime::RuntimeInputDisposition::Handled;
+        return result;
+    }
+
+    const auto previous_locale = m_runtime_locale;
+    m_dispatch_active = true;
+    m_transaction_budget_outcome = {};
+    m_session_replacement_request.reset();
+    m_runtime_locale = std::move(locale);
+    m_force_publication = true;
+    WorkResult work;
+    project_publication(work, result);
+    core::append_diagnostics(result.diagnostics, settle_transaction());
+    result.events = std::move(work.events);
+    if (result.publication)
+        result.publication->observations.values.emplace_back(
+            m_checkpoint_service.observation(m_kernel->state()));
+    if (!result.diagnostics.empty()) {
+        m_runtime_locale = previous_locale;
+        m_force_publication = true;
+        result.publication.reset();
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+    } else {
+        result.disposition = runtime::RuntimeInputDisposition::Handled;
+        if (result.publication)
+            m_current_publication = *result.publication;
     }
     result.budget = m_transaction_budget_outcome;
     m_transaction_impacts.clear();

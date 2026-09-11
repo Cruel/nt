@@ -629,6 +629,71 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessa
     return submit_runtime_input(m_session_generation, std::move(input));
 }
 
+HostRuntimeDispatchResult GameHost::commit_runtime_locale(std::string locale)
+{
+    HostRuntimeDispatchResult result;
+    result.disposition = runtime::RuntimeInputDisposition::Failed;
+    if (!m_running_game) {
+        result.diagnostics = one({.code = "host.locale_change_without_game",
+                                  .message = "Locale change requires an active running game"});
+        return result;
+    }
+    if (m_dispatch_active || m_backend_reset_active || mandatory_assets_pending()) {
+        result.diagnostics =
+            one({.code = "host.locale_change_not_ready",
+                 .message = "Locale change cannot commit while runtime presentation is busy"});
+        return result;
+    }
+
+    const std::string previous_locale(m_running_game->runtime_locale());
+    m_dispatch_active = true;
+    result =
+        HostRuntimeDispatchResult::from_runtime(m_running_game->commit_locale(std::move(locale)));
+    if (!result.diagnostics.empty()) {
+        retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
+        m_dispatch_active = false;
+        return result;
+    }
+
+    core::Diagnostics application_diagnostics;
+    bool application_accepted = true;
+    if (result.presentation_predecessor) {
+        auto predecessor =
+            m_runtime_presentation.prime_snapshot_backend(*result.presentation_predecessor);
+        if (!predecessor) {
+            core::append_diagnostics(application_diagnostics, std::move(predecessor).error());
+            application_accepted = false;
+        }
+    }
+    if (result.publication) {
+        application_accepted = apply_runtime_publication(*result.publication, result.events,
+                                                         application_diagnostics) &&
+                               application_accepted;
+    }
+    if (!m_defer_presentation_flush)
+        application_accepted =
+            flush_runtime_presentation(&application_diagnostics) && application_accepted;
+
+    if (!application_accepted || !application_diagnostics.empty()) {
+        auto rollback = m_running_game->commit_locale(previous_locale);
+        core::append_diagnostics(application_diagnostics, std::move(rollback.diagnostics));
+        if (rollback.publication) {
+            core::Diagnostics rollback_diagnostics;
+            (void)apply_runtime_publication(*rollback.publication, rollback.events,
+                                            rollback_diagnostics);
+            (void)flush_runtime_presentation(&rollback_diagnostics);
+            core::append_diagnostics(application_diagnostics, std::move(rollback_diagnostics));
+        }
+        core::append_diagnostics(result.diagnostics, std::move(application_diagnostics));
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+    } else {
+        deliver_runtime_ui_events(result.events);
+    }
+    m_system_layouts.refresh();
+    m_dispatch_active = false;
+    return result;
+}
+
 bool GameHost::submit_runtime_ui_shell_command(GameSessionGeneration generation,
                                                core::RuntimeShellCommand command)
 {

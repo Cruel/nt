@@ -245,6 +245,20 @@ shell.settings.text_scale.minimum: number
 shell.settings.text_scale.default_value: number
 shell.settings.text_scale.maximum: number
 
+shell.active_locale: string
+shell.locale_change_pending: bool
+shell.locale_change_result.available: bool
+shell.locale_change_result.succeeded: bool
+shell.locale_change_result.requested_locale: string
+shell.locale_change_result.diagnostic_code: string
+shell.locale_change_result.message: string
+shell.locales[]:
+  locale: string
+  native_name: string
+  display_name: string
+  right_to_left: bool
+  active: bool
+
 shell.checkpoint.available: bool
 shell.checkpoint.ready: bool
 shell.checkpoint.retained: bool
@@ -308,6 +322,7 @@ shell_save_slot(number)
 shell_load_slot(kind, number)
 shell_set_ui_scale(value)
 shell_set_text_scale(value)
+shell_set_locale(locale)
 shell_confirm()
 shell_cancel()
 ```
@@ -317,6 +332,7 @@ Argument vocabularies are closed where applicable:
 - `ui_choose`: `kind` is `scene` or `dialogue`.
 - `ui_toggle_subject`, `ui_primary_activate`, `ui_open_verb_menu`, and `ui_context_activate`: `subject_kind` is `character` or `interactable`.
 - `ui_primary_activate` requests the semantic primary action; `ui_open_verb_menu` opens the ordinary resolved Offer menu without auto-selecting a primary Offer.
+- `shell_set_locale` accepts one `shell.locales[].locale` value. It requests the player/shell locale transition and does not mutate gameplay state.
 - `ui_context_activate` is intended for `mousedown`; it opens the same semantic Verb Menu only for the secondary/right mouse button and otherwise does nothing. Use it when one element needs primary click/tap and right-click behavior without inspecting pointer buttons in authored code.
 - `ui_present_player_inventory` opens the Project's canonical player Inventory through the generic Inventory presentation path; it is unavailable when that Inventory is not materialized/live in the compiled runtime.
 - `ui_command_builder_submit` confirms the built-in transient Draft for the active occurrence; `ui_command_builder_rebind` drops one currently bound slot so the next semantic subject capture can repair it; `ui_command_builder_cancel` terminates that occurrence. Runtime watches/submissions accept only subjects already captured for the active occurrence. Replacement Command Builder Layouts own their Draft and use the `Game.ui.begin_command_builder(...)`, `Game.ui.set_command_builder_watch(...)`, and `Game.ui.submit_command_builder(verb_id, bindings)` Lua transport described in `LUA.md`; `selected_subject_kind`, `selected_subject_id`, and each action's `slot_id` provide the subject-first starting information.

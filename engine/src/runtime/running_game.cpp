@@ -411,6 +411,9 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
                                                .source_path = frozen_hooks.error().chunk}});
     }
 
+    if (runtime_locale.empty())
+        runtime_locale = package.project().localization().default_locale;
+
     auto runtime = std::unique_ptr<RunningGame>(new RunningGame(std::move(package)));
     runtime->m_script_binding = std::make_unique<SessionScriptInvocationPort>(scripts);
     runtime->m_presentation_model = &presentation_model;
@@ -497,6 +500,14 @@ RunningGame::prepare_load_candidate(core::TypedSaveSlotId slot, ScriptInvocation
     return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::success(
         std::unique_ptr<RuntimeSessionCandidate>(new RuntimeSessionCandidate(
             std::move(binding), std::move(*session.value_if()), std::move(initial))));
+}
+
+RuntimeDispatchResult RunningGame::commit_locale(std::string locale)
+{
+    auto result = m_session->commit_locale(locale);
+    if (result.disposition == RuntimeInputDisposition::Handled && result.diagnostics.empty())
+        m_runtime_locale = std::move(locale);
+    return result;
 }
 
 std::unique_ptr<RuntimeSessionCandidate>

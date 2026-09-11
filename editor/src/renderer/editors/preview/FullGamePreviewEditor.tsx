@@ -70,6 +70,7 @@ import {
   type AuthoringRecordBase,
 } from '../../../shared/project-schema/authoring-project';
 import { prepareRuntimeArtifact } from '../../../shared/runtime-artifact-preparation';
+import { projectWithPreviewLocale } from '../../../shared/preview-locale';
 import { rendererRuntimeArtifactPaths } from '../../export/runtime-artifact-adapters';
 import {
   collectProjectValidationDiagnostics,
@@ -475,7 +476,7 @@ async function compiledProjectDiagnosticEntries(
     };
   }
   const prepared = await prepareRuntimeArtifact({
-    project,
+    project: projectWithPreviewLocale(project),
     projectRoot: null,
     profile: selectedExportProfile(project),
     intent: 'play',

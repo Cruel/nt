@@ -168,6 +168,12 @@ public:
         return core::Result<void, core::Diagnostics>::success();
     }
 
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_runtime_locale_change(std::string) override
+    {
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
     [[nodiscard]] core::RuntimeShellViewState
     build_runtime_shell_view(core::RuntimeShellScreen screen,
                              const std::optional<core::RuntimeShellConfirmation>& confirmation,
@@ -247,6 +253,20 @@ std::string minimal_compiled_project_fixture()
     std::ifstream file(path, std::ios::binary);
     REQUIRE(file.good());
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+std::string spanish_default_compiled_project_fixture()
+{
+    auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    auto locale = project["localization"]["locales"].front();
+    locale["locale"] = "es";
+    project["localization"]["locales"].push_back(std::move(locale));
+    auto catalog = project["localization"]["catalogs"].front();
+    catalog["locale"] = "es";
+    project["localization"]["catalogs"].push_back(std::move(catalog));
+    project["localization"]["defaultLocale"] = "es";
+    return project.dump();
 }
 
 std::string navigable_compiled_project_fixture()
@@ -476,6 +496,10 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     const auto fixture = minimal_compiled_project_fixture();
     project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
                         "game-host-test");
+    const auto spanish_fixture = spanish_default_compiled_project_fixture();
+    project_assets->add("minimal-es.json",
+                        assets::AssetBytes(spanish_fixture.begin(), spanish_fixture.end()),
+                        "game-host-test");
     assets.mount("project", project_assets);
 
     FakeScriptInvocationPort scripts;
@@ -574,6 +598,16 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     REQUIRE_FALSE(stale.accepted());
     CHECK(stale.diagnostics.front().code == "host.stale_runtime_input_generation");
     scripts.on_invalidate = {};
+
+    auto default_locale_loaded =
+        host.load_compiled_project({.logical_path = "project:/minimal-es.json",
+                                    .runtime_locale = {},
+                                    .load_title_screen = false,
+                                    .stop_runtime_after_load = true},
+                                   replacement_hooks);
+    REQUIRE(default_locale_loaded);
+    REQUIRE(host.running_game() != nullptr);
+    CHECK(host.running_game()->runtime_locale() == "es");
 }
 
 TEST_CASE("GameHost constructs stopped loads in a dedicated Project Lua VM")

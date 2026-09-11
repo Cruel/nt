@@ -475,6 +475,12 @@ RuntimeSystemLayouts::dispatch(const core::RuntimeShellCommand& command)
                 publish(m_host.realize_system_message("noveltea.status.settings_updated")
                             .value_or(std::string{}));
                 return core::Result<void, core::Diagnostics>::success();
+            } else if constexpr (std::is_same_v<T, core::RequestRuntimeLocaleShellCommand>) {
+                auto requested = m_host.request_runtime_locale_change(value.locale);
+                publish();
+                if (!requested)
+                    return requested;
+                return core::Result<void, core::Diagnostics>::success();
             } else if constexpr (std::is_same_v<T, core::ConfirmShellCommand>) {
                 return confirm();
             }

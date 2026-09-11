@@ -276,6 +276,7 @@ export const editorProjectStateSchema = z
     schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
     recovery: editorRecoveryStateSchema.default({ sequence: 0, saveUnitsById: {} }),
     lastSuccessfulPlatformExportIdentity: lastSuccessfulPlatformExportIdentitySchema.optional(),
+    previewLocale: z.string().trim().min(1).nullable().default(null),
     workbench: editorWorkbenchStateSchema.optional(),
     explorer: editorExplorerStateSchema.default(emptyEditorExplorerState()),
     chapters: editorChaptersStateSchema.default(emptyEditorChaptersState()),
@@ -341,6 +342,7 @@ export function emptyEditorProjectState(): EditorProjectState {
   return {
     schema: EDITOR_PROJECT_STATE_SCHEMA,
     recovery: { sequence: 0, saveUnitsById: {} },
+    previewLocale: null,
     explorer: emptyEditorExplorerState(),
     chapters: emptyEditorChaptersState(),
     tags: emptyEditorTagsState(),

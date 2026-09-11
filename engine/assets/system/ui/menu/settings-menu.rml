@@ -24,6 +24,18 @@
                     <button data-event-click="shell_set_text_scale(shell.settings.text_scale.maximum)"><nt-tr key="noveltea.settings.maximum"/> (<span id="nt-settings-text-scale-maximum">{{ shell.settings.text_scale.maximum }}</span>)</button>
                 </div>
             </section>
+            <section id="nt-settings-language-control" data-if="shell.locales.size > 1">
+                <p><nt-tr key="noveltea.settings.language"/>: {{ shell.active_locale }}</p>
+                <div class="nt-shell-actions">
+                    <button data-for="locale : shell.locales"
+                            data-if="!locale.active && !shell.locale_change_pending"
+                            data-event-click="shell_set_locale(locale.locale)">{{ locale.native_name }}</button>
+                </div>
+                <p data-if="shell.locale_change_result.available">
+                    <span data-if="shell.locale_change_result.succeeded"><nt-tr key="noveltea.status.language_updated"/></span>
+                    <span data-if="!shell.locale_change_result.succeeded"><nt-tr key="noveltea.status.language_change_failed"/></span>
+                </p>
+            </section>
             <div class="nt-shell-actions">
                 <button data-event-click="shell_close()"><nt-tr key="noveltea.shell.back"/></button>
             </div>

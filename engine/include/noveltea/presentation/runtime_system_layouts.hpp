@@ -27,6 +27,8 @@ public:
     set_runtime_ui_scale(double scale) = 0;
     [[nodiscard]] virtual core::Result<void, core::Diagnostics>
     set_runtime_text_scale(double scale) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    request_runtime_locale_change(std::string locale) = 0;
     [[nodiscard]] virtual core::RuntimeShellViewState
     build_runtime_shell_view(core::RuntimeShellScreen screen,
                              const std::optional<core::RuntimeShellConfirmation>& confirmation,

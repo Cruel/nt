@@ -189,6 +189,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const effectiveTargetLocale = targetLocales.includes(targetLocale)
     ? targetLocale
     : (targetLocales[0] ?? '');
+  const previewLocales = project
+    ? Object.keys(project.localization.locales).sort((a, b) => a.localeCompare(b))
+    : [];
 
   useWorkbenchEditorTabState(
     tab.id,
@@ -267,6 +270,16 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     return (
       result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? null
     );
+  }
+
+  function setPreviewLocale(locale: string | null) {
+    run('Set preview locale', [
+      {
+        op: 'replace',
+        path: '/editor/previewLocale',
+        value: locale,
+      },
+    ]);
   }
 
   function addLanguage() {
@@ -857,6 +870,36 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               <div className="mt-1 text-lg font-semibold">
                 {namedMessages.length} named · {targetLocales.length} targets
               </div>
+            </section>
+            <section className="rounded border p-4 @3xl:col-span-3">
+              <div className="text-xs font-medium text-muted-foreground">Preview locale</div>
+              <div className="mt-2 max-w-sm">
+                <Select
+                  value={project.editor.previewLocale ?? '__project_default__'}
+                  onValueChange={(value) =>
+                    setPreviewLocale(value === '__project_default__' ? null : value)
+                  }
+                >
+                  <SelectTrigger aria-label="Preview locale">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__project_default__">
+                      Project Default ({localization.defaultLocale})
+                    </SelectItem>
+                    {previewLocales.map((locale) => (
+                      <SelectItem key={locale} value={locale}>
+                        {displayLocale(locale)} ({locale})
+                        {localization.locales[locale]?.supported ? '' : ' · Work in progress'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Used by focused previews and Play only. It does not change the Project Source or
+                Default locale.
+              </p>
             </section>
             <section className="rounded border p-4 @3xl:col-span-3">
               <h3 className="font-medium">Languages</h3>

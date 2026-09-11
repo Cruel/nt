@@ -1327,6 +1327,16 @@ void ui::rmlui::RuntimeUiFacadeAccess::set_context_render_observer(
         runtime_ui.m_state->host->set_context_render_observer(std::move(observer));
 }
 
+bool RuntimeUI::prepare_fonts(const assets::FontAssetConfig& config)
+{
+    return m_state && m_state->host && m_state->host->prepare_fonts(config);
+}
+
+bool RuntimeUI::activate_font_fallbacks(const assets::FontAssetConfig& config)
+{
+    return m_state && m_state->host && m_state->host->activate_font_fallbacks(config);
+}
+
 bool RuntimeUI::configure_fonts(const assets::FontAssetConfig& config)
 {
     return m_state && m_state->host && m_state->host->configure_fonts(config);
