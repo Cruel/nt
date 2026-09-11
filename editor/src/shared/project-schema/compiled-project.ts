@@ -2283,8 +2283,29 @@ const scriptResourceSchema = strict({
   ]),
 });
 
+const compiledMessageArgumentTypeSchema = z.enum([
+  'printable',
+  'string',
+  'number',
+  'integer',
+  'plural-number',
+]);
 const localizationCatalogSchema = strict({
-  entries: z.array(strict({ messageId: z.number().int().nonnegative(), value: z.string() })),
+  entries: z.array(
+    strict({
+      messageId: z.number().int().nonnegative(),
+      value: z.string(),
+      arguments: z
+        .array(
+          strict({
+            name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u),
+            type: compiledMessageArgumentTypeSchema,
+          }),
+        )
+        .min(1)
+        .optional(),
+    }),
+  ),
   locale: z.string().check(z.trim(), z.minLength(1)),
 });
 const compiledLocaleSchema = strict({

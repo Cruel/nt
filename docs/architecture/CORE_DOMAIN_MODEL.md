@@ -76,11 +76,15 @@ are `InteractableState`.
 Assets and aliases, layouts, shaders/materials, script modules, and compiled Message localization are
 runtime resources, not gameplay entities. They need no common entity interface. Project authoring owns
 opaque stable Message identities, while the Compiled Project remaps them deterministically to dense
-package-local `MessageId` values. `MessageRealizer` owns locale realization over the compiled locale
-inventory and sparse Message catalogs: it follows the requested locale's explicit parent chain and
-falls back to the Source locale. `MessageResolver` remains only the transitional #176 adapter onto
-that realization module. Runtime text evaluation delegates to the same realization path and adds
-execution diagnostics only when realization fails. Script modules never autorun because they are
+package-local `MessageId` values. Compiled Messages may also carry a stable named-argument contract;
+the initial value types are printable, string, number, integer, and plural-number. `MessageRealizer`
+owns locale realization over the compiled locale inventory and sparse Message catalogs: it follows the
+requested locale's explicit parent chain, falls back to the Source locale, validates supplied argument
+values, performs locale-aware value formatting, and substitutes required placeholders. Translators may
+reorder placeholders but compiled target catalogs must preserve the source Message's structural
+argument contract. `MessageResolver` remains only the transitional #176 adapter onto that realization
+module. Runtime text evaluation, Lua, and live RmlUi localization delegate to the same realization path
+instead of implementing formatting policy independently. Script modules never autorun because they are
 present in a collection or package.
 
 The compiled project root owns project identity, runtime settings, feature flags, Bootstrap Module reference,

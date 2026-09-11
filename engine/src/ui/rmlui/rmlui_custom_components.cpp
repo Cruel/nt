@@ -272,7 +272,44 @@ bool NtTrElement::realize(const core::MessageRealizer& realizer, std::string_vie
     if (encoded.empty() || parsed.ec != std::errc{} ||
         parsed.ptr != encoded.data() + encoded.size())
         return false;
-    const auto realized = realizer.realize({message_id, locale});
+
+    std::vector<core::MessageArgument> arguments;
+    const auto* definitions = realizer.argument_definitions(message_id);
+    if (!definitions)
+        return false;
+    arguments.reserve(definitions->size());
+    for (const auto& definition : *definitions) {
+        const auto attribute_name = "arg-" + definition.name;
+        const auto* attribute = GetAttribute(attribute_name);
+        if (!attribute)
+            return false;
+        const auto value = attribute->Get<Rml::String>();
+        switch (definition.type) {
+        case core::compiled::MessageArgumentType::Printable:
+        case core::compiled::MessageArgumentType::String:
+            arguments.push_back({definition.name, std::string{value}});
+            break;
+        case core::compiled::MessageArgumentType::Integer: {
+            std::int64_t integer = 0;
+            const auto converted =
+                std::from_chars(value.data(), value.data() + value.size(), integer);
+            if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size())
+                return false;
+            arguments.push_back({definition.name, integer});
+            break;
+        }
+        case core::compiled::MessageArgumentType::Number:
+        case core::compiled::MessageArgumentType::PluralNumber: {
+            const auto number = parse_number(value);
+            if (!number)
+                return false;
+            arguments.push_back({definition.name, *number});
+            break;
+        }
+        }
+    }
+
+    const auto realized = realizer.realize({message_id, locale, std::move(arguments)});
     if (!realized)
         return false;
     SetInnerRML(Rml::String(realized->text));

@@ -110,6 +110,7 @@ describe('authoring verbs', () => {
         kind: 'named',
         key: 'verb.target.label',
         source: 'Target {missing}',
+        arguments: { missing: 'printable' },
       },
       '018f4f8c-9b5d-7ae2-9b36-4c8af613f032': {
         kind: 'named',
@@ -120,6 +121,7 @@ describe('authoring verbs', () => {
         kind: 'named',
         key: 'verb.use.command',
         source: 'Use {missing}',
+        arguments: { missing: 'printable' },
       },
     };
 

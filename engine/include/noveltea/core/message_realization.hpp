@@ -2,18 +2,37 @@
 
 #include "noveltea/core/compiled_project.hpp"
 
+#include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
 
 namespace noveltea::core {
 
+using MessageArgumentValue = std::variant<std::string, double, std::int64_t, bool>;
+
+struct MessageArgument {
+    std::string name;
+    MessageArgumentValue value;
+};
+
 struct MessageRealizationRequest {
+    MessageRealizationRequest(MessageId message_id, std::string_view locale,
+                              std::vector<MessageArgument> arguments = {})
+        : message_id(message_id), locale(locale), arguments(std::move(arguments))
+    {
+    }
+
     MessageId message_id = 0;
     std::string_view locale;
+    std::vector<MessageArgument> arguments;
 };
 
 struct RealizedMessage {
-    std::string_view text;
+    std::string text;
     std::string_view locale;
 };
 
@@ -24,8 +43,11 @@ public:
     {
     }
 
+    [[nodiscard]] const std::vector<compiled::MessageArgumentDefinition>*
+    argument_definitions(MessageId message_id) const noexcept;
+
     [[nodiscard]] std::optional<RealizedMessage>
-    realize(const MessageRealizationRequest& request) const noexcept;
+    realize(const MessageRealizationRequest& request) const;
 
 private:
     const compiled::Localization& m_localization;

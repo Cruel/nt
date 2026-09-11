@@ -151,6 +151,7 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/localization\/messages\/\*\/(?:key|kind|source)$/,
     valueDependent('localization-catalog-entry'),
   ],
+  [/^\/localization\/messages\/\*\/arguments\/\*$/, valueDependent('localization-catalog-entry')],
   [/^\/localization\/messages\/\*\/(?:context|translatorNote)$/, NONE],
   [/^\/localization\/structuredMessageIds\/\*$/, valueDependent('localization-catalog-entry')],
   [
@@ -977,7 +978,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: 'bc7360df',
+    localization: '34ead015',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

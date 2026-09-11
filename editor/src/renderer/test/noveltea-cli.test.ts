@@ -273,6 +273,7 @@ describe('NovelTea headless CLI', () => {
       kind: 'named',
       key: 'verb.use.command',
       source: 'Use {target}',
+      arguments: { target: 'printable' },
     };
     const verb = defaultVerbData('Use');
     verb.slots = [

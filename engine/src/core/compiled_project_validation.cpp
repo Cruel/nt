@@ -10,6 +10,38 @@
 namespace noveltea::core::compiled::detail {
 namespace {
 
+bool valid_message_argument_name(std::string_view value) noexcept
+{
+    if (value.empty() || !((value.front() >= 'A' && value.front() <= 'Z') ||
+                           (value.front() >= 'a' && value.front() <= 'z') || value.front() == '_'))
+        return false;
+    return std::all_of(value.begin() + 1, value.end(), [](char ch) {
+        return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ||
+               ch == '_' || ch == '-';
+    });
+}
+
+std::unordered_set<std::string> message_placeholders(std::string_view value)
+{
+    std::unordered_set<std::string> result;
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        if (value[index] != '{')
+            continue;
+        if (index + 1 < value.size() && value[index + 1] == '{') {
+            ++index;
+            continue;
+        }
+        const auto close = value.find('}', index + 1);
+        if (close == std::string_view::npos)
+            continue;
+        const auto name = value.substr(index + 1, close - index - 1);
+        if (valid_message_argument_name(name))
+            result.emplace(name);
+        index = close;
+    }
+    return result;
+}
+
 class Validator {
 public:
     explicit Validator(const CompiledProjectInput& input) : m_input(input)
@@ -1517,9 +1549,34 @@ private:
         if (!source_catalog)
             error("compiled_project.unresolved_localization",
                   "Source locale has no Message catalog.", "/localization/sourceLocale");
-        else
-            for (const auto& entry : source_catalog->entries)
+        else {
+            for (std::size_t entry_index = 0; entry_index < source_catalog->entries.size();
+                 ++entry_index) {
+                const auto& entry = source_catalog->entries[entry_index];
                 m_message_ids.insert(entry.message_id);
+                std::unordered_set<std::string> argument_names;
+                for (std::size_t argument_index = 0; argument_index < entry.arguments.size();
+                     ++argument_index) {
+                    const auto& argument = entry.arguments[argument_index];
+                    const auto argument_path = "/localization/catalogs/source/entries/" +
+                                               std::to_string(entry_index) + "/arguments/" +
+                                               std::to_string(argument_index) + "/name";
+                    if (!valid_message_argument_name(argument.name))
+                        error("compiled_project.invalid_message_argument",
+                              "Message argument name is invalid.", argument_path);
+                    else if (!argument_names.insert(argument.name).second)
+                        error("compiled_project.invalid_message_argument",
+                              "Message argument names must be unique.", argument_path);
+                }
+                const auto placeholders = message_placeholders(entry.value);
+                for (const auto& placeholder : placeholders)
+                    if (!argument_names.contains(placeholder))
+                        error("compiled_project.invalid_message_argument",
+                              "Message placeholder requires a declared argument.",
+                              "/localization/catalogs/source/entries/" +
+                                  std::to_string(entry_index) + "/value");
+            }
+        }
 
         for (std::size_t index = 0; index < m_input.localization.locales.size(); ++index) {
             const auto& locale = m_input.localization.locales[index];
@@ -1560,11 +1617,32 @@ private:
                     continue;
                 for (std::size_t entry_index = 0; entry_index < catalog.entries.size();
                      ++entry_index) {
-                    if (!m_message_ids.contains(catalog.entries[entry_index].message_id))
+                    const auto& entry = catalog.entries[entry_index];
+                    const auto entry_path = "/localization/catalogs/" +
+                                            std::to_string(catalog_index) + "/entries/" +
+                                            std::to_string(entry_index);
+                    if (!m_message_ids.contains(entry.message_id)) {
                         error("compiled_project.unresolved_message",
                               "Localized catalog entry references an unknown source Message ID.",
-                              "/localization/catalogs/" + std::to_string(catalog_index) +
-                                  "/entries/" + std::to_string(entry_index) + "/messageId");
+                              entry_path + "/messageId");
+                        continue;
+                    }
+                    const auto source_entry =
+                        std::find_if(source_catalog->entries.begin(), source_catalog->entries.end(),
+                                     [&](const LocalizationEntry& candidate) {
+                                         return candidate.message_id == entry.message_id;
+                                     });
+                    if (source_entry == source_catalog->entries.end())
+                        continue;
+                    if (entry.arguments != source_entry->arguments)
+                        error("compiled_project.invalid_message_argument",
+                              "Localized Message argument contract must match the source Message.",
+                              entry_path + "/arguments");
+                    if (message_placeholders(entry.value) !=
+                        message_placeholders(source_entry->value))
+                        error("compiled_project.invalid_message_argument",
+                              "Localized Message must preserve the source placeholder contract.",
+                              entry_path + "/value");
                 }
             }
         }

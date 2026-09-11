@@ -16,9 +16,39 @@ const localeDefinitionSchema = z
   })
   .strict();
 
+export const messageArgumentTypeSchema = z.enum([
+  'printable',
+  'string',
+  'number',
+  'integer',
+  'plural-number',
+]);
+export const messageArgumentsSchema = z.record(
+  z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u, 'Message argument name is invalid.'),
+  messageArgumentTypeSchema,
+);
+
+export function messagePlaceholderNames(source: string): readonly string[] {
+  const names = new Set<string>();
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] !== '{') continue;
+    if (source[index + 1] === '{') {
+      index += 1;
+      continue;
+    }
+    const close = source.indexOf('}', index + 1);
+    if (close < 0) continue;
+    const name = source.slice(index + 1, close);
+    if (/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(name)) names.add(name);
+    index = close;
+  }
+  return Object.freeze([...names].sort());
+}
+
 const messageGuidanceFields = {
   context: z.string().optional(),
   translatorNote: z.string().optional(),
+  arguments: messageArgumentsSchema.optional(),
 };
 
 const localMessageSchema = z
@@ -164,6 +194,14 @@ export const authoringLocalizationSchema = z
 
     const namedKeys = new Map<string, string>();
     for (const [messageId, message] of Object.entries(localization.messages)) {
+      const argumentNames = new Set(Object.keys(message.arguments ?? {}));
+      for (const placeholder of messagePlaceholderNames(message.source))
+        if (!argumentNames.has(placeholder))
+          context.addIssue({
+            code: 'custom',
+            path: ['messages', messageId, 'source'],
+            message: `Message placeholder '{${placeholder}}' requires a declared argument.`,
+          });
       if (message.kind !== 'named') continue;
       const previous = namedKeys.get(message.key);
       if (previous) {

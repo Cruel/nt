@@ -1,5 +1,6 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
 import { collectAuthoringLuaSources } from '../authoring-source-analysis';
+import { localizationMessageWorkflowViews } from '../authoring-localization-workflow';
 import { structuredMessages } from '../authoring-structured-messages';
 import { analyzeHookRegistry } from '../hook-registry-analysis';
 import {
@@ -31,6 +32,7 @@ import {
   validateInteractionResolverProject,
 } from './authoring-interactions';
 import { validateLayoutData, validateSystemLayoutSettings } from './authoring-layouts';
+import { messagePlaceholderNames } from './authoring-localization';
 import { validateMaterialData } from './authoring-materials';
 import { validateMapData } from './authoring-maps';
 import {
@@ -207,18 +209,50 @@ function validateLocalizationReferences(
       ),
     );
   }
+  const sourceMessages = new Map(
+    localizationMessageWorkflowViews(project).map((message) => [message.id, message] as const),
+  );
   for (const [locale, translations] of Object.entries(project.localization.translations)) {
-    for (const messageId of Object.keys(translations)) {
-      if (knownMessageIds.has(messageId)) continue;
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `/localization/translations/${escapePathSegment(locale)}/${escapePathSegment(messageId)}`,
-          `Translation references unknown Message '${messageId}'.`,
-          'Localization',
-          'localization.translation.message-missing',
-        ),
-      );
+    for (const [messageId, translation] of Object.entries(translations)) {
+      const translationPath = `/localization/translations/${escapePathSegment(locale)}/${escapePathSegment(messageId)}`;
+      if (!knownMessageIds.has(messageId)) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            translationPath,
+            `Translation references unknown Message '${messageId}'.`,
+            'Localization',
+            'localization.translation.message-missing',
+          ),
+        );
+        continue;
+      }
+      const message = sourceMessages.get(messageId);
+      if (!message) continue;
+      const sourcePlaceholders = new Set(messagePlaceholderNames(message.source));
+      const targetPlaceholders = new Set(messagePlaceholderNames(translation.text));
+      for (const placeholder of sourcePlaceholders)
+        if (!targetPlaceholders.has(placeholder))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${translationPath}/text`,
+              `Translation must preserve required placeholder '{${placeholder}}'.`,
+              'Localization',
+              'localization.translation.placeholder-missing',
+            ),
+          );
+      for (const placeholder of targetPlaceholders)
+        if (!sourcePlaceholders.has(placeholder))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${translationPath}/text`,
+              `Translation introduces undeclared placeholder '{${placeholder}}'.`,
+              'Localization',
+              'localization.translation.placeholder-undeclared',
+            ),
+          );
     }
   }
 }
