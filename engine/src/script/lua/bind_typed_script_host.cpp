@@ -60,12 +60,16 @@ core::Result<core::RuntimeValue, core::Diagnostics> runtime_value(const sol::obj
         break;
     case sol::type::string:
         return Result::success(object.as<std::string>());
+    case sol::type::userdata:
+        if (object.is<RuntimeMessageReference>())
+            return Result::success(object.as<RuntimeMessageReference>().value);
+        break;
     default:
         break;
     }
     return Result::failure(core::Diagnostics{core::Diagnostic{
         .code = "script_host.invalid_runtime_value",
-        .message = "Host values must be nil, boolean, finite number, integer, or string",
+        .message = "Host values must be nil, boolean, finite number, integer, string, or an admitted Message reference",
     }});
 }
 
@@ -76,6 +80,8 @@ sol::object lua_value(sol::state_view lua, const core::RuntimeValue& value)
             using T = std::decay_t<decltype(item)>;
             if constexpr (std::is_same_v<T, std::monostate>)
                 return nil(lua);
+            else if constexpr (std::is_same_v<T, core::MessageRef>)
+                return sol::make_object(lua, RuntimeMessageReference{item});
             else
                 return sol::make_object(lua, item);
         },
@@ -480,6 +486,9 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
         clear_typed_script_host(state);
         return;
     }
+
+    lua.new_usertype<RuntimeMessageReference>("__noveltea_message_reference", sol::no_constructor);
+    lua["__noveltea_message_reference"] = sol::lua_nil;
 
     lua.new_usertype<GameplayIdentityReference>(
         "__noveltea_gameplay_identity", sol::no_constructor, "kind",

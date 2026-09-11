@@ -8,6 +8,8 @@ nlohmann::json encode_value(const RuntimeValue& value)
             using T = std::decay_t<decltype(item)>;
             if constexpr (std::is_same_v<T, std::monostate>)
                 return nullptr;
+            else if constexpr (std::is_same_v<T, MessageRef>)
+                return nlohmann::json{{"kind", "message"}, {"id", item.id}};
             else
                 return item;
         },
@@ -36,7 +38,24 @@ std::optional<RuntimeValue> decode_value(Decoder& d, const nlohmann::json& value
     }
     if (const auto result = json_access::get<std::string>(value))
         return RuntimeValue{*result};
-    d.error(k_type, "Expected a scalar runtime value.", std::string(pointer));
+    if (value.is_object()) {
+        if (!d.object(value, pointer, {"kind", "id"}))
+            return std::nullopt;
+        const auto* kind_value = d.member(value, "kind", pointer);
+        const auto* id_value = d.member(value, "id", pointer);
+        const auto kind_path = std::string(pointer) + "/kind";
+        const auto id_path = std::string(pointer) + "/id";
+        auto kind = kind_value ? d.string(*kind_value, kind_path) : std::nullopt;
+        auto message_id = id_value ? d.integer<MessageId>(*id_value, id_path) : std::nullopt;
+        if (!kind || !message_id)
+            return std::nullopt;
+        if (*kind != "message") {
+            d.error(k_value, "Unknown runtime reference kind '" + *kind + "'.", kind_path);
+            return std::nullopt;
+        }
+        return RuntimeValue{MessageRef{*message_id}};
+    }
+    d.error(k_type, "Expected a scalar or typed Message runtime value.", std::string(pointer));
     return std::nullopt;
 }
 

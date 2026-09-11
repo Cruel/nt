@@ -66,7 +66,7 @@ TEST_CASE("shared execution concepts are closed variants")
     STATIC_REQUIRE(std::variant_size_v<ActiveWait> == 6);
     STATIC_REQUIRE(std::variant_size_v<PropertyOwnerRef> == 5);
     STATIC_REQUIRE(std::variant_size_v<PropertyTargetRef> == 6);
-    STATIC_REQUIRE(std::variant_size_v<PropertyValueType> == 5);
+    STATIC_REQUIRE(std::variant_size_v<PropertyValueType> == 6);
     STATIC_REQUIRE(std::variant_size_v<NestedOwnerPath> == 8);
 }
 
@@ -134,6 +134,20 @@ TEST_CASE("property factories enforce owner scalar type nullability and finitene
 
     const auto nullable = number_property(true);
     CHECK(make_property_assignment(PropertyOwnerKind::Room, nullable, RuntimeValue{}));
+}
+
+TEST_CASE("message properties accept only typed Message references")
+{
+    auto definition = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("prompt"),
+        .value_type = MessagePropertyType{},
+        .nullable = false,
+        .default_value = RuntimeValue{MessageRef{7}},
+        .scope = PropertyScope::Global,
+    });
+    REQUIRE(definition);
+    CHECK(property_value_matches(*definition.value_if(), RuntimeValue{MessageRef{9}}));
+    CHECK_FALSE(property_value_matches(*definition.value_if(), RuntimeValue{std::string{"ui.prompt"}}));
 }
 
 TEST_CASE("enum properties constrain and canonicalize string values")

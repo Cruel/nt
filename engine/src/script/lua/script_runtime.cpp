@@ -552,6 +552,9 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     lua_pushlightuserdata(state, this);
     lua_pushcclosure(state, &ScriptRuntime::managed_message_callback, 1);
     lua_setfield(state, -2, "__message");
+    lua_pushlightuserdata(state, this);
+    lua_pushcclosure(state, &ScriptRuntime::message_ref_callback, 1);
+    lua_setfield(state, -2, "msg_ref");
     lua_setglobal(state, "Text");
     m_impl->runtime_api = std::make_unique<RuntimeScriptApi>();
     bind_typed_script_host(m_impl->lua.lua_state(), m_impl->runtime_api.get());
@@ -727,6 +730,25 @@ int ScriptRuntime::managed_message_callback(lua_State* state)
         {static_cast<core::MessageId>(raw_id), runtime->m_impl->localization->default_locale});
     if (!realized)
         return luaL_error(state, "Managed Message could not be realized");
+    lua_pushlstring(state, realized->text.data(), realized->text.size());
+    return 1;
+}
+
+int ScriptRuntime::message_ref_callback(lua_State* state)
+{
+    auto* runtime = static_cast<ScriptRuntime*>(lua_touserdata(state, lua_upvalueindex(1)));
+    if (runtime == nullptr || runtime->m_impl == nullptr || !runtime->m_impl->localization)
+        return luaL_error(state, "Message localization is unavailable");
+    auto reference = sol::stack::check_get<RuntimeMessageReference>(state, 1);
+    if (!reference)
+        return luaL_error(state, "Text.msg_ref requires a typed Message reference");
+    if (!lua_isnoneornil(state, 2) && !lua_istable(state, 2))
+        return luaL_error(state, "Text.msg_ref arguments must be a table when provided");
+    const core::MessageRealizer realizer(*runtime->m_impl->localization);
+    const auto realized = realizer.realize(
+        {reference->value.id, runtime->m_impl->localization->default_locale});
+    if (!realized)
+        return luaL_error(state, "Message reference could not be realized");
     lua_pushlstring(state, realized->text.data(), realized->text.size());
     return 1;
 }

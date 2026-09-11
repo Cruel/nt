@@ -31,7 +31,27 @@ std::optional<RuntimeValue> decode_runtime_value(Decoder& decoder, const nlohman
     }
     if (const auto decoded = json_access::get<std::string>(value))
         return RuntimeValue{*decoded};
-    decoder.error(k_code_type, "Expected a scalar runtime value.", std::string(pointer));
+    if (value.is_object()) {
+        if (!decoder.object(value, pointer, {"kind", "id"}))
+            return std::nullopt;
+        const auto* kind_value = decoder.member(value, "kind", pointer);
+        const auto* id_value = decoder.member(value, "id", pointer);
+        auto kind = kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind"))
+                               : std::nullopt;
+        auto message_id = id_value
+                              ? decoder.integer<MessageId>(*id_value, pointer_child(pointer, "id"))
+                              : std::nullopt;
+        if (!kind || !message_id)
+            return std::nullopt;
+        if (*kind != "message") {
+            decoder.error(k_code_enum, "Unknown runtime reference kind '" + *kind + "'.",
+                          pointer_child(pointer, "kind"));
+            return std::nullopt;
+        }
+        return RuntimeValue{MessageRef{*message_id}};
+    }
+    decoder.error(k_code_type, "Expected a scalar or typed Message runtime value.",
+                  std::string(pointer));
     return std::nullopt;
 }
 

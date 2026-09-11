@@ -2,12 +2,18 @@
 
 #include <cstddef>
 
+#include "noveltea/core/text_content.hpp"
+
 struct lua_State;
 
 namespace noveltea::script {
 
 class ScriptRuntime;
 class RuntimeScriptApi;
+
+struct RuntimeMessageReference {
+    core::MessageRef value;
+};
 
 namespace detail {
 struct ScriptRuntimeAccess {

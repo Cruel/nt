@@ -138,6 +138,8 @@ public:
     {
         if (id.text() == "count")
             return core::Result<core::RuntimeValue, core::Diagnostics>::success(std::int64_t{2});
+        if (id.text() == "message")
+            return core::Result<core::RuntimeValue, core::Diagnostics>::success(core::MessageRef{0});
         return core::Result<core::RuntimeValue, core::Diagnostics>::failure(
             {{.code = "test.unadmitted", .message = "Global Property is not admitted"}});
     }
@@ -553,6 +555,42 @@ TEST_CASE("ScriptRuntime realizes compiler-lowered managed Message references")
                                                        "managed-message-public-shape");
     REQUIRE(public_helper);
     CHECK(public_helper.value());
+
+    auto arbitrary_key = fixture.runtime.evaluate_string("Text.msg_ref('ui.coin')", "message-ref-string");
+    REQUIRE_FALSE(arbitrary_key);
+}
+
+TEST_CASE("Text.msg_ref realizes only typed Message references returned by admitted runtime APIs")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto project = load_script_project();
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+
+    const auto generation = *runtime::CapabilityGeneration::from_number(3);
+    FocusedCountQueryProvider provider(generation);
+    runtime::RuntimeCapabilityIssuer issuer(provider, generation);
+    auto capabilities = issuer.issue(runtime::RuntimeCapabilityProfile::SynchronousExpression);
+    REQUIRE(capabilities);
+    auto environment = fixture.runtime.create_environment();
+    REQUIRE(environment);
+
+    auto result = fixture.runtime.invoke_in_environment(
+        environment.value(),
+        {.source = "local ref, present, err = Game.prop('message'); "
+                   "assert(err == nil and present); return Text.msg_ref(ref)",
+         .chunk_name = "typed-message-ref",
+         .owner = std::nullopt,
+         .invocation = std::nullopt,
+         .source_context = {},
+         .result_kind = runtime::ScriptInvocationResultKind::String,
+         .asset_path = std::nullopt},
+        *capabilities);
+    REQUIRE(result);
+    const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(result.value_if());
+    REQUIRE(completed != nullptr);
+    CHECK(std::get<std::string>(completed->value) == "Coin");
+    fixture.runtime.destroy_environment(environment.value());
 }
 
 TEST_CASE("ScriptRuntime evaluates typed basic values")

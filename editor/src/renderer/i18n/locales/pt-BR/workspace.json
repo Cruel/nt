@@ -829,14 +829,18 @@
       "integer": "Inteiro",
       "number": "Número",
       "string": "Texto",
-      "enum": "Enum"
+      "enum": "Enum",
+      "message": "Mensagem"
     },
     "values": {
       "conflictingDefaults": "Defaults conflitantes",
       "missing": "Valor obrigatório ausente",
       "null": "null",
       "nullLabel": "Nulo",
-      "emptyString": "Texto vazio"
+      "emptyString": "Texto vazio",
+      "selectMessage": "Selecione uma Mensagem nomeada",
+      "noNamedMessages": "Crie primeiro uma Mensagem nomeada em Localização.",
+      "missingMessage": "Mensagem nomeada ausente: {{key}}"
     }
   },
   "features": {

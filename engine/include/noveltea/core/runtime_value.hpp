@@ -5,9 +5,12 @@
 #include <string_view>
 #include <variant>
 
+#include "noveltea/core/text_content.hpp"
+
 namespace noveltea::core {
 
-using RuntimeValue = std::variant<std::monostate, bool, std::int64_t, double, std::string>;
+using RuntimeValue =
+    std::variant<std::monostate, bool, std::int64_t, double, std::string, MessageRef>;
 
 enum class RuntimeValueType {
     Null,
@@ -15,6 +18,7 @@ enum class RuntimeValueType {
     Integer,
     Number,
     String,
+    Message,
 };
 
 [[nodiscard]] constexpr RuntimeValueType runtime_value_type(const RuntimeValue& value) noexcept
@@ -30,6 +34,8 @@ enum class RuntimeValueType {
         return RuntimeValueType::Number;
     case 4:
         return RuntimeValueType::String;
+    case 5:
+        return RuntimeValueType::Message;
     default:
         return RuntimeValueType::Null;
     }
@@ -48,6 +54,8 @@ enum class RuntimeValueType {
         return "number";
     case RuntimeValueType::String:
         return "string";
+    case RuntimeValueType::Message:
+        return "message";
     }
     return "null";
 }

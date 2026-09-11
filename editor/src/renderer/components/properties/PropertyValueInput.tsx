@@ -1,4 +1,5 @@
 import { Input } from '@/components/ui/input';
+import { useProjectStore } from '@/project/project-store';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -14,6 +15,7 @@ import {
   variableValueToText,
 } from '../../../shared/project-schema/authoring-variables';
 import type { VariableType } from '../../../shared/project-schema/authoring-variables';
+import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 
 export interface PropertyValueSchema {
   type: VariableType;
@@ -41,10 +43,26 @@ export function PropertyValueInput({
   disabled?: boolean;
 }) {
   const { t } = useTranslation('workspace');
+  const document = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(document) ? document : null;
   const resolvedLabel = label ?? t('propertyManager.fields.value');
   const enumValues = [...(schema.enumValues ?? [])];
+  const namedMessages = project
+    ? Object.values(project.localization.messages)
+        .filter(
+          (message): message is Extract<typeof message, { kind: 'named' }> =>
+            message.kind === 'named',
+        )
+        .map((message) => message.key)
+        .sort((left, right) => left.localeCompare(right))
+    : [];
   const nullSelected = schema.nullable && valueText === 'null';
-  const fallback = () => variableValueToText(defaultValueForVariableType(schema.type, enumValues));
+  const messageReferenceBroken =
+    schema.type === 'message' && !!valueText && !namedMessages.includes(valueText);
+  const fallback = () =>
+    schema.type === 'message'
+      ? (namedMessages[0] ?? '')
+      : variableValueToText(defaultValueForVariableType(schema.type, enumValues));
 
   return (
     <div className="space-y-1.5">
@@ -99,6 +117,40 @@ export function PropertyValueInput({
               ))}
             </SelectContent>
           </Select>
+        ) : schema.type === 'message' ? (
+          <div className="space-y-1">
+            <Select
+              value={messageReferenceBroken ? undefined : valueText}
+              onValueChange={(value) => value && onValueTextChange(value)}
+              disabled={disabled || namedMessages.length === 0}
+            >
+              <SelectTrigger className="!h-8 w-full" aria-label={resolvedLabel}>
+                <SelectValue
+                  placeholder={
+                    messageReferenceBroken
+                      ? t('propertyManager.values.missingMessage', { key: valueText })
+                      : t('propertyManager.values.selectMessage')
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {namedMessages.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {key}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {messageReferenceBroken ? (
+              <p className="text-xs text-destructive">
+                {t('propertyManager.values.missingMessage', { key: valueText })}
+              </p>
+            ) : namedMessages.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {t('propertyManager.values.noNamedMessages')}
+              </p>
+            ) : null}
+          </div>
         ) : (
           <Input
             className="h-8"

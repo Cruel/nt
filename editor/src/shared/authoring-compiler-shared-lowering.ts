@@ -14,6 +14,7 @@ import type { TextContent } from './project-schema/authoring-flow';
 import {
   compileLocalization,
   compileMessageText,
+  packageMessageIdForNamedKey,
   packageMessageIds,
 } from './authoring-message-lowering';
 import { lowerRmlLocalization } from './authoring-rml-localization-lowering';
@@ -44,6 +45,7 @@ import {
 import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import { PROJECT_INVENTORY_ID } from './project-schema/authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
+import type { AuthoredPropertyValue } from './project-schema/authoring-properties';
 import { compileRoomNavigationTransition, parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
@@ -252,20 +254,36 @@ function roomRef(id: string) {
   return { kind: 'room' as const, id };
 }
 
-function propertyAssignments(record: Partial<Pick<AuthoringRecordBase, 'localProperties'>>) {
+function compilePropertyValue(project: AuthoringProject, value: AuthoredPropertyValue) {
+  if (value && typeof value === 'object' && '$message' in value) {
+    const id = packageMessageIdForNamedKey(project, value.$message);
+    if (id === null)
+      throw new Error(
+        `Named Message '${value.$message}' could not be lowered as a Property value.`,
+      );
+    return { kind: 'message' as const, id };
+  }
+  return value;
+}
+
+function propertyAssignments(
+  project: AuthoringProject,
+  record: Partial<Pick<AuthoringRecordBase, 'localProperties'>>,
+) {
   return (record.localProperties ?? []).map((property) => ({
     propertyId: property.id,
-    value: property.value,
+    value: compilePropertyValue(project, property.value),
   }));
 }
 
 function defaultPropertyAssignments(
-  properties: readonly { id: string; defaultValue?: string | number | boolean | null }[],
+  project: AuthoringProject,
+  properties: readonly { id: string; defaultValue?: AuthoredPropertyValue }[],
 ) {
   return properties.flatMap((property) =>
     property.defaultValue === undefined
       ? []
-      : [{ propertyId: property.id, value: property.defaultValue }],
+      : [{ propertyId: property.id, value: compilePropertyValue(project, property.defaultValue) }],
   );
 }
 
@@ -274,6 +292,7 @@ function definitionBase(id: string) {
 }
 
 function propertyBase(
+  project: AuthoringProject,
   id: string,
   record: Pick<AuthoringRecordBase, 'traits'> &
     Partial<Pick<AuthoringRecordBase, 'localProperties'>>,
@@ -281,7 +300,7 @@ function propertyBase(
   return {
     id,
     traits: [...(record.traits ?? [])].sort(),
-    propertyAssignments: propertyAssignments(record),
+    propertyAssignments: propertyAssignments(project, record),
   };
 }
 
@@ -358,14 +377,15 @@ function compileInteractableLocation(location: InteractableInstanceData['locatio
 }
 
 function compileOwnerContract(
+  project: AuthoringProject,
   property: {
     id: string;
     label?: string;
     description?: string;
-    type: 'boolean' | 'integer' | 'number' | 'string' | 'enum';
+    type: 'boolean' | 'integer' | 'number' | 'string' | 'enum' | 'message';
     nullable: boolean;
     enumValues?: string[];
-    defaultValue?: import('./project-schema/authoring-properties').AuthoredRuntimeValue;
+    defaultValue?: AuthoredPropertyValue;
   },
   includeDefault: boolean,
 ) {
@@ -377,12 +397,13 @@ function compileOwnerContract(
     nullable: property.nullable,
     enumValues: [...(property.enumValues ?? [])],
     ...(includeDefault && property.defaultValue !== undefined
-      ? { defaultValue: property.defaultValue }
+      ? { defaultValue: compilePropertyValue(project, property.defaultValue) }
       : {}),
   };
 }
 
 function compileConcreteOwnerContracts(
+  project: AuthoringProject,
   inherited: readonly import('./project-schema/authoring-properties').OwnerDefaultProperty[],
   local: readonly import('./project-schema/authoring-properties').OwnerLocalProperty[],
 ) {
@@ -391,10 +412,11 @@ function compileConcreteOwnerContracts(
   return [
     ...inherited
       .filter((property) => !localIds.has(property.id))
-      .map((property) => compileOwnerContract(property, true)),
+      .map((property) => compileOwnerContract(project, property, true)),
     ...local.map((property) => {
       const inheritedProperty = inheritedById.get(property.id);
       return compileOwnerContract(
+        project,
         inheritedProperty ? { ...inheritedProperty, ...property } : property,
         inheritedProperty !== undefined,
       );
@@ -402,13 +424,19 @@ function compileConcreteOwnerContracts(
   ];
 }
 
-function compileFeature(feature: FeatureData, mode: 'value' | 'default') {
+function compileFeature(
+  project: AuthoringProject,
+  feature: FeatureData,
+  mode: 'value' | 'default',
+) {
   return {
-    ...propertyBase(feature.id, feature),
+    ...propertyBase(project, feature.id, feature),
     properties:
       mode === 'value'
-        ? feature.localProperties.map((property) => compileOwnerContract(property, false))
-        : feature.defaultProperties.map((property) => compileOwnerContract(property, true)),
+        ? feature.localProperties.map((property) => compileOwnerContract(project, property, false))
+        : feature.defaultProperties.map((property) =>
+            compileOwnerContract(project, property, true),
+          ),
     label: feature.label,
     inventories: compileInventories(feature.inventories),
   };
@@ -559,13 +587,13 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     const data = requireData(parseCharacterData(effectiveRecord?.data), `/characters/${id}/data`);
     if (!data || !effectiveRecord) continue;
     characters.push({
-      ...propertyBase(id, effectiveRecord),
+      ...propertyBase(project, id, effectiveRecord),
       properties: (() => {
         const inherited = record.archetype
           ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ??
             [])
           : [];
-        return compileConcreteOwnerContracts(inherited, record.localProperties ?? []);
+        return compileConcreteOwnerContracts(project, inherited, record.localProperties ?? []);
       })(),
       displayName: compileStructuredString(data.displayName, `/characters/${id}/data/displayName`),
       dialogue: { ...data.dialogue },
@@ -707,13 +735,13 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     const data = requireData(parseRoomData(effectiveRecord?.data), `/rooms/${id}/data`);
     if (!data || !effectiveRecord) continue;
     rooms.push({
-      ...propertyBase(id, effectiveRecord),
+      ...propertyBase(project, id, effectiveRecord),
       properties: (() => {
         const inherited = record.archetype
           ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ??
             [])
           : [];
-        return compileConcreteOwnerContracts(inherited, record.localProperties ?? []);
+        return compileConcreteOwnerContracts(project, inherited, record.localProperties ?? []);
       })(),
       displayName: compileStructuredString(data.displayName, `/rooms/${id}/data/displayName`),
       background: {
@@ -763,7 +791,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           layout: layoutRef(placement.presentation.layout),
         },
       })),
-      features: data.features.map((feature) => compileFeature(feature, 'value')),
+      features: data.features.map((feature) => compileFeature(project, feature, 'value')),
       hotspots: data.hotspots.map((hotspot) => ({
         id: hotspot.id,
         label: hotspot.label,
@@ -881,9 +909,11 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           type: property.contract.type,
           nullable: property.contract.nullable,
           enumValues: [...(property.contract.enumValues ?? [])],
-          ...(property.defaultValue === undefined ? {} : { defaultValue: property.defaultValue }),
+          ...(property.defaultValue === undefined
+            ? {}
+            : { defaultValue: compilePropertyValue(project, property.defaultValue) }),
         })),
-      features: data.features.map((feature) => compileFeature(feature, 'default')),
+      features: data.features.map((feature) => compileFeature(project, feature, 'default')),
       inventories: compileInventories(data.inventories),
       presentation: {
         sprite: assetRef(data.presentation.sprite),
@@ -897,7 +927,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     project.interactableInstances,
   ).map(([id, instance]) => {
     const effectiveProperties = effectiveInteractableInstanceProperties(project, instance);
-    const overrides = new Map<string, string | number | boolean | null>();
+    const overrides = new Map<string, AuthoredPropertyValue>();
     for (const property of effectiveProperties) {
       if (!property.localOnly && property.localProperty)
         overrides.set(property.id, property.localProperty.value);
@@ -916,7 +946,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       traitRemoves: [...instance.traits.remove].sort(),
       propertyOverrides: [...overrides.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([propertyId, value]) => ({ propertyId, value })),
+        .map(([propertyId, value]) => ({
+          propertyId,
+          value: compilePropertyValue(project, value),
+        })),
       localProperties: instance.localProperties
         .filter((property) => localOnlyIds.has(property.id))
         .map((property) => ({
@@ -926,14 +959,17 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           type: property.type,
           nullable: property.nullable,
           enumValues: [...(property.enumValues ?? [])],
-          value: property.value,
+          value: compilePropertyValue(project, property.value),
         })),
       featureOverrides: instance.featureOverrides.map((override) => ({
         featureId: override.featureId,
         traitAdds: [...override.traits.add].sort(),
         traitRemoves: [...override.traits.remove].sort(),
         propertyOverrides: override.properties
-          .map((property) => ({ propertyId: property.propertyId, value: property.value }))
+          .map((property) => ({
+            propertyId: property.propertyId,
+            value: compilePropertyValue(project, property.value),
+          }))
           .sort((left, right) => left.propertyId.localeCompare(right.propertyId)),
       })),
     };
@@ -1104,9 +1140,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       if (!data) continue;
       const identity = {
         traits: [...configuration.traits].sort(),
-        propertyAssignments: defaultPropertyAssignments(configuration.defaultProperties),
+        propertyAssignments: defaultPropertyAssignments(project, configuration.defaultProperties),
         properties: configuration.defaultProperties.map((property) =>
-          compileOwnerContract(property, true),
+          compileOwnerContract(project, property, true),
         ),
       };
       const declared = {
@@ -1235,7 +1271,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
             layout: layoutRef(placement.presentation.layout),
           },
         })),
-        features: data.features.map((feature) => compileFeature(feature, 'value')),
+        features: data.features.map((feature) => compileFeature(project, feature, 'value')),
         hotspots: data.hotspots.map((hotspot) => ({
           id: hotspot.id,
           label: hotspot.label,
@@ -1259,9 +1295,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         instanceKind: 'character',
         configuration: {
           traits: [...configuration.traits].sort(),
-          propertyAssignments: defaultPropertyAssignments(configuration.defaultProperties),
+          propertyAssignments: defaultPropertyAssignments(project, configuration.defaultProperties),
           properties: configuration.defaultProperties.map((property) =>
-            compileOwnerContract(property, true),
+            compileOwnerContract(project, property, true),
           ),
           displayName: compileStructuredString(
             data.displayName,
@@ -1399,9 +1435,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         instanceKind: 'interactable',
         configuration: {
           traits: [...configuration.traits].sort(),
-          propertyAssignments: defaultPropertyAssignments(configuration.defaultProperties),
+          propertyAssignments: defaultPropertyAssignments(project, configuration.defaultProperties),
           properties: configuration.defaultProperties.map((property) =>
-            compileOwnerContract(property, true),
+            compileOwnerContract(project, property, true),
           ),
           displayName: compileStructuredString(
             data.displayName,
@@ -1409,7 +1445,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           ),
           stackable: data.stackable,
           stackLimit: data.stackLimit,
-          features: data.features.map((feature) => compileFeature(feature, 'default')),
+          features: data.features.map((feature) => compileFeature(project, feature, 'default')),
           inventories: compileInventories(data.inventories),
           presentation: {
             sprite: assetRef(data.presentation.sprite),
@@ -1560,7 +1596,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         type: property.type,
         nullable: property.nullable,
         enumValues: [...(property.enumValues ?? [])],
-        ...(property.defaultValue === undefined ? {} : { defaultValue: property.defaultValue }),
+        ...(property.defaultValue === undefined
+          ? {}
+          : { defaultValue: compilePropertyValue(project, property.defaultValue) }),
       })),
     }),
   );
@@ -1584,7 +1622,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       description: record.description ?? '',
       type: data.type,
       nullable: data.nullable,
-      defaultValue: data.value,
+      defaultValue: compilePropertyValue(project, data.value),
       enumValues: [...(data.enumValues ?? [])],
       scope: 'global',
     });

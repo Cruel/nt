@@ -539,12 +539,18 @@ function resolvedProperty(
 ): { kind: 'value'; value: null | boolean | number | string } | { kind: 'missing' } {
   const record = recordForOwner(project, kind, id);
   const local = record?.localProperties?.find((property) => property.id === propertyId);
-  if (local) return { kind: 'value', value: local.value };
+  if (local)
+    return typeof local.value === 'object'
+      ? { kind: 'missing' }
+      : { kind: 'value', value: local.value };
   for (const traitId of record?.traits ?? []) {
     const member = project.traits[traitId]?.properties.find(
       (property) => property.id === propertyId,
     );
-    if (member?.defaultValue !== undefined) return { kind: 'value', value: member.defaultValue };
+    if (member?.defaultValue !== undefined)
+      return typeof member.defaultValue === 'object'
+        ? { kind: 'missing' }
+        : { kind: 'value', value: member.defaultValue };
   }
   return { kind: 'missing' };
 }
@@ -627,7 +633,7 @@ function buildAdmissionAndState(
     state: {
       variables: sortedStateVariableIds.flatMap((id) => {
         const data = parseVariableData(project.variables[id]?.data);
-        return data ? [{ id, type: data.type, value: data.value }] : [];
+        return data && data.type !== 'message' ? [{ id, type: data.type, value: data.value }] : [];
       }),
       properties: sortedProperties.map((property) => ({
         ...property,

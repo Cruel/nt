@@ -15,6 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { useProjectStore } from '@/project/project-store';
+import { renameMessageValueReferencePatches } from '@/project/localization-message-operations';
 import { recordSaveUnitId, SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import type { SaveUnitId } from '@/project/save-unit-types';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -360,7 +361,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     }
     const patch = fieldPatch(message, field, trimmed);
     if (!patch) return;
+    const referencePatches =
+      field === 'key' && message.kind === 'named'
+        ? renameMessageValueReferencePatches(project!, message.key, trimmed)
+        : [];
     run(`Update Message ${messageLabel(message, messageId)}`, [
+      ...referencePatches,
       {
         ...patch,
         path: `/localization/messages/${escapeJsonPointerToken(messageId)}/${field}`,

@@ -29,6 +29,12 @@ sources, so authored `Text.tr`/`Text.msg` calls are not executed as a separate p
 arguments are retained by lowering but are not interpreted until the parameterized-Message contract
 is implemented; localization lowering is not a general Lua parser, formatter, optimizer, or minifier.
 
+Typed Message-valued Properties expose an opaque Message reference to Lua rather than the authored
+semantic key or a localized string. `Text.msg_ref(messageRef, args?)` accepts only that typed runtime
+reference and realizes it through the same canonical Message pipeline. Passing an arbitrary string,
+including a valid named Message key, is rejected; dynamic localization therefore requires an admitted
+Message-valued Property/API result instead of reintroducing string-as-key semantics.
+
 ## Gameplay Gateway
 
 `RuntimeScriptApi` is the sole public authored-script and Layout-event gameplay gateway. The active

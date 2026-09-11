@@ -63,6 +63,7 @@ Result<bool, Diagnostics> compare_values(const PropertyDefinition& declaration,
     if (std::holds_alternative<std::monostate>(current) ||
         std::holds_alternative<std::monostate>(expected) ||
         std::holds_alternative<BooleanPropertyType>(declaration.value_type()) ||
+        std::holds_alternative<MessagePropertyType>(declaration.value_type()) ||
         std::holds_alternative<EnumPropertyType>(declaration.value_type()))
         return Result<bool, Diagnostics>::failure(evaluation_error(
             "execution.invalid_comparison_operator",

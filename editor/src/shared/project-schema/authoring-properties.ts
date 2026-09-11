@@ -1,14 +1,28 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import { namedMessageKeySchema } from './authoring-localization';
 
 export const propertyOwnerKindValues = ['room', 'character', 'interactable', 'feature'] as const;
-export const propertyValueTypeValues = ['boolean', 'integer', 'number', 'string', 'enum'] as const;
+export const propertyValueTypeValues = [
+  'boolean',
+  'integer',
+  'number',
+  'string',
+  'enum',
+  'message',
+] as const;
+
+export const authoredMessageRefSchema = z.object({ $message: namedMessageKeySchema }).strict();
 
 export const authoredRuntimeValueSchema = z.union([
   z.null(),
   z.boolean(),
   z.number().finite(),
   z.string(),
+]);
+export const authoredPropertyValueSchema = z.union([
+  authoredRuntimeValueSchema,
+  authoredMessageRefSchema,
 ]);
 
 export const ownerLocalPropertySchema = z
@@ -18,7 +32,7 @@ export const ownerLocalPropertySchema = z
     description: z.string().optional(),
     type: z.enum(propertyValueTypeValues),
     nullable: z.boolean(),
-    value: authoredRuntimeValueSchema,
+    value: authoredPropertyValueSchema,
     enumValues: z.array(z.string().min(1)).optional(),
   })
   .strict()
@@ -77,7 +91,7 @@ export const ownerDefaultPropertySchema = z
     description: z.string().optional(),
     type: z.enum(propertyValueTypeValues),
     nullable: z.boolean(),
-    defaultValue: authoredRuntimeValueSchema.optional(),
+    defaultValue: authoredPropertyValueSchema.optional(),
     enumValues: z.array(z.string().min(1)).optional(),
   })
   .strict()
@@ -129,7 +143,7 @@ export const ownerDefaultPropertiesSchema = z
     });
   });
 
-export const propertyAssignmentsSchema = z.record(entityIdSchema, authoredRuntimeValueSchema);
+export const propertyAssignmentsSchema = z.record(entityIdSchema, authoredPropertyValueSchema);
 
 export const traitPropertySchema = z
   .object({
@@ -138,7 +152,7 @@ export const traitPropertySchema = z
     description: z.string().optional(),
     type: z.enum(propertyValueTypeValues),
     nullable: z.boolean(),
-    defaultValue: authoredRuntimeValueSchema.optional(),
+    defaultValue: authoredPropertyValueSchema.optional(),
     enumValues: z.array(z.string().min(1)).optional(),
   })
   .strict()
@@ -206,7 +220,9 @@ export const traitDefinitionSchema = z
   });
 
 export type PropertyOwnerKind = (typeof propertyOwnerKindValues)[number];
+export type AuthoredMessageRef = z.infer<typeof authoredMessageRefSchema>;
 export type AuthoredRuntimeValue = z.infer<typeof authoredRuntimeValueSchema>;
+export type AuthoredPropertyValue = z.infer<typeof authoredPropertyValueSchema>;
 export type OwnerLocalProperty = z.infer<typeof ownerLocalPropertySchema>;
 export type OwnerDefaultProperty = z.infer<typeof ownerDefaultPropertySchema>;
 export type PropertyAssignments = z.infer<typeof propertyAssignmentsSchema>;
@@ -219,13 +235,14 @@ export function isPropertyValueCompatible(
     nullable: boolean;
     enumValues?: string[];
   },
-  value: AuthoredRuntimeValue,
+  value: AuthoredPropertyValue,
 ): boolean {
   if (value === null) return definition.nullable;
   if (definition.type === 'boolean') return typeof value === 'boolean';
   if (definition.type === 'integer') return typeof value === 'number' && Number.isInteger(value);
   if (definition.type === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (definition.type === 'string') return typeof value === 'string';
+  if (definition.type === 'message') return authoredMessageRefSchema.safeParse(value).success;
   return typeof value === 'string' && (definition.enumValues ?? []).includes(value);
 }
 
@@ -252,8 +269,13 @@ export function arePropertySchemasCompatible(
 }
 
 export function authoredRuntimeValuesEqual(
-  left: AuthoredRuntimeValue,
-  right: AuthoredRuntimeValue,
+  left: AuthoredPropertyValue,
+  right: AuthoredPropertyValue,
 ): boolean {
-  return Object.is(left, right);
+  if (Object.is(left, right)) return true;
+  return (
+    authoredMessageRefSchema.safeParse(left).success &&
+    authoredMessageRefSchema.safeParse(right).success &&
+    (left as AuthoredMessageRef).$message === (right as AuthoredMessageRef).$message
+  );
 }

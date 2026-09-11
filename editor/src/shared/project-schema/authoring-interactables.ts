@@ -6,7 +6,7 @@ import type { AuthoringProject, AuthoringRecordBase } from './authoring-project'
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
-import { authoredRuntimeValueSchema, ownerLocalPropertiesSchema } from './authoring-properties';
+import { authoredPropertyValueSchema, ownerLocalPropertiesSchema } from './authoring-properties';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -49,7 +49,7 @@ export const interactableFeatureOverrideSchema = strict({
   properties: z.array(
     strict({
       propertyId: entityIdSchema,
-      value: authoredRuntimeValueSchema,
+      value: authoredPropertyValueSchema,
     }),
   ),
 });

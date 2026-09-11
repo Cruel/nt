@@ -362,7 +362,8 @@ public:
             return core::Result<core::RuntimeValue, core::Diagnostics>::failure(
                 {error("editor_preview.focused_variable_missing",
                        "Admitted focused Variable is missing from deterministic query state")});
-        return core::Result<core::RuntimeValue, core::Diagnostics>::success(found->value);
+        return core::Result<core::RuntimeValue, core::Diagnostics>::success(std::visit(
+            [](const auto& value) -> core::RuntimeValue { return value; }, found->value));
     }
 
     core::Result<core::PropertyLookupResult, core::Diagnostics>
@@ -409,7 +410,9 @@ public:
         if (found->missing)
             return core::Result<core::PropertyLookupResult, core::Diagnostics>::success(
                 core::MissingPropertyValue{core::property_target(owner), property});
-        return core::Result<core::PropertyLookupResult, core::Diagnostics>::success(found->value);
+        return core::Result<core::PropertyLookupResult, core::Diagnostics>::success(
+            core::RuntimeValue{std::visit(
+                [](const auto& value) -> core::RuntimeValue { return value; }, found->value)});
     }
 
     core::Result<core::compiled::InteractableLocation, core::Diagnostics>

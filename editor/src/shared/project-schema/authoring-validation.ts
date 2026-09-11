@@ -37,7 +37,7 @@ import {
   arePropertySchemasCompatible,
   authoredRuntimeValuesEqual,
   isPropertyValueCompatible,
-  type AuthoredRuntimeValue,
+  type AuthoredPropertyValue,
   type PropertyOwnerKind,
   type TraitDefinition,
   type TraitProperty,
@@ -120,6 +120,20 @@ function validateLocalizationReferences(
           'error',
           `${path}/key`,
           `Named Message '${record.key}' does not exist.`,
+          'Localization',
+          'localization.message-reference.missing',
+        ),
+      );
+    if (
+      Object.keys(record).length === 1 &&
+      typeof record.$message === 'string' &&
+      !namedKeys.has(record.$message)
+    )
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${path}/$message`,
+          `Named Message '${record.$message}' does not exist.`,
           'Localization',
           'localization.message-reference.missing',
         ),
@@ -986,7 +1000,7 @@ function validateInteractableProperties(
     const local = new Map(
       (record.defaultProperties ?? []).map((property) => [property.id, property]),
     );
-    const traitDefaults = new Map<string, { traitId: string; value: AuthoredRuntimeValue }>();
+    const traitDefaults = new Map<string, { traitId: string; value: AuthoredPropertyValue }>();
     for (const traitId of effectiveTraits) {
       const trait = project.traits[traitId];
       if (!trait || !trait.ownerKinds.includes('interactable')) continue;
@@ -1332,7 +1346,7 @@ function validateInteractableProperties(
 
     const effectiveTraitIds = effectiveInteractableInstanceTraits(project, instance);
     const seen = new Map<string, TraitProperty>();
-    const defaults = new Map<string, { traitId: string; value: AuthoredRuntimeValue }>();
+    const defaults = new Map<string, { traitId: string; value: AuthoredPropertyValue }>();
     for (const traitId of effectiveTraitIds) {
       const trait = project.traits[traitId];
       if (!trait) continue;
