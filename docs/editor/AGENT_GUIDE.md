@@ -147,7 +147,11 @@ default, and suspended while inactive. See `docs/editor/workbench/PERSISTENT_EDI
 
 ### Localization
 
-Stable user-facing strings should use i18n resources under `editor/src/renderer/i18n/locales/`. Keep `en-US` as the source locale and keep other maintained locales key-compatible. Fast-moving experimental text may stay inline only while the UI is still unstable.
+Stable user-facing editor strings should use i18n resources under `editor/src/renderer/i18n/locales/`. Keep `en-US` as the editor source locale and keep other maintained editor locales key-compatible. Fast-moving experimental text may stay inline only while the UI is still unstable.
+
+Game Project localization is a separate authoring/runtime subsystem. A target locale may declare one explicit authoring parent; target storage stays sparse and resolves the nearest whole-Message parent target for authoring status and preview. Inherited targets are read-only in the Localization workspace until the author creates a whole-Message override. `Use source intentionally` is persisted target intent and counts as an effective target rather than Missing; it may itself be inherited. Do not treat ordinary runtime source fallback as localization completeness.
+
+Compilation flattens explicit authoring inheritance into each locale catalog. Runtime locale negotiation must not consult `parentLocale`: it selects an exact Supported locale, then an available less-specific Supported locale, and finally falls back to packaged Project source content for an unresolved Message. This keeps BCP 47-style runtime matching independent from author-defined translation inheritance.
 
 ### UI Components
 

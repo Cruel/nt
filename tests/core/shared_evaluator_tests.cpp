@@ -201,7 +201,7 @@ TEST_CASE("shared text resolution handles inline locale fallback and script boun
     CHECK(evaluator.resolve(InlineText{"Direct"}, "de").value() == "Direct");
     CHECK(evaluator.resolve(MessageRef{0}, "de").value() == "Hallo");
     CHECK(evaluator.resolve(MessageRef{1}, "de").value() == "Default");
-    CHECK(evaluator.resolve(MessageRef{2}, "de").value() == "Secours");
+    CHECK(evaluator.resolve(MessageRef{2}, "de").value() == "Fallback");
     auto missing = evaluator.resolve(MessageRef{99}, "de");
     REQUIRE_FALSE(missing);
     CHECK(missing.error().front().code == "execution.missing_message");
@@ -210,24 +210,39 @@ TEST_CASE("shared text resolution handles inline locale fallback and script boun
     CHECK(script.error().front().code == "execution.lua_text_requires_script_runtime");
 }
 
-TEST_CASE("Message realization follows valid locale chains longer than thirty-two hops")
+TEST_CASE("Message realization negotiates supported locale tags independently of authoring parents")
 {
     compiled::Localization localization;
     localization.source_locale = "en";
-    localization.default_locale = "locale-39";
-    localization.locales.push_back({"en", std::nullopt, true});
-    for (int index = 0; index < 40; ++index) {
-        const auto locale = "locale-" + std::to_string(index);
-        const auto parent = index == 0 ? std::string{"en"} : "locale-" + std::to_string(index - 1);
-        localization.locales.push_back({locale, parent, true});
-    }
-    localization.catalogs.push_back({"en", {{0, "Source"}}});
+    localization.default_locale = "fr";
+    localization.locales = {
+        {"en", std::nullopt, true},         {"de", std::nullopt, true},
+        {"fr", std::nullopt, true},         {"fr-CA", std::string{"de"}, false},
+        {"fr-FR", std::string{"de"}, true},
+    };
+    localization.catalogs = {
+        {"en", {{0, "Source"}, {1, "Source only"}}},
+        {"de", {{0, "Deutsch"}}},
+        {"fr", {{0, "Français"}}},
+        {"fr-FR", {{0, "Français (France)"}}},
+    };
 
     const MessageRealizer realizer(localization);
-    const auto resolved = realizer.realize({0, "locale-39"});
-    REQUIRE(resolved);
-    CHECK(resolved->text == "Source");
-    CHECK(resolved->locale == "en");
+
+    const auto exact = realizer.realize({0, "fr-FR"});
+    REQUIRE(exact);
+    CHECK(exact->text == "Français (France)");
+    CHECK(exact->locale == "fr-FR");
+
+    const auto less_specific = realizer.realize({0, "fr-CA"});
+    REQUIRE(less_specific);
+    CHECK(less_specific->text == "Français");
+    CHECK(less_specific->locale == "fr");
+
+    const auto source = realizer.realize({1, "fr-CA"});
+    REQUIRE(source);
+    CHECK(source->text == "Source only");
+    CHECK(source->locale == "en");
 }
 
 TEST_CASE("Message realization validates typed arguments and formats values for the active locale")

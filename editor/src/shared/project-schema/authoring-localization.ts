@@ -225,6 +225,7 @@ export const localizationTranslationRecordSchema = z
     model: z.string().min(1).optional(),
     acknowledgedPresentationFingerprint: localizationWorkflowFingerprintSchema.optional(),
     acknowledgedGuidanceFingerprint: localizationWorkflowFingerprintSchema.optional(),
+    useSource: z.literal(true).optional(),
   })
   .strict();
 

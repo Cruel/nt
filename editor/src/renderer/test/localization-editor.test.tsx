@@ -146,6 +146,71 @@ describe('LocalizationEditor', () => {
     expect(afterClear.localization.translations.es?.[messageId]).toBeUndefined();
   });
 
+  it('shows inherited targets read-only and supports whole-Message override and intentional source reuse', async () => {
+    const user = userEvent.setup();
+    const project = loadProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f021';
+    project.localization.locales.fr = { supported: true, parentLocale: null };
+    project.localization.locales['fr-CA'] = { supported: true, parentLocale: 'fr' };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.confirm',
+      source: 'Confirm',
+    };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Confirmer', 'human', {
+        review: 'reviewed',
+      }),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('combobox', { name: 'Target locale' }));
+    await user.click(await screen.findByRole('option', { name: /fr-CA/ }));
+
+    const inherited = screen.getByLabelText('Target content for ui.confirm');
+    expect(inherited).toHaveValue('Confirmer');
+    expect(inherited).toBeDisabled();
+    expect(screen.getByText(/inherited from fr/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Override inherited target' }));
+    const overridden = screen.getByLabelText('Target content for ui.confirm');
+    expect(overridden).toBeEnabled();
+    expect(overridden).toHaveValue('Confirmer');
+    expect(useProjectStore.getState().document).toMatchObject({
+      localization: {
+        translations: {
+          'fr-CA': { [messageId]: { text: 'Confirmer', origin: 'human' } },
+        },
+      },
+    });
+
+    const messageSection = overridden.closest('section');
+    expect(messageSection).not.toBeNull();
+    await user.click(
+      within(messageSection!).getByRole('button', { name: 'Use source intentionally' }),
+    );
+    const sourceTarget = screen.getByLabelText('Target content for ui.confirm');
+    expect(sourceTarget).toHaveValue('Confirm');
+    expect(sourceTarget).toBeDisabled();
+    expect(
+      within(messageSection!).getByText(/Current · Use source intentionally/i),
+    ).toBeInTheDocument();
+    expect(useProjectStore.getState().document).toMatchObject({
+      localization: {
+        translations: {
+          'fr-CA': { [messageId]: { useSource: true } },
+        },
+      },
+    });
+  });
+
   it('preserves AI provenance through review but human edits reset origin without auto-reviewing', async () => {
     const user = userEvent.setup();
     const project = loadProject();

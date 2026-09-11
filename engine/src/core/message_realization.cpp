@@ -24,15 +24,24 @@ const compiled::LocalizationEntry* find_message(const compiled::Localization& lo
     return entry == catalog->entries.end() ? nullptr : &*entry;
 }
 
-std::optional<std::string_view> parent_locale(const compiled::Localization& localization,
-                                              std::string_view locale) noexcept
+std::optional<std::string_view> supported_locale(const compiled::Localization& localization,
+                                                 std::string_view requested) noexcept
 {
-    const auto definition = std::find_if(
-        localization.locales.begin(), localization.locales.end(),
-        [locale](const compiled::LocaleDefinition& value) { return value.locale == locale; });
-    if (definition == localization.locales.end() || !definition->parent_locale)
-        return std::nullopt;
-    return std::string_view{*definition->parent_locale};
+    auto candidate = requested;
+    while (!candidate.empty()) {
+        const auto definition =
+            std::find_if(localization.locales.begin(), localization.locales.end(),
+                         [candidate](const compiled::LocaleDefinition& value) {
+                             return value.locale == candidate && value.supported;
+                         });
+        if (definition != localization.locales.end())
+            return std::string_view{definition->locale};
+        const auto separator = candidate.rfind('-');
+        if (separator == std::string_view::npos)
+            break;
+        candidate = candidate.substr(0, separator);
+    }
+    return std::nullopt;
 }
 
 bool language_is(std::string_view locale, std::string_view language) noexcept
@@ -399,21 +408,26 @@ MessageRealizer::argument_definitions(MessageId message_id) const noexcept
 std::optional<RealizedMessage>
 MessageRealizer::realize(const MessageRealizationRequest& request) const
 {
-    auto locale =
+    const auto requested =
         request.locale.empty() ? std::string_view{m_localization.default_locale} : request.locale;
-    const auto maximum_hops = m_localization.locales.size() + 1;
-    for (std::size_t hops = 0; !locale.empty() && hops < maximum_hops; ++hops) {
-        if (const auto* entry = find_message(m_localization, locale, request.message_id)) {
-            auto text = entry->pattern ? realize_pattern(*entry, request.arguments, locale)
-                                       : interpolate(*entry, request.arguments, locale);
+    if (const auto negotiated = supported_locale(m_localization, requested)) {
+        if (const auto* entry = find_message(m_localization, *negotiated, request.message_id)) {
+            auto text = entry->pattern ? realize_pattern(*entry, request.arguments, *negotiated)
+                                       : interpolate(*entry, request.arguments, *negotiated);
             if (!text)
                 return std::nullopt;
-            return RealizedMessage{std::move(*text), locale};
+            return RealizedMessage{std::move(*text), *negotiated};
         }
-        if (locale == m_localization.source_locale)
+    }
+
+    if (const auto* source =
+            find_message(m_localization, m_localization.source_locale, request.message_id)) {
+        auto text = source->pattern
+                        ? realize_pattern(*source, request.arguments, m_localization.source_locale)
+                        : interpolate(*source, request.arguments, m_localization.source_locale);
+        if (!text)
             return std::nullopt;
-        const auto parent = parent_locale(m_localization, locale);
-        locale = parent ? *parent : std::string_view{m_localization.source_locale};
+        return RealizedMessage{std::move(*text), m_localization.source_locale};
     }
     return std::nullopt;
 }

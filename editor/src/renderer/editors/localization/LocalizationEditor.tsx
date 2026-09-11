@@ -42,6 +42,8 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   createLocalizationTranslation,
+  createUseSourceLocalizationTarget,
+  effectiveLocalizationTarget,
   localizationMessageWorkflowViews,
   type LocalizationMessageWorkflowView,
 } from '../../../shared/authoring-localization-workflow';
@@ -478,6 +480,49 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       [{ op: 'replace', path: view.sourceEditPath, value }],
       originSaveUnitId,
     );
+  }
+
+  function setUseSource(view: MessageView) {
+    const locale = effectiveTargetLocale;
+    if (!locale) return;
+    const localeTranslations = localization.translations[locale];
+    const existing = localeTranslations?.[view.id];
+    const localePath = `/localization/translations/${escapeJsonPointerToken(locale)}`;
+    const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
+    const target = createUseSourceLocalizationTarget(view);
+    if (!localeTranslations) {
+      run(`Use source for ${locale} Message`, [
+        { op: 'add', path: localePath, value: { [view.id]: target } },
+      ]);
+      return;
+    }
+    run(`Use source for ${locale} Message`, [
+      { op: existing === undefined ? 'add' : 'replace', path: messagePath, value: target },
+    ]);
+  }
+
+  function overrideInheritedTarget(view: MessageView) {
+    const locale = effectiveTargetLocale;
+    if (!locale) return;
+    const effective = effectiveLocalizationTarget(project!, locale, view.id);
+    if (!effective.inherited || !effective.target) return;
+    if (effective.target.useSource) {
+      setTranslation(view, view.source);
+      return;
+    }
+    const localeTranslations = localization.translations[locale];
+    const localePath = `/localization/translations/${escapeJsonPointerToken(locale)}`;
+    const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
+    const target = structuredClone(effective.target);
+    if (!localeTranslations) {
+      run(`Override inherited ${locale} translation`, [
+        { op: 'add', path: localePath, value: { [view.id]: target } },
+      ]);
+      return;
+    }
+    run(`Override inherited ${locale} translation`, [
+      { op: 'add', path: messagePath, value: target },
+    ]);
   }
 
   function setTranslation(view: MessageView, value: string) {
@@ -1371,12 +1416,23 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 {allMessages.map((view) => {
                   const { id: messageId, message } = view;
                   const label = messageLabel(message, messageId);
-                  const translation =
+                  const localTranslation =
                     localization.translations[effectiveTargetLocale]?.[messageId] ?? null;
-                  const translated = translation?.text ?? '';
+                  const effective = effectiveLocalizationTarget(
+                    project,
+                    effectiveTargetLocale,
+                    messageId,
+                  );
+                  const translation = effective.target;
+                  const translated = translation
+                    ? translation.useSource
+                      ? view.source
+                      : translation.text
+                    : '';
                   const freshness = !translation
                     ? 'Missing'
-                    : translation.sourceFingerprint === view.sourceFingerprint
+                    : translation.useSource ||
+                        translation.sourceFingerprint === view.sourceFingerprint
                       ? 'Current'
                       : 'Outdated';
                   const reuseCandidates =
@@ -1384,28 +1440,31 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       ? identicalSourceReuseCandidates(project, messageId)
                       : [];
                   const promotable = canPromoteLocalMessage(project, messageId);
-                  const attention = translation
-                    ? [
-                        translation.acknowledgedPresentationFingerprint !== undefined &&
-                        translation.acknowledgedPresentationFingerprint !==
-                          view.presentationFingerprint
-                          ? 'Presentation changed'
-                          : null,
-                        translation.acknowledgedGuidanceFingerprint !== undefined &&
-                        translation.acknowledgedGuidanceFingerprint !== view.guidanceFingerprint
-                          ? 'Guidance changed'
-                          : null,
-                      ].filter((value): value is string => value !== null)
-                    : [];
+                  const attention =
+                    translation && !translation.useSource
+                      ? [
+                          translation.acknowledgedPresentationFingerprint !== undefined &&
+                          translation.acknowledgedPresentationFingerprint !==
+                            view.presentationFingerprint
+                            ? 'Presentation changed'
+                            : null,
+                          translation.acknowledgedGuidanceFingerprint !== undefined &&
+                          translation.acknowledgedGuidanceFingerprint !== view.guidanceFingerprint
+                            ? 'Guidance changed'
+                            : null,
+                        ].filter((value): value is string => value !== null)
+                      : [];
                   return (
                     <section key={messageId} className="rounded border p-4">
                       <div className="mb-2 flex items-baseline justify-between gap-3">
                         <div className="font-medium">{label}</div>
                         <div className="text-right text-xs text-muted-foreground">
                           {freshness}
-                          {translation
-                            ? ` · ${originLabel(translation.origin)} · ${reviewLabel(translation.review)}`
-                            : ''}
+                          {translation?.useSource
+                            ? ` · Use source intentionally${effective.inherited && effective.locale ? ` · inherited from ${effective.locale}` : ''}`
+                            : translation
+                              ? ` · ${originLabel(translation.origin)} · ${reviewLabel(translation.review)}${effective.inherited && effective.locale ? ` · inherited from ${effective.locale}` : ''}`
+                              : ''}
                           {attention.length > 0 ? ` · ${attention.join(', ')}` : ''}
                         </div>
                       </div>
@@ -1557,37 +1616,70 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           <Input
                             id={`target-${messageId}`}
                             aria-label={`Target content for ${label}`}
-                            key={`${effectiveTargetLocale}:${messageId}:${translated}`}
+                            key={`${effectiveTargetLocale}:${messageId}:${translated}:${effective.locale ?? 'missing'}`}
                             defaultValue={translated}
                             placeholder="Missing"
+                            disabled={effective.inherited || translation?.useSource}
                             onBlur={(event) => setTranslation(view, event.currentTarget.value)}
                           />
-                          {translation && (
-                            <div className="flex gap-2 pt-1">
-                              {translation.sourceFingerprint !== view.sourceFingerprint && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => acceptTranslation(view)}
-                                >
-                                  Accept current source
-                                </Button>
-                              )}
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {effective.inherited && (
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                disabled={
-                                  translation.sourceFingerprint !== view.sourceFingerprint ||
-                                  translation.review === 'reviewed'
-                                }
-                                onClick={() => reviewTranslation(view)}
+                                onClick={() => overrideInheritedTarget(view)}
                               >
-                                Mark reviewed
+                                Override inherited target
                               </Button>
-                            </div>
-                          )}
+                            )}
+                            {!effective.inherited && !localTranslation?.useSource && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setUseSource(view)}
+                              >
+                                Use source intentionally
+                              </Button>
+                            )}
+                            {localTranslation?.useSource && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setTranslation(view, view.source)}
+                              >
+                                Translate instead
+                              </Button>
+                            )}
+                            {translation && !effective.inherited && !translation.useSource && (
+                              <>
+                                {translation.sourceFingerprint !== view.sourceFingerprint && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => acceptTranslation(view)}
+                                  >
+                                    Accept current source
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={
+                                    translation.sourceFingerprint !== view.sourceFingerprint ||
+                                    translation.review === 'reviewed'
+                                  }
+                                  onClick={() => reviewTranslation(view)}
+                                >
+                                  Mark reviewed
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </section>

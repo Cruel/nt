@@ -11,6 +11,11 @@ import {
   lowerSharedAuthoringProject,
 } from '../../shared/authoring-compiler-shared-lowering';
 import { projectFlowPredictionIndexForTooling } from '../../shared/flow-prediction-tooling';
+import {
+  createLocalizationTranslation,
+  createUseSourceLocalizationTarget,
+  localizationMessageWorkflowView,
+} from '../../shared/authoring-localization-workflow';
 import { lowerSceneAndRoomPrograms } from '../../shared/authoring-compiler-scene-room-lowering';
 import { lowerDialogueAndInteractionPrograms } from '../../shared/authoring-compiler-dialogue-interaction-lowering';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
@@ -234,6 +239,46 @@ describe('authoring compiler framework', () => {
     expect(entry?.pattern?.nodes.map((node) => node.kind)).toEqual(
       expect.arrayContaining(['plural', 'select', 'text']),
     );
+  });
+
+  it('flattens explicit locale inheritance into compiled catalogs while preserving use-source fallback', () => {
+    const project = validProject();
+    const messageId = '11111111-1111-4111-8111-111111111112';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.confirm',
+      source: 'Confirm',
+    };
+    project.localization.locales.fr = { supported: true, parentLocale: null };
+    project.localization.locales['fr-CA'] = { supported: true, parentLocale: 'fr' };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Confirmer', 'human', {
+        review: 'reviewed',
+      }),
+    };
+
+    const inherited = compileAuthoringProject(project);
+    expect(inherited.ok).toBe(true);
+    if (!inherited.ok) return;
+    const fr = inherited.project.localization.catalogs.find((catalog) => catalog.locale === 'fr');
+    const frCa = inherited.project.localization.catalogs.find(
+      (catalog) => catalog.locale === 'fr-CA',
+    );
+    expect(fr?.entries.map((entry) => entry.value)).toContain('Confirmer');
+    expect(frCa?.entries.map((entry) => entry.value)).toContain('Confirmer');
+
+    project.localization.translations['fr-CA'] = {
+      [messageId]: createUseSourceLocalizationTarget(view),
+    };
+    const useSource = compileAuthoringProject(project);
+    expect(useSource.ok).toBe(true);
+    if (!useSource.ok) return;
+    const sourceFallbackCatalog = useSource.project.localization.catalogs.find(
+      (catalog) => catalog.locale === 'fr-CA',
+    );
+    expect(sourceFallbackCatalog?.entries.map((entry) => entry.value)).not.toContain('Confirmer');
+    expect(sourceFallbackCatalog?.entries.map((entry) => entry.value)).not.toContain('Confirm');
   });
 
   it('requires target plural categories for the target locale', () => {
